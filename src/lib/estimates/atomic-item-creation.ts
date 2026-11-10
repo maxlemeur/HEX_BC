@@ -37,7 +37,7 @@ export async function persistAtomicEstimateItem(input: {
   expectedUpdatedAt: string;
   draftLockSessionId: string;
   item: AtomicEstimateItemInsert;
-}): Promise<{ item: ItemRow; version: { id: string; updated_at: string } }> {
+}): Promise<{ item: ItemRow; version: { id: string; updated_at: string; content_revision?: number } }> {
   const { supabase, tenantId, versionId } = input;
   const { data: version, error: versionError } = await supabase
     .from("estimate_versions")
@@ -155,7 +155,7 @@ export async function persistAtomicEstimateItem(input: {
 }
 
 function readAtomicCreationResponse(data: unknown, itemId: string, versionId: string) {
-  const saved = data as { item?: ItemRow; version?: { id: string; updated_at: string } } | null;
+  const saved = data as { item?: ItemRow; version?: { id: string; updated_at: string; content_revision?: number } } | null;
   if (saved?.item?.id !== itemId || saved.version?.id !== versionId || !saved.version.updated_at) {
     throw internalError("Réponse de création du devis invalide.");
   }
@@ -180,7 +180,7 @@ function throwAtomicCreationError(error: { code: string; message: string }): nev
 async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomicEstimateItem>[0] & {
   version: Parameters<typeof calculateEstimateV3SnapshotForItems>[0]["version"] & { id: string };
   lines: EstimateItemRecord[];
-}): Promise<{ item: ItemRow; version: { id: string; updated_at: string } }> {
+}): Promise<{ item: ItemRow; version: { id: string; updated_at: string; content_revision?: number } }> {
   const { supabase, tenantId, versionId, version } = input;
   let item: AtomicEstimateItemInsert = normalizeV3ItemWrite(input.item, input.item.item_type);
   const lines = [...input.lines];

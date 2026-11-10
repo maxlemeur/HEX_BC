@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/layout/empty-state";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { AffaireConfirmDialog } from "@/components/affaires/AffaireConfirmDialog";
+import { BRIEF_REVIEW_LABELS, BriefReviewPanel, BriefSourceAnnotation } from "@/components/affaires/BriefReviewPanel";
 import { useToast } from "@/components/feedback/toast-provider";
 import type {
   AffaireIntakeBriefBlockKey,
@@ -13,7 +15,6 @@ import type {
   AffaireIntakeBriefSource,
 } from "@/lib/affaires/intake";
 import {
-  AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS,
   normalizeAffaireIntakeTextList,
 } from "@/lib/affaires/intake";
 import {
@@ -25,7 +26,9 @@ import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
-import { FileIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { ArrowRightIcon, FileIcon, InfoIcon, SquarePenIcon, XIcon } from "lucide-react";
+
+import "./BriefDraftCard.css";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -37,6 +40,8 @@ type BriefDraftCardProps = {
   isReadOnly?: boolean;
   hideConfirmAction?: boolean;
   hasPlans?: boolean;
+  onOpenDocuments?: () => void;
+  onBackToDossier?: () => void;
 };
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
@@ -55,11 +60,8 @@ const EDITABLE_BLOCKS = new Set<AffaireIntakeBriefBlockKey>([
 const MAX_LIST_ITEMS = 12;
 const MAX_SUMMARY_LENGTH = 900;
 const MAX_EDITABLE_LIST_ITEM_LENGTH = 280;
-const INTAKE_DOCUMENT_PARAM = "intakeDocument";
-const BRIEF_BLOCK_PARAM = "briefBlock";
-const BRIEF_ENTRY_PARAM = "briefEntry";
-
 const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
+  "summary",
   "project_object",
   "scope",
   "lots",
@@ -67,7 +69,6 @@ const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
   "assumptions",
   "vigilance_points",
   "missing_elements",
-  "summary",
 ];
 
 const PROVENANCE_LABELS: Partial<Record<AffaireIntakeBriefBlockKey, { label: string; variant: BadgeVariant }>> = {
@@ -146,62 +147,6 @@ function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  BriefSourceAnnotation                                              */
-/* ------------------------------------------------------------------ */
-
-function buildBriefSourceHref(
-  projectId: string,
-  source: Pick<AffaireIntakeBriefSource, "sourceDocumentId" | "blockKey" | "entryIndex">
-) {
-  const params = new URLSearchParams({
-    [INTAKE_DOCUMENT_PARAM]: source.sourceDocumentId,
-    [BRIEF_BLOCK_PARAM]: source.blockKey,
-    [BRIEF_ENTRY_PARAM]: String(source.entryIndex),
-  });
-  return `/dashboard/affaires/${projectId}?${params.toString()}#intake`;
-}
-
-function BriefSourceAnnotation({
-  projectId,
-  sources,
-}: {
-  projectId: string;
-  sources: AffaireIntakeBriefSource[];
-}) {
-  if (sources.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Inférence / sans preuve directe
-      </p>
-    );
-  }
-  const uniqueSources = Array.from(
-    new Map(
-      sources.map((source) => [
-        `${source.sourceDocumentId}:${source.sourceFileName}`,
-        source,
-      ])
-    ).values()
-  );
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-subtle-foreground">
-      <FileIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
-      {uniqueSources.map((source) => (
-        <a
-          key={`${source.sourceDocumentId}:${source.sourceFileName}`}
-          href={buildBriefSourceHref(projectId, source)}
-          className="inline-flex items-center rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-micro font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/6 hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
-          title={`Ouvrir ${source.sourceFileName} dans le dossier ; passage non vérifié`}
-        >
-          Document associé · {source.sourceFileName}
-        </a>
-      ))}
-      <span>Passage non vérifié</span>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  BriefEditableList                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -209,10 +154,12 @@ function BriefEditableList({
   items,
   onChange,
   maxItems,
+  label,
 }: {
   items: string[];
   onChange: (next: string[]) => void;
   maxItems: number;
+  label: string;
 }) {
   const handleChange = useCallback(
     (index: number, value: string) => {
@@ -240,17 +187,19 @@ function BriefEditableList({
     <div className="space-y-1.5">
       {items.map((item, i) => (
         <div key={i} className="flex items-center gap-2">
-          <input
-            type="text"
+          <textarea
+            aria-label={`${label} ${i + 1}`}
+            rows={2}
+            maxLength={MAX_EDITABLE_LIST_ITEM_LENGTH}
             value={item}
             onChange={(e) => handleChange(i, e.target.value)}
-            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="brief-edit-field flex-1"
           />
           <button
             type="button"
             onClick={() => handleRemove(i)}
             aria-label={`Supprimer: ${item}`}
-            className="shrink-0 rounded-md p-1 text-subtle-foreground hover:bg-warning/10 hover:text-danger"
+            className="brief-remove-entry shrink-0 rounded-md text-subtle-foreground hover:bg-warning/10 hover:text-danger"
           >
             <XIcon className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -260,6 +209,7 @@ function BriefEditableList({
         <button
           type="button"
           onClick={handleAdd}
+          aria-label={`Ajouter : ${label}`}
           className="text-xs font-medium text-primary hover:underline"
         >
           + Ajouter
@@ -302,7 +252,7 @@ function BriefBlockSection({
   resolvedPlanGapIndexes?: number[];
   onResolvePlanGap?: (index: number) => void;
 }) {
-  const label = AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS[blockKey];
+  const label = BRIEF_REVIEW_LABELS[blockKey];
   const isEditable = EDITABLE_BLOCKS.has(blockKey);
   const provenance = PROVENANCE_LABELS[blockKey];
   const paragraphSources = sourceLookup.get(`${blockKey}:0`) ?? [];
@@ -325,10 +275,11 @@ function BriefBlockSection({
       {isEditing && isEditable && editParagraph !== undefined && onEditParagraphChange ? (
         <div>
           <textarea
+            aria-label={label}
             value={editParagraph}
             onChange={(e) => onEditParagraphChange(e.target.value.slice(0, MAX_SUMMARY_LENGTH))}
             rows={4}
-            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="brief-edit-field"
           />
           <p className="mt-0.5 text-right text-xs text-subtle-foreground">
             {editParagraph.length}/{MAX_SUMMARY_LENGTH}
@@ -336,7 +287,7 @@ function BriefBlockSection({
         </div>
       ) : isEditing && isEditable && editItems !== undefined && onEditItemsChange ? (
         /* Editing mode for lists */
-        <BriefEditableList items={editItems} onChange={onEditItemsChange} maxItems={MAX_LIST_ITEMS} />
+        <BriefEditableList items={editItems} onChange={onEditItemsChange} maxItems={MAX_LIST_ITEMS} label={label} />
       ) : paragraph !== undefined ? (
         /* Read-only paragraph */
         <>
@@ -376,7 +327,7 @@ function BriefBlockSection({
             );
           })}
         </ul>
-      ) : items && items.length === 0 && !isEditing ? (
+      ) : items && items.length === 0 ? (
         <p className="text-sm italic text-subtle-foreground">Aucun élément détecté</p>
       ) : null}
     </div>
@@ -393,6 +344,8 @@ export function BriefDraftCard({
   isReadOnly,
   hideConfirmAction = false,
   hasPlans = false,
+  onOpenDocuments,
+  onBackToDossier,
 }: Readonly<BriefDraftCardProps>) {
   const router = useRouter();
   const toast = useToast();
@@ -401,6 +354,12 @@ export function BriefDraftCard({
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isEditing) sectionRef.current?.querySelector("textarea")?.focus();
+  }, [isEditing]);
 
   // Edit state
   const [editSummary, setEditSummary] = useState("");
@@ -419,7 +378,7 @@ export function BriefDraftCard({
         detail.surfaceId !== "brief-confirm" ||
         !briefDraft ||
         briefDraft.status !== "a_confirmer" ||
-        isReadOnly
+        isReadOnly || isEditing
       ) {
         return;
       }
@@ -431,7 +390,7 @@ export function BriefDraftCard({
     document.addEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
     return () =>
       document.removeEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
-  }, [briefDraft, isReadOnly, projectId]);
+  }, [briefDraft, isReadOnly, isEditing, projectId]);
 
   const handleStartEdit = useCallback(() => {
     if (!briefDraft) return;
@@ -440,12 +399,14 @@ export function BriefDraftCard({
     setEditVigilancePoints([...briefDraft.vigilancePoints]);
     setEditAssumptions([...briefDraft.assumptions]);
     setError(null);
+    setShowConfirmDialog(false);
     setIsEditing(true);
   }, [briefDraft]);
 
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false);
     setError(null);
+    requestAnimationFrame(() => editButtonRef.current?.focus());
   }, []);
 
   const handleSave = useCallback(() => {
@@ -591,114 +552,28 @@ export function BriefDraftCard({
     : null;
   const isConfirmedBrief = briefDraft?.status === "confirme";
   const requiresConfirmation = briefDraft?.status === "a_confirmer";
-  const showConfirmationBanner =
-    requiresConfirmation && !isReadOnly && !hideConfirmAction;
-
   return (
-    <section className="rounded-lg border border-border bg-surface shadow-card p-5" aria-label="Brief affaire">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-foreground">Brief affaire</h2>
+    <section ref={sectionRef} className="brief-review" aria-label="Brief affaire">
+      <header className="brief-review-header">
+        <div className="brief-review-heading">
+          <h2>{isEditing ? "Modifier le brief" : "Revoir le brief"}</h2>
           {briefDraft && <BriefStatusBadge status={briefDraft.status} />}
           {generationDate && (
-            <span className="text-xs text-subtle-foreground">{generationDate}</span>
+            <p className="brief-generation-date">Généré le {generationDate}</p>
           )}
         </div>
-        {briefDraft && !isReadOnly && (
-          <div className="flex items-center gap-2">
-            {!isEditing && (
-              <button
-                type="button"
-                onClick={handleStartEdit}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
-              >
-                Modifier
-              </button>
-            )}
-            {!isEditing && briefDraft.status === "a_confirmer" && !hideConfirmAction && (
-              <Button
-                size="sm"
-                onClick={() => setShowConfirmDialog(true)}
-                loading={isPending}
-              >
-                Confirmer le brief
-              </Button>
-            )}
-          </div>
+        {briefDraft && !isReadOnly && !isEditing && (
+          <Button ref={editButtonRef} variant="outline" onClick={handleStartEdit} disabled={isPending}>
+            <SquarePenIcon size={17} aria-hidden="true" />Modifier le brief
+          </Button>
         )}
-      </div>
-
-      {briefDraft && !isEditing && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Les liens ouvrent les documents associés, sans attester un passage précis.
-          Confirmer le brief ne transforme pas une inférence en preuve.
-        </p>
-      )}
+      </header>
 
       {briefDraft && isConfirmedBrief && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-success-border bg-success-subtle px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">
-              Brief de référence
-            </p>
-            {confirmationDate ? (
-              <Badge variant="success">
-                Confirmé le {confirmationDate}
-              </Badge>
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Ce cadrage sert de base commune pour la suite du chiffrage. Si le dossier
-            a changé, modifiez le brief pour relancer une validation.
-          </p>
-        </div>
-      )}
-
-      {briefDraft && showConfirmationBanner && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-info-border bg-info-subtle px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">
-            Validation du brief requise
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Confirmez ce cadrage avant de poursuivre le chiffrage. Tant qu&apos;il reste
-            à valider, la suite doit être relue.
-          </p>
-        </div>
-      )}
-
-      {/* Executive summary banner */}
-      {briefDraft && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-surface-subtle px-4 py-2.5 text-sm">
-          <span className="font-medium text-foreground-secondary">{briefDraft.receivedPieces.length} pièces</span>
-          <span className="font-medium text-foreground-secondary">{briefDraft.assumptions.length} hypothèses</span>
-          <span className="font-medium text-foreground-secondary">{briefDraft.vigilancePoints.length} vigilance</span>
-          {unresolvedMissingCount > 0 ? (
-            <span className="font-medium text-danger">{unresolvedMissingCount} manquant(s)</span>
-          ) : (
-            <span className="font-medium text-success">Dossier complet</span>
-          )}
-        </div>
-      )}
-
-      {/* Confirmation dialog */}
-      {showConfirmDialog && briefDraft && (
-        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-          <p className="text-sm font-medium text-foreground">Confirmer ce brief ?</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Il deviendra la référence de travail pour la suite du chiffrage.
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {unresolvedMissingCount} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <Button size="sm" onClick={() => { setShowConfirmDialog(false); handleConfirm(); }} loading={isPending}>
-              Oui, confirmer
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowConfirmDialog(false)} disabled={isPending}>
-              Annuler
-            </Button>
-          </div>
+        <div className="brief-reference-status">
+          <strong>Brief de référence</strong>
+          {confirmationDate ? <span>Confirmé le {confirmationDate}</span> : null}
+          <span>Une modification nécessitera une nouvelle confirmation.</span>
         </div>
       )}
       {/* Empty state */}
@@ -714,8 +589,13 @@ export function BriefDraftCard({
       )}
 
       {/* Content blocks */}
-      {briefDraft && (
-        <div className="mt-4 space-y-5">
+      {briefDraft && !isEditing ? (
+        <BriefReviewPanel projectId={projectId} briefDraft={briefDraft} sourceLookup={sourceLookup}
+          hasPlans={hasPlans} onOpenDocuments={onOpenDocuments}
+          onResolvePlanGap={!isReadOnly && !isPending && briefDraft.updatedAt ? handleResolvePlanGap : undefined} />
+      ) : null}
+      {briefDraft && isEditing && (
+        <div className="brief-edit-body">
           {BLOCK_ORDER.map((blockKey) => {
             const blockData = getBlockData(blockKey);
             const editProps = isEditing ? getEditProps(blockKey) : {};
@@ -739,15 +619,15 @@ export function BriefDraftCard({
 
       {/* Edit footer */}
       {isEditing && (
-        <div className="sticky bottom-0 z-10 -mx-5 mt-4 space-y-2 border-t border-border bg-surface px-5 py-3">
+        <div className="brief-review-footer brief-edit-footer">
           {isConfirmedBrief && (
             <p className="text-xs text-muted-foreground">
               En enregistrant, ce brief repassera à valider pour sécuriser le cadrage mis à jour.
             </p>
           )}
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleSave} loading={isPending}>
-              {isConfirmedBrief ? "Enregistrer et revalider" : "Enregistrer"}
+            <Button onClick={handleSave} loading={isPending}>
+              Enregistrer
             </Button>
             <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isPending}>
               Annuler
@@ -755,6 +635,23 @@ export function BriefDraftCard({
           </div>
         </div>
       )}
+
+      {briefDraft && !isEditing ? <footer className="brief-review-footer">
+        <p className="brief-confirmation-note"><InfoIcon size={19} aria-hidden="true" /><span>La confirmation fixe le cadrage ; elle ne vérifie pas les preuves et ne résout pas les manques.</span></p>
+        <div className="brief-review-actions">
+          {onBackToDossier ? <button type="button" className="brief-text-action" onClick={onBackToDossier}>Retour au dossier</button> : null}
+          {requiresConfirmation && !isReadOnly && !hideConfirmAction ? <div className="brief-confirm-action">
+            <Button onClick={() => setShowConfirmDialog(true)} loading={isPending}>Confirmer le brief<ArrowRightIcon size={17} aria-hidden="true" /></Button>
+            <small>Une confirmation sera demandée.</small>
+          </div> : null}
+        </div>
+      </footer> : null}
+
+      <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
+        title="Confirmer ce brief ?"
+        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.`}
+        confirmLabel="Oui, confirmer" confirmDisabled={isPending} cancelDisabled={isPending}
+        onConfirm={() => { setShowConfirmDialog(false); handleConfirm(); }} onCancel={() => setShowConfirmDialog(false)} />
 
       {/* Inline error */}
       {error && (

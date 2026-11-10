@@ -80,6 +80,12 @@ export function mapApplyTakeoffRpcError(
     },
   };
 
+  if (normalized.includes("takeoff_alternative_sources_conflict")) {
+    return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message: "Deux lectures alternatives sont retenues pour la même quantité. Conservez une seule source par poste ou zone.",
+      details: { ...details, guard: "quantity_sources" }, retryable: false, jobId: input.jobId });
+  }
+
   if (normalized.includes("takeoff_dpgf_quantity_")) {
     const stale = normalized.includes("snapshot_stale");
     const merge = normalized.includes("merge_required");

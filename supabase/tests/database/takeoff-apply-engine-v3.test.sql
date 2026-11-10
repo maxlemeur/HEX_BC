@@ -321,13 +321,13 @@ select results_eq(
     where item.source_job_id = '8d000000-0000-4000-8000-000000000201'
     order by item.position$$,
   $$values
-    ('M2 Tube cuivre 22'::text, 'ml'::text, 'ml'::text, 'priced'::text, 12.5::numeric, 0, 0::numeric, null::numeric,
+    ('M2 Tube cuivre 22'::text, 'ml'::text, 'ml'::text, 'priced'::text, 13::numeric, 0, 0::numeric, null::numeric,
      'takeoff'::text, 'PLB R+1 indice B.pdf'::text, 3, '8d000000-0000-4000-8000-000000000301'::text),
     ('M2 Coude cuivre', 'u', 'u', 'priced', 4::numeric, 250, 0::numeric, null::numeric,
      'takeoff', 'PLB R+1 indice B.pdf', 3, '8d000000-0000-4000-8000-000000000302'),
     ('M2 Robinetterie existante', 'PM', null, 'for_memory', 1::numeric, 0, 0::numeric, null::numeric,
      'takeoff', 'PLB R+1 indice B.pdf', 4, '8d000000-0000-4000-8000-000000000303')$$,
-  'the included items become v3 lines in source order: unit code or status from the shared referential, exact quantity, mapping price, no hours, provenance and takeoff item on the line'
+  'the included items become v3 lines in source order: unit code or status from the shared referential, commercial length rounded once, mapping price, no hours, provenance and takeoff item on the line'
 );
 
 select ok(

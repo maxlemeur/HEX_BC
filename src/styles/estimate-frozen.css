@@ -1163,22 +1163,9 @@
   border-bottom-color: transparent;
 }
 
+/* La cellule active, la cellule en saisie et la plage : voir « Grille façon tableur » en fin de fichier. */
 .estimate-cell--focusable {
   position: relative;
-  transition: background-color 0.15s ease, outline-color 0.15s ease;
-}
-
-.estimate-cell--focusable:focus-visible,
-.estimate-cell--active {
-  outline: 2px solid rgba(30, 58, 95, 0.45);
-  outline-offset: -2px;
-  background: rgba(30, 58, 95, 0.05);
-}
-
-.estimate-cell--editing {
-  outline: 2px solid rgba(232, 115, 47, 0.55);
-  outline-offset: -2px;
-  background: rgba(232, 115, 47, 0.08);
 }
 
 .estimate-cell--designation {
@@ -1197,23 +1184,6 @@
 .estimate-row--section .estimate-cell--designation:has(.estimate-section-quick-actions__menu) {
   z-index: 20;
   overflow: visible;
-}
-
-.estimate-row .estimate-cell--designation.estimate-cell--focusable:focus-visible,
-.estimate-row .estimate-cell--designation.estimate-cell--active {
-  background: linear-gradient(
-      rgba(30, 58, 95, 0.05),
-      rgba(30, 58, 95, 0.05)
-    ),
-    var(--row-bg);
-}
-
-.estimate-row .estimate-cell--designation.estimate-cell--editing {
-  background: linear-gradient(
-      rgba(232, 115, 47, 0.08),
-      rgba(232, 115, 47, 0.08)
-    ),
-    var(--row-bg);
 }
 
 .estimate-row--section .estimate-cell--designation::after {
@@ -2897,4 +2867,129 @@
   background-color: rgba(220, 38, 38, 0.08);
   color: var(--red-700, #b91c1c);
   font-weight: 600;
+}
+
+/* ========================================
+   Grille façon tableur
+   Une seule cellule active, cerclée d'un trait plein ; la plage est teintée et bordée ;
+   la cellule en saisie redevient blanche. La couleur de fond reste celle de l'état
+   (obligatoire vide, écart, groupe de colonnes) : la sélection ne la remplace pas.
+   Hors de tout @layer, comme le reste du fichier.
+   ======================================== */
+.estimate-table {
+  --grid-selection: #1e3a5f;
+  font-variant-numeric: tabular-nums;
+}
+
+.estimate-table .estimate-input {
+  font-variant-numeric: inherit;
+}
+
+/* Chiffres à droite, en-tête compris : les unités s'alignent d'une ligne à l'autre. */
+.estimate-cell--number {
+  justify-content: flex-end;
+}
+
+.estimate-cell--number .editable-cell__display,
+.estimate-cell--number .estimate-input {
+  text-align: right;
+  justify-content: flex-end;
+}
+
+.estimate-table__head > .estimate-head--number {
+  padding-right: calc(var(--density-cell-px) + 4px);
+  text-align: right;
+}
+
+/* Cellules calculées : fond grisé dans les groupes de saisie, curseur neutre. */
+.estimate-cell--readonly,
+.estimate-cell--readonly .estimate-input {
+  cursor: default;
+}
+
+.estimate-cell--readonly.estimate-col--fo,
+.estimate-cell--readonly.estimate-col--mo {
+  background-image: linear-gradient(rgba(100, 116, 139, 0.12), rgba(100, 116, 139, 0.12));
+  color: var(--slate-600);
+}
+
+/* Cellules de saisie : le curseur « cellule » du tableur, le curseur de texte une fois en saisie. */
+.estimate-cell--focusable:not(.estimate-cell--readonly),
+.estimate-cell--focusable:not(.estimate-cell--readonly) .estimate-input:not(:focus) {
+  cursor: cell;
+}
+
+/* Plage : teinte par-dessus la couleur de la cellule, bord extérieur d'un trait. */
+.estimate-table .estimate-cell.estimate-cell--selected {
+  background-image: linear-gradient(rgba(30, 58, 95, 0.13), rgba(30, 58, 95, 0.13));
+  box-shadow:
+    inset 0 var(--range-t, 0px) 0 0 var(--grid-selection),
+    inset calc(-1 * var(--range-r, 0px)) 0 0 0 var(--grid-selection),
+    inset 0 calc(-1 * var(--range-b, 0px)) 0 0 var(--grid-selection),
+    inset var(--range-l, 0px) 0 0 0 var(--grid-selection);
+}
+
+.estimate-cell--range-top {
+  --range-t: 1px;
+}
+
+.estimate-cell--range-right {
+  --range-r: 1px;
+}
+
+.estimate-cell--range-bottom {
+  --range-b: 1px;
+}
+
+.estimate-cell--range-left {
+  --range-l: 1px;
+}
+
+/* Cellule active : trait plein, sans fondu, et sans teinte au sein de la plage. */
+.estimate-cell--focusable:focus-visible,
+.estimate-cell--active,
+.estimate-cell--editing {
+  outline: 2px solid var(--grid-selection);
+  outline-offset: -2px;
+}
+
+.estimate-table .estimate-cell.estimate-cell--selected.estimate-cell--active {
+  background-image: none;
+}
+
+/* Cellule en saisie : fond blanc, comme la cellule qu'on édite dans un tableur. */
+.estimate-table .estimate-cell.estimate-cell--editing {
+  background: white;
+}
+
+.estimate-cell--editing .estimate-input:focus {
+  background: transparent;
+}
+
+/* h MO : la saisie et son total Σ tiennent dans la hauteur d'une ligne. */
+.estimate-hours-stack .estimate-input {
+  height: 17px;
+}
+
+.estimate-hours-stack__sum {
+  font-size: 10px;
+  line-height: 12px;
+}
+
+/* Unité : le code (« ml ») au repos, le libellé complet dans le champ dès qu'il a le focus. */
+.estimate-cell--unit-coded .estimate-input:not(:focus) {
+  color: transparent;
+}
+
+.estimate-unit-code {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 calc(var(--density-cell-px) + 4px);
+  pointer-events: none;
+}
+
+.estimate-input:focus + .estimate-unit-code {
+  display: none;
 }

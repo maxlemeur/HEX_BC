@@ -274,7 +274,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   const file = new File([bytes], "plan-fictif.pdf", { type: "application/pdf" });
   const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
     classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
   await ui.screen.getByRole("button", "Ouvrir les documents", { exact: true }).click();
   await ui.screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
   const details = ui.screen.getByRole("dialog", "Document et détails", { exact: true });

@@ -1,4 +1,5 @@
--- TI-680: real authenticated apply, preserved documentary source and engine amounts.
+-- TI-680/TI-681: real authenticated apply, preserved source and engine amounts.
+-- The 3040-vs-3000 cases exceed 1% without a mandatory review decision.
 -- Isolated SQL covers atomic rollback and both engines; the Army journey covers the screen and API.
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -50,8 +51,8 @@ begin
       insert into public.takeoff_jobs(id,tenant_id,estimate_version_id,level,status,source_file_name,created_by)
       values(j,current_setting('test.tenant_id')::uuid,v,'A','completed','plan-fictif.pdf','68000000-0000-4000-8000-000000000001');
       sources:='[]'; mapping:='[]';
-      for q in select unnest(case when n=1 then array[2980::numeric] when n=2 then array[3020::numeric]
-        else array[1500::numeric,1520::numeric] end) loop
+      for q in select unnest(case when n=1 then array[2980::numeric] when n=2 then array[3040::numeric]
+        else array[1500::numeric,1540::numeric] end) loop
         i:=gen_random_uuid();
         insert into public.takeoff_items(id,tenant_id,job_id,designation,quantity,unit,confidence,evidence,source_file_name,source_page,created_at)
         values(i,current_setting('test.tenant_id')::uuid,j,'EF cuivre DN 22',q,'ml',0.99,'Mesure fictive localisée','plan-fictif.pdf',1,
@@ -62,8 +63,8 @@ begin
           'rule_id',null,'action','none','designation','EF cuivre DN 22','unit_price_cents',null,'category_id',null,'assembly_id',null));
       end loop;
       policy:=jsonb_build_array(jsonb_build_object('target_id',t,'expected_updated_at',target_revision,
-        'reference_quantity',3000,'measured_quantity',case when n=1 then 2980 else 3020 end,
-        'priced_quantity',case when n=1 then 3000 else 3020 end,'absolute_gap',20,'reviewed',false,'source_file_name','dpgf-fictif.xlsx',
+        'reference_quantity',3000,'measured_quantity',case when n=1 then 2980 else 3040 end,
+        'priced_quantity',case when n=1 then 3000 else 3040 end,'absolute_gap',case when n=1 then 20 else 40 end,'reviewed',false,'source_file_name','dpgf-fictif.xlsx',
         'source_page',7,'source_metadata',jsonb_build_object('dpgf_source_quantity',3000,'dpgf_source_unit','ml','fixture','preserve'),
         'takeoff_items',sources));
       insert into public.takeoff_apply_authorizations(tenant_id,job_id,estimate_version_id,user_id,authorization_token_hash,
@@ -78,7 +79,7 @@ begin
         insert into public.takeoff_items(tenant_id,job_id,designation,quantity,unit,confidence,evidence,source_file_name,source_page)
         values(current_setting('test.tenant_id')::uuid,j,'EF cuivre DN 28',50,'ml',0.99,'Fictif','plan-fictif.pdf',1);
       end if;
-      insert into p680_cases values(e||'-'||n,v,s,t,j,mapping,case when n=1 then 3000 else 3020 end,j::text);
+      insert into p680_cases values(e||'-'||n,v,s,t,j,mapping,case when n=1 then 3000 else 3040 end,j::text);
     end loop;
   end loop;
 end;
@@ -117,7 +118,7 @@ select ok(item.source_provider='dpgf' and item.source_file_name='dpgf-fictif.xls
 select is((select count(*) from public.estimate_items item where item.version_id=fixture.version_id and item.item_type='line'),
   1::bigint,case_name||': multiple plan contributions do not duplicate the DPGF price line') from p680_success fixture;
 select is(item.source_metadata#>>'{takeoff_quantity_policy,measured_quantity}',
-  case when fixture.case_name like '%-1' then '2980' else '3020' end,case_name||': independent measurement survives')
+  case when fixture.case_name like '%-1' then '2980' else '3040' end,case_name||': independent measurement survives')
   from p680_success fixture join public.estimate_items item on item.id=fixture.target_id;
 select is(job.status::text,'completed',case_name||': refused stale apply rolls back the job state')
   from p680_cases fixture join public.takeoff_jobs job on job.id=fixture.job_id where case_name like '%-4';

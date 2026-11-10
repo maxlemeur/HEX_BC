@@ -43,6 +43,7 @@ export const takeoffPreparationSourceSchema = z.object({
 }).strict();
 
 const scopeSchema = z.object({
+  buildings: listSchema.optional(),
   lots: listSchema,
   networks: listSchema,
   levels: listSchema,
@@ -161,6 +162,7 @@ export function createEmptyTakeoffPreparation(input: {
     objective_confirmed: false,
     processing: { level: null, provider: "auto" },
     scope: {
+      buildings: [],
       lots: [], networks: [], levels: [], zones: [], inclusions: [], exclusions: [],
       confirmed: false,
     },

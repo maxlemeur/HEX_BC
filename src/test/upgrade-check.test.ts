@@ -10,7 +10,7 @@ import {
   type MigrationDigest,
 } from "@/test/upgrade-check";
 
-// Isolation exception (AGENTS.md, Testing Policy). The upgrade check applies
+// Isolation exception (AGENTS.md, Verification). The upgrade check applies
 // the baseline with `db reset`, loads the fixture, then applies the later
 // migrations and compares. A wrong split makes it pass without comparing the
 // migration that matters, and the WSL run cannot expose it in sub-lot 2.0,

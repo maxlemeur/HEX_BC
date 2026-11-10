@@ -4,6 +4,7 @@ import type {
   TakeoffMappingOverride,
   TakeoffPreviewConversionResponse,
 } from "@/lib/takeoff/client";
+import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -24,7 +25,8 @@ export type TakeoffApplyWizardSubmitPayload = {
   strategy: TakeoffApplyStrategy;
   overrides: TakeoffMappingOverride[];
   override?: boolean;
-  overrideJustification?: string;
+  /** TI-686 D10: each blocked line's coded reason, its justification stored once (with override). */
+  forced?: ForcedOverride;
 };
 
 export const ROOT_SECTION_VALUE = "__takeoff_root_section__";
@@ -259,5 +261,5 @@ export function confidenceColor(confidence: number | null): string {
 
 export function formatConfidencePercent(confidence: number | null): string {
   if (confidence === null) return "N/A";
-  return `${Math.round(confidence * 100)}%`;
+  return confidence >= 0.8 ? "Élevée" : confidence >= 0.5 ? "Moyenne" : "Faible";
 }

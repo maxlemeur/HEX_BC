@@ -11,8 +11,10 @@ import {
   type StoredEstimateV3Version,
 } from "@/lib/estimates/engine-v3";
 import { fixtureLineId, ORACLE_LINES, oracleItems, v3Line, v3Params } from "@/lib/estimates/engine-v3/oracle.fixtures";
+import { buildClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
+import { COMPANY_INFO } from "@/lib/company-info";
 
 // Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §11, F27-D01 à F27-D06).
 // Isolation justifiée (intégrité du document émis) : le parcours `engine-v3-emission` lit le texte
@@ -259,5 +261,40 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
       o4.snapshot_gross_ht_cents! += 1; o4.snapshot_gross_fo_ht_cents! += 1;
       input.version.gross_ht_cents! += 1; input.version.discount_applied_cents! += 1;
     });
+  });
+
+  // TI-686 D10/D12 (H9) : une ligne de métré forcée ou saisie sur hypothèse s'imprime comme une ligne chiffrée
+  // ordinaire. Son marqueur (source_metadata.takeoff_provision) reste interne : ni le document ni la copie commerciale
+  // 2 qui le scelle ne le portent, et rien de ce qui s'imprime ne change.
+  it("TI-686 imprime une provision de métré comme une ligne chiffrée ordinaire (document et contrat client 2)", () => {
+    const { input } = frozen({ discount_amount_cents: 101 });
+    const fromTakeoff = (marked: boolean): PrepareV3Input => ({ ...input, items: input.items.map((item) => item.item_type !== "line"
+      ? item
+      : { ...item, source_provider: "takeoff", source_metadata: { takeoff_item_id: item.id, ...(marked ? { takeoff_provision: {
+        version: 1, job_id: "c3000000-0000-4000-8000-000000000201",
+        sources: [{ takeoff_item_id: item.id, forced: item.id === fixtureLineId(1), forced_reason: null,
+          entry_category: item.id === fixtureLineId(1) ? null : "hypothesis" }],
+      } } : {}) } }) });
+    const printed = (source: PrepareV3Input) => {
+      const prepared = prepareV3(source);
+      return {
+        document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
+          sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
+        contract: buildClientContract2({
+          version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
+            contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
+            contractorRole: "principal", taxRateBp: 2000 },
+          project: { name: "ARMY v3 project", reference: null, estimateReference: null, clientName: null, siteAddress: null },
+          issuer: { userId: "11111111-1111-4111-8111-111111111111", displayName: "ARMY actor", displayRole: null, phone: null,
+            email: null },
+          company: COMPANY_INFO, sourceRows: source.items, prepared, exclusions: null,
+        }),
+      };
+    };
+    const ordinary = printed(fromTakeoff(false));
+    const provisions = printed(fromTakeoff(true));
+    expect(provisions).toEqual(ordinary);
+    expect(provisions.contract.rows.filter((row) => row.kind === "line")).toHaveLength(8);
+    expect(JSON.stringify(provisions)).not.toMatch(/takeoff_provision|Provision interne|Hypothèse|forç|dérogation/);
   });
 });

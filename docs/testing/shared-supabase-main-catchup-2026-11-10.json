@@ -1,0 +1,3209 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-10",
+  "status": "partial-blocked",
+  "sourceCommits": [
+    "2d8223c2b3a62abd9c8dce9157feba7a906c3b51"
+  ],
+  "target": {
+    "projectId": "ijropnynpwjbllievrip",
+    "projectName": "bon_de_commande",
+    "environment": "shared Supabase, also production"
+  },
+  "authorization": "Owner request authorized missing origin/main migrations, including the twelve listed repository versions, with per-apply connector confirmation; exact file SQL, read-only checks, receipt committed and pushed directly to main. No deployment or flag activation.",
+  "migrations": [
+    {
+      "repositoryFile": "supabase/migrations/20261109174312_duplicate_dpgf_review_quantity_snapshot.sql",
+      "bytes": 1560,
+      "sha256": "dd2468145cb71e204c412a084375185ccd3e324f9f4ff89f76ab7653bd77d9ac",
+      "appliedVersion": "20261110113528",
+      "appliedName": "20261109174312_duplicate_dpgf_review_quantity_snapshot",
+      "appliedAtUtc": "2026-11-10T11:35:28Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 1560,
+      "storedStatementSha256": "dd2468145cb71e204c412a084375185ccd3e324f9f4ff89f76ab7653bd77d9ac",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "new_policy": 0,
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "new_columns": [],
+        "new_helpers": [],
+        "observed_at": "2026-11-10T11:34:56.102258+00:00",
+        "history_rows": 360,
+        "prerequisites": {
+          "quantity_snapshot": "jsonb",
+          "duplicate_function": "duplicate_estimate_version_without_product_id(uuid,boolean)"
+        },
+        "latest_version": "20261109101840",
+        "first_migration": {
+          "value_anchor_count": 1,
+          "column_anchor_count": 1
+        }
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261109183432_estimate_fo_price_origin.sql",
+      "bytes": 111092,
+      "sha256": "0408eb76622907eb672298472300b37f302999659cf4483768bff0d956256dec",
+      "appliedVersion": "20261110113716",
+      "appliedName": "20261109183432_estimate_fo_price_origin",
+      "appliedAtUtc": "2026-11-10T11:37:16Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 111092,
+      "storedStatementSha256": "0408eb76622907eb672298472300b37f302999659cf4483768bff0d956256dec",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:37:03.135225+00:00",
+        "object_checks": {
+          "index_absent": true,
+          "column_absent": true,
+          "helper_absent": true,
+          "constraint_absent": true
+        },
+        "history_missing": true
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261109192026_clear_detached_fo_price_origin.sql",
+      "bytes": 6673,
+      "sha256": "b4525d4551b55fc7531c0cb820b352e8a438eb744b104b625283eb5f04122252",
+      "appliedVersion": "20261110113837",
+      "appliedName": "20261109192026_clear_detached_fo_price_origin",
+      "appliedAtUtc": "2026-11-10T11:38:37Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 6673,
+      "storedStatementSha256": "b4525d4551b55fc7531c0cb820b352e8a438eb744b104b625283eb5f04122252",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:38:31.243277+00:00",
+        "object_checks": {
+          "origin_column_present": true,
+          "derive_function_present": true
+        },
+        "history_missing": true
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261109192610_intake_cad_originals.sql",
+      "bytes": 400,
+      "sha256": "e22a508a072a150775219c4abed1a04905970a6ddb667a7052b04e617575f5e9",
+      "appliedVersion": "20261110113857",
+      "appliedName": "20261109192610_intake_cad_originals",
+      "appliedAtUtc": "2026-11-10T11:38:57Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 400,
+      "storedStatementSha256": "e22a508a072a150775219c4abed1a04905970a6ddb667a7052b04e617575f5e9",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:38:49.878614+00:00",
+        "object_checks": {
+          "mime_absent": true,
+          "bucket_present": true,
+          "bucket_private": true
+        },
+        "history_missing": true
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261109205839_takeoff_targeted_quantity_review.sql",
+      "bytes": 31925,
+      "sha256": "21f0b3e0185edf4b91ed3e918043985f394872bf139bc1efff62f0f9238d6ef4",
+      "appliedVersion": "20261110113935",
+      "appliedName": "20261109205839_takeoff_targeted_quantity_review",
+      "appliedAtUtc": "2026-11-10T11:39:35Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 31925,
+      "storedStatementSha256": "21f0b3e0185edf4b91ed3e918043985f394872bf139bc1efff62f0f9238d6ef4",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:39:28.223148+00:00",
+        "object_checks": {
+          "guarded_apply_present": true,
+          "takeoff_tables_present": true
+        },
+        "history_missing": true
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261110025003_atomic_create_estimate_item_keeps_unchanged_projection.sql",
+      "bytes": 18606,
+      "sha256": "4d065b8ef34760a18b1cc891262f358db6414240ba70788542029ba3ac2dfef5",
+      "appliedVersion": "20261110113958",
+      "appliedName": "20261110025003_atomic_create_estimate_item_keeps_unchanged_projection",
+      "appliedAtUtc": "2026-11-10T11:39:58Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 18606,
+      "storedStatementSha256": "4d065b8ef34760a18b1cc891262f358db6414240ba70788542029ba3ac2dfef5",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:39:51.242429+00:00",
+        "object_checks": {
+          "atomic_create_present": true
+        },
+        "history_missing": true
+      }
+    },
+    {
+      "repositoryFile": "supabase/migrations/20261110094500_takeoff_acceptance_reasons.sql",
+      "bytes": 8882,
+      "sha256": "f0af6a7fa32a2e56cbba4fddc14df630f10dfac0c3a4ce98515116414605d53f",
+      "appliedVersion": "20261110114023",
+      "appliedName": "20261110094500_takeoff_acceptance_reasons",
+      "appliedAtUtc": "2026-11-10T11:40:23Z",
+      "storedStatements": 1,
+      "storedStatementBytes": 8882,
+      "storedStatementSha256": "f0af6a7fa32a2e56cbba4fddc14df630f10dfac0c3a4ce98515116414605d53f",
+      "storedStatementEqualsFullFile": true,
+      "preflight": {
+        "row_counts": {
+          "takeoff_jobs": 0,
+          "takeoff_items": 0,
+          "takeoff_dpgf_links": 0,
+          "rule_failure_proofs": 0,
+          "takeoff_vector_pages": 0,
+          "takeoff_item_geometries": 0,
+          "takeoff_apply_authorizations": 0,
+          "takeoff_dpgf_review_decisions": 0,
+          "takeoff_apply_override_consumptions": 0
+        },
+        "observed_at": "2026-11-10T11:40:15.686079+00:00",
+        "object_checks": {
+          "justification_present": true,
+          "acceptance_trigger_function_present": true
+        },
+        "history_missing": true
+      }
+    }
+  ],
+  "pendingRepositoryVersions": [
+    "20261110094501",
+    "20261110094502",
+    "20261110094503",
+    "20261110094504",
+    "20261110094505"
+  ],
+  "blockedApplication": {
+    "repositoryVersion": "20261110094501",
+    "result": "rejected by automatic approval review",
+    "reason": "The approval review reported that the trusted transcript lacks explicit owner authorization for this exact remote migration.",
+    "historyConfirmedAbsent": true,
+    "preflight": {
+      "row_counts": {
+        "takeoff_jobs": 0,
+        "takeoff_items": 0,
+        "takeoff_dpgf_links": 0,
+        "rule_failure_proofs": 0,
+        "takeoff_vector_pages": 0,
+        "takeoff_item_geometries": 0,
+        "takeoff_apply_authorizations": 0,
+        "takeoff_dpgf_review_decisions": 0,
+        "takeoff_apply_override_consumptions": 0
+      },
+      "observed_at": "2026-11-10T11:40:37.413954+00:00",
+      "object_checks": {
+        "note_absent": true,
+        "category_absent": true
+      },
+      "history_missing": true
+    },
+    "retried": false,
+    "subsequentMigrationsAttempted": false
+  },
+  "history": {
+    "beforeRows": 360,
+    "afterRows": 367,
+    "lastVersion": "20261110114023",
+    "legacyAliases": "Repository history compared by canonical name, repository version and timestamp-stripped historical alias. Two older canonical migrations are represented by atomic_estimate_batch_part_1..2 and estimate_fixed_discount_and_template_parent_integrity_part_1..9, already present and recorded by the October 17 catch-up receipt; none replayed."
+  },
+  "manifestMatch": true,
+  "postChecks": {
+    "observedAtUtc": "2026-11-10T11:43:13.505694+00:00",
+    "checks": [
+      {
+        "name": "public.estimate_fo_price_origin_write_input(value jsonb)",
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision()",
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations(operations jsonb)",
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch(p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb)",
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item(p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb)",
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic(p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid default null)",
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id(source_version_id uuid, as_variant boolean DEFAULT false)",
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked(p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean)",
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security()",
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources(p_job_id uuid, p_tenant_id uuid, p_choices jsonb)",
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths(p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb)",
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source(p_job_id uuid)",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb)",
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text)",
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance()",
+        "ok": true
+      },
+      {
+        "name": "new origin column nullable jsonb",
+        "ok": true
+      },
+      {
+        "name": "origin constraint validated",
+        "ok": true
+      },
+      {
+        "name": "origin index valid",
+        "ok": true
+      },
+      {
+        "name": "RLS enabled and forced",
+        "ok": true
+      },
+      {
+        "name": "business counts still zero",
+        "ok": true
+      },
+      {
+        "name": "intake private with binary MIME",
+        "ok": true
+      },
+      {
+        "name": "pending objects absent",
+        "ok": true
+      },
+      {
+        "name": "no PUBLIC or anon execute on affected functions",
+        "ok": true
+      },
+      {
+        "name": "ACL private.assert_takeoff_single_quantity_source#1",
+        "ok": true
+      },
+      {
+        "name": "ACL private.canonical_estimate_batch_operations#1",
+        "ok": true
+      },
+      {
+        "name": "ACL private.derive_estimate_item_fo_provision#0",
+        "ok": true
+      },
+      {
+        "name": "ACL private.finalize_takeoff_lengths#8",
+        "ok": true
+      },
+      {
+        "name": "ACL public.apply_takeoff_job_guarded_atomic#4",
+        "ok": true
+      },
+      {
+        "name": "ACL public.apply_takeoff_job_guarded_atomic#5",
+        "ok": true
+      },
+      {
+        "name": "ACL public.atomic_create_estimate_item#7",
+        "ok": true
+      },
+      {
+        "name": "ACL public.commit_estimate_batch#10",
+        "ok": true
+      },
+      {
+        "name": "ACL public.duplicate_estimate_version_without_product_id#2",
+        "ok": true
+      },
+      {
+        "name": "ACL public.enforce_takeoff_apply_security#0",
+        "ok": true
+      },
+      {
+        "name": "ACL public.estimate_fo_price_origin_write_input#1",
+        "ok": true
+      },
+      {
+        "name": "ACL public.persist_estimate_creation_atomic#7",
+        "ok": true
+      },
+      {
+        "name": "ACL public.select_takeoff_quantity_sources#3",
+        "ok": true
+      },
+      {
+        "name": "ACL public.takeoff_item_rule_blocked#3",
+        "ok": true
+      },
+      {
+        "name": "ACL public.validate_takeoff_rule_acceptance#0",
+        "ok": true
+      },
+      {
+        "name": "search_path public.estimate_fo_price_origin_write_input(value jsonb)",
+        "args": "value jsonb",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path private.derive_estimate_item_fo_provision()",
+        "args": "",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path private.canonical_estimate_batch_operations(operations jsonb)",
+        "args": "operations jsonb",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path public.commit_estimate_batch(p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb)",
+        "args": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path public.atomic_create_estimate_item(p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb)",
+        "args": "p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path public.persist_estimate_creation_atomic(p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid default null)",
+        "args": "p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid default null",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path public.duplicate_estimate_version_without_product_id(source_version_id uuid, as_variant boolean DEFAULT false)",
+        "args": "source_version_id uuid, as_variant boolean DEFAULT false",
+        "expected": "search_path=\"\"",
+        "ok": true
+      },
+      {
+        "name": "search_path public.takeoff_item_rule_blocked(p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean)",
+        "args": "p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean",
+        "expected": "search_path=pg_catalog, pg_temp",
+        "ok": true
+      },
+      {
+        "name": "search_path public.enforce_takeoff_apply_security()",
+        "args": "",
+        "expected": "search_path=public, pg_temp",
+        "ok": true
+      },
+      {
+        "name": "search_path public.select_takeoff_quantity_sources(p_job_id uuid, p_tenant_id uuid, p_choices jsonb)",
+        "args": "p_job_id uuid, p_tenant_id uuid, p_choices jsonb",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "search_path private.finalize_takeoff_lengths(p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb)",
+        "args": "p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "search_path private.assert_takeoff_single_quantity_source(p_job_id uuid)",
+        "args": "p_job_id uuid",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "search_path public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb)",
+        "args": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "search_path public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text)",
+        "args": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "search_path public.validate_takeoff_rule_acceptance()",
+        "args": "",
+        "expected": "search_path=pg_catalog",
+        "ok": true
+      },
+      {
+        "name": "all four affected triggers enabled",
+        "ok": true
+      }
+    ],
+    "functions": [
+      {
+        "name": "public.estimate_fo_price_origin_write_input",
+        "args": "value jsonb",
+        "expectedBodySha256": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134",
+        "actual": {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "estimate_fo_price_origin_write_input",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "value jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        "ok": true
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision",
+        "args": "",
+        "expectedBodySha256": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "derive_estimate_item_fo_provision",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "body_sha256": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations",
+        "args": "operations jsonb",
+        "expectedBodySha256": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "canonical_estimate_batch_operations",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "body_sha256": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "operations jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.commit_estimate_batch",
+        "args": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+        "expectedBodySha256": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55",
+        "actual": {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "commit_estimate_batch",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55",
+          "execute_anon": false,
+          "argument_count": 10,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        "ok": true
+      },
+      {
+        "name": "public.atomic_create_estimate_item",
+        "args": "p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb",
+        "expectedBodySha256": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf",
+        "actual": {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "atomic_create_estimate_item",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        "ok": true
+      },
+      {
+        "name": "public.persist_estimate_creation_atomic",
+        "args": "p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid default null",
+        "expectedBodySha256": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406",
+        "actual": {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "persist_estimate_creation_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id",
+        "args": "source_version_id uuid, as_variant boolean DEFAULT false",
+        "expectedBodySha256": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "duplicate_estimate_version_without_product_id",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402",
+          "execute_anon": false,
+          "argument_count": 2,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "source_version_id uuid, as_variant boolean",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.takeoff_item_rule_blocked",
+        "args": "p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean",
+        "expectedBodySha256": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6",
+        "actual": {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "takeoff_item_rule_blocked",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "body_sha256": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.enforce_takeoff_apply_security",
+        "args": "",
+        "expectedBodySha256": "55298cdf6121a2698acf1d5362deb75c2cf40f433208236dd9d2a4957701e654",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "enforce_takeoff_apply_security",
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "schema": "public",
+          "body_sha256": "55298cdf6121a2698acf1d5362deb75c2cf40f433208236dd9d2a4957701e654",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.select_takeoff_quantity_sources",
+        "args": "p_job_id uuid, p_tenant_id uuid, p_choices jsonb",
+        "expectedBodySha256": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995",
+        "actual": {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "select_takeoff_quantity_sources",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_choices jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "private.finalize_takeoff_lengths",
+        "args": "p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb",
+        "expectedBodySha256": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "finalize_takeoff_lengths",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "body_sha256": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae",
+          "execute_anon": false,
+          "argument_count": 8,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "private.assert_takeoff_single_quantity_source",
+        "args": "p_job_id uuid",
+        "expectedBodySha256": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "assert_takeoff_single_quantity_source",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "body_sha256": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic",
+        "args": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "expectedBodySha256": "79ce5a5a6a77a277045dd3aa1a9c1e8e927c063689a75f58209f4464096c0804",
+        "actual": {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "79ce5a5a6a77a277045dd3aa1a9c1e8e927c063689a75f58209f4464096c0804",
+          "execute_anon": false,
+          "argument_count": 4,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        "ok": true
+      },
+      {
+        "name": "public.apply_takeoff_job_guarded_atomic",
+        "args": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+        "expectedBodySha256": "3f8a962e55aa25880a56f25eb2f189375ce7419f519372e2f1b23689c32a0b5f",
+        "actual": {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "3f8a962e55aa25880a56f25eb2f189375ce7419f519372e2f1b23689c32a0b5f",
+          "execute_anon": false,
+          "argument_count": 5,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        "ok": true
+      },
+      {
+        "name": "public.validate_takeoff_rule_acceptance",
+        "args": "",
+        "expectedBodySha256": "5b6765e795768b30409db5cbd43f836ad456302b163ec6bd0e63ffb163b5e021",
+        "actual": {
+          "acl": "{postgres=X/postgres}",
+          "name": "validate_takeoff_rule_acceptance",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "5b6765e795768b30409db5cbd43f836ad456302b163ec6bd0e63ffb163b5e021",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        "ok": true
+      }
+    ],
+    "catalog": {
+      "rls": [
+        {
+          "table": "takeoff_jobs",
+          "forced": true,
+          "enabled": true
+        },
+        {
+          "table": "takeoff_items",
+          "forced": true,
+          "enabled": true
+        },
+        {
+          "table": "takeoff_apply_override_consumptions",
+          "forced": true,
+          "enabled": true
+        },
+        {
+          "table": "takeoff_vector_pages",
+          "forced": true,
+          "enabled": true
+        }
+      ],
+      "columns": [
+        {
+          "type": "jsonb",
+          "table": "estimate_items",
+          "column": "fo_price_origin",
+          "nullable": "YES"
+        },
+        {
+          "type": "jsonb",
+          "table": "takeoff_items",
+          "column": "verification_justification",
+          "nullable": "YES"
+        }
+      ],
+      "triggers": [
+        {
+          "name": "ad_derive_estimate_item_fo_provision",
+          "table": "estimate_items",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER ad_derive_estimate_item_fo_provision BEFORE INSERT OR UPDATE ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.derive_estimate_item_fo_provision()"
+        },
+        {
+          "name": "enforce_takeoff_apply_security",
+          "table": "takeoff_jobs",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER enforce_takeoff_apply_security BEFORE UPDATE OF status ON public.takeoff_jobs FOR EACH ROW WHEN (((new.status = 'applied'::takeoff_job_status) AND (old.status IS DISTINCT FROM new.status))) EXECUTE FUNCTION enforce_takeoff_apply_security()"
+        },
+        {
+          "name": "zz_validate_takeoff_rule_acceptance",
+          "table": "takeoff_items",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER zz_validate_takeoff_rule_acceptance BEFORE UPDATE ON public.takeoff_items FOR EACH ROW EXECUTE FUNCTION validate_takeoff_rule_acceptance()"
+        },
+        {
+          "name": "audit_takeoff_item_decisions",
+          "table": "takeoff_items",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER audit_takeoff_item_decisions AFTER UPDATE ON public.takeoff_items FOR EACH ROW WHEN (((old.designation IS DISTINCT FROM new.designation) OR (old.quantity IS DISTINCT FROM new.quantity) OR (old.quantity_entered_by IS DISTINCT FROM new.quantity_entered_by) OR (old.unit IS DISTINCT FROM new.unit) OR (old.source_page IS DISTINCT FROM new.source_page) OR (old.evidence IS DISTINCT FROM new.evidence) OR (old.is_excluded IS DISTINCT FROM new.is_excluded) OR (old.exclusion_reason IS DISTINCT FROM new.exclusion_reason) OR (old.is_verified IS DISTINCT FROM new.is_verified) OR (old.verified_by IS DISTINCT FROM new.verified_by) OR (old.verification_justification IS DISTINCT FROM new.verification_justification))) EXECUTE FUNCTION audit_takeoff_item_decisions()"
+        }
+      ],
+      "functions": [
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "assert_takeoff_single_quantity_source",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "body_sha256": "f3754e07e7938d94af60e33c9404ff667f83dd0f69c5b03fa34bd8104517a91f",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "canonical_estimate_batch_operations",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "body_sha256": "0a490a66087016a07994020facdf2941e98d44cc478dad61ed909904ad468b09",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "operations jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "derive_estimate_item_fo_provision",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "body_sha256": "898c9d64f787283deef7965cf85081cdfac1a00a04401445e89e9726d3fd58a8",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "finalize_takeoff_lengths",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "private",
+          "body_sha256": "67fd9dafec4d238fb418175141e602f79446344da5aaab1ec07a2c93251661ae",
+          "execute_anon": false,
+          "argument_count": 8,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_created_count integer, p_updated_count integer, p_ignored_count integer, p_created_ids uuid[], p_scope text, p_links jsonb, p_plan jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "79ce5a5a6a77a277045dd3aa1a9c1e8e927c063689a75f58209f4464096c0804",
+          "execute_anon": false,
+          "argument_count": 4,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "apply_takeoff_job_guarded_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "3f8a962e55aa25880a56f25eb2f189375ce7419f519372e2f1b23689c32a0b5f",
+          "execute_anon": false,
+          "argument_count": 5,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "atomic_create_estimate_item",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "fe5b96d90a5eb8df2735f1e432d8df9db58cd8815c8b726f142e3b7de675b0cf",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_version_id uuid, p_item jsonb, p_item_updates jsonb, p_version_patch jsonb, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_calculation_context jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "commit_estimate_batch",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "a5e64f5494829c98f532e7c6ef26314d7dd3bf5adb36a9e364c4adf22c5a1a55",
+          "execute_anon": false,
+          "argument_count": 10,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+          "execute_service_role": false,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "duplicate_estimate_version_without_product_id",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "a5f86935c32d89f3f9e23eb0c74a286cd952db50771c491d6a05865d21019402",
+          "execute_anon": false,
+          "argument_count": 2,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "source_version_id uuid, as_variant boolean",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "enforce_takeoff_apply_security",
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "schema": "public",
+          "body_sha256": "55298cdf6121a2698acf1d5362deb75c2cf40f433208236dd9d2a4957701e654",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": true,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "estimate_fo_price_origin_write_input",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "e3e55f7b7e3ba0931215c627bdfc66d91677df90b155aee0a6c142e27f4e9134",
+          "execute_anon": false,
+          "argument_count": 1,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "value jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": true
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "persist_estimate_creation_atomic",
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "body_sha256": "0de2154dc87acb0f46289adacd610a800895e68bd840d35a915f0976ac5b6406",
+          "execute_anon": false,
+          "argument_count": 7,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid, p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "select_takeoff_quantity_sources",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "5c858c21a9f3643d8ddaf2982c984e622ee30fb1ef902db2ee899b38d88f9995",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_choices jsonb",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "takeoff_item_rule_blocked",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "schema": "public",
+          "body_sha256": "2f86dc858e4a7a5c3895930fbbc84063c1fb98a64e4fe4157871f003299dbfa6",
+          "execute_anon": false,
+          "argument_count": 3,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "p_rule_results jsonb, p_rules_stale boolean, p_is_verified boolean",
+          "execute_service_role": true,
+          "execute_authenticated": false
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "validate_takeoff_rule_acceptance",
+          "owner": "postgres",
+          "config": [
+            "search_path=pg_catalog"
+          ],
+          "schema": "public",
+          "body_sha256": "5b6765e795768b30409db5cbd43f836ad456302b163ec6bd0e63ffb163b5e021",
+          "execute_anon": false,
+          "argument_count": 0,
+          "execute_public": false,
+          "security_definer": false,
+          "identity_arguments": "",
+          "execute_service_role": false,
+          "execute_authenticated": false
+        }
+      ],
+      "row_counts": {
+        "takeoff_jobs": 0,
+        "takeoff_items": 0,
+        "takeoff_dpgf_links": 0,
+        "rule_failure_proofs": 0,
+        "takeoff_vector_pages": 0,
+        "takeoff_item_geometries": 0,
+        "takeoff_apply_authorizations": 0,
+        "takeoff_dpgf_review_decisions": 0,
+        "takeoff_apply_override_consumptions": 0
+      },
+      "observed_at": "2026-11-10T11:43:13.505694+00:00",
+      "origin_index": {
+        "valid": true,
+        "definition": "CREATE INDEX estimate_items_fo_price_selection_idx ON public.estimate_items USING btree (tenant_id, ((fo_price_origin ->> 'selection_id'::text))) WHERE (fo_price_origin IS NOT NULL)"
+      },
+      "intake_bucket": {
+        "private": true,
+        "file_size_limit": 52428800,
+        "allowed_mime_types": [
+          "application/pdf",
+          "image/png",
+          "image/jpeg",
+          "image/webp",
+          "text/plain",
+          "text/csv",
+          "message/rfc822",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/octet-stream"
+        ]
+      },
+      "pending_objects": {
+        "admin_policy_absent": true,
+        "force_helper_absent": true,
+        "provision_helper_absent": true,
+        "quantity_entry_columns_absent": true
+      },
+      "origin_constraint": {
+        "validated": true,
+        "definition": "CHECK (((fo_price_origin IS NULL) OR ((jsonb_typeof(fo_price_origin) = 'object'::text) AND (fo_price_origin ?& ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) AND ((fo_price_origin - ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) = '{}'::jsonb) AND ((fo_price_origin ->> 'kind'::text) = ANY (ARRAY['supplier'::text, 'reference'::text])) AND ((fo_price_origin ->> 'selection_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND ((fo_price_origin ->> 'source_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND (((fo_price_origin -> 'transport_mode'::text) = 'null'::jsonb) OR ((fo_price_origin ->> 'transport_mode'::text) = ANY (ARRAY['included'::text, 'excluded'::text]))))))"
+      },
+      "override_table_grants": [
+        {
+          "grantee": "postgres",
+          "privilege": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "privilege": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "privilege": "TRIGGER"
+        }
+      ]
+    }
+  },
+  "securityAdvisors": {
+    "previousReceipt": "docs/testing/shared-supabase-takeoff-rules-2-2026-11-09.json",
+    "comparison": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "before": 25,
+        "after": 25,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+        "identitiesUnchanged": true,
+        "previousReceiptCount": 25,
+        "countUnchangedFromPreviousReceipt": true
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "before": 70,
+        "after": 70,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+        "identitiesUnchanged": true,
+        "previousReceiptCount": 70,
+        "countUnchangedFromPreviousReceipt": true
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "before": 1,
+        "after": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection",
+        "identitiesUnchanged": true,
+        "previousReceiptCount": 1,
+        "countUnchangedFromPreviousReceipt": true
+      }
+    ],
+    "comparisonMethod": "All finding identities and details compared before/after after excluding only observed_at; previous receipt provides counts, not full identities.",
+    "beforeIdentities": [
+      {
+        "name": "rls_enabled_no_policy",
+        "findings": [
+          {
+            "detail": "Table \\`private.affaire_plan_presence_state\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "affaire_plan_presence_state",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_batch_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_batch_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_purchase_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_purchase_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_purchase_transfers\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_purchase_transfers",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_reference_counters\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_reference_counters",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_citations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_citations",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_dimensions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_dimensions",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_events\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_events",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_links\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_links",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_requirements\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_requirements",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reference_copies\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reference_copies",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reference_events\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reference_events",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reviews\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reviews",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.generated_ouvrage_application_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "generated_ouvrage_application_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.google_drive_authorization_generations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "google_drive_authorization_generations",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.google_drive_connection_secrets\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "google_drive_connection_secrets",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.purchase_order_item_history\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "purchase_order_item_history",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.test_data_retained_projects\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "test_data_retained_projects",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.test_data_tenants\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "test_data_tenants",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`public.estimate_ai_generation_budgets\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_ai_generation_budgets",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_apply_authorizations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_apply_authorizations",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_apply_override_consumptions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_apply_override_consumptions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_job_admissions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_job_admissions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_processing_admissions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_processing_admissions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`takeoff_internal.rule_failure_proofs\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "rule_failure_proofs",
+              "type": "table",
+              "schema": "takeoff_internal"
+            }
+          }
+        ]
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "findings": [
+          {
+            "detail": "Function `public.abandon_generated_ouvrage_application(p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_accepted_candidates jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/abandon_generated_ouvrage_application`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "abandon_generated_ouvrage_application",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_accepted_candidates jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.acquire_estimate_ai_generation_lease(p_version_id uuid, p_operation text, p_lease_token uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/acquire_estimate_ai_generation_lease`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "acquire_estimate_ai_generation_lease",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation text, p_lease_token uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/apply_takeoff_job_guarded_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "apply_takeoff_job_guarded_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/apply_takeoff_job_guarded_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "apply_takeoff_job_guarded_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.bootstrap_takeoff_feature_flags()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/bootstrap_takeoff_feature_flags`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "bootstrap_takeoff_feature_flags",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.bulk_create_supplier_prices(price_rows jsonb, target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/bulk_create_supplier_prices`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "bulk_create_supplier_prices",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "price_rows jsonb, target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_affaire_intake_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_affaire_intake_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_affaire_intake_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_takeoff_estimate_version(target_estimate_version_id uuid, target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_takeoff_estimate_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_takeoff_estimate_version",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_estimate_version_id uuid, target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_takeoff_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_takeoff_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_takeoff_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_bootstrap_tenant_membership(target_tenant_id uuid, target_user_id uuid, target_role public.tenant_role)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_bootstrap_tenant_membership`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_bootstrap_tenant_membership",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid, target_user_id uuid, target_role public.tenant_role",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_read_affaire_intake_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_read_affaire_intake_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_read_affaire_intake_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_view_profile(target_user_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_view_profile`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_view_profile",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_user_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.claim_estimate_batch_revision(p_version_id uuid, p_expected_updated_at timestamp with time zone)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/claim_estimate_batch_revision`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "claim_estimate_batch_revision",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_expected_updated_at timestamp with time zone",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.cleanup_expired_draft_locks(target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/cleanup_expired_draft_locks`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "cleanup_expired_draft_locks",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.close_generated_ouvrage_generation(p_version_id uuid, p_draft_id uuid, p_draft_lock_session_id uuid, p_mode text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/close_generated_ouvrage_generation`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "close_generated_ouvrage_generation",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_draft_lock_session_id uuid, p_mode text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.commit_estimate_batch(p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/commit_estimate_batch`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "commit_estimate_batch",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.commit_generated_ouvrages(p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_accepted_candidates jsonb, p_prepared_candidates jsonb, p_fallback_section jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_preferred_role jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/commit_generated_ouvrages`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "commit_generated_ouvrages",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_accepted_candidates jsonb, p_prepared_candidates jsonb, p_fallback_section jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_preferred_role jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.complete_estimate_ai_generation_lease(p_version_id uuid, p_operation text, p_lease_token uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/complete_estimate_ai_generation_lease`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "complete_estimate_ai_generation_lease",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation text, p_lease_token uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.copy_estimate_items_atomic(p_version_id uuid, p_draft_lock_session_id uuid, p_items jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/copy_estimate_items_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "copy_estimate_items_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_lock_session_id uuid, p_items jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.count_estimate_template_lines(p_tenant_id uuid, p_template_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/count_estimate_template_lines`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "count_estimate_template_lines",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_template_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_estimate_purchase_order_drafts(p_version_id uuid, p_idempotency_key uuid, p_reviewed_lines jsonb, p_groups jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_estimate_purchase_order_drafts`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_estimate_purchase_order_drafts",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_idempotency_key uuid, p_reviewed_lines jsonb, p_groups jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_estimate_template_from_version(p_source_version_id uuid, p_name text, p_description text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_estimate_template_from_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_estimate_template_from_version",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_source_version_id uuid, p_name text, p_description text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_purchase_order_draft(p_header jsonb, p_items jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_purchase_order_draft`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_purchase_order_draft",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_header jsonb, p_items jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_supplier_catalog_price(payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_supplier_catalog_price`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_supplier_catalog_price",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.current_tenant_id()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/current_tenant_id`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "current_tenant_id",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.decide_estimate_approval(p_approval_id uuid, p_status public.estimate_approval_status)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/decide_estimate_approval`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "decide_estimate_approval",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_approval_id uuid, p_status public.estimate_approval_status",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.decide_estimate_review_cycle(p_cycle_id uuid, p_decision public.estimate_review_decision, p_comments jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/decide_estimate_review_cycle`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "decide_estimate_review_cycle",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_cycle_id uuid, p_decision public.estimate_review_decision, p_comments jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.delete_purchase_order_draft_atomic(p_order_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/delete_purchase_order_draft_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "delete_purchase_order_draft_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.duplicate_estimate_version(source_version_id uuid, as_variant boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/duplicate_estimate_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "duplicate_estimate_version",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "source_version_id uuid, as_variant boolean",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.estimate_v3_assert_draft_for_writer(p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/estimate_v3_assert_draft_for_writer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "estimate_v3_assert_draft_for_writer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.estimate_v3_complete_entry_for_writer(p_version_id uuid, p_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/estimate_v3_complete_entry_for_writer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "estimate_v3_complete_entry_for_writer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_batch_receipt(p_version_id uuid, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_batch_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_batch_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_receipt(p_version_id uuid, p_idempotency_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_idempotency_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_review(p_version_id uuid, p_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_transfers(p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_transfers`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_transfers",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_coverage(p_version_id uuid, p_requirement_id uuid, p_after_id uuid, p_limit integer, p_before_event bigint, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_coverage`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_coverage",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid, p_after_id uuid, p_limit integer, p_before_event bigint, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_coverage_targets(p_version_id uuid, p_kind text, p_search text, p_after_id uuid, p_limit integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_coverage_targets`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_coverage_targets",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_kind text, p_search text, p_after_id uuid, p_limit integer",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_review(p_version_id uuid, p_copy_id uuid, p_before_revision bigint, p_limit integer, p_confirmation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_copy_id uuid, p_before_revision bigint, p_limit integer, p_confirmation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_generated_ouvrage_application_receipt(p_version_id uuid, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_generated_ouvrage_application_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_generated_ouvrage_application_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_purchase_order_item_history(p_order_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_purchase_order_item_history`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_purchase_order_item_history",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_comments_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_comments_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_comments_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_correction_items_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_correction_items_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_correction_items_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_correction_items_update()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_correction_items_update`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_correction_items_update",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_cycles_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_cycles_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_cycles_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.has_tenant_role(target_tenant_id uuid, allowed_roles public.tenant_role[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/has_tenant_role`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "has_tenant_role",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid, allowed_roles public.tenant_role[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.is_tenant_member(target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/is_tenant_member`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "is_tenant_member",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.list_approval_queue(p_sort_by text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/list_approval_queue`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "list_approval_queue",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_sort_by text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.log_estimate_audit()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/log_estimate_audit`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "log_estimate_audit",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.log_estimate_batch_audit(target_version_id uuid, operations_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/log_estimate_batch_audit`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "log_estimate_batch_audit",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, operations_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.move_estimate_item(target_version_id uuid, target_item_id uuid, source_parent_id uuid, target_parent_id uuid, ordered_source_item_ids uuid[], ordered_target_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/move_estimate_item`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "move_estimate_item",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, target_item_id uuid, source_parent_id uuid, target_parent_id uuid, ordered_source_item_ids uuid[], ordered_target_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.mutate_estimate_source_coverage_dimension(p_version_id uuid, p_dimension_id uuid, p_expected_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/mutate_estimate_source_coverage_dimension`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "mutate_estimate_source_coverage_dimension",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_dimension_id uuid, p_expected_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.mutate_estimate_source_requirement(p_version_id uuid, p_requirement_id uuid, p_expected_revision bigint, p_expected_reference_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/mutate_estimate_source_requirement`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "mutate_estimate_source_requirement",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid, p_expected_revision bigint, p_expected_reference_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.persist_generated_ouvrage_review(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_expected_review_token text, p_review jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/persist_generated_ouvrage_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "persist_generated_ouvrage_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_expected_review_token text, p_review jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.preview_estimate_source_coverage_decision(p_version_id uuid, p_requirement_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/preview_estimate_source_coverage_decision`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "preview_estimate_source_coverage_decision",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_estimate_template_items(p_tenant_id uuid, p_template_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_estimate_template_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_estimate_template_items",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_template_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_estimate_version_items(p_tenant_id uuid, p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_estimate_version_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_estimate_version_items",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_generated_ouvrage_review(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_generated_ouvrage_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_generated_ouvrage_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.record_estimate_review_correction_action(p_item_id uuid, p_status public.estimate_review_correction_status, p_note text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/record_estimate_review_correction_action`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "record_estimate_review_correction_action",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_item_id uuid, p_status public.estimate_review_correction_status, p_note text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reject_generated_ouvrage_candidate(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_reason text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reject_generated_ouvrage_candidate`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reject_generated_ouvrage_candidate",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_reason text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reorder_estimate_items(target_version_id uuid, target_parent_id uuid, ordered_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reorder_estimate_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reorder_estimate_items",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, target_parent_id uuid, ordered_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.replace_purchase_order_draft(p_order_id uuid, p_header_patch jsonb, p_items jsonb, p_expected_revision bigint)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/replace_purchase_order_draft`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "replace_purchase_order_draft",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid, p_header_patch jsonb, p_items jsonb, p_expected_revision bigint",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reserve_estimate_source_reference_copy(p_version_id uuid, p_document_id uuid, p_expected_review_revision bigint, p_preparation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reserve_estimate_source_reference_copy`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reserve_estimate_source_reference_copy",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_document_id uuid, p_expected_review_revision bigint, p_preparation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reset_tenant_procurement_data(p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reset_tenant_procurement_data`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reset_tenant_procurement_data",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_active_tenant_membership_default(p_membership_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_active_tenant_membership_default`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_active_tenant_membership_default",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_membership_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_estimate_explanation_source_scope_defaults()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_estimate_explanation_source_scope_defaults`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_estimate_explanation_source_scope_defaults",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_tenant_calc_defaults(p_tenant_id uuid, p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[], p_change_reason text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_tenant_calc_defaults`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_tenant_calc_defaults",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_tenant_id uuid, p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[], p_change_reason text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.takeover_estimate_draft_lock(p_version_id uuid, p_session_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/takeover_estimate_draft_lock`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "takeover_estimate_draft_lock",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_session_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.update_supplier_catalog_item(p_item_id uuid, p_supplier_sku text, p_product_url text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/update_supplier_catalog_item`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "update_supplier_catalog_item",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_item_id uuid, p_supplier_sku text, p_product_url text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.update_supplier_offer(p_price_id uuid, p_patch jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/update_supplier_offer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "update_supplier_offer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_price_id uuid, p_patch jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.validate_product_reference_price(p_product_id uuid, p_quantity numeric, p_transport_mode text, p_fingerprint text, p_manual_price_cents integer, p_justification text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/validate_product_reference_price`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "validate_product_reference_price",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_product_id uuid, p_quantity numeric, p_transport_mode text, p_fingerprint text, p_manual_price_cents integer, p_justification text",
+              "security_definer": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "findings": [
+          {
+            "detail": "Supabase Auth prevents the use of compromised passwords by checking against HaveIBeenPwned.org. Enable this feature to enhance security.",
+            "metadata": {
+              "type": "auth",
+              "entity": "Auth"
+            }
+          }
+        ]
+      }
+    ],
+    "afterIdentities": [
+      {
+        "name": "rls_enabled_no_policy",
+        "findings": [
+          {
+            "detail": "Table \\`private.affaire_plan_presence_state\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "affaire_plan_presence_state",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_batch_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_batch_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_purchase_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_purchase_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_purchase_transfers\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_purchase_transfers",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_reference_counters\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_reference_counters",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_citations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_citations",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_dimensions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_dimensions",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_events\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_events",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_links\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_links",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_coverage_requirements\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_coverage_requirements",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reference_copies\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reference_copies",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reference_events\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reference_events",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.estimate_source_reviews\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_source_reviews",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.generated_ouvrage_application_receipts\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "generated_ouvrage_application_receipts",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.google_drive_authorization_generations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "google_drive_authorization_generations",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.google_drive_connection_secrets\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "google_drive_connection_secrets",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.purchase_order_item_history\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "purchase_order_item_history",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.test_data_retained_projects\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "test_data_retained_projects",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`private.test_data_tenants\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "test_data_tenants",
+              "type": "table",
+              "schema": "private"
+            }
+          },
+          {
+            "detail": "Table \\`public.estimate_ai_generation_budgets\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "estimate_ai_generation_budgets",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_apply_authorizations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_apply_authorizations",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_apply_override_consumptions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_apply_override_consumptions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_job_admissions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_job_admissions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`public.takeoff_processing_admissions\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "takeoff_processing_admissions",
+              "type": "table",
+              "schema": "public"
+            }
+          },
+          {
+            "detail": "Table \\`takeoff_internal.rule_failure_proofs\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "rule_failure_proofs",
+              "type": "table",
+              "schema": "takeoff_internal"
+            }
+          }
+        ]
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "findings": [
+          {
+            "detail": "Function `public.abandon_generated_ouvrage_application(p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_accepted_candidates jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/abandon_generated_ouvrage_application`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "abandon_generated_ouvrage_application",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_accepted_candidates jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.acquire_estimate_ai_generation_lease(p_version_id uuid, p_operation text, p_lease_token uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/acquire_estimate_ai_generation_lease`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "acquire_estimate_ai_generation_lease",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation text, p_lease_token uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/apply_takeoff_job_guarded_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "apply_takeoff_job_guarded_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.apply_takeoff_job_guarded_atomic(p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/apply_takeoff_job_guarded_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "apply_takeoff_job_guarded_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.bootstrap_takeoff_feature_flags()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/bootstrap_takeoff_feature_flags`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "bootstrap_takeoff_feature_flags",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.bulk_create_supplier_prices(price_rows jsonb, target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/bulk_create_supplier_prices`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "bulk_create_supplier_prices",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "price_rows jsonb, target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_affaire_intake_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_affaire_intake_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_affaire_intake_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_takeoff_estimate_version(target_estimate_version_id uuid, target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_takeoff_estimate_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_takeoff_estimate_version",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_estimate_version_id uuid, target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_access_takeoff_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_access_takeoff_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_access_takeoff_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_bootstrap_tenant_membership(target_tenant_id uuid, target_user_id uuid, target_role public.tenant_role)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_bootstrap_tenant_membership`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_bootstrap_tenant_membership",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid, target_user_id uuid, target_role public.tenant_role",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_read_affaire_intake_project(p_project_id uuid, p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_read_affaire_intake_project`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_read_affaire_intake_project",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_project_id uuid, p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.can_view_profile(target_user_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/can_view_profile`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "can_view_profile",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_user_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.claim_estimate_batch_revision(p_version_id uuid, p_expected_updated_at timestamp with time zone)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/claim_estimate_batch_revision`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "claim_estimate_batch_revision",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_expected_updated_at timestamp with time zone",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.cleanup_expired_draft_locks(target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/cleanup_expired_draft_locks`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "cleanup_expired_draft_locks",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.close_generated_ouvrage_generation(p_version_id uuid, p_draft_id uuid, p_draft_lock_session_id uuid, p_mode text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/close_generated_ouvrage_generation`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "close_generated_ouvrage_generation",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_draft_lock_session_id uuid, p_mode text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.commit_estimate_batch(p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/commit_estimate_batch`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "commit_estimate_batch",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.commit_generated_ouvrages(p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_accepted_candidates jsonb, p_prepared_candidates jsonb, p_fallback_section jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_preferred_role jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/commit_generated_ouvrages`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "commit_generated_ouvrages",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_accepted_candidates jsonb, p_prepared_candidates jsonb, p_fallback_section jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_preferred_role jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.complete_estimate_ai_generation_lease(p_version_id uuid, p_operation text, p_lease_token uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/complete_estimate_ai_generation_lease`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "complete_estimate_ai_generation_lease",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation text, p_lease_token uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.copy_estimate_items_atomic(p_version_id uuid, p_draft_lock_session_id uuid, p_items jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/copy_estimate_items_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "copy_estimate_items_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_lock_session_id uuid, p_items jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.count_estimate_template_lines(p_tenant_id uuid, p_template_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/count_estimate_template_lines`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "count_estimate_template_lines",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_template_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_estimate_purchase_order_drafts(p_version_id uuid, p_idempotency_key uuid, p_reviewed_lines jsonb, p_groups jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_estimate_purchase_order_drafts`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_estimate_purchase_order_drafts",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_idempotency_key uuid, p_reviewed_lines jsonb, p_groups jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_estimate_template_from_version(p_source_version_id uuid, p_name text, p_description text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_estimate_template_from_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_estimate_template_from_version",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_source_version_id uuid, p_name text, p_description text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_purchase_order_draft(p_header jsonb, p_items jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_purchase_order_draft`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_purchase_order_draft",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_header jsonb, p_items jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.create_supplier_catalog_price(payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_supplier_catalog_price`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "create_supplier_catalog_price",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.current_tenant_id()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/current_tenant_id`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "current_tenant_id",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.decide_estimate_approval(p_approval_id uuid, p_status public.estimate_approval_status)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/decide_estimate_approval`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "decide_estimate_approval",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_approval_id uuid, p_status public.estimate_approval_status",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.decide_estimate_review_cycle(p_cycle_id uuid, p_decision public.estimate_review_decision, p_comments jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/decide_estimate_review_cycle`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "decide_estimate_review_cycle",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_cycle_id uuid, p_decision public.estimate_review_decision, p_comments jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.delete_purchase_order_draft_atomic(p_order_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/delete_purchase_order_draft_atomic`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "delete_purchase_order_draft_atomic",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.duplicate_estimate_version(source_version_id uuid, as_variant boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/duplicate_estimate_version`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "duplicate_estimate_version",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "source_version_id uuid, as_variant boolean",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.estimate_v3_assert_draft_for_writer(p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/estimate_v3_assert_draft_for_writer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "estimate_v3_assert_draft_for_writer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.estimate_v3_complete_entry_for_writer(p_version_id uuid, p_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/estimate_v3_complete_entry_for_writer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "estimate_v3_complete_entry_for_writer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_batch_receipt(p_version_id uuid, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_batch_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_batch_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_receipt(p_version_id uuid, p_idempotency_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_idempotency_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_review(p_version_id uuid, p_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_purchase_order_transfers(p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_purchase_order_transfers`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_purchase_order_transfers",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_coverage(p_version_id uuid, p_requirement_id uuid, p_after_id uuid, p_limit integer, p_before_event bigint, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_coverage`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_coverage",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid, p_after_id uuid, p_limit integer, p_before_event bigint, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_coverage_targets(p_version_id uuid, p_kind text, p_search text, p_after_id uuid, p_limit integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_coverage_targets`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_coverage_targets",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_kind text, p_search text, p_after_id uuid, p_limit integer",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_estimate_source_review(p_version_id uuid, p_copy_id uuid, p_before_revision bigint, p_limit integer, p_confirmation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_estimate_source_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_estimate_source_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_copy_id uuid, p_before_revision bigint, p_limit integer, p_confirmation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_generated_ouvrage_application_receipt(p_version_id uuid, p_operation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_generated_ouvrage_application_receipt`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_generated_ouvrage_application_receipt",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_operation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.get_purchase_order_item_history(p_order_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/get_purchase_order_item_history`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "get_purchase_order_item_history",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_comments_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_comments_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_comments_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_correction_items_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_correction_items_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_correction_items_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_correction_items_update()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_correction_items_update`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_correction_items_update",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.guard_estimate_review_cycles_insert()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/guard_estimate_review_cycles_insert`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "guard_estimate_review_cycles_insert",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.has_tenant_role(target_tenant_id uuid, allowed_roles public.tenant_role[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/has_tenant_role`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "has_tenant_role",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid, allowed_roles public.tenant_role[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.is_tenant_member(target_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/is_tenant_member`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "is_tenant_member",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "target_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.list_approval_queue(p_sort_by text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/list_approval_queue`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "list_approval_queue",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_sort_by text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.log_estimate_audit()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/log_estimate_audit`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "log_estimate_audit",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.log_estimate_batch_audit(target_version_id uuid, operations_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/log_estimate_batch_audit`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "log_estimate_batch_audit",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, operations_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.move_estimate_item(target_version_id uuid, target_item_id uuid, source_parent_id uuid, target_parent_id uuid, ordered_source_item_ids uuid[], ordered_target_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/move_estimate_item`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "move_estimate_item",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, target_item_id uuid, source_parent_id uuid, target_parent_id uuid, ordered_source_item_ids uuid[], ordered_target_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.mutate_estimate_source_coverage_dimension(p_version_id uuid, p_dimension_id uuid, p_expected_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/mutate_estimate_source_coverage_dimension`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "mutate_estimate_source_coverage_dimension",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_dimension_id uuid, p_expected_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.mutate_estimate_source_requirement(p_version_id uuid, p_requirement_id uuid, p_expected_revision bigint, p_expected_reference_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/mutate_estimate_source_requirement`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "mutate_estimate_source_requirement",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid, p_expected_revision bigint, p_expected_reference_revision bigint, p_operation_key uuid, p_operation text, p_payload jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.persist_generated_ouvrage_review(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_expected_review_token text, p_review jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/persist_generated_ouvrage_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "persist_generated_ouvrage_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_expected_review_token text, p_review jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.preview_estimate_source_coverage_decision(p_version_id uuid, p_requirement_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/preview_estimate_source_coverage_decision`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "preview_estimate_source_coverage_decision",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_requirement_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_estimate_template_items(p_tenant_id uuid, p_template_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_estimate_template_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_estimate_template_items",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_template_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_estimate_version_items(p_tenant_id uuid, p_version_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_estimate_version_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_estimate_version_items",
+              "schema": "public",
+              "language": "sql",
+              "arguments": "p_tenant_id uuid, p_version_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.read_generated_ouvrage_review(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_generated_ouvrage_review`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "read_generated_ouvrage_review",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.record_estimate_review_correction_action(p_item_id uuid, p_status public.estimate_review_correction_status, p_note text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/record_estimate_review_correction_action`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "record_estimate_review_correction_action",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_item_id uuid, p_status public.estimate_review_correction_status, p_note text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reject_generated_ouvrage_candidate(p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_reason text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reject_generated_ouvrage_candidate`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reject_generated_ouvrage_candidate",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_draft_id uuid, p_candidate_id uuid, p_draft_lock_session_id uuid, p_reason text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reorder_estimate_items(target_version_id uuid, target_parent_id uuid, ordered_item_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reorder_estimate_items`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reorder_estimate_items",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "target_version_id uuid, target_parent_id uuid, ordered_item_ids uuid[]",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.replace_purchase_order_draft(p_order_id uuid, p_header_patch jsonb, p_items jsonb, p_expected_revision bigint)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/replace_purchase_order_draft`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "replace_purchase_order_draft",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_order_id uuid, p_header_patch jsonb, p_items jsonb, p_expected_revision bigint",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reserve_estimate_source_reference_copy(p_version_id uuid, p_document_id uuid, p_expected_review_revision bigint, p_preparation_key uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reserve_estimate_source_reference_copy`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reserve_estimate_source_reference_copy",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_document_id uuid, p_expected_review_revision bigint, p_preparation_key uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.reset_tenant_procurement_data(p_tenant_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/reset_tenant_procurement_data`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "reset_tenant_procurement_data",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_tenant_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_active_tenant_membership_default(p_membership_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_active_tenant_membership_default`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_active_tenant_membership_default",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_membership_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_estimate_explanation_source_scope_defaults()` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_estimate_explanation_source_scope_defaults`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_estimate_explanation_source_scope_defaults",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.set_tenant_calc_defaults(p_tenant_id uuid, p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[], p_change_reason text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_tenant_calc_defaults`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "set_tenant_calc_defaults",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_tenant_id uuid, p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[], p_change_reason text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.takeover_estimate_draft_lock(p_version_id uuid, p_session_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/takeover_estimate_draft_lock`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "takeover_estimate_draft_lock",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_version_id uuid, p_session_id uuid",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.update_supplier_catalog_item(p_item_id uuid, p_supplier_sku text, p_product_url text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/update_supplier_catalog_item`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "update_supplier_catalog_item",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_item_id uuid, p_supplier_sku text, p_product_url text",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.update_supplier_offer(p_price_id uuid, p_patch jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/update_supplier_offer`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "update_supplier_offer",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_price_id uuid, p_patch jsonb",
+              "security_definer": true
+            }
+          },
+          {
+            "detail": "Function `public.validate_product_reference_price(p_product_id uuid, p_quantity numeric, p_transport_mode text, p_fingerprint text, p_manual_price_cents integer, p_justification text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/validate_product_reference_price`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+            "metadata": {
+              "name": "validate_product_reference_price",
+              "schema": "public",
+              "language": "plpgsql",
+              "arguments": "p_product_id uuid, p_quantity numeric, p_transport_mode text, p_fingerprint text, p_manual_price_cents integer, p_justification text",
+              "security_definer": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "findings": [
+          {
+            "detail": "Supabase Auth prevents the use of compromised passwords by checking against HaveIBeenPwned.org. Enable this feature to enhance security.",
+            "metadata": {
+              "type": "auth",
+              "entity": "Auth"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "methods": [
+      "Supabase MCP list_migrations",
+      "Supabase MCP execute_sql: read-only preflight before each attempted migration, exact table counts, stored SQL bytes/SHA-256, final catalogue",
+      "Supabase MCP apply_migration: seven successful calls, eighth rejected",
+      "Supabase MCP get_advisors(type=security) before and after"
+    ],
+    "localApplicationSuitesRun": false
+  },
+  "limitations": [
+    "Five planned migrations remain unapplied; TI-686 has only its first of six migrations applied.",
+    "No authenticated write journey or synthetic business rows on the shared production database. Catalogue and source identities do not qualify end-to-end application behavior.",
+    "No fresh local application suites, release preparation, deployment, or effective deployment flag lookup.",
+    "Pending repository versions are bare timestamps so the restamp guard does not mistake pending migrations for applied records."
+  ],
+  "deployment": false,
+  "flagsEnabledByThisRun": false,
+  "effectiveFlagState": "not queried",
+  "businessRowsWrittenByChecks": false,
+  "storageBucketMetadataUpdated": true
+}

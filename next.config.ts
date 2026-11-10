@@ -7,7 +7,7 @@ if (armyDevServer && !/^[a-z0-9-]{1,64}$/.test(armyDevServer)) throw new Error("
 const nextConfig: NextConfig = {
   // The server-side spreadsheet parser runs in a Node worker. Keep these
   // packages external so their runtime files can be traced for that worker.
-  serverExternalPackages: ["xlsx", "exceljs"],
+  serverExternalPackages: ["xlsx", "exceljs", "word-extractor"],
   logging: {
     // OAuth callback query parameters include a short-lived authorization code.
     incomingRequests: { ignore: [/^\/auth\/chatgpt\/callback(?:\?|$)/] },
@@ -29,6 +29,14 @@ const nextConfig: NextConfig = {
     // Server pages also load the renderer through shared estimate actions.
     "/**": [
       "./node_modules/pdfkit/js/standard-fonts/**/*.cjs",
+      // The isolated Word reader resolves these runtime files from Node, outside the bundle.
+      "./node_modules/word-extractor/**",
+      "./node_modules/saxes/**",
+      "./node_modules/xmlchars/**",
+      "./node_modules/yauzl/**",
+      "./node_modules/fd-slicer/**",
+      "./node_modules/pend/**",
+      "./node_modules/buffer-crc32/**",
       // The autonomous classifier loads PDF.js/native canvas in a separate Node process.
       "./node_modules/pdfjs-dist/legacy/build/*.mjs",
       "./node_modules/pdfjs-dist/standard_fonts/**",
@@ -37,6 +45,13 @@ const nextConfig: NextConfig = {
       "./node_modules/pdfjs-dist/iccs/**",
       "./node_modules/@napi-rs/canvas/**",
       "./node_modules/@napi-rs/canvas-*/**",
+    ],
+    // The DWG converter loads LibreDWG's WebAssembly build in a separate Node process (src/lib/cad/dwg-conversion-server.ts).
+    "/api/affaires/*/intake/files/*/drawing": [
+      "./node_modules/@mlightcad/libredwg-web/package.json",
+      "./node_modules/@mlightcad/libredwg-web/dist/libredwg-web.umd.cjs",
+      "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.js",
+      "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.wasm",
     ],
     "/api/docs/swagger-ui/*": [
       "./node_modules/swagger-ui-dist/swagger-ui.css",

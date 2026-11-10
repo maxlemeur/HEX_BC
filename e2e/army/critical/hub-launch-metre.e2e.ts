@@ -23,7 +23,7 @@ async function setup(ui: Ui, caseId: string) {
   await createLineViaApi(ui.browser, estimate.versionId, `${ui.army.runPrefix}-BASE`);
   const planSet = await createPlanSet(ui, ui.army, estimate, `${ui.army.runPrefix} plans`);
   const file = await uploadSamplePlan(ui, ui.army, planSet);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await expect(ui.screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(1);
   const dialog = await openTakeoffPreparation(ui);

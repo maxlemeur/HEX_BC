@@ -50,7 +50,6 @@ import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
-import { AffairePilotagePanel } from "./AffaireJourneyPanel";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
@@ -88,12 +87,19 @@ import {
   type CockpitExecuteActionEventDetail,
 } from "@/lib/cockpit/events";
 import { XIcon } from "lucide-react";
+import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
+import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
+import "./AffaireWorkbench.css";
 
 export { DpgfSourceCard, getEstimateMarginSettingsHref } from "./AffaireHubSections";
 
 const AffaireDocumentsDrawer = dynamic(
   () => import("./AffaireDocumentsDrawer").then((module) => module.AffaireDocumentsDrawer),
   { ssr: false },
+);
+
+const AffairePilotagePanel = dynamic(
+  () => import("./AffaireJourneyPanel").then((module) => module.AffairePilotagePanel),
 );
 
 const UnifiedImportFlow = dynamic(
@@ -470,13 +476,29 @@ export function AffaireHub({
   const documentSearchParams = useSearchParams();
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
+  const [addingDocuments, setAddingDocuments] = useState(false);
   const documentsReturnFocus = useRef<HTMLElement | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(() => [...documentSearchParams.keys()].some((key) => /^(register|approval|timeline)/.test(key)));
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<AffaireWorkbenchSection>(() => affaireSectionFromLocation(new URLSearchParams(documentSearchParams.toString()), ""));
+  const [journeyRequested, setJourneyRequested] = useState(activeSection === "overview" || activeSection === "submission");
+  useEffect(() => {
+    if (activeSection === "overview" || activeSection === "submission") setJourneyRequested(true);
+  }, [activeSection]);
+  const selectSection = useCallback((section: AffaireWorkbenchSection) => {
+    setActiveSection(section);
+    setDetailsOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", section);
+    for (const key of ["intakeDocument", "intakeFilter", "briefBlock", "briefEntry"]) url.searchParams.delete(key);
+    url.hash = "";
+    window.history.pushState(null, "", url);
+  }, []);
   const openDocuments = useCallback(() => {
     if (document.activeElement instanceof HTMLElement && !document.activeElement.closest(".affaire-documents-drawer")) {
       documentsReturnFocus.current = document.activeElement;
     }
     setDocumentsRequested(true);
+    setAddingDocuments(false);
     setDocumentsOpen(true);
   }, []);
   const toast = useToast();
@@ -646,21 +668,28 @@ export function AffaireHub({
   const focusedIntakeFilter = documentSearchParams.get("intakeFilter");
   const focusedHubQuery = documentSearchParams.toString();
   useEffect(() => {
-    const revealLinkedSurface = (fromHashChange = false) => {
+    const revealLinkedSurface = () => {
       const hash = window.location.hash;
-      const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans", "#financial"].includes(hash);
-      if (!isFreshStartState && !isDetailsLink && (hash === "#intake" || (!fromHashChange && (focusedIntakeDocument || focusedIntakeFilter)))) {
+      const params = new URLSearchParams(window.location.search);
+      setActiveSection(affaireSectionFromLocation(params, hash));
+      const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans", "#financial", "#finish-line-output", "#finish-line-orders"].includes(hash);
+      const isDocumentLink = !isFreshStartState && !isDetailsLink && (hash === "#intake" || params.has("intakeDocument") || params.has("intakeFilter"));
+      if (isDocumentLink) {
         openDocuments();
+      } else {
+        setDetailsOpen(hash === "#brief");
       }
       if (isDetailsLink) {
-        setDetailsOpen(true);
         requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }));
       }
     };
     revealLinkedSurface();
-    const onHashChange = () => revealLinkedSurface(true);
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    window.addEventListener("hashchange", revealLinkedSurface);
+    window.addEventListener("popstate", revealLinkedSurface);
+    return () => {
+      window.removeEventListener("hashchange", revealLinkedSurface);
+      window.removeEventListener("popstate", revealLinkedSurface);
+    };
   }, [focusedIntakeDocument, focusedIntakeFilter, focusedHubQuery, isFreshStartState, openDocuments]);
 
   useEffect(() => {
@@ -691,6 +720,7 @@ export function AffaireHub({
         return;
       }
       setDetailsOpen(true);
+      setActiveSection(surfaceId === "approval-submit" ? "submission" : surfaceId === "launch-metre" ? "estimate" : "dossier");
       const sectionId = sectionBySurface[surfaceId];
       requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({
         block: "start",
@@ -893,82 +923,8 @@ export function AffaireHub({
   );
 
 
-  return (
-    <div className="animate-fade-in" onClickCapture={(event) => {
-      const link = (event.target as HTMLElement).closest("a[href]");
-      if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const url = new URL(link.getAttribute("href")!, window.location.href);
-      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
-      if (url.hash === "#intake" && !isFreshStartState) {
-        event.preventDefault();
-        if (url.href !== window.location.href) window.history.pushState(null, "", url);
-        openDocuments();
-        return;
-      }
-      if (url.search !== window.location.search) return;
-      if (["#brief", "#register", "#approval", "#timeline", "#plans", "#financial"].includes(url.hash)) {
-        setDetailsOpen(true);
-        requestAnimationFrame(() => document.getElementById(url.hash.slice(1))?.scrollIntoView({ block: "start" }));
-      }
-    }}>
-      {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
-        <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
-      ) : null}
-
-      {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
-      {!isReadOnlyReview ? (
-        <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
-          <Breadcrumbs
-            className="flex-1"
-            items={[
-              { label: "Affaires", href: "/dashboard/affaires" },
-              { label: summary.project.name },
-            ]}
-          />
-          {editingProject ? <div ref={setActionsPortalTarget} /> : null}
-        </div>
-      ) : null}
-
-      {/* Onboarding banner (post-creation, no dossier) */}
-      {shouldShowAffaireCreatedOnboardingBanner({
-        showOnboardingBanner,
-        intakeWorkspace,
-        dpgfSource,
-      }) && (
-        <AffaireCreatedOnboardingBanner
-          manualEstimateHref={
-            summary.currentVersion?.status === "draft"
-              ? `/dashboard/estimates/${summary.currentVersion.id}/edit?entry=manual`
-              : `/dashboard/estimates/new?projectId=${summary.project.id}`
-          }
-          onDismiss={() => setShowOnboardingBanner(false)}
-          onScrollToIntake={() => {
-            setShowOnboardingBanner(false);
-            document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" });
-          }}
-          onOpenImportFlow={() => {
-            setShowOnboardingBanner(false);
-            setIntakeDpgfCandidates([]);
-            setShowImportFlow(true);
-          }}
-        />
-      )}
-
-      {/* Project details fiche — same style as creation page */}
-      {!isReadOnlyReview ? (
-        <div className="mb-4">
-          <AffairePersistedProjectDetails
-            projectId={summary.project.id}
-            initialValues={{
-              projectName: summary.project.name,
-              clientName: summary.project.clientName ?? "",
-              siteAddress: summary.project.siteAddress ?? "",
-              reference: summary.project.reference ?? "",
-            }}
-            editing={editingProject}
-            onEditingChange={setEditingProject}
-            actionsPortalTarget={actionsPortalTarget}
-            toolbar={
+  const journey = buildAffaireJourney({ intakeWorkspace: intakeWorkspace ?? null, dpgfSource, plansSummary: plansSummary ?? null, approvalSummary: approvalSummary ?? null, currentVersion: summary.currentVersion ?? null, lineCount: summary.lineCount, structureMode: summary.structureMode, finishLineSummary, takeoffEnabled, plansError: sectionErrors?.plansSummary });
+  const workbenchToolbar = (
               !showImportFlow ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1024,7 +980,103 @@ export function AffaireHub({
                   ) : null}
                 </div>
               ) : undefined
-            }
+
+  );
+  const reviewBrief = () => {
+    selectSection("dossier");
+    setDetailsOpen(true);
+    const url = new URL(window.location.href);
+    url.hash = "brief";
+    window.history.replaceState(null, "", url);
+    requestAnimationFrame(() => document.getElementById("brief")?.scrollIntoView({ block: "start" }));
+  };
+  const openDocument = (documentId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("intakeDocument", documentId);
+    url.hash = "intake";
+    window.history.pushState(null, "", url);
+    openDocuments();
+  };
+
+
+  return (
+    <div className={`affaire-workbench${activeSection === "dossier" && detailsOpen ? " is-reviewing-brief" : ""}`} onClickCapture={(event) => {
+      const link = (event.target as HTMLElement).closest("a[href]");
+      if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const url = new URL(link.getAttribute("href")!, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+      if (url.hash === "#intake" && !isFreshStartState) {
+        event.preventDefault();
+        if (url.href !== window.location.href) window.history.pushState(null, "", url);
+        openDocuments();
+        return;
+      }
+      if (url.search !== window.location.search) return;
+      if (["#brief", "#register", "#approval", "#timeline", "#plans", "#financial", "#finish-line-output", "#finish-line-orders"].includes(url.hash)) {
+        setDetailsOpen(true);
+        setActiveSection(affaireSectionFromLocation(url.searchParams, url.hash));
+        requestAnimationFrame(() => document.getElementById(url.hash.slice(1))?.scrollIntoView({ block: "start" }));
+      }
+    }}>
+      {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
+        <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
+      ) : null}
+
+      {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
+      {!isReadOnlyReview && editingProject ? (
+        <div className="p-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
+          <Breadcrumbs
+            className="flex-1"
+            items={[
+              { label: "Affaires", href: "/dashboard/affaires" },
+              { label: summary.project.name },
+            ]}
+          />
+          {editingProject ? <div ref={setActionsPortalTarget} /> : null}
+        </div>
+      ) : null}
+
+      {/* Onboarding banner (post-creation, no dossier) */}
+      {shouldShowAffaireCreatedOnboardingBanner({
+        showOnboardingBanner,
+        intakeWorkspace,
+        dpgfSource,
+      }) && (
+        <AffaireCreatedOnboardingBanner
+          manualEstimateHref={
+            summary.currentVersion?.status === "draft"
+              ? `/dashboard/estimates/${summary.currentVersion.id}/edit?entry=manual`
+              : `/dashboard/estimates/new?projectId=${summary.project.id}`
+          }
+          onDismiss={() => setShowOnboardingBanner(false)}
+          onScrollToIntake={() => {
+            setShowOnboardingBanner(false);
+            document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onOpenImportFlow={() => {
+            setShowOnboardingBanner(false);
+            setIntakeDpgfCandidates([]);
+            setShowImportFlow(true);
+          }}
+        />
+      )}
+
+      {/* Project details fiche — same style as creation page */}
+      {!isReadOnlyReview ? (
+        <div>
+          <AffairePersistedProjectDetails
+            projectId={summary.project.id}
+            initialValues={{
+              projectName: summary.project.name,
+              clientName: summary.project.clientName ?? "",
+              siteAddress: summary.project.siteAddress ?? "",
+              reference: summary.project.reference ?? "",
+            }}
+            editing={editingProject}
+            onEditingChange={setEditingProject}
+            actionsPortalTarget={actionsPortalTarget}
+            compact
+            headingContext={<><strong>{journey.stages.find((stage) => stage.key === journey.current)?.label}</strong><span>{summary.currentVersion ? `V${summary.currentVersion.versionNumber} · ${summary.currentVersion.status === "draft" ? "Brouillon" : summary.currentVersion.status === "accepted" ? "Accepté" : summary.currentVersion.status === "sent" ? "Envoyé" : summary.currentVersion.status === "sending" ? "Envoi en cours" : "Archivé"}` : "Aucun devis"}</span></>}
           />
         </div>
       ) : (
@@ -1078,6 +1130,28 @@ export function AffaireHub({
         </Alert>
       )}
 
+      <AffaireWorkbench active={activeSection} onSelect={selectSection} criticalCount={registerSummary?.criticalOpenCount ?? 0}>
+        {!showImportFlow && ((isFreshStartState && activeSection === "register") || ((isFreshStartState || !summary.currentVersion) && activeSection === "submission")) ? <section className="affaire-workbench-intro" aria-label={activeSection === "register" ? "Suivi du dossier" : "Préparation de la remise"}>
+          <h2>{activeSection === "register" ? "Points à traiter" : "Préparer la remise"}</h2>
+          <p>{activeSection === "register" ? "Ajoutez les pièces et précisez le périmètre du dossier pour organiser les points à suivre." : "Le devis n’est pas encore chiffré. Préparez le dossier et ses lignes avant la validation et l’envoi."}</p>
+          <Button className="mt-5" variant="outline" onClick={() => selectSection("dossier")}>Ouvrir le dossier</Button>
+        </section> : null}
+        {!showImportFlow && !isFreshStartState ? <div hidden={activeSection !== "dossier" || detailsOpen}>
+          <AffaireDossierOverview
+            workspace={intakeWorkspace}
+            clientName={summary.project.clientName}
+            registerSummary={registerSummary}
+            registerEntries={registerPage?.items ?? []}
+            isReadOnly={isReadOnlyReview}
+            onOpenDocuments={openDocuments}
+            onAddDocuments={() => { openDocuments(); setAddingDocuments(true); }}
+            onOpenDocument={openDocument}
+            onReviewBrief={reviewBrief}
+            onOpenRegister={() => selectSection("register")}
+            estimateHref={summary.currentVersion ? `/dashboard/estimates/${summary.currentVersion.id}${isReadOnlyReview || summary.currentVersion.status !== "draft" ? "" : "/edit"}` : isReadOnlyReview ? null : `/dashboard/estimates/new?projectId=${summary.project.id}`}
+            versionLabel={summary.currentVersion ? `V${summary.currentVersion.versionNumber}${summary.lineCount === 0 ? " non chiffrée" : " · " + summary.lineCount + " lignes"}` : "Aucun devis"}
+          />
+        </div> : null}
       {/* Unified Import Flow (full-width, replaces grid when active) */}
       {showImportFlow ? (
         <UnifiedImportFlow
@@ -1089,6 +1163,7 @@ export function AffaireHub({
         />
       ) : (
         <>
+          <div hidden={activeSection !== "estimate" && activeSection !== "overview"}>
           {showTakeoffPrompt &&
             plansSummary?.defaultPlanSetId &&
             plansSummary.launchRecommendation && (
@@ -1122,14 +1197,17 @@ export function AffaireHub({
             </div>
           )}
 
+          </div>
+          <div hidden={isFreshStartState ? activeSection !== "overview" && activeSection !== "dossier" : activeSection !== "overview" && activeSection !== "submission"}>
           {isFreshStartState ? (
             <AffaireEmptyDossierStep
               projectId={summary.project.id}
               manualEstimateHref={summary.currentVersion ? `/dashboard/estimates/${summary.currentVersion.id}/edit?entry=manual` : `/dashboard/estimates/new?projectId=${summary.project.id}`}
             />
-          ) : (
+          ) : journeyRequested ? (
             <div className="mt-4">
               <AffairePilotagePanel
+                workspaceView={activeSection === "submission" ? "submission" : "overview"}
                 projectId={summary.project.id}
                 projectName={summary.project.name}
                 intakeWorkspace={intakeWorkspace ?? null}
@@ -1182,25 +1260,20 @@ export function AffaireHub({
                 }
               />
             </div>
-          )}
+          ) : null}
 
+          </div>
           {directionSignals && directionSignals.alerts.length > 0 ? (
             <div className="mt-4">
               <RiskAlertBanner alerts={directionSignals.alerts} compact />
             </div>
           ) : null}
 
-          <details className="affaire-hub-details" open={isFreshStartState || detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-            <summary>Détails du dossier et du devis</summary>
-            {summary.currentVersion && (finishLineSummary?.readyToOrder.counts?.totalSupplierLines ?? 0) > 0 ? <a className="journey-text-action mt-3" href="#finish-line-orders">Préparer les achats de cette version</a> : null}
-          {/* Two-column layout (Recommendation #3)
-              Left: operational flow (intake, brief, financial, DPGF, timeline)
-              Right: control (register, approval, journal, plans) */}
-          <div className={`mt-3 grid grid-cols-1 gap-4${isFreshStartState ? "" : " lg:grid-cols-5"}`}>
-            <div className={`space-y-4${isFreshStartState ? "" : " lg:col-span-3"}`}>
+          <div className="space-y-5">
+            <div className="contents">
               {/* Intake workspace: document upload, classification triage */}
               {isFreshStartState && intakeWorkspace !== undefined && (
-                <div id="intake" className="scroll-mt-24">
+                <div id="intake" className="scroll-mt-24" hidden={activeSection !== "dossier"}>
                   <IntakeWorkspace
                     projectId={summary.project.id}
                     workspace={intakeWorkspace}
@@ -1229,16 +1302,22 @@ export function AffaireHub({
                 </div>
               )}
               {!isFreshStartState && intakeWorkspace !== undefined && (
-                <div id="brief" className="scroll-mt-24">
+                <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
-                    hideConfirmAction={dominantFlowIntent === "confirm_brief"}
+                    onOpenDocuments={openDocuments}
+                    onBackToDossier={() => {
+                      selectSection("dossier");
+                      requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(".affaire-review-brief")?.focus());
+                    }}
                   />
                 </div>
               )}
+              <div hidden={activeSection !== "estimate"} className="space-y-5">
+              {!isReadOnlyReview ? workbenchToolbar : null}
               {!isFreshStartState ? (
                 <FinancialSummaryCard
                   summary={summary}
@@ -1280,9 +1359,10 @@ export function AffaireHub({
               ) : null}
             </div>
 
-            {!isFreshStartState ? <div className="space-y-4 lg:col-span-2">
+            </div>
+            {!isFreshStartState ? <div className="contents">
               {/* Register: moved to sidebar (Recommendation #3) */}
-              <div id="register" className="scroll-mt-24">
+              <div id="register" className="scroll-mt-24" hidden={activeSection !== "register"}>
                 <AffaireRegisterCard
                   projectId={summary.project.id}
                   versionId={summary.currentVersion?.id ?? null}
@@ -1295,7 +1375,7 @@ export function AffaireHub({
                 />
               </div>
               {approvalSummary ? (
-                <div id="approval" className="scroll-mt-24">
+                <div id="approval" className="scroll-mt-24" hidden={activeSection !== "submission"}>
                   <EstimateApprovalSummaryCard summary={approvalSummary}>
                   {summary.currentVersion ? (
                     <EstimateApprovalActions
@@ -1318,10 +1398,10 @@ export function AffaireHub({
                 </div>
               ) : null}
               {summary.currentVersion && approvalJournal ? (
-                <EstimateApprovalDecisionJournalCard
+                <div hidden={activeSection !== "submission"} className="mt-5"><EstimateApprovalDecisionJournalCard
                   versionId={summary.currentVersion.id}
                   initialJournal={approvalJournal}
-                />
+                /></div>
               ) : null}
               {/* Plans: moved up in sidebar (Recommendation #23) */}
               {shouldRenderPlansSection({
@@ -1329,7 +1409,7 @@ export function AffaireHub({
                 planSetCount: plansSummary?.planSetCount,
                 plansErrorMessage: sectionErrors?.plansSummary,
               }) ? (
-                <div id="plans" className="scroll-mt-24">
+                <div id="plans" className="scroll-mt-24" hidden={activeSection !== "estimate"}>
                   <PlansMetresCard
                     plans={plansSummary ?? null}
                     projectId={summary.project.id}
@@ -1349,19 +1429,21 @@ export function AffaireHub({
               ) : null}
             </div> : null}
           </div>
-          </details>
         </>
       )}
+      </AffaireWorkbench>
 
       {documentsRequested && intakeWorkspace ? (
         <AffaireDocumentsDrawer
-          documentScope={`${focusedIntakeDocument ?? ""}:${focusedIntakeFilter ?? ""}`}
+          documentScope={`${focusedIntakeDocument ?? ""}:${focusedIntakeFilter ?? ""}:${addingDocuments}`}
+          initialAddFiles={addingDocuments}
           returnFocus={documentsReturnFocus}
           open={documentsOpen}
           onOpenChange={(open) => {
             setDocumentsOpen(open);
             if (!open && documentSearchParams.has("briefBlock")) {
               setDetailsOpen(true);
+              setActiveSection("dossier");
               const params = new URLSearchParams(documentSearchParams.toString());
               for (const key of ["intakeDocument", "briefBlock", "briefEntry"]) params.delete(key);
               window.history.replaceState(null, "", `/dashboard/affaires/${summary.project.id}${params.size ? `?${params}` : ""}#brief`);
@@ -1374,6 +1456,7 @@ export function AffaireHub({
           onOverview={(anchor) => {
             setDocumentsOpen(false);
             if (anchor) {
+              setActiveSection(affaireSectionFromLocation(new URLSearchParams(), `#${anchor}`));
               setDetailsOpen(true);
               requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }));
             }

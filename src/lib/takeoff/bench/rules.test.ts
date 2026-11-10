@@ -41,8 +41,8 @@ const failed: TakeoffRuleResult = { rule: "zone_overlap", status: "fail", code: 
 describe("guard tiers on the bench", () => {
   it("classes lines as the apply guard would, then with their failed rules", () => {
     const items = [item("A", 1, undefined), item("B", 1, 0.3), item("C", 1, 0.6), item("D", 1, 0.9), item("E", 1, 0.95, { evidence: "" })];
-    expect(guardTiers(items, null)).toEqual(["rejected", "rejected", "uncertain", "high", "rejected"]);
-    expect(guardTiers(items, [[], [], [], [failed], []])).toEqual(["rejected", "rejected", "uncertain", "rejected", "rejected"]);
+    expect(guardTiers(items, null)).toEqual(["uncertain", "uncertain", "uncertain", "high", "rejected"]);
+    expect(guardTiers(items, [[], [], [], [failed], []])).toEqual(["uncertain", "uncertain", "uncertain", "uncertain", "rejected"]);
   });
 });
 
@@ -198,7 +198,7 @@ describe("rules in the vector pipeline", () => {
     const report = buildBenchReport({ metadata, run: result.run, scopes, noise: null, pipeline: "vector" });
     const rules = report.couples[0].passes[0].rules;
     expect(rules?.documents.map((entry) => [entry.id, entry.before.high, entry.after.high, entry.after.rejected]))
-      .toEqual([["a-plan-01", 1, 0, 1], ["a-plan-02", 1, 0, 1]]);
+      .toEqual([["a-plan-01", 1, 0, 0], ["a-plan-02", 1, 0, 0]]);
     // Both zones read 7.06 m for 10 m each: two keys out of tolerance at high confidence before the rules, none after.
     expect(rules?.confidence.main.before).toMatchObject({ scopes: 1, keys_high_confidence: 2, keys_high_confidence_error: 2 });
     expect(rules?.confidence.main.after).toMatchObject({ scopes: 1, keys_high_confidence: 0, keys_high_confidence_error: 0 });

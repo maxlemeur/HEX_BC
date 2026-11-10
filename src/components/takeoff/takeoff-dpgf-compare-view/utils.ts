@@ -27,7 +27,7 @@ export function formatPercent(value: number | null) {
 
 export function formatConfidence(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "Indéterminée";
-  return `${Math.round(value * 100)}%`;
+  return value >= 0.8 ? "Élevée" : value >= 0.5 ? "Moyenne" : "Faible";
 }
 
 export function getDecisionImpactText(
@@ -51,7 +51,7 @@ export function getDecisionImpactText(
 
 export function formatProofConfidence(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "Confiance n/a";
-  return `Confiance ${Math.round(value * 100)}%`;
+  return `Confiance ${value >= 0.8 ? "élevée" : value >= 0.5 ? "moyenne" : "faible"}`;
 }
 
 export function buildSearchText(row: TakeoffDpgfComparisonRow) {

@@ -6,24 +6,19 @@ import {
   type ApplyGuardResult,
   type GuardBlockedItem,
 } from "@/lib/takeoff/guards";
-import { blockingRules } from "@/lib/takeoff/rules/blocking";
+import { blockingRules, failedRules } from "@/lib/takeoff/rules/blocking";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/types";
+import { isQuantityWarning, quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
 
-// The targeted review of a takeoff job (TI-664 step 4, TI-658 « le modèle propose, les règles décident, une personne
-// tranche »): only the lines the apply guard rejects or finds uncertain, each with what may settle it.
-// - The lines are the guard's own (checkApplyGuard, same threshold and level as the application): nothing the guard
-//   lets through is shown, nothing it stops is hidden. Like the review's own gate, it reads every included line: a
-//   line the mapping plan will skip is still listed (the safe side; the wizard and the server leave it out).
-// - Results to compute again (rules_stale: a recomputation skipped or failed) guide nothing: what they say may no
-//   longer hold (a length already removed, a partner already excluded), so neither V nor a guided decision is offered.
-// - V (accept) settles a low or medium confidence and every acceptable failed rule; never a quantity to enter, never
-//   results to compute again; on level C only a line with its localized proof, as the database requires.
-// - A Z1/Z2 duplicate shows the length counted twice and the other zone's line. An isolated pair is settled by
-//   removing that length from one line; a group of three lines or more never by a quantity (decision of 4 Nov. 2026,
-//   docs/metier/regles-metre.md « Résolution »): each of its lines is removed (excluded) when the others draw all of
-//   it, or accepted (V) once checked.
+// TI-681: show protections, quantity uncertainties, alternative-reading gaps
+// and important priced posts. Recommendations never require every run to be
+// acknowledged. Optional corrections, localized evidence and prior decisions
+// remain available; stale results and technical protections retain their guard.
+// TI-686 H17: V is never offered on a line that has a quantity to enter, even beside an acceptable failure (the
+// database refuses V while a failure V never settles is there). A quantity to enter is entered with what it rests on
+// (TI-686 D12, the review's QuantityEntryDialog).
 
 export type TargetedReviewTier = "rejected" | "uncertain";
 
@@ -36,7 +31,8 @@ export type TargetedReviewLine<T extends ApplyGuardItem> = {
 };
 
 /** The lines to review, rejected then uncertain, each in the job's order, and the guard they come from. */
-export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[], threshold: number, level: string | null) {
+export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[], threshold: number, level: string | null,
+  importantIds: readonly string[] = []) {
   const guard: ApplyGuardResult = checkApplyGuard([...items], threshold, { level, leftOut: leftOutByPartners });
   const byId = new Map(items.map((item) => [item.id, item]));
   const lines: TargetedReviewLine<T>[] = [
@@ -45,12 +41,27 @@ export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[
     ...guard.medium_items.map((medium) => ({ item: byId.get(medium.item_id) as T, tier: "uncertain" as const, reasons: [],
       rule_failures: [] })),
   ];
+  const listed = new Set(lines.map((line) => line.item.id));
+  const important = new Set(importantIds);
+  for (const item of items) {
+    if (item.is_excluded || listed.has(item.id)) continue;
+    const warnings = (item.rule_results ?? []).filter((entry) => entry.status === "fail" && isQuantityWarning(entry.code));
+    const comparison = quantitySourceComparison("metadata" in item ? item.metadata : null);
+    if ((warnings.length === 0 && !important.has(item.id) && !comparison?.delta) || item.is_verified) continue;
+    lines.push({ item, tier: "uncertain", reasons: warnings.length ? ["rule_failed"] : [], rule_failures: warnings });
+  }
+  for (const line of lines) {
+    const warnings = (line.item.rule_results ?? []).filter((entry) => entry.status === "fail" && isQuantityWarning(entry.code));
+    if (warnings.length > 0 && !line.reasons.includes("rule_failed")) line.reasons.push("rule_failed");
+    line.rule_failures = [...line.rule_failures, ...warnings.filter(warning => !line.rule_failures.some(rule => rule.code === warning.code))];
+  }
   return { guard, lines };
 }
 
 export type Acceptance = { enabled: boolean; reason: string | null };
 
 const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Utilisez « Recalculer les règles ».";
+const TO_ENTER_REASON = "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée).";
 
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ApplyGuardItem, level: string | null): Acceptance {
@@ -58,19 +69,16 @@ export function acceptanceOf(item: ApplyGuardItem, level: string | null): Accept
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
   const failures = blockingRules(item.rule_results, false);
   if (failures.some((failure) => failure.code === "DN_NETWORK_MATERIAL_BLOCKED")) {
-    // TI-686: the admin override at apply time is the only way past it; no reserve, variant or provision exists yet.
-    return { enabled: false, reason: "Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, avec une justification écrite." };
+    // TI-686: the admin override at apply time is the only way past it, and the forced line enters the estimate as an
+    // internal provision (D10). No reserve (TI-682) or variant exists yet.
+    return { enabled: false, reason: "Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, avec un motif codé et une justification écrite ; la ligne entre alors au devis comme provision interne." };
   }
+  // TI-686 H17: a failure V never settles (a quantity to enter) refuses V on the whole line, as the database does
+  // (TAKEOFF_RULE_NOT_ACCEPTABLE), even beside failures V settles.
+  if (failedRules(item.rule_results).some((failure) => !failure.acceptable)) return { enabled: false, reason: TO_ENTER_REASON };
   const settles = failures.some((failure) => failure.acceptable)
     || ((level ?? "C") === "C" && failures.length === 0 && !item.rules_stale);
-  if (!settles) {
-    return {
-      enabled: false,
-      reason: failures.some((failure) => !failure.acceptable)
-        ? "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée)."
-        : STALE_REASON,
-    };
-  }
+  if (!settles) return { enabled: false, reason: STALE_REASON };
   if ((level ?? "C") === "C") {
     const readiness = getTakeoffVerificationReadiness(item);
     if (!readiness.canVerify) return { enabled: false, reason: readiness.message };

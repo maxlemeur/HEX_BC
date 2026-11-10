@@ -15,7 +15,7 @@ import { checked, createActor, executePlan, sqlTransport, versionDefaults, write
 // Prerequisites only. Each selected journey gets fresh owned UUIDs; its browser
 // still performs the mutation, authorization, file and persistence assertions.
 export const BUSINESS_JOURNEY_FILES = [
-  "article-association.e2e.ts", "brief-evidence.e2e.ts", "catalogue-provenance.e2e.ts",
+  "affaire-workbench.e2e.ts", "article-association.e2e.ts", "brief-evidence.e2e.ts", "catalogue-provenance.e2e.ts",
   "purchase-decimals.e2e.ts", "purchase-draft-eligibility.e2e.ts", "purchase-preparation.e2e.ts",
   "purchase-readiness.e2e.ts", "reference-price.e2e.ts", "source-reference-read.e2e.ts", "source-reference.e2e.ts",
 ] as const;
@@ -239,6 +239,7 @@ async function documentsFixture(context: CalcV3FixtureContext, kind: "brief" | "
       upload_id: uploadId, created_by: context.owner.userId, updated_by: context.owner.userId, confirmed_by: context.owner.userId,
       status: "confirme", summary: "ARMY brief synthétique", project_object: "ARMY travaux fictifs",
       scope: ["ARMY calorifuge sans justificatif", "ARMY supportage associé au document"],
+      received_pieces: ["CCTP · ARMY-CCTP-reference.txt"],
       missing_elements: ["Plans manquants"], confirmed_at: new Date().toISOString() }));
     records.push(record("affaire_brief_source_links", { ...common(context), id: randomUUID(), project_id: project.projectId,
       brief_id: briefId, source_document_id: files[0].id, created_by: context.owner.userId,
@@ -293,7 +294,7 @@ export async function prepareBusinessJourneyFixtures(context: CalcV3FixtureConte
     await executePlan(context, "catalogue provenance", records);
     await publish("business-catalogue-provenance", "E2E_CATALOGUE_PROVENANCE_FIXTURE_PATH", fixture);
   }
-  if (selected.has("brief-evidence.e2e.ts")) {
+  if (selected.has("brief-evidence.e2e.ts") || selected.has("affaire-workbench.e2e.ts")) {
     const fixture = await documentsFixture(context, "brief");
     env.E2E_BRIEF_EVIDENCE_PROJECT_ID = fixture.projectId; env.E2E_BRIEF_EVIDENCE_DOCUMENT_ID = fixture.documents.A;
     identities.brief = fixture;

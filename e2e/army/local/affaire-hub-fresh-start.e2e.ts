@@ -38,17 +38,31 @@ const pricedLine = (army: ArmyState) => ({
  * facts: the « Étape 1 sur 6 · Dossier » badge, the header's « Éditer Vn » link and the manual path's target version.
  */
 async function readHub(ui: Ui, projectId: string) {
-  await ui.app.open(`/dashboard/affaires/${projectId}#financial`);
+  // The workbench shows one domain at a time: « Vue d’ensemble » holds the entry facts (the upload card of the
+  // fresh start, or the journey and its manual path), « Chiffrage » the cards.
+  await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
   await ui.browser.reload();
-  // One render decides the layout: the financial summary (full hub) or the manual path of the upload card. The
+  // One render decides the layout: the journey (full hub) or the manual path of the upload card. The
   // intake region is no signal: in the fresh start it is rendered empty, hence hidden.
-  const summary = ui.screen.getByRole("heading", "Résumé financier", { exact: true });
-  const manual = ui.screen.getByRole("link", "Continuer en manuel", { exact: true });
-  await expect.poll(async () => (await summary.isVisible()) || (await manual.isVisible()), { timeout: 60_000 }).toBe(true);
   const study = ui.screen.getByRole("button", /Étude Structure, métrés et prix/);
+  const manual = ui.screen.getByRole("link", "Continuer en manuel", { exact: true });
+  await expect.poll(async () => (await study.isVisible()) || (await manual.isVisible()), { timeout: 60_000 }).toBe(true);
   const studyExpanded = await ui.browser.evaluate(() => document.getElementById("journey-etude") !== null);
   if (await study.count() && !studyExpanded) await study.click();
-  return ui.browser.evaluate((cards) => {
+  const entry = await ui.browser.evaluate(() => {
+    const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
+    const manualLink = Array.from(document.querySelectorAll("main a"))
+      .find((node) => node.getClientRects().length > 0 && ["Continuer en manuel", "Reprendre le devis"].includes(text(node)));
+    return {
+      newAffaire: text(document.querySelector("main")).includes("Étape 1 sur 6 · Dossier"),
+      manualVersionId: manualLink?.getAttribute("href")?.match(/\/estimates\/([0-9a-f-]{36})\//i)?.[1] ?? null,
+    };
+  });
+  const pricingTab = ui.screen.getByRole("navigation", "Navigation de l'affaire", { exact: true })
+    .getByRole("button", "Chiffrage", { exact: true });
+  await pricingTab.click();
+  await expect(pricingTab).toHaveAttribute("aria-current", "page");
+  const cards = await ui.browser.evaluate((cards) => {
     const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
     const headingOf = (title: string) => Array.from(document.querySelectorAll("h2")).find((node) => text(node) === title) ?? null;
     const sectionOf = (title: string) => headingOf(title)?.closest("section") ?? null;
@@ -56,7 +70,6 @@ async function readHub(ui: Ui, projectId: string) {
     const notice = margin?.querySelector("[data-testid=\"margin-evolution-v3-notice\"]");
     const versions = sectionOf("Versions");
     const links = Array.from(document.querySelectorAll("main a"));
-    const manualLink = links.find((node) => node.getClientRects().length > 0 && ["Continuer en manuel", "Reprendre le devis"].includes(text(node)));
     return {
       cards: cards.filter((title) => headingOf(title) !== null),
       margin: margin ? {
@@ -66,11 +79,10 @@ async function readHub(ui: Ui, projectId: string) {
       } : null,
       // The badge text runs into the first item (« 1 versionV1 … »): no word boundary after it.
       versionCount: versions ? (text(versions).match(/(\d+) versions?/)?.[1] ?? null) : null,
-      newAffaire: text(document.querySelector("main")).includes("Étape 1 sur 6 · Dossier"),
       editLink: links.map((node) => text(node)).find((label) => /^Éditer V\d+$/.test(label)) ?? null,
-      manualVersionId: manualLink?.getAttribute("href")?.match(/\/estimates\/([0-9a-f-]{36})\//i)?.[1] ?? null,
     };
   }, [...HUB_CARDS]);
+  return { ...cards, ...entry };
 }
 
 type HubRead = Awaited<ReturnType<typeof readHub>>;

@@ -1,3 +1,6 @@
+import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import { forceReasonLabel } from "@/lib/takeoff/force-reason-labels";
+
 type EstimateLineTruthSourceKind =
   | "manual"
   | "dpgf"
@@ -14,7 +17,10 @@ export type EstimateLineTruthQtyStatus =
   | "assumed"
   | "provisional"
   | "to_confirm"
-  | "missing";
+  | "missing"
+  // TI-686 D10/D12: internal estimate only; the client sees an ordinary priced line (H9).
+  | "internal_provision"
+  | "hypothesis";
 
 export type EstimateLineTruthConfidenceLabel = "faible" | "moyenne" | "forte";
 
@@ -257,9 +263,53 @@ function resolveSource(input: {
   }
 }
 
+const CLIENT_SEES_ORDINARY_LINE = "le client voit une ligne ordinaire.";
+
+/**
+ * What an administrator's override lifts since TI-681 (H8, D23): low confidence no longer blocks, so a forced line is
+ * not an unverified quantity as such; it lacked its localized proof or page (level C), its rule results were to compute
+ * again, or a blocking rule failed (a material not allowed). The marker does not say which one: all are named.
+ */
+const OVERRIDE_LIFTED = "un administrateur a levé ce qui la bloquait (preuve localisée ou page source manquante, règles à "
+  + "recalculer, ou règle bloquante en échec, comme un matériau interdit)";
+
+/** TI-686 D10: the coded reasons of the forced sources (once each, in their order), as the override recorded them. */
+function forcedReasonLabels(provision: TakeoffProvision) {
+  const labels = provision.sources.flatMap((source) => {
+    const label = source.forced && source.forced_reason ? forceReasonLabel(source.forced_reason) : undefined;
+    return label ? [label] : [];
+  });
+  return [...new Set(labels)];
+}
+
+/** TI-686 D10/D12: a line the takeoff application marked; its amount is a provision, internal only (H9). */
+function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qtyStatus"] {
+  if (provision.kind === "hypothesis") {
+    const entered = provision.sources.some((source) => source.entry_category === "hypothesis");
+    return {
+      code: "hypothesis",
+      label: "Hypothèse",
+      detail: entered
+        ? `Quantité saisie sur hypothèse au métré : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`
+        : `Ligne forcée à l’application du métré comme hypothèse chiffrée : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
+    };
+  }
+  const labels = forcedReasonLabels(provision);
+  const reasons = labels.length === 0 ? "" : ` (${labels.length > 1 ? "motifs" : "motif"} : ${labels.join(", ")})`;
+  return {
+    code: "internal_provision",
+    label: "Provision interne",
+    detail: provision.readable
+      ? `Ligne forcée à l’application du métré${reasons} : ${OVERRIDE_LIFTED}. Son montant est une provision interne ; `
+        + CLIENT_SEES_ORDINARY_LINE
+      : `Marqueur de provision illisible : la ligne est traitée comme une provision interne ; ${CLIENT_SEES_ORDINARY_LINE}`,
+  };
+}
+
 function resolveQtyStatus(input: {
   quantity: number | null;
   provider: string | null;
+  metadata: unknown;
 }): EstimateLineTruth["qtyStatus"] {
   if (input.quantity === null) {
     return {
@@ -267,6 +317,11 @@ function resolveQtyStatus(input: {
       label: "Qte manquante",
       detail: "Aucune quantité n'est renseignée sur cette ligne.",
     };
+  }
+
+  const provision = readTakeoffProvision(input.metadata);
+  if (provision) {
+    return provisionQtyStatus(provision);
   }
 
   switch (input.provider) {
@@ -394,6 +449,7 @@ export function resolveEstimateLineTruth(
   const qtyStatus = resolveQtyStatus({
     quantity,
     provider,
+    metadata: item.source_metadata,
   });
   const confidence = resolveConfidence({
     quantity,

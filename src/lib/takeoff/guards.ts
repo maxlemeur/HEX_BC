@@ -1,6 +1,7 @@
 import { blockingRules, type LeftOut, type PartnerExclusion } from "@/lib/takeoff/rules/blocking";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
+import { isQuantityWarning } from "@/lib/takeoff/quantity-review-policy";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,7 +69,10 @@ export type GuardBlockedItem = {
 export type GuardMediumItem = {
   item_id: string;
   designation: string;
-  confidence: number;
+  confidence: number | null;
+  rule_failures?: GuardBlockedItem["rule_failures"];
+  source_page?: number | null;
+  source_file_name?: string | null;
 };
 
 export type ApplyGuardResult = {
@@ -129,6 +133,7 @@ export type ApplyGuardItem = Pick<
   | "is_verified"
   | "is_excluded"
 > & {
+  source_file_name?: string | null;
   /** Fixed-rule results of the line (TI-664); absent or empty: no rule reads it. */
   rule_results?: readonly TakeoffRuleResult[] | null;
   /** The line changed after its rules ran: they no longer hold until the server computes them again. */
@@ -136,17 +141,10 @@ export type ApplyGuardItem = Pick<
 };
 
 /**
- * Pure function: checks whether the included items of a job are safe to apply, line by line exactly as the database
- * trigger enforce_takeoff_apply_security counts them, so that both block the same lines (and an admin override's
- * audit, written from this result, matches the trigger's count).
- *
- * - Level C (the existing reasons): missing proof/source, or confidence < threshold while unverified.
- * - Every level (TI-664): stale rule results, or a failed rule while unverified, or a failed rule verifying never
- *   settles (a quantity to enter) — rules/blocking.ts, mirrored by takeoff_item_rule_blocked in SQL. A cross-line
- *   failure whose partners, all named, are all left out (here or in `partnerExclusions`) does not block (TI-677).
- * - Medium  = level C, threshold ≤ confidence < MEDIUM_CONFIDENCE_CEILING AND is_verified === false, not blocked.
- * - `passed` is true when no blocked items exist. Without a level, the job is read as level C (the only level the
- *   guard ran on before TI-664).
+ * Application protections mirrored by enforce_takeoff_apply_security in SQL.
+ * Missing localized provenance, stale results, unknown failures and technical
+ * restrictions remain protected. TI-681 quantity warnings and confidence only
+ * recommend review; they never require an individual acknowledgement.
  */
 export function checkApplyGuard(
   items: ApplyGuardItem[],
@@ -175,10 +173,8 @@ export function checkApplyGuard(
     const conf = item.confidence;
     const reasons: ApplyGuardBlockReason[] = levelC ? [...getTakeoffVerificationReadiness(item).issues] : [];
 
-    if (levelC && !item.is_verified && (conf === null || conf < threshold)) {
-      reasons.unshift("low_confidence");
-    }
-    const failures = blockingRules(item.rule_results, item.is_verified, leftOut);
+    const failures = blockingRules(item.rule_results, item.is_verified, leftOut)
+      .filter((entry) => !isQuantityWarning(entry.code));
     if (failures.length > 0) reasons.push("rule_failed");
     if (item.rules_stale) reasons.push("rules_stale");
 
@@ -196,13 +192,19 @@ export function checkApplyGuard(
     } else if (
       levelC &&
       !item.is_verified &&
-      conf !== null &&
-      conf < MEDIUM_CONFIDENCE_CEILING
+      (conf === null || conf < Math.max(threshold, MEDIUM_CONFIDENCE_CEILING)
+        || item.rule_results?.some(entry => entry.status === "fail" && isQuantityWarning(entry.code)))
     ) {
       medium_items.push({
         item_id: item.id,
         designation: item.designation,
         confidence: conf,
+        ...(item.rule_results?.some(entry => entry.status === "fail" && isQuantityWarning(entry.code)) ? {
+          rule_failures: item.rule_results.filter(entry => entry.status === "fail" && isQuantityWarning(entry.code))
+            .map(({ rule, code, reason, acceptable }) => ({ rule, code, reason, acceptable })),
+          source_page: item.source_page,
+          ...(item.source_file_name !== undefined ? { source_file_name: item.source_file_name } : {}),
+        } : {}),
       });
     }
   }

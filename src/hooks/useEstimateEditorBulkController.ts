@@ -6,6 +6,7 @@ import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsO
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
+import type { EstimateEditorItemPatch } from "@/hooks/useEstimateEditorItemsController";
 import {
   createEstimateDeletionRestorer,
   type EstimateDeletionRecreationOptions,
@@ -24,6 +25,7 @@ import {
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
+import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { buildSiblingOrderByParent } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
 
@@ -37,6 +39,12 @@ function withPlacement(
     position: line.position,
   });
 }
+
+/** Inputs of one line written by a grid cell action; never a derived total. */
+export type EstimateEditorCellPatchEntry = {
+  itemId: string;
+  patch: EstimateEditorItemPatch;
+};
 
 type EstimateEditorBulkControllerInput = {
   document?: EstimateEditorDocument;
@@ -302,6 +310,82 @@ export function useEstimateEditorBulkController({
         });
       } catch {
         // applyBulkLineState already restored state and reported the failure.
+      }
+    },
+    [
+      applyBulkLineState,
+      getItemsSnapshot,
+      getVersionSnapshot,
+      guardBulkAction,
+      normalizeLine,
+      pushHistoryCommand,
+      reportError,
+    ]
+  );
+
+  // Grid cells written together (paste, fill down, clear on a range): one
+  // write and one history entry, so a single undo restores every cell.
+  // Answers whether the cells were written, so the caller can hold back what
+  // belongs to the same gesture when the batch is refused.
+  const applyBulkCellPatches = useCallback(
+    async (entries: ReadonlyArray<EstimateEditorCellPatchEntry>): Promise<boolean> => {
+      if (entries.length === 0) return false;
+      if (!(await guardBulkAction("modifier les cellules sélectionnées"))) return false;
+      if (!getVersionSnapshot()) {
+        reportError("Version introuvable.");
+        return false;
+      }
+
+      const patchById = new Map<string, EstimateEditorCellPatchEntry["patch"]>();
+      entries.forEach((entry) => {
+        patchById.set(entry.itemId, { ...patchById.get(entry.itemId), ...entry.patch });
+      });
+      const selectedLines = getItemsSnapshot().filter(
+        (item): item is EstimateItem =>
+          item.item_type === "line" && patchById.has(item.id)
+      );
+      if (selectedLines.length === 0) return false;
+
+      reportError(null);
+      const updatedLines = selectedLines.map((item) => {
+        const patch = patchById.get(item.id) ?? {};
+        return normalizeLine({
+          ...item,
+          ...patch,
+          line_nature: resolvePromotedEstimateLineNature(item, patch),
+        });
+      });
+
+      try {
+        if (
+          !(await applyBulkLineState(
+            updatedLines,
+            "Impossible de modifier les cellules sélectionnées."
+          ))
+        ) {
+          return false;
+        }
+        pushHistoryCommand({
+          label: "bulk-cell-patch",
+          undo: async (context) => {
+            return applyBulkLineState(
+              selectedLines,
+              "Impossible d'annuler la modification des cellules.",
+              context?.isCurrentScope
+            );
+          },
+          redo: async (context) => {
+            return applyBulkLineState(
+              updatedLines,
+              "Impossible de réappliquer la modification des cellules.",
+              context?.isCurrentScope
+            );
+          },
+        });
+        return true;
+      } catch {
+        // applyBulkLineState already restored state and reported the failure.
+        return false;
       }
     },
     [
@@ -695,6 +779,7 @@ export function useEstimateEditorBulkController({
 
   const actions = useMemo(
     () => ({
+      applyBulkCellPatches,
       applyBulkMajoration,
       bulkDeleteLines,
       bulkMoveLines,
@@ -702,6 +787,7 @@ export function useEstimateEditorBulkController({
       bulkSetLaborRole,
     }),
     [
+      applyBulkCellPatches,
       applyBulkMajoration,
       bulkDeleteLines,
       bulkMoveLines,

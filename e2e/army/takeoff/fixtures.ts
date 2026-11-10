@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
-import { expect } from "e2e";
+import { expect, type JsonValue } from "e2e";
+import type { Browser } from "@e2e-dev/web";
 
 import { recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 
@@ -96,4 +97,18 @@ export async function seedOwnedSupplyType(army: ArmyState, versionId: string) {
   if (error || !data?.id) throw new Error(`Cannot prepare owned supply type: ${error?.code ?? "missing row"}`);
   await recordEvidence(army, "supply-type-prerequisite", { ids, supplyTypeId: data.id, tenantId: fixture.tenantId });
   return data.id as string;
+}
+
+export async function applyOwnedTakeoff(browser: Browser, versionId: string, jobId: string, body: unknown, foreignSession = false) {
+  return browser.evaluate(async input => {
+    const scope = globalThis as typeof globalThis & { __miaouffrageEstimateDraftLockSessions?: Map<string, string> };
+    const sessionId = scope.__miaouffrageEstimateDraftLockSessions?.get(input.versionId) ??
+      sessionStorage.getItem(`__miaouffrageEstimateDraftLockSession:${input.versionId}`);
+    if (!sessionId) throw new Error("The owned page lease is missing.");
+    const response = await fetch(`/api/takeoff/jobs/${input.jobId}/apply`, {
+      method: "POST", credentials: "same-origin", body: input.body,
+      headers: { "content-type": "application/json", "x-estimate-draft-lock-session-id": input.foreignSession ? crypto.randomUUID() : sessionId },
+    });
+    return { status: response.status, body: await response.json() as JsonValue };
+  }, { versionId, jobId, body: JSON.stringify(body), foreignSession });
 }

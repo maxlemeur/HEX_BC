@@ -249,10 +249,18 @@ export async function createEstimateViaWizard(
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
   await screen.getByLabel(/Date devis/).fill(today);
   await screen.getByLabel(/Validité/).fill("30");
-  await screen.getByRole("button", "Marge fixe", { exact: true }).tap();
-  // A fixed margin of N % is stored as the multiplier 1 + N / 100.
-  await screen.getByLabel("Marge (%)", { exact: true }).fill(marginPercent);
-  await screen.getByLabel("Marge (%)", { exact: true }).press("Tab");
+  if (await screen.getByLabel("Coefficient de vente FO", { exact: true }).isVisible()) {
+    const coefficient = String(1 + Number(marginPercent) / 100);
+    for (const component of ["FO", "MO"]) {
+      await screen.getByLabel(`Coefficient de vente ${component}`, { exact: true }).fill(coefficient);
+      await screen.getByLabel(`Coefficient de vente ${component}`, { exact: true }).press("Tab");
+    }
+  } else {
+    await screen.getByRole("button", "Marge fixe", { exact: true }).tap();
+    // A fixed margin of N % is stored as the multiplier 1 + N / 100.
+    await screen.getByLabel("Marge (%)", { exact: true }).fill(marginPercent);
+    await screen.getByLabel("Marge (%)", { exact: true }).press("Tab");
+  }
   await screen.getByLabel(/TVA \(%\)/).fill("20");
   await screen.getByLabel(/TVA \(%\)/).press("Tab");
   await screen.getByLabel("Arrondi", { exact: true }).selectOption({ value: "none" });

@@ -3,21 +3,23 @@
 import type { ApplyGuardResult } from "@/lib/takeoff/guards";
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 
+import type { ForcedDrafts } from "./forced-drafts";
 import { GuardPanel } from "./GuardPanel";
 import { PreviewImpactCard } from "./PreviewImpactCard";
 import { strategyDescription, strategyLabel, type TakeoffApplyStrategy } from "./shared";
 import { Alert } from "@/components/ui/alert";
+import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 
 export function TakeoffApplyWizardConfirmationStep({
   guardBlocking,
   guardResult,
   isAdmin,
   canOverride,
-  overrideJustification,
+  forcedDrafts,
   onReturnToReview,
   reviewHref,
   targetedReviewHref,
-  onOverrideJustificationChange,
+  onForcedDraftsChange,
   onOverrideConfirm,
   isLevelC,
   previewData,
@@ -34,11 +36,11 @@ export function TakeoffApplyWizardConfirmationStep({
   guardResult: ApplyGuardResult | null;
   isAdmin: boolean;
   canOverride: boolean;
-  overrideJustification: string;
+  forcedDrafts: ForcedDrafts;
   onReturnToReview?: () => void;
   reviewHref?: string;
   targetedReviewHref?: string;
-  onOverrideJustificationChange: (value: string) => void;
+  onForcedDraftsChange: (next: ForcedDrafts) => void;
   onOverrideConfirm: () => void;
   isLevelC: boolean;
   previewData: TakeoffPreviewConversionResponse | null;
@@ -58,11 +60,11 @@ export function TakeoffApplyWizardConfirmationStep({
           guardResult={guardResult}
           isAdmin={isAdmin}
           canOverride={canOverride}
-          overrideJustification={overrideJustification}
+          forcedDrafts={forcedDrafts}
           onReturnToReview={onReturnToReview}
           reviewHref={reviewHref}
           targetedReviewHref={targetedReviewHref}
-          onOverrideJustificationChange={onOverrideJustificationChange}
+          onForcedDraftsChange={onForcedDraftsChange}
           onOverrideConfirm={onOverrideConfirm}
         />
       )}
@@ -73,14 +75,19 @@ export function TakeoffApplyWizardConfirmationStep({
         guardResult.medium_items.length > 0 && (
           <div className="rounded-xl border border-info bg-info-light p-3">
             <p className="text-xs font-semibold text-info">
-              Confiance moyenne (non bloquante)
+              Contrôle recommandé (non bloquant)
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {guardResult.medium_items.length} item
-              {guardResult.medium_items.length > 1 ? "s ont" : " a"} un score
-              compris entre {Math.round(guardResult.threshold * 100)} % et moins
-              de 80 %. Un contrôle humain reste recommandé.
+              {guardResult.medium_items.length} élément(s) présentent une confiance à confirmer ou un avertissement de quantité.
+              Vous pouvez poursuivre sans acquittement individuel.
             </p>
+            <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto text-xs">
+              {guardResult.medium_items.filter(item => item.rule_failures?.length).map(item => <li key={item.item_id}>
+                <strong>{item.designation}</strong>{item.source_file_name ? ` · ${item.source_file_name}` : ""}
+                {item.source_page ? ` · page ${item.source_page}` : ""}
+                {item.rule_failures?.map(failure => <p key={failure.code}>{TAKEOFF_RULE_LABELS[failure.rule]} : {failure.reason}</p>)}
+              </li>)}
+            </ul>
           </div>
         )}
 
@@ -104,7 +111,7 @@ export function TakeoffApplyWizardConfirmationStep({
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {guardBlocking
-              ? "Les blocages restent actifs. Cet aperçu décrit néanmoins l’impact exact d’une éventuelle dérogation."
+              ? "Les blocages restent actifs. Cet aperçu décrit néanmoins l’impact exact d’un éventuel forçage."
               : "L’application reste manuelle. Rien n’est injecté tant que vous ne confirmez pas."}
           </p>
         </div>

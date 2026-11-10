@@ -146,8 +146,10 @@ const REVIEW_EXPECTED = {
   },
   takeoff: {
     response: [200, null, 2, 0], replay: [409, "CONFLICT"], existingUnchanged: true, totalsUnchanged: true, replayAddsNothing: true,
+    // TI-681 (docs/metier/regles-metre.md) : une longueur vendue est cumulée par ligne puis arrondie une fois au
+    // mètre supérieur ; les 12,5 m du métré deviennent 13 ml.
     lines: [
-      { ...TAKEOFF_LINE, title: "ARMY Tube cuivre 22", unit: "ml", status: "priced", quantity: 12.5, pu: 0 },
+      { ...TAKEOFF_LINE, title: "ARMY Tube cuivre 22", unit: "ml", status: "priced", quantity: 13, pu: 0 },
       { ...TAKEOFF_LINE, title: "ARMY Robinetterie existante", unit: null, status: "for_memory", quantity: 1, pu: null },
     ],
   },

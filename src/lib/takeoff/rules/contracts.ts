@@ -71,10 +71,14 @@ const RESULT_BOUNDS = [
   { reason: 60, designation: 0, partners: 0, rooms: 0, numbersOnly: true },
 ] as const;
 
-/** The details' numbers (the length counted twice, the group size, the areas…) and the level, clipped. */
+/**
+ * The details' numbers (the length counted twice, the group size, the areas…), the level, clipped, and the basis the
+ * price line expects (what the acceptance of a printed area compares, TI-686 D9).
+ */
 function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
   const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
   return { ...Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]),
+    ...(details.expected_basis === "net_floor" || details.expected_basis === "shab" ? { expected_basis: details.expected_basis } : {}),
     ...(details.quantity_context_key ? { quantity_context_key: details.quantity_context_key } : {}),
     ...(details.failure_keys_sha256 ? { failure_keys_sha256: details.failure_keys_sha256 } : {}) };
 }

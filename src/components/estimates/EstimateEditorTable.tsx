@@ -7,6 +7,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -78,9 +79,19 @@ import {
   type EstimateSectionCalculation,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
-  useSpreadsheetNavigation,
-  type SpreadsheetNavigationRow,
-} from "@/hooks/useSpreadsheetNavigation";
+  useGridNavigation,
+  type GridNavigationResult,
+} from "@/hooks/useGridNavigation";
+import { type SpreadsheetNavigationRow } from "@/hooks/useSpreadsheetNavigation";
+import {
+  useEstimateGridCellActions,
+  useEstimateGridClipboardEvents,
+} from "@/components/estimates/hooks/useEstimateGridCellActions";
+import { GridActiveRow, resolveActiveLineBreadcrumb } from "@/components/estimates/grid/EstimateGridActiveRow";
+import {
+  extractTrackedSuggestionValuesFromPatch,
+  useSuggestionCorrectionTracking,
+} from "@/components/estimates/hooks/useSuggestionCorrectionTracking";
 import {
   useColumnVisibility,
   type ColumnKey,
@@ -179,15 +190,11 @@ export type {
   SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
 import {
-  TRACKED_SUGGESTION_CORRECTION_FIELDS,
   type AppliedSuggestionContext,
   type EstimateQualityFilter,
   type EstimateVirtualizationConfig,
   type EstimateEditorItemMeta,
   type EstimateEditorItemPatch,
-  type SuggestionAppliedValues,
-  type SuggestionCorrectionFieldName,
-  type SuggestionCorrectionValue,
 } from "@/components/estimates/estimate-editor-table-types";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -270,6 +277,10 @@ type EstimateEditorTableProps = {
   onTrackSuggestionCorrections?: (
     corrections: SuggestionCorrectionPayload[]
   ) => Promise<void>;
+  /** Cellules de plusieurs lignes écrites ensemble (coller, recopier, effacer) : une seule annulation. */
+  onApplyCellPatches?: (
+    entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>
+  ) => Promise<boolean | void>;
   onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
   onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
   onBulkMoveLines: (
@@ -607,65 +618,6 @@ function toNonEmptyString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeSuggestionCorrectionValue(
-  fieldName: SuggestionCorrectionFieldName,
-  value: unknown
-): SuggestionCorrectionValue {
-  if (fieldName === "k_fo" || fieldName === "k_mo") {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number.parseFloat(value.replace(",", "."));
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-    return null;
-  }
-
-  return toNonEmptyString(value);
-}
-
-function readTrackedFieldValueFromPatch(
-  patch: ItemPatch,
-  fieldName: SuggestionCorrectionFieldName
-): SuggestionCorrectionValue | undefined {
-  if (!(fieldName in patch)) return undefined;
-  const rawValue = patch[fieldName];
-  if (rawValue === undefined) return undefined;
-  return normalizeSuggestionCorrectionValue(fieldName, rawValue);
-}
-
-function toSuggestionCorrectionTextValue(value: SuggestionCorrectionValue) {
-  if (value === null) return null;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value) : null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function areSuggestionCorrectionValuesEqual(
-  left: SuggestionCorrectionValue,
-  right: SuggestionCorrectionValue
-) {
-  if (typeof left === "number" || typeof right === "number") {
-    return typeof left === "number" && typeof right === "number" && left === right;
-  }
-  return left === right;
-}
-
-function extractTrackedSuggestionValuesFromPatch(patch: ItemPatch) {
-  const trackedValues: SuggestionAppliedValues = {};
-  TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
-    const fieldValue = readTrackedFieldValueFromPatch(patch, fieldName);
-    if (fieldValue === undefined) return;
-    trackedValues[fieldName] = fieldValue;
-  });
-  return trackedValues;
-}
-
 function normalizeQuickFilterTerm(value: string) {
   return value.trim().toLowerCase();
 }
@@ -914,6 +866,7 @@ export function EstimateEditorTable({
   onConvertItems,
   onPatchItem,
   onTrackSuggestionCorrections,
+  onApplyCellPatches,
   onApplyBulkMajoration,
   onBulkDeleteLines,
   onBulkMoveLines,
@@ -986,6 +939,9 @@ export function EstimateEditorTable({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const columnResizeCleanupRef = useRef<(() => void) | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
+  const gridNavigationRef = useRef<GridNavigationResult | null>(null);
+  const cellPasteHandlerRef = useRef<((text: string, target: Element) => boolean) | null>(null);
+  const getPinnedRowId = useCallback(() => gridNavigationRef.current?.getActiveRowId() ?? null, []);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
   >({});
@@ -1353,60 +1309,27 @@ export function EstimateEditorTable({
     });
   }, []);
 
-  const patchItemWithSuggestionTracking = useCallback(
-    (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
-      onPatchItem(itemId, patch, options);
+  // Without its draft, the unit cell shows the stored value of the line: the one a grid
+  // write has just set, and the one an undo puts back.
+  const handleUnitDraftDiscard = useCallback((itemId: string, rowId: string) => {
+    setUnitDrafts((prev) => {
+      if (prev[itemId] === undefined && prev[rowId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      delete next[rowId];
+      return next;
+    });
+  }, []);
 
-      if (options?.persist !== true) return;
-      if (!isSuggestionLearningEnabled) return;
-      if (!onTrackSuggestionCorrections) return;
-
-      const appliedContext = appliedSuggestionContextByItemIdRef.current[itemId];
-      if (!appliedContext) return;
-
-      const item = itemById.get(itemId);
-      if (!item || item.item_type !== "line") return;
-
-      const corrections: SuggestionCorrectionPayload[] = [];
-
-      TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
-        if (appliedContext.trackedFieldDivergences[fieldName]) {
-          return;
-        }
-
-        const correctedValue = readTrackedFieldValueFromPatch(patch, fieldName);
-        if (correctedValue === undefined) return;
-
-        const suggestedValue = appliedContext.suggestedValues[fieldName];
-        if (suggestedValue === undefined) return;
-
-        if (areSuggestionCorrectionValuesEqual(suggestedValue, correctedValue)) {
-          return;
-        }
-
-        appliedContext.trackedFieldDivergences[fieldName] = true;
-        corrections.push({
-          rule_id: appliedContext.ruleId,
-          field_name: fieldName,
-          original_value: toSuggestionCorrectionTextValue(suggestedValue),
-          corrected_value: toSuggestionCorrectionTextValue(correctedValue),
-          item_title: item.title ?? "",
-        });
-      });
-
-      if (corrections.length === 0) return;
-
-      void onTrackSuggestionCorrections(corrections).catch((error) => {
-        console.error("Impossible d'envoyer les corrections de suggestion.", error);
-      });
-    },
-    [
-      isSuggestionLearningEnabled,
+  const { patchItemWithSuggestionTracking, applyCellPatchesWithSuggestionTracking } =
+    useSuggestionCorrectionTracking({
+      isEnabled: isSuggestionLearningEnabled,
+      appliedContextByItemIdRef: appliedSuggestionContextByItemIdRef,
       itemById,
       onPatchItem,
+      onApplyCellPatches,
       onTrackSuggestionCorrections,
-    ]
-  );
+    });
 
   const handleUnitCommit = useCallback(
     (itemId: string) => {
@@ -1544,6 +1467,7 @@ export function EstimateEditorTable({
     supplyTypeById,
     v3LaborRoles: v3Grid ? laborRoles : null,
     onPasteRows,
+    cellPasteHandlerRef,
   });
 
   const handleTableBodyMouseDown = useCallback(
@@ -1957,6 +1881,7 @@ export function EstimateEditorTable({
     tableCardRef,
     scrollToItemId: needsScrollTargetReveal || (isMobileViewport && !showFullTableOnMobile) ? null : scrollToItemId,
     onScrollToItemHandled,
+    getPinnedRowId,
   });
 
   const hiddenSpreadsheetColumnKeys = useMemo(() => {
@@ -2001,21 +1926,26 @@ export function EstimateEditorTable({
   const spreadsheetNavigationRows = useMemo(() => {
     if (!hasVisibleRowsForRender) return [] as SpreadsheetNavigationRow[];
 
-    return visibleItemsInOrderForRender.map((item) => {
-      const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled, viewportVisibleColumns.has("supplier"));
-      if (hiddenSpreadsheetColumnKeys.size === 0) {
-        return {
-          rowId: getEstimateEditorItemClientKey(item),
-          columnKeys: allKeys,
-        };
-      }
-      return {
-        rowId: getEstimateEditorItemClientKey(item),
-        columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key))
+    const includeSupplier = viewportVisibleColumns.has("supplier");
+    // Les clés suivent l'ordre affiché des colonnes. Un seul tableau par type
+    // de ligne, partagé par toutes les lignes : la grille les compare par référence.
+    const keysByItemType = new Map<EstimateItem["item_type"], string[]>();
+    const keysFor = (itemType: EstimateItem["item_type"]) => {
+      let keys = keysByItemType.get(itemType);
+      if (!keys) {
+        keys = getSpreadsheetColumnKeys(itemType, isLaborSplitEnabled, includeSupplier)
+          .filter((key) => !hiddenSpreadsheetColumnKeys.has(key))
           .sort((left, right) => columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[left])
-            - columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[right])),
-      };
-    });
+            - columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[right]));
+        keysByItemType.set(itemType, keys);
+      }
+      return keys;
+    };
+
+    return visibleItemsInOrderForRender.map((item) => ({
+      rowId: getEstimateEditorItemClientKey(item),
+      columnKeys: keysFor(item.item_type),
+    }));
   }, [
     hasVisibleRowsForRender,
     hiddenSpreadsheetColumnKeys,
@@ -2025,50 +1955,76 @@ export function EstimateEditorTable({
     visibleItemsInOrderForRender,
   ]);
 
-  const spreadsheetNavigation = useSpreadsheetNavigation({
+  const getGridItem = useCallback(
+    (rowId: string) => itemByClientKey.get(rowId),
+    [itemByClientKey],
+  );
+  const reportGridLeftovers = useCallback(
+    (message: { title: string; description: string }) => toast.error(message),
+    [toast],
+  );
+  const gridCellActions = useEstimateGridCellActions({
+    isReadOnly,
+    isV3: Boolean(v3Grid),
+    currency,
+    supplyTypes,
+    laborRoles,
+    legacyUnitByItemId: mergedUnitDrafts,
+    rows: spreadsheetNavigationRows,
+    getItem: getGridItem,
+    hasSelectedLines,
+    onPatchItem: patchItemWithSuggestionTracking,
+    onApplyCellPatches: applyCellPatchesWithSuggestionTracking,
+    onLegacyUnitDraftChange: handleUnitDraftChange,
+    onLegacyUnitDraftDiscard: handleUnitDraftDiscard,
+    onLeftovers: reportGridLeftovers,
+  });
+
+  // Page précédente / suivante : une hauteur d'écran moins une ligne, comme un tableur.
+  const getGridPageSize = useCallback(() => {
+    const scroller = virtualScrollRef.current ?? scrollContainerRef.current;
+    const row = scroller?.querySelector<HTMLElement>(".estimate-row");
+    if (!scroller || !row || row.offsetHeight === 0) return 10;
+    return Math.max(1, Math.floor(scroller.clientHeight / row.offsetHeight) - 1);
+  }, [virtualScrollRef]);
+
+  const spreadsheetNavigation = useGridNavigation({
     rows: spreadsheetNavigationRows,
     disabled: !hasVisibleRowsForRender || isReadOnly,
     onActiveCellNotMounted: isVirtualized
       ? handleNavigationCellNotMounted
       : undefined,
+    getPageSize: getGridPageSize,
+    // Des lignes cochées : Maj+clic continue d'étendre la sélection de lignes.
+    shouldExtendOnShiftClick: () => !hasSelectedLines,
+    onClearSelection: gridCellActions.onClearSelection,
+    onFillDown: gridCellActions.onFillDown,
   });
-  const activeClientKey = spreadsheetNavigation.activeCell?.rowId ?? null;
-  const insertionAnchorItemId = activeClientKey
-    ? (itemByClientKey.get(activeClientKey)?.id ?? null)
-    : null;
 
+  useLayoutEffect(() => {
+    gridNavigationRef.current = spreadsheetNavigation;
+  }, [spreadsheetNavigation]);
+
+  useEstimateGridClipboardEvents({
+    navigation: spreadsheetNavigation,
+    cellActions: gridCellActions,
+    tableCardRef,
+    cellPasteHandlerRef,
+    isReadOnly,
+  });
+
+  // La cellule active change sans re-rendre le tableau : l'ancre d'insertion
+  // suit le magasin de la grille, et ce qui s'affiche passe par GridActiveRow.
   useEffect(() => {
-    insertionAnchorItemIdRef.current = insertionAnchorItemId;
-  }, [insertionAnchorItemId]);
-
-  const activeLineBreadcrumb = useMemo(() => {
-    if (!activeClientKey) return null;
-
-    const activeItem = itemByClientKey.get(activeClientKey);
-    if (!activeItem || activeItem.item_type !== "line") {
-      return null;
-    }
-
-    const labels: string[] = [];
-    let cursorParentId = activeItem.parent_id;
-    let guard = 0;
-
-    while (cursorParentId && guard < 100) {
-      guard += 1;
-      const parent = itemById.get(cursorParentId);
-      if (!parent || parent.item_type !== "section") {
-        break;
-      }
-      labels.push(parent.title || "Sans titre");
-      cursorParentId = parent.parent_id;
-    }
-
-    if (labels.length === 0) {
-      return null;
-    }
-
-    return labels.reverse().join(" > ");
-  }, [activeClientKey, itemByClientKey, itemById]);
+    const syncInsertionAnchor = () => {
+      const activeClientKey = spreadsheetNavigation.getActiveRowId();
+      insertionAnchorItemIdRef.current = activeClientKey
+        ? (itemByClientKey.get(activeClientKey)?.id ?? null)
+        : null;
+    };
+    syncInsertionAnchor();
+    return spreadsheetNavigation.subscribe(syncInsertionAnchor);
+  }, [itemByClientKey, spreadsheetNavigation]);
 
   const openSectionContextMenuForRow = useCallback(
     (sectionId: string, position: { x: number; y: number }) => {
@@ -2560,7 +2516,7 @@ export function EstimateEditorTable({
                       isOpen
                       isReadOnly={isReadOnly}
                       onInsert={(templateId) =>
-                        onInsertTemplate(templateId, insertionAnchorItemId)
+                        onInsertTemplate(templateId, insertionAnchorItemIdRef.current)
                       }
                       onClose={() => setIsQuickTemplatePickerOpen(false)}
                     />
@@ -2568,7 +2524,22 @@ export function EstimateEditorTable({
                 }
               />
             }
-            activeLineBreadcrumb={activeLineBreadcrumb}
+            activeLineBreadcrumbNode={
+              <GridActiveRow navigation={spreadsheetNavigation}>
+                {(activeClientKey) => {
+                  const breadcrumb = resolveActiveLineBreadcrumb(activeClientKey, itemByClientKey, itemById);
+                  return (
+                    <div
+                      className="mt-2 h-4 truncate text-xs leading-4 text-[var(--slate-500)]"
+                      aria-hidden={!breadcrumb}
+                      title={breadcrumb ? `Chemin actif: ${breadcrumb}` : undefined}
+                    >
+                      {breadcrumb ? `Chemin actif: ${breadcrumb}` : null}
+                    </div>
+                  );
+                }}
+              </GridActiveRow>
+            }
             actionError={actionError ?? null}
             scrollContainerRef={scrollContainerRef}
             isLaborSplitEnabled={isLaborSplitEnabled}
@@ -2758,16 +2729,20 @@ export function EstimateEditorTable({
       </datalist>
 
       {isAssemblyPickerOpen ? (
-        <AssemblyPicker
-          isOpen
-          isReadOnly={isReadOnly}
-          anchorItemId={insertionAnchorItemId}
-          anchorLabel={activeLineBreadcrumb}
-          onClose={() => setIsAssemblyPickerOpen(false)}
-          onInsert={(assemblyId) =>
-            onInsertAssembly(assemblyId, insertionAnchorItemId)
-          }
-        />
+        <GridActiveRow navigation={spreadsheetNavigation}>
+          {(activeClientKey) => (
+            <AssemblyPicker
+              isOpen
+              isReadOnly={isReadOnly}
+              anchorItemId={activeClientKey ? (itemByClientKey.get(activeClientKey)?.id ?? null) : null}
+              anchorLabel={resolveActiveLineBreadcrumb(activeClientKey, itemByClientKey, itemById)}
+              onClose={() => setIsAssemblyPickerOpen(false)}
+              onInsert={(assemblyId) =>
+                onInsertAssembly(assemblyId, insertionAnchorItemIdRef.current)
+              }
+            />
+          )}
+        </GridActiveRow>
       ) : null}
 
       {isPastePreviewOpen ? (

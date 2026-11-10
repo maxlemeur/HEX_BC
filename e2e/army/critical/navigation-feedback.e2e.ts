@@ -99,7 +99,7 @@ armyTest("LOAD03 closed action menus keep feedback through failure, retry and na
   expect([created.status, created.body.ok]).toEqual([201, true]);
   const estimate = { projectId: created.body.data.project.id, versionId: created.body.data.version.id };
   ownEstimate(army, estimate);
-  await app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   const pattern = `**/api/estimates/${estimate.versionId}/duplicate`;
   const gate = requestGate();
   await browser.route(pattern, async (route) => {

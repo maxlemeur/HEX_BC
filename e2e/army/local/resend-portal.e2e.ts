@@ -95,7 +95,8 @@ async function prepare(ui: OfferUi, caseId: string) {
   await ui.app.open(`/dashboard/estimates/${ids.versionId}`);
   await expect(ui.screen.getByRole("button", "Envoyer par email", { exact: true })).toBeVisible();
   if (caseId !== "OF0L" && !caseId.startsWith("PDFL")) {
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    // The workbench shows one domain at a time: the PDF and its email are prepared in « Remise ».
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=submission`);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const layout = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     await expect(layout).toBeVisible();

@@ -68,6 +68,12 @@ type UseEstimateClipboardParams = {
     rows: ClipboardPreviewValues[];
     laborRoleId?: string | null;
   }) => Promise<void>;
+  /**
+   * Paste into the cells of the grid: called first with the clipboard text and
+   * the element that received the paste. Returning true means the cells took
+   * it and the import preview must not open.
+   */
+  cellPasteHandlerRef?: RefObject<((text: string, target: Element) => boolean) | null>;
 };
 
 const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardMappingTarget, string> = {
@@ -126,6 +132,7 @@ export function useEstimateClipboard({
   supplyTypeById,
   v3LaborRoles = null,
   onPasteRows,
+  cellPasteHandlerRef,
 }: UseEstimateClipboardParams) {
   const [pasteMatrix, setPasteMatrix] = useState<ClipboardTsvMatrix | null>(null);
   const [pasteMapping, setPasteMapping] = useState<ClipboardColumnMapping>({});
@@ -461,13 +468,21 @@ export function useEstimateClipboard({
         return;
       }
 
+      if (
+        target instanceof Element &&
+        cellPasteHandlerRef?.current?.(clipboardText, target)
+      ) {
+        event.preventDefault();
+        return;
+      }
+
       event.preventDefault();
       openPastePreviewFromText(clipboardText);
     };
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [isReadOnly, openPastePreviewFromText, tableCardRef]);
+  }, [cellPasteHandlerRef, isReadOnly, openPastePreviewFromText, tableCardRef]);
 
   return {
     isPastePreviewOpen,
