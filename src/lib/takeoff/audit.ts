@@ -2,9 +2,11 @@ import { z } from "zod";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
+import type { ForcedItem } from "@/lib/takeoff/force-reasons";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { TAKEOFF_LEVELS, type TakeoffLevel } from "@/lib/takeoff/types";
 import type { Database, Json } from "@/types/database";
@@ -230,9 +232,29 @@ const takeoffAuditMetadataSchemas = {
       blocked_items_count: nonNegativeIntSchema.default(0),
       // TI-677 (PR D): each lifted line's state; the apply trigger refuses the override once one of them changed.
       blocked_items_state: z.array(takeoffApplyOverrideItemStateSchema),
-      justification: z.string().trim().min(10).max(500),
+      // TI-686 D10 (H7, H10): each blocked line's coded reason, its justification stored once; no job-level
+      // justification any more (the trigger refuses the former format).
+      forced_justifications: z.array(forcedJustificationSchema).min(1),
+      forced_items: z.array(forcedItemSchema),
     })
-    .strict(),
+    .strict()
+    .superRefine((metadata, ctx) => {
+      const blocked = new Set(metadata.blocked_item_ids);
+      const forced = new Set<string>();
+      metadata.forced_items.forEach((entry, index) => {
+        if (!blocked.has(entry.item_id) || forced.has(entry.item_id)) {
+          ctx.addIssue({ code: "custom", message: "Une entrée forcée par ligne bloquée.", path: ["forced_items", index, "item_id"] });
+        }
+        forced.add(entry.item_id);
+        if (entry.justification_index >= metadata.forced_justifications.length) {
+          ctx.addIssue({ code: "custom", message: "justification_index hors des justifications.",
+            path: ["forced_items", index, "justification_index"] });
+        }
+      });
+      if (forced.size !== blocked.size) {
+        ctx.addIssue({ code: "custom", message: "Chaque ligne bloquée a son entrée forcée.", path: ["forced_items"] });
+      }
+    }),
   "takeoff.apply.completed": z
     .object({
       estimate_version_id: z.string().uuid(),
@@ -357,7 +379,8 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     blocked_item_ids: string[];
     blocked_items_count?: number;
     blocked_items_state: TakeoffApplyOverrideItemState[];
-    justification: string;
+    forced_justifications: string[];
+    forced_items: ForcedItem[];
   };
   "takeoff.apply.completed": {
     estimate_version_id: string;
@@ -513,15 +536,12 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       estimate_version_id: input.estimate_version_id,
       selected_items_count: input.selected_items_count,
     }),
+  // The whole input reaches the strict schema: a key it does not know (the former justification) is refused.
   "takeoff.apply.override": (input) =>
     takeoffAuditMetadataSchemas["takeoff.apply.override"].parse({
-      estimate_version_id: input.estimate_version_id,
-      threshold: input.threshold,
-      blocked_item_ids: input.blocked_item_ids,
+      ...input,
       blocked_items_count:
         input.blocked_items_count ?? input.blocked_item_ids.length,
-      blocked_items_state: input.blocked_items_state,
-      justification: input.justification,
     }),
   "takeoff.apply.completed": (input) =>
     takeoffAuditMetadataSchemas["takeoff.apply.completed"].parse({

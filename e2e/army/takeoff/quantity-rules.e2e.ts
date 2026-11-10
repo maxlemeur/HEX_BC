@@ -58,7 +58,7 @@ async function patchItems(ui: WorkerUi, jobId: string, items: Array<{ item: Item
 const zoneCode = (item: Item | undefined) => item?.rule_results?.find((entry) => entry.rule === "zone_overlap")?.code ?? null;
 
 /** Z1 then Z2: two level C jobs of one estimate version, each read by the real worker with the vector reading and the rules. */
-async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: string, revision?: "A") {
+async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: string, revision?: "A" | "C") {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const owner = await signUpWorkerOwner(ui, tag);
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${journey}`, title }, ui.army);
@@ -67,7 +67,7 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
   expect(tenantId).toBe(owner.tenantId);
   const jobs: Record<"Z1" | "Z2", string> = { Z1: "", Z2: "" };
-  async function addZone(zone: "Z1" | "Z2", revision?: "A" | "B") {
+  async function addZone(zone: "Z1" | "Z2", revision?: "A" | "B" | "C") {
     const fileName = revision ? `revue-${revision}-R+1-${zone}.pdf` : ZONE_PLANS.zones[zone].fileName;
     const bytes = Buffer.from(await buildZonePlanPdf(zone, revision));
     const jobId = randomUUID();
@@ -356,10 +356,21 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await recordEvidence(ui.army, "TKR03-unit", { actions, durationMs: Math.round(performance.now() - start),
       line: weld.id, file: saved.source_file_name, result: [saved.quantity, saved.unit], boundary: "Actions automatisées, fiche atelier A-07, aucun chronométrage humain." });
 
-    // The workshop sheet confirms the proposed count. Only the quantity entry attests it.
+    // TI-686 D12: the former attestation flag is refused with its request (422), never stored as an entry.
+    const former = await apiRequest<{ ok: boolean; error?: { code?: string } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobs.Z1}/items`,
+      { items: [{ item_id: saved.id, updated_at: saved.updated_at, fields: { quantity: 2, quantity_entered: true } }] });
+    expect([former.status, former.body.ok, former.body.error?.code]).toEqual([422, false, "VALIDATION_ERROR"]);
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)).toMatchObject({ updated_at: saved.updated_at,
+      quantity_entered_by: null, quantity_entry_category: null });
+
+    // The workshop sheet confirms the proposed count. Only the quantity entry attests it, with what it rests on.
     await panel.getByLabel("Quantité à saisir", { exact: true }).click();
-    const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
     await ui.browser.keyboard.press("Enter");
+    const entry = screen.getByRole("dialog", "Justifier la quantité saisie", { exact: true });
+    await entry.getByLabel("Justification", { exact: true }).selectOption({ value: "written_confirmation" });
+    await entry.getByLabel("Ce qui fonde la quantité", { exact: true }).fill("Fiche atelier A-07");
+    const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
+    await entry.getByRole("button", "Enregistrer la quantité", { exact: true }).click();
     expect((await attested).status).toBe(200);
     await expect(list.getByRole("option", /^Soudures atelier/)).toHaveCount(0);
 
@@ -396,6 +407,7 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
     const final = await readItems(ui, jobs.Z1);
     expect(final.find((item) => item.id === weld.id)).toMatchObject({ unit: "u", quantity: 2,
+      quantity_entry_category: "written_confirmation", quantity_entry_note: "Fiche atelier A-07",
       rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
     expect(final.find((item) => item.designation === "ARMY worker pipe")).toMatchObject({ is_excluded: true, exclusion_reason: motif });
     expect(await ef(jobs.Z1)).toMatchObject({ quantity: 4 });
@@ -538,3 +550,110 @@ armyTest("TKR05 network material justification persists and blocked gas cannot b
   expect(blocked.rule_results?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "fail", acceptable: false });
   await recordEvidence(ui.army, "network-material-justification", { peId, blockedId, stored: stored.data, blocked: blocked.rule_results });
 });
+
+// TI-686 D9: a cote that contradicts the title block's scale fails every length of its page. V settles it only with a
+// coded reason and what was checked; the dialog asks for nothing else, and the quantity stays as read. The model's stub
+// pipe names no network (TKR01: its DN rule fails too), so the line here is a run of that page whose network, material
+// and DN agree: the scale is its only failure.
+armyTest("TKR06 a contradicted scale is accepted with a coded reason and what was checked, the quantity unchanged", options,
+  async (ui) => {
+    const { ids, client, jobs } = await seedZoneJobs(ui, "TKR06", "SCL", "Échelle contredite", "C");
+    // The worker read Z1 revision C with its cote: the page's scale is contradicted.
+    const pages = await client.from("takeoff_vector_pages").select("source_file_name,source_page,reading").eq("job_id", jobs.Z1);
+    expect(pages.error).toBeNull();
+    expect((pages.data ?? []).map((page) => (page.reading as { scale?: { status?: string; reason?: string } }).scale))
+      .toEqual([expect.objectContaining({ status: "unverified", reason: "dimension_mismatch" })]);
+    const page = pages.data![0]!;
+    // Setup only: an EF copper DN 22 run of that page (its upload and page number, no other document named), read again.
+    const job = await client.from("takeoff_jobs").select("tenant_id").eq("id", jobs.Z1).single();
+    expect(job.error).toBeNull();
+    const runId = randomUUID();
+    expect((await client.from("takeoff_items").insert({ id: runId, tenant_id: job.data!.tenant_id, job_id: jobs.Z1,
+      designation: "EF cuivre DN 22 sous la cote", quantity: 5, unit: "ml", confidence: 0.95,
+      evidence: "Tronçon fictif sous la cote 4,00 de la page 1", source_page: page.source_page, source_file_name: page.source_file_name,
+      rules_stale: true, metadata: { rule_inputs: { version: 1, source: "designation", kind: "network", network: "EF",
+        material: "cuivre", dn: "DN 22", non_observable: null, model_quantity: 5 } } } as never)).error).toBeNull();
+    await patchItems(ui, jobs.Z1, [{ item: (await readItems(ui, jobs.Z1)).find((item) => item.id === runId)!, fields: { quantity: 5 } }]);
+    const run = (await readItems(ui, jobs.Z1)).find((item) => item.id === runId)!;
+    expect(run).toMatchObject({ quantity: 5, rules_stale: false, is_verified: false });
+    expect(run.rule_results?.find((entry) => entry.rule === "dn_network")).toMatchObject({ status: "pass", code: "DN_NETWORK_COMPATIBLE" });
+    expect(run.rule_results?.filter((entry) => entry.status === "fail")).toEqual([expect.objectContaining({ rule: "scale_dimension",
+      code: "SCALE_DIMENSION_MISMATCH", version: 2, acceptable: true })]);
+
+    const bare = await apiRequest<{ ok: boolean; data: { results: Array<{ success: boolean; error?: string }> } }>(ui.browser, "PATCH",
+      `/api/takeoff/jobs/${jobs.Z1}/items`, { items: [{ item_id: run.id, updated_at: run.updated_at, fields: { is_verified: true } }] });
+    expect([bare.status, bare.body.ok]).toEqual([200, true]);
+    expect(bare.body.data.results[0]).toMatchObject({ success: false,
+      error: "Une cote de la page contredit l’échelle : un motif codé et ce qui a été vérifié (10 à 500 caractères) sont obligatoires." });
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted?versionId=${ids.versionId}&line=${run.id}`);
+    const panel = ui.screen.getByRole("region", "Décision sur la ligne", { exact: true });
+    await expect(panel).toContainText("SCALE_DIMENSION_MISMATCH");
+    await expect(panel).toContainText("Accepter (V) exige un motif.");
+    await panel.getByRole("button", /^Accepter/).click();
+    const dialog = ui.screen.getByRole("dialog");
+    await expect(dialog.getByRole("heading", "Justifier l’acceptation")).toBeVisible();
+    await expect(dialog.getByLabel("Référence du système")).toHaveCount(0);
+    await expect(dialog.getByLabel("Motif de surface")).toHaveCount(0);
+    const confirm = dialog.getByRole("button", "Confirmer l’acceptation", { exact: true });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel("Motif d’échelle", { exact: true }).selectOption({ value: "dimension_not_to_scale" });
+    const note = "Cote 4,00 du plan Z1 indice C relue : tronçon interrompu, hors échelle.";
+    await dialog.getByLabel("Ce qui a été vérifié", { exact: true }).fill(note);
+    await confirm.click();
+    await expect(ui.screen.getByText("Ligne acceptée avec justification", { exact: true })).toBeVisible();
+
+    const stored = (await readItems(ui, jobs.Z1)).find((item) => item.id === run.id)!;
+    expect(stored).toMatchObject({ is_verified: true, quantity: 5,
+      verification_justification: { scale_dimension: { reason_code: "dimension_not_to_scale", note } } });
+    await recordEvidence(ui.army, "TKR06-scale-reason", { ids, jobs, run: run.id, page: { source_file_name: page.source_file_name,
+      source_page: page.source_page }, failure: run.rule_results, stored: stored.verification_justification ?? null });
+  });
+
+// TI-686 D12: a quantity the plan cannot show is entered with what it rests on; an hypothesis says what it assumes
+// and what remains to confirm. The complete review never enters a quantity still to enter by a bare edit: it sends it
+// to the targeted review, unsaved, where it is justified.
+armyTest("TKR07 the complete review sends a weld count to the targeted review, where an hypothesis says what it assumes", options,
+  async (ui) => {
+    const { ids, jobs } = await seedZoneJobs(ui, "TKR07", "HYP", "Saisie sur hypothèse", "A");
+    const { screen } = ui;
+    const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
+    const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
+    expect(weld).toMatchObject({ quantity: 2, unit: "kg", quantity_entry_category: null });
+
+    // The complete review: a new count typed on the line leads to the targeted review, unsaved.
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review?versionId=${ids.versionId}&reviewMode=production`);
+    const row = screen.getByRole("row").filter({ hasText: "Soudures atelier" });
+    // The line's quantity cell, by its grid identity (row id and column), never by a text another cell could show.
+    await ui.browser.locator(`[data-cell-id="${weld.id}::quantity"]`).click();
+    await ui.browser.keyboard.press("F2");
+    await row.getByLabel("Quantité", { exact: true }).fill("6");
+    await expect(screen.getByText("Une quantité à saisir se justifie dans la revue ciblée.", { exact: true })).toBeVisible();
+    await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted\\?`
+      + `versionId=${ids.versionId}&line=${weld.id}$`));
+    await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)).toMatchObject({ quantity: 2,
+      updated_at: weld.updated_at, quantity_entry_category: null });
+    await recordEvidence(ui.army, "TKR07-redirected", { ids, jobs, line: weld.id });
+
+    // The targeted review: F2, 6, Enter, then what the count rests on. An hypothesis without its note is not saved.
+    await ui.browser.keyboard.press("F2");
+    await ui.browser.keyboard.press("6");
+    await expect(panel.getByLabel("Quantité à saisir", { exact: true })).toHaveValue("6");
+    await ui.browser.keyboard.press("Enter");
+    const dialog = screen.getByRole("dialog", "Justifier la quantité saisie", { exact: true });
+    const save = dialog.getByRole("button", "Enregistrer la quantité", { exact: true });
+    await dialog.getByLabel("Justification", { exact: true }).selectOption({ value: "hypothesis" });
+    await expect(save).toBeDisabled();
+    const assumed = "6 soudures supposées : 3 piquages × 2, à confirmer au relevé.";
+    await dialog.getByLabel("Ce qui fonde la quantité", { exact: true }).fill(assumed);
+    await expect(save).toBeEnabled();
+    const entered = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z1}/items`);
+    await save.click();
+    expect((await entered).status).toBe(200);
+    const stored = (await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)!;
+    expect(stored).toMatchObject({ quantity: 6, quantity_entry_category: "hypothesis", quantity_entry_note: assumed,
+      rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
+    await recordEvidence(ui.army, "TKR07-hypothesis", { ids, jobs, line: weld.id, quantity: stored.quantity,
+      category: stored.quantity_entry_category ?? null, note: stored.quantity_entry_note ?? null });
+  });

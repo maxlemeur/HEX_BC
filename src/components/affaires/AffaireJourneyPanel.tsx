@@ -34,8 +34,17 @@ function subscribeHash(callback: () => void) {
 const readHash = () => window.location.hash;
 const emptyHash = () => "";
 
+/**
+ * A link of the journey. An anchor of the affaire page is a plain link: the browser then announces the new hash
+ * (`hashchange`), which opens the section and reveals the purchases. The router changes the address without it.
+ */
+function JourneyLink({ href, children }: { href: string; children: ReactNode }) {
+  const content = <>{children}<ArrowRight size={14} aria-hidden="true" /></>;
+  return href.startsWith("#") ? <a className="journey-text-action" href={href}>{content}</a> : <Link className="journey-text-action" href={href}>{content}</Link>;
+}
+
 function JourneyAction({ action, onOpenSurface }: { action: PilotageAction; onOpenSurface?: Props["onOpenSurface"] }) {
-  if (action.kind === "href") return <Link className="journey-text-action" href={action.href}>{action.label}<ArrowRight size={14} aria-hidden="true" /></Link>;
+  if (action.kind === "href") return <JourneyLink href={action.href}>{action.label}</JourneyLink>;
   return onOpenSurface ? <button className="journey-text-action" onClick={() => onOpenSurface(action.surfaceId)}>{action.label}<ArrowRight size={14} aria-hidden="true" /></button> : null;
 }
 
@@ -103,7 +112,7 @@ export function AffairePilotagePanel(props: Props) {
   if (props.workspaceView === "submission") {
     return <section className="affaire-journey space-y-5" aria-label="Remise et commandes">
       {journey.canShowOutput ? <div className="journey-panel journey-panel-body">{stageContent("remise")}</div> : null}
-      {journey.showPurchases ? stageContent("achats") : currentVersion ? <Link className="journey-text-action" href="#finish-line-orders">Consulter les commandes existantes<ArrowRight size={14} aria-hidden="true" /></Link> : null}
+      {journey.showPurchases ? stageContent("achats") : currentVersion ? <JourneyLink href="#finish-line-orders">{(props.finishLineSummary?.readyToOrder.counts?.totalSupplierLines ?? 0) > 0 ? "Préparer les achats de cette version" : "Consulter les commandes existantes"}</JourneyLink> : null}
     </section>;
   }
 
@@ -125,8 +134,8 @@ export function AffairePilotagePanel(props: Props) {
       })}
     </div><aside className="journey-facts" aria-label="Repères du dossier">
       <h3>Repères du dossier</h3><dl><div><dt>Documents reçus</dt><dd>{intakeWorkspace ? `${documents.length} pièce${documents.length > 1 ? "s" : ""}` : "Indisponible"}</dd></div><div><dt>Plans confirmés</dt><dd>{intakeWorkspace ? `${validPlans} plan${validPlans > 1 ? "s" : ""}` : "Indisponible"}</dd></div><div><dt>Brief</dt><dd>{!intakeWorkspace ? "Indisponible" : journey.briefConfirmed ? "Confirmé" : intakeWorkspace.briefDraft ? "À confirmer" : "Non renseigné"}</dd></div></dl>
-      {intakeWorkspace?.briefDraft ? <Link className="journey-text-action" href="#brief">Consulter le brief<ArrowRight size={14} aria-hidden="true" /></Link> : null}
-      {currentVersion && !journey.showPurchases && (!props.finishLineSummary || props.finishLineSummary.readyToOrder.status === "unavailable") ? <Link className="journey-text-action" href="#finish-line-orders">Consulter les commandes existantes<ArrowRight size={14} aria-hidden="true" /></Link> : null}
+      {intakeWorkspace?.briefDraft ? <JourneyLink href="#brief">Consulter le brief</JourneyLink> : null}
+      {currentVersion && !journey.showPurchases && (!props.finishLineSummary || props.finishLineSummary.readyToOrder.status === "unavailable") ? <JourneyLink href="#finish-line-orders">Consulter les commandes existantes</JourneyLink> : null}
     </aside></div>
   </section>;
 }

@@ -204,9 +204,11 @@ describe("TI-685 D18b couple condition beside a DN failure", () => {
 });
 
 describe("TI-685 gas multilayer wording", () => {
+  // TI-686 D10: the override that exists asks each forced line for a coded reason and a written justification.
   it("promises only the administrator override that exists", () => {
     expect(dnNetwork({ network: "GAZ", material: "multicouche", dn: "Ø 26" })).toMatchObject({ status: "fail", acceptable: false,
       code: "DN_NETWORK_MATERIAL_BLOCKED",
-      reason: "Multicouche en gaz : interdit, ne s’accepte pas en relecture. Seul un administrateur peut forcer l’application, avec une justification écrite." });
+      reason: "Multicouche en gaz : interdit, ne s’accepte pas en relecture. Seul un administrateur peut forcer l’application, "
+        + "avec un motif codé et une justification écrite." });
   });
 });

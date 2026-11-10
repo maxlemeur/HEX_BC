@@ -48,7 +48,8 @@ export function useTakeoffApplyConfirm(input: {
         target_section_id: payload.targetSectionId,
         overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
         override: payload.override,
-        override_justification: payload.overrideJustification,
+        forced_justifications: payload.forced?.forced_justifications,
+        forced_items: payload.forced?.forced_items,
       }, versionId);
       onApplied(response, payload);
     } catch (err) {

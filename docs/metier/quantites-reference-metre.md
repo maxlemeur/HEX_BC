@@ -51,7 +51,8 @@ référence par tronçon.
   identiques, mais un écart cumulé de 2 m sur 100 m : une vérification est exigée.
 
 La proposition antérieure `max(2 %, 0,1 m²)` est remplacée par ce contrat dans la
-règle `area_printed` version 2. Le contrôle distinct du
+règle `area_printed`, version 2 puis version 3 (TI-686, qui ajoute la base attendue par la
+ligne de prix au résultat). Le contrôle distinct du
 chevauchement géométrique des pièces conserve son propre contrat.
 
 ## Bases des surfaces
@@ -84,9 +85,15 @@ sans compensation, le seuil de 1 % et le refus des comparaisons de bases ou de
 lignes différentes. La simple suggestion de la valeur supérieure dans la revue
 ne suffit pas si l'application SQL utilise encore une autre quantité.
 
-L'acceptation justifiée d'un échec de surface, avec la base retenue et les règles
-acquittées, reste articulée avec
-[TI-686](https://linear.app/ti-max/issue/TI-686/metre-l5-motif-code-pour-accepter-un-echec-technique-ou-forcer-une).
+L'acceptation d'un échec de surface exige, depuis TI-686 (D9), un motif codé, la base
+reconnue à la surface écrite et une note ; elle est journalisée avec les clés des échecs
+acquittés. Quand cette base est celle de la ligne de prix, les deux surfaces se comparent
+et la plus élevée est retenue : l'acceptation exige une quantité au moins égale à la
+surface écrite, relevée avant l'acceptation. Le motif « contour mesuré retenu » fait
+exception (D21) : il dit que la surface écrite ne couvre pas le même périmètre, et
+la quantité reste alors la mesure. Avec une autre base, la quantité reste celle de la
+ligne (voir « Aire du polygone cohérente avec la surface imprimée » dans les
+[règles actuelles du métré](regles-metre.md)).
 Voir les [règles actuelles du métré](regles-metre.md) et la
 [lecture vectorielle](lecture-vectorielle.md) pour le comportement du code
 existant. Une migration locale validée ne prouve pas son application sur la base

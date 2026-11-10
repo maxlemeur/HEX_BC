@@ -193,7 +193,8 @@ as $$
 $$;
 grant execute on function pg_temp.decisions_write(uuid, jsonb) to service_role;
 
--- An admin override's audit, as the route writes it: its blocked line's state when given.
+-- An admin override's audit, as the route writes it: its blocked line's state when given, and its coded reason with its
+-- justification (TI-686 D10).
 create or replace function pg_temp.decisions_override(p_item_id uuid, p_state jsonb)
 returns void
 language sql
@@ -204,7 +205,10 @@ as $$
     jsonb_build_object('schema_version', 1, 'action', 'takeoff.apply.override', 'job_id', job.id, 'tenant_id', job.tenant_id,
       'user_id', '9d000000-0000-4000-8000-000000000002',
       'metadata', jsonb_build_object('estimate_version_id', job.estimate_version_id, 'threshold', 0.5,
-        'blocked_item_ids', jsonb_build_array(p_item_id), 'blocked_items_count', 1, 'justification', 'Vérifié sur le plan fictif')
+        'blocked_item_ids', jsonb_build_array(p_item_id), 'blocked_items_count', 1,
+        'forced_justifications', jsonb_build_array('Vérifié sur le plan fictif'),
+        'forced_items', jsonb_build_array(jsonb_build_object('item_id', p_item_id, 'reason_code', 'additional_evidence',
+          'justification_index', 0)))
         || case when p_state is null then '{}'::jsonb else jsonb_build_object('blocked_items_state', jsonb_build_array(p_state)) end)
   from public.takeoff_items item join public.takeoff_jobs job on job.id = item.job_id
   where item.id = p_item_id
@@ -317,8 +321,9 @@ select pg_temp.as_user('9d000000-0000-4000-8000-000000000001');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('is_verified', true,
   'verified_at', now(), 'verified_by', '9d000000-0000-4000-8000-000000000001')), 1, 'the user verifies a line');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('quantity', 7,
-  'quantity_entered_at', now(), 'quantity_entered_by', '9d000000-0000-4000-8000-000000000001')), 1,
-  'then types its quantity (which withdraws the verification)');
+  'quantity_entered_at', now(), 'quantity_entered_by', '9d000000-0000-4000-8000-000000000001',
+  'quantity_entry_category', 'site_survey')), 1,
+  'then types its quantity with its category (TI-686 D12), which withdraws the verification');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('quantity', 7)), 1,
   'then saves the same quantity');
 select is(pg_temp.decisions_save('9d000000-0000-4000-8000-000000000403', jsonb_build_object('is_excluded', true,
@@ -341,7 +346,8 @@ select is(
     jsonb_build_array('takeoff.item.modified', 'is_verified', true, false, null),
     jsonb_build_array('takeoff.item.modified', 'is_verified', false, true, null),
     jsonb_build_array('takeoff.item.modified', 'quantity', 5.000, 7, null),
-    jsonb_build_array('takeoff.item.modified', 'quantity_entered_by', null, '9d000000-0000-4000-8000-000000000001', null)),
+    jsonb_build_array('takeoff.item.modified', 'quantity_entered_by', null, '9d000000-0000-4000-8000-000000000001', null),
+    jsonb_build_array('takeoff.item.modified', 'quantity_entry_category', null, 'site_survey', null)),
   'each change is journaled once, by the signed-in user, with its value before and after; an unchanged save is not');
 
 -- Q4: an excluded line always has a reason, whatever the path ------------------------------------------

@@ -1,8 +1,9 @@
 "use client";
 
-import { AFFAIRE_INTAKE_CAD_NOTICE, isAffaireIntakeCadDocument } from "@/lib/affaires/intake";
+import { isAffaireIntakeCadDocument } from "@/lib/affaires/intake";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Download,
   ExternalLink,
@@ -24,12 +25,30 @@ import {
 } from "@/lib/affaires/document-triage";
 import { IntakePdfPreview } from "./IntakePdfPreview";
 
+// The drawing reader comes with the first CAD original opened, so that the
+// pages that show the dossier do not carry it.
+const IntakeCadPreview = dynamic(
+  () => import("./IntakeCadPreview").then((module) => module.IntakeCadPreview),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="document-preview-empty" role="status">
+        <LoaderCircle className="animate-spin" size={24} />
+        <p>Lecture du plan…</p>
+      </div>
+    ),
+  },
+);
+
 export function IntakeDocumentPreview({
   projectId,
   document,
+  canManage = false,
 }: {
   projectId: string;
   document: DossierDocument;
+  /** Whether the reader may add a file to the dossier, such as the plotted PDF of a drawing. */
+  canManage?: boolean;
 }) {
   const [resource, setResource] = useState<{
     url: string;
@@ -38,7 +57,14 @@ export function IntakeDocumentPreview({
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [cadDrawn, setCadDrawn] = useState(false);
   const format = dossierPreviewFormat(document);
+  // A CAD original is read in the browser, where the other formats are shown as they come.
+  const cad =
+    isAffaireIntakeCadDocument(document.fileName) &&
+    document.uploadStatus === "uploaded" &&
+    !document.isBeingDeleted;
+  const canExpand = cad ? cadDrawn : Boolean(resource);
   const endpoint = `/api/affaires/${projectId}/intake/files/${document.documentId}/preview`;
   useEffect(() => {
     if (
@@ -108,7 +134,7 @@ export function IntakeDocumentPreview({
           <p>
             {document.uploadStatus !== "uploaded"
               ? "Ce fichier n’est pas disponible."
-              : isAffaireIntakeCadDocument(document.fileName) ? AFFAIRE_INTAKE_CAD_NOTICE : "Ouvrez ce format dans son application pour le consulter."}
+              : "Ouvrez ce format dans son application pour le consulter."}
           </p>
         </div>
       );
@@ -155,14 +181,28 @@ export function IntakeDocumentPreview({
         </div>
         <button
           className="document-desk-icon"
-          disabled={!resource}
+          disabled={!canExpand}
           aria-label="Agrandir le document"
           onClick={() => setExpanded(true)}
         >
           <Maximize2 size={17} />
         </button>
       </div>
-      <div className="document-preview-canvas">{canvas()}</div>
+      <div className="document-preview-canvas">
+        {cad ? (
+          <IntakeCadPreview
+            projectId={projectId}
+            fileName={document.fileName}
+            url={`${endpoint}?download=1`}
+            canManage={canManage}
+            expanded={expanded}
+            onExpandedChange={setExpanded}
+            onDrawingChange={setCadDrawn}
+          />
+        ) : (
+          canvas()
+        )}
+      </div>
       <div className="document-preview-footer">
         <p>
           {document.driveSource
@@ -173,7 +213,7 @@ export function IntakeDocumentPreview({
             : ""}
         </p>
         <div>
-          {resource && (
+          {canExpand && (
             <button
               className="document-desk-button"
               onClick={() => setExpanded(true)}
@@ -202,7 +242,7 @@ export function IntakeDocumentPreview({
           )}
         </div>
       </div>
-      <Dialog open={expanded} onOpenChange={setExpanded}>
+      <Dialog open={expanded && !cad} onOpenChange={setExpanded}>
         <DialogContent size="xl" className="document-preview-dialog">
           <DialogHeader>
             <DialogTitle className="break-all">{document.fileName}</DialogTitle>

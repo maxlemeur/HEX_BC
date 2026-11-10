@@ -23,7 +23,7 @@ armyTest("HUB04 the preparation hero identifies the retained plan set before lau
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB04`, title: "ARMY hub avec plans" }, ui.army);
   const set = await createPlanSet(ui, ui.army, estimate, "Lot CVC");
   const file = await uploadSamplePlan(ui, ui.army, set);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   const prompt = ui.screen.getByRole("region", "Préparation du métré", { exact: true });
   await expect(prompt).toBeVisible();
   await expect(prompt.getByText(/Lot CVC · 1 fichier/)).toBeVisible();

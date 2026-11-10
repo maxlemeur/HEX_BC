@@ -50,7 +50,7 @@ lignes à prix positif, avec statuts et provenance. À c_FO 1,3, c_MO 1,2 et
 | Source | Contrôle |
 | --- | --- |
 | [Fixture SQL commune](../../supabase/tests/fixtures/large-v3-estimate.sql) | Création réelle et témoin de 8 items ; réglages c_FO 1,3 → 2 ; copies avec provenance ; statements annulés entre mesures |
-| [Sonde exécutée par défaut](../../supabase/tests/database/estimate-large-v3-scale.test.sql) | Volume, statuts, HT, absence de révision par ligne à la création, audit, projection de toutes les lignes et 785 repricings ; copie 1 000 opérations sans réécriture des lignes existantes, refus atomique |
+| [Sonde exécutée par défaut](../../supabase/tests/database/estimate-large-v3-scale.test.sql) | Volume, statuts, HT, absence de révision par ligne à la création, audit, projection de toutes les lignes et 785 repricings ; copie 1 000 opérations sans réécriture des lignes existantes, refus atomique ; ajout d'une ligne par la grille (`atomic_create_estimate_item`) sans réécriture des 1 900 lignes stockées |
 | [Budget local](../../supabase/tests/budget/estimate-large-v3-statement-budget.test.sql) | N = 7 : création/réglages ≤ 1 000 ms, copie 1 000 ≤ 875 ms, batch 100 ≤ 400 ms |
 | [Plafond de copie](../../supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql) | N = 1 : copie dans le grand v3 ≤ 3 500 ms sur le job isolé |
 

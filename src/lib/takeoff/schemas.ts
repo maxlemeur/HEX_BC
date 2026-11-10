@@ -10,6 +10,10 @@ import {
   TAKEOFF_COMPARE_MIN_THRESHOLD,
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
 } from "@/lib/takeoff/limits";
+import { FORCE_REASON_CODES } from "@/lib/takeoff/force-reason-codes";
+import type { ForcedItem } from "@/lib/takeoff/force-reasons";
+import { ACCEPTANCE_NOTE, JUSTIFICATION_MESSAGE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
+import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 
 const requiredTextSchema = z
   .string()
@@ -530,36 +534,73 @@ export const takeoffMappingOverrideSchema = z.discriminatedUnion("action", [
 
 const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
 
+// TI-686 D10 (H7): the forced lines of an administrator's override, as the apply request and its audit carry them
+// (audit.ts). This file reaches the browser on every takeoff page (client.ts): it takes the codes alone
+// (force-reason-codes.ts), not their labels nor the checks (force-reasons.ts), which only the apply wizard loads.
+
+/** A justification as the request and the audit carry it: without its blanks at the ends, 10 to 500 code points. */
+export const forcedJustificationSchema = z.string().overwrite(noteText)
+  .refine(validNote, JUSTIFICATION_MESSAGE)
+  .meta({ minLength: ACCEPTANCE_NOTE.min, maxLength: ACCEPTANCE_NOTE.max });
+
+/** One forced line: its coded reason, the rules at fault for a false positive, and the index of its justification. */
+export const forcedItemSchema = z.object({
+  item_id: z.string().uuid("item_id invalide."),
+  reason_code: z.enum(FORCE_REASON_CODES),
+  false_positive_rules: z.array(z.enum(TAKEOFF_RULE_IDS)).optional(),
+  justification_index: z.number().int().nonnegative(),
+}).strict() satisfies z.ZodType<ForcedItem>;
+
 export const takeoffApplyRequestSchema = z
   .object({
     strategy: takeoffApplyStrategySchema,
     target_section_id: z.string().uuid("target_section_id invalide.").nullable().optional(),
     overrides: z.array(takeoffMappingOverrideSchema).optional(),
     override: z.boolean().optional(),
-    override_justification: z
-      .string()
-      .trim()
-      .min(10, "Justification trop courte (min 10 caracteres).")
-      .max(500, "Justification trop longue.")
-      .optional(),
+    // TI-686 D10 (H7): an administrator forces each blocked line with a coded reason and a justification, the texts
+    // stored once (forced_items[].justification_index). No cap on the number of lines; the former job-level
+    // override_justification is refused (strict object).
+    forced_justifications: z.array(forcedJustificationSchema).min(1).optional(),
+    forced_items: z.array(forcedItemSchema).min(1).optional(),
   })
   .strict()
   .superRefine((payload, ctx) => {
-    if (payload.override === true && !payload.override_justification) {
+    const forced = payload.forced_items !== undefined || payload.forced_justifications !== undefined;
+    if (payload.override === true && (payload.forced_items === undefined || payload.forced_justifications === undefined)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "override_justification est obligatoire quand override=true.",
-        path: ["override_justification"],
+        message: "forced_items et forced_justifications sont obligatoires quand override=true.",
+        path: [payload.forced_items === undefined ? "forced_items" : "forced_justifications"],
       });
     }
 
-    if (payload.override !== true && payload.override_justification) {
+    if (payload.override !== true && forced) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "override_justification ne peut être fourni que si override=true.",
-        path: ["override_justification"],
+        message: "forced_items et forced_justifications ne peuvent être fournis que si override=true.",
+        path: [payload.forced_items !== undefined ? "forced_items" : "forced_justifications"],
       });
     }
+
+    const forcedIds = new Set<string>();
+    payload.forced_items?.forEach((entry, index) => {
+      const id = entry.item_id.toLowerCase();
+      if (forcedIds.has(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "forced_items doit contenir des item_id uniques.",
+          path: ["forced_items", index, "item_id"],
+        });
+      }
+      forcedIds.add(id);
+      if (entry.justification_index >= (payload.forced_justifications?.length ?? 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "justification_index ne désigne aucune justification.",
+          path: ["forced_items", index, "justification_index"],
+        });
+      }
+    });
 
     if (!payload.overrides || payload.overrides.length === 0) {
       return;

@@ -221,6 +221,14 @@ function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined
   return input.suite === "full" && plan?.development === "none" ? "filtered-full" : input.suite;
 }
 
+/** Names results that did not pass as "<unit> : <file> : <title> (<status>)". */
+function nameNotPassed(red: Record<string, unknown>[], where: string, notPassed: string[]) {
+  for (const result of red) {
+    const title = Array.isArray(result.titlePath) && result.titlePath.length ? result.titlePath.map(String).join(" > ") : String(result.testId ?? "");
+    notPassed.push(`${where} : ${path.posix.basename(String(result.file))} : ${title} (${String(result.status)})`);
+  }
+}
+
 function checkReport(unitDirectory: string, phase: string, where: string, problems: string[], notPassed: string[]): Report | undefined {
   const relative = `${phase}/report.json`;
   const file = path.join(unitDirectory, relative);
@@ -239,10 +247,7 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
   if (results.length === 0) problems.push(`${where} ${relative} has no selected result.`);
   const red = results.filter((result) => result.status !== "passed");
   if (red.length) problems.push(`${where} ${relative}: ${red.length} selected result(s) not passed, first ${String(red[0].file)} (${String(red[0].status)}).`);
-  for (const result of red) {
-    const title = Array.isArray(result.titlePath) && result.titlePath.length ? result.titlePath.map(String).join(" > ") : String(result.testId ?? "");
-    notPassed.push(`${where} : ${path.posix.basename(String(result.file))} : ${title} (${String(result.status)})`);
-  }
+  nameNotPassed(red, where, notPassed);
   if (["failed", "skipped", "flaky", "interrupted"].some((key) => (summary[key] ?? 0) !== 0) ||
     ["selected", "executed", "passed"].some((key) => summary[key] !== results.length) || run.exitCode !== 0) {
     problems.push(`${where} ${relative} counts do not add up to every selected result executed and passed.`);
@@ -325,6 +330,15 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
       problems.push(`${where} calc-v3.json: phases ${phases.map((phase) => `${String(phase.phase)} ${String(phase.status)}`).join(", ") || "none"}.`);
     }
     if (unit.phase !== "all" && !same(result.phases, [unit.phase!])) problems.push(`${where} calc-v3.json ran ${result.phases.join(", ")}.`);
+    // The phase's own status decides the aggregate; its e2e report only names the red journeys.
+    // A phase that stopped before its journeys has no report and names none.
+    for (const phase of result.phases.filter((name) => /^[a-z0-9-]+$/u.test(name))) {
+      try {
+        const run = record(record(readJson(path.join(directory, phase, "sdk", "report.json"))).run);
+        nameNotPassed((Array.isArray(run.results) ? run.results : []).map(record)
+          .filter((entry) => entry.selected === true && entry.status !== "passed"), unit.id, notPassed);
+      } catch { /* no readable report */ }
+    }
   } else {
     if (unit.kind === "shard") {
       const shard = record(manifest.shard);
@@ -416,7 +430,8 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
     startedAt, finishedAt: new Date().toISOString(), jobs: input.results,
     plan: input.suite === "calc-v3" ? { phases: input.plan } : { reason: plan?.reason, files: plan?.files, workers: plan?.workers,
       development: plan?.development, shards: plan?.shards },
-    units: records, ...(union ? { union } : {}), problems,
+    // notPassed: read by nightly-alert.ts to name the red journeys of a scheduled campaign.
+    units: records, ...(union ? { union } : {}), problems, notPassed,
   };
   fs.mkdirSync(input.out, { recursive: true });
   fs.writeFileSync(path.join(input.out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

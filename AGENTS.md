@@ -77,6 +77,7 @@ contract take precedence over historical reports and procedures.
 | Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
 | Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
 | Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
+| Push to `main` of code or journeys | `npm run e2e:army:reach` first: the Critical run of a push leaves out the takeoff, development, extended and calc-v3 journeys. Run the commands it prints for the journeys it maps to the change. Where it falls back to every takeoff journey or calc-v3 phase, run those whose screens or data the change can alter; the Full and calc-v3 campaigns that follow the push cover the others. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
 | Final code | `npm run verify:pr` once (about 3 minutes cold, 1.5 warm). Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
@@ -97,6 +98,11 @@ contract take precedence over historical reports and procedures.
 - Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
   conforming dependencies; use `npm ci` when installation is needed, inside the
   checkout root. See the [test guide](e2e/README.md) for setup and suite contents.
+- Start the local server someone browses with `npm run dev` or `npm run dev:chatgpt`
+  as written, on Next's default compiler (Turbopack). `--webpack` belongs to the
+  scripts that already pass it (builds, Army development): in `next dev` it took
+  20 s instead of 7 s to compile the estimate editor and its API routes on a first
+  visit, twice the memory, and seconds more for each file changed in the checkout.
 - Browser campaigns require no ambient `.env` files or inherited DB/Supabase
   credentials, matching dependencies and sources frozen during qualification;
   task changes may be uncommitted. Isolate when needed without moving personal
@@ -130,7 +136,10 @@ contract take precedence over historical reports and procedures.
   documentation-only starts a full Critical run of about 15 minutes, and nothing
   cancels it. After pushing, read the Quality Gate and Critical results of your
   commit. If your change made one red, fix it before other work; if it was
-  already red, say so in your report.
+  already red, say so in your report. The push also queues the Full and calc-v3
+  [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
+  one at a time: an open issue « CI rouge sur main » names their red journeys,
+  and one your change caused is yours to fix.
 - Pull requests are the exception (asked for, Dependabot, or an environment that
   cannot push to `main`). Open them ready for review, never as drafts, with the
   template. Push once per review round, since a new push cancels the runs in

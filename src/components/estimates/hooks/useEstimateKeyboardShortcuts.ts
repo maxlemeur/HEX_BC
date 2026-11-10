@@ -94,6 +94,8 @@ export function useEstimateKeyboardShortcuts({
   // after lines shown outside a discrete event, such as a server answer, Ctrl+A selected the previous
   // lines and Ctrl+C copied them as they were until that effect ran.
   const handleKeyDown = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    // The grid already used this key on its cells (Suppr clears them, Ctrl+D fills down).
+    if (event.defaultPrevented) return;
     const target = event.target;
     const withinTable =
       tableCardRef.current && target instanceof Node

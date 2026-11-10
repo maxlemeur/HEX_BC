@@ -129,6 +129,9 @@ export function V3UnitCell({
   const displayed = formatEstimateV3UnitLabel(item.unit_code);
   const value = draft ?? displayed;
   const errorId = `${cell.rowId}-v3-unit-error`;
+  // Au repos la colonne étroite montre le code (« ml ») ; le champ garde le libellé complet,
+  // lu par les lecteurs d'écran et affiché dès qu'il a le focus.
+  const showsUnitCode = draft === null && !error && Boolean(item.unit_code);
 
   return (
     <div
@@ -139,7 +142,9 @@ export function V3UnitCell({
       className={toCellClassName(
         navigation,
         cell,
-        `estimate-cell${!value.trim() || error ? " estimate-cell--required-empty" : ""}`,
+        `estimate-cell${!value.trim() || error ? " estimate-cell--required-empty" : ""}${
+          showsUnitCode ? " estimate-cell--unit-coded" : ""
+        }`,
       )}
     >
       <input
@@ -160,8 +165,17 @@ export function V3UnitCell({
         }}
         onBlur={(event) => {
           editorProps.onBlur(event);
-          if (draft === null) return;
-          const resolution = resolveEstimateV3UnitInput(draft, item.unit_code);
+          // La valeur du champ fait foi : Échap la restaure juste avant de quitter la cellule,
+          // avant que le brouillon React ne soit rendu.
+          const raw = event.currentTarget.value;
+          if (draft === null && raw === displayed) return;
+          if (raw === displayed) {
+            setDraft(null);
+            setError(null);
+            event.currentTarget.setCustomValidity("");
+            return;
+          }
+          const resolution = resolveEstimateV3UnitInput(raw, item.unit_code);
           if (resolution.kind === "invalid") {
             setError(resolution.message);
             event.currentTarget.setCustomValidity(resolution.message);
@@ -176,6 +190,11 @@ export function V3UnitCell({
         aria-label={`Unité pour ${lineLabel(item)}`}
         disabled={isReadOnly}
       />
+      {showsUnitCode ? (
+        <span className="estimate-unit-code" aria-hidden="true">
+          {item.unit_code}
+        </span>
+      ) : null}
       {error ? <span id={errorId} className="sr-only">{error}</span> : null}
     </div>
   );
@@ -264,7 +283,7 @@ export function V3LaborHoursCellContent({
 }) {
   const totalHours = useEstimateV3LineTotalHours(item);
   return (
-    <div className="flex min-w-0 flex-col items-stretch gap-0.5">
+    <div className="estimate-hours-stack flex min-w-0 flex-col items-stretch">
       <DecimalDraftInput
         className="estimate-input estimate-input--compact-number"
         ref={editorProps.ref}
@@ -282,7 +301,7 @@ export function V3LaborHoursCellContent({
         placeholder="0"
         disabled={isReadOnly}
       />
-      <span className="flex items-baseline justify-end gap-0.5 text-micro text-muted-foreground" title="Total d'heures de la ligne : Qté × h MO / u">
+      <span className="estimate-hours-stack__sum flex items-baseline justify-end gap-0.5 text-micro text-muted-foreground" title="Total d'heures de la ligne : Qté × h MO / u">
         <span aria-hidden="true">Σ</span>
         <output aria-label={`Heures de main-d’œuvre totales pour ${lineLabel(item)}`} className="tabular-nums">
           {formatEstimateV3Hours(totalHours)}

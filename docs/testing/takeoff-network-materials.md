@@ -9,10 +9,11 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
   jusqu'au raccord métal/plastique. Cette exigence reste présente avec un diamètre
   absent ou hors série.
 - Multicouche gaz : échec non acceptable en relecture. Seul un administrateur peut
-  forcer l’application, avec une justification écrite (override existant, de 10 à
-  500 caractères, journalisé dans `audit_logs`, jamais imprimé pour le client).
-  Réserve, variante, provision interne et motif codé de forçage n'existent pas
-  encore : ils sont à construire (TI-686).
+  forcer l’application, avec un motif codé et une justification écrite de 10 à 500
+  caractères par ligne (TI-686, D10 : journalisés dans `audit_logs`, jamais imprimés
+  pour le client ; « Faux positif de règle » nomme `dn_network`). La ligne forcée entre
+  au devis comme provision interne : le client voit une ligne chiffrée ordinaire. La
+  réserve dans l'offre (TI-682) et la variante restent à construire.
 - PVC en eaux grasses, galvanisé/PEHD en EF et EFA, cuivre en condensats, PEHD en
   RIA et multicouche en GLY/départ/retour : justification du système et des conditions.
 - Inox en condensats : admis ; cuivre en glycol et PER en bouclage ECS : inchangés.
@@ -20,7 +21,10 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
 - Pas de seuil WC global : le contrat d'entrée ne rattache pas le tronçon à un WC.
 
 Une acceptation technique ouvre un dialogue avec motif codé et référence du
-système (gamme, fabricant, certificat, conditions d'emploi). Les gestes de
+système (gamme, fabricant, certificat, conditions d'emploi). Depuis TI-686 (D9), le
+même dialogue porte une section par échec qui demande un motif : réseau, échelle
+contredite par une cote, surface imprimée. Les motifs de PE gaz ne valent que pour une
+conduite de PE en gaz (`TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE` sinon). Les gestes de
 validation de la revue ordinaire conduisent à cette revue ciblée, après sauvegarde
 des modifications en cours. L'API et un trigger contrôlent aussi les écritures
 Data API directes. Une quantité à saisir ou un matériau bloqué ne s'accepte pas.
@@ -70,7 +74,8 @@ table le sont avec celles des séries sous pression.
   acceptabilité inchangés, et le motif n'entre pas dans la clé d'échec ; le PE gaz
   garde son propre code.
 - **Multicouche gaz** : le motif ne promet plus de réserve ni de variante. Seul un
-  administrateur peut forcer l'application, avec une justification écrite.
+  administrateur peut forcer l'application, avec un motif codé et une justification
+  écrite ; la ligne entre alors au devis comme provision interne (TI-686, D10).
 - **Version 3 de la table** (D18g) : elle fait revoir les lignes vérifiées sans voir
   la condition, mais la version entre dans chaque clé d'échec : toutes les clés
   `dn_network` changent. Au prochain recalcul de la version, toute ligne vérifiée d'un
@@ -91,8 +96,9 @@ vérifiées (gaz ERP, cuivre enterré, systèmes RIA, PE d'évacuation EN 1519).
 ## Limite avec TI-686 et publication
 
 Ce lot livre la dépendance nécessaire à TI-685 : motif technique, référence,
-contrôle SQL et clés acquittées. TI-686 conserve les motifs des écarts d'échelle et
-de surface et le catalogue codé d'override. Il n'est pas déclaré terminé ici.
+contrôle SQL et clés acquittées. TI-686 livre ensuite les motifs des écarts d'échelle et
+de surface et le catalogue codé d'override (motif par ligne forcée, migration
+`20261110094504_takeoff_apply_force_reasons.sql`). TI-686 n'est pas déclaré terminé ici.
 
 La migration `20261107123425_takeoff_network_material_decisions.sql` et ses types
 sont validés sur une pile possédée. **Elle doit être appliquée avant toute

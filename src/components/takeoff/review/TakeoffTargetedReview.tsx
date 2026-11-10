@@ -7,11 +7,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
+import { QuantityEntryDialog } from "@/components/takeoff/review/QuantityEntryDialog";
 import { TakeoffReviewPolicyPanel } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
-import { requiresGasPeReason, requiresTechnicalJustification } from "@/lib/takeoff/rules/verification";
+import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -25,6 +26,7 @@ import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/components/UserContext";
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiError, patchTakeoffItems } from "@/lib/takeoff/client";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
+import { quantityEntryLabel } from "@/lib/takeoff/quantity-entry";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
@@ -45,7 +47,8 @@ import { cn } from "@/lib/utils";
 // once and read back with the rule state of its partners (PATCH rule_states). Left: the lines and their filters
 // (« Règle en échec »), the application at the bottom. Centre: the plan and its vector reading (TI-662), the line in
 // focus. Right: its reasons, the Z1/Z2 duplicate (length counted twice, the other zone's line) and its decisions:
-// exclude (E, with a reason), correct (direct entry or F2), accept (V), enter a quantity the plan cannot show.
+// exclude (E, with a reason), correct (direct entry or F2), accept (V), enter a quantity the plan cannot show (with
+// what it rests on, TI-686 D12: QuantityEntryDialog).
 
 const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
@@ -107,7 +110,11 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const nextId = useRef<string | null>(null);
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
-  const [justification, setJustification] = useState<{ item: TakeoffJobItem; gasPe: boolean } | null>(null);
+  // The line V is being justified for (TI-685, TI-686 D9), read live from the lines: a quantity retained from the dialog
+  // comes back with its new results.
+  const [justification, setJustification] = useState<{ itemId: string } | null>(null);
+  // A quantity to enter waiting for what it rests on (TI-686 D12): saved only with its category.
+  const [pendingEntry, setPendingEntry] = useState<{ itemId: string; quantity: number; done: string; expectedEvaluation?: string | null } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -182,6 +189,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const current: Line | null = review.lines.find((line) => line.item.id === selectedId) ?? null;
   const guidance = current ? zoneOverlapGuidance(current.item) : null;
   const acceptance = current ? acceptanceOf(current.item, level) : null;
+  const justifiedItem = justification ? items.find((item) => item.id === justification.itemId) ?? null : null;
+  const enteredItem = pendingEntry ? items.find((item) => item.id === pendingEntry.itemId) ?? null : null;
 
   const applied = job?.status === "applied";
   const readOnly = !job || job.status !== "completed";
@@ -258,12 +267,16 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     }
     const toEnter = hasToEnter(current.item);
     setDraft(null);
+    // A quantity the plan cannot show is entered: typed here, it is attested even when equal to the proposed one, with
+    // what it rests on (TI-686 D12), asked before anything is saved.
+    if (toEnter) {
+      setPendingEntry({ itemId: current.item.id, quantity: value, done: "Quantité saisie" });
+      return;
+    }
     focusList();
-    // An unchanged quantity is saved only to attest it, or to compute rules left to compute again (any save does).
-    if (value === current.item.quantity && !toEnter && !current.item.rules_stale) return;
-    // A quantity the plan cannot show is entered: typed here, it is attested even when equal to the proposed one.
-    void decide(current.item, { quantity: value, ...(toEnter ? { quantity_entered: true as const } : {}) },
-      toEnter ? "Quantité saisie" : "Quantité corrigée");
+    // An unchanged quantity is saved only to compute rules left to compute again (any save does).
+    if (value === current.item.quantity && !current.item.rules_stale) return;
+    void decide(current.item, { quantity: value }, "Quantité corrigée");
   }, [current, decide, draft]);
 
   const openExclusion = useCallback((reason = "", guided = false) => {
@@ -274,8 +287,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
 
   const accept = useCallback(() => {
     if (!current || readOnly || busy || !acceptance?.enabled) return;
-    if (requiresTechnicalJustification(current.item.rule_results)) {
-      setJustification({ item: current.item, gasPe: requiresGasPeReason(current.item.rule_results) });
+    if (requiresAcceptanceReason(current.item.rule_results)) {
+      setJustification({ itemId: current.item.id });
       return;
     }
     void decide(current.item, { is_verified: true }, "Ligne acceptée", current.item.rules_evaluated_at ?? undefined);
@@ -291,7 +304,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   // E, V, F2, a digit and the arrows act on the line in focus, from this screen (or a focus lost to the page after a
   // decision removed its button), never from a field, a dialog or the dashboard's own bar.
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || justification || wizardOpen) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || exclusion || justifiedItem || enteredItem || wizardOpen) return;
     const target = event.target as HTMLElement;
     if (target !== document.body && !rootRef.current?.contains(target)) return;
     if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
@@ -532,8 +545,14 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                   onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "", guidance?.remove_line === true)}
                   onAccept={() => { accept(); focusList(); }}
                   onReduce={(to) => {
+                    // A reduced quantity to enter is entered too: with what it rests on (TI-686 D12).
+                    if (hasToEnter(current.item)) {
+                      setPendingEntry({ itemId: current.item.id, quantity: to, done: "Longueur retirée",
+                        expectedEvaluation: current.item.rules_evaluated_at ?? null });
+                      return;
+                    }
                     focusList();
-                    void decide(current.item, { quantity: to, ...(hasToEnter(current.item) ? { quantity_entered: true as const } : {}) }, "Longueur retirée", current.item.rules_evaluated_at ?? null);
+                    void decide(current.item, { quantity: to }, "Longueur retirée", current.item.rules_evaluated_at ?? null);
                   }}
                   onSelectPartner={(itemId) => { setSelectedId(itemId); setFilter("all"); focusList(); }}
                   partnerListed={(itemId) => review.lines.some((line) => line.item.id === itemId)}
@@ -550,12 +569,27 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         )}
       </div>
 
-      {justification ? (
-        <VerificationJustificationDialog gasPe={justification.gasPe} onClose={() => { setJustification(null); requestFocusList(); }}
+      {justifiedItem ? (
+        <VerificationJustificationDialog item={justifiedItem} busy={busy} error={lineErrors[justifiedItem.id] ?? null}
+          onClose={() => { setJustification(null); requestFocusList(); }}
+          onRetainPrinted={(quantity) => {
+            // D17: the printed surface is saved first; the rules are computed again with it, then V is offered again.
+            void decide(justifiedItem, { quantity }, "Surface écrite retenue", justifiedItem.rules_evaluated_at ?? null);
+          }}
           onConfirm={(value) => {
-            void decide(justification.item, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
-              justification.item.rules_evaluated_at ?? null);
+            void decide(justifiedItem, { is_verified: true, verification_justification: value }, "Ligne acceptée avec justification",
+              justifiedItem.rules_evaluated_at ?? null);
             setJustification(null);
+            requestFocusList();
+          }} />
+      ) : null}
+      {pendingEntry && enteredItem ? (
+        <QuantityEntryDialog quantity={pendingEntry.quantity} unit={enteredItem.unit} busy={busy}
+          onClose={() => { setPendingEntry(null); requestFocusList(); }}
+          onConfirm={(value) => {
+            void decide(enteredItem, { quantity: pendingEntry.quantity, quantity_entry: value }, pendingEntry.done,
+              pendingEntry.expectedEvaluation);
+            setPendingEntry(null);
             requestFocusList();
           }} />
       ) : null}
@@ -649,9 +683,12 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
               </Button>
             ) : null}
           </div>
+          {item.quantity_entry_category ? (
+            <p className="text-xs text-foreground-secondary">{`Saisie : ${quantityEntryLabel(item.quantity_entry_category, item.quantity_entry_note)}`}</p>
+          ) : null}
           <p id={`targeted-quantity-hint-${item.id}`} className="text-xs text-muted-foreground">
             {toEnter
-              ? "Le plan ne montre pas cette quantité : saisissez-la, ou confirmez celle-ci (Entrée). Accepter (V) ne la règle pas."
+              ? "Le plan ne montre pas cette quantité : saisissez-la ou confirmez celle-ci (Entrée), puis dites ce qui la fonde. Accepter (V) ne la règle pas."
               : item.rules_stale
                 ? "Règles à recalculer : Entrée, même sans changer la quantité, relance le calcul."
                 : "Saisie directe (un chiffre) ou F2, puis Entrée ; Échap annule. Les règles sont recalculées à l’enregistrement."}
@@ -674,7 +711,8 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>
                 </p>
                 <p className="mt-0.5 text-xs text-foreground-secondary">{failure.reason}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable ? failure.rule === "dn_network" ? "Accepter (V) exige un motif et la référence du système." : "Accepter (V) lève cet échec."
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable
+                  ? acceptanceReasonRule(failure) ? "Accepter (V) exige un motif." : "Accepter (V) lève cet échec."
                   : failure.code === "DN_NETWORK_MATERIAL_BLOCKED" ? "Bloqué : V ne lève pas cet échec. Forçage administrateur uniquement."
                     : "À saisir : accepter (V) ne lève pas cet échec."}</p>
               </li>

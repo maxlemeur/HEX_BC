@@ -280,8 +280,11 @@ export async function addGridLine(ui: Ui, draft: V3Draft) {
     addLine.tap(),
   ]);
   expect(response.status).toBe(201);
-  const body = await response.json<Envelope<{ item: ArmyItem }>>();
+  const body = await response.json<Envelope<{ item: ArmyItem; version: { content_revision?: number } }>>();
   expect([body.ok, body.data.item.item_type, body.data.item.parent_id]).toEqual([true, "line", draft.sectionId]);
+  // Without the revision of its version in the answer, the editor read the whole estimate again after each added
+  // line only to learn it (5 Mo for 2 031 items).
+  expect(Number.isSafeInteger(body.data.version.content_revision)).toBe(true);
   await expect(ui.browser.locator(`[data-estimate-item-id="${body.data.item.id}"]`)).toHaveCount(1);
   return body.data.item.id;
 }

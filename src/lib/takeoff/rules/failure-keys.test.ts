@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { evaluateTakeoffRules } from "@/lib/takeoff/rules/evaluate";
 import { ruleFailureKeys, ruleFailuresReopen } from "@/lib/takeoff/rules/failure-keys";
+import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 
 // TI-677 (PR D): the keys of a line's failed rules, read from the stored JSON. The same cases run in pgTAP against
 // takeoff_rule_failure_keys and takeoff_rule_failures_reopen (supabase/tests/database/takeoff-rule-decisions.test.sql):
@@ -118,5 +120,21 @@ describe("replaying a pending verification after the server saved a new revision
   it("allows a provable reduction to a complete subset of previously visible IDs", () => {
     expect(ruleFailuresReopen(truncated(displayed, firstDigest), [duplicate(displayed.slice(0, 3))])).toBe(false);
     expect(ruleFailuresReopen(truncated(displayed, firstDigest), [])).toBe(false);
+  });
+});
+
+// TI-686 D9: version 2 of the scale rule reopens every V given without a coded reason; the key still has no partner,
+// so a page calibrated again but still contradicted keeps its reason.
+describe("key of a scale failure", () => {
+  it("carries version 2 of the rule and no partner", () => {
+    const designation = "EF cuivre DN 22";
+    const { results } = evaluateTakeoffRules({
+      pages: [{ key: "p", job_id: "j", order: 1, level: "R+1", zone: null, anchors: null,
+        scale: { status: "unverified", reason: "dimension_mismatch" } }],
+      lines: [{ id: "i", job_id: "j", page_key: "p", designation, unit: "ml", quantity: 5, is_excluded: false, frozen: false,
+        inputs: ruleInputsFromDesignation({ designation, unit: "ml", quantity: 5 }), geometry: null }],
+    });
+    expect(ruleFailureKeys(results.get("i")).filter((key) => key.startsWith("scale_dimension|")))
+      .toEqual(["scale_dimension|SCALE_DIMENSION_MISMATCH|2|"]);
   });
 });

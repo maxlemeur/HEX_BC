@@ -34,6 +34,7 @@ import {
   type EstimateVersionDetailsForDiff,
 } from "@/lib/estimates/diff";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 
 const ESTIMATE_EXPLANATIONS_SELECT = [
   "id",
@@ -548,6 +549,22 @@ function extractSourceMetadataStatements(input: {
   const sourceMetadata = input.sourceMetadata;
   if (!isRecord(sourceMetadata)) {
     return;
+  }
+
+  // TI-686 D10/D12: what the amount of a line the takeoff application marked is. Internal explanation only (H9).
+  const provision = readTakeoffProvision(sourceMetadata);
+  if (provision) {
+    pushStatement(input.hypotheses, {
+      label: provision.kind === "hypothesis"
+        ? provision.sources.some((source) => source.entry_category === "hypothesis")
+          ? "Quantité saisie sur hypothèse au métré"
+          : "Ligne forcée à l’application du métré comme hypothèse chiffrée"
+        : provision.readable
+          ? "Ligne forcée à l’application du métré (provision interne)"
+          : "Provision interne posée au métré (marqueur illisible)",
+      source_label: "Métré",
+      confidence_score: null,
+    });
   }
 
   const applications = Array.isArray(sourceMetadata.applications)

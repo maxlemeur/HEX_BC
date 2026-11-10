@@ -158,7 +158,8 @@ export type NetworkDiameterCheck =
 export function checkNetworkDiameter(network: NetworkCode, material: MaterialCode | null, dn: string | null): NetworkDiameterCheck {
   if (material === null) return { status: "material_missing" };
   if (network === "GAZ" && material === "multicouche") {
-    return { status: "blocked", reason: "Multicouche en gaz : interdit, ne s’accepte pas en relecture. Seul un administrateur peut forcer l’application, avec une justification écrite." };
+    return { status: "blocked", reason: "Multicouche en gaz : interdit, ne s’accepte pas en relecture. Seul un administrateur peut "
+      + "forcer l’application, avec un motif codé et une justification écrite." };
   }
   const condition = conditionOf(network, material);
   const allowed = NETWORK_MATERIALS[network];

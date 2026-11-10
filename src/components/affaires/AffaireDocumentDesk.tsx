@@ -766,6 +766,7 @@ export function AffaireDocumentDesk({
                 key={`${projectId}:${active.documentId}:${active.uploadStatus}:${active.isBeingDeleted}`}
                 projectId={projectId}
                 document={active}
+                canManage={canManage}
               />
               {canManage && canClassifyDossierDocument(active) && (
                 <div className="document-desk-preview-actions">

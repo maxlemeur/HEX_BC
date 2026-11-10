@@ -837,7 +837,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           quantityCell,
-          `estimate-cell estimate-editable-cell${
+          `estimate-cell estimate-editable-cell estimate-cell--number${
             quantityOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""
@@ -902,7 +902,7 @@ export function LineRow({
         className={toCellClassName(
           navigation,
           unitPriceCell,
-          `estimate-cell estimate-editable-cell estimate-col--fo${
+          `estimate-cell estimate-editable-cell estimate-cell--number estimate-col--fo${
             priceOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""

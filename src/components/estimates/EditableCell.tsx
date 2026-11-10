@@ -116,12 +116,15 @@ export function EditableCell<TCommitValue = string>({
   );
 
   const handleCellClick = useCallback(() => {
-    if (readOnly || isEditing) {
+    // With the grid engine a mouse click selects the cell; editing starts by
+    // typing, F2 or a double click, like in a spreadsheet. A touch or pen tap
+    // still opens the editor: the engine answers for the press being handled.
+    if (readOnly || isEditing || navigation.selectsOnClick) {
       return;
     }
 
     inputRef.current?.focus();
-  }, [isEditing, readOnly]);
+  }, [isEditing, navigation, readOnly]);
 
   const handleCellDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (readOnly) {
@@ -146,7 +149,9 @@ export function EditableCell<TCommitValue = string>({
     (event: FocusEvent<HTMLInputElement>) => {
       editorProps.onBlur(event);
 
-      const nextValue = localEditingValue ?? event.currentTarget.value;
+      // Read the DOM value: a blur triggered inside the keydown that restored
+      // the cell (Escape) runs before React re-renders this closure.
+      const nextValue = event.currentTarget.value;
       if (isValidInput && !isValidInput(nextValue)) {
         event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
         event.currentTarget.reportValidity();
@@ -160,7 +165,7 @@ export function EditableCell<TCommitValue = string>({
 
       onCommit(nextValue as TCommitValue);
     },
-    [editorProps, isValidInput, localEditingValue, onCommit, parseOnCommit]
+    [editorProps, isValidInput, onCommit, parseOnCommit]
   );
 
   return (

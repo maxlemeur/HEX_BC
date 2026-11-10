@@ -29,6 +29,7 @@ import {
   ErrorsTable,
   PilotWeeklyTable,
   RecentJobsTable,
+  RuleForcingTable,
 } from "@/components/takeoff/metrics/TakeoffMetricsDashboardTables";
 import {
   formatConfidence,
@@ -296,6 +297,15 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           <CorrectionByLevelTable rows={data.corrections.byLevel} />
         </Card>
       </section>
+
+      <Card className="overflow-hidden animate-slide-in stagger-3">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground-secondary">
+            Forçages par règle
+          </h2>
+        </div>
+        <RuleForcingTable data={data.ruleForcing} />
+      </Card>
 
       <Card className="overflow-hidden animate-slide-in stagger-3">
         <div className="border-b border-border px-4 py-3">

@@ -32,6 +32,9 @@ ignoré ; aucune clé `service_role` ne doit parvenir au navigateur.
 
 Si le port est occupé, `npm run dev -- -p 3001` choisit un autre port.
 Un seul serveur de développement peut détenir `.next/dev/lock` par checkout.
+Ne pas ajouter `--webpack` à cette commande : à la première visite d'une page, le
+compilateur par défaut (Turbopack) compile l'éditeur de devis et ses routes API en
+7 s au lieu de 20 s, avec deux fois moins de mémoire.
 
 ## Vérifier une modification
 
