@@ -82,6 +82,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@mergeone/glob-v7-api": "file:tools/glob-v7-api",
+    "@mlightcad/libredwg-web": "0.8.7",
     "@react-email/components": "^1.0.8",
     "@react-pdf/renderer": "^4.9.0",
     "@supabase/ssr": "^0.12.7",

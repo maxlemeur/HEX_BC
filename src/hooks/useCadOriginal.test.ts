@@ -221,6 +221,88 @@ describe("useCadOriginal", () => {
     expect(workers[0].terminate).toHaveBeenCalled();
   });
 
+  describe("a DWG with a conversion address", () => {
+    const dwg = { url: "/api/affaires/a/intake/files/d/preview?download=1", fileName: "Réseaux.dwg", drawingUrl: "/api/affaires/a/intake/files/d/drawing" };
+    const drawing = { kind: "drawing", drawing: { layers: [] } } as unknown as CadOriginal;
+    const dxf = new ArrayBuffer(16);
+
+    /** The original downloads; the DXF is answered as `conversion` says. */
+    function installDwgFetch(conversion: () => unknown) {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        void init;
+        return url === dwg.drawingUrl ? conversion() : { ok: true, arrayBuffer: async () => new ArrayBuffer(8) };
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    it("asks the server for its DXF and reads it with the worker that read the DWG", async () => {
+      const workers = installWorkers(), fetchMock = installDwgFetch(() => ({ ok: true, arrayBuffer: async () => dxf }));
+      const { result } = renderHook(() => useCadOriginal(dwg));
+      const first = await lastRequest(() => workers[0]);
+      expect(first).toMatchObject({ type: "read", fileName: "Réseaux.dwg" });
+      await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
+      // What the DWG says is known; its drawing is on its way.
+      expect(result.current.state).toEqual({ status: "loading", converting: true });
+
+      const second = await lastRequest(() => workers[0], 2);
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([dwg.url, dwg.drawingUrl]);
+      expect(second.type).toBe("read");
+      if (second.type !== "read") throw new Error("read expected");
+      // The worker picks its reader by the name: the converted bytes are a DXF.
+      expect(second.fileName).toMatch(/\.dxf$/);
+      expect(second.buffer).toBe(dxf);
+      await answer(workers[0], { requestId: second.requestId, ok: true, type: "read", original: drawing });
+      expect(result.current.state).toEqual({ status: "ready", original: drawing, source: summary.kind === "summary" ? summary.summary : null });
+      expect(workers).toHaveLength(1);
+    });
+
+    it("keeps what the DWG says and repeats why the server did not convert it", async () => {
+      const workers = installWorkers();
+      const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004.";
+      installDwgFetch(() => ({ ok: false, status: 422, json: async () => ({ error: { message: refusal } }) }));
+      const { result } = renderHook(() => useCadOriginal(dwg));
+      const first = await lastRequest(() => workers[0]);
+      await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
+      await waitFor(() => expect(result.current.state).toEqual({ status: "ready", original: summary, notice: refusal }));
+      expect(workers[0].postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps what the DWG says when the conversion cannot be reached or its DXF is not read", async () => {
+      const workers = installWorkers();
+      let reachable = false;
+      installDwgFetch(() => {
+        if (!reachable) throw new TypeError("Failed to fetch");
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(16) };
+      });
+      const { result } = renderHook(() => useCadOriginal(dwg));
+      const first = await lastRequest(() => workers[0]);
+      await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: summary });
+      await waitFor(() => expect(result.current.state).toEqual({ status: "ready", original: summary, notice: "Le dessin de ce DWG n’a pas pu être demandé au serveur." }));
+
+      reachable = true;
+      act(() => result.current.retry());
+      const again = await lastRequest(() => workers[1]);
+      await answer(workers[1], { requestId: again.requestId, ok: true, type: "read", original: summary });
+      const converted = await lastRequest(() => workers[1], 2);
+      await answer(workers[1], { requestId: converted.requestId, ok: false, type: "read", reason: "too_large" });
+      expect(result.current.state).toEqual({ status: "ready", original: summary, notice: cadReadMessage("too_large") });
+    });
+
+    it("asks for no conversion of a Revit model, nor of a DWG without a conversion address", async () => {
+      const revit: CadOriginal = { kind: "summary", summary: { format: "rvt", version: null, thumbnail: null } };
+      for (const [props, original] of [[{ ...dwg, fileName: "Maquette.rvt" }, revit], [{ url: dwg.url, fileName: dwg.fileName }, summary]] as const) {
+        const workers = installWorkers(), fetchMock = installDwgFetch(() => ({ ok: true, arrayBuffer: async () => dxf }));
+        const { result, unmount } = renderHook(() => useCadOriginal(props));
+        const first = await lastRequest(() => workers[0]);
+        await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original });
+        expect(result.current.state).toEqual({ status: "ready", original });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        unmount();
+      }
+    });
+  });
+
   it("says so when the browser has no worker", async () => {
     vi.stubGlobal("Worker", undefined);
     installFetch();

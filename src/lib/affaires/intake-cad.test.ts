@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_CAD_NOTICE,
+  AFFAIRE_INTAKE_DWG_NOTICE,
   AFFAIRE_INTAKE_DXF_NOTICE,
   affaireIntakeCadNotice,
   getAffaireIntakeAllowedMimeTypes,
@@ -43,7 +44,7 @@ describe("CAD/BIM dossier originals", () => {
   });
 
   it.each([
-    ["dpgf.dwg", AFFAIRE_INTAKE_CAD_NOTICE],
+    ["dpgf.dwg", AFFAIRE_INTAKE_DWG_NOTICE],
     ["cctp.dxf", AFFAIRE_INTAKE_DXF_NOTICE],
     ["maquette.rvt", AFFAIRE_INTAKE_CAD_NOTICE],
   ])("does not infer readable business content from %s", (name, notice) => {
@@ -54,12 +55,13 @@ describe("CAD/BIM dossier originals", () => {
     expect(result.extractedMetadata.detectedLots).toEqual([]);
   });
 
-  it("tells a DXF, which MergeOne reads, from the originals it only keeps", () => {
+  it("tells a DXF and a DWG, which MergeOne reads, from the original it only keeps", () => {
     expect(affaireIntakeCadNotice("Réseaux EF.DXF")).toBe(AFFAIRE_INTAKE_DXF_NOTICE);
-    expect(affaireIntakeCadNotice("réseaux.dwg")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
+    expect(affaireIntakeCadNotice("réseaux.DWG")).toBe(AFFAIRE_INTAKE_DWG_NOTICE);
     expect(affaireIntakeCadNotice("maquette.rvt")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
     expect(affaireIntakeCadNotice("plan.dxf.pdf")).toBeNull();
     expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
+    expect(AFFAIRE_INTAKE_DWG_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("Aperçu et métré non disponibles");
   });
 
