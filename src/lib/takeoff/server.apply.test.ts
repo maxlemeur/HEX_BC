@@ -716,6 +716,7 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  // TI-686 D10: the override names each blocked line with its coded reason (forced_items); an engineer is refused.
   it("blocks non-admin override attempts for level C guard failures", async () => {
     const supabase = createSupabaseMock({
       jobLevel: "C",
@@ -747,7 +748,8 @@ describe("applyTakeoffJob", () => {
         strategy: "merge",
         target_section_id: SECTION_ID,
         override: true,
-        override_justification: "Validation manuelle exceptionnelle",
+        forced_justifications: ["Validation manuelle exceptionnelle"],
+        forced_items: [{ item_id: TAKEOFF_ITEM_ID_1, reason_code: "additional_evidence", justification_index: 0 }],
       })
     ).rejects.toMatchObject({
       status: 403,
@@ -792,7 +794,8 @@ describe("applyTakeoffJob", () => {
         strategy: "merge",
         target_section_id: SECTION_ID,
         override: true,
-        override_justification: "Validation manuelle exceptionnelle",
+        forced_justifications: ["Validation manuelle exceptionnelle"],
+        forced_items: [{ item_id: TAKEOFF_ITEM_ID_1, reason_code: "additional_evidence", justification_index: 0 }],
       })
     ).rejects.toMatchObject({
       status: 403,

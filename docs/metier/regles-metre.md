@@ -78,8 +78,8 @@ qu'elles sont maintenant.
 |---|---|---|---|
 | `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
 | `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
-| `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui |
-| `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui |
+| `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui, avec un motif codé et ce qui a été vérifié |
+| `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui, avec un motif codé, la base de la surface écrite et une note |
 | `room_overlap` | `ROOM_OVERLAP` | `ROOM_OVERLAP_NONE` | oui |
 | `closed_box` | `CLOSED_BOX_LABEL`, `CLOSED_BOX_SHAPE` | `CLOSED_BOX_NONE` | oui |
 | `non_observable` | `NON_OBSERVABLE_TO_ENTER` | `NON_OBSERVABLE_ENTERED` | **non** : la quantité se saisit |
@@ -190,25 +190,41 @@ voir « Décisions ») : le passage de la version 2 à la version 3 change toute
   manuelle ou une application ; celui de l'application ne bloque pas s'il échoue.
 
 **Acceptation technique** ([`verification.ts`](../../src/lib/takeoff/rules/verification.ts),
-migration `20261107123425_takeoff_network_material_decisions.sql`) : V ne lève un échec
-`dn_network` acceptable, quel que soit son code, qu'avec un motif codé et la référence du
-système (gamme, fabricant, certificat, conditions d'emploi), de 10 à 500 caractères.
+migrations `20261107123425_takeoff_network_material_decisions.sql`,
+`20261110094500_takeoff_acceptance_reasons.sql` et
+`20261110094502_takeoff_acceptance_outline_reason.sql`) : V ne lève un échec `dn_network`
+acceptable, quel que soit son code, qu'avec un motif codé et la référence du système
+(gamme, fabricant, certificat, conditions d'emploi). Depuis TI-686 (D9), un échec
+d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sections).
 
 - **Motifs** : `system_documented` (système et conditions d'emploi documentés) ; pour le
   PE gaz, seulement `gas_pe_buried_outside` (enterré à l'extérieur, hors emprise du
   bâtiment) ou `gas_pe_facade_transition` (remontée en façade jusqu'au raccord
-  métal/plastique).
-- La revue ciblée ouvre ce dialogue ; les gestes de validation de la revue complète y
-  conduisent, une fois les modifications en cours enregistrées. L'API et le trigger
-  `validate_takeoff_rule_acceptance` refusent aussi une écriture directe sans
-  justification valide (`TAKEOFF_RULE_JUSTIFICATION_REQUIRED`,
-  `TAKEOFF_RULE_GAS_PE_REASON_REQUIRED`).
+  métal/plastique). Un motif de PE gaz est refusé sur une conduite qui n'est pas du PE
+  en gaz (`TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE`).
+- **Texte** : de 10 à 500 caractères, comptés en points de code une fois retirés les
+  blancs ASCII de ses deux bouts (espace, tabulations, retours à la ligne). Même règle
+  pour la référence du système et les notes d'échelle et de surface, côté TS
+  (`noteText`) et SQL.
+- **Forme** : la justification garde la forme plate du réseau (`reason_code`,
+  `system_reference`) et ajoute une clé par autre règle (`scale_dimension`,
+  `area_printed`). Écrite avec V, elle porte exactement les motifs des échecs de la ligne :
+  le serveur retire les autres avant d'écrire. Une mise à jour qui garde V sans la
+  réécrire ne la modifie jamais : les motifs exigés doivent y être valides, et le motif
+  d'une règle qui n'échoue plus y reste jusqu'à ce que son vérificateur la réécrive.
+- La revue ciblée ouvre ce dialogue, une section par échec qui demande un motif ; les
+  gestes de validation de la revue complète y conduisent, une fois les modifications en
+  cours enregistrées. L'API et le trigger `validate_takeoff_rule_acceptance` refusent
+  aussi une écriture directe sans justification valide
+  (`TAKEOFF_RULE_JUSTIFICATION_REQUIRED`, `TAKEOFF_RULE_GAS_PE_REASON_REQUIRED`,
+  `TAKEOFF_RULE_GAS_PE_REASON_NOT_APPLICABLE`, `TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED`).
 - La justification est enregistrée avec la vérification (`verification_justification`)
   et journalisée. Rouvrir la ligne ou modifier son contenu l'efface.
 - Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
-  ligne ; sinon, seul un administrateur peut forcer l'application, avec une justification
-  écrite (voir « Override admin »). Réserve, variante et provision interne sont à
-  construire (TI-686).
+  ligne ; sinon, seul un administrateur peut forcer l'application, avec un motif codé et
+  une justification écrite (voir « Override admin »). La ligne forcée entre alors au devis
+  comme provision interne (TI-686, D10). La réserve dans l'offre (TI-682) et la variante
+  restent à construire.
 
 **Cas tranchés par TI-685** (l'ancienne liste « à trancher ») :
 
@@ -303,11 +319,27 @@ Elle reprend le résultat par page de TI-662 (`scale.ts`, tolérance de cote
 - La page d'une ligne du modèle est celle de son propre document (`metadata.source_document` : fichier du jeu de plans ou téléversement du job) et de son numéro, jamais celle d'un autre fichier de même nom. Une ligne sans document, ou deux pages encore confondues, prend la page dont l'échelle est contredite s'il y en a une (sens sûr).
 - Les comptages ne sont pas concernés.
 
+**Acceptation (TI-686, D9, règle en version 2).** V exige un motif codé et ce qui a été
+vérifié, de 10 à 500 caractères (clé `scale_dimension` de la justification). Calibrer la
+page règle l'échec pour toutes ses lignes, sans motif. Motifs, provisoires jusqu'à
+l'accord du métier :
+
+| Code | Motif |
+|---|---|
+| `scale_confirmed_by_other_dimensions` | Échelle confirmée par d'autres cotes concordantes de la page |
+| `dimension_not_to_scale` | Cote contradictoire hors échelle (tronçon interrompu, mention non à l'échelle) |
+| `quantity_from_dimensions` | Quantité établie d'après les cotes, sans mesure graphique |
+| `scale_confirmed_by_issuer` | Échelle confirmée par l'émetteur du plan |
+
+La version 2 entre dans la clé d'échec : au prochain recalcul, une ligne vérifiée sans
+motif est rouverte. La clé reste sans partenaire : une page recalibrée mais toujours
+contredite garde son motif.
+
 ### Aire du polygone cohérente avec la surface imprimée
 
 Le contrat validé le 8 novembre 2026 est décrit dans
 [Quantités de référence et métré](quantites-reference-metre.md). La règle
-`area_printed` est en version 2 ; les règles géométriques de chevauchement et de
+`area_printed` est en version 3 (TI-686, D9) ; les règles géométriques de chevauchement et de
 boîte conservent leur version et leurs seuils.
 
 - Comparer la mesure originelle (géométrie, sinon mesure conservée du worker),
@@ -320,6 +352,43 @@ boîte conservent leur version et leurs seuils.
   référence. Un rattachement ambigu ne permet pas de grouper les quantités.
 - Conserver une identité du contexte comparé dans les clés d'échec : changer
   une contribution ou son rattachement rouvre une acceptation antérieure.
+- Garder dans le résultat la base attendue par la ligne de prix
+  (`details.expected_basis` : `net_floor` ou `shab`, absente quand elle est inconnue),
+  y compris à la dernière borne de stockage. Cette base fait déjà partie du contexte
+  comparé (`quantity_context_key`, donc de la clé d'échec) : la recopier dans le résultat
+  ne change aucune clé.
+
+**Acceptation (TI-686, D9).** V exige un motif codé, la base reconnue à la surface écrite
+et une note de 10 à 500 caractères (clé `area_printed` de la justification). Motifs et
+bases, provisoires jusqu'à l'accord du métier :
+
+| Code | Motif |
+|---|---|
+| `printed_area_basis_identified` | Base de la surface écrite identifiée (légende, cartouche, tableau des surfaces) |
+| `measured_outline_retained` | Contour mesuré retenu : la surface écrite ne couvre pas le même périmètre |
+| `confirmed_by_other_document` | Base et surface confirmées par un autre document (CCTP, DPGF, notice) |
+| `deviation_explained` | Écart expliqué (gaines, trémies, arrondi de l'étiquette) |
+
+Bases de la surface écrite (`retained_basis`) : `net_floor` (sol net), `shab` (SHAB),
+`other` (autre base, à préciser dans la note).
+
+- **Même base que la ligne de prix** (D17) : les deux surfaces se comparent et la plus
+  élevée est retenue. V exige une quantité au moins égale à la surface écrite, au
+  millième près (`TAKEOFF_RULE_AREA_QUANTITY_BELOW_PRINTED`). La quantité se relève
+  avant V, dans un enregistrement à part (« Retenir … m² » dans le dialogue) : une
+  quantité modifiée dans la même requête rend les règles à recalculer et V serait
+  refusé.
+- **Même base, motif « contour mesuré retenu »** (D21) : la surface écrite ne couvre
+  pas le même périmètre que le contour mesuré, donc rien n'est comparé. La quantité
+  reste celle de la ligne ; le dialogue ne propose pas de retenir la surface écrite.
+  Ce n'est pas toujours la mesure : une pièce vectorielle dont l'étiquette dit « sol
+  net » est enregistrée à la création au maximum du contour et de la surface écrite.
+  Les trois autres motifs gardent la règle D17 sur la même base.
+- **Autre base, ou base de la ligne inconnue** : rien n'est comparé, la quantité reste
+  celle de la ligne ; la surface écrite reste visible dans le contrôle.
+- La base déclarée (`retained_basis`) n'entre ni dans la clé d'échec ni dans le contexte
+  comparé. La version 3 rouvre, au prochain recalcul, toute ligne vérifiée sans motif ni
+  base.
 
 La proposition historique `max(2 %, 0,1 m²)` reposait sur seulement deux
 polygones de pièce fermés du banc (D RDC, hors réserve), dont un juste à −0,1 % et
@@ -361,9 +430,23 @@ mise en service, DOE…).
 - **La tête de la désignation décide** : son texte avant « y compris », « avec », « compris », une virgule, un point-virgule, une parenthèse ou un « + », après « fourniture et pose de ». Elle doit s'ouvrir sur le mot. « Tube cuivre … y compris supports » reste un tube, « Robinet d'essai » un robinet.
 - **Un organe dessiné reste observable**, quel que soit le mot qui le suit : « Vanne avec support », « Pompe … y compris mise en service ».
 - **« Vertical » ne porte que sur les longueurs.**
-- Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée, même égale à la quantité du modèle (1 ens de mise en service), ou une quantité modifiée.
-- Les quantités sont stockées au millième : la quantité du modèle, arrondie par la base (12,3456 u stocké 12,346), reste celle du modèle, jamais une saisie.
-- La vérifier ne la règle jamais : `acceptable: false`.
+- Une telle ligne échoue tant que l'utilisateur n'a pas saisi sa quantité : une saisie attestée avec sa catégorie, même égale à la quantité du modèle (1 ens de mise en service).
+- **Catégorie de saisie (TI-686, D12).** La saisie dit sur quoi repose la quantité, parmi six catégories (liste provisoire, en attente de l'accord du métier) :
+
+  | Code | Libellé |
+  |---|---|
+  | `site_survey` | Relevé chantier |
+  | `other_drawing` | Autre plan ou coupe |
+  | `dpgf_cctp` | DPGF ou CCTP |
+  | `written_confirmation` | Confirmation écrite |
+  | `documented_calculation` | Calcul documenté |
+  | `hypothesis` | Hypothèse |
+
+  - « Ce qui fonde la quantité » est une note : obligatoire pour une hypothèse, de 10 à 500 caractères (ce qui est supposé, ce qui reste à confirmer) ; facultative, 500 caractères au plus, pour les cinq autres. Elle se mesure comme les notes d'acceptation : en caractères, sans les blancs ASCII des deux bouts.
+  - **Une modification nue de la quantité ne règle plus l'échec** : la règle reste en version 1. Une ligne modifiée sans catégorie échoue de nouveau, avec sa propre clé, et V ne l'a jamais acceptée.
+  - Le serveur lit la catégorie, pas l'auteur : une saisie survit à la suppression de son auteur. Une saisie attestée avant D12, sans catégorie, repasse « à saisir » au prochain recalcul. Aucune donnée n'est réécrite.
+  - Une quantité saisie en « Hypothèse » entre au devis comme hypothèse : une provision interne à confirmer, que le client voit comme une ligne chiffrée ordinaire (voir « Override admin », provision interne).
+- La vérifier ne la règle jamais : `acceptable: false`. Une ligne qui porte aussi un échec acceptable ne s'accepte pas non plus tant que sa quantité reste à saisir : la base refuse V (`TAKEOFF_RULE_NOT_ACCEPTABLE`), et la revue ciblée ne le propose pas.
 
 ## Blocage et branchement (L5b)
 
@@ -430,10 +513,88 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 
 **Override admin : gardé.**
 
-- C'est la seule voie pour appliquer une ligne bloquée (matériau bloqué, quantité à saisir, échec non accepté) :
-  seul un administrateur du tenant peut forcer l'application, avec une justification écrite de 10 à 500 caractères,
-  journalisée dans `audit_logs` et jamais imprimée pour le client.
-- Réserve, variante, provision interne et motif codé de forçage n'existent pas : ils sont à construire (TI-686).
+- C'est la seule voie pour appliquer une ligne bloquée (depuis TI-681 : preuve localisée ou page manquante en
+  niveau C, résultats à recalculer, matériau bloqué ou autre échec d'une règle bloquante) : seul un administrateur du
+  tenant peut forcer l'application, ligne par ligne, avec un motif codé et une justification écrite de 10 à 500
+  caractères, journalisés dans `audit_logs` et jamais imprimés pour le client.
+- **Motif codé par ligne** (TI-686, D10 et H7, migration `20261110094504_takeoff_apply_force_reasons.sql`). Listes
+  provisoires jusqu'à l'accord de Max :
+
+  | Code | Motif | Vaut pour |
+  |---|---|---|
+  | `rule_false_positive` | Faux positif de règle | une ligne dont une règle en échec la bloque, résultats lisibles et à jour ; `false_positive_rules` nomme la ou les règles fautives parmi elles, sans doublon |
+  | `additional_evidence` | Preuve complémentaire | toute ligne |
+  | `engineer_or_client_confirmation` | Confirmation BET ou client | toute ligne |
+  | `controlled_correction` | Correction contrôlée | toute ligne |
+  | `duplicate_resolved` | Doublon résolu | un échec bloquant `zone_overlap` ou `room_overlap`, résultats lisibles et à jour |
+  | `priced_hypothesis` | Hypothèse chiffrée | toute ligne |
+
+  - Les échecs qui comptent sont ceux qui bloquent la ligne, au sens de TI-681 (`takeoff_item_rule_blocked`,
+    `checkApplyGuard`) : un avertissement de quantité (échelle, surface écrite, doublon entre zones, pièces qui se
+    chevauchent, DN manquant…) ne bloque jamais, donc ne se déclare pas en faux positif. Aujourd'hui, seuls les échecs
+    de matériau de `dn_network` (interdit, à justifier, PE gaz, bloqué) peuvent bloquer : « Doublon résolu » ne vaut
+    que pour un chevauchement sous un code que cette version ne connaît pas (écrit par une autre version des règles),
+    qui garde sa protection et bloque.
+  - Des résultats illisibles (lus comme vides et à recalculer par la route) ou à recalculer n'admettent que les quatre
+    motifs inconditionnels.
+  - La requête d'application porte `override: true`, `forced_justifications` (chaque texte une fois) et
+    `forced_items: [{ item_id, reason_code, false_positive_rules?, justification_index }]`, sans plafond de lignes.
+    Une ligne bloquée sans entrée, ou dont le motif ne vaut pas pour elle, refuse le forçage (422 `VALIDATION_ERROR`,
+    `guard: "override_reasons"`, `missing_item_ids`, `invalid_items`) ; les entrées des lignes non bloquées sont
+    écartées. L'ancien `override_justification` est refusé (422).
+  - L'audit `takeoff.apply.override` porte les mêmes champs, lignes triées par identifiant et justifications
+    dédoublonnées, sans justification de premier niveau ni `rule_codes` (les `rule_results` des jobs appliqués sont
+    figés). Le trigger vérifie chaque entrée (`private.takeoff_apply_forced_item_valid`) et refuse l'ancien format,
+    sans fenêtre de transition (H10).
+  - Dans l'assistant, le panneau « Forcer l'application » donne, par ligne bloquée, le motif, la règle fautive et la
+    justification ; « Appliquer à la sélection » recopie un motif et un texte, et « Forcer l'application (N lignes) »
+    n'est actif que lorsque toutes les lignes sont complètes. Un ingénieur ne voit pas ce panneau.
+- **Provision interne** (TI-686, D10 et D12, migration `20261110094503_takeoff_apply_provisions.sql`). Toute ligne
+  forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
+  localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
+  bloqué. Une confiance faible ne bloque plus depuis TI-681 : elle ne force rien et ne fait pas de provision. Une
+  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse.
+  - L'application écrit `source_metadata.takeoff_provision` sur la ligne du devis, dans sa propre transaction et par
+    ses deux variantes (sans DPGF et avec l'autorisation DPGF) : `{ version: 1, job_id, sources: [{ takeoff_item_id,
+    forced, forced_reason, entry_category }] }`. Les sources sont les lignes de métré forcées (celles de l'audit
+    consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
+    `20261110094504_takeoff_apply_force_reasons.sql`) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
+    longueur dont les tronçons sont regroupés et arrondis une seule fois (TI-681) nomme les sources provisionnées de
+    tous ses tronçons. Les lignes d'un ouvrage créé depuis une hypothèse gardent le marqueur.
+  - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
+    provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
+    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+  - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
+    page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
+    une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne
+    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie.
+  - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client (copie
+    commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
+  - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
+    `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+- **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
+  `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
+  règle, sur les jobs appliqués de la période (section « Forçages par règle ») :
+  - « Lignes en échec appliquées » (N) : les lignes non exclues où la règle échoue, y compris celles dont V a
+    accepté l'échec, sauf un échec laissé de côté (partenaires tous exclus parmi les lignes du job ; un partenaire
+    d'un autre job compte comme présent) ;
+  - « Forcées » : celles d'un audit de forçage consommé dont l'échec de cette règle bloquait la ligne au sens de
+    TI-681. Un avertissement de quantité ne bloque jamais : l'échelle, la surface écrite, les chevauchements, les
+    boîtes fermées et les quantités à saisir n'ont ni ligne forcée ni faux positif, et le N de `dn_network` compte
+    aussi ses avertissements (réseau, matériau ou DN manquant, DN hors série) ;
+  - « Faux positifs déclarés au forçage » (n) : celles forcées en `rule_false_positive` qui nomment la règle. Un
+    échec accepté par V n'y entre jamais (H19), même s'il était un faux positif : seul n l'écarte, pas N ;
+  - le taux observé n/N, sans taux quand N = 0, avec la mention « Taux observé sur l'effectif affiché : un
+    indicateur, pas une borne de fiabilité. ». Une règle dont tous les échecs sont des avertissements de quantité
+    n'a pas de taux mais « Sans objet » (`canBlock` faux), plutôt qu'un 0 % qui la ferait passer pour fiable ; un
+    code qu'une autre version des règles a écrit garde sa protection et peut bloquer : la règle a alors son taux si
+    une ligne a été forcée sur cet échec dans la période. Le texte de la section dit ce que comptent n et N.
+  - Les lignes d'un job appliqué sont figées, leurs `rule_results` aussi : le calcul
+    ([`stats-forcing.ts`](../../src/lib/takeoff/stats-forcing.ts)) les relit tels qu'ils ont été appliqués, et un audit
+    non consommé ne compte pas. La route lit les consommations avec le client de l'administrateur : la politique
+    « Admins can view override consumptions » donne aux administrateurs du tenant la lecture seule de
+    `takeoff_apply_override_consumptions` (H11) ; un ingénieur n'en lit aucune, et aucune écriture n'est ouverte.
+- La réserve dans l'offre (TI-682) et la variante restent à construire.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.
@@ -499,8 +660,8 @@ de version et refuse aussi une ligne périmée. Une décision sur un partenaire
 rend donc l'ancienne proposition inutilisable, même si `updated_at` de cette ligne
 n'a pas bougé. Le dialogue d'exclusion conserve le calcul vu à son ouverture.
 
-Un client qui modifie la quantité, son attestation de saisie, l'unité, l'exclusion
-ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
+Un client qui modifie la quantité, son attestation de saisie (son auteur ou sa catégorie),
+l'unité, l'exclusion ou la page (lue par la règle d'échelle) d'une ligne évaluée périme ses résultats
 (trigger) : la ligne bloque jusqu'au recalcul serveur. Une désignation modifiée ne
 change pas les entrées des règles, lues une fois par le worker.
 
@@ -524,11 +685,19 @@ n'écrit une ligne que telle que le calcul l'a lue, `updated_at` et `rules_stale
 compris : un calcul qui l'a lue avant l'édition d'un partenaire, même validée après
 son contrôle de l'empreinte de version, ne lève jamais cette invalidation.
 
-**Saisie d'une quantité à saisir** : `quantity_entered_by` et `quantity_entered_at`.
+**Saisie d'une quantité à saisir** : `quantity_entered_by`, `quantity_entered_at`,
+`quantity_entry_category` et `quantity_entry_note` (TI-686 D12, migration
+`20261110094501_takeoff_quantity_entry_category.sql`).
 
-- Ils sont attestés par leur auteur, comme `is_verified`.
-- Ils sont effacés quand la quantité change sans nouvelle attestation.
-- Le PATCH les pose avec `quantity_entered: true`.
+- Ils sont attestés par leur auteur, comme `is_verified` : une attestation porte sa catégorie, sinon la base la
+  refuse (`TAKEOFF_ITEM_QUANTITY_ENTRY_INVALID`).
+- La catégorie et la note ne changent qu'avec une nouvelle attestation (`quantity_entered_at`), jamais seules.
+- Tous sont effacés quand la quantité change sans nouvelle attestation.
+- La base vérifie la liste des catégories et la note (contraintes `check`) ; le journal porte la catégorie et la
+  note, comme les autres champs de la revue.
+- Le PATCH les pose avec `quantity_entry: { category, note? }` : le serveur écrit l'auteur et l'heure. Une
+  hypothèse sans note de 10 caractères est refusée avec « Une hypothèse doit dire ce qui est supposé (10 à 500
+  caractères). ». L'ancien `quantity_entered: true` est refusé avec la requête (422 `VALIDATION_ERROR`).
 
 **Activation** : le worker n'écrit les entrées de règles (et les ancres de recalage des
 pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
@@ -599,12 +768,21 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - **Unité** : cliquer sur l’unité de la ligne, la corriger puis enregistrer. La quantité
     est conservée et une quantité à saisir attend toujours sa confirmation ;
   - **Accepter** (V) : lève une confiance faible ou moyenne et toute règle acceptable ;
-    jamais une quantité à saisir, un matériau bloqué ni des règles à recalculer. Un échec
-    `dn_network` demande un motif codé et la référence du système (« Acceptation
-    technique »). En niveau C, seulement une ligne qui a sa preuve et sa page, comme la
-    base l'exige ;
-  - **Saisir** une quantité non observable : la quantité tapée, même égale à celle du
-    modèle, est attestée (`quantity_entered: true`) et règle `NON_OBSERVABLE_TO_ENTER`.
+    jamais une quantité à saisir (ni une ligne qui en porte une à côté d'un échec
+    acceptable), un matériau bloqué ni des règles à recalculer. Un échec
+    `dn_network`, d'échelle ou de surface imprimée demande un motif codé (« Acceptation
+    technique ») : V ouvre un dialogue avec une section par échec. En niveau C, seulement
+    une ligne qui a sa preuve et sa page, comme la base l'exige ;
+  - **Saisir** une quantité non observable : Entrée (après F2 ou une saisie directe) ou la
+    réduction guidée ouvre « Justifier la quantité saisie » : « Justification » (les six
+    catégories) et « Ce qui fonde la quantité », obligatoire pour une hypothèse. « Enregistrer
+    la quantité » (ou Entrée) atteste la quantité tapée, même égale à celle du modèle, avec
+    sa catégorie, et règle `NON_OBSERVABLE_TO_ENTER` ; Échap annule sans rien enregistrer.
+    Le panneau de la ligne affiche ensuite « Saisie : <catégorie> — <note> ». Dans la revue
+    complète, modifier la quantité d'une ligne encore à saisir renvoie vers la revue ciblée
+    (« Une quantité à saisir se justifie dans la revue ciblée. »), sans rien enregistrer ; celle
+    d'une ligne déjà saisie, que la revue ciblée ne liste plus, retire la saisie : la ligne
+    redevient à saisir.
 - **Doublon Z1/Z2** : la raison donne la longueur comptée deux fois et la ligne de l'autre
   zone (lien vers sa revue ciblée).
   - Paire : « Retirer 1,00 m » ramène la ligne à sa quantité moins cette longueur ; une

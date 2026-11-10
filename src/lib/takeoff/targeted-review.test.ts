@@ -76,9 +76,13 @@ describe("acceptanceOf", () => {
     expect(stale.reason).toMatch(/recalcul/);
   });
 
-  it("keeps V for the acceptable failures of a line that also has a quantity to enter", () => {
-    const both = line({ rule_results: [rule({}), rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false })] });
-    expect(acceptanceOf(both, "B").enabled).toBe(true);
+  // TI-686 H17: V on a line that also has a quantity to enter is refused by the server (TAKEOFF_RULE_NOT_ACCEPTABLE): the
+  // review never offers it, and says to enter the quantity first.
+  it("never offers V on a line that also has a quantity to enter, even for its acceptable failures", () => {
+    const both = acceptanceOf(line({ rule_results: [rule({}), rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER",
+      acceptable: false })] }), "B");
+    expect(both.enabled).toBe(false);
+    expect(both.reason).toBe("Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée).");
   });
 
   it("refuses V on a level C line without its localized proof, as the server does", () => {
@@ -98,14 +102,16 @@ describe("acceptanceOf", () => {
       .toBe(false);
   });
 
-  // TI-686: the only way past a blocked material is the admin override at apply time, with a written justification.
-  // No reserve, variant or internal provision exists yet: the reason must not promise one.
-  it("names the admin override with a written justification as the only way past a blocked material", () => {
+  // TI-686: the only way past a blocked material is the admin override at apply time, with a coded reason and a written
+  // justification per line (D10); the forced line then enters the estimate as an internal provision. No reserve or
+  // variant exists yet (the reserve is TI-682's): the reason must not promise one.
+  it("names the admin override with a coded reason and a written justification as the only way past a blocked material", () => {
     const blocked = acceptanceOf(line({ rule_results: [rule({ code: "DN_NETWORK_MATERIAL_BLOCKED", acceptable: false,
       reason: "Multicouche en gaz : interdit." })] }), "B");
     expect(blocked.enabled).toBe(false);
-    expect(blocked.reason).toContain("un administrateur peut forcer l’application, avec une justification écrite");
-    expect(blocked.reason).not.toMatch(/réserve|variante|provision/);
+    expect(blocked.reason).toBe("Matériau bloqué : corrigez la ligne. Sinon, seul un administrateur peut forcer l’application, "
+      + "avec un motif codé et une justification écrite ; la ligne entre alors au devis comme provision interne.");
+    expect(blocked.reason).not.toMatch(/réserve|variante/);
   });
 });
 

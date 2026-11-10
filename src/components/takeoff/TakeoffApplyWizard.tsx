@@ -40,6 +40,7 @@ import {
   type WizardStep,
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
+import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forced-drafts";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
@@ -105,7 +106,8 @@ export function TakeoffApplyWizard({
   const [overridesByItemId, setOverridesByItemId] =
     useState<Record<string, TakeoffMappingOverride>>({});
   const overridesRef = useRef<Record<string, TakeoffMappingOverride>>({});
-  const [overrideJustification, setOverrideJustification] = useState("");
+  // TI-686 D10: each blocked line's coded reason and justification, written in the guard panel.
+  const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
@@ -159,7 +161,7 @@ export function TakeoffApplyWizard({
       setHasDpgfLines(false);
       resetPreview();
       setOverridesByItemId({});
-      setOverrideJustification("");
+      setForcedDrafts({});
 
       try {
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
@@ -267,12 +269,8 @@ export function TakeoffApplyWizard({
   };
 
   const handleOverrideConfirm = async () => {
-    const justification = overrideJustification.trim();
-    if (
-      !canAdminOverride ||
-      justification.length < 10 ||
-      justification.length > 500
-    ) {
+    const forced = guardResult ? forcedOverrideOf(guardResult.blocked_items, forcedDrafts) : null;
+    if (!canAdminOverride || !forced) {
       return;
     }
 
@@ -282,7 +280,7 @@ export function TakeoffApplyWizard({
       strategy,
       overrides: serializedOverrides,
       override: true,
-      overrideJustification: justification,
+      forced,
     });
   };
 
@@ -430,11 +428,11 @@ export function TakeoffApplyWizard({
                   guardResult={guardResult}
                   isAdmin={isAdmin}
                   canOverride={canAdminOverride}
-                  overrideJustification={overrideJustification}
+                  forcedDrafts={forcedDrafts}
                   onReturnToReview={onReturnToReview}
                   reviewHref={reviewHref}
                   targetedReviewHref={targetedReviewHref}
-                  onOverrideJustificationChange={setOverrideJustification}
+                  onForcedDraftsChange={setForcedDrafts}
                   onOverrideConfirm={() => void handleOverrideConfirm()}
                   isLevelC={isLevelC}
                   previewData={previewData}

@@ -82,10 +82,13 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
   await expect(dialog).toBeHidden();
   await ui.browser.reload();
   const after = await readEstimate(ui.browser, ids.versionId);
+  // TI-681 (docs/metier/regles-metre.md): a sold length is summed per line, then rounded up once to the
+  // metre. The 12.5 m of pipe are sold as 13; the count of valves is kept.
+  const soldQuantities: Record<string, number> = { "ARMY worker pipe": 13, "ARMY worker valve": 3 };
   for (const item of completed.items) {
     expect(after.items.filter((line) => line.title === item.designation)).toHaveLength(1);
     expect(after.items.find((line) => line.title === item.designation)).toMatchObject({
-      quantity: item.quantity, parent_id: target.parent_id, source_job_id: jobId, source_file_name: fileName, source_page: 1,
+      quantity: soldQuantities[item.designation], parent_id: target.parent_id, source_job_id: jobId, source_file_name: fileName, source_page: 1,
     });
   }
   for (const item of before.items) expect(after.items.find((line) => line.id === item.id)).toMatchObject({

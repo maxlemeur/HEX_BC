@@ -92,6 +92,76 @@ armyTest("TI680 copying a printed quantity cannot validate an unknown or SHAB fl
   }
 });
 
+// TI-686 D9 with D17 (H3): accepting a printed-surface failure states the basis of the printed surface. Declared on
+// the price line's basis, both surfaces compare and the higher is retained, saved before V; declared on another basis,
+// nothing is compared and the line keeps its quantity.
+armyTest("TI680 accepts a printed surface with its declared basis, retaining the higher surface on the line's basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
+  const { ids, owned } = await prepareQuantityQuote(ui, 3000, [3000]);
+  const job = await owned.seed("A", [
+    { designation: "Revêtement de sol", quantity: 19.5, unit: "m2", confidence: 0.99 },
+    { designation: "Revêtement de sol", quantity: 19.5, unit: "m2", confidence: 0.99 },
+  ], "surface-fictive-motifs.csv");
+  const [netFloorId, shabId] = job.items.map(item => item.id);
+  const { client: worker } = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const seeded = await worker.from("takeoff_items").update({ rules_stale: true, metadata: { rule_inputs: { version: 1,
+    source: "vector", kind: "surface", network: null, material: null, dn: null, non_observable: null,
+    model_quantity: 19.5, room: "Bureau", printed_m2: 20 } } }).in("id", [netFloorId, shabId]);
+  expect(seeded.error).toBeNull();
+  const read = async (id: string) => {
+    const row = await owned.client.from("takeoff_items")
+      .select("quantity,updated_at,is_verified,verification_justification,rule_results").eq("id", id).single();
+    expect(row.error).toBeNull();
+    return row.data!;
+  };
+  const targeted = (id: string) => `/dashboard/affaires/${ids.projectId}/takeoff/${job.jobId}/review/targeted?versionId=${ids.versionId}&line=${id}`;
+  await ui.app.open(targeted(netFloorId));
+  // Any save computes the version's rules again: the unchanged quantity is saved to read the printed surface.
+  const computed = await apiRequest(ui.browser, "PATCH", `/api/takeoff/jobs/${job.jobId}/items`,
+    { items: [{ item_id: netFloorId, updated_at: (await read(netFloorId)).updated_at, fields: { quantity: 19.5 } }] });
+  expect(computed.status).toBe(200);
+  for (const id of [netFloorId, shabId]) {
+    expect((await read(id)).rule_results).toEqual(expect.arrayContaining([expect.objectContaining({ rule: "area_printed",
+      status: "fail", version: 3, details: expect.objectContaining({ printed_m2: 20, measured_m2: 19.5, expected_basis: "net_floor" }) })]));
+  }
+
+  const note = "Tableau des surfaces du plan fictif, indice B.";
+  const refused = await apiRequest<{ data: { results: Array<{ success: boolean; error?: string }> } }>(ui.browser, "PATCH",
+    `/api/takeoff/jobs/${job.jobId}/items`, { items: [{ item_id: netFloorId, updated_at: (await read(netFloorId)).updated_at,
+      fields: { is_verified: true, verification_justification: { area_printed: { reason_code: "printed_area_basis_identified",
+        retained_basis: "net_floor", note } } } }] });
+  expect(refused.status).toBe(200);
+  expect(refused.body.data.results[0]).toMatchObject({ success: false,
+    error: "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter." });
+
+  const accept = async (id: string, basis: "Sol net" | "SHAB", retain: boolean) => {
+    await ui.app.open(targeted(id));
+    await ui.screen.getByRole("region", "Décision sur la ligne", { exact: true }).getByRole("button", /^Accepter/).click();
+    const dialog = ui.screen.getByRole("dialog");
+    await expect(dialog.getByRole("heading", "Justifier l’acceptation")).toBeVisible();
+    await dialog.getByLabel("Motif de surface", { exact: true }).selectOption({ value: "printed_area_basis_identified" });
+    await dialog.getByRole("radio", basis, { exact: true }).click();
+    await dialog.getByLabel("Note", { exact: true }).fill(note);
+    const confirm = dialog.getByRole("button", "Confirmer l’acceptation", { exact: true });
+    if (retain) {
+      await expect(confirm).toBeDisabled();
+      const saved = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job.jobId}/items`);
+      await dialog.getByRole("button", "Retenir 20 m²", { exact: true }).click();
+      expect((await saved).status).toBe(200);
+    }
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await expect(ui.screen.getByText("Ligne acceptée avec justification", { exact: true })).toBeVisible();
+  };
+  await accept(netFloorId, "Sol net", true);
+  expect(await read(netFloorId)).toMatchObject({ quantity: 20, is_verified: true,
+    verification_justification: { area_printed: { reason_code: "printed_area_basis_identified", retained_basis: "net_floor", note } } });
+  await accept(shabId, "SHAB", false);
+  expect(await read(shabId)).toMatchObject({ quantity: 19.5, is_verified: true,
+    verification_justification: { area_printed: { retained_basis: "shab" } } });
+  await recordEvidence(ui.army, "TI680-declared-surface-basis", { ...ids, jobId: job.jobId,
+    netFloor: await read(netFloorId), shab: await read(shabId) });
+});
+
 for (const fixture of cases) {
   armyTest(`TI680 applies the protected quantity and preserves ${fixture.name}`, { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
     const { app, screen, browser, army } = ui;

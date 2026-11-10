@@ -53,6 +53,30 @@ const ITEMS = [
   item(ids.z2, "EF Z2", 3, [duplicate(ids.z1, "Z1")]),
 ];
 
+// A floor of 19.5 m² measured, 20 m² printed, priced on the net floor basis (TI-686 D9, D17, D21).
+const AREA_LINE = { ...item(ids.z1, "Revêtement de sol", 19.5, [{ rule: "area_printed", status: "fail", code: "AREA_PRINTED_MISMATCH",
+  version: 3, acceptable: true, reason: "Surface écrite différente.", details: { printed_m2: 20, measured_m2: 19.5,
+    expected_basis: "net_floor" } }]), unit: "m2" };
+const D17_REFUSAL = "Même base que la prestation : les deux surfaces se comparent et la plus élevée est retenue. Retenez 20 m² avant d’accepter.";
+
+/** Opens the acceptance of an area line alone (AREA_LINE by default), its reason, the net floor basis and a note filled in. */
+async function justifyPrintedArea(user: ReturnType<typeof userEvent.setup>, reason: string, line: TakeoffJobItem = AREA_LINE) {
+  vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+    job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+    items: { data: [line], pagination: { total: 1, offset: 0, limit: 200 } },
+  } as never);
+  render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
+  const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
+  await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(1));
+  choose(list, "Revêtement de sol");
+  await user.click(screen.getByRole("button", { name: /^Accepter/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Justifier l’acceptation" });
+  await user.selectOptions(within(dialog).getByLabelText("Motif de surface"), reason);
+  await user.click(within(dialog).getByRole("radio", { name: "Sol net" }));
+  await user.type(within(dialog).getByLabelText("Note"), "Tableau des surfaces du plan, indice B.");
+  return dialog;
+}
+
 async function open() {
   render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
   const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
@@ -78,8 +102,14 @@ afterEach(() => {
 });
 
 describe("TakeoffTargetedReview", () => {
-  it("attests a quantity to enter confirmed as it is, and never offers V for it", async () => {
-    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });
+  // TI-686 D12: Enter on a quantity to enter opens « Justifier la quantité saisie »; the quantity is saved with what it
+  // rests on, and the line then shows it.
+  it("attests a quantity to enter confirmed as it is with its category, and never offers V for it", async () => {
+    const entered = { ...ITEMS[0], quantity_entered_at: "2026-11-04T10:01:00.000Z", quantity_entered_by: "55555555-5555-4555-8555-555555555555",
+      quantity_entry_category: "written_confirmation", quantity_entry_note: "Fiche atelier A-07", rules_stale: true,
+      updated_at: "2026-11-04T10:01:00.000Z" };
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: entered }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
     const list = await open();
     choose(list, "Soudures des réseaux");
 
@@ -90,8 +120,35 @@ describe("TakeoffTargetedReview", () => {
     await waitFor(() => expect(quantity).toHaveFocus());
     fireEvent.keyDown(quantity, { key: "Enter" });
 
+    const dialog = await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+    const save = within(dialog).getByRole("button", { name: "Enregistrer la quantité" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "hypothesis");
+    expect(save).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "written_confirmation");
+    await user.type(within(dialog).getByLabelText("Ce qui fonde la quantité"), "Fiche atelier A-07");
+    await user.click(save);
+
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
-      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entered: true } }] }));
+      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entry: { category: "written_confirmation", note: "Fiche atelier A-07" } } }] }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Saisie : Confirmation écrite — Fiche atelier A-07")).toBeInTheDocument();
+  });
+
+  it("cancels the entry's justification with Escape, without saving", async () => {
+    const user = userEvent.setup();
+    const list = await open();
+    choose(list, "Soudures des réseaux");
+    fireEvent.keyDown(list, { key: "F2" });
+    const quantity = await screen.findByLabelText("Quantité à saisir");
+    await waitFor(() => expect(quantity).toHaveFocus());
+    fireEvent.keyDown(quantity, { key: "Enter" });
+    await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
   });
 
   it("keeps a letter typed in the quantity in the field, and opens the exclusion from the list", async () => {
@@ -172,8 +229,67 @@ describe("TakeoffTargetedReview", () => {
     expect(quantity).toHaveValue("5");
   });
 
+  // TI-686 D9: « Retenir 20 m² » saves the printed surface, but the computation that follows failed: the line is stale,
+  // so the acceptance stays closed. The dialog says why, where the user acts, instead of a silent disabled button.
+  it("says why the acceptance stays closed when the line is stale after the printed surface is retained", async () => {
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: AREA_LINE.id, success: true, item: { ...AREA_LINE, quantity: 20,
+      rules_stale: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const dialog = await justifyPrintedArea(user, "printed_area_basis_identified");
+    const confirm = within(dialog).getByRole("button", { name: "Confirmer l’acceptation" });
+    expect(confirm).toBeDisabled();
+    // The quantity below the printed surface is explained by the button that retains it, not by a second message.
+    expect(within(dialog).queryByText(D17_REFUSAL)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Retenir 20 m²" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: AREA_LINE.id,
+      updated_at: AREA_LINE.updated_at, expected_rules_evaluated_at: AREA_LINE.rules_evaluated_at, fields: { quantity: 20 } }] }));
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Retenir 20 m²" })).not.toBeInTheDocument());
+    expect(confirm).toBeDisabled();
+    expect(within(dialog).getByText("Recalculez les règles avant d’accepter la ligne.")).toBeInTheDocument();
+  });
+
+  // TI-686 D21: « contour mesuré retenu » says the printed surface covers another outline. On the price line's basis
+  // too, nothing compares: the quantity stays the line's, nothing to retain, V is offered at 19.5 m².
+  const OUTLINE_SENTENCE = "Même base, autre périmètre : la quantité reste celle de la ligne ; la surface écrite reste visible "
+    + "dans le contrôle.";
+  it("accepts a measured outline on the price line's basis at the line's quantity", async () => {
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: AREA_LINE.id, success: true, item: { ...AREA_LINE,
+      is_verified: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const dialog = await justifyPrintedArea(user, "measured_outline_retained");
+    expect(within(dialog).getByText(OUTLINE_SENTENCE)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /^Retenir/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(D17_REFUSAL)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer l’acceptation" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: AREA_LINE.id,
+      updated_at: AREA_LINE.updated_at, expected_rules_evaluated_at: AREA_LINE.rules_evaluated_at, fields: { is_verified: true,
+        verification_justification: { area_printed: { reason_code: "measured_outline_retained", retained_basis: "net_floor",
+          note: "Tableau des surfaces du plan, indice B." } } } }] }));
+  });
+
+  // A vector room labelled « sol net » is stored at max(polygon, printed) when the line is created (vectors/items.ts):
+  // here 20 m² for 19.5 measured. The dialog must not say the quantity stays the measurement: it stays the line's,
+  // 20 m², and V sends no quantity.
+  it("never calls the stored maximum of a vector net-floor room its measurement", async () => {
+    const stored = { ...AREA_LINE, quantity: 20 };
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: stored.id, success: true, item: { ...stored,
+      is_verified: true, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const dialog = await justifyPrintedArea(user, "measured_outline_retained", stored);
+    expect(within(dialog).getByText(OUTLINE_SENTENCE)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/reste la mesure/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer l’acceptation" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: stored.id,
+      updated_at: stored.updated_at, expected_rules_evaluated_at: stored.rules_evaluated_at, fields: { is_verified: true,
+        verification_justification: { area_printed: { reason_code: "measured_outline_retained", retained_basis: "net_floor",
+          note: "Tableau des surfaces du plan, indice B." } } } }] }));
+  });
+
   // Codex #162: the field's blur ended an unchanged entry before the click on « Enregistrer » landed.
-  it("confirms an unchanged quantity to enter with a click on Enregistrer", async () => {
+  it("confirms an unchanged quantity to enter with a click on Enregistrer, then Enter in its justification", async () => {
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: ITEMS[0] }], succeeded: 1, failed: 0 });
     const user = userEvent.setup();
     const list = await open();
@@ -181,8 +297,11 @@ describe("TakeoffTargetedReview", () => {
     await user.click(screen.getByRole("button", { name: /^Saisir/ }));
     await waitFor(() => expect(screen.getByLabelText("Quantité à saisir")).toHaveFocus());
     await user.click(screen.getByRole("button", { name: /^Enregistrer/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "site_survey");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
-      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entered: true } }] }));
+      updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entry: { category: "site_survey" } } }] }));
   });
 });

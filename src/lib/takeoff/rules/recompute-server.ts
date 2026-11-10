@@ -49,7 +49,7 @@ type ItemRow = {
   id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; updated_at: string;
   metadata: unknown; source_file_name: string | null; source_page: number | null; rule_results: unknown; rules_stale: boolean;
   rules_stale_at: string | null;
-  rules_evaluated_at: string | null; quantity_entered_by: string | null; is_verified: boolean;
+  rules_evaluated_at: string | null; quantity_entry_category: string | null; is_verified: boolean;
 };
 type PageRow = { id: string; job_id: string; plan_file_id: string | null; source_file_name: string | null; source_page: number; reading: unknown;
   rule_anchors: unknown };
@@ -127,7 +127,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
 
   const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
     .select(("id, job_id, designation, unit, quantity, is_excluded, updated_at, metadata, source_file_name, source_page, "
-      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entered_by, is_verified") as never, { count: "exact" })
+      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entry_category, is_verified") as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, jobIds as never));
   if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
   const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
@@ -164,7 +164,9 @@ export async function recomputeTakeoffRulesForVersion(input: {
     const stored = geometries.get(item.id);
     return {
       id: item.id, job_id: item.job_id, designation: item.designation, unit: item.unit, quantity: Number(item.quantity),
-      is_excluded: item.is_excluded, frozen: status.get(item.job_id) === "applied", quantity_entered: item.quantity_entered_by !== null,
+      is_excluded: item.is_excluded, frozen: status.get(item.job_id) === "applied",
+      // TI-686 D12: an entry is a quantity attested with its category, which survives the deletion of its author.
+      quantity_entered: item.quantity_entry_category != null,
       inputs,
       // A line read by the model belongs to the vector page of its own document and page, when the job read one (scale rule).
       page_key: stored?.page ?? ruleLinePage(item, candidates),

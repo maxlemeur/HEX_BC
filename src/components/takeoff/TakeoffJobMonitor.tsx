@@ -539,7 +539,8 @@ export default function TakeoffJobMonitor({
           strategy: payload.strategy,
           overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
           override: payload.override,
-          override_justification: payload.overrideJustification,
+          forced_justifications: payload.forced?.forced_justifications,
+          forced_items: payload.forced?.forced_items,
         }, versionId);
         setApplyState("idle");
         setIsApplyWizardOpen(false);

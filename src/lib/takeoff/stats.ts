@@ -52,6 +52,11 @@ import {
   readAuditItemId,
   TAKEOFF_CALIBRATION_MIN_SAMPLE_SIZE,
 } from "@/lib/takeoff/stats-corrections";
+import {
+  buildRuleForcingStats,
+  type RuleForcingConsumptionRow,
+  type RuleForcingItemRow,
+} from "@/lib/takeoff/stats-forcing";
 
 const PERIOD_TO_DAYS: Record<TakeoffMetricsPeriod, number> = {
   "7d": 7,
@@ -121,11 +126,18 @@ export type TakeoffMetricsItemRow = {
 };
 
 export type TakeoffMetricsAuditLogRow = {
+  id?: string;
   record_id: string;
   action: string;
   created_at: string;
   after_data: unknown;
 };
+
+/** TI-686 D10: a line of an applied job, with its frozen rule results (stats-forcing.ts). */
+export type TakeoffMetricsRuleForcingItemRow = RuleForcingItemRow;
+
+/** TI-686 D10 (H11): an override consumed by an application, as an administrator reads it. */
+export type TakeoffMetricsOverrideConsumptionRow = RuleForcingConsumptionRow;
 
 export type ParsedTakeoffMetricsQuery = {
   period: TakeoffMetricsPeriod;
@@ -142,7 +154,12 @@ export type BuildTakeoffMetricsStatsPayloadInput = {
   runMetrics: TakeoffMetricsRunMetricRow[];
   results: TakeoffMetricsResultRow[];
   items: TakeoffMetricsItemRow[];
+  /** The correction audits, and the override audits (takeoff.apply.override) of the jobs read. */
   auditLogs?: TakeoffMetricsAuditLogRow[];
+  /** The lines of the applied jobs read, with their rule results (TI-686 D10). */
+  ruleForcingItems?: TakeoffMetricsRuleForcingItemRow[];
+  /** The overrides consumed by those jobs (TI-686 D10). */
+  overrideConsumptions?: TakeoffMetricsOverrideConsumptionRow[];
   now?: Date;
 };
 
@@ -607,6 +624,14 @@ export function buildTakeoffMetricsStatsPayload(
         : 0,
   };
 
+  // TI-686 D10 (H19): the false positives declared at forcing per rule, over the applied jobs read.
+  const ruleForcing = buildRuleForcingStats({
+    jobs,
+    items: (input.ruleForcingItems ?? []).filter((item) => jobById.has(item.job_id)),
+    overrideAudits: auditLogs.filter((auditLog) => auditLog.action === "takeoff.apply.override"),
+    consumptions: (input.overrideConsumptions ?? []).filter((consumption) => jobById.has(consumption.job_id)),
+  });
+
   const weeklyPilotBuckets = buildWeeklyPilotBuckets(period, days, now);
   const weeklyPilotBucketMap = new Map(
     weeklyPilotBuckets.map((bucket) => [bucket.key, bucket] as const)
@@ -1025,6 +1050,7 @@ export function buildTakeoffMetricsStatsPayload(
     kpis,
     corrections,
     calibration,
+    ruleForcing,
     pilot,
     trend: trendBuckets,
     costByLevel,
