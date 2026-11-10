@@ -114,8 +114,10 @@ describe("runLockedProgram", () => {
       })();`;
     const outcome = JSON.parse(text((await run(probe)).output));
     expect(outcome).toMatchObject({ write: "ERR_ACCESS_DENIED", read: "ERR_ACCESS_DENIED", spawn: "ERR_ACCESS_DENIED", worker: "ERR_ACCESS_DENIED", connect: "ERR_ACCESS_DENIED" });
-    // No key, token or server secret reaches the program.
-    expect(outcome.environment.filter((name: string) => !["NODE_ENV", "PATH"].includes(name))).toEqual([]);
+    // No key, token or server secret reaches the program. macOS itself sets __CF_USER_TEXT_ENCODING in
+    // every process it starts, even one given an empty environment: it is the system's, not the server's.
+    const fromThePlatform = process.platform === "darwin" ? ["__CF_USER_TEXT_ENCODING"] : [];
+    expect(outcome.environment.filter((name: string) => !["NODE_ENV", "PATH", ...fromThePlatform].includes(name))).toEqual([]);
   }, 30_000);
 
   it("takes the exit code of a program that ends before it has read what it was sent", async () => {
