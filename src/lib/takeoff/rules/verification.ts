@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { ACCEPTANCE_NOTE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 // Coded reasons to accept (V) a failure that V alone does not settle (TI-685 for the network, TI-686 D9 for the scale
@@ -39,28 +40,7 @@ export const RETAINED_SURFACE_BASES = {
   other: "Autre base (à préciser dans la note)",
 } as const;
 
-export const ACCEPTANCE_NOTE = { min: 10, max: 500 } as const;
-
-const NOTE_BLANKS = /^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g;
-
-/**
- * A note as stored and measured: without the ASCII blanks at its ends, the class the trigger removes
- * (regexp_replace '^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$'). Not String.prototype.trim, which also removes Unicode blanks.
- */
-export function noteText(text: string) {
-  return text.replace(NOTE_BLANKS, "");
-}
-
-/** Its length in code points, as char_length counts it (not in UTF-16 units). */
-export function noteLength(text: string) {
-  return [...noteText(text)].length;
-}
-
-/** A note of 10 to 500 code points once its blanks are trimmed (shared with the override's justifications, TI-686 D10). */
-export function validNote(text: string) {
-  const length = noteLength(text);
-  return length >= ACCEPTANCE_NOTE.min && length <= ACCEPTANCE_NOTE.max;
-}
+export { ACCEPTANCE_NOTE, noteLength, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
 
 const noteSchema = z.string().overwrite(noteText)
   .refine(validNote, `De ${ACCEPTANCE_NOTE.min} à ${ACCEPTANCE_NOTE.max} caractères.`)

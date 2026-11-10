@@ -8,9 +8,11 @@ import {
   type ApplyGuardResult,
   type GuardBlockedItem,
 } from "@/lib/takeoff/guards";
-import { FORCE_REASONS, forceReasonsFor, forceRulesOf, type ForceReason } from "@/lib/takeoff/force-reasons";
+import { FORCE_REASON_CODES, type ForceReason } from "@/lib/takeoff/force-reason-codes";
+import { FORCE_REASONS } from "@/lib/takeoff/force-reason-labels";
+import { forceReasonsFor, forceRulesOf } from "@/lib/takeoff/force-reasons";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
-import { ACCEPTANCE_NOTE, noteLength, validNote } from "@/lib/takeoff/rules/verification";
+import { ACCEPTANCE_NOTE, noteLength, validNote } from "@/lib/takeoff/rules/acceptance-note";
 
 import {
   falsePositiveRules,
@@ -123,7 +125,7 @@ export function GuardPanel({
   const blocked = guardResult.blocked_items;
   const selected = blocked.filter((line) => forcedDraftOf(forcedDrafts, line.item_id).selected);
   // The reasons every selected line accepts (the unconditional ones at least).
-  const bulkReasons = (Object.keys(FORCE_REASONS) as ForceReason[])
+  const bulkReasons = FORCE_REASON_CODES
     .filter((code) => selected.every((line) => forceReasonsFor(line).includes(code)));
   const complete = forcedOverrideOf(blocked, forcedDrafts) !== null;
   const setDraft = (itemId: string, next: ForcedDraft) => onForcedDraftsChange({ ...forcedDrafts, [itemId]: next });

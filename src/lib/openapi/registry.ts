@@ -18,7 +18,6 @@ import { updateTakeoffRiskAlertStatusResponseSchema as sharedTakeoffRiskAlertSta
 import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVersionIdResponseSchema, estimateVerifySealResponseSchema, estimateItemWriteResponseSchema, estimateBulkUpdateResponseSchema, estimateEventsResponseSchema, estimateSettingsResponseSchema, estimatePromoteVariantResponseSchema } from "@/lib/estimates/write-response-contracts";
 import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfReviewDecisionSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
-import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/force-reasons";
 import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
 import {
@@ -26,6 +25,8 @@ import {
   takeoffPriceSuggestionReviewResponseSchema as takeoffPriceSuggestionReviewResponseDataSchema,
 } from "@/lib/takeoff/price-suggestion-contracts";
 import {
+  forcedItemSchema,
+  forcedJustificationSchema,
   requestTakeoffPriceSuggestionSchema as takeoffPriceSuggestionRequestSchema,
   reviewTakeoffPriceSuggestionSchema as takeoffPriceSuggestionReviewRequestSchema,
 } from "@/lib/takeoff/schemas";

@@ -1,12 +1,12 @@
 "use client";
 
+import type { ForceReason } from "@/lib/takeoff/force-reason-codes";
 import {
   forcedItemError,
   forceRulesOf,
   packForcedItems,
   type ForcedEntry,
   type ForcedOverride,
-  type ForceReason,
 } from "@/lib/takeoff/force-reasons";
 import type { GuardBlockedItem } from "@/lib/takeoff/guards";
 import type { TakeoffRuleId } from "@/lib/takeoff/rules/types";

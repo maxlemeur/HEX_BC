@@ -1,5 +1,5 @@
 import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
-import { FORCE_REASONS } from "@/lib/takeoff/force-reasons";
+import { FORCE_REASONS } from "@/lib/takeoff/force-reason-labels";
 
 type EstimateLineTruthSourceKind =
   | "manual"

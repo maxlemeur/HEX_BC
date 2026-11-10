@@ -1,8 +1,7 @@
-import { z } from "zod";
-
+import { FORCE_REASON_CODES, type ForceReason } from "@/lib/takeoff/force-reason-codes";
 import type { GuardBlockedItem } from "@/lib/takeoff/guards";
-import { ACCEPTANCE_NOTE, noteText, validNote } from "@/lib/takeoff/rules/verification";
-import { TAKEOFF_RULE_IDS, type TakeoffRuleId } from "@/lib/takeoff/rules/types";
+import { ACCEPTANCE_NOTE, JUSTIFICATION_MESSAGE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
+import type { TakeoffRuleId } from "@/lib/takeoff/rules/types";
 
 // TI-686 D10 (H7): an administrator forces each line the apply guard blocks with a coded reason and a justification of
 // 10 to 500 characters (the acceptance notes' rule, noteText). The reasons that name a rule hold on the failures that
@@ -11,19 +10,9 @@ import { TAKEOFF_RULE_IDS, type TakeoffRuleId } from "@/lib/takeoff/rules/types"
 // results as none and stale). The four other reasons always hold. Twin of private.takeoff_apply_forced_item_valid
 // (migration …_takeoff_apply_force_reasons.sql), which the apply trigger checks; the SQL is never stricter: it reads
 // the stored results as they are, where this side refuses what it cannot read.
-
-/** The coded reasons of an override, as the guard panel offers them (labels pending the business owner's agreement). */
-export const FORCE_REASONS = {
-  rule_false_positive: "Faux positif de règle",
-  additional_evidence: "Preuve complémentaire",
-  engineer_or_client_confirmation: "Confirmation BET ou client",
-  controlled_correction: "Correction contrôlée",
-  duplicate_resolved: "Doublon résolu",
-  priced_hypothesis: "Hypothèse chiffrée",
-} as const;
-
-export type ForceReason = keyof typeof FORCE_REASONS;
-export const FORCE_REASON_CODES = Object.keys(FORCE_REASONS) as [ForceReason, ...ForceReason[]];
+// No zod here: the guard panel and the apply wizard use it in the browser. The codes are in force-reason-codes.ts, their
+// labels in force-reason-labels.ts, and the request and audit schemas (forcedItemSchema, forcedJustificationSchema) in
+// schemas.ts.
 
 /** A resolved duplicate needs one of these rules among the failures that block the line. */
 const OVERLAP_RULES: ReadonlySet<TakeoffRuleId> = new Set(["zone_overlap", "room_overlap"]);
@@ -35,23 +24,17 @@ export const FORCE_MESSAGES = {
   falsePositiveRules: "Désignez, une fois chacune, la ou les règles fautives parmi celles dont l’échec bloque la ligne.",
   falsePositiveRulesForbidden: "La règle fautive ne se désigne que pour un faux positif de règle.",
   duplicateResolved: "Un doublon résolu suppose un doublon ou un chevauchement qui bloque la ligne, sur des résultats à jour.",
-  justification: `Une justification de ${ACCEPTANCE_NOTE.min} à ${ACCEPTANCE_NOTE.max} caractères est obligatoire.`,
+  justification: JUSTIFICATION_MESSAGE,
 } as const;
 
-/** A justification as the request and the audit carry it: without its blanks at the ends, 10 to 500 code points. */
-export const forcedJustificationSchema = z.string().overwrite(noteText)
-  .refine(validNote, FORCE_MESSAGES.justification)
-  .meta({ minLength: ACCEPTANCE_NOTE.min, maxLength: ACCEPTANCE_NOTE.max });
-
 /** One forced line: its coded reason, the rules at fault for a false positive, and the index of its justification. */
-export const forcedItemSchema = z.object({
-  item_id: z.string().uuid("item_id invalide."),
-  reason_code: z.enum(FORCE_REASON_CODES),
-  false_positive_rules: z.array(z.enum(TAKEOFF_RULE_IDS)).optional(),
-  justification_index: z.number().int().nonnegative(),
-}).strict();
+export type ForcedItem = {
+  item_id: string;
+  reason_code: ForceReason;
+  false_positive_rules?: TakeoffRuleId[];
+  justification_index: number;
+};
 
-export type ForcedItem = z.infer<typeof forcedItemSchema>;
 export type ForcedOverride = { forced_justifications: string[]; forced_items: ForcedItem[] };
 
 /** A blocked line as the apply guard reports it (checkApplyGuard). */

@@ -2,10 +2,11 @@ import { z } from "zod";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
-import { forcedItemSchema, forcedJustificationSchema, type ForcedItem } from "@/lib/takeoff/force-reasons";
+import type { ForcedItem } from "@/lib/takeoff/force-reasons";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { TAKEOFF_LEVELS, type TakeoffLevel } from "@/lib/takeoff/types";
 import type { Database, Json } from "@/types/database";
