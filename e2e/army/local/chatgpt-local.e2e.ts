@@ -43,6 +43,11 @@ let fixtureEmail: string;
 let labDatasetDir: string;
 let labOutputDir: string;
 const LAB_VECTOR_DOCUMENT = "fictif-plan-calques";
+// The intake journeys wait for work of their own development server: a page refresh after a reclassification, an
+// analysis of each piece. A CI runner shares its processors with the second worker and the built application: the
+// same requests that answer in under a second locally took 11 to 15 s there (run 42822760346, both attempts, and
+// 13.2 s in the green run 42822852964), the whole default assertion budget. The outcome asserted stays the same.
+const DEV_SERVER_WORK = { timeout: 60_000 };
 let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
 /** The fixture also logs a client that left a proxied request; the server absorbs it and keeps serving (TI-667). */
 const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.provider === "process-diagnostic"
@@ -1220,13 +1225,13 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     const copiesBefore = await readPlanFiles(browser, sets[0].id);
     expect(copiesBefore).toHaveLength(1);
     // The document desk keeps the dialog open while the reclassification is pending.
-    await expect(details).toHaveAttribute("aria-busy", "false");
+    await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
     await details.getByRole("button", "Fermer", { exact: true }).click();
     await expect(details).not.toBeVisible();
     const retry = screen.getByRole("button", "Relancer l’analyse (1)", { exact: true });
     await expect(retry).toBeEnabled();
     await retry.click();
-    await expect(screen.getByText(/1 classement manuel conservé/)).toBeVisible();
+    await expect(screen.getByText(/1 classement manuel conservé/)).toBeVisible(DEV_SERVER_WORK);
     const after = (await documents())[0];
     for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
       "manually_overridden_at", "confidence", "document_priority", "plan_copy_generation"] as const) expect(after[field]).toEqual(before[field]);
@@ -1308,12 +1313,12 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
       await details.getByRole("button", "Valider", { exact: true }).click();
       await expect.poll(async () => (await documents()).find(doc => doc.id === row.id)).toMatchObject({ document_kind: category, classification_source: "manual" });
       await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
-      await expect(details).toHaveAttribute("aria-busy", "false");
+      await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
       await details.getByRole("button", "Fermer", { exact: true }).click();
       await expect(details).not.toBeVisible();
     }
     await screen.getByRole("button", "Relancer l’analyse (4)", { exact: true }).click();
-    await expect(screen.getByText(/3 pièces analysées. 1 pièce non analysée./)).toBeVisible();
+    await expect(screen.getByText(/3 pièces analysées. 1 pièce non analysée./)).toBeVisible(DEV_SERVER_WORK);
     await expect(screen.getByText("01-corrompu.docx : Le fichier Word est invalide ou corrompu. Réenregistrez-le en DOCX ou exportez-le en PDF.", { exact: true })).toBeVisible();
     await expect(screen.getByText(/sélection restante/)).toHaveCount(0);
     const rows = await documents();
