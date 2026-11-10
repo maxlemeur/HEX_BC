@@ -4,7 +4,7 @@
 // reader to try and the content must agree: a file is never read as what it is not.
 
 import { CadReadError, readDxf, type CadLimits } from "./dxf";
-import { readFcstd } from "./fcstd";
+import { readFcstd, type FcstdLimits } from "./fcstd";
 import type { CadDrawing } from "./model";
 import { readDwgSummary, readRvtSummary, type CadSummary } from "./summary";
 
@@ -20,20 +20,23 @@ export function cadOriginalFormat(fileName: string): CadOriginalFormat | null {
   return extension === "dxf" || extension === "dwg" || extension === "rvt" || extension === "fcstd" ? extension : null;
 }
 
-export async function readCadOriginal(fileName: string, bytes: Uint8Array, options: { limits?: Partial<CadLimits> } = {}): Promise<CadOriginal> {
+/** `limits`: those of the drawing reader; `fcstdLimits`: those of the FreeCAD reader. */
+export async function readCadOriginal(fileName: string, bytes: Uint8Array, options: { limits?: Partial<CadLimits>; fcstdLimits?: Partial<FcstdLimits> } = {}): Promise<CadOriginal> {
   const format = cadOriginalFormat(fileName);
   if (format === "dxf") return { kind: "drawing", drawing: readDxf(bytes, options) };
   if (format === "dwg") return { kind: "summary", summary: readDwgSummary(bytes) };
   if (format === "rvt") return { kind: "summary", summary: readRvtSummary(bytes) };
   if (format === "fcstd") {
-    const { summary, sketchesDxf } = await readFcstd(bytes);
+    const { summary, sketchesDxf } = await readFcstd(bytes, { limits: options.fcstdLimits });
     if (sketchesDxf === null) return { kind: "summary", summary };
     try {
-      return { kind: "drawing", drawing: readDxf(new TextEncoder().encode(sketchesDxf), options), source: summary };
+      const drawing = readDxf(new TextEncoder().encode(sketchesDxf), { limits: options.limits });
+      // Sketches of which elements were left out make a drawing read in part: its quantities are a minimum, and it is not plotted.
+      return { kind: "drawing", drawing: summary.model.left.sketches ? { ...drawing, truncated: true } : drawing, source: summary };
     } catch (error) {
       if (!(error instanceof CadReadError)) throw error;
       // Sketches too heavy to be read as a drawing: the document is summed up, and says that they are not drawn.
-      return { kind: "summary", summary: { ...summary, model: { ...summary.model, sketches: 0, truncated: true } } };
+      return { kind: "summary", summary: { ...summary, model: { ...summary.model, sketches: 0, truncated: true, left: { ...summary.model.left, sketches: true } } } };
     }
   }
   throw new CadReadError("unsupported");

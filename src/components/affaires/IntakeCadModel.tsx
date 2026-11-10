@@ -19,17 +19,19 @@ const MAX_OBJECT_ROWS = 200;
 export function IntakeCadModel({ model, fileName, open = false }: { model: CadModel; fileName: string; open?: boolean }) {
   const kinds = useMemo(() => cadModelKinds(model), [model]);
   const listed = model.objects.length;
+  // What the reader left out, each said once.
+  const leftOut = [
+    ...(model.total > listed ? [`${listed.toLocaleString("fr-FR")} de ses ${model.total.toLocaleString("fr-FR")} objets sont listés et exportés`] : []),
+    ...(model.left.sketches ? ["ses esquisses comptent trop d’éléments pour être toutes dessinées"] : []),
+    ...(model.left.dimensions ? ["certains de ses objets ont plus de dimensions qu’il n’en est listé"] : []),
+  ];
   const exportObjects = () => downloadBlob(new Blob([cadModelCsv(model)], { type: "text/csv;charset=utf-8" }), cadModelFileName(fileName));
 
   return (
     <>
-      {model.truncated && (
+      {leftOut.length > 0 && (
         <div className="document-cad-warnings" role="alert">
-          <p>
-            Cette maquette n’a pas été lue en entier : {model.total > listed
-              ? `${listed.toLocaleString("fr-FR")} de ses ${model.total.toLocaleString("fr-FR")} objets sont listés et exportés.`
-              : "ses esquisses comptent trop d’éléments pour être toutes dessinées."}
-          </p>
+          <p>Cette maquette n’a pas été lue en entier : {leftOut.join(" ; ")}.</p>
         </div>
       )}
 

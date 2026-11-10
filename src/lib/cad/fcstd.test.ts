@@ -17,6 +17,7 @@ describe("FreeCAD documents", () => {
       total: 4,
       sketches: 0,
       truncated: false,
+      left: { sketches: false, dimensions: false },
       objects: [
         { name: "Box", label: "Ballon & socle", type: "Part::Box", kind: "Box", dimensions: [{ name: "Length", kind: "length", value: 800 }, { name: "Width", kind: "length", value: 600 }, { name: "Height", kind: "length", value: 1900 }] },
         { name: "Pipe", label: "Départ chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 4250.5 }] },
@@ -184,8 +185,26 @@ describe("FreeCAD documents", () => {
 
     const sketch: FcstdEntry[] = [{ type: "Sketcher::SketchObject", name: "Sketch", properties: [label("Plan"), geometry("Geometry", [segment(0, 0, 10, 0), segment(10, 0, 10, 10), segment(10, 10, 0, 10)])] }];
     const drawn = await readFcstd(fcstd(documentXml(sketch)), { limits: { maxGeometry: 2 } });
-    expect(drawn.summary.model.truncated).toBe(true);
+    expect(drawn.summary.model).toMatchObject({ truncated: true, left: { sketches: true, dimensions: false } });
     expect(readDxf(strToU8(drawn.sketchesDxf!)).paths.count).toBe(2);
+  });
+
+  it("says when an object has more dimensions than it lists, and only then", async () => {
+    const box = (name: string, shaped = true): FcstdEntry => ({ type: "Part::Box", name, properties: [label(name), float("Length", "Length", 10), float("Width", "Length", 20), float("Height", "Length", 30), ...(shaped ? [shape(name)] : [])] });
+    const whole = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 3 } })).summary.model;
+    expect(whole).toMatchObject({ total: 1, truncated: false, left: { sketches: false, dimensions: false } });
+
+    const cut = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 2 } })).summary.model;
+    expect(cut.objects[0].dimensions).toHaveLength(2);
+    expect(cut).toMatchObject({ total: 1, truncated: true, left: { sketches: false, dimensions: true } });
+
+    // A dimension left at zero is not one that was left out.
+    const zero: FcstdEntry = { type: "Part::Box", name: "Box", properties: [label("Box"), float("Length", "Length", 10), float("Width", "Length", 20), float("Height", "Length", 0), shape("Box")] };
+    expect((await readFcstd(fcstd(documentXml([zero])), { limits: { maxDimensions: 2 } })).summary.model).toMatchObject({ truncated: false, left: { dimensions: false } });
+
+    // Nor does an object that is not listed, having no shape, make the list incomplete.
+    const unlisted = (await readFcstd(fcstd(documentXml([box("Sans forme", false), zero])), { limits: { maxDimensions: 2 } })).summary.model;
+    expect(unlisted).toMatchObject({ total: 1, truncated: false, left: { dimensions: false } });
   });
 
   it("refuses what is not a FreeCAD document", async () => {

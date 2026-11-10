@@ -33,8 +33,10 @@ export type CadModel = {
   total: number;
   /** Sketches that are drawn. */
   sketches: number;
-  /** The document holds more objects than `objects` lists, or its sketches more elements than are drawn. */
+  /** The document holds more than is shown: objects past those `objects` lists, or what `left` tells. */
   truncated: boolean;
+  /** `sketches`: the sketches hold elements that are not drawn; `dimensions`: an object listed has more dimensions than it lists. */
+  left: { sketches: boolean; dimensions: boolean };
 };
 
 /** `maxNames`: the objects a document may name, listed or not; `maxObjects`: those that are listed. */
@@ -160,7 +162,8 @@ function walkXml(text: string, visit: { open(name: string, attributes: () => Att
 }
 
 type Shape = { tag: string; attributes: Attributes };
-type Found = { name: string; type: string; label: string; ifc: string | null; tool: string | null; shaped: boolean; dimensions: CadModelDimension[]; geometry: Shape[] };
+/** `cut`: the object has more dimensions than `dimensions` holds. */
+type Found = { name: string; type: string; label: string; ifc: string | null; tool: string | null; shaped: boolean; dimensions: CadModelDimension[]; cut: boolean; geometry: Shape[] };
 
 /** « 1.0.2R39319 (Git) » is FreeCAD 1.0, « 0.21.2R33771 (Git) » FreeCAD 0.21. */
 function freecadVersion(program: string | undefined): CadSummary["version"] {
@@ -171,7 +174,7 @@ function freecadVersion(program: string | undefined): CadSummary["version"] {
 function readDocument(text: string, limits: FcstdLimits): { version: CadSummary["version"]; found: Found[]; left: number } | null {
   const stack: string[] = [];
   const byName = new Map<string, Found>();
-  // `deep`: tags open past the depth that is kept; `left`: what the limits left out.
+  // `deep`: tags open past the depth that is kept; `left`: the objects and the sketch elements the limits left out.
   let isDocument = false, version: CadSummary["version"] = null, left = 0, kept = 0, deep = 0;
   let current: Found | null = null, property: { name: string; type: string } | null = null;
   let enumeration: { chosen: number; seen: number } | null = null;
@@ -185,7 +188,7 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
       left += 1;
       return null;
     }
-    byName.set(name, (entry = { name, type: "", label: "", ifc: null, tool: null, shaped: false, dimensions: [], geometry: [] }));
+    byName.set(name, (entry = { name, type: "", label: "", ifc: null, tool: null, shaped: false, dimensions: [], cut: false, geometry: [] }));
     return entry;
   };
 
@@ -242,8 +245,9 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
       } else if (name === "Float") {
         const kind = DIMENSION_KINDS.get(property.type), value = Number(attributes().value);
         // A dimension left at zero says nothing of the object.
-        if (kind && Number.isFinite(value) && value !== 0 && current.dimensions.length < limits.maxDimensions) {
-          current.dimensions.push({ name: listed(property.name), kind, value });
+        if (kind && Number.isFinite(value) && value !== 0) {
+          if (current.dimensions.length < limits.maxDimensions) current.dimensions.push({ name: listed(property.name), kind, value });
+          else current.cut = true;
         }
       }
     },
@@ -363,11 +367,14 @@ export async function readFcstd(bytes: Uint8Array, options: { limits?: Partial<F
   const thumbnail = image && PNG_SIGNATURE.every((value, index) => image[index] === value) ? { type: "image/png" as const, bytes: image } : null;
   const shaped = document.found.filter((entry) => entry.shaped);
   const { dxf, sketches } = sketchesToDxf(document.found);
-  const objects = shaped.slice(0, limits.maxObjects).map((entry) => ({
+  const kept = shaped.slice(0, limits.maxObjects);
+  const objects = kept.map((entry) => ({
     name: listed(entry.name), label: listed(entry.label) || listed(entry.name), type: listed(entry.type), kind: listed(kindOf(entry)), dimensions: entry.dimensions,
   }));
+  // What the limits left out of the document may be elements of a sketch, or a sketch whole: the drawing is then not all of it.
+  const left = { sketches: document.left > 0, dimensions: kept.some((entry) => entry.cut) };
   return {
-    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || document.left > 0 } },
+    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || left.sketches || left.dimensions, left } },
     sketchesDxf: dxf,
   };
 }

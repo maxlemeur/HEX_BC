@@ -135,7 +135,7 @@ describe("a model's objects", () => {
   });
 
   it("counts the objects and the sketches in French, singular and plural", () => {
-    const model = { objects: [], truncated: false };
+    const model = { objects: [], truncated: false, left: { sketches: false, dimensions: false } };
     expect(cadModelSummary({ ...model, total: 4, sketches: 2 })).toBe("4 objets · 2 esquisses");
     expect(cadModelSummary({ ...model, total: 1, sketches: 1 })).toBe("1 objet · 1 esquisse");
     expect(cadModelSummary({ ...model, total: 281, sketches: 0 })).toBe("281 objets");

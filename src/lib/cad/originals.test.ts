@@ -5,6 +5,7 @@ import { CadReadError } from "@/lib/cad/dxf";
 import { dxfBytes, line } from "@/lib/cad/dxf.test-utils";
 import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, fcstd } from "@/lib/cad/fcstd.test-utils";
 import { readCadOriginal } from "@/lib/cad/original";
+import { CadPlotError, plotCadDrawing } from "@/lib/cad/plot";
 import { basicFileInfo, cfbBytes, dibBytes, dwgBytes, pngBytes, revitPreview } from "@/lib/cad/originals.test-utils";
 import { readDwgSummary, readRvtSummary } from "@/lib/cad/summary";
 
@@ -192,7 +193,31 @@ describe("readCadOriginal", () => {
 
   it("sums up a FreeCAD document whose sketches make a drawing too heavy to read, and says they are not drawn", async () => {
     const original = await readCadOriginal("chaufferie.fcstd", fcstd(documentXml(SKETCHED_ROOM)), { limits: { maxBytes: 200 } });
-    expect(original).toMatchObject({ kind: "summary", summary: { format: "fcstd", model: { total: 6, sketches: 0, truncated: true } } });
+    expect(original).toMatchObject({ kind: "summary", summary: { format: "fcstd", model: { total: 6, sketches: 0, truncated: true, left: { sketches: true, dimensions: false } } } });
+  });
+
+  it("marks as read in part the drawing of sketches that were not all read, which is then not plotted as a whole plan", async () => {
+    const document = fcstd(documentXml(SKETCHED_ROOM));
+    const whole = await readCadOriginal("chaufferie.fcstd", document);
+    if (whole.kind !== "drawing") throw new Error("drawing expected");
+    expect(whole.drawing.truncated).toBe(false);
+    expect(await plotCadDrawing(whole.drawing)).toMatchObject({ paths: 5 });
+
+    // Five elements in the two sketches, three of them read.
+    const cut = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxGeometry: 3 } });
+    if (cut.kind !== "drawing") throw new Error("drawing expected");
+    expect(cut.drawing.paths.count).toBe(3);
+    expect(cut.drawing.truncated).toBe(true);
+    expect(cut.source?.model).toMatchObject({ truncated: true, left: { sketches: true, dimensions: false } });
+    const refusal = await plotCadDrawing(cut.drawing).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(CadPlotError);
+    expect((refusal as CadPlotError).reason).toBe("truncated");
+
+    // Dimensions left out of the list of objects take nothing from the drawing.
+    const listed = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxDimensions: 1 } });
+    if (listed.kind !== "drawing") throw new Error("drawing expected");
+    expect(listed.source?.model).toMatchObject({ truncated: true, left: { sketches: false, dimensions: true } });
+    expect(listed.drawing.truncated).toBe(false);
   });
 
   it("refuses a file whose content is not what its name says", async () => {
