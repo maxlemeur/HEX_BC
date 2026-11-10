@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { DossierDocument } from "@/lib/affaires/document-triage";
 import { IntakeDocumentPreview } from "./IntakeDocumentPreview";
 
-type CadProps = { url: string; drawingUrl?: string; fileName: string; canManage: boolean; expanded: boolean; onDrawingChange?(drawn: boolean): void };
+type CadProps = { url: string; drawingUrl?: string; fileName: string; canManage: boolean; expanded: boolean; onEnlargeableChange?(enlargeable: boolean): void };
 
 const cad = vi.hoisted(() => ({ props: null as CadProps | null }));
 
@@ -75,7 +75,7 @@ describe("IntakeDocumentPreview", () => {
     expect(screen.getByRole("button", { name: "Agrandir le document" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Agrandir" })).toBeNull();
 
-    act(() => cad.props?.onDrawingChange?.(true));
+    act(() => cad.props?.onEnlargeableChange?.(true));
     expect(screen.getByRole("button", { name: "Agrandir le document" })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: "Agrandir" }));
     expect(screen.getByTestId("cad-preview")).toHaveAttribute("data-expanded", "true");

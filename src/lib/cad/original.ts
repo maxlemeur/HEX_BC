@@ -1,24 +1,40 @@
-// One entry for the three originals the dossier keeps: a DXF is read as a
-// drawing, a DWG and an RVT are summed up. The name says which reader to try
-// and the content must agree: a file is never read as what it is not.
+// One entry for the originals the dossier keeps: a DXF is read as a drawing, a
+// DWG and an RVT are summed up, and a FreeCAD document is summed up with its
+// objects, or drawn by its sketches when it has some. The name says which
+// reader to try and the content must agree: a file is never read as what it is not.
 
 import { CadReadError, readDxf, type CadLimits } from "./dxf";
+import { readFcstd } from "./fcstd";
 import type { CadDrawing } from "./model";
 import { readDwgSummary, readRvtSummary, type CadSummary } from "./summary";
 
-export type CadOriginalFormat = "dxf" | "dwg" | "rvt";
+export type CadOriginalFormat = "dxf" | "dwg" | "rvt" | "fcstd";
 
-export type CadOriginal = { kind: "drawing"; drawing: CadDrawing } | { kind: "summary"; summary: CadSummary };
+export type CadOriginal =
+  /** `source`: the FreeCAD document whose sketches the drawing is. */
+  | { kind: "drawing"; drawing: CadDrawing; source?: CadSummary }
+  | { kind: "summary"; summary: CadSummary };
 
 export function cadOriginalFormat(fileName: string): CadOriginalFormat | null {
-  const extension = /\.([a-z]{3})$/i.exec(fileName.trim())?.[1].toLowerCase();
-  return extension === "dxf" || extension === "dwg" || extension === "rvt" ? extension : null;
+  const extension = /\.([a-z]{3,5})$/i.exec(fileName.trim())?.[1].toLowerCase();
+  return extension === "dxf" || extension === "dwg" || extension === "rvt" || extension === "fcstd" ? extension : null;
 }
 
-export function readCadOriginal(fileName: string, bytes: Uint8Array, options: { limits?: Partial<CadLimits> } = {}): CadOriginal {
+export async function readCadOriginal(fileName: string, bytes: Uint8Array, options: { limits?: Partial<CadLimits> } = {}): Promise<CadOriginal> {
   const format = cadOriginalFormat(fileName);
   if (format === "dxf") return { kind: "drawing", drawing: readDxf(bytes, options) };
   if (format === "dwg") return { kind: "summary", summary: readDwgSummary(bytes) };
   if (format === "rvt") return { kind: "summary", summary: readRvtSummary(bytes) };
+  if (format === "fcstd") {
+    const { summary, sketchesDxf } = await readFcstd(bytes);
+    if (sketchesDxf === null) return { kind: "summary", summary };
+    try {
+      return { kind: "drawing", drawing: readDxf(new TextEncoder().encode(sketchesDxf), options), source: summary };
+    } catch (error) {
+      if (!(error instanceof CadReadError)) throw error;
+      // Sketches too heavy to be read as a drawing: the document is summed up, and says that they are not drawn.
+      return { kind: "summary", summary: { ...summary, model: { ...summary.model, sketches: 0, truncated: true } } };
+    }
+  }
   throw new CadReadError("unsupported");
 }

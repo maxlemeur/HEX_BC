@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { dxfBytes, layer, line, rec, type DxfFixture } from "@/lib/cad/dxf.test-utils";
+import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, fcstd } from "@/lib/cad/fcstd.test-utils";
 import { readCadOriginal } from "@/lib/cad/original";
 import { dwgBytes, pngBytes } from "@/lib/cad/originals.test-utils";
 import { createCadReader, type CadWorkerRequest } from "@/workers/cad-reader.worker";
@@ -17,7 +18,7 @@ const readRequest = (fileName: string, bytes: Uint8Array, requestId = "r1"): Cad
 describe("createCadReader", () => {
   it("reads a DXF as the library does and answers a message that can be posted", async () => {
     const reply = await createCadReader()(readRequest("Réseaux.DXF", dxfBytes(plan)));
-    expect(reply.response).toEqual({ requestId: "r1", ok: true, type: "read", original: readCadOriginal("Réseaux.DXF", dxfBytes(plan)) });
+    expect(reply.response).toEqual({ requestId: "r1", ok: true, type: "read", original: await readCadOriginal("Réseaux.DXF", dxfBytes(plan)) });
     // The worker keeps the drawing to plot it later: it posts a copy, so nothing is transferred.
     expect(reply.transfer).toEqual([]);
     expect(structuredClone(reply.response)).toEqual(reply.response);
@@ -72,6 +73,33 @@ describe("createCadReader", () => {
     expect(reply.transfer).toEqual([summary.thumbnail?.bytes.buffer]);
   });
 
+  it("sums up a FreeCAD document with its objects, and hands over its image alone", async () => {
+    const reply = await createCadReader()(readRequest("Chaufferie.FCStd", fcstd(documentXml(BOILER_ROOM), { "thumbnails/Thumbnail.png": PNG })));
+    if (!reply.response.ok || reply.response.type !== "read" || reply.response.original.kind !== "summary") throw new Error("summary expected");
+    const { summary } = reply.response.original;
+    expect(summary).toMatchObject({ format: "fcstd", version: { label: "FreeCAD 1.0" }, model: { total: 4, sketches: 0 } });
+    expect(summary.thumbnail?.bytes).toEqual(PNG);
+    expect(summary.thumbnail?.bytes.buffer.byteLength).toBe(PNG.byteLength);
+    expect(reply.transfer).toEqual([summary.thumbnail?.bytes.buffer]);
+    expect(structuredClone(reply.response)).toEqual(reply.response);
+  });
+
+  it("draws the sketches of a FreeCAD document, keeps the drawing to plot it and says what the document holds", async () => {
+    const reader = createCadReader();
+    const reply = await reader(readRequest("Chaufferie.FCStd", fcstd(documentXml(SKETCHED_ROOM), { "thumbnails/Thumbnail.png": PNG })));
+    if (!reply.response.ok || reply.response.type !== "read" || reply.response.original.kind !== "drawing") throw new Error("drawing expected");
+    const { drawing, source } = reply.response.original;
+    expect(drawing.layers.map((entry) => entry.name)).toEqual(["0", "Local technique", "Réservations"]);
+    expect(source).toMatchObject({ format: "fcstd", model: { total: 6, sketches: 2 } });
+    // The image of the model goes to the page without the archive around it.
+    expect(source?.thumbnail?.bytes).toEqual(PNG);
+    expect(source?.thumbnail?.bytes.buffer.byteLength).toBe(PNG.byteLength);
+    expect(reply.transfer).toEqual([source?.thumbnail?.bytes.buffer]);
+
+    const plotted = await reader({ requestId: "p8", type: "plot", options: { denominator: 50 } });
+    expect(plotted.response).toMatchObject({ ok: true, type: "plot", plot: { denominator: 50, layers: ["Local technique", "Réservations"], paths: 5 } });
+  });
+
   it("forgets the drawing when another original is read, even one it cannot read", async () => {
     const reader = createCadReader();
     await reader(readRequest("plan.dxf", dxfBytes(plan)));
@@ -88,6 +116,7 @@ describe("createCadReader", () => {
     ["texte.dxf", new Uint8Array(Buffer.from("Bonjour,\r\nceci n'est pas un plan.\r\n")), "not_dxf"],
     ["faux.dwg", new Uint8Array(Buffer.from("%PDF-1.7 pas un DWG")), "not_dwg"],
     ["faux.rvt", new Uint8Array(Buffer.from("%PDF-1.7 pas un RVT")), "not_rvt"],
+    ["faux.fcstd", new Uint8Array(Buffer.from("%PDF-1.7 pas un FCStd")), "not_fcstd"],
     ["plan.pdf", new Uint8Array(Buffer.from("%PDF-1.7")), "unsupported"],
   ])("says why %s is not read", async (fileName, bytes, reason) => {
     const reply = await createCadReader()(readRequest(fileName, bytes));

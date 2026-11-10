@@ -2,7 +2,9 @@
 // how its quantities and the files made from it are written.
 
 import type { CadReadErrorReason } from "./dxf";
+import type { CadModel, CadModelDimension } from "./fcstd";
 import type { CadUnits, CadWarning, CadWarningCode } from "./model";
+import { cadDimensionLabel, cadDimensionNumber, cadDimensionValue } from "./model-quantities";
 import type { CadPlotErrorReason } from "./plot";
 
 const READ_FAILED = "La lecture de ce fichier a échoué.";
@@ -15,6 +17,8 @@ const READ_MESSAGES: Record<CadReadErrorReason, string> = {
   not_dxf: "Ce fichier porte l’extension DXF mais n’en a pas le contenu.",
   not_dwg: "Ce fichier porte l’extension DWG mais n’en a pas le contenu.",
   not_rvt: "Ce fichier porte l’extension RVT mais n’en a pas le contenu.",
+  not_fcstd: "Ce fichier porte l’extension FCStd mais n’en a pas le contenu.",
+  model_too_large: "Le document de ce fichier FreeCAD est trop volumineux pour être lu ici.",
   unsupported: "Ce format n’est pas lu par MergeOne.",
 };
 
@@ -113,6 +117,18 @@ export function cadLayerSummary(shown: { layers: number; length: number; unit: "
   return [plural(shown.layers, "calque"), `${formatCadQuantity(shown.length)} ${unit} de tracé`, ...(shown.blocks > 0 ? [plural(shown.blocks, "bloc")] : [])].join(" · ");
 }
 
+/** « Longueur 4 250,5 mm », « Surface 1,2 m² », « Angle 90° ». */
+export function formatCadDimension(dimension: CadModelDimension): string {
+  const { value, unit } = cadDimensionValue(dimension);
+  return `${cadDimensionLabel(dimension.name)} ${cadDimensionNumber(value, true)}${unit === "°" ? "" : " "}${unit}`;
+}
+
+/** One line for what a model holds: the objects that have a shape, and its sketches. */
+export function cadModelSummary(model: CadModel): string {
+  if (model.total === 0 && model.sketches === 0) return "Aucun objet ayant une forme";
+  return [plural(model.total, "objet"), ...(model.sketches > 0 ? [plural(model.sketches, "esquisse")] : [])].join(" · ");
+}
+
 const MAX_FILE_NAME = 160;
 
 function derivedFileName(original: string, suffix: string): string {
@@ -127,4 +143,8 @@ export function cadPlotFileName(original: string, denominator: number): string {
 
 export function cadQuantitiesFileName(original: string): string {
   return derivedFileName(original, " - quantités.csv");
+}
+
+export function cadModelFileName(original: string): string {
+  return derivedFileName(original, " - objets.csv");
 }

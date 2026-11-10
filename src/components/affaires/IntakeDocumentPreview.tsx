@@ -57,14 +57,14 @@ export function IntakeDocumentPreview({
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  const [cadDrawn, setCadDrawn] = useState(false);
+  const [cadEnlargeable, setCadEnlargeable] = useState(false);
   const format = dossierPreviewFormat(document);
   // A CAD original is read in the browser, where the other formats are shown as they come.
   const cad =
     isAffaireIntakeCadDocument(document.fileName) &&
     document.uploadStatus === "uploaded" &&
     !document.isBeingDeleted;
-  const canExpand = cad ? cadDrawn : Boolean(resource);
+  const canExpand = cad ? cadEnlargeable : Boolean(resource);
   const endpoint = affaireIntakeFileUrl(projectId, document.documentId, "preview");
   useEffect(() => {
     if (
@@ -198,7 +198,7 @@ export function IntakeDocumentPreview({
             canManage={canManage}
             expanded={expanded}
             onExpandedChange={setExpanded}
-            onDrawingChange={setCadDrawn}
+            onEnlargeableChange={setCadEnlargeable}
           />
         ) : (
           canvas()

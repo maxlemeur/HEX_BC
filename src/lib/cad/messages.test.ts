@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { cadLayerSummary, cadPlotFileName, cadPlotMessage, cadQuantitiesFileName, cadReadMessage, cadUnitChoices, cadWarningMessages, formatCadQuantity } from "@/lib/cad/messages";
+import { cadLayerSummary, cadModelFileName, cadModelSummary, cadPlotFileName, cadPlotMessage, cadQuantitiesFileName, cadReadMessage, cadUnitChoices, cadWarningMessages, formatCadDimension, formatCadQuantity } from "@/lib/cad/messages";
 import type { CadWarningCode } from "@/lib/cad/model";
 
 describe("cadReadMessage", () => {
-  it.each(["empty", "too_large", "binary_dxf", "not_dxf", "not_dwg", "not_rvt", "unsupported"])("says what to do about %s", (reason) => {
+  it.each(["empty", "too_large", "binary_dxf", "not_dxf", "not_dwg", "not_rvt", "not_fcstd", "model_too_large", "unsupported"])("says what to do about %s", (reason) => {
     const message = cadReadMessage(reason);
     expect(message).not.toBe(cadReadMessage("failed"));
     expect(message).not.toContain(reason);
@@ -121,6 +121,28 @@ describe("cadLayerSummary", () => {
   });
 });
 
+describe("a model's objects", () => {
+  it("writes a dimension under its French name, in the unit it is read in", () => {
+    expect(formatCadDimension({ name: "Length", kind: "length", value: 4250.5 })).toMatch(/^Longueur 4\s250,5 mm$/u);
+    expect(formatCadDimension({ name: "Diameter", kind: "length", value: 33.7 })).toBe("Diamètre 33,7 mm");
+    expect(formatCadDimension({ name: "HorizontalArea", kind: "area", value: 1234567 })).toBe("Surface horizontale 1,235 m²");
+    expect(formatCadDimension({ name: "Volume", kind: "volume", value: 3e9 })).toBe("Volume 3 m³");
+    expect(formatCadDimension({ name: "Angle", kind: "angle", value: 90 })).toBe("Angle 90°");
+    expect(formatCadDimension({ name: "RiserHeight", kind: "length", value: 170 })).toBe("RiserHeight 170 mm");
+    // A hole of 314 mm² or a volume of an eighth of a litre is not nothing.
+    expect(formatCadDimension({ name: "Area", kind: "area", value: 314 })).toBe("Surface 0,000314 m²");
+    expect(formatCadDimension({ name: "Volume", kind: "volume", value: 125000 })).toBe("Volume 0,000125 m³");
+  });
+
+  it("counts the objects and the sketches in French, singular and plural", () => {
+    const model = { objects: [], truncated: false };
+    expect(cadModelSummary({ ...model, total: 4, sketches: 2 })).toBe("4 objets · 2 esquisses");
+    expect(cadModelSummary({ ...model, total: 1, sketches: 1 })).toBe("1 objet · 1 esquisse");
+    expect(cadModelSummary({ ...model, total: 281, sketches: 0 })).toBe("281 objets");
+    expect(cadModelSummary({ ...model, total: 0, sketches: 0 })).toBe("Aucun objet ayant une forme");
+  });
+});
+
 describe("file names", () => {
   it("names the plotted PDF after the original and its scale", () => {
     expect(cadPlotFileName("Réseaux EF.DXF", 50)).toBe("Réseaux EF (tracé 1-50).pdf");
@@ -129,6 +151,11 @@ describe("file names", () => {
 
   it("names the quantities after the original", () => {
     expect(cadQuantitiesFileName("Réseaux EF.dxf")).toBe("Réseaux EF - quantités.csv");
+  });
+
+  it("names the objects after the model, whatever the case of its extension", () => {
+    expect(cadModelFileName("Chaufferie.FCStd")).toBe("Chaufferie - objets.csv");
+    expect(cadModelFileName("chaufferie.fcstd")).toBe("chaufferie - objets.csv");
   });
 
   it("keeps a name the dossier accepts when the original's is very long", () => {

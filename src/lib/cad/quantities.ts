@@ -136,7 +136,7 @@ export function measureCadDrawing(drawing: CadDrawing, options: CadMeasureOption
 const decimal = (value: number) => value.toFixed(2).replace(".", ",");
 
 /** A cell a spreadsheet cannot run as a formula, quoted when it holds a separator. */
-function cell(value: string): string {
+export function cadCsvCell(value: string): string {
   const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
   return /[";\r\n]/.test(safe) ? `"${safe.replaceAll("\"", "\"\"")}"` : safe;
 }
@@ -146,12 +146,12 @@ export function cadQuantitiesCsv(quantities: CadQuantities): string {
   const unit = quantities.unit, squared = unit === "m" ? "m²" : "unité²";
   const lines = ["Nature;Calque;Désignation;Quantité;Unité"];
   for (const row of quantities.layers) {
-    const name = cell(row.name);
+    const name = cadCsvCell(row.name);
     if (row.length > 0) lines.push(`Longueur;${name};Tracé direct;${decimal(row.length)};${unit}`);
     if (row.blockLength > 0) lines.push(`Longueur;${name};Tracé des blocs;${decimal(row.blockLength)};${unit}`);
     if (row.closedArea > 0) lines.push(`Surface;${name};Contours fermés;${decimal(row.closedArea)};${squared}`);
     if (row.hatchArea > 0) lines.push(`Surface;${name};Hachures;${decimal(row.hatchArea)};${squared}`);
   }
-  for (const row of quantities.blocks) lines.push(`Bloc;${cell(row.layerName)};${cell(row.label)};${row.count};u`);
+  for (const row of quantities.blocks) lines.push(`Bloc;${cadCsvCell(row.layerName)};${cadCsvCell(row.label)};${row.count};u`);
   return `﻿${lines.join("\r\n")}\r\n`;
 }

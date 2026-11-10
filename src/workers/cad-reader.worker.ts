@@ -34,17 +34,15 @@ export function createCadReader(): (request: CadWorkerRequest) => Promise<CadWor
     try {
       if (request.type === "read") {
         drawing = null;
-        const original = readCadOriginal(request.fileName, new Uint8Array(request.buffer));
-        if (original.kind === "drawing") {
-          // Posted as a copy: the worker needs its own to plot.
-          drawing = original.drawing;
-          return { response: { requestId, ok: true, type: "read", original }, transfer: [] };
-        }
-        const thumbnail = original.summary.thumbnail && { ...original.summary.thumbnail, bytes: alone(original.summary.thumbnail.bytes) };
-        return {
-          response: { requestId, ok: true, type: "read", original: { kind: "summary", summary: { ...original.summary, thumbnail } } },
-          transfer: thumbnail ? [thumbnail.bytes.buffer] : [],
-        };
+        const original = await readCadOriginal(request.fileName, new Uint8Array(request.buffer));
+        // What a file says of itself goes with its image alone; a drawing is posted as a copy, since the worker needs its own to plot.
+        const said = original.kind === "drawing" ? original.source : original.summary;
+        const thumbnail = said?.thumbnail && { ...said.thumbnail, bytes: alone(said.thumbnail.bytes) };
+        const transfer = thumbnail ? [thumbnail.bytes.buffer] : [];
+        if (original.kind === "summary") return { response: { requestId, ok: true, type: "read", original: { kind: "summary", summary: { ...original.summary, thumbnail: thumbnail ?? null } } }, transfer };
+        drawing = original.drawing;
+        const posted: CadOriginal = original.source ? { ...original, source: { ...original.source, thumbnail: thumbnail ?? null } } : original;
+        return { response: { requestId, ok: true, type: "read", original: posted }, transfer };
       }
       if (!drawing) return { response: { requestId, ok: false, type, reason: "no_drawing" }, transfer: [] };
       const plotted = await plotCadDrawing(drawing, request.options), plot = { ...plotted, bytes: alone(plotted.bytes) };
