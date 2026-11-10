@@ -111,7 +111,8 @@ export type GridNavigationOptions = {
 };
 
 export type GridNavigationResult = SpreadsheetNavigationResult & {
-  selectsOnClick: true;
+  /** True after a mouse press. A touch or pen tap edits instead, so the virtual keyboard opens. */
+  selectsOnClick: boolean;
   isCellSelected: (cell: SpreadsheetCell) => boolean;
   getCellRangeEdges: (cell: SpreadsheetCell) => number;
   subscribe: (listener: () => void) => () => void;
@@ -1197,7 +1198,9 @@ export function createGridEngine(): GridEngine {
   }
 
   const navigation: GridNavigationResult = {
-    selectsOnClick: true,
+    get selectsOnClick() {
+      return lastPointerType === "mouse";
+    },
     get activeCell() {
       return activeCell;
     },

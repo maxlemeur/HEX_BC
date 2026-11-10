@@ -116,14 +116,15 @@ export function EditableCell<TCommitValue = string>({
   );
 
   const handleCellClick = useCallback(() => {
-    // With the grid engine a click selects the cell; editing starts by typing,
-    // F2 or a double click, like in a spreadsheet.
+    // With the grid engine a mouse click selects the cell; editing starts by
+    // typing, F2 or a double click, like in a spreadsheet. A touch or pen tap
+    // still opens the editor: the engine answers for the press being handled.
     if (readOnly || isEditing || navigation.selectsOnClick) {
       return;
     }
 
     inputRef.current?.focus();
-  }, [isEditing, navigation.selectsOnClick, readOnly]);
+  }, [isEditing, navigation, readOnly]);
 
   const handleCellDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (readOnly) {
