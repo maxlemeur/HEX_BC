@@ -6,7 +6,7 @@ import path from "node:path";
 // 2.119 is the first CLI with the Docker-free native runtime (`[experimental] stack`).
 export const PINNED_SUPABASE_CLI_VERSION = "3.0.0";
 // Native PostgreSQL artifact bundled by this CLI release; older caches may coexist.
-export const PINNED_SUPABASE_POSTGRES_BUNDLE = "17.11.0.006-r0";
+export const PINNED_SUPABASE_POSTGRES_BUNDLE = "17.11.0.011-r0";
 export type SupabaseEnvironment = Readonly<
   Record<string, string | undefined>
 >;
