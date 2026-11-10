@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 import { armyTest, readEstimate, recordEvidence, apiRequest, saveLineEditsWithShortcut } from "../critical/fixtures";
 import { connectedApi } from "../extended/connected-support";
-import { prepareV3Draft, seedLines, showStandardColumns, waitForDraftLease, lockVersion, releaseVersion } from "./engine-v3-editor-support";
+import { type Ui, prepareV3Draft, seedLines, showStandardColumns, waitForDraftLease, lockVersion, releaseVersion } from "./engine-v3-editor-support";
 import { querySql } from "./calculation-gate-support";
 
 const options = { session: "army", tags: ["critical", "local", "fo-provision"], timeout: 240_000 } as const;
+
+// The API can already read a saved line while the editor still waits for the answer of that save, and
+// an editor with a save in flight refuses to be left (beforeunload): the reload then never starts and
+// the navigation is aborted. Leave the editor once its toolbar reports the save.
+const saveSettled = (ui: Ui) =>
+  expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
 
 armyTest("FO53401 catalogue families and transport are retained once before margin, then manual price clears the origin", options,
   async (ui) => {
@@ -75,6 +81,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       return [selected?.selected_supplier_price_id, selected?.fo_provision, selected?.unit_price_ht_cents];
     }).toEqual([offers[0].id, 1.01, 10000]);
     await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,01");
+    await saveSettled(ui);
     await ui.browser.reload();
     await waitForDraftLease(ui);
     expect((await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)?.fo_provision).toBe(1.01);
@@ -115,6 +122,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       return [selected?.fo_provision, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
     }).toEqual([1.01, "included"]);
 
+    await saveSettled(ui);
     await ui.app.open("/dashboard/affaires");
     await lockVersion(ui.browser, draft.versionId);
     const before = await readEstimate(ui.browser, draft.versionId);
@@ -191,6 +199,7 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
       const line = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id);
       return [line?.quantity, line?.fo_price_origin, line?.fo_provision, line?.pu_ht_cents, line?.line_total_ht_cents];
     }).toEqual([20, saved.fo_price_origin, 1.01, 13130, 262600]);
+    await saveSettled(ui);
     await ui.app.open("/dashboard/affaires");
     await lockVersion(ui.browser, draft.versionId);
     const duplicate = await apiRequest(ui.browser, "POST", `/api/estimates/${draft.versionId}/sections/${draft.sectionId}/duplicate`, {});
