@@ -181,11 +181,10 @@ armyTest("PU04 a converted offer serves both units, the comparison and purchase 
     await browser.keyboard.press("Escape");
 
     // Purchase review in the affaire: the converted line is shown as ordered (10 bars at 262,45 €).
-    // A draft keeps its purchases folded (f63d9cd6) until the hub's details link reveals them.
-    await app.open(`/dashboard/affaires/${estimate.projectId}`);
-    await expect(screen.getByRole("region", "Pilotage de l'affaire", { exact: true })).toBeVisible();
+    // A draft keeps its purchases folded until the link of « Remise » reveals them.
+    await app.open(`/dashboard/affaires/${estimate.projectId}?view=submission`);
+    await expect(screen.getByRole("region", "Remise et commandes", { exact: true })).toBeVisible();
     await expect(browser.locator("#finish-line-orders")).toHaveCount(0);
-    await screen.getByText("Détails du dossier et du devis", { exact: true }).tap();
     await screen.getByRole("link", "Préparer les achats de cette version", { exact: true }).tap();
     const convertedLine = browser.locator("#finish-line-orders tr").filter({ hasText: lines.puUiConverted.title });
     await expect(convertedLine.getByText("10 barre", { exact: true })).toBeVisible({ timeout: 60_000 });

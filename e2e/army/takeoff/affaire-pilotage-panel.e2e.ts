@@ -618,8 +618,9 @@ async function expectPilotageSection(page: Page) {
   return pilotageSection;
 }
 
-async function openAffaireHub(page: Page, projectId: string, hash = "") {
-  const hubUrl = `/dashboard/affaires/${projectId}${hash}`;
+// The workbench shows one domain at a time: the journey and its stages are in « Vue d’ensemble ».
+async function openAffaireHub(page: Page, projectId: string) {
+  const hubUrl = `/dashboard/affaires/${projectId}?view=overview`;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     if (attempt === 1) {
@@ -844,7 +845,10 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
       projectCode: "LY-42",
     });
 
-    const pilotageSection = await openAffaireHub(page, projectId, "#finish-line-orders");
+    // The purchase anchor opens « Remise », where the drafts are prepared.
+    await page.goto(`/dashboard/affaires/${projectId}#finish-line-orders`, { waitUntil: "domcontentloaded" });
+    const pilotageSection = page.getByRole("region", { name: "Remise et commandes", exact: true });
+    await expect(pilotageSection).toBeVisible({ timeout: 30_000 });
 
     await expect(
       pilotageSection.getByText("Brouillons par fournisseur, sans ressaisie")
@@ -889,11 +893,10 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
       name: "Plans fallback legacy",
     });
 
-    await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/dashboard/affaires/${projectId}?view=overview`, { waitUntil: "domcontentloaded" });
 
     if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
     await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
-    await page.getByText("Détails du dossier et du devis", { exact: true }).click();
     await expect(page.getByText("Prochaine étape")).toBeVisible();
     await expect(page.getByText("Reprise par l’ancien parcours")).toBeVisible();
     await expect(
@@ -903,6 +906,9 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     await expect(
       page.getByText("Un ancien parcours par chiffrage existe déjà sur la V1. Utilisez-le seulement comme reprise exceptionnelle.", { exact: true })
     ).toBeVisible();
+    // The action bar and its link to the affaire's takeoffs belong to « Chiffrage ».
+    await page.getByRole("navigation", { name: "Navigation de l'affaire", exact: true })
+      .getByRole("button", { name: "Chiffrage", exact: true }).click();
     const affaireTakeoffLink = page.getByRole("link", { name: "Ouvrir les métrés", exact: true });
     await expect(affaireTakeoffLink).toBeVisible();
     await expect(affaireTakeoffLink).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
