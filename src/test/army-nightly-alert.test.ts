@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, supersededBy, type AlertInput } from "../../scripts/tester-army/nightly-alert";
+import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, alertTitles, planAlert, supersededBy, type AlertInput } from "../../scripts/tester-army/nightly-alert";
 
 const root = process.cwd();
 const RUN = "https://github.com/example/repository/actions/runs/42";
@@ -106,7 +106,20 @@ describe("alert of a red TesterArmy campaign of main", () => {
       { number: 31, title: `${title} (suite)`, author: bot },
       { number: 40, title, author: bot },
       { number: 22, title, author: bot },
-    ], title)).toEqual([22, 40]);
+    ], alertTitles("TesterArmy Full"))).toEqual([22, 40]);
+  });
+
+  it("still finds an alert opened under the title used when only the scheduled campaigns raised it", () => {
+    const bot = { login: "app/github-actions", is_bot: true };
+    const titles = alertTitles("TesterArmy Full");
+    expect(titles[0]).toBe(alertTitle("TesterArmy Full"));
+    // It is commented and closed like the others, never left open beside a new one; another workflow's is not taken.
+    expect(alertIssues([
+      { number: 9, title: "CI nocturne rouge : TesterArmy calc-v3", author: bot },
+      { number: 7, title: "CI nocturne rouge : TesterArmy Full", author: bot },
+      { number: 8, title: "CI nocturne rouge : TesterArmy Full", author: { login: "someone", is_bot: false } },
+      { number: 11, title: alertTitle("TesterArmy Full"), author: bot },
+    ], titles)).toEqual([7, 11]);
   });
 
   it("watches exactly the campaigns of main its workflow is triggered by, each with its aggregate evidence", () => {

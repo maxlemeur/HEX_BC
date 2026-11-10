@@ -51,6 +51,12 @@ const RED = new Set(["failure", "timed_out", "startup_failure"]);
 const LISTED = 100;
 
 export const alertTitle = (workflow: string) => `CI rouge sur main : ${workflow}`;
+/**
+ * The titles an open alert of the workflow may carry: the current one, and the one used while
+ * the alert only followed the scheduled campaigns, so an alert opened then is still commented
+ * and closed rather than left open beside a second one.
+ */
+export const alertTitles = (workflow: string) => [alertTitle(workflow), `CI nocturne rouge : ${workflow}`];
 
 export function planAlert(input: AlertInput): AlertPlan {
   const revision = `\`${input.revision.slice(0, 8)}\``;
@@ -131,9 +137,9 @@ export function supersededBy(run: { id: number; head_sha: string }, concluded: C
   return null;
 }
 
-/** The open alert issues of a workflow: its exact title, opened by this workflow's token and by nobody else. */
-export function alertIssues(issues: { number: number; title: string; author?: { login?: string; is_bot?: boolean } }[], title: string): number[] {
-  return issues.filter((issue) => issue.title === title && issue.author?.is_bot === true &&
+/** The open alert issues of a workflow: one of its exact titles, opened by this workflow's token and by nobody else. */
+export function alertIssues(issues: { number: number; title: string; author?: { login?: string; is_bot?: boolean } }[], titles: string[]): number[] {
+  return issues.filter((issue) => titles.includes(issue.title) && issue.author?.is_bot === true &&
     ["app/github-actions", "github-actions", "github-actions[bot]"].includes(issue.author.login ?? ""))
     .map((issue) => issue.number).sort((a, b) => a - b);
 }
@@ -170,9 +176,9 @@ function main() {
     ? gh(["api", "--paginate", `repos/${repository}/actions/runs/${runId}/jobs?per_page=100`, "--jq",
       '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | .name']).split("\n").filter(Boolean)
     : [];
-  const title = alertTitle(run.name);
-  const open = alertIssues(JSON.parse(gh(["issue", "list", "--repo", repository, "--state", "open", "--search", `in:title "${title}"`,
-    "--json", "number,title,author", "--limit", "50"])), title);
+  // One search on the workflow's name, which every title of its alert ends with; the exact titles decide.
+  const open = alertIssues(JSON.parse(gh(["issue", "list", "--repo", repository, "--state", "open", "--search", `in:title "${run.name}"`,
+    "--json", "number,title,author", "--limit", "50"])), alertTitles(run.name));
   const plan = planAlert({ workflow: run.name, conclusion, runUrl: run.html_url, revision: run.head_sha, date: run.run_started_at,
     failedJobs, notPassed: RED.has(conclusion) ? readNotPassed(repository, runId, watched.artifact) : [], openIssue: open[0] ?? null });
 
