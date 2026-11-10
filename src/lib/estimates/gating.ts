@@ -30,6 +30,8 @@ import {
   type EstimateGatingSeverity,
 } from "@/lib/estimates/gating-policy";
 
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { mapSupabaseError } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
 import { readAllEstimateItems } from "./read-all-items-server";
@@ -211,6 +213,14 @@ function pushRegisterGatingFlag(input: {
   });
 }
 
+/** Whether a priced line carries anything to price: a supply price, or hours in any of the stored forms. */
+function hasLineAmountInput(item: Awaited<ReturnType<typeof readAllEstimateItems>>[number]) {
+  const positive = (value: unknown) => Number(value ?? 0) > 0;
+  return positive(item.unit_price_ht_cents)
+    || [item.h_mo, item.h_mo_atelier, item.h_mo_chantier, item.h_mo_per_unit, item.h_mo_atelier_per_unit,
+      item.h_mo_chantier_per_unit].some(positive);
+}
+
 function buildItemIdsByFlag(
   flagsByItemId: Record<string, EstimateQualityFlagKey[]>
 ) {
@@ -359,6 +369,25 @@ export async function evaluateEstimateSendGating(
   });
 
   const itemIdsByFlag = buildItemIdsByFlag(qualityFlagsByItemId);
+
+  // TI-682 (D25). Engine 3 only: a status other than « priced » exists on no other engine, and only engine 3 can say
+  // « Inclus » or « Pour mémoire » instead of sending a line at 0 €.
+  // A version read without its engine column is never treated as engine 3: no new flag rather than a wrong one.
+  const engine = resolveEstimateEngineVersionForDisplay(version);
+  const isEngine3 = engine !== null && usesPerUnitLabor(engine);
+  for (const item of items) {
+    if (item.item_type !== "line") continue;
+    const pricingStatus = item.pricing_status ?? "priced";
+    if (pricingStatus === "not_priced") {
+      itemIdsByFlag.not_priced_unclassified.add(item.id);
+      continue;
+    }
+    if (!isEngine3 || pricingStatus !== "priced") continue;
+    const flags = qualityFlagsByItemId[item.id] ?? [];
+    // A line that already misses its price or its quantity says so under its own flag.
+    if (flags.includes("missing_price") || flags.includes("missing_quantity")) continue;
+    if (!hasLineAmountInput(item)) itemIdsByFlag.priced_line_without_amount.add(item.id);
+  }
 
   if (version.margin_mode === "tiered" && marginTiers.length === 0) {
     itemIdsByFlag.margin_not_configured.add(version.id);

@@ -109,7 +109,9 @@ additionne les deux couples heures/taux/coefficient avant la majoration. Une
 ligne non `priced` (`included`, `for_memory`, `not_priced`, `out_of_scope`,
 `not_applicable`) contribue zéro aux montants et ne possède pas de PU calculé.
 Cela ne la rend pas automatiquement prête à l'émission : le gel applique ses
-propres contrôles de complétude, d'unité et de taux.
+propres contrôles de complétude, d'unité et de taux, et une ligne `not_priced`
+bloque l'envoi tant qu'elle n'est pas classée (TI-682, voir
+[cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)).
 
 Le pied suit cet ordre :
 

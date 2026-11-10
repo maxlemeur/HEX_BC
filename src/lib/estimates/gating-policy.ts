@@ -17,7 +17,15 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "missing_pieces_pending",
   "open_questions_pending",
   "version_zero_review_pending",
+  "not_priced_unclassified",
+  "priced_line_without_amount",
 ] as const;
+
+/**
+ * TI-682 (D25): flags no tenant setting can downgrade. A « Non chiffrée » line is a line still to classify: it is
+ * priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors lot », « Sans objet »).
+ */
+export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = ["not_priced_unclassified"];
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
 
@@ -88,6 +96,16 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Une V0 assistée est encore active sur cette version. La revue humaine explicite doit être finalisée avant envoi.",
   },
+  not_priced_unclassified: {
+    label: "Lignes non chiffrées à classer",
+    description:
+      "Une ligne « Non chiffrée » ne part pas chez le client sans décision. Chiffrez-la, ou donnez-lui le statut qui convient : Inclus, Pour mémoire, Hors lot ou Sans objet.",
+  },
+  priced_line_without_amount: {
+    label: "Lignes chiffrées à 0 €",
+    description:
+      "Une ligne « Chiffrée » sans prix ni heures partirait à 0 €. Chiffrez-la, ou donnez-lui le statut « Inclus » ou « Pour mémoire ».",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -114,6 +132,8 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   missing_pieces_pending: "warning",
   open_questions_pending: "warning",
   version_zero_review_pending: "blocking",
+  not_priced_unclassified: "blocking",
+  priced_line_without_amount: "blocking",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {
@@ -128,7 +148,7 @@ export function resolveSeverityByFlag(input: {
   const warnings = parseFlagOverride(input.warningOverride);
   const severities = {} as Record<EstimateGatingFlagKey, EstimateGatingSeverity>;
   for (const key of ESTIMATE_GATING_FLAG_KEYS) {
-    if (blocking.has(key)) severities[key] = "blocking";
+    if (blocking.has(key) || ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS.includes(key)) severities[key] = "blocking";
     else if (warnings.has(key)) severities[key] = "warning";
     else severities[key] = DEFAULT_GATING_SEVERITY_BY_FLAG[key];
   }

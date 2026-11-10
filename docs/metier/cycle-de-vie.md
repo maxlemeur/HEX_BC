@@ -74,6 +74,15 @@ pour déterminer la sévérité de chaque anomalie selon les réglages du tenant
 [contrôle d’envoi](../../src/lib/estimates/gating.ts). Un forçage administrateur ne
 supprime pas les frontières de révision, d'accès ou d'intégrité contractuelle.
 
+Moteur 3 (TI-682) : avant l'envoi, chaque ligne « Non chiffrée » est classée.
+On la chiffre, ou on lui donne le statut que le client lira : « Inclus »,
+« Pour mémoire », « Hors lot » ou « Sans objet ». Tant qu'il en reste une,
+l'envoi est refusé ; aucun réglage du tenant ne rétrograde ce blocage, et un
+administrateur ne peut pas le forcer. Une ligne « chiffrée » sans prix ni
+heures, qui partirait à 0 €, bloque aussi l'envoi par défaut : pour offrir une
+prestation, on lui donne le statut « Inclus ». La réserve écrite dans l'offre,
+rattachée à une ligne, reste à construire.
+
 La préparation fige les montants avec le moteur épinglé, génère un document lié
 à cette révision et calcule le sceau. Le PDF publié est identifié par son chemin
 et son SHA-256 ; le contrat client, les conditions et les options de présentation

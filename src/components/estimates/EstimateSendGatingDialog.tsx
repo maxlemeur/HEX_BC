@@ -19,6 +19,7 @@ import {
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
+import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
   resolveEstimateReadinessCategoryFromGatingFlagKey,
@@ -358,6 +359,9 @@ export function EstimateSendGatingDialog({
   const hasBlocking = blockingFlags.length > 0;
   const hasWarnings = warningFlags.length > 0;
   const canConfirmWithoutForce = !hasBlocking;
+  // TI-682 (D25): a « Non chiffrée » line is classified before sending; the server refuses any override meanwhile.
+  const hasNotForceable = blockingFlags.some((flag) =>
+    (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(flag.key));
 
   return (
     <Dialog
@@ -405,6 +409,11 @@ export function EstimateSendGatingDialog({
                 Tant qu&apos;un point bloquant subsiste, l&apos;envoi au client reste en attente.
               </p>
               {renderFlags(blockingFlags, projectId)}
+              {hasNotForceable && canForce ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Les lignes non chiffrées se classent avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;il en reste.
+                </p>
+              ) : null}
             </section>
           ) : null}
           {hasWarnings ? (
@@ -431,7 +440,7 @@ export function EstimateSendGatingDialog({
           <Button variant="outline" size="lg" onClick={onClose} disabled={isSubmitting}>
             Annuler
           </Button>
-          {hasBlocking && canForce ? (
+          {hasBlocking && canForce && !hasNotForceable ? (
             <Button variant="danger" size="lg" onClick={onForceConfirm} disabled={isSubmitting}>
               Forcer l&apos;envoi
             </Button>

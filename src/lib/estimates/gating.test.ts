@@ -669,4 +669,141 @@ describe("estimate send gating", () => {
       ])
     );
   });
+
+  // TI-682 (D25): a « Non chiffrée » line is a line still to classify. It never leaves for the client by default.
+  it("blocks a « Non chiffrée » line whatever the tenant flags, and leaves the stated statuses alone", async () => {
+    vi.mocked(getFeatureFlagValueForTenant)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("not_priced_unclassified,missing_price,missing_quantity");
+    const statusLine = (id: string, pricingStatus: string) => ({
+      ...createLineItem({ id, quantity: 0, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
+      pricing_status: pricingStatus,
+    });
+    const supabase = createSupabaseGatingMock({
+      items: [
+        { ...createLineItem({ id: "line-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced" },
+        statusLine("line-b-not-priced", "not_priced"),
+        statusLine("line-a-not-priced", "not_priced"),
+        statusLine("line-included", "included"),
+        statusLine("line-for-memory", "for_memory"),
+        statusLine("line-out-of-scope", "out_of_scope"),
+        statusLine("line-not-applicable", "not_applicable"),
+      ],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        total_ht_cents: 3000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+        calc_engine_version: 3,
+      },
+      project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags).toEqual([
+      expect.objectContaining({
+        key: "not_priced_unclassified",
+        severity: "blocking",
+        category: "estimate_quality",
+        count: 2,
+        item_ids: ["line-a-not-priced", "line-b-not-priced"],
+        label: "Lignes non chiffrées à classer",
+      }),
+    ]);
+    expect(result.warningFlags.map((flag) => flag.key)).not.toContain("not_priced_unclassified");
+  });
+
+  // TI-682 (D25): never a line at 0 € without saying so. Engine 3 has the statuses to say it (« Inclus », « Pour mémoire »).
+  it("flags a priced v3 line that has neither a price nor hours, and lets the tenant downgrade it", async () => {
+    const emptyLabourLine = (id: string) => ({
+      ...createLineItem({ id, quantity: 3, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null, lineNature: "labor_only" }),
+      pricing_status: "priced",
+      h_mo_per_unit: 0,
+    });
+    const items = [
+      emptyLabourLine("line-empty"),
+      { ...emptyLabourLine("line-hours"), h_mo: 6, h_mo_per_unit: 2, labor_role_id: "role-1" },
+      { ...emptyLabourLine("line-included"), pricing_status: "included", quantity: 0 },
+      { ...createLineItem({ id: "line-supply", quantity: 1, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }), pricing_status: "priced" },
+      { ...emptyLabourLine("line-no-quantity"), quantity: 0 },
+    ];
+    const evaluate = (engine: number) => evaluateEstimateSendGating({
+      supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        total_ht_cents: 3000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+        calc_engine_version: engine,
+      },
+      project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+    });
+
+    const blocked = await evaluate(3);
+    expect(blocked.canSend).toBe(false);
+    expect(blocked.blockingFlags).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "priced_line_without_amount",
+        severity: "blocking",
+        count: 1,
+        item_ids: ["line-empty"],
+        label: "Lignes chiffrées à 0 €",
+      }),
+      // Lines already missing their price or their quantity keep their own flag and are not counted twice.
+      expect.objectContaining({ key: "missing_price", item_ids: ["line-supply"] }),
+      expect.objectContaining({ key: "missing_quantity", item_ids: ["line-no-quantity"] }),
+    ]));
+
+    // A version read without its engine column is never treated as engine 3.
+    const unknownEngine = await evaluateEstimateSendGating({
+      supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+      tenantId: TENANT_ID,
+      version: { id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 3000, project_id: "55555555-5555-4555-8555-555555555555" },
+      project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+    });
+    expect([...unknownEngine.blockingFlags, ...unknownEngine.warningFlags].map((flag) => flag.key)).not.toContain("priced_line_without_amount");
+
+    // Engines 1 and 2 have no status to say « Inclus »: their lines keep today's flags only.
+    const legacy = await evaluate(2);
+    expect([...legacy.blockingFlags, ...legacy.warningFlags].map((flag) => flag.key)).not.toContain("priced_line_without_amount");
+
+    vi.mocked(getFeatureFlagValueForTenant)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("priced_line_without_amount,missing_price");
+    const downgraded = await evaluate(3);
+    expect(downgraded.blockingFlags.map((flag) => flag.key)).not.toContain("priced_line_without_amount");
+    expect(downgraded.warningFlags).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "priced_line_without_amount", item_ids: ["line-empty"] }),
+    ]));
+  });
+
+  it.each(["h_mo", "h_mo_atelier", "h_mo_chantier", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit"])(
+    "counts hours stored in %s alone as an amount to price (TI-682)", async (column) => {
+      const line = {
+        ...createLineItem({ id: "line-hours", quantity: 3, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null, lineNature: "labor_only" }),
+        pricing_status: "priced",
+        h_mo_per_unit: 0,
+        [column]: 2,
+      };
+      const result = await evaluateEstimateSendGating({
+        supabase: createSupabaseGatingMock({ items: [line], marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+        tenantId: TENANT_ID,
+        version: {
+          id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 3000,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: 3,
+        },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
+      expect([...result.blockingFlags, ...result.warningFlags].map((flag) => flag.key)).not.toContain("priced_line_without_amount");
+    });
 });

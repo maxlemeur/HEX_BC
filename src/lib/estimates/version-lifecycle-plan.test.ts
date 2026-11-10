@@ -85,4 +85,27 @@ describe("manual estimate lifecycle decisions", () => {
       forcedBlockingFlags: [],
     });
   });
+
+  // TI-682 (D25): a « Non chiffrée » line is classified, never forced past the gate, not even by an administrator.
+  it("refuses an admin override while a « Non chiffrée » line is still to classify", () => {
+    const blocked = gating(true);
+    const result: EstimateSendGatingResult = {
+      ...blocked,
+      blockingFlags: [...blocked.blockingFlags, {
+        key: "not_priced_unclassified",
+        severity: "blocking",
+        count: 1,
+        item_ids: ["line-1"],
+        label: "Lignes non chiffrées à classer",
+        description: "À classer",
+      }],
+    };
+    expect(() => resolveEstimateSendOverride(result, true)).toThrowError(
+      expect.objectContaining({
+        status: 400,
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: { gating: result, not_forceable: ["not_priced_unclassified"] },
+      })
+    );
+  });
 });

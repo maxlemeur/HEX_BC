@@ -1,5 +1,6 @@
 import { badRequest, forbidden } from "@/lib/estimates/errors";
 import type { EstimateSendGatingResult } from "@/lib/estimates/gating";
+import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import type { EstimateStatus } from "@/lib/estimates/status";
 
 export type EstimateVersionEventType =
@@ -70,6 +71,17 @@ export function resolveEstimateSendOverride(
       "Envoi bloque: des anomalies bloquantes doivent être corrigees avant validation.",
       { gating },
       "ESTIMATE_GATING_BLOCKED"
+    );
+  }
+  // TI-682 (D25): some blockers are decisions to take, never anomalies an administrator may accept for the client.
+  const notForceable = gating.blockingFlags
+    .map((flag) => flag.key)
+    .filter((key) => (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(key));
+  if (notForceable.length > 0) {
+    throw badRequest(
+      "Envoi bloqué : des lignes « Non chiffrée » restent à classer (chiffrez-les, ou passez-les en Inclus, Pour mémoire, Hors lot ou Sans objet). Un administrateur ne peut pas forcer cet envoi.",
+      { gating, not_forceable: notForceable },
+      "ESTIMATE_GATING_NOT_FORCEABLE"
     );
   }
 

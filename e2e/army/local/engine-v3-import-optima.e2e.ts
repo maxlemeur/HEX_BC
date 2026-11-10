@@ -439,7 +439,7 @@ WHERE pid <> pg_catalog.pg_backend_pid() AND (state = 'active' OR wait_event_typ
 
 type GatingFlag = { key: string; severity: string; count?: number; item_ids: string[] };
 type RiskAlert = { alert_id: string; status: string; line_id: string | null; cause_code: string; reason_labels: string[] };
-armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 raise no quality flag in the send gating or the takeoff risk radar", options,
+armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 raise no quality flag in the send gating or the takeoff risk radar, except the « Non chiffrée » lines left to classify (TI-682)", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { owner, projectId } = await prepareV3Owner(ui, army, "v3e20");
@@ -495,8 +495,9 @@ armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 
         warnings: gating.body.data.gating.warningFlags.map((flag) => [flag.key, flag.count ?? flag.item_ids.length]),
         radarAlerts: radarItems.filter((alert) => alert.line_id !== null && statusIds.has(alert.line_id) && alert.cause_code === "atypical_price").slice(0, 20),
         radarError: radar.body.error ?? null, reopenedError: reopened.body.error ?? null, radarMs, reopenedMs, observed });
-      expect(observed, "status lines of an imported v3 raise no quality flag in the send gating or the risk radar").toEqual({
-        statusLines: 79, statusLinesWithoutQuantity: 46, gatingOnStatusLines: {}, radar: [200, true], radarPriceAlertsOnStatusLines: {},
+      // TI-682 (D25): the 7 « Non chiffrée » lines of the lot block the send until each is priced or given a stated status.
+      expect(observed, "status lines of an imported v3 raise no quality flag in the send gating or the risk radar, except the lines to classify").toEqual({
+        statusLines: 79, statusLinesWithoutQuantity: 46, gatingOnStatusLines: { "blocking:not_priced_unclassified": 7 }, radar: [200, true], radarPriceAlertsOnStatusLines: {},
         reopenedRadar: { response: [200, true], alerts: firstKeys.size, changed: 0 },
       });
     } finally {

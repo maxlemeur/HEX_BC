@@ -91,7 +91,7 @@ export function EstimateEditorAlerts({
 
       {canSend && isSendBlockedForCurrentUser ? (
         <Alert variant="warning" className="mb-6" data-testid="estimate-editor-alert-send-blocked">
-          Des anomalies bloquantes sont détectées. Corrigez-les avant l’envoi ou demandez à un administrateur de forcer l’envoi.
+          Des anomalies bloquantes sont détectées. Corrigez-les avant l’envoi ou demandez à un administrateur de forcer l’envoi ; les lignes « Non chiffrée », elles, se classent : aucun forçage ne les laisse partir.
         </Alert>
       ) : null}
 
