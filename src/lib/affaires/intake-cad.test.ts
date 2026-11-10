@@ -6,6 +6,7 @@ import {
   AFFAIRE_INTAKE_DWG_NOTICE,
   AFFAIRE_INTAKE_DXF_NOTICE,
   affaireIntakeCadNotice,
+  affaireIntakeFileUrl,
   getAffaireIntakeAllowedMimeTypes,
   getHeuristicAffaireDocumentClassification,
   inferAffaireIntakeMimeType,
@@ -63,6 +64,13 @@ describe("CAD/BIM dossier originals", () => {
     expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_DWG_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("Aperçu et métré non disponibles");
+  });
+
+  it("asks for a piece and for the drawing of a DWG under the same document, whatever its identifier holds", () => {
+    expect(affaireIntakeFileUrl("affaire-1", "piece-2", "preview")).toBe("/api/affaires/affaire-1/intake/files/piece-2/preview");
+    expect(affaireIntakeFileUrl("affaire-1", "piece-2", "drawing")).toBe("/api/affaires/affaire-1/intake/files/piece-2/drawing");
+    // An identifier that ends like a route, or holds a path, stays one segment.
+    expect(affaireIntakeFileUrl("a/b", "preview/../x?y#z", "drawing")).toBe("/api/affaires/a%2Fb/intake/files/preview%2F..%2Fx%3Fy%23z/drawing");
   });
 
   it("allows a downloadable original on Drive but keeps ordinary MIME validation", () => {

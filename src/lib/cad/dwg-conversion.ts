@@ -21,7 +21,7 @@ const CONVERSION_MESSAGES: Record<DwgConversionErrorReason, string> = {
   empty: "Ce fichier est vide.",
   too_large: "Ce DWG dépasse 50 Mo : il n’est pas converti.",
   not_dwg: "Ce fichier porte l’extension DWG mais n’en a pas le contenu.",
-  old_format: "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004, que MergeOne ne convertit pas. Enregistrez-le au format DWG 2004 ou plus récent, ou en DXF, puis déposez-le à nouveau.",
+  old_format: "Ce DWG est enregistré dans un format antérieur à AutoCAD R13, que MergeOne ne convertit pas. Enregistrez-le au format DWG 2000 ou plus récent, ou en DXF, puis déposez-le à nouveau.",
   timeout: "La conversion de ce DWG prend trop de temps. Déposez ce plan en DXF pour le visualiser.",
   output_too_large: "Une fois converti, le dessin de ce DWG dépasse 50 Mo : il n’est pas affiché.",
   busy: "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.",

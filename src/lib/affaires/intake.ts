@@ -51,7 +51,12 @@ export function isAffaireIntakeCadDocument(fileName: string) {
 
 /** A DXF is read in MergeOne (view, quantities, plotted PDF), and so is a DWG once converted; an RVT is only kept. */
 export const AFFAIRE_INTAKE_DXF_NOTICE = "Original DXF conservé. Ouvrez-le pour visualiser le plan et relever ses quantités ; ajoutez son tracé PDF au dossier pour le métré.";
-export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD 2004 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
+export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD R13 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
+
+/** Where the browser asks for a piece of the dossier: the piece itself (`preview`), or the DXF the server converts a DWG into (`drawing`). */
+export function affaireIntakeFileUrl(projectId: string, documentId: string, part: "preview" | "drawing"): string {
+  return `/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(documentId)}/${part}`;
+}
 
 export function affaireIntakeCadNotice(fileName: string): string | null {
   if (!isAffaireIntakeCadDocument(fileName)) return null;

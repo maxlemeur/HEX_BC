@@ -259,7 +259,7 @@ describe("useCadOriginal", () => {
 
     it("keeps what the DWG says and repeats why the server did not convert it", async () => {
       const workers = installWorkers();
-      const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD 2004.";
+      const refusal = "Ce DWG est enregistré dans un format antérieur à AutoCAD R13.";
       installDwgFetch(() => ({ ok: false, status: 422, json: async () => ({ error: { message: refusal } }) }));
       const { result } = renderHook(() => useCadOriginal(dwg));
       const first = await lastRequest(() => workers[0]);

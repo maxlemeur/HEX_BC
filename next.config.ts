@@ -50,6 +50,8 @@ const nextConfig: NextConfig = {
     "/api/affaires/*/intake/files/*/drawing": [
       "./node_modules/@mlightcad/libredwg-web/package.json",
       "./node_modules/@mlightcad/libredwg-web/dist/libredwg-web.umd.cjs",
+      // The module that reads a DWG of the R13, R14 or 2000 format into objects.
+      "./node_modules/@mlightcad/libredwg-web/dist/libredwg-web.js",
       "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.js",
       "./node_modules/@mlightcad/libredwg-web/wasm/libredwg-web.wasm",
     ],
