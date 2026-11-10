@@ -104,6 +104,17 @@ describe("plotCadDrawing: sheet and scale", () => {
     expect(all.sheet_mm[0] - withoutB.sheet_mm[0]).toBe(400);
   });
 
+  it("leaves out of the sheet what a dimension draws on another layer when the layer of the dimension is hidden", async () => {
+    const drawing = read({
+      layers: [layer("COTES"), layer("TRAITS"), layer("MURS")],
+      blocks: [{ name: "*D1", flags: 1, entities: [line("TRAITS", 0, -500, 30000, -500)] }],
+      entities: [room(10000, 6000), rec("DIMENSION", [8, "COTES"], [2, "*D1"], [10, 0], [20, 0], [30, 0], [70, 32], [1, ""])],
+    });
+    const all = await plotCadDrawing(drawing, { denominator: 50 });
+    const withoutCotes = await plotCadDrawing(drawing, { denominator: 50, shown: drawing.layers.map((entry) => entry.name !== "COTES") });
+    expect(all.sheet_mm[0] - withoutCotes.sheet_mm[0]).toBe(400);
+  });
+
   it("does not take for the scale a value far from the label", async () => {
     const label = text("TEXTE", 0, -500, 150, "ECHELLE :");
     const far = read({ entities: [room(20000, 10000), label, text("TEXTE", 15000, 8000, 150, "1/100")] });

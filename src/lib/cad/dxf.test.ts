@@ -454,6 +454,24 @@ describe("readDxf: dimensions, hatches, fills", () => {
     expect(drawing.inserts).toEqual([]);
   });
 
+  it("gates what a dimension draws by the layer of the dimension, like a reference", () => {
+    const dimension = (...extra: Parameters<typeof rec>[1][]) => rec("DIMENSION", [8, "COTES"], [2, "*D1"], [10, 0], [20, 0], [30, 0], [70, 32], [1, ""], ...extra);
+    const drawing = read({
+      layers: [layer("COTES", 2), layer("TRAITS", 1), layer("APP", 3)],
+      blocks: [
+        { name: "*D1", flags: 1, entities: [line("TRAITS", 0, 0, 5, 0), line("0", 0, 1, 5, 1), rec("MTEXT", [8, "TRAITS"], [10, 2.5], [20, 0.5], [40, 0.2], [71, 8], [1, "5.00"])] },
+        { name: "DETAIL", entities: [dimension()] },
+      ],
+      entities: [dimension(), insert("APP", "DETAIL", 0, 10)],
+    });
+    expect(listCadPaths(drawing).map((path) => [path.layer, path.gates])).toEqual([
+      ["TRAITS", ["COTES"]], ["COTES", ["COTES"]],
+      ["TRAITS", ["APP", "COTES"]], ["COTES", ["APP", "COTES"]],
+    ]);
+    const named = (gate: number) => (gate < 0 ? [] : drawing.gates[gate].map((entry) => drawing.layers[entry].name));
+    expect(drawing.texts.map((entry) => [drawing.layers[entry.layer].name, named(entry.gate)])).toEqual([["TRAITS", ["COTES"]], ["TRAITS", ["APP", "COTES"]]]);
+  });
+
   it("reads hatch boundaries: polyline loops with a hole", () => {
     const loop = (points: [number, number][]) => [[92, 2], [72, 0], [73, 1], [93, points.length], ...points.flatMap(([x, y]) => [[10, x], [20, y]] as const), [97, 0]] as const;
     const drawing = read({

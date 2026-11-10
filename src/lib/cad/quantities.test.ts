@@ -157,6 +157,15 @@ describe("cadUsedLayers", () => {
     expect(cadUsedLayers(drawing).map((index) => drawing.layers[index].name)).toEqual(["Appareils", "Détail", "EF", "Textes"]);
   });
 
+  it("lists the layer of a dimension whose block draws on other layers only", () => {
+    const drawing = read({
+      layers: [layer("COTES"), layer("TRAITS")],
+      blocks: [{ name: "*D1", flags: 1, entities: [line("TRAITS", 0, 0, 5000, 0)] }],
+      entities: [rec("DIMENSION", [8, "COTES"], [2, "*D1"], [10, 0], [20, 0], [30, 0], [70, 32], [1, ""])],
+    });
+    expect(cadUsedLayers(drawing).map((index) => drawing.layers[index].name)).toEqual(["COTES", "TRAITS"]);
+  });
+
   it("lists nothing for a drawing without a tracé", () => {
     expect(cadUsedLayers(read({ layers: [layer("EF")], entities: [] }))).toEqual([]);
   });

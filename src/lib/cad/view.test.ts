@@ -142,6 +142,22 @@ describe("buildCadScene", () => {
     drawCadView(ctx, scene, { scale: 0.04, x: 0, y: 150 }, { ...SIZE, shown: drawing.layers.map((entry) => entry.name !== "B") });
     expect(calls.filter((call) => call[0] === "lineTo")).toEqual([["lineTo", 40, 6]]);
   });
+
+  it("leaves out of the view what a dimension draws on another layer when the layer of the dimension is hidden", () => {
+    const drawing = read({
+      layers: [layer("COTES"), layer("TRAITS"), layer("EF")],
+      blocks: [{ name: "*D1", flags: 1, entities: [line("TRAITS", 0, 500, 9000, 500), rec("MTEXT", [8, "TRAITS"], [10, 4500], [20, 600], [40, 100], [71, 8], [1, "9.00"])] }],
+      entities: [line("EF", 0, 0, 1000, 0), rec("DIMENSION", [8, "COTES"], [2, "*D1"], [10, 0], [20, 0], [30, 0], [70, 32], [1, ""])],
+    });
+    const scene = buildCadScene(drawing);
+    const withoutCotes = drawing.layers.map((entry) => entry.name !== "COTES");
+    expect(cadSceneExtents(scene)).toMatchObject({ x1: 9000 });
+    expect(cadSceneExtents(scene, withoutCotes)).toEqual({ x0: 0, y0: 0, x1: 1000, y1: 0 });
+    const { ctx, calls } = recorder();
+    drawCadView(ctx, scene, { scale: 0.04, x: 0, y: 150 }, { ...SIZE, shown: withoutCotes });
+    expect(calls.filter((call) => call[0] === "lineTo")).toEqual([["lineTo", 40, 6]]);
+    expect(calls.filter((call) => call[0] === "fillText")).toEqual([]);
+  });
 });
 
 describe("cadDisplayColor", () => {

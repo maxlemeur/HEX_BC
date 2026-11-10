@@ -261,7 +261,8 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     if (active.has(def) || context.depth >= limits.maxDepth) return;
     const layer = layerIn(raw.layer, context);
     active.add(def);
-    replay(def, { ...context, layer0: layer, color: tint(raw.color, layer, context), depth: context.depth + 1, dimension: true }, parent);
+    // Like a reference, a dimension gates what its block draws: hiding its layer hides the lines its block keeps on others.
+    replay(def, { ...context, layer0: layer, color: tint(raw.color, layer, context), gate: gateUnder(context.gate, layer), depth: context.depth + 1, dimension: true }, parent);
     active.delete(def);
   }
 
