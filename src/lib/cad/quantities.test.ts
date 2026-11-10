@@ -110,6 +110,25 @@ describe("measureCadDrawing: blocks", () => {
     expect(layers[0].length).toBe(2);
   });
 
+  it("leaves out what a nested reference draws when the layer of that reference is hidden", () => {
+    const drawing = read({
+      layers: [layer("A"), layer("B"), layer("C")],
+      blocks: [{ name: "INNER", entities: [line("C", 0, 0, 1000, 0)] }, { name: "OUTER", entities: [insert("B", "INNER", 0, 0), line("C", 0, 500, 2000, 500)] }],
+      entities: [insert("A", "OUTER", 0, 0)],
+    });
+    const all = measureCadDrawing(drawing);
+    expect(all.blocks.map((row) => [row.label, row.layerName, row.count])).toEqual([["INNER", "B", 1], ["OUTER", "A", 1]]);
+    expect(all.layers.map((row) => [row.name, row.blockLength])).toEqual([["C", 3]]);
+    // The count and the tracé follow the same layers: a reference left out takes what it draws with it.
+    const withoutB = measureCadDrawing(drawing, { shown: drawing.layers.map((entry) => entry.name !== "B") });
+    expect(withoutB.blocks.map((row) => [row.label, row.layerName, row.count])).toEqual([["OUTER", "A", 1]]);
+    expect(withoutB.layers.map((row) => [row.name, row.blockLength])).toEqual([["C", 2]]);
+    const withoutA = measureCadDrawing(drawing, { shown: drawing.layers.map((entry) => entry.name !== "A") });
+    expect(withoutA.blocks).toEqual([]);
+    expect(withoutA.layers).toEqual([]);
+    expect(cadUsedLayers(drawing).map((index) => drawing.layers[index].name)).toEqual(["A", "B", "C"]);
+  });
+
   it("follows the layers the file hides unless told otherwise", () => {
     const drawing = read({ layers: [rec("LAYER", [2, "GELE"], [70, 1], [62, 2])], entities: [line("GELE", 0, 0, 1000, 0), line("EF", 0, 0, 1000, 0)] });
     expect(measureCadDrawing(drawing).layers.map((row) => row.name)).toEqual(["EF"]);

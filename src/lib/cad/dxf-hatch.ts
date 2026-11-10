@@ -143,7 +143,8 @@ export function readHatchLoops(record: DxfRecords, room = Infinity): { solid: bo
     outlines.push(bulgedOutline(vertices, true));
   }
 
-  // Even-odd fill: a loop inside an odd number of others is a hole.
+  // Normal style (0) fills even-odd: a loop inside an odd number of others is a hole. Outer (1) fills the
+  // outermost area only, and ignore (2) fills the whole outline: the loops they do not use are left out.
   const boxes = outlines.map(({ points }) => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let index = 0; index < points.length; index += 2) {
@@ -152,6 +153,7 @@ export function readHatchLoops(record: DxfRecords, room = Infinity): { solid: bo
     }
     return [x0, y0, x1, y1];
   });
+  const style = num(record.first(75) ?? "0"), deepest = style === 1 ? 1 : style === 2 ? 0 : Infinity;
   const loops = outlines.map((outline, index) => {
     const x = outline.points[0], y = outline.points[1];
     let depth = 0;
@@ -159,7 +161,7 @@ export function readHatchLoops(record: DxfRecords, room = Infinity): { solid: bo
       const box = boxes[other];
       if (other !== index && x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3] && pointInRing(outlines[other].points, x, y)) depth += 1;
     }
-    return { points: outline.points, length: outline.length, area: (depth % 2 === 1 ? -1 : 1) * Math.abs(outline.area) };
-  });
+    return { depth, points: outline.points, length: outline.length, area: (depth % 2 === 1 ? -1 : 1) * Math.abs(outline.area) };
+  }).filter((loop) => loop.depth <= deepest).map(({ points, length, area }) => ({ points, length, area }));
   return { solid, loops };
 }

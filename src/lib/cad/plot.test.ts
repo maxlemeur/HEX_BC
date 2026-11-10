@@ -85,6 +85,25 @@ describe("plotCadDrawing: sheet and scale", () => {
     expect(await plotCadDrawing(attribute)).toMatchObject({ denominator: 100, scaleSource: "drawing", otherScales: [] });
   });
 
+  it("reads a scale a cartouche block holds as a constant attribute", async () => {
+    const drawing = read({
+      blocks: [{ name: "CART", entities: [text("0", 0, 0, 150, "ECHELLE :"), rec("ATTDEF", [8, "0"], [10, 1100], [20, 0], [40, 150], [1, "1/100"], [3, ""], [2, "ECH"], [70, 2])] }],
+      entities: [room(20000, 10000), insert("TEXTE", "CART", 0, -500)],
+    });
+    expect(await plotCadDrawing(drawing)).toMatchObject({ denominator: 100, scaleSource: "drawing", otherScales: [] });
+  });
+
+  it("leaves out of the sheet what a nested reference draws when the layer of that reference is hidden", async () => {
+    const drawing = read({
+      layers: [layer("A"), layer("B"), layer("C")],
+      blocks: [{ name: "INNER", entities: [line("C", 0, 0, 30000, 0)] }, { name: "OUTER", entities: [insert("B", "INNER", 0, 0), lwpolyline("C", [[0, 0], [10000, 0], [10000, 6000], [0, 6000]], true)] }],
+      entities: [insert("A", "OUTER", 0, 0)],
+    });
+    const all = await plotCadDrawing(drawing, { denominator: 50 });
+    const withoutB = await plotCadDrawing(drawing, { denominator: 50, shown: drawing.layers.map((entry) => entry.name !== "B") });
+    expect(all.sheet_mm[0] - withoutB.sheet_mm[0]).toBe(400);
+  });
+
   it("does not take for the scale a value far from the label", async () => {
     const label = text("TEXTE", 0, -500, 150, "ECHELLE :");
     const far = read({ entities: [room(20000, 10000), label, text("TEXTE", 15000, 8000, 150, "1/100")] });

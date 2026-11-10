@@ -72,6 +72,7 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
   let header: DxfHeader = { version: { code: "", label: "version inconnue" }, units: { ...NO_UNITS } };
   const layers: CadLayer[] = [], layerIndex = new Map<string, number>();
   const blocks: CadBlock[] = [], defs = new Map<string, BlockDef>();
+  const gates: number[][] = [], gateIndex = new Map<string, number>();
   const recordNames = new Map<string, string>(), dynamicSources = new Map<string, string>();
   const texts: CadText[] = [], inserts: CadInsert[] = [], warnings: CadWarning[] = [];
   const counts = { entities: 0, skipped_paper_space: 0, skipped_invisible: 0 };
@@ -179,6 +180,19 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     });
   }
 
+  /** The gate of what a reference on `layer` draws, the reference itself being drawn under `gate`. */
+  function gateUnder(gate: number, layer: number): number {
+    if (gate >= 0 && gates[gate].includes(layer)) return gate;
+    const key = `${gate},${layer}`;
+    let index = gateIndex.get(key);
+    if (index === undefined) {
+      index = gates.length;
+      gates.push(gate < 0 ? [layer] : [...gates[gate], layer]);
+      gateIndex.set(key, index);
+    }
+    return index;
+  }
+
   function replay(def: BlockDef, context: Context, parent: number): void {
     for (const item of def.items) {
       if (stopped) return;
@@ -198,8 +212,8 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     if (context.depth >= limits.maxDepth) { warnOnce("depth_limit", def.name); truncated = true; expanded(); return; }
     if (def.xref) warnOnce("xref_missing", def.name);
     const layer = layerIn(raw.layer, context), color = tint(raw.color, layer, context);
-    // The outermost reference gates its content, unless a deeper one sits on a layer the file hides.
-    const gate = context.gate < 0 || (layers[context.gate].visible && !layers[layer].visible) ? layer : context.gate;
+    // Every reference on the way gates what it draws: hiding the layer of a nested one hides its content too.
+    const gate = gateUnder(context.gate, layer);
     const block = context.block >= 0 ? context.block : def.index;
     const outer = compose(context.matrix, raw.ocs);
     let turn = raw.rotation, scaleX = raw.sx, scaleY = raw.sy;
@@ -263,6 +277,8 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     room: () => limits.maxPoints - pointCount,
     overflow: () => stop("limit_points"),
     text: (text) => emitText(ROOT, text),
+    // Outside a block a constant attribute definition draws nothing.
+    constant: () => {},
     // A block may be defined after its reference: both wait for the end of the file.
     insert: (insert) => { deferred.push({ item: "insert", insert }); },
     dimension: (dimension) => { deferred.push({ item: "dimension", dimension }); },
@@ -280,6 +296,7 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     room: () => limits.maxPoints - definedPoints,
     overflow: () => partial("limit_points"),
     text: (text) => { open?.items.push({ item: "text", text }); },
+    constant: (text) => { open?.items.push({ item: "text", text }); },
     insert: (insert) => { open?.items.push({ item: "insert", insert }); },
     dimension: (dimension) => { open?.items.push({ item: "dimension", dimension }); },
     skipped: () => {},
@@ -363,7 +380,7 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
   }
 
   return {
-    format: "dxf", version: header.version, units: header.units, layers, blocks,
+    format: "dxf", version: header.version, units: header.units, layers, blocks, gates,
     paths: {
       count: pathCount, layer: pLayer.slice(0, pathCount), gate: pGate.slice(0, pathCount), block: pBlock.slice(0, pathCount),
       color: pColor.slice(0, pathCount), kind: pKind.slice(0, pathCount), flags: pFlags.slice(0, pathCount), start: pStart.slice(0, pathCount),

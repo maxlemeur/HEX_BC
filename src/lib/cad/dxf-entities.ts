@@ -39,6 +39,8 @@ export interface EntitySink {
   /** An entity was left out because its points would not fit. */
   overflow(): void;
   text(text: RawText): void;
+  /** A constant attribute definition: text the block itself draws at each of its references. */
+  constant(text: RawText): void;
   insert(insert: RawInsert): void;
   dimension(dimension: RawDimension): void;
   unsupported(type: string): void;
@@ -215,7 +217,15 @@ export class EntityReader {
         if (points.length >= 4) this.emit(layer, color, LEADER, 0, points, chainLength(points, false), 0, IDENTITY);
         return;
       }
-      case "POINT": case "ATTDEF": return;
+      case "ATTDEF": {
+        // Constant (2) and not invisible (1): no ATTRIB follows the references, the block writes the value itself.
+        const flags = field(records, 70);
+        if ((flags & 2) === 0 || (flags & 1) !== 0) return;
+        const text = this.singleLine(records, "attribute", 74);
+        if (text) this.sink.constant(text);
+        return;
+      }
+      case "POINT": return;
       default: this.sink.unsupported(type);
     }
   }
@@ -292,7 +302,7 @@ export class EntityReader {
     this.emit(this.layer, this.color, SPLINE, closed ? CAD_PATH_CLOSED : 0, points, length, closed ? Math.abs(ringArea(points)) : 0, IDENTITY);
   }
 
-  /** TEXT or ATTRIB: the vertical alignment has its own code in each. */
+  /** TEXT, ATTRIB or ATTDEF: the vertical alignment has its own code in the first. */
   private singleLine(records: DxfRecords, kind: CadTextKind, verticalCode: number): RawText | null {
     const text = cleanText(records.first(1) ?? "");
     if (text === "") return null;

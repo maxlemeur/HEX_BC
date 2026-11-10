@@ -2,7 +2,7 @@
 // references per block and layer. Nothing is interpreted here: which layer is
 // a network and what a block stands for is decided by the métré.
 
-import { CAD_PATH_CLOSED, type CadDrawing } from "./model";
+import { CAD_PATH_CLOSED, cadOpenGates, type CadDrawing } from "./model";
 
 export type CadLayerQuantity = {
   layer: number;
@@ -48,13 +48,14 @@ export type CadQuantities = {
 /** Layers that draw, write or place something, by name: the ones worth listing among all those a file declares. */
 export function cadUsedLayers(drawing: CadDrawing): number[] {
   const used = new Uint8Array(drawing.layers.length);
-  const mark = (layer: number, gate: number) => {
+  const mark = (layer: number) => {
     if (layer >= 0 && layer < used.length) used[layer] = 1;
-    if (gate >= 0 && gate < used.length) used[gate] = 1;
   };
-  for (let index = 0; index < drawing.paths.count; index += 1) mark(drawing.paths.layer[index], drawing.paths.gate[index]);
-  for (const entry of drawing.texts) mark(entry.layer, entry.gate);
-  for (const entry of drawing.inserts) mark(entry.layer, entry.gate);
+  for (let index = 0; index < drawing.paths.count; index += 1) mark(drawing.paths.layer[index]);
+  for (const entry of drawing.texts) mark(entry.layer);
+  for (const entry of drawing.inserts) mark(entry.layer);
+  // The layer of a reference hides what the block draws, even when nothing else is on it.
+  for (const gate of drawing.gates) gate.forEach(mark);
   return drawing.layers.map((_, index) => index).filter((index) => used[index] === 1).sort((a, b) => byName(drawing.layers[a].name, drawing.layers[b].name));
 }
 
@@ -76,7 +77,8 @@ export function measureCadDrawing(drawing: CadDrawing, options: CadMeasureOption
   const metresPerUnit = options.metresPerUnit === undefined ? drawing.units.metresPerUnit : options.metresPerUnit;
   const factor = metresPerUnit !== null && metresPerUnit > 0 ? metresPerUnit : null;
   const shown = (layer: number) => (options.shown ? options.shown[layer] === true : layers[layer].visible);
-  const counted = (layer: number, gate: number) => shown(layer) && (gate < 0 || shown(gate));
+  const open = cadOpenGates(drawing, shown);
+  const counted = (layer: number, gate: number) => shown(layer) && (gate < 0 || open[gate] === 1);
 
   const direct = new Float64Array(layers.length), inBlocks = new Float64Array(layers.length);
   const closed = new Float64Array(layers.length), hatched = new Float64Array(layers.length);

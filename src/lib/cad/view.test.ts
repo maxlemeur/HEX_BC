@@ -128,6 +128,20 @@ describe("buildCadScene", () => {
     expect(cadSceneExtents(scene, [false, false, true])).toEqual({ x0: 900000, y0: 0, x1: 900100, y1: 0 });
     expect(cadSceneExtents(scene, [false, false, false])).toBeNull();
   });
+
+  it("leaves out of the view what a nested reference draws when the layer of that reference is hidden", () => {
+    const drawing = read({
+      layers: [layer("A"), layer("B"), layer("C")],
+      blocks: [{ name: "INNER", entities: [line("C", 0, 0, 9000, 0)] }, { name: "OUTER", entities: [insert("B", "INNER", 0, 0), line("C", 0, 0, 1000, 0)] }],
+      entities: [insert("A", "OUTER", 0, 0)],
+    });
+    const scene = buildCadScene(drawing);
+    expect(cadSceneExtents(scene)).toEqual({ x0: 0, y0: 0, x1: 9000, y1: 0 });
+    expect(cadSceneExtents(scene, drawing.layers.map((entry) => entry.name !== "B"))).toEqual({ x0: 0, y0: 0, x1: 1000, y1: 0 });
+    const { ctx, calls } = recorder();
+    drawCadView(ctx, scene, { scale: 0.04, x: 0, y: 150 }, { ...SIZE, shown: drawing.layers.map((entry) => entry.name !== "B") });
+    expect(calls.filter((call) => call[0] === "lineTo")).toEqual([["lineTo", 40, 6]]);
+  });
 });
 
 describe("cadDisplayColor", () => {

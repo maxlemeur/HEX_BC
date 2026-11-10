@@ -18,7 +18,7 @@ export type CadPaths = {
   count: number;
   /** Layer the path is drawn on, once layer « 0 » inside a block took the layer of its reference. */
   layer: Int32Array;
-  /** Layer of the block reference the path is drawn through, -1 when drawn directly: hiding that layer hides the block. */
+  /** Entry of the drawing's `gates` the path is drawn under, -1 when drawn directly: hiding one of its layers hides the path. */
   gate: Int32Array;
   /** Outermost block the path is drawn through, -1 when drawn directly in model space. */
   block: Int32Array;
@@ -60,6 +60,7 @@ export type CadTextKind = "text" | "mtext" | "attribute" | "dimension";
 
 export type CadText = {
   layer: number;
+  /** Entry of the drawing's `gates`, -1 when written directly in model space. */
   gate: number;
   block: number;
   color: number;
@@ -82,6 +83,7 @@ export type CadText = {
 export type CadInsert = {
   block: number;
   layer: number;
+  /** Entry of the drawing's `gates`: the layers of this reference and of those it is nested in. */
   gate: number;
   /** Occurrence this one is nested in, -1 in model space. */
   parent: number;
@@ -126,6 +128,11 @@ export type CadDrawing = {
   units: CadUnits;
   layers: CadLayer[];
   blocks: CadBlock[];
+  /**
+   * Layers of the block references something is drawn through, outermost first and each layer once.
+   * Paths, texts and occurrences name an entry: they show when every layer of it does.
+   */
+  gates: number[][];
   paths: CadPaths;
   /** x, y pairs of all paths. */
   points: Float64Array;
@@ -143,7 +150,8 @@ export type CadDrawing = {
 
 export type CadPathView = {
   layer: string;
-  gate: string | null;
+  /** Layers of the block references the path is drawn through, outermost first; empty when drawn directly. */
+  gates: string[];
   block: string | null;
   color: number;
   kind: CadPathKind;
@@ -164,7 +172,7 @@ export function cadPathAt(drawing: CadDrawing, index: number): CadPathView {
   const gate = paths.gate[index], block = paths.block[index];
   return {
     layer: drawing.layers[paths.layer[index]].name,
-    gate: gate < 0 ? null : drawing.layers[gate].name,
+    gates: gate < 0 ? [] : drawing.gates[gate].map((layer) => drawing.layers[layer].name),
     block: block < 0 ? null : drawing.blocks[block].name,
     color: paths.color[index],
     kind: CAD_PATH_KINDS[paths.kind[index]],
@@ -175,6 +183,11 @@ export function cadPathAt(drawing: CadDrawing, index: number): CadPathView {
     length: paths.length[index],
     area: paths.area[index],
   };
+}
+
+/** By entry of `gates`, 1 when every layer of the entry is shown. */
+export function cadOpenGates(drawing: Pick<CadDrawing, "gates">, shown: (layer: number) => boolean): Uint8Array {
+  return Uint8Array.from(drawing.gates, (layers) => (layers.every(shown) ? 1 : 0));
 }
 
 export function listCadPaths(drawing: CadDrawing): CadPathView[] {

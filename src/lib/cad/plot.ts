@@ -6,7 +6,7 @@
 
 import { PDFDocument, PDFHexString, PDFName, StandardFonts, type PDFRef } from "pdf-lib";
 
-import { CAD_PATH_CLOSED, CAD_PATH_COMPOUND, CAD_PATH_FILLED, type CadDrawing } from "./model";
+import { CAD_PATH_CLOSED, CAD_PATH_COMPOUND, CAD_PATH_FILLED, cadOpenGates, type CadDrawing } from "./model";
 import { CAD_PLOT_DENOMINATORS } from "./plot-scales";
 import { CAD_CAP_HEIGHT as CAP_HEIGHT, CAD_LINE_SPACING as LINE_SPACING, cadFirstBaseline, cadTextLines } from "./text-layout";
 
@@ -100,7 +100,8 @@ export async function plotCadDrawing(drawing: CadDrawing, options: CadPlotOption
   if (metresPerUnit === null || !(metresPerUnit > 0) || !Number.isFinite(metresPerUnit)) throw new CadPlotError("unknown_unit");
   if (options.denominator !== undefined && !CAD_PLOT_DENOMINATORS.includes(options.denominator)) throw new CadPlotError("invalid_denominator");
   const shown = (layer: number) => (options.shown ? options.shown[layer] === true : layers[layer].visible);
-  const counted = (layer: number, gate: number) => shown(layer) && (gate < 0 || shown(gate));
+  const open = cadOpenGates(drawing, shown);
+  const counted = (layer: number, gate: number) => shown(layer) && (gate < 0 || open[gate] === 1);
 
   const doc = await PDFDocument.create({ updateMetadata: false });
   const font = doc.embedStandardFont(StandardFonts.Helvetica);

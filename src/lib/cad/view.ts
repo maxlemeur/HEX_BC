@@ -5,7 +5,7 @@
 // CanvasRenderingContext2D the view uses, which lets the tests write down what
 // is drawn.
 
-import { CAD_PATH_CLOSED, CAD_PATH_COMPOUND, CAD_PATH_FILLED, CAD_PATH_KINDS, type CadDrawing, type CadExtents, type CadText } from "./model";
+import { CAD_PATH_CLOSED, CAD_PATH_COMPOUND, CAD_PATH_FILLED, CAD_PATH_KINDS, cadOpenGates, type CadDrawing, type CadExtents, type CadText } from "./model";
 import { CAD_CAP_HEIGHT, CAD_LINE_SPACING, cadFirstBaseline, cadTextLines } from "./text-layout";
 
 export type CadViewport = {
@@ -149,7 +149,8 @@ const writable = (entry: CadText) => entry.height > 0 && Number.isFinite(entry.h
 export function cadSceneExtents(scene: CadScene, shown?: readonly boolean[]): CadExtents | null {
   const { drawing, boxes, textBoxes } = scene, { paths, layers, texts } = drawing;
   const visible = (layer: number) => (shown ? shown[layer] === true : layers[layer].visible);
-  const counted = (layer: number, gate: number) => visible(layer) && (gate < 0 || visible(gate));
+  const open = cadOpenGates(drawing, visible);
+  const counted = (layer: number, gate: number) => visible(layer) && (gate < 0 || open[gate] === 1);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const grow = (from: Float64Array, at: number) => {
     if (!(from[at] <= from[at + 2]) || !(from[at + 1] <= from[at + 3])) return;
@@ -219,7 +220,8 @@ export function drawCadView(ctx: CadViewContext, scene: CadScene, viewport: CadV
   if (!(scale > 0) || !Number.isFinite(scale) || !Number.isFinite(vx) || !Number.isFinite(vy)) return stats;
 
   const visible = (layer: number) => (options.shown ? options.shown[layer] === true : layers[layer].visible);
-  const counted = (layer: number, gate: number) => visible(layer) && (gate < 0 || visible(gate));
+  const open = cadOpenGates(drawing, visible);
+  const counted = (layer: number, gate: number) => visible(layer) && (gate < 0 || open[gate] === 1);
   // The canvas in drawing units, a pixel wider on each side for the width of the lines.
   const wx0 = vx - 1 / scale, wx1 = vx + (width + 1) / scale, wy0 = vy - (height + 1) / scale, wy1 = vy + 1 / scale;
   const outside = (from: Float64Array, at: number) => from[at + 2] < wx0 || from[at] > wx1 || from[at + 3] < wy0 || from[at + 1] > wy1;

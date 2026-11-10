@@ -11,7 +11,7 @@ function reading(entities: DxfRecord[], room = 100) {
   const path = vi.fn<EntitySink["path"]>(), overflow = vi.fn<EntitySink["overflow"]>();
   const reader = new EntityReader({
     layerOf: () => 0, path, overflow, room: () => room,
-    text: () => {}, insert: () => {}, dimension: () => {}, unsupported: () => {}, splineFit: () => {}, skipped: () => {},
+    text: () => {}, constant: () => {}, insert: () => {}, dimension: () => {}, unsupported: () => {}, splineFit: () => {}, skipped: () => {},
   });
   const records = new DxfRecords([...entities.flat(), "0", "EOF"].join("\r\n") + "\r\n");
   while (records.next()) reader.read(records);

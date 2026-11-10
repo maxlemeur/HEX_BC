@@ -268,22 +268,23 @@ describe("readDxf: blocks", () => {
     });
     const [inherited, detail] = listCadPaths(drawing);
     // Layer « 0 » in a block takes the layer of the reference; BYLAYER then reads that layer.
-    expect(inherited).toMatchObject({ layer: "APPAREILS", gate: "APPAREILS", block: "WC", color: 0x00ff00, length: 2 });
+    expect(inherited).toMatchObject({ layer: "APPAREILS", gates: ["APPAREILS"], block: "WC", color: 0x00ff00, length: 2 });
     expect(inherited.points).toEqual([[10, 5], [expect.closeTo(10, 9), expect.closeTo(7, 9)]]);
     // Its own layer stays; BYBLOCK takes the colour of the reference.
-    expect(detail).toMatchObject({ layer: "DETAIL", gate: "APPAREILS", block: "WC", color: 0x0000ff });
+    expect(detail).toMatchObject({ layer: "DETAIL", gates: ["APPAREILS"], block: "WC", color: 0x0000ff });
     expect(detail.points[1]).toEqual([expect.closeTo(8, 9), expect.closeTo(5, 9)]);
     expect(drawing.inserts).toEqual([{
       block: drawing.blocks.findIndex((block) => block.name === "WC"), layer: drawing.layers.findIndex((entry) => entry.name === "APPAREILS"),
-      gate: drawing.layers.findIndex((entry) => entry.name === "APPAREILS"), parent: -1, depth: 0, x: 10, y: 5, rotation: Math.PI / 2, scaleX: 2, scaleY: 2, attributes: [],
+      gate: 0, parent: -1, depth: 0, x: 10, y: 5, rotation: Math.PI / 2, scaleX: 2, scaleY: 2, attributes: [],
     }]);
+    expect(drawing.gates).toEqual([[drawing.layers.findIndex((entry) => entry.name === "APPAREILS")]]);
     expect(drawing.blocks.find((block) => block.name === "WC")).toEqual({ name: "WC", label: "WC", anonymous: false, xref: false });
   });
 
   it("subtracts the base point of the block", () => {
     const [path] = listCadPaths(read({ blocks: [{ name: "B", base: [1, 1], entities: [line("0", 1, 1, 2, 1)] }], entities: [insert("0", "B", 10, 10)] }));
     expect(path.points).toEqual([[10, 10], [11, 10]]);
-    expect(path.gate).toBe("0");
+    expect(path.gates).toEqual(["0"]);
   });
 
   it("expands nested references and keeps the outermost block", () => {
@@ -292,7 +293,7 @@ describe("readDxf: blocks", () => {
       blocks: [{ name: "B", entities: [line("0", 0, 0, 1, 0)] }, { name: "A", entities: [insert("0", "B", 5, 0)] }],
       entities: [insert("L1", "A", 100, 100)],
     });
-    expect(listCadPaths(drawing)).toEqual([expect.objectContaining({ layer: "L1", gate: "L1", block: "A", color: 0x00ffff, points: [[105, 100], [106, 100]] })]);
+    expect(listCadPaths(drawing)).toEqual([expect.objectContaining({ layer: "L1", gates: ["L1"], block: "A", color: 0x00ffff, points: [[105, 100], [106, 100]] })]);
     expect(drawing.inserts.map((entry) => [drawing.blocks[entry.block].name, entry.parent, entry.depth, entry.x, entry.y])).toEqual([["A", -1, 0, 100, 100], ["B", 0, 1, 105, 100]]);
   });
 
@@ -359,7 +360,18 @@ describe("readDxf: blocks", () => {
       blocks: [{ name: "B", entities: [line("EF", 0, 0, 1, 0)] }, { name: "A", entities: [insert("GELE", "B", 0, 0), line("EF", 0, 0, 2, 0)] }],
       entities: [insert("L1", "A", 0, 0)],
     });
-    expect(listCadPaths(drawing).map((path) => [path.length, path.gate])).toEqual([[1, "GELE"], [2, "L1"]]);
+    expect(listCadPaths(drawing).map((path) => [path.length, path.gates])).toEqual([[1, ["L1", "GELE"]], [2, ["L1"]]]);
+  });
+
+  it("gates what a nested reference draws by the layer of every reference it is drawn through", () => {
+    const drawing = read({
+      layers: [layer("A"), layer("B"), layer("C")],
+      blocks: [{ name: "INNER", entities: [line("C", 0, 0, 1000, 0)] }, { name: "OUTER", entities: [insert("B", "INNER", 0, 0), insert("A", "INNER", 0, 500), line("C", 0, 900, 1000, 900)] }],
+      entities: [insert("A", "OUTER", 0, 0), line("C", 0, 1500, 1000, 1500)],
+    });
+    expect(listCadPaths(drawing).map((path) => path.gates)).toEqual([[], ["A", "B"], ["A"], ["A"]]);
+    const named = (gate: number) => (gate < 0 ? [] : drawing.gates[gate].map((entry) => drawing.layers[entry].name));
+    expect(drawing.inserts.map((entry) => [drawing.blocks[entry.block].name, named(entry.gate)])).toEqual([["OUTER", ["A"]], ["INNER", ["A", "B"]], ["INNER", ["A"]]]);
   });
 });
 
@@ -408,6 +420,21 @@ describe("readDxf: texts", () => {
     expect(drawing.unsupported).toEqual([]);
   });
 
+  it("draws a constant attribute definition as text of its block, at each reference", () => {
+    const attdef = (y: number, value: string, flags: number) => rec("ATTDEF", [8, "0"], [10, 0], [20, y], [40, 1], [1, value], [3, "Invite"], [2, "ETIQ"], [70, flags]);
+    const drawing = read({
+      blocks: [{ name: "CART", entities: [attdef(0, "Lot 12 plomberie", 2), attdef(2, "variable", 0), attdef(4, "constant caché", 3), attdef(6, "à vérifier", 4)] }],
+      entities: [insert("APP", "CART", 10, 10, [41, 2], [42, 2]), insert("APP", "CART", 100, 0), rec("ATTDEF", [8, "0"], [10, 0], [20, 0], [40, 1], [1, "hors bloc"], [2, "T"], [70, 2])],
+    });
+    const app = drawing.layers.findIndex((entry) => entry.name === "APP");
+    expect(drawing.texts).toEqual([
+      expect.objectContaining({ kind: "attribute", text: "Lot 12 plomberie", x: 10, y: 10, height: 2, layer: app }),
+      expect.objectContaining({ kind: "attribute", text: "Lot 12 plomberie", x: 100, y: 0, height: 1, layer: app }),
+    ]);
+    expect(drawing.inserts.map((entry) => entry.attributes)).toEqual([[], []]);
+    expect(drawing.unsupported).toEqual([]);
+  });
+
   it("moves the texts of a block with its reference", () => {
     const drawing = read({ blocks: [{ name: "B", entities: [text("0", 1, 0, 2, "A")] }], entities: [insert("0", "B", 10, 0, [41, 3], [42, 3], [50, 90])] });
     expect(drawing.texts[0]).toMatchObject({ x: expect.closeTo(10, 9), y: expect.closeTo(3, 9), height: 6, text: "A" });
@@ -437,6 +464,20 @@ describe("readDxf: dimensions, hatches, fills", () => {
     expect(outer).toMatchObject({ kind: "hatch", layer: "SOL", closed: true, filled: true, compound: false, area: 100, length: 40 });
     expect(hole).toMatchObject({ kind: "hatch", closed: true, compound: true, area: -4, length: 8 });
     expect(drawing.paths.count).toBe(2);
+  });
+
+  it("fills a hatch the way its style says: every other ring, the outer ring only, or the whole outline", () => {
+    const square = (from: number, to: number) => [[92, 2], [72, 0], [73, 1], [93, 4], [10, from], [20, from], [10, to], [20, from], [10, to], [20, to], [10, from], [20, to], [97, 0]] as const;
+    const areas = (style: number) => listCadPaths(read({
+      entities: [rec("HATCH", [8, "SOL"], [10, 0], [20, 0], [30, 0], [210, 0], [220, 0], [230, 1], [2, "SOLID"], [70, 1], [71, 0], [91, 3],
+        ...square(0, 10), ...square(2, 8), ...square(4, 6), [75, style], [76, 1], [98, 0])],
+    })).map((path) => [path.area, path.compound]);
+    // Normal: the island inside the hole is filled again.
+    expect(areas(0)).toEqual([[100, false], [-36, true], [4, true]]);
+    // Outer: only the outermost area is filled, what lies inside its hole is left empty.
+    expect(areas(1)).toEqual([[100, false], [-36, true]]);
+    // Ignore: the inner boundaries do not count.
+    expect(areas(2)).toEqual([[100, false]]);
   });
 
   it("reads hatch boundaries made of edges: lines, arcs both ways, a bulged polyline", () => {
