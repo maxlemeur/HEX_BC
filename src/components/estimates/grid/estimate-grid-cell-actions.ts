@@ -455,6 +455,15 @@ export function planEstimateGridFillDown(
   return plan;
 }
 
+/**
+ * A cell on the clipboard. A text that starts with a quote would be read back
+ * as a quoted cell and lose its quotes: it is quoted, its quotes doubled.
+ */
+function toClipboardCell(text: string) {
+  const flat = text.replace(/[\t\r\n]+/g, " ");
+  return flat.startsWith('"') ? `"${flat.replace(/"/g, '""')}"` : flat;
+}
+
 /** Tab-separated text of the selection, one line per row, as a spreadsheet expects it. */
 export function serializeEstimateGridSelection(
   selection: GridSelection,
@@ -467,7 +476,7 @@ export function serializeEstimateGridSelection(
       return selection.columnKeys
         .map((columnKey) =>
           item && row.columnKeys.includes(columnKey)
-            ? readEstimateGridCellText(item, columnKey, context).replace(/[\t\r\n]+/g, " ")
+            ? toClipboardCell(readEstimateGridCellText(item, columnKey, context))
             : "",
         )
         .join("\t");

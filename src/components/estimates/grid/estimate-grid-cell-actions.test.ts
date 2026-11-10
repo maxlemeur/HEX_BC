@@ -133,6 +133,20 @@ describe("serializeEstimateGridSelection", () => {
     };
     expect(serializeEstimateGridSelection(selection, getItem, context)).toBe("Lot 1\t\nLigne a\t2");
   });
+
+  it("gives back the same text when its own copy is pasted, quotes included", () => {
+    const titles = ['"Pompe"', '"dit ""dur""', '"', '12" écran', 'Tube "cuivre"', "Robinet"];
+    const items = titles.map((title, index) => line(`q${index}`, { title }));
+    const { getItem } = grid(items);
+    const copied = serializeEstimateGridSelection(
+      range(items.map((item) => item.id), ["title", "quantity"]),
+      getItem,
+      context,
+    );
+    expect(parseClipboardMatrix(copied)).toEqual(titles.map((title) => [title, "2"]));
+    // A cell that does not start with a quote is copied as it reads, for any other application.
+    expect(copied.split("\n").slice(3)).toEqual(['12" écran\t2', 'Tube "cuivre"\t2', "Robinet\t2"]);
+  });
 });
 
 describe("parseClipboardMatrix", () => {
