@@ -97,6 +97,11 @@ contract take precedence over historical reports and procedures.
 - Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
   conforming dependencies; use `npm ci` when installation is needed, inside the
   checkout root. See the [test guide](e2e/README.md) for setup and suite contents.
+- Start the local server someone browses with `npm run dev` or `npm run dev:chatgpt`
+  as written, on Next's default compiler (Turbopack). `--webpack` belongs to the
+  scripts that already pass it (builds, Army development): in `next dev` it took
+  20 s instead of 7 s to compile the estimate editor and its API routes on a first
+  visit, twice the memory, and seconds more for each file changed in the checkout.
 - Browser campaigns require no ambient `.env` files or inherited DB/Supabase
   credentials, matching dependencies and sources frozen during qualification;
   task changes may be uncommitted. Isolate when needed without moving personal
