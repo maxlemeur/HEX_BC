@@ -306,6 +306,17 @@ describe("drawCadView", () => {
     expect(named("fillText").map((call) => call.slice(0, 4))).toEqual([["fillText", "Gaine", 40, 112], ["fillText", "EU", 40, 132]]);
   });
 
+  it("writes a paragraph on the lines its rectangle leaves it, and boxes it on those lines", () => {
+    const note = (width: number) => draw({ entities: [rec("MTEXT", [8, "0"], [10, 100], [20, 500], [30, 0], [40, 30], [41, width], [71, 1], [1, "Colonne EU 100"])] });
+    const wrapped = note(90), whole = note(9000);
+    expect(wrapped.named("fillText").map((call) => call.slice(0, 4))).toEqual([["fillText", "Colonne", 40, 112], ["fillText", "EU", 40, 132], ["fillText", "100", 40, 152]]);
+    expect(whole.named("fillText").map((call) => call[1])).toEqual(["Colonne EU 100"]);
+    const [x0, y0, x1, y1] = buildCadScene(wrapped.drawing).textBoxes, [wide0, low0, wide1, high1] = buildCadScene(whole.drawing).textBoxes;
+    // Seven letters of 30 units against fourteen, three lines against one.
+    expect([x1 - x0, wide1 - wide0]).toEqual([210, 420]);
+    expect(y1 - y0).toBeGreaterThan(high1 - low0);
+  });
+
   it("centres and right-aligns on the anchor", () => {
     const { named } = draw({ entities: [text("0", 0, 0, 50, "Axe", [72, 1], [11, 500], [21, 100]), text("0", 0, 0, 50, "Fin", [72, 2], [11, 800], [21, 100])] });
     expect(named("fillText").map((call) => [call[1], call[2], call[3], call[6]])).toEqual([["Axe", 200, 260, "center"], ["Fin", 320, 260, "right"]]);

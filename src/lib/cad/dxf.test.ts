@@ -460,6 +460,53 @@ describe("readDxf: texts", () => {
     expect(drawing.texts).toEqual([expect.objectContaining({ kind: "attribute", text: "DN 40", x: 12, y: 3, height: 2 })]);
     expect(drawing.texts[0].stretch).toBeUndefined();
   });
+
+  it("keeps the width factor a single-line text is written with, and multiplies it by the stretch of its reference", () => {
+    const drawing = read({
+      blocks: [{ name: "B", entities: [text("0", 1, 0, 1, "Etroit", [41, 0.5])] }],
+      entities: [
+        text("0", 0, 0, 2, "Etroit", [41, 0.5]), text("0", 0, 5, 2, "Normal", [41, 1]), text("0", 0, 10, 2, "Large", [41, 4]),
+        text("0", 0, 15, 2, "Nul", [41, 0]), text("0", 0, 20, 2, "Négatif", [41, -2]),
+        insert("0", "B", 10, 0, [41, 4], [42, 1]), insert("0", "B", 10, 20, [41, 3], [42, 3]),
+      ],
+    });
+    expect(drawing.texts.map((entry) => [entry.text, entry.height, entry.stretch])).toEqual([
+      ["Etroit", 2, 0.5], ["Normal", 2, undefined], ["Large", 2, 4], ["Nul", 2, undefined], ["Négatif", 2, undefined],
+      // Half as wide in a block four times as long: twice the font's width. Evenly scaled: still half.
+      ["Etroit", 1, 2], ["Etroit", 3, 0.5],
+    ]);
+  });
+
+  it("keeps the width factor of an attribute and of a constant attribute definition", () => {
+    const drawing = read({
+      blocks: [{ name: "CART", entities: [rec("ATTDEF", [8, "0"], [10, 0], [20, 0], [40, 1], [41, 0.8], [1, "Lot 12 plomberie"], [3, "Invite"], [2, "LOT"], [70, 2])] }],
+      entities: [
+        insert("0", "CART", 10, 10, [66, 1]),
+        rec("ATTRIB", [8, "0"], [10, 10], [20, 12], [40, 1], [41, 0.7], [1, "WC-01"], [2, "REP"], [70, 0]),
+        rec("SEQEND", [8, "0"]),
+      ],
+    });
+    expect(drawing.texts.map((entry) => [entry.text, entry.stretch]).sort()).toEqual([["Lot 12 plomberie", 0.8], ["WC-01", 0.7]]);
+  });
+
+  it("wraps a paragraph in the rectangle it is written in", () => {
+    const note = (...pairs: [number, string | number][]) => rec("MTEXT", [8, "0"], [10, 0], [20, 0], [40, 2], ...pairs, [71, 1], [1, "Evacuation des eaux usées\\Pvers la colonne EU 100"]);
+    const drawing = read({ entities: [note([41, 6]), note([41, 600]), note([41, 0]), note()] });
+    expect(drawing.texts.map((entry) => entry.text)).toEqual([
+      // Six units for capitals of two: no two words fit on a line.
+      "Evacuation\ndes\neaux\nusées\nvers\nla\ncolonne\nEU\n100",
+      "Evacuation des eaux usées\nvers la colonne EU 100", "Evacuation des eaux usées\nvers la colonne EU 100", "Evacuation des eaux usées\nvers la colonne EU 100",
+    ]);
+    expect(drawing.texts.every((entry) => entry.stretch === undefined && entry.height === 2)).toBe(true);
+  });
+
+  it("wraps the paragraph of a block in its own rectangle, whatever the size of the reference", () => {
+    const drawing = read({
+      blocks: [{ name: "B", entities: [rec("MTEXT", [8, "0"], [10, 0], [20, 0], [40, 2], [41, 6], [71, 1], [1, "Colonne EU 100"])] }],
+      entities: [insert("0", "B", 0, 0, [41, 10], [42, 10])],
+    });
+    expect(drawing.texts[0]).toMatchObject({ text: "Colonne\nEU\n100", height: 20 });
+  });
 });
 
 describe("readDxf: dimensions, hatches, fills", () => {

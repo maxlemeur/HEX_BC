@@ -70,7 +70,7 @@ export type CadText = {
   height: number;
   /** Radians, counter-clockwise. */
   angle: number;
-  /** Width over the font's own, when a reference stretches the text along or across its line. Absent when 1. */
+  /** Width over the font's own: the width factor the text is written with, times what a reference stretches it by along its line. Absent when 1. */
   stretch?: number;
   /** 0 left, 1 centre, 2 right of (x, y). */
   align: 0 | 1 | 2;

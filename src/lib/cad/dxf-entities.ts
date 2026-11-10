@@ -11,6 +11,7 @@ import {
   ringArea, similarityScale, splineOutline, splinePointBound, turnedAngle, type Affine,
 } from "./geometry";
 import { CAD_PATH_CLOSED, CAD_PATH_COMPOUND, CAD_PATH_FILLED, type CadTextKind } from "./model";
+import { cadWrap } from "./text-layout";
 
 /** Colours that are not a colour yet: the layer's, or the block reference's. */
 export const BYLAYER = -1;
@@ -20,6 +21,8 @@ const LINE = 0, POLYLINE = 1, ARC = 2, CIRCLE = 3, ELLIPSE = 4, SPLINE = 5, HATC
 
 export type RawText = {
   layer: number; color: number; x: number; y: number; height: number; angle: number;
+  /** Width over the font's own: the width factor a single-line text is written with. */
+  stretch: number;
   align: 0 | 1 | 2; baseline: 0 | 1 | 2 | 3; text: string; kind: CadTextKind;
 };
 
@@ -310,10 +313,13 @@ export class EntityReader {
     // Aligned (3) and fit (5) stretch between two points: the text starts at the first.
     const second = (horizontal !== 0 || vertical !== 0) && horizontal !== 3 && horizontal !== 5 && records.first(11) !== undefined;
     const x = field(records, second ? 11 : 10), y = field(records, second ? 21 : 20), ocs = this.ocs;
+    // The width factor: a fit text holds there what makes it reach its second point.
+    const wide = field(records, 41, 1);
     return {
       layer: this.layer, color: this.color,
       x: ocs === IDENTITY ? x : ocs[0] * x + ocs[2] * y, y: ocs === IDENTITY ? y : ocs[1] * x + ocs[3] * y,
       height: field(records, 40) * Math.sqrt(Math.abs(determinant(ocs))), angle: turnedAngle(ocs, radians(field(records, 50))),
+      stretch: wide > 0 && Number.isFinite(wide) ? wide : 1,
       align: horizontal === 1 || horizontal === 4 ? 1 : horizontal === 2 ? 2 : 0,
       baseline: horizontal === 4 ? 2 : vertical === 1 ? 1 : vertical === 2 ? 2 : vertical === 3 ? 3 : 0,
       text, kind,
@@ -324,12 +330,13 @@ export class EntityReader {
     const { codes, values, count } = records;
     let raw = "";
     for (let index = 0; index < count; index += 1) if (codes[index] === 3 || codes[index] === 1) raw += values[index];
-    const text = cleanMtext(raw);
+    // Group 41 is the width of the rectangle the paragraph is written in: its lines break there.
+    const height = field(records, 40), text = cadWrap(cleanMtext(raw), field(records, 41) / height);
     if (text === "") return;
     const attachment = Math.min(9, Math.max(1, Math.trunc(field(records, 71, 1))));
     const directed = records.first(11) !== undefined;
     this.sink.text({
-      layer: this.layer, color: this.color, x: field(records, 10), y: field(records, 20), height: field(records, 40),
+      layer: this.layer, color: this.color, x: field(records, 10), y: field(records, 20), height, stretch: 1,
       angle: directed ? Math.atan2(field(records, 21), field(records, 11)) : radians(field(records, 50)),
       align: ((attachment - 1) % 3) as 0 | 1 | 2, baseline: ([3, 2, 1] as const)[Math.floor((attachment - 1) / 3)],
       text, kind: "mtext",

@@ -85,6 +85,13 @@ describe("plotCadDrawing: sheet and scale", () => {
     expect(await plotCadDrawing(attribute)).toMatchObject({ denominator: 100, scaleSource: "drawing", otherScales: [] });
   });
 
+  it("reads a scale its paragraph wraps away from its label", async () => {
+    const note = rec("MTEXT", [8, "TEXTE"], [10, 0], [20, -500], [40, 150], [41, 1200], [71, 1], [1, "ECHELLE : 1/100"]);
+    const drawing = read({ entities: [room(20000, 10000), note] });
+    expect(drawing.texts[0].text).toBe("ECHELLE :\n1/100");
+    expect(await plotCadDrawing(drawing)).toMatchObject({ denominator: 100, scaleSource: "drawing", otherScales: [] });
+  });
+
   it("reads a scale a cartouche block holds as a constant attribute", async () => {
     const drawing = read({
       blocks: [{ name: "CART", entities: [text("0", 0, 0, 150, "ECHELLE :"), rec("ATTDEF", [8, "0"], [10, 1100], [20, 0], [40, 150], [1, "1/100"], [3, ""], [2, "ECH"], [70, 2])] }],
@@ -172,6 +179,35 @@ describe("plotCadDrawing: content", () => {
     expect(wide.text?.[1]).toBe(plain.text?.[1]);
     // The sheet makes room for the widened text, which runs further past the wall.
     expect(wide.plot.sheet_mm[0]).toBeGreaterThan(plain.plot.sheet_mm[0]);
+  });
+
+  it("narrows a text written with a width factor", async () => {
+    const plotted = async (factor: number) => {
+      const plot = await plotCadDrawing(read({ entities: [room(20000, 10000), text("T", 19800, 1000, 100, "Large", [41, factor])] }), { denominator: 50 });
+      return { plot, matrix: /BT \/F1 \S+ Tf (\S+ \S+ \S+ \S+) \S+ \S+ Tm <4C61726765> Tj/.exec((await contentOf(plot.bytes)).content)?.[1] };
+    };
+    const plain = await plotted(1), narrow = await plotted(0.5), wide = await plotted(4);
+    expect([plain.matrix, narrow.matrix, wide.matrix]).toEqual(["1 0 0 1", "0.5 0 0 1", "4 0 0 1"]);
+    expect(narrow.plot.sheet_mm[0]).toBeLessThan(plain.plot.sheet_mm[0]);
+    expect(wide.plot.sheet_mm[0]).toBeGreaterThan(plain.plot.sheet_mm[0]);
+  });
+
+  it("plots a paragraph on the lines its rectangle leaves it, on a sheet that is not widened for one long line", async () => {
+    const NOTE = "Evacuation des eaux usees vers la colonne EU 100 en fonte";
+    const plotted = async (...pairs: [number, number][]) => {
+      const note = rec("MTEXT", [8, "T"], [10, 19000], [20, 5000], [40, 100], ...pairs, [71, 1], [1, NOTE]);
+      const plot = await plotCadDrawing(read({ entities: [room(20000, 10000), note] }), { denominator: 50 });
+      const written = Array.from((await contentOf(plot.bytes)).content.matchAll(/<([0-9A-F]+)> Tj/g), (match) => Buffer.from(match[1], "hex").toString("latin1"));
+      // The stamp of the sheet is written too: only the lines of the note are looked at.
+      return { plot, lines: written.filter((line) => NOTE.includes(line)) };
+    };
+    const whole = await plotted(), wrapped = await plotted([41, 1100]);
+    expect(whole.lines).toEqual([NOTE]);
+    // Eleven capital heights: two or three words a line, each line a text of the PDF.
+    expect(wrapped.lines).toEqual(["Evacuation des", "eaux usees vers", "la colonne EU", "100 en fonte"]);
+    expect(wrapped.plot.texts).toBe(4);
+    // The note starts 1 m before the wall: whole, it runs past it by several metres.
+    expect(whole.plot.sheet_mm[0] - wrapped.plot.sheet_mm[0]).toBeGreaterThan(40);
   });
 
   it("caps the texts and the size of the file", async () => {

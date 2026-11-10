@@ -173,13 +173,13 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     if (x > x1) x1 = x;
     if (y < y0) y0 = y;
     if (y > y1) y1 = y;
-    let height = raw.height * Math.sqrt(context.area), stretch = 1;
+    let height = raw.height * Math.sqrt(context.area), stretch = raw.stretch;
     if (context.scale === null) {
       // A stretch does not scale a text evenly: its line takes the length of the stretched direction, its height what is left of the area.
       const cos = Math.cos(raw.angle), sin = Math.sin(raw.angle);
       const along = Math.hypot(matrix[0] * cos + matrix[2] * sin, matrix[1] * cos + matrix[3] * sin);
       height = along > 0 ? (raw.height * context.area) / along : 0;
-      stretch = context.area > 0 ? (along * along) / context.area : 1;
+      if (context.area > 0) stretch = (raw.stretch * along * along) / context.area;
     }
     const entry: CadText = {
       layer, gate: context.gate, block: context.block, color: tint(raw.color, layer, context), x, y,
