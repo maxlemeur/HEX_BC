@@ -43,8 +43,14 @@ type UseEstimateGridCellActionsParams = {
   /** Checked lines own Suppr, copy and paste: the cells then leave the keys alone. */
   hasSelectedLines: boolean;
   onPatchItem: (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => void;
-  onApplyCellPatches?: (entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>) => Promise<void>;
+  /** Several stored lines in one write and one undo step. `false`: refused, nothing was written. */
+  onApplyCellPatches?: (
+    entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>,
+  ) => Promise<boolean | void>;
+  /** v1/v2 unit of a line still being created: the cell shows the draft until the line is stored. */
   onLegacyUnitDraftChange: (itemId: string, value: string) => void;
+  /** v1/v2 unit of a stored line: the cell goes back to the stored value, which undo restores. */
+  onLegacyUnitDraftDiscard: (itemId: string, rowId: string) => void;
   onLeftovers: (message: { title: string; description: string }) => void;
 };
 
@@ -89,33 +95,54 @@ export function useEstimateGridCellActions(
   const applyPlan = useCallback((plan: EstimateGridWritePlan, title: string) => {
     const { params: latest } = latestRef.current;
     const rowIdByItemId = new Map(plan.writes.map((write) => [write.itemId, write.rowId]));
-    const bulkEntries: Array<{ itemId: string; patch: ItemPatch }> = [];
-    const singleEntries: Array<{ itemId: string; patch: ItemPatch }> = [];
+    type Entry = { itemId: string; rowId: string; patch: ItemPatch; legacyUnitDraft?: string; isStoredLine: boolean };
+    const bulkEntries: Entry[] = [];
+    const singleEntries: Entry[] = [];
 
     for (const write of groupEstimateGridWrites(plan.writes)) {
-      if (write.legacyUnitDraft !== undefined) {
-        latest.onLegacyUnitDraftChange(write.itemId, write.legacyUnitDraft);
-      }
-      const rowId = rowIdByItemId.get(write.itemId);
-      const item = rowId === undefined ? undefined : latest.getItem(rowId);
+      const rowId = rowIdByItemId.get(write.itemId) ?? write.itemId;
+      const item = latest.getItem(rowId);
       // A line still being created has no stored row to write in a batch, and
       // a section title is not a line: both keep the single-item write.
       const isStoredLine =
         item?.item_type === "line" && !isTempEstimateItemId(item.id) && !isPendingCreateEstimateItem(item);
-      (isStoredLine ? bulkEntries : singleEntries).push({ itemId: write.itemId, patch: write.patch });
+      (isStoredLine ? bulkEntries : singleEntries).push({ ...write, rowId, isStoredLine });
     }
+
+    // The unit cell of a v1/v2 line shows a draft over the stored value. On a
+    // stored line the write is the value: the draft goes, so undo is visible.
+    const syncLegacyUnitDraft = (entry: Entry) => {
+      if (entry.legacyUnitDraft === undefined) return;
+      if (entry.isStoredLine) latest.onLegacyUnitDraftDiscard(entry.itemId, entry.rowId);
+      else latest.onLegacyUnitDraftChange(entry.itemId, entry.legacyUnitDraft);
+    };
+    const writeOneByOne = (entries: readonly Entry[]) => {
+      for (const entry of entries) {
+        syncLegacyUnitDraft(entry);
+        latest.onPatchItem(entry.itemId, entry.patch, { persist: true });
+      }
+    };
+    const reportLeftovers = () => {
+      const leftovers = describeEstimateGridPlanLeftovers(plan);
+      if (leftovers) latest.onLeftovers({ title, description: leftovers });
+    };
 
     if (bulkEntries.length > 1 && latest.onApplyCellPatches) {
-      void latest.onApplyCellPatches(bulkEntries);
-    } else {
-      singleEntries.push(...bulkEntries);
-    }
-    for (const entry of singleEntries) {
-      latest.onPatchItem(entry.itemId, entry.patch, { persist: true });
+      // The batch goes first: when the editor refuses it (stale document,
+      // save in progress), the rest of the gesture is not written either.
+      void latest
+        .onApplyCellPatches(bulkEntries.map(({ itemId, patch }) => ({ itemId, patch })))
+        .then((applied) => {
+          if (applied === false) return;
+          bulkEntries.forEach(syncLegacyUnitDraft);
+          writeOneByOne(singleEntries);
+          reportLeftovers();
+        });
+      return;
     }
 
-    const leftovers = describeEstimateGridPlanLeftovers(plan);
-    if (leftovers) latest.onLeftovers({ title, description: leftovers });
+    writeOneByOne([...singleEntries, ...bulkEntries]);
+    reportLeftovers();
   }, []);
 
   const onClearSelection = useCallback(
@@ -133,7 +160,8 @@ export function useEstimateGridCellActions(
   const onFillDown = useCallback(
     (selection: GridSelection) => {
       const { params: latest, context: latestContext } = latestRef.current;
-      if (latest.isReadOnly) return;
+      // Checked lines own the editing keys, as for Suppr and paste.
+      if (latest.isReadOnly || latest.hasSelectedLines) return;
       applyPlan(
         planEstimateGridFillDown(selection, latest.rows, latest.getItem, latestContext),
         "Recopie incomplète",

@@ -280,7 +280,7 @@ type EstimateEditorTableProps = {
   /** Cellules de plusieurs lignes écrites ensemble (coller, recopier, effacer) : une seule annulation. */
   onApplyCellPatches?: (
     entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>
-  ) => Promise<void>;
+  ) => Promise<boolean | void>;
   onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
   onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
   onBulkMoveLines: (
@@ -1405,19 +1405,28 @@ export function EstimateEditorTable({
     });
   }, []);
 
-  const patchItemWithSuggestionTracking = useCallback(
-    (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
-      onPatchItem(itemId, patch, options);
+  // Without its draft, the unit cell shows the stored value of the line: the one a grid
+  // write has just set, and the one an undo puts back.
+  const handleUnitDraftDiscard = useCallback((itemId: string, rowId: string) => {
+    setUnitDrafts((prev) => {
+      if (prev[itemId] === undefined && prev[rowId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      delete next[rowId];
+      return next;
+    });
+  }, []);
 
-      if (options?.persist !== true) return;
-      if (!isSuggestionLearningEnabled) return;
-      if (!onTrackSuggestionCorrections) return;
+  const collectSuggestionCorrections = useCallback(
+    (itemId: string, patch: ItemPatch): SuggestionCorrectionPayload[] => {
+      if (!isSuggestionLearningEnabled) return [];
+      if (!onTrackSuggestionCorrections) return [];
 
       const appliedContext = appliedSuggestionContextByItemIdRef.current[itemId];
-      if (!appliedContext) return;
+      if (!appliedContext) return [];
 
       const item = itemById.get(itemId);
-      if (!item || item.item_type !== "line") return;
+      if (!item || item.item_type !== "line") return [];
 
       const corrections: SuggestionCorrectionPayload[] = [];
 
@@ -1446,19 +1455,44 @@ export function EstimateEditorTable({
         });
       });
 
-      if (corrections.length === 0) return;
+      return corrections;
+    },
+    [isSuggestionLearningEnabled, itemById, onTrackSuggestionCorrections]
+  );
 
+  const sendSuggestionCorrections = useCallback(
+    (corrections: SuggestionCorrectionPayload[]) => {
+      if (corrections.length === 0 || !onTrackSuggestionCorrections) return;
       void onTrackSuggestionCorrections(corrections).catch((error) => {
         console.error("Impossible d'envoyer les corrections de suggestion.", error);
       });
     },
-    [
-      isSuggestionLearningEnabled,
-      itemById,
-      onPatchItem,
-      onTrackSuggestionCorrections,
-    ]
+    [onTrackSuggestionCorrections]
   );
+
+  const patchItemWithSuggestionTracking = useCallback(
+    (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
+      onPatchItem(itemId, patch, options);
+
+      if (options?.persist !== true) return;
+      sendSuggestionCorrections(collectSuggestionCorrections(itemId, patch));
+    },
+    [collectSuggestionCorrections, onPatchItem, sendSuggestionCorrections]
+  );
+
+  // Cells written together by the grid correct the suggestions as a cell-by-cell entry
+  // does, once the batch is accepted and in a single send.
+  const applyCellPatchesWithSuggestionTracking = useMemo(() => {
+    if (!onApplyCellPatches) return undefined;
+    return async (entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>) => {
+      const applied = await onApplyCellPatches(entries);
+      if (applied === false) return false;
+      sendSuggestionCorrections(
+        entries.flatMap((entry) => collectSuggestionCorrections(entry.itemId, entry.patch))
+      );
+      return true;
+    };
+  }, [collectSuggestionCorrections, onApplyCellPatches, sendSuggestionCorrections]);
 
   const handleUnitCommit = useCallback(
     (itemId: string) => {
@@ -2103,8 +2137,9 @@ export function EstimateEditorTable({
     getItem: getGridItem,
     hasSelectedLines,
     onPatchItem: patchItemWithSuggestionTracking,
-    onApplyCellPatches,
+    onApplyCellPatches: applyCellPatchesWithSuggestionTracking,
     onLegacyUnitDraftChange: handleUnitDraftChange,
+    onLegacyUnitDraftDiscard: handleUnitDraftDiscard,
     onLeftovers: reportGridLeftovers,
   });
 

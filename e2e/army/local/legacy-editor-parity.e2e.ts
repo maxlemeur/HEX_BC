@@ -585,12 +585,15 @@ armyTest("LEP04 computed cells remain read-only and keyboard replacement, local 
     await expect(pu).toHaveValue(puBefore);
 
     const title = row(ui, line.id).getByTestId("estimate-line-title-input");
+    // Spreadsheet contract: a double click edits in place, the text is kept
+    // and the caret sits at its end (typing on a selected cell replaces it).
     await title.dblclick();
     await expect(title).toBeFocused();
     await expect.poll(() => browser.evaluate(() => {
       const editor = document.activeElement;
       return editor instanceof HTMLInputElement ? [editor.selectionStart, editor.selectionEnd, editor.value.length] : null;
-    })).toEqual([0, line.title.length, line.title.length]);
+    })).toEqual([line.title.length, line.title.length, line.title.length]);
+    await expect(title).toHaveValue(line.title);
     await title.press("Escape");
     await cell(ui, line.id, "title").focus();
     await browser.keyboard.press("R");
@@ -637,7 +640,7 @@ armyTest("LEP04 computed cells remain read-only and keyboard replacement, local 
     await recordEvidence(army, "lep04-inline-readonly-reloaded", {
       ...ids, lineId: line.id, expectedTitle: updatedTitle, original,
       readOnly: { puBefore, totalBefore, keys: ["9 on PU cell", "9 on total cell", "9 on read-only PU input"] },
-      editKeys: ["double-click selects the entire title", "R replaces from gridcell", "Escape restores", "F2", "ControlOrMeta+A then N", "ControlOrMeta+Z restores edit initial value", "Enter commits and moves down"],
+      editKeys: ["double-click edits with the caret after the kept title", "R replaces from gridcell", "Escape restores", "F2", "ControlOrMeta+A then N", "ControlOrMeta+Z restores edit initial value", "Enter commits and moves down"],
       saved, reloaded,
     });
   });
@@ -1034,8 +1037,10 @@ armyTest("LEP07 a reload during the learning read cancels it without reporting a
 //   A line menu opened meanwhile lost its focus to that cell and closed
 //   (estimate-integrity's catalogue association).
 // - LEP10: while a title is edited, a click on another line's title blurs the
-//   first; that blur's pass saw the body as lost focus, refocused the clicked
-//   cell and cancelled the click's own focus, so typing replaced the title.
+//   first; that blur's pass saw the body as lost focus and moved the focus
+//   again after the click had placed it. Since the spreadsheet contract a
+//   click selects the cell (typing replaces, F2 or a double click edits): the
+//   focus must stay on the clicked cell and the edit in progress is committed.
 // - LEP11: a modifier click on a line's text selects the line without moving
 //   native focus; the clicked cell must still receive it, as before.
 // LEP08 and LEP09 force their ordering instead of waiting for CI load to hit it.
@@ -1185,29 +1190,41 @@ armyTest("LEP09 a line menu opened while the draft lease is pending keeps its fo
     }
   });
 
-armyTest("LEP10 a click on another line's title while a title is edited puts the caret there and typing inserts text", options,
+armyTest("LEP10 a click on another line's title while a title is edited commits it and selects the clicked cell", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { ids, lines } = await prepare(ui, army, "LEP10", 2);
     await openSeededEditor(ui, ids);
     const firstTitle = row(ui, lines[0].id).getByTestId("estimate-line-title-input");
     const secondTitle = row(ui, lines[1].id).getByTestId("estimate-line-title-input");
-    // Native clicks only: a scripted focus() or fill() never opens the blur window.
-    await firstTitle.click();
+    // Native pointer and keys only: a scripted focus() or fill() never opens the blur window.
+    await firstTitle.dblclick();
     await expect(firstTitle).toBeFocused();
+    await browser.keyboard.type("A");
+    await expect(firstTitle).toHaveValue(`${lines[0].title}A`);
     await secondTitle.click();
     const focusAfterClick = await browser.evaluate(() => ({
       testId: document.activeElement?.getAttribute("data-testid") ?? null,
       cell: document.activeElement?.closest("[data-cell-id]")?.getAttribute("data-cell-id") ?? null,
     }));
     try {
-      expect(focusAfterClick, "The click must focus the second title's input, not its cell").toEqual({
-        testId: "estimate-line-title-input", cell: `${lines[1].id}::title`,
+      expect(focusAfterClick, "The click must select the second title's cell and keep the focus there").toEqual({
+        testId: "estimate-cell", cell: `${lines[1].id}::title`,
       });
-      await browser.keyboard.press("End");
+      await expect(firstTitle).toHaveValue(`${lines[0].title}A`);
+      // Typing on the selected cell replaces its content; Escape restores it.
+      await browser.keyboard.type("Z");
+      await expect(secondTitle).toBeFocused();
+      await expect(secondTitle).toHaveValue("Z");
+      await browser.keyboard.press("Escape");
+      await expect(secondTitle).toHaveValue(lines[1].title);
+      await expect.poll(() => activeCellId(ui)).toBe(`${lines[1].id}::title`);
+      // F2 edits in place: the text is kept and typing appends.
+      await browser.keyboard.press("F2");
+      await expect(secondTitle).toBeFocused();
       await browser.keyboard.type("Z");
       await expect(secondTitle).toHaveValue(`${lines[1].title}Z`);
-      await expect(firstTitle).toHaveValue(lines[0].title);
+      await expect(firstTitle).toHaveValue(`${lines[0].title}A`);
     } finally {
       await recordEvidence(army, "lep10-click-title-while-editing", { ...ids, focusAfterClick });
     }

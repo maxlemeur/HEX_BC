@@ -53,6 +53,8 @@ type HarnessOptions = {
   isV3?: boolean;
   hasSelectedLines?: boolean;
   withBulkWriter?: boolean;
+  /** What the editor answers to a grouped write; `false` is a refusal. */
+  bulkAnswer?: boolean;
 };
 
 function createHarness({
@@ -61,6 +63,7 @@ function createHarness({
   isV3 = true,
   hasSelectedLines = false,
   withBulkWriter = true,
+  bulkAnswer = true,
 }: HarnessOptions) {
   const byId = new Map(items.map((item) => [item.id, item]));
   const rows = items.map((item) => ({
@@ -68,8 +71,14 @@ function createHarness({
     columnKeys: item.item_type === "section" ? ["title"] : LINE_COLUMNS,
   }));
   const onPatchItem = vi.fn<(itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => void>();
-  const onApplyCellPatches = vi.fn(async () => undefined);
+  const onApplyCellPatches = vi.fn(
+    async (entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>) => {
+      void entries;
+      return bulkAnswer;
+    },
+  );
   const onLegacyUnitDraftChange = vi.fn<(itemId: string, value: string) => void>();
+  const onLegacyUnitDraftDiscard = vi.fn<(itemId: string, rowId: string) => void>();
   const onLeftovers = vi.fn<(message: { title: string; description: string }) => void>();
   const supplyTypes: SupplyType[] = [];
   const laborRoles: LaborRole[] = [];
@@ -91,12 +100,20 @@ function createHarness({
         onPatchItem,
         onApplyCellPatches: withBulkWriter ? onApplyCellPatches : undefined,
         onLegacyUnitDraftChange,
+        onLegacyUnitDraftDiscard,
         onLeftovers,
       }),
     { initialProps: { isReadOnly, hasSelectedLines } },
   );
 
-  return { view, onPatchItem, onApplyCellPatches, onLegacyUnitDraftChange, onLeftovers };
+  return {
+    view,
+    onPatchItem,
+    onApplyCellPatches,
+    onLegacyUnitDraftChange,
+    onLegacyUnitDraftDiscard,
+    onLeftovers,
+  };
 }
 
 describe("useEstimateGridCellActions", () => {
@@ -149,10 +166,62 @@ describe("useEstimateGridCellActions", () => {
 
     expect(harness.onApplyCellPatches).not.toHaveBeenCalled();
     expect(harness.onPatchItem.mock.calls.map(([itemId]) => itemId).sort()).toEqual(["a", "b", "s", "tmp:1"]);
-    for (const call of harness.onPatchItem.mock.calls) {
-      expect(call[1]).toEqual({ title: "" });
-      expect(call[2]).toEqual({ persist: true });
+    for (const [itemId, patch, options] of harness.onPatchItem.mock.calls) {
+      // A row is never left nameless: the cleared designation takes the editor's default name.
+      expect(patch).toEqual({ title: itemId === "s" ? "Sans titre" : "Nouvelle ligne" });
+      expect(options).toEqual({ persist: true });
     }
+  });
+
+  it("writes the rest of a mixed gesture only once the grouped write is accepted", async () => {
+    const harness = createHarness({
+      items: [section("s", "Lot 1"), line("a"), line("b"), line("tmp:1", { title: "Brouillon" })],
+    });
+
+    harness.view.result.current.pasteText("Même nom", range(["s", "a", "b", "tmp:1"], ["title"]));
+
+    expect(harness.onApplyCellPatches).toHaveBeenCalledWith([
+      { itemId: "a", patch: { title: "Même nom" } },
+      { itemId: "b", patch: { title: "Même nom" } },
+    ]);
+    // Nothing is written beside the batch until the editor has answered.
+    expect(harness.onPatchItem).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(harness.onPatchItem).toHaveBeenCalledTimes(2));
+    expect(harness.onPatchItem.mock.calls).toEqual([
+      ["s", { title: "Même nom" }, { persist: true }],
+      ["tmp:1", { title: "Même nom" }, { persist: true }],
+    ]);
+  });
+
+  it("writes nothing at all when the editor refuses the grouped write", async () => {
+    const harness = createHarness({
+      items: [section("s", "Lot 1"), line("a"), line("b")],
+      isV3: false,
+      bulkAnswer: false,
+    });
+
+    harness.view.result.current.pasteText("abc", range(["s", "a", "b"], ["title", "unit", "quantity"]));
+
+    expect(harness.onApplyCellPatches).toHaveBeenCalledTimes(1);
+    await harness.onApplyCellPatches.mock.results[0].value;
+    await Promise.resolve();
+
+    expect(harness.onPatchItem).not.toHaveBeenCalled();
+    expect(harness.onLegacyUnitDraftChange).not.toHaveBeenCalled();
+    expect(harness.onLegacyUnitDraftDiscard).not.toHaveBeenCalled();
+    // The editor already said why it refused: no second message about the cells left out.
+    expect(harness.onLeftovers).not.toHaveBeenCalled();
+  });
+
+  it("reports the cells left out once the grouped write is accepted", async () => {
+    const harness = createHarness({ items: [line("a"), line("b"), line("c")] });
+
+    harness.view.result.current.pasteText("1\nabc\n3", single("a", "quantity"));
+
+    expect(harness.onLeftovers).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(harness.onLeftovers).toHaveBeenCalledTimes(1));
+    expect(harness.onLeftovers.mock.calls[0][0].title).toBe("Collage incomplet");
   });
 
   it("falls back to one write per line when the editor has no grouped write", () => {
@@ -199,13 +268,39 @@ describe("useEstimateGridCellActions", () => {
     expect(harness.onLeftovers).not.toHaveBeenCalled();
   });
 
-  it("keeps the unit draft of the legacy grid in step with a pasted unit", () => {
+  it("drops the unit draft of a stored legacy line so the cell shows what was written", () => {
     const harness = createHarness({ items: [line("a")], isV3: false });
 
     harness.view.result.current.pasteText("ml", single("a", "unit"));
 
-    expect(harness.onLegacyUnitDraftChange).toHaveBeenCalledWith("a", "ml");
+    // The stored value is what undo restores: a draft kept over it would hide the undo.
+    expect(harness.onLegacyUnitDraftDiscard).toHaveBeenCalledWith("a", "a");
+    expect(harness.onLegacyUnitDraftChange).not.toHaveBeenCalled();
     expect(harness.onPatchItem).toHaveBeenCalledWith("a", { description: "ml" }, { persist: true });
+  });
+
+  it("drops the unit drafts of a grouped legacy write once it is accepted", async () => {
+    const harness = createHarness({ items: [line("a"), line("b")], isV3: false });
+
+    harness.view.result.current.pasteText("ml", range(["a", "b"], ["unit"]));
+
+    expect(harness.onLegacyUnitDraftDiscard).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(harness.onLegacyUnitDraftDiscard).toHaveBeenCalledTimes(2));
+    expect(harness.onLegacyUnitDraftDiscard.mock.calls).toEqual([
+      ["a", "a"],
+      ["b", "b"],
+    ]);
+    expect(harness.onPatchItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps the unit draft of a legacy line still being created", () => {
+    const harness = createHarness({ items: [line("tmp:1")], isV3: false });
+
+    harness.view.result.current.pasteText("ml", single("tmp:1", "unit"));
+
+    expect(harness.onLegacyUnitDraftChange).toHaveBeenCalledWith("tmp:1", "ml");
+    expect(harness.onLegacyUnitDraftDiscard).not.toHaveBeenCalled();
+    expect(harness.onPatchItem).toHaveBeenCalledWith("tmp:1", { description: "ml" }, { persist: true });
   });
 
   it("leaves a block pasted on a designation to the line import", () => {
@@ -241,14 +336,19 @@ describe("useEstimateGridCellActions", () => {
     expect(actions.copySelection(range(["a", "b"], ["k_fo"]))).toBe("1,02\n1,05");
   });
 
-  it("leaves Suppr, copy and paste to the checked lines", () => {
-    const harness = createHarness({ items: [line("a")], hasSelectedLines: true });
+  it("leaves Suppr, copy, paste and fill down to the checked lines", () => {
+    const harness = createHarness({
+      items: [line("a", { k_fo: 1.02 }), line("b"), line("c")],
+      hasSelectedLines: true,
+    });
     const actions = harness.view.result.current;
 
     expect(actions.onClearSelection(single("a", "quantity"))).toBe(false);
     expect(actions.copySelection(single("a", "quantity"))).toBeNull();
     expect(actions.pasteText("7", single("a", "quantity"))).toBe(false);
+    actions.onFillDown(range(["a", "b", "c"], ["k_fo"]));
     expect(harness.onPatchItem).not.toHaveBeenCalled();
+    expect(harness.onApplyCellPatches).not.toHaveBeenCalled();
   });
 
   it("keeps the same actions across renders and reads the latest editor state", () => {

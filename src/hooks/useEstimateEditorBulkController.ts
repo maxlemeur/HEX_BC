@@ -325,13 +325,15 @@ export function useEstimateEditorBulkController({
 
   // Grid cells written together (paste, fill down, clear on a range): one
   // write and one history entry, so a single undo restores every cell.
+  // Answers whether the cells were written, so the caller can hold back what
+  // belongs to the same gesture when the batch is refused.
   const applyBulkCellPatches = useCallback(
-    async (entries: ReadonlyArray<EstimateEditorCellPatchEntry>) => {
-      if (entries.length === 0) return;
-      if (!(await guardBulkAction("modifier les cellules sélectionnées"))) return;
+    async (entries: ReadonlyArray<EstimateEditorCellPatchEntry>): Promise<boolean> => {
+      if (entries.length === 0) return false;
+      if (!(await guardBulkAction("modifier les cellules sélectionnées"))) return false;
       if (!getVersionSnapshot()) {
         reportError("Version introuvable.");
-        return;
+        return false;
       }
 
       const patchById = new Map<string, EstimateEditorCellPatchEntry["patch"]>();
@@ -342,7 +344,7 @@ export function useEstimateEditorBulkController({
         (item): item is EstimateItem =>
           item.item_type === "line" && patchById.has(item.id)
       );
-      if (selectedLines.length === 0) return;
+      if (selectedLines.length === 0) return false;
 
       reportError(null);
       const updatedLines = selectedLines.map((item) => {
@@ -361,7 +363,7 @@ export function useEstimateEditorBulkController({
             "Impossible de modifier les cellules sélectionnées."
           ))
         ) {
-          return;
+          return false;
         }
         pushHistoryCommand({
           label: "bulk-cell-patch",
@@ -380,8 +382,10 @@ export function useEstimateEditorBulkController({
             );
           },
         });
+        return true;
       } catch {
         // applyBulkLineState already restored state and reported the failure.
+        return false;
       }
     },
     [

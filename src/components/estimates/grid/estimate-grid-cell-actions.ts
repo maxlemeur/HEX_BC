@@ -60,8 +60,8 @@ type ColumnDescriptor = {
   parse?: (text: string, item: EstimateItem, context: EstimateGridCellContext) => ParseResult;
   /** Stored inputs behind the cell, copied as they are by fill down. */
   fields?: (context: EstimateGridCellContext) => PatchField[];
-  /** What « Suppr » writes; defaults to parsing an empty text. */
-  clear?: (item: EstimateItem, context: EstimateGridCellContext) => ParseResult;
+  /** Why the stored value of this source must not be copied by fill down; null when it can. */
+  fillRefusal?: (source: EstimateItem, context: EstimateGridCellContext) => string | null;
 };
 
 const K = SPREADSHEET_COLUMN_KEYS;
@@ -80,6 +80,11 @@ function refuse(message: string): ParseResult {
 
 function singleLine(text: string) {
   return text.replace(/\s*[\r\n]+\s*/g, " ").trim();
+}
+
+/** The name the editor gives a designation typed empty: a row is never nameless. */
+function emptyTitleOf(item: EstimateItem) {
+  return item.item_type === "section" ? "Sans titre" : "Nouvelle ligne";
 }
 
 function numberColumn(options: {
@@ -141,6 +146,14 @@ function typeColumn(options: {
         : refuse(`${options.label} : « ${text.trim()} » ne désigne pas un type unique.`);
     },
     fields: () => [options.field],
+    // A type that is no longer offered is refused when typed or pasted: fill
+    // down does not spread it either.
+    fillRefusal: (source, context) => {
+      const id = source[options.field];
+      if (typeof id !== "string" || !id) return null;
+      const option = options.options(context).find((candidate) => candidate.id === id);
+      return option?.disabled ? `${options.label} : « ${option.label} » n'est plus proposé.` : null;
+    },
   };
 }
 
@@ -149,7 +162,7 @@ const COEFFICIENT_LABEL = "Coefficient";
 const COLUMN_DESCRIPTORS: Record<string, ColumnDescriptor> = {
   [K.title]: {
     read: (item) => item.title ?? "",
-    parse: (text) => ok({ title: singleLine(text) }),
+    parse: (text, item) => ok({ title: singleLine(text) || emptyTitleOf(item) }),
     fields: () => ["title"],
   },
   [K.quantity]: numberColumn({
@@ -348,7 +361,10 @@ function writeText(
   pushResult(plan, cell, item, descriptor.parse(text, item, context));
 }
 
-/** « Suppr » on the selection: every input cell goes back to its empty value. */
+/**
+ * « Suppr » on the selection: every input cell goes back to its empty value.
+ * A designation goes back to the name the editor gives an empty one.
+ */
 export function planEstimateGridClear(
   selection: GridSelection,
   getItem: ItemLookup,
@@ -362,12 +378,12 @@ export function planEstimateGridClear(
       if (!item) continue;
       const descriptor = descriptorOf(item, columnKey);
       if (!descriptor) continue;
-      const { parse } = descriptor;
-      if (!parse) {
+      if (!descriptor.parse) {
         plan.readOnlyCount += 1;
         continue;
       }
-      pushResult(plan, cell, item, descriptor.clear ? descriptor.clear(item, context) : parse("", item, context));
+      // An emptied designation takes the editor's default name, as when it is typed empty.
+      pushResult(plan, cell, item, descriptor.parse("", item, context));
     }
   }
   return plan;
@@ -377,6 +393,7 @@ export function planEstimateGridClear(
  * Ctrl+D. On a range, the first row of each column is copied down the range.
  * On a single cell, the nearest row above that has the column is copied.
  * Stored inputs are copied as they are: no text round trip, no lost decimal.
+ * A line is filled from a line and a section title from a section title.
  */
 export function planEstimateGridFillDown(
   selection: GridSelection,
@@ -392,6 +409,11 @@ export function planEstimateGridFillDown(
     if (!descriptor || !sourceDescriptor) return;
     if (!descriptor.parse || !descriptor.fields) {
       plan.readOnlyCount += 1;
+      return;
+    }
+    const refusal = descriptor.fillRefusal?.(source, context);
+    if (refusal) {
+      plan.rejected.push({ ...cell, message: refusal });
       return;
     }
     const sourceRecord = source as unknown as Record<string, unknown>;
@@ -410,7 +432,9 @@ export function planEstimateGridFillDown(
       if (!source) continue;
       for (const row of column.slice(1)) {
         const target = getItem(row.rowId);
-        if (target) copyInto(source, target, { rowId: row.rowId, columnKey });
+        if (target && target.item_type === source.item_type) {
+          copyInto(source, target, { rowId: row.rowId, columnKey });
+        }
       }
     }
     return plan;
@@ -423,7 +447,6 @@ export function planEstimateGridFillDown(
     for (let index = activeIndex - 1; index >= 0; index -= 1) {
       if (!rows[index].columnKeys.includes(columnKey)) continue;
       const source = getItem(rows[index].rowId);
-      // A line is filled from a line, a section title from a section title.
       if (!source || source.item_type !== target.item_type) continue;
       copyInto(source, target, { rowId: selection.active.rowId, columnKey });
       break;
@@ -542,20 +565,25 @@ export function planEstimateGridPaste(
   const anchorRowIndex = rows.findIndex((row) => row.rowId === anchorRowId);
   if (anchorRowIndex < 0) return plan;
 
-  // Columns follow the widest row of the grid that starts at the anchor column.
-  const columnSource = rows
-    .slice(anchorRowIndex)
-    .find((row) => row.columnKeys.includes(anchorColumnKey));
-  if (!columnSource) return plan;
-  const anchorColumnIndex = columnSource.columnKeys.indexOf(anchorColumnKey);
-  const targetRows = rows.slice(anchorRowIndex).filter((row) => row.columnKeys.includes(anchorColumnKey));
-
   const selectionHeight = selection.rows.length;
   const selectionWidth = selection.columnKeys.length;
   const repeatsDown =
     selection.isRange && selectionHeight % blockHeight === 0 ? selectionHeight / blockHeight : 1;
   const repeatsRight =
     selection.isRange && selectionWidth % blockWidth === 0 ? selectionWidth / blockWidth : 1;
+
+  const targetRows = rows
+    .slice(anchorRowIndex)
+    .filter((row) => row.columnKeys.includes(anchorColumnKey))
+    .slice(0, blockHeight * repeatsDown);
+  // Columns follow the widest row that receives the block: a section on the
+  // first row only has its title, the lines under it have every column.
+  const columnSource = targetRows.reduce<SpreadsheetNavigationRow | undefined>(
+    (widest, row) => (!widest || row.columnKeys.length > widest.columnKeys.length ? row : widest),
+    undefined,
+  );
+  if (!columnSource) return plan;
+  const anchorColumnIndex = columnSource.columnKeys.indexOf(anchorColumnKey);
 
   for (let rowOffset = 0; rowOffset < blockHeight * repeatsDown; rowOffset += 1) {
     const targetRow = targetRows[rowOffset];

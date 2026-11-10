@@ -38,6 +38,8 @@ import type {
  * - Ctrl+Up/Down go to the first/last row of the column, not to the edge of
  *   the current data region.
  * - Ctrl+A keeps selecting the lines of the estimate (editor shortcut).
+ * - Ctrl+R (fill right) is not taken: the columns of an estimate do not share
+ *   a meaning, and the browser keeps its reload.
  */
 
 const CELL_ID_SEPARATOR = "::";

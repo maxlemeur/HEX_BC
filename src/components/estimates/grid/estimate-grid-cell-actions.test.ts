@@ -240,6 +240,34 @@ describe("planEstimateGridPaste", () => {
     ]);
   });
 
+  it("names a designation pasted blank as the editor does when it is typed empty", () => {
+    const { rows, getItem } = grid([section("s", "Lot"), line("a")]);
+    const plan = planEstimateGridPaste(range(["s", "a"], ["title"]), [["  "]], rows, getItem, context);
+    expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([
+      ["s", { title: "Sans titre" }],
+      ["a", { title: "Nouvelle ligne" }],
+    ]);
+  });
+
+  it("lays a block that starts on a section title over the columns of the lines under it", () => {
+    const { rows, getItem } = grid([section("s", "Lot"), line("a"), line("b")]);
+    const plan = planEstimateGridPaste(
+      single("s", "title"),
+      [["Lot 2", "9"], ["Tube", "3"], ["Coude", "4"]],
+      rows,
+      getItem,
+      context,
+    );
+    // The section only has a title: its quantity is dropped, the lines take both columns.
+    expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([
+      ["s", { title: "Lot 2" }],
+      ["a", { title: "Tube" }],
+      ["a", { quantity: 3 }],
+      ["b", { title: "Coude" }],
+      ["b", { quantity: 4 }],
+    ]);
+  });
+
   it("refuses a negative price and a unit outside the referential", () => {
     const { rows, getItem } = grid([line("a")]);
     expect(planEstimateGridPaste(single("a", "unit_price"), [["-3"]], rows, getItem, context).rejected).toHaveLength(1);
@@ -278,6 +306,27 @@ describe("planEstimateGridFillDown", () => {
     ).toEqual({ h_mo: 3 });
   });
 
+  it("does not copy a type that is no longer offered and says why", () => {
+    const { rows, getItem } = grid([line("a", { labor_role_id: "role-old" }), line("b"), line("c")]);
+    const plan = planEstimateGridFillDown(range(["a", "b", "c"], ["labor_role"]), rows, getItem, context);
+    expect(plan.writes).toEqual([]);
+    expect(plan.rejected.map((entry) => entry.rowId)).toEqual(["b", "c"]);
+    expect(plan.rejected[0].message).toContain("« Ancien rôle »");
+  });
+
+  it("fills a line from a line and a section title from a section title", () => {
+    const { rows, getItem } = grid([section("s", "Lot 1"), line("a"), section("t", "Lot 2"), line("b")]);
+    const fromSection = planEstimateGridFillDown(range(["s", "a", "t", "b"], ["title"]), rows, getItem, context);
+    expect(fromSection.writes.map((write) => [write.itemId, write.patch])).toEqual([["t", { title: "Lot 1" }]]);
+
+    const fromLine = planEstimateGridFillDown(range(["a", "t", "b"], ["title"]), rows, getItem, context);
+    expect(fromLine.writes.map((write) => [write.itemId, write.patch])).toEqual([["b", { title: "Ligne a" }]]);
+
+    // A single section title takes the nearest section title above, not the line in between.
+    const single_ = planEstimateGridFillDown(single("t", "title"), rows, getItem, context);
+    expect(single_.writes.map((write) => [write.itemId, write.patch])).toEqual([["t", { title: "Lot 1" }]]);
+  });
+
   it("leaves computed cells alone", () => {
     const { rows, getItem } = grid([line("a"), line("b", { pu_ht_cents: 1 })]);
     const plan = planEstimateGridFillDown(range(["a", "b"], ["pu_ht"]), rows, getItem, context);
@@ -302,6 +351,17 @@ describe("planEstimateGridClear", () => {
     const { getItem } = grid([line("a", { labor_role_id: "role-chef" })]);
     const plan = planEstimateGridClear(range(["a"], ["unit", "labor_role"]), getItem, context);
     expect(plan.writes.map((write) => write.patch)).toEqual([{ unit_code: null }, { labor_role_id: null }]);
+  });
+});
+
+describe("planEstimateGridClear on a designation", () => {
+  it("never leaves a row nameless: the editor's default name is written", () => {
+    const { getItem } = grid([section("s", "Lot"), line("a"), line("b", { title: "Nouvelle ligne" })]);
+    const plan = planEstimateGridClear(range(["s", "a", "b"], ["title"]), getItem, context);
+    expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([
+      ["s", { title: "Sans titre" }],
+      ["a", { title: "Nouvelle ligne" }],
+    ]);
   });
 });
 

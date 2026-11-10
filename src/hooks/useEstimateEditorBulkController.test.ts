@@ -314,8 +314,9 @@ describe("useEstimateEditorBulkController", () => {
     const section = { ...createLine("section-1"), item_type: "section" as const, parent_id: null };
     const harness = createHarness({ items: [section, lineA, lineB, untouched] });
 
+    let written: boolean | undefined;
     await act(async () => {
-      await harness.result.current.actions.applyBulkCellPatches([
+      written = await harness.result.current.actions.applyBulkCellPatches([
         { itemId: lineA.id, patch: { quantity: 10 } },
         // Two cells of the same line reach the server as one row.
         { itemId: lineA.id, patch: { k_fo: 1.2 } },
@@ -326,6 +327,7 @@ describe("useEstimateEditorBulkController", () => {
       ]);
     });
 
+    expect(written).toBe(true);
     expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledTimes(1);
     const updates = clientMocks.bulkUpdateEstimateItems.mock.calls[0][2] as Array<{ id: string }>;
     expect(updates.map((update) => update.id)).toEqual([lineA.id, lineB.id]);
@@ -367,15 +369,19 @@ describe("useEstimateEditorBulkController", () => {
     const section = { ...createLine("section-1"), item_type: "section" as const, parent_id: null };
     const harness = createHarness({ items: [section] });
 
+    // The answer tells the grid that nothing was written, so it holds back the rest of the gesture.
+    const answers: boolean[] = [];
     await act(async () => {
-      await harness.result.current.actions.applyBulkCellPatches([]);
+      answers.push(await harness.result.current.actions.applyBulkCellPatches([]));
     });
     expect(harness.ensureGroupedActionCanProceed).not.toHaveBeenCalled();
 
     await act(async () => {
-      await harness.result.current.actions.applyBulkCellPatches([
-        { itemId: section.id, patch: { title: "Autre lot" } },
-      ]);
+      answers.push(
+        await harness.result.current.actions.applyBulkCellPatches([
+          { itemId: section.id, patch: { title: "Autre lot" } },
+        ])
+      );
     });
     expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
@@ -383,10 +389,13 @@ describe("useEstimateEditorBulkController", () => {
     const line = createLine("line-1");
     const withoutVersion = createHarness({ items: [line], version: null });
     await act(async () => {
-      await withoutVersion.result.current.actions.applyBulkCellPatches([
-        { itemId: line.id, patch: { quantity: 4 } },
-      ]);
+      answers.push(
+        await withoutVersion.result.current.actions.applyBulkCellPatches([
+          { itemId: line.id, patch: { quantity: 4 } },
+        ])
+      );
     });
+    expect(answers).toEqual([false, false, false]);
     expect(withoutVersion.reportError).toHaveBeenCalledWith("Version introuvable.");
     expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
     expect(withoutVersion.getItems()).toEqual([line]);
