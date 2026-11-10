@@ -385,7 +385,8 @@ function writeDatabaseDxf(database, version, unread, write) {
   put(70, whole(record(record(database).header).INSUNITS));
   put(0, "ENDSEC");
 
-  const layers = list(record(tables.LAYER).entries).map(record);
+  // A layer without a name would be read as layer 0 and pass its state on to the real one.
+  const layers = list(record(tables.LAYER).entries).map(record).filter((layer) => typeof layer.name === "string" && layer.name.trim() !== "");
   put(0, "SECTION");
   put(2, "TABLES");
   put(0, "TABLE");

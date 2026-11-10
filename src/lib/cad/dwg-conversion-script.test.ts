@@ -72,6 +72,14 @@ describe("the DXF written from LibreDWG's reading of a DWG", () => {
     expect(drawingOf({ version: "AC1015", layers: [layerEntry("0", { plotFlag: 0 })] }).layers[0].plot).toBe(false);
   });
 
+  it("leaves out a layer without a name, which would pass for layer 0", () => {
+    // The reader files a layer with no name under « 0 »: a damaged entry would then freeze or recolour the real one.
+    const nameless = [{ colorIndex: 3, frozen: true }, layerEntry("", { colorIndex: 3, frozen: true }), layerEntry(" \n", { colorIndex: 3, off: true }), layerEntry(7 as unknown as string, { frozen: true })];
+    const drawing = drawingOf({ layers: [layerEntry("0"), ...nameless, layerEntry("EU", { colorIndex: 1 })], model: [line(0, 0, 10, 0)] });
+    expect(drawing.layers.map((layer) => [layer.name, layer.frozen, layer.on, layer.visible])).toEqual([["0", false, true, true], ["EU", false, true, true]]);
+    expect(dxfOf({ layers: nameless })).toContain("\n2\nLAYER\n70\n0\n0\nENDTAB\n");
+  });
+
   it("closes a light polyline on LibreDWG's own flag and keeps its arcs", () => {
     const corners = [{ x: 0, y: 0, bulge: 1 }, { x: 2, y: 0, bulge: 1 }];
     const drawing = drawingOf({
