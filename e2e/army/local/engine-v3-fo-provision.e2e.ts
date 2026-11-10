@@ -73,7 +73,9 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       return [selected?.selected_supplier_price_id, selected?.supply_type_id, selected?.fo_provision, selected?.unit_price_ht_cents];
     }).toEqual([offers[1].id, tube, 1.03, 9000]);
     await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,03");
-    await row.getByTestId("estimate-line-title-input").click();
+    // Spreadsheet contract: a click selects the cell, a double click edits it
+    // in place, which is what brings the catalogue suggestion back.
+    await row.getByTestId("estimate-line-title-input").dblclick();
     await chooseOffer("included");
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
@@ -86,7 +88,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     await waitForDraftLease(ui);
     expect((await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)?.fo_provision).toBe(1.01);
     // Real race: load the suggestion, then change the offer before selecting it.
-    await row.getByTestId("estimate-line-title-input").click();
+    await row.getByTestId("estimate-line-title-input").dblclick();
     await expect(primary).toBeVisible();
     const latestOffers = await connectedApi<{ items: Array<{ id: string; updated_at: string }> }>(ui, "GET",
       `/api/prices?view=page&product_id=${product.id}&size=25`);
