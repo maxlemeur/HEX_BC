@@ -311,6 +311,7 @@
     "20261109183432_estimate_fo_price_origin.sql": "0408eb76622907eb672298472300b37f302999659cf4483768bff0d956256dec",
     "20261109192026_clear_detached_fo_price_origin.sql": "b4525d4551b55fc7531c0cb820b352e8a438eb744b104b625283eb5f04122252",
     "20261109192610_intake_cad_originals.sql": "e22a508a072a150775219c4abed1a04905970a6ddb667a7052b04e617575f5e9",
-    "20261109205839_takeoff_targeted_quantity_review.sql": "21f0b3e0185edf4b91ed3e918043985f394872bf139bc1efff62f0f9238d6ef4"
+    "20261109205839_takeoff_targeted_quantity_review.sql": "21f0b3e0185edf4b91ed3e918043985f394872bf139bc1efff62f0f9238d6ef4",
+    "20261110025003_atomic_create_estimate_item_keeps_unchanged_projection.sql": "4d065b8ef34760a18b1cc891262f358db6414240ba70788542029ba3ac2dfef5"
   }
 }

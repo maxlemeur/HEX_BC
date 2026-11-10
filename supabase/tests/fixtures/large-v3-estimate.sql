@@ -408,6 +408,69 @@ create function pg_temp.lb29_copy_report() returns setof text language sql as $$
   from lb29_copy_sample group by target, size order by size, target
 $$;
 
+-- One line added to the kept 2 031-item v3 by public.atomic_create_estimate_item (the grid's « + Ligne »), as the
+-- owner, with the projections of every line and the v3 totals as the creation route sends them: its outcome, the
+-- items written, the estimate_items rows updated and whether its answer carries the content revision the version
+-- has after it. Rolled back.
+create function pg_temp.lb29_add_line() returns jsonb language plpgsql as $$
+declare
+  target uuid := '29200000-0000-4000-8000-000000000101';
+  line_id uuid := gen_random_uuid();
+  parent uuid := (select parent_id from public.estimate_items where version_id = target and item_type = 'line'
+    order by position, id limit 1);
+  next_position integer := (select max(position) + 1 from public.estimate_items where version_id = target);
+  canonical jsonb := private.estimate_v3_canonical_input(target);
+  computed jsonb;
+  calculation_context jsonb := pg_temp.lb29_context(target);
+  items_before bigint := (select count(*) from public.estimate_items where version_id = target);
+  updates_before bigint;
+  detail text;
+  response jsonb;
+  outcome jsonb;
+begin
+  computed := private.estimate_v3_compute_items((select jsonb_agg(item order by (item ->> 'id')::uuid)
+    from jsonb_array_elements((canonical -> 'items') || jsonb_build_array(jsonb_build_object('id', line_id,
+      'item_type', 'line', 'parent_id', parent, 'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'u',
+      'quantity', 1, 'unit_price_ht_cents', 0, 'k_fo', 1, 'fo_provision', 1.01, 'h_mo_per_unit', 0,
+      'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
+      'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
+      'labor_rate_chantier_cents', null))) item), canonical -> 'params');
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"29200000-0000-4000-8000-000000000001"}', true);
+  perform set_config('request.jwt.claim.sub', '29200000-0000-4000-8000-000000000001', true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    updates_before := pg_temp.lb29_updates('estimate_items');
+    response := public.atomic_create_estimate_item(target,
+      jsonb_build_object('id', line_id, 'parent_id', parent, 'item_type', 'line', 'line_nature', 'supply_only',
+        'position', next_position, 'title', 'Nouvelle ligne LB29', 'quantity', 1, 'unit_price_ht_cents', 0,
+        'tax_rate_bp', 2000, 'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'source_provider', 'manual',
+        'pu_ht_cents', 0, 'line_total_ht_cents', 0, 'line_tax_cents', 0, 'line_total_ttc_cents', 0),
+      (select jsonb_agg(jsonb_build_object('id', line -> 'id', 'pu_ht_cents', line -> 'pu_ht_cents',
+        'line_total_ht_cents', line -> 'line_total_ht_cents', 'line_tax_cents', line -> 'line_tax_cents',
+        'line_total_ttc_cents', line -> 'line_total_ttc_cents')) from jsonb_array_elements(computed -> 'lines') line),
+      (select jsonb_object_agg(key, computed -> 'totals' -> key) from unnest(array['total_ht_cents', 'total_tax_cents',
+        'total_ttc_cents', 'gross_ht_cents', 'discount_applied_cents', 'commercial_rounding_cents']) key),
+      (select updated_at from public.estimate_versions where id = target),
+      '29200000-0000-4000-8000-000000000401', calculation_context);
+    raise exception using errcode = 'P0001', message = 'LB29_ROLLBACK',
+      detail = ((select count(*) from public.estimate_items where version_id = target) - items_before) || ' '
+        || (pg_temp.lb29_updates('estimate_items') - updates_before) || ' '
+        || coalesce((response -> 'version' ->> 'content_revision')::bigint
+          = (select content_revision from public.estimate_versions where id = target), false);
+  exception when others then
+    get stacked diagnostics detail = pg_exception_detail;
+    outcome := case when sqlerrm = 'LB29_ROLLBACK'
+      then jsonb_build_object('outcome', 'ok', 'items_written', split_part(detail, ' ', 1)::bigint,
+        'stored_lines_updated', split_part(detail, ' ', 2)::bigint,
+        'answers_its_revision', split_part(detail, ' ', 3)::boolean)
+      else jsonb_build_object('outcome', sqlstate || ' ' || left(sqlerrm, 300)) end;
+  end;
+  perform set_config('role', 'none', true);
+  return outcome;
+end
+$$;
+
 -- Lot 3.1: INSERT statements of the batch writer's item insert (commit_estimate_batch, one per operation in its loop),
 -- counted by pg_stat_statements once the caller tracks nested statements. Read as the caller (postgres).
 create function pg_temp.lb29_batch_insert_statements() returns bigint language sql as $$
