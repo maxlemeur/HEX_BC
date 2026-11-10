@@ -19,6 +19,7 @@ import { estimateCreateResponseSchema, estimateStatusResponseSchema, estimateVer
 import { takeoffDpgfComparisonResponseSchema, takeoffDpgfComparisonViewSchema, takeoffDpgfReviewDecisionSchema } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { takeoffLineEvidencePanelResponseSchema } from "@/lib/takeoff/line-evidence-contracts";
 import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/force-reasons";
+import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 import { estimateItemDeleteResponseSchema, estimateItemsMoveResponseSchema, estimateItemsReorderResponseSchema } from "@/lib/estimates/item-structure-contracts";
 import {
   takeoffPriceSuggestionResponseSchema as takeoffPriceSuggestionResponseDataSchema,
@@ -1298,6 +1299,19 @@ const takeoffMetricsRecentJobSchema = z.object({
   errorCode: z.string().nullable(),
   createdAt: z.string(),
 });
+// TI-686 D10 (H19): per rule, the false positives declared at forcing over the applied lines it fails (n/N).
+const takeoffRuleForcingRowSchema = z.object({
+  rule: z.enum(TAKEOFF_RULE_IDS),
+  label: z.string(),
+  failedLines: z.number().int().min(0),
+  forcedLines: z.number().int().min(0),
+  falsePositiveLines: z.number().int().min(0),
+  falsePositiveRate: z.number().min(0).max(100).nullable(),
+});
+const takeoffRuleForcingMetricsSchema = z.object({
+  forcedLines: z.number().int().min(0),
+  rows: z.array(takeoffRuleForcingRowSchema),
+});
 const takeoffMetricsDataSchema = z.object({
   generatedAt: z.string(),
   period: takeoffJobsPeriodQuerySchema,
@@ -1308,6 +1322,7 @@ const takeoffMetricsDataSchema = z.object({
   topErrors: z.array(takeoffMetricsErrorEntrySchema),
   reliability: takeoffMetricsReliabilitySchema,
   recentJobs: z.array(takeoffMetricsRecentJobSchema),
+  ruleForcing: takeoffRuleForcingMetricsSchema,
 });
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({

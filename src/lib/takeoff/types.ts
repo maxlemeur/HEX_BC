@@ -558,6 +558,8 @@ export type {
   TakeoffMetricsStatsPayload,
   TakeoffMetricsTokenBreakdown,
   TakeoffMetricsTrendPoint,
+  TakeoffRuleForcingMetrics,
+  TakeoffRuleForcingRow,
 } from "@/lib/takeoff/metrics-types";
 
 /* --- Activity Center types (V3-007) --- */

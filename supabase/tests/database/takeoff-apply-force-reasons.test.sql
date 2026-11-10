@@ -30,8 +30,13 @@ values
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'c4000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
    'force-reasons-engineer@example.test', crypt('test-password', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000', 'c4000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated',
+   'force-reasons-other-admin@example.test', crypt('test-password', gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
 
+-- Each user signs up as the administrator of a tenant of their own; the third one stays there (H11: they read none of
+-- this tenant's consumptions).
 update public.tenant_memberships set role = 'admin'::public.tenant_role
 where user_id = 'c4000000-0000-4000-8000-000000000001';
 select set_config('test.tenant_id', (select membership.tenant_id::text from public.tenant_memberships membership
@@ -366,6 +371,77 @@ select is(array(select job_case from (select distinct job_case from fr_lines) as
 select is((select count(*)::integer from public.takeoff_apply_override_consumptions consumed
     where consumed.job_id in (select pg_temp.fr_job(job_case) from fr_lines)),
   6, 'no override is consumed twice');
+
+-- Reading the consumptions (TI-686 D10, H11, migration …_takeoff_override_consumptions_admin_read.sql) -----------
+-- The pilot metrics count the false positives declared at forcing from the consumed overrides, read with the signed-in
+-- administrator's client: an administrator of the tenant reads its consumptions, read-only; an engineer of the tenant
+-- and an administrator of another tenant read none. Each read records its outcome (the row count, or the error), so
+-- that a refused read fails a named assertion. Written before the migration (red on c55a5312: every read is refused,
+-- 42501); the refused writes pass before and guard the read-only grant.
+
+create or replace function pg_temp.fr_read_consumptions()
+returns text
+language plpgsql
+as $$
+begin
+  return (select count(*)::text || ' ' || count(*) filter (where consumed.tenant_id = current_setting('test.tenant_id')::uuid)::text
+    from public.takeoff_apply_override_consumptions consumed);
+exception when others then
+  return sqlstate || ' ' || sqlerrm;
+end;
+$$;
+grant execute on function pg_temp.fr_read_consumptions() to authenticated;
+
+create or replace function pg_temp.fr_write_consumptions(p_statement text)
+returns text
+language plpgsql
+as $$
+begin
+  execute p_statement;
+  return 'written';
+exception when others then
+  return sqlstate;
+end;
+$$;
+grant execute on function pg_temp.fr_write_consumptions(text) to authenticated;
+
+select set_config('test.consumed_audit', (select consumed.audit_log_id::text from public.takeoff_apply_override_consumptions consumed
+  where consumed.job_id = pg_temp.fr_job(8)), true);
+
+set local role authenticated;
+select pg_temp.fr_as('c4000000-0000-4000-8000-000000000001');
+select is(pg_temp.fr_read_consumptions(), '6 6', 'an administrator of the tenant reads its six consumptions (H11)');
+select is(pg_temp.fr_write_consumptions(format(
+    'insert into public.takeoff_apply_override_consumptions (audit_log_id, tenant_id, job_id, estimate_version_id, user_id) '
+    'select al.id, al.tenant_id, al.record_id, al.estimate_version_id, al.user_id from public.audit_logs al '
+    'where al.record_id = %L and al.action = %L', pg_temp.fr_job(1), 'takeoff.apply.override')),
+  '42501', 'an administrator cannot record a consumption');
+select is(pg_temp.fr_write_consumptions(format(
+    'update public.takeoff_apply_override_consumptions set consumed_at = consumed_at - interval ''1 day'' where audit_log_id = %L',
+    current_setting('test.consumed_audit'))),
+  '42501', 'an administrator cannot change a consumption');
+select is(pg_temp.fr_write_consumptions(format(
+    'delete from public.takeoff_apply_override_consumptions where audit_log_id = %L', current_setting('test.consumed_audit'))),
+  '42501', 'an administrator cannot delete a consumption (the override would be consumable again)');
+select pg_temp.fr_as('c4000000-0000-4000-8000-000000000002');
+select is(pg_temp.fr_read_consumptions(), '0 0', 'an engineer of the tenant reads no consumption');
+select pg_temp.fr_as('c4000000-0000-4000-8000-000000000003');
+select is(pg_temp.fr_read_consumptions(), '0 0', 'an administrator of another tenant reads none of this tenant''s consumptions');
+reset role;
+
+select is(pg_temp.fr_consumed(8), 1, 'the consumption the administrator tried to change or delete is still there');
+select ok(has_table_privilege('authenticated', 'public.takeoff_apply_override_consumptions', 'SELECT')
+    and not has_table_privilege('authenticated', 'public.takeoff_apply_override_consumptions', 'INSERT')
+    and not has_table_privilege('authenticated', 'public.takeoff_apply_override_consumptions', 'UPDATE')
+    and not has_table_privilege('authenticated', 'public.takeoff_apply_override_consumptions', 'DELETE')
+    and not has_table_privilege('anon', 'public.takeoff_apply_override_consumptions', 'SELECT'),
+  'authenticated may only read the consumptions; anon may not');
+select ok(coalesce((select relation.relrowsecurity and relation.relforcerowsecurity from pg_class relation
+    where relation.oid = 'public.takeoff_apply_override_consumptions'::regclass), false),
+  'row level security stays enabled and forced on the consumptions');
+select is(array(select policy.cmd::text || ' ' || array_to_string(policy.roles, ',') from pg_policies policy
+    where policy.schemaname = 'public' and policy.tablename = 'takeoff_apply_override_consumptions' order by policy.policyname),
+  array['SELECT authenticated'], 'one policy, a read for authenticated users');
 
 -- The validator ----------------------------------------------------------------------------------------------
 

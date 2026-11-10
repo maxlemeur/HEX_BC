@@ -317,6 +317,7 @@
     "20261110094501_takeoff_quantity_entry_category.sql": "a09f9455547cfbf1eac72732bbfa7a9031a36539dbccb6cd035df89a19d9a0b9",
     "20261110094502_takeoff_acceptance_outline_reason.sql": "b8ca36a0162719ef9f85e8e0f3cd39ec49d2cb76159f65b8b7084f4eeaf6c3d1",
     "20261110094503_takeoff_apply_provisions.sql": "86d563fb2d5c59f229e3dd593a2763431f54eae2ada834578842f2fd28e89dd2",
-    "20261110094504_takeoff_apply_force_reasons.sql": "69532cfe09d994647f30f3bf5463bf111539aa46e0248a2e691bd5acde5f84d2"
+    "20261110094504_takeoff_apply_force_reasons.sql": "69532cfe09d994647f30f3bf5463bf111539aa46e0248a2e691bd5acde5f84d2",
+    "20261110094505_takeoff_override_consumptions_admin_read.sql": "5c2e53f3741e3de8ca6c6869fad2f5d0e8a31bd598d63d41c436f98cbcd45075"
   }
 }

@@ -77287,6 +77287,80 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "ruleForcing": {
+                "type": "object",
+                "properties": {
+                  "forcedLines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "rule": {
+                          "type": "string",
+                          "enum": [
+                            "dn_network",
+                            "zone_overlap",
+                            "scale_dimension",
+                            "area_printed",
+                            "room_overlap",
+                            "closed_box",
+                            "non_observable"
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "failedLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "forcedLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "falsePositiveLines": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "falsePositiveRate": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "rule",
+                        "label",
+                        "failedLines",
+                        "forcedLines",
+                        "falsePositiveLines",
+                        "falsePositiveRate"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "forcedLines",
+                  "rows"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -77298,7 +77372,8 @@
               "tokenBreakdown",
               "topErrors",
               "reliability",
-              "recentJobs"
+              "recentJobs",
+              "ruleForcing"
             ],
             "additionalProperties": false
           }

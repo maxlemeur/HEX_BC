@@ -6,7 +6,9 @@ import type {
   TakeoffMetricsCostByLevel,
   TakeoffMetricsErrorEntry,
   TakeoffMetricsRecentJob,
+  TakeoffRuleForcingMetrics,
 } from "@/lib/takeoff/types";
+import { TAKEOFF_RULE_FORCING_RATE_NOTE } from "@/lib/takeoff/metrics-types";
 import type { TakeoffPilotWeeklySnapshot } from "@/lib/takeoff/pilot-metrics";
 
 import {
@@ -255,6 +257,48 @@ export function CorrectionByLevelTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** TI-686 D10 (H19): per rule, the false positives declared at forcing over the applied lines it fails. */
+export function RuleForcingTable({ data }: { data: TakeoffRuleForcingMetrics }) {
+  return (
+    <div>
+      {data.forcedLines === 0 ? (
+        <p className="px-4 pt-3 text-sm text-muted-foreground">Aucune ligne forcée sur la période.</p>
+      ) : null}
+      <div className="table-scroll" role="region" aria-label="Forçages par règle" tabIndex={0}>
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3">Règle</th>
+              <th className="px-4 py-3 text-right">Lignes en échec appliquées</th>
+              <th className="px-4 py-3 text-right">Forcées</th>
+              <th className="px-4 py-3 text-right">Faux positifs déclarés au forçage</th>
+              <th className="px-4 py-3 text-right">Taux observé (n/N)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row) => (
+              <tr key={row.rule} className="border-t border-border-subtle">
+                <td className="px-4 py-3">{row.label}</td>
+                <td className="px-4 py-3 text-right">{formatNumber(row.failedLines)}</td>
+                <td className="px-4 py-3 text-right">{formatNumber(row.forcedLines)}</td>
+                <td className="px-4 py-3 text-right">{formatNumber(row.falsePositiveLines)}</td>
+                <td className="px-4 py-3 text-right font-semibold">
+                  {row.falsePositiveRate === null
+                    ? "-"
+                    : `${formatPercent(row.falsePositiveRate)} % (${formatNumber(row.falsePositiveLines)}/${formatNumber(row.failedLines)})`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-border-subtle px-4 py-3 text-xs text-muted-foreground">
+        {TAKEOFF_RULE_FORCING_RATE_NOTE}
+      </p>
     </div>
   );
 }

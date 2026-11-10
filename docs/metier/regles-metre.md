@@ -571,6 +571,24 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
   - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
     `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+- **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
+  `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
+  règle, sur les jobs appliqués de la période (section « Forçages par règle ») :
+  - « Lignes en échec appliquées » (N) : les lignes non exclues où la règle échoue, sauf un échec laissé de côté
+    (partenaires tous exclus parmi les lignes du job ; un partenaire d'un autre job compte comme présent) ;
+  - « Forcées » : celles d'un audit de forçage consommé dont l'échec de cette règle bloquait la ligne au sens de
+    TI-681. Un avertissement de quantité ne bloque jamais : l'échelle, la surface écrite, les chevauchements, les
+    boîtes fermées et les quantités à saisir n'ont ni ligne forcée ni faux positif, et le N de `dn_network` compte
+    aussi ses avertissements (réseau, matériau ou DN manquant, DN hors série) ;
+  - « Faux positifs déclarés au forçage » (n) : celles forcées en `rule_false_positive` qui nomment la règle. Un
+    échec accepté par V n'y entre jamais (H19), même s'il était un faux positif ;
+  - le taux observé n/N, sans taux quand N = 0, avec la mention « Taux observé sur l'effectif affiché : un
+    indicateur, pas une borne de fiabilité. ».
+  - Les lignes d'un job appliqué sont figées, leurs `rule_results` aussi : le calcul
+    ([`stats-forcing.ts`](../../src/lib/takeoff/stats-forcing.ts)) les relit tels qu'ils ont été appliqués, et un audit
+    non consommé ne compte pas. La route lit les consommations avec le client de l'administrateur : la politique
+    « Admins can view override consumptions » donne aux administrateurs du tenant la lecture seule de
+    `takeoff_apply_override_consumptions` (H11) ; un ingénieur n'en lit aucune, et aucune écriture n'est ouverte.
 - La réserve dans l'offre (TI-682) et la variante restent à construire.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
