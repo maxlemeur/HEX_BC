@@ -1,7 +1,8 @@
 name: TesterArmy calc-v3
 
 # Owned native stacks, production builds and exact business assertions. PRs
-# select affected phases; unknown impact runs all. Nightly exercises every phase.
+# select affected phases; unknown impact runs all. Nightly and after a push to
+# main, every phase runs.
 on:
   workflow_dispatch:
     inputs:
@@ -34,6 +35,17 @@ on:
           - mobile
   pull_request:
     branches: [main]
+  # Every push to main that is not documentation only: main is otherwise
+  # checked by the critical suite alone (docs/testing/tester-army-ci.md,
+  # "Campagnes de main après un push"). All pushes share one concurrency group
+  # that cancels nothing: one campaign runs, the newest waits and replaces an
+  # older waiting one, whose commits it contains. A documentation push starts
+  # none, so it never replaces a waiting campaign.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   schedule:
     # After the nightly full suite (03:15 UTC), on its own runner.
     - cron: '45 4 * * *'
@@ -42,7 +54,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: army-calc-v3-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: army-calc-v3-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && 'main-push' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -143,6 +155,8 @@ jobs:
     timeout-minutes: 80
     strategy:
       fail-fast: false
+      # The account runs 20 jobs at once: a push campaign takes two of them.
+      max-parallel: ${{ github.event_name == 'push' && 2 || 20 }}
       matrix:
         phase: ${{ fromJSON(needs.army-calc-v3-plan.outputs.phases) }}
     env:

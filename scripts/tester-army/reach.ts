@@ -1,11 +1,12 @@
-// Lists the journeys a change reaches that a push to main does not run, with the local command of
-// each, so a direct push can prove them first (docs/testing/tester-army-ci.md, "Avant un push
-// direct sur main"). A push runs the critical suite only:
-// - the takeoff journeys and the calc-v3 phases otherwise wait for a pull request, whose selection
-//   (select-journeys.ts, select-calc-v3.ts) is the one used here;
-// - the development phase and the extended journeys only run in the scheduled full campaign. No
-//   rule maps a source file to them: a changed journey file is listed, and the development phase
-//   follows the takeoff journeys, which drive the same affaire hub.
+// Lists the journeys a change reaches that the Critical run of a push to main leaves out, with the
+// local command of each, so a direct push can prove them first (docs/testing/tester-army-ci.md,
+// "Avant un push direct sur main"). The full and calc-v3 campaigns that follow the push only give
+// their verdict afterwards, on main:
+// - the takeoff journeys and the calc-v3 phases are selected as a pull request selects them
+//   (select-journeys.ts, select-calc-v3.ts);
+// - the development phase and the extended journeys only run in the full campaign. No rule maps a
+//   source file to them: a changed journey file is listed, and the development phase follows the
+//   takeoff journeys, which drive the same affaire hub.
 // Plain Node (type stripping, no npm install): node builtins and erasable TypeScript syntax.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

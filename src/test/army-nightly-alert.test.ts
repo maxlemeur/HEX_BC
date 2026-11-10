@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, type AlertInput } from "../../scripts/tester-army/nightly-alert";
+import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, alertTitles, planAlert, supersededBy, type AlertInput } from "../../scripts/tester-army/nightly-alert";
 
 const root = process.cwd();
 const RUN = "https://github.com/example/repository/actions/runs/42";
@@ -14,10 +14,10 @@ const red = (overrides: Partial<AlertInput> = {}): AlertInput => ({
   notPassed: ["shard 3/6 : cockpit-command-bar.e2e.ts : EST-374 > ouvre le preview (failed)"], openIssue: null, ...overrides,
 });
 
-describe("alert of a red scheduled TesterArmy campaign", () => {
+describe("alert of a red TesterArmy campaign of main", () => {
   it("opens one issue per workflow that names the run, the failed jobs and every journey that did not pass", () => {
     const plan = planAlert(red());
-    expect(plan).toMatchObject({ action: "create", title: "CI nocturne rouge : TesterArmy Full" });
+    expect(plan).toMatchObject({ action: "create", title: "CI rouge sur main : TesterArmy Full" });
     if (plan.action !== "create") throw new Error("unreachable");
     expect(plan.body).toContain("`df20b136`");
     expect(plan.body).toContain("campagne du 2026-11-10");
@@ -25,7 +25,7 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
     expect(plan.body).toContain("`army-full shard 3/6`, `army-full development`");
     expect(plan.body).toContain("### Parcours non passés (1)");
     expect(plan.body).toContain("- `shard 3/6 : cockpit-command-bar.e2e.ts : EST-374 > ouvre le preview (failed)`");
-    expect(alertTitle("TesterArmy calc-v3")).toBe("CI nocturne rouge : TesterArmy calc-v3");
+    expect(alertTitle("TesterArmy calc-v3")).toBe("CI rouge sur main : TesterArmy calc-v3");
   });
 
   it("comments the open issue of the workflow instead of opening a second one", () => {
@@ -78,6 +78,25 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
     expect(longest.body.length).toBeLessThan(60_000);
   });
 
+  it("drops the result of a campaign once a later revision has had its verdict", () => {
+    // Revisions in the order of main: a scheduled campaign of "old" may finish after the push campaign of "new".
+    const order = ["old", "middle", "new"];
+    const isAhead = (base: string, head: string) => order.indexOf(head) > order.indexOf(base);
+    const campaign = (id: number, head_sha: string) => ({ id, head_sha, html_url: `https://example.test/runs/${id}` });
+    const concluded = [campaign(3, "new"), campaign(2, "middle"), campaign(1, "old")];
+    // The older green must not close what the newer red opened, nor the older red reopen what the newer green closed.
+    expect(supersededBy(campaign(1, "old"), concluded, isAhead)).toEqual(campaign(3, "new"));
+    expect(supersededBy(campaign(2, "middle"), concluded, isAhead)).toEqual(campaign(3, "new"));
+    // The newest revision speaks, and so does a second campaign of that same revision.
+    expect(supersededBy(campaign(3, "new"), concluded, isAhead)).toBeNull();
+    expect(supersededBy(campaign(4, "new"), concluded, isAhead)).toBeNull();
+    // Each other revision is compared once, however many campaigns it had.
+    const compared: string[] = [];
+    supersededBy(campaign(3, "new"), [campaign(2, "middle"), campaign(5, "middle"), campaign(1, "old")],
+      (base, head) => { compared.push(head); return isAhead(base, head); });
+    expect(compared).toEqual(["middle", "old"]);
+  });
+
   it("recognises only the issues it opened itself, on a repository anyone can open issues in", () => {
     const title = alertTitle("TesterArmy Full");
     const bot = { login: "app/github-actions", is_bot: true };
@@ -87,10 +106,23 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
       { number: 31, title: `${title} (suite)`, author: bot },
       { number: 40, title, author: bot },
       { number: 22, title, author: bot },
-    ], title)).toEqual([22, 40]);
+    ], alertTitles("TesterArmy Full"))).toEqual([22, 40]);
   });
 
-  it("watches exactly the scheduled campaigns its workflow is triggered by, each with its aggregate evidence", () => {
+  it("still finds an alert opened under the title used when only the scheduled campaigns raised it", () => {
+    const bot = { login: "app/github-actions", is_bot: true };
+    const titles = alertTitles("TesterArmy Full");
+    expect(titles[0]).toBe(alertTitle("TesterArmy Full"));
+    // It is commented and closed like the others, never left open beside a new one; another workflow's is not taken.
+    expect(alertIssues([
+      { number: 9, title: "CI nocturne rouge : TesterArmy calc-v3", author: bot },
+      { number: 7, title: "CI nocturne rouge : TesterArmy Full", author: bot },
+      { number: 8, title: "CI nocturne rouge : TesterArmy Full", author: { login: "someone", is_bot: false } },
+      { number: 11, title: alertTitle("TesterArmy Full"), author: bot },
+    ], titles)).toEqual([7, 11]);
+  });
+
+  it("watches exactly the campaigns of main its workflow is triggered by, each with its aggregate evidence", () => {
     const workflow = fs.readFileSync(path.join(root, ".github/workflows/ci-night-alert.yml"), "utf8");
     const watched = /^ {4}workflows: \[(.+)\]$/mu.exec(workflow)?.[1].split(",").map((name) => name.trim().replace(/^"|"$/gu, ""));
     expect(watched?.sort()).toEqual(Object.keys(ALERT_WORKFLOWS).sort());
@@ -98,10 +130,13 @@ describe("alert of a red scheduled TesterArmy campaign", () => {
       const watchedWorkflow = fs.readFileSync(path.join(root, file), "utf8");
       expect(watchedWorkflow, file).toMatch(new RegExp(`^name: ${name}$`, "mu"));
       expect(watchedWorkflow, file).toContain(artifact);
-      expect(watchedWorkflow, file).toMatch(/^ {2}schedule:$/mu);
+      // Each event that writes is one the watched workflow runs its whole campaign for, and a push only on main.
+      for (const event of ALERT_EVENTS) expect(watchedWorkflow, `${file} ${event}`).toMatch(new RegExp(`^ {2}${event}:$`, "mu"));
+      expect(watchedWorkflow, file).toMatch(/^ {2}push:\n {4}branches: \[main\]\n/mu);
     }
-    // Only a scheduled campaign, or a replay someone asks for, reaches the issue tracker.
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'");
+    // Only a campaign of main, or a replay someone asks for, reaches the issue tracker.
+    expect(workflow).toContain(`if: github.event_name == 'workflow_dispatch' || ${
+      ALERT_EVENTS.map((event) => `github.event.workflow_run.event == '${event}'`).join(" || ")}\n`);
     // The token that writes issues belongs to the one job that needs it.
     expect(workflow).toMatch(/^permissions:\n {2}contents: read\n/mu);
     expect(workflow).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}actions: read\n {6}issues: write\n/mu);

@@ -23,8 +23,9 @@
 // job of e2e-army-critical.yml: on a pull request, those its paths reach; all
 // of them whenever the critical decision is "full" (unsure, forced, other
 // event), listed from the working tree so an unlisted one still runs; none on
-// a push, whose post-merge check stays the critical suite (the nightly full
-// suite runs them). They are split into their own shards (army-shards.json
+// a push, whose own check stays the critical suite (the full campaign of main
+// that follows the push, and the nightly one, run them: e2e-army-full.yml).
+// They are split into their own shards (army-shards.json
 // suite "takeoff"), one army-takeoff-shard job each, at 1 worker as in the full
 // suite where they are qualified.
 //
