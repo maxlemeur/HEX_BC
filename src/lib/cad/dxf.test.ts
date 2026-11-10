@@ -439,6 +439,26 @@ describe("readDxf: texts", () => {
     const drawing = read({ blocks: [{ name: "B", entities: [text("0", 1, 0, 2, "A")] }], entities: [insert("0", "B", 10, 0, [41, 3], [42, 3], [50, 90])] });
     expect(drawing.texts[0]).toMatchObject({ x: expect.closeTo(10, 9), y: expect.closeTo(3, 9), height: 6, text: "A" });
     expect(drawing.texts[0].angle).toBeCloseTo(Math.PI / 2, 12);
+    expect(drawing.texts[0].stretch).toBeUndefined();
+  });
+
+  it("widens a text along its line, without making it taller, when its reference stretches it", () => {
+    const drawing = read({
+      blocks: [{ name: "B", entities: [text("0", 1, 0, 1, "Large"), text("0", 0, 2, 1, "Haut", [50, 90])] }],
+      entities: [insert("0", "B", 10, 0, [41, 4], [42, 1])],
+    });
+    expect(drawing.texts[0]).toMatchObject({ x: 14, y: 0, height: 1, stretch: 4, text: "Large" });
+    expect(drawing.texts[0].angle).toBeCloseTo(0, 12);
+    expect(drawing.texts[1]).toMatchObject({ x: 10, y: 2, height: 4, stretch: 0.25, text: "Haut" });
+    expect(drawing.texts[1].angle).toBeCloseTo(Math.PI / 2, 12);
+  });
+
+  it("keeps an attribute as its reference holds it, stretched or not", () => {
+    const stretched = rec("INSERT", [8, "0"], [2, "B"], [10, 10], [20, 0], [30, 0], [41, 4], [42, 1], [66, 1]);
+    const attribute = rec("ATTRIB", [8, "0"], [10, 12], [20, 3], [30, 0], [40, 2], [1, "DN 40"], [2, "DIAMETRE"]);
+    const drawing = read({ blocks: [{ name: "B", entities: [line("0", 0, 0, 1, 0)] }], entities: [stretched, attribute, rec("SEQEND", [8, "0"])] });
+    expect(drawing.texts).toEqual([expect.objectContaining({ kind: "attribute", text: "DN 40", x: 12, y: 3, height: 2 })]);
+    expect(drawing.texts[0].stretch).toBeUndefined();
   });
 });
 

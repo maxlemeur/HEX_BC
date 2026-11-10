@@ -159,6 +159,21 @@ describe("plotCadDrawing: content", () => {
     expect(content).toMatch(/\bh S\b/);
   });
 
+  it("widens a text its reference stretches, at the height the drawing gives it", async () => {
+    const plotted = async (sx: number) => {
+      const drawing = read({ blocks: [{ name: "B", entities: [text("T", 0, 0, 100, "Large")] }], entities: [room(20000, 10000), insert("T", "B", 19800, 1000, [41, sx], [42, 1])] });
+      const plot = await plotCadDrawing(drawing, { denominator: 50 });
+      // « Large », as the font encodes it.
+      return { plot, text: /BT \/F1 (\S+) Tf (\S+ \S+ \S+ \S+) \S+ \S+ Tm <4C61726765> Tj/.exec((await contentOf(plot.bytes)).content) };
+    };
+    const plain = await plotted(1), wide = await plotted(4);
+    expect(plain.text?.[2]).toBe("1 0 0 1");
+    expect(wide.text?.[2]).toBe("4 0 0 1");
+    expect(wide.text?.[1]).toBe(plain.text?.[1]);
+    // The sheet makes room for the widened text, which runs further past the wall.
+    expect(wide.plot.sheet_mm[0]).toBeGreaterThan(plain.plot.sheet_mm[0]);
+  });
+
   it("caps the texts and the size of the file", async () => {
     const drawing = read({ entities: [room(5000, 5000), text("T", 0, 0, 100, "a"), text("T", 0, 500, 100, "b"), text("T", 0, 1000, 100, "c")] });
     expect(await plotCadDrawing(drawing, { limits: { maxTexts: 2 } })).toMatchObject({ texts: 2, omitted: { texts: 1 } });

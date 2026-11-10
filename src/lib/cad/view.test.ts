@@ -32,6 +32,7 @@ function recorder() {
     restore: () => { calls.push(["restore"]); },
     translate: (x, y) => { calls.push(["translate", round(x), round(y)]); },
     rotate: (angle) => { calls.push(["rotate", round(angle)]); },
+    scale: (x, y) => { calls.push(["scale", round(x), round(y)]); },
   };
   return { ctx, calls, named: (...names: string[]) => calls.filter((call) => names.includes(call[0] as string)) };
 }
@@ -277,6 +278,24 @@ describe("drawCadView", () => {
     const { named } = draw({ entities: [text("0", 100, 100, 50, "Colonne", [50, 90])] });
     expect(named("save", "translate", "rotate", "fillText", "restore").map((call) => call.slice(0, 4))).toEqual([
       ["save"], ["translate", 40, 260], ["rotate", round(-Math.PI / 2)], ["fillText", "Colonne", 0, 0], ["restore"],
+    ]);
+  });
+
+  it("widens a text its reference stretches, at the height the drawing gives it", () => {
+    const { named, drawing } = draw({ blocks: [{ name: "B", entities: [text("0", 0, 0, 50, "Large")] }], entities: [insert("0", "B", 100, 100, [41, 4], [42, 1])] });
+    expect(named("save", "translate", "rotate", "scale", "fillText", "restore").map((call) => call.slice(0, 4))).toEqual([
+      ["save"], ["translate", 40, 260], ["scale", 4, 1], ["fillText", "Large", 0, 0], ["restore"],
+    ]);
+    expect(named("fillText")[0][5]).toBe("28px Helvetica, Arial, sans-serif");
+    // Five letters of 50 units, four times as wide: the text is kept while any of it is in the canvas.
+    const [x0, , x1] = buildCadScene(drawing).textBoxes;
+    expect(x1 - x0).toBeCloseTo(1000, 9);
+  });
+
+  it("turns then narrows a text its reference stretches across its line", () => {
+    const { named } = draw({ blocks: [{ name: "B", entities: [text("0", 0, 0, 25, "Colonne", [50, 90])] }], entities: [insert("0", "B", 100, 100, [41, 4], [42, 1])] });
+    expect(named("save", "translate", "rotate", "scale", "fillText", "restore").map((call) => call.slice(0, 4))).toEqual([
+      ["save"], ["translate", 40, 260], ["rotate", round(-Math.PI / 2)], ["scale", 0.25, 1], ["fillText", "Colonne", 0, 0], ["restore"],
     ]);
   });
 

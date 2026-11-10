@@ -80,7 +80,7 @@ export type CadScene = {
 
 function boxText(entry: CadText, out: Float64Array, at: number) {
   const lines = cadTextLines(entry.text);
-  const width = lines.reduce((longest, line) => Math.max(longest, line.length), 0) * entry.height * TEXT_WIDTH;
+  const width = lines.reduce((longest, line) => Math.max(longest, line.length), 0) * entry.height * TEXT_WIDTH * (entry.stretch ?? 1);
   const first = cadFirstBaseline(entry, lines.length);
   const left = entry.align === 1 ? -width / 2 : entry.align === 2 ? -width : 0;
   const bottom = first - (lines.length - 1) * entry.height * CAD_LINE_SPACING - entry.height * 0.3, top = first + entry.height;
@@ -186,7 +186,7 @@ export function cadDisplayColor(color: number): string {
 
 export type CadViewContext = Pick<
   CanvasRenderingContext2D,
-  | "beginPath" | "moveTo" | "lineTo" | "closePath" | "stroke" | "fillRect" | "fillText" | "save" | "restore" | "translate" | "rotate"
+  | "beginPath" | "moveTo" | "lineTo" | "closePath" | "stroke" | "fillRect" | "fillText" | "save" | "restore" | "translate" | "rotate" | "scale"
   | "strokeStyle" | "fillStyle" | "lineWidth" | "lineJoin" | "lineCap" | "globalAlpha" | "font" | "textAlign" | "textBaseline"
 > & { fill(rule?: CanvasFillRule): void };
 
@@ -302,18 +302,21 @@ export function drawCadView(ctx: CadViewContext, scene: CadScene, viewport: CadV
     ctx.textAlign = entry.align === 1 ? "center" : entry.align === 2 ? "right" : "left";
     const lines = cadTextLines(entry.text), step = entry.height * CAD_LINE_SPACING, first = cadFirstBaseline(entry, lines.length);
     const x = (entry.x - vx) * scale, y = (vy - entry.y) * scale, turned = Math.abs(entry.angle) > 1e-6;
-    if (turned) {
+    // Written in its own frame when it is turned, or when a reference stretched it along its line.
+    const framed = turned || entry.stretch !== undefined;
+    if (framed) {
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(-entry.angle);
+      if (turned) ctx.rotate(-entry.angle);
+      if (entry.stretch !== undefined) ctx.scale(entry.stretch, 1);
     }
     lines.forEach((raw, position) => {
       const line = raw.replace(/\t/g, " ");
       if (line.trim() === "") return;
       const below = (position * step - first) * scale;
-      ctx.fillText(line, turned ? 0 : x, turned ? below : y + below);
+      ctx.fillText(line, framed ? 0 : x, framed ? below : y + below);
     });
-    if (turned) ctx.restore();
+    if (framed) ctx.restore();
     stats.texts += 1;
   });
   return stats;

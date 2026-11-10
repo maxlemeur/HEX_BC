@@ -173,11 +173,21 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
     if (x > x1) x1 = x;
     if (y < y0) y0 = y;
     if (y > y1) y1 = y;
-    texts.push({
+    let height = raw.height * Math.sqrt(context.area), stretch = 1;
+    if (context.scale === null) {
+      // A stretch does not scale a text evenly: its line takes the length of the stretched direction, its height what is left of the area.
+      const cos = Math.cos(raw.angle), sin = Math.sin(raw.angle);
+      const along = Math.hypot(matrix[0] * cos + matrix[2] * sin, matrix[1] * cos + matrix[3] * sin);
+      height = along > 0 ? (raw.height * context.area) / along : 0;
+      stretch = context.area > 0 ? (along * along) / context.area : 1;
+    }
+    const entry: CadText = {
       layer, gate: context.gate, block: context.block, color: tint(raw.color, layer, context), x, y,
-      height: raw.height * Math.sqrt(context.area), angle: turnedAngle(matrix, raw.angle), align: raw.align, baseline: raw.baseline,
+      height, angle: turnedAngle(matrix, raw.angle), align: raw.align, baseline: raw.baseline,
       text: raw.text, kind: context.dimension ? "dimension" : raw.kind,
-    });
+    };
+    if (Number.isFinite(stretch) && Math.abs(stretch - 1) > 1e-9) entry.stretch = stretch;
+    texts.push(entry);
   }
 
   /** The gate of what a reference on `layer` draws, the reference itself being drawn under `gate`. */
@@ -246,7 +256,7 @@ export function readDxf(bytes: Uint8Array, options: { limits?: Partial<CadLimits
           });
         }
         // Attributes are entities of the space that holds the reference, not of the block.
-        if (first) for (const text of raw.attributeTexts) emitText({ ...child, matrix: context.matrix, area: context.area, layer0: context.layer0 }, text);
+        if (first) for (const text of raw.attributeTexts) emitText({ ...child, matrix: context.matrix, scale: context.scale, area: context.area, layer0: context.layer0 }, text);
         replay(def, child, index);
       }
     }

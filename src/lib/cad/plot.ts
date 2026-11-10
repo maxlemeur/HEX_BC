@@ -151,7 +151,7 @@ export async function plotCadDrawing(drawing: CadDrawing, options: CadPlotOption
     lines.forEach((raw, position) => {
       const line = printable(raw);
       if (line.trim() === "") return;
-      const width = font.widthOfTextAtSize(line, 1) * size;
+      const width = font.widthOfTextAtSize(line, 1) * size * (entry.stretch ?? 1);
       const dx = entry.align === 1 ? -width / 2 : entry.align === 2 ? -width : 0, dy = first - position * step;
       if (marks) {
         marks.push({ x: entry.x + dx * cos - dy * sin, y: entry.y + dx * sin + dy * cos, width, height: entry.height, cos, sin, scales });
@@ -219,10 +219,10 @@ export async function plotCadDrawing(drawing: CadDrawing, options: CadPlotOption
       out.push(`${ops} ${filled ? "h f" : (paths.flags[index] & CAD_PATH_CLOSED) !== 0 ? "h S" : "S"}`);
     }
     for (const line of linesOf[layer]) {
-      const entry = texts[line.text], cos = Math.cos(entry.angle), sin = Math.sin(entry.angle);
+      const entry = texts[line.text], cos = Math.cos(entry.angle), sin = Math.sin(entry.angle), wide = entry.stretch ?? 1;
       if (entry.color !== fill) { out.push(colorOps(entry.color, "rg")); fill = entry.color; }
       const x = entry.x + line.dx * cos - line.dy * sin, y = entry.y + line.dx * sin + line.dy * cos;
-      out.push(`BT /F1 ${fixed((entry.height / CAP_HEIGHT) * scale)} Tf ${fixed(cos)} ${fixed(sin)} ${fixed(-sin)} ${fixed(cos)} ${px(x)} ${py(y)} Tm ${line.hex} Tj ET`);
+      out.push(`BT /F1 ${fixed((entry.height / CAP_HEIGHT) * scale)} Tf ${fixed(cos * wide)} ${fixed(sin * wide)} ${fixed(-sin)} ${fixed(cos)} ${px(x)} ${py(y)} Tm ${line.hex} Tj ET`);
     }
     out.push("EMC");
   }
