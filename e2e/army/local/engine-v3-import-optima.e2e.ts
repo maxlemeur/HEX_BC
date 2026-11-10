@@ -345,7 +345,7 @@ async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, 
   expect(footer).toBeDefined();
   expect(Math.round(Number(cell(footer!, "Total HT (EUR)")) * 100)).toBe(state.version.total_ht_cents);
 
-  await ui.app.open(`/dashboard/affaires/${projectId}`);
+  await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
   await ui.screen.getByRole("button", /Étude Structure, métrés et prix/).tap();
   await expect(ui.screen.getByText(/^1900 lignes dans la version courante/)).toBeVisible();
   await ui.screen.getByRole("button", /Remise Validation, PDF et email client/).tap();

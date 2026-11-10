@@ -149,7 +149,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
   const jobs = ownedTakeoffJobs(browser, estimate);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
   await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
@@ -189,7 +189,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Ancienne préparation" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
-    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
     await saveTakeoffPreparation({ ...ui, army });
@@ -261,7 +261,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Compte déconnecté" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
-    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
     await dialog.getByText("Assistance au cadrage", { exact: true }).click();
@@ -487,7 +487,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Préparation Decisions" }, army);
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await saveTakeoffPreparation({ ...ui, army });
@@ -578,7 +578,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   expect(uploaded.status).toBe(200);
   await expect(screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible();
   const [planFile] = await readPlanFiles(browser, planSet.id);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name], processing: { level: "C" } });
   await dialog.getByRole("button", /Mes documents$/).click();
@@ -1036,7 +1036,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   await expect(screen.getByRole("button", `Supprimer ${path.basename(probe.pdfPath)}`, { exact: true })).toBeVisible();
   const [planFile] = await readPlanFiles(browser, planSet.id);
   expect(planFile.file_size_bytes).toBe((await readFile(probe.pdfPath)).length);
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const preparationInput: Parameters<typeof fillTakeoffPreparation>[1] = { sources: [path.basename(probe.pdfPath)], sourceRevision: probe.sourceRevision,
     objective: "count", unit: "u", levels: "R+1", zones: "Zone 1", inclusions: probe.inclusions, exclusions: probe.exclusions,
@@ -1219,7 +1219,10 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     expect(sets).toHaveLength(1);
     const copiesBefore = await readPlanFiles(browser, sets[0].id);
     expect(copiesBefore).toHaveLength(1);
+    // The document desk keeps the dialog open while the reclassification is pending.
+    await expect(details).toHaveAttribute("aria-busy", "false");
     await details.getByRole("button", "Fermer", { exact: true }).click();
+    await expect(details).not.toBeVisible();
     const retry = screen.getByRole("button", "Relancer l’analyse (1)", { exact: true });
     await expect(retry).toBeEnabled();
     await retry.click();
