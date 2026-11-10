@@ -16,7 +16,26 @@ test("affaire workbench separates dossier, pricing and review without losing dee
   if (!["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname)) {
     throw new Error("Workbench qualification requires the owned loopback stack.");
   }
+  // Opening the affaire reconciles its plans and refreshes the page when they changed. An
+  // address written during that refresh has once left the documents closed and the loading
+  // indicator on (a race of the page, open and outside this journey's subject), so the
+  // navigation below starts once the reconciliation and its refresh have landed.
+  const reconciled = browser.waitForResponse(/\/api\/affaires\/[^/]+\/intake\/reconcile-plans$/, { timeout: 30_000 });
   await app.open(`/dashboard/affaires/${projectId}`);
+  const reconciliation = await (await reconciled).json<{ data?: { changed?: boolean } }>();
+  if (reconciliation.data?.changed) {
+    // Watched in the page: an indicator shown and gone between two reads would be missed.
+    await browser.evaluate(() => new Promise<boolean>((resolve) => {
+      const indicator = { appeared: document.querySelector(".navigation-feedback") !== null };
+      const observer = new MutationObserver(() => {
+        if (document.querySelector(".navigation-feedback")) indicator.appeared = true;
+        else if (indicator.appeared) { observer.disconnect(); resolve(true); }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => { observer.disconnect(); resolve(false); }, 5_000);
+    }));
+  }
+  await expect(screen.getByRole("status", "Chargement en cours…", { exact: true })).not.toBeVisible();
   const navigation = screen.getByRole("navigation", "Navigation de l'affaire", { exact: true });
   await navigation.getByRole("button", "Dossier", { exact: true }).click();
   await expect(screen.getByRole("heading", "Préparer le dossier", { exact: true })).toBeVisible();
