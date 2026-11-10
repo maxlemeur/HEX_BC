@@ -108,7 +108,12 @@ planifiée ou lancée après un push, et tient un ticket GitHub par workflow, ti
   `notPassed` dans le manifeste agrégé (rapports des shards et des phases
   calc-v3) ; un échec antérieur aux parcours n'en nomme aucun ;
 - première campagne verte : le ticket est commenté puis fermé ;
-- campagne annulée ou sans conclusion : rien n'est écrit.
+- campagne annulée ou sans conclusion : rien n'est écrit ;
+- résultat dépassé : une campagne planifiée et une campagne lancée après un push
+  se chevauchent. Quand une autre campagne du même workflow a déjà rendu son
+  verdict sur une révision plus récente de `main`, le résultat qui arrive après
+  elle n'écrit rien : il ne ferme pas le ticket d'un rouge plus récent et ne
+  rouvre pas celui qu'un vert plus récent a fermé.
 
 Seuls les tickets ouverts par le workflow lui-même sont reconnus : le dépôt est
 public et n'importe qui peut ouvrir un ticket du même titre. La variable de dépôt

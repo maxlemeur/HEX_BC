@@ -5,7 +5,8 @@
 //
 // One issue per watched workflow, found by its exact title among the open issues this alert
 // opened: a red campaign opens it, or adds a comment when it is already open; the first green
-// campaign closes it. A campaign that did not conclude (cancelled, skipped) changes nothing.
+// campaign closes it. A campaign that did not conclude (cancelled, skipped) changes nothing, nor
+// does one that finishes after another gave its verdict on a later revision of main.
 // The issue names the run, its failed jobs and every journey that did not pass, read from the
 // manifest of the aggregate evidence. It only simulates unless ALERT_WRITE is "true" and the
 // run is a campaign of main: a pull request's or a filtered run's result never reaches the issue.
@@ -111,6 +112,25 @@ function readNotPassed(repository: string, runId: string, artifact: string): str
   }
 }
 
+export type Campaign = { id: number; head_sha: string; html_url: string };
+
+/**
+ * The campaign that already gave its verdict on a later revision than this run's, if any. A
+ * scheduled campaign and one that follows a push overlap: the older revision may finish last,
+ * and its result must then neither close the alert a newer red one opened nor reopen one a
+ * newer green one closed.
+ */
+export function supersededBy(run: { id: number; head_sha: string }, concluded: Campaign[],
+  isAhead: (base: string, head: string) => boolean): Campaign | null {
+  const shas = new Map<string, boolean>();
+  for (const other of concluded) {
+    if (other.id === run.id || other.head_sha === run.head_sha) continue;
+    if (!shas.has(other.head_sha)) shas.set(other.head_sha, isAhead(run.head_sha, other.head_sha));
+    if (shas.get(other.head_sha)) return other;
+  }
+  return null;
+}
+
 /** The open alert issues of a workflow: its exact title, opened by this workflow's token and by nobody else. */
 export function alertIssues(issues: { number: number; title: string; author?: { login?: string; is_bot?: boolean } }[], title: string): number[] {
   return issues.filter((issue) => issue.title === title && issue.author?.is_bot === true &&
@@ -123,10 +143,24 @@ function main() {
   const runId = process.env.ALERT_RUN_ID ?? "";
   if (!/^[\w.-]+\/[\w.-]+$/u.test(repository) || !/^\d+$/u.test(runId)) throw new Error("ALERT_REPOSITORY (owner/name) and a numeric ALERT_RUN_ID are required.");
   const run = JSON.parse(gh(["api", `repos/${repository}/actions/runs/${runId}`])) as {
-    name: string; event: string; conclusion: string | null; html_url: string; head_sha: string; run_started_at: string;
+    id: number; name: string; event: string; conclusion: string | null; html_url: string; head_sha: string; head_branch: string; run_started_at: string;
   };
   const watched = ALERT_WORKFLOWS[run.name];
   if (!watched) throw new Error(`Run ${runId} belongs to « ${run.name} », which this alert does not watch.`);
+  if (ALERT_EVENTS.includes(run.event) && (run.conclusion === "success" || RED.has(run.conclusion ?? ""))) {
+    // The latest campaigns of main that concluded, newest first; a revision is compared once.
+    const concluded = (JSON.parse(gh(["api", `repos/${repository}/actions/workflows/${path.basename(watched.file)}/runs?branch=${encodeURIComponent(run.head_branch)}&status=completed&per_page=30`])) as
+      { workflow_runs: (Campaign & { event: string; conclusion: string | null })[] }).workflow_runs
+      .filter((other) => ALERT_EVENTS.includes(other.event) && (other.conclusion === "success" || RED.has(other.conclusion ?? "")));
+    const newer = supersededBy(run, concluded, (base, head) =>
+      gh(["api", `repos/${repository}/compare/${base}...${head}`, "--jq", ".status"]).trim() === "ahead");
+    if (newer) {
+      const report = [`### Alerte ${run.name}`, "", `Run ${run.html_url} : résultat dépassé, rien n'est écrit. La campagne ${newer.html_url} a déjà rendu son verdict sur une révision plus récente (\`${newer.head_sha.slice(0, 8)}\`).`, ""].join("\n");
+      if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);
+      console.log(report);
+      return;
+    }
+  }
   // Only a campaign of main speaks for main: a pull request's or a dispatched (maybe filtered) run is simulated.
   const simulated = process.env.ALERT_WRITE !== "true" ? "simulation, rien n'est écrit"
     : !ALERT_EVENTS.includes(run.event) ? `simulation : run « ${run.event} », seule une campagne de main (planifiée ou après un push) écrit` : null;

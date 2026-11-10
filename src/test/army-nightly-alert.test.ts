@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, type AlertInput } from "../../scripts/tester-army/nightly-alert";
+import { ALERT_EVENTS, ALERT_WORKFLOWS, alertIssues, alertTitle, planAlert, supersededBy, type AlertInput } from "../../scripts/tester-army/nightly-alert";
 
 const root = process.cwd();
 const RUN = "https://github.com/example/repository/actions/runs/42";
@@ -76,6 +76,25 @@ describe("alert of a red TesterArmy campaign of main", () => {
     const longest = planAlert(red({ notPassed: Array.from({ length: 150 }, () => `shard 1/6 : a.e2e.ts : ${"x".repeat(2_000)} (failed)`) }));
     if (longest.action !== "create") throw new Error("unreachable");
     expect(longest.body.length).toBeLessThan(60_000);
+  });
+
+  it("drops the result of a campaign once a later revision has had its verdict", () => {
+    // Revisions in the order of main: a scheduled campaign of "old" may finish after the push campaign of "new".
+    const order = ["old", "middle", "new"];
+    const isAhead = (base: string, head: string) => order.indexOf(head) > order.indexOf(base);
+    const campaign = (id: number, head_sha: string) => ({ id, head_sha, html_url: `https://example.test/runs/${id}` });
+    const concluded = [campaign(3, "new"), campaign(2, "middle"), campaign(1, "old")];
+    // The older green must not close what the newer red opened, nor the older red reopen what the newer green closed.
+    expect(supersededBy(campaign(1, "old"), concluded, isAhead)).toEqual(campaign(3, "new"));
+    expect(supersededBy(campaign(2, "middle"), concluded, isAhead)).toEqual(campaign(3, "new"));
+    // The newest revision speaks, and so does a second campaign of that same revision.
+    expect(supersededBy(campaign(3, "new"), concluded, isAhead)).toBeNull();
+    expect(supersededBy(campaign(4, "new"), concluded, isAhead)).toBeNull();
+    // Each other revision is compared once, however many campaigns it had.
+    const compared: string[] = [];
+    supersededBy(campaign(3, "new"), [campaign(2, "middle"), campaign(5, "middle"), campaign(1, "old")],
+      (base, head) => { compared.push(head); return isAhead(base, head); });
+    expect(compared).toEqual(["middle", "old"]);
   });
 
   it("recognises only the issues it opened itself, on a repository anyone can open issues in", () => {
