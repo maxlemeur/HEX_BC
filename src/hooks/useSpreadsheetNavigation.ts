@@ -14,7 +14,7 @@ import {
 
 const CELL_ID_SEPARATOR = "::";
 
-type SpreadsheetEditorElement =
+export type SpreadsheetEditorElement =
   | HTMLInputElement
   | HTMLSelectElement
   | HTMLTextAreaElement;
@@ -71,8 +71,10 @@ export type SpreadsheetCellProps = {
   onBlur: (event: FocusEvent<SpreadsheetCellElement>) => void;
   onKeyDown: (event: KeyboardEvent<SpreadsheetCellElement>) => void;
   onMouseDown: (event: MouseEvent<SpreadsheetCellElement>) => void;
+  onMouseEnter?: (event: MouseEvent<SpreadsheetCellElement>) => void;
   onClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
   onDoubleClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
+  "aria-selected"?: boolean;
   "data-testid": "estimate-cell";
   "data-cell-id": string;
   "data-cell-row-id": string;
@@ -99,6 +101,17 @@ export type SpreadsheetNavigationResult = {
   getEditorProps: <T extends SpreadsheetEditorElement>(
     cell: SpreadsheetCell
   ) => SpreadsheetEditorProps<T>;
+  /**
+   * Set by the grid engine of the estimate editor (useGridNavigation): a click
+   * selects the cell instead of editing it, and cells can belong to a range.
+   */
+  selectsOnClick?: boolean;
+  isCellSelected?: (cell: SpreadsheetCell) => boolean;
+  getCellRangeEdges?: (cell: SpreadsheetCell) => number;
+  /** Row-level store of the grid engine: a row redraws only when its own signature changes. */
+  subscribe?: (listener: () => void) => () => void;
+  getRowSignature?: (rowId: string) => string;
+  getActiveRowId?: () => string | null;
 };
 
 type SpreadsheetKeyboardSnapshot = {

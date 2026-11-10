@@ -1,5 +1,7 @@
 "use client";
 
+import { buildIntakeAnalysisFeedback, type IntakeAnalysisAttempt } from "@/lib/affaires/intake-analysis-feedback";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -66,6 +68,7 @@ export function AffaireDocumentDesk({
   canManage,
   onOverview,
   onImportDpgf,
+  initialAddFiles = false,
 }: {
   projectId: string;
   projectName: string;
@@ -73,11 +76,12 @@ export function AffaireDocumentDesk({
   canManage: boolean;
   onOverview: (anchor?: string) => void;
   onImportDpgf: (documentId: string) => void;
+  initialAddFiles?: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   const [filter, setFilter] = useState(
-    params.has("intakeDocument") ? "all" : "review",
+    params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
   );
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -95,7 +99,7 @@ export function AffaireDocumentDesk({
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
   const [failures, setFailures] = useState<string[]>([]);
-  const [addFiles, setAddFiles] = useState(false);
+  const [addFiles, setAddFiles] = useState(initialAddFiles);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const running = useRef(false);
   const appliedFocus = useRef<string | null>(null);
@@ -260,51 +264,36 @@ export function AffaireDocumentDesk({
     setBusy(true);
     setFailures([]);
     setMessage("");
-    let analyzed = 0;
-    let fallback = 0;
-    let warning = "";
-    const failed: string[] = [];
+    const eligible = items.filter(canRetryDossierDocument);
+    const attempts: IntakeAnalysisAttempt[] = [];
+    let notRun: string[] = [];
     try {
-      for (let index = 0; index < items.length; index++) {
-        const item = items[index];
-        if (!canRetryDossierDocument(item)) continue;
-        setProgress(`Analyse ${index + 1} sur ${items.length}…`);
+      for (let index = 0; index < eligible.length; index++) {
+        const item = eligible[index];
+        setProgress(`Analyse ${index + 1} sur ${eligible.length}…`);
         try {
-          const result = await retryAffaireDocumentAnalysis({
-            projectId,
-            documentId: item.documentId,
+          const result = await retryAffaireDocumentAnalysis({ projectId, documentId: item.documentId });
+          attempts.push({ fileName: item.fileName, succeeded: !result.usedFallback,
+            manualPreserved: result.preservedManualClassification,
+            ...(result.usedFallback ? { reason: result.failure?.message ?? result.warning ?? "L’analyse IA n’a pas abouti." } : {}),
           });
-          if (result.analyzed) {
-            analyzed++;
-            if (result.usedFallback) {
-              fallback++;
-              warning = result.warning ?? "L’analyse IA n’a pas abouti.";
-            }
-            setDrafts((prior) => {
-              const next = { ...prior };
-              delete next[item.documentId];
-              return next;
-            });
-            setSelection((prior) =>
-              prior.filter((id) => id !== item.documentId),
-            );
+          setDrafts((prior) => { const next = { ...prior }; delete next[item.documentId]; return next; });
+          setSelection((prior) => prior.filter(id => id !== item.documentId));
+          if (result.usedFallback && result.failure?.scope !== "document") {
+            notRun = eligible.slice(index + 1).map(document => document.fileName);
+            break;
           }
         } catch (cause) {
-          failed.push(
-            `${item.fileName} : ${cause instanceof Error ? cause.message : "Analyse interrompue. Réessayez."}`,
-          );
-          // Configuration/auth failures must not be repeated for an entire selection.
+          attempts.push({ fileName: item.fileName, succeeded: false, manualPreserved: false,
+            reason: cause instanceof Error ? cause.message : "Analyse interrompue. Réessayez." });
+          notRun = eligible.slice(index + 1).map(document => document.fileName);
           break;
         }
         router.refresh();
-        if (fallback) break;
       }
-      if (warning)
-        failed.push(`${warning} La sélection restante n’a pas été relancée.`);
-      setFailures(failed);
-      setMessage(
-        `${analyzed} proposition${analyzed > 1 ? "s" : ""} mise${analyzed > 1 ? "s" : ""} à jour.${fallback ? ` L’IA n’a pas abouti pour ${fallback} pièce(s) : proposition basée sur le nom.` : ""} Vérifiez les catégories puis validez-les pour actualiser le dossier et le brief. Les classements manuels sont conservés.`,
-      );
+      const report = buildIntakeAnalysisFeedback(attempts, notRun);
+      setFailures(report.failures);
+      setMessage(report.message);
     } finally {
       running.current = false;
       setBusy(false);
@@ -367,7 +356,7 @@ export function AffaireDocumentDesk({
                 title={
                   !analysisAvailable
                     ? workspace.analysisAvailability?.message
-                    : "Relancer uniquement les pièces à vérifier, hors classements manuels"
+                    : "Relancer l’IA, y compris sur les pièces validées. Les classements manuels sont conservés."
                 }
                 onClick={() => void retryAnalysis(retryableDocuments)}
               >
@@ -427,8 +416,8 @@ export function AffaireDocumentDesk({
       {failures.length > 0 && (
         <div className="document-desk-errors" role="alert">
           <strong>
-            Certaines opérations sont incomplètes. Vérifiez l’état actualisé des
-            pièces et du brief avant de reprendre.
+            Certaines pièces n’ont pas pu être traitées. Le motif est indiqué
+            ci-dessous.
           </strong>
           <ul>
             {failures.map((failure) => (
@@ -659,6 +648,13 @@ export function AffaireDocumentDesk({
                             document.detectedCategory
                           ]
                         )}
+                        {document.extractedMetadata.aiCategoryProposal && document.extractedMetadata.aiCategoryProposal.category !== document.detectedCategory && (
+                          <button type="button" className="mt-1 block text-left text-xs text-primary underline" disabled={busy}
+                            aria-label={`Voir la proposition IA pour ${document.fileName}`} onClick={() => setDetailsId(document.documentId)}>
+                            IA : {AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.extractedMetadata.aiCategoryProposal.category]}
+                            {document.extractedMetadata.aiCategoryProposal.nature ? ` · ${document.extractedMetadata.aiCategoryProposal.nature}` : ""}
+                          </button>
+                        )}
                       </td>
                       <td>
                         <span
@@ -770,6 +766,7 @@ export function AffaireDocumentDesk({
                 key={`${projectId}:${active.documentId}:${active.uploadStatus}:${active.isBeingDeleted}`}
                 projectId={projectId}
                 document={active}
+                canManage={canManage}
               />
               {canManage && canClassifyDossierDocument(active) && (
                 <div className="document-desk-preview-actions">
@@ -833,7 +830,7 @@ export function AffaireDocumentDesk({
           if (!open && !busy) setDetailsId(null);
         }}
       >
-        <DialogContent size="lg" className="max-h-[90dvh] overflow-y-auto">
+        <DialogContent size="lg" className="max-h-[90dvh] overflow-y-auto" aria-busy={busy}>
           <DialogHeader>
             <DialogTitle>Document et détails</DialogTitle>
             <DialogDescription>

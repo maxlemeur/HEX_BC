@@ -280,6 +280,7 @@ async function clickCockpitAction(page: Page, label: string) {
   await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
 
+// The contextual strip and the action bar belong to « Chiffrage »: the workbench shows one domain at a time.
 describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "army", tags: ["critical", "extended"], timeout: 180_000 }, () => {
   test.beforeEach(async ({ ui: page }) => {
     await loginWithUi(page);
@@ -298,7 +299,7 @@ describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "
       title: "Ligne validation",
     });
 
-    await page.goto(`/dashboard/affaires/${projectId}`);
+    await page.goto(`/dashboard/affaires/${projectId}?view=estimate`);
     await expect(page.locator(".cockpit-command-strip")).toBeVisible();
     await clickCockpitAction(page, "Préparer la validation");
 
@@ -329,7 +330,7 @@ describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "
       tenantId,
     });
 
-    await page.goto(`/dashboard/affaires/${projectId}`);
+    await page.goto(`/dashboard/affaires/${projectId}?view=estimate`);
 
     const palette = await openCommandPalette(page);
     await palette.getByRole("option", { name: /Confirmer 1 pièce à revoir/i }).click();
@@ -367,7 +368,7 @@ describe("EST-374 — Command bar contextuelle du cockpit affaire", { session: "
       sourceFileName: seededDocument.fileName,
     });
 
-    await page.goto(`/dashboard/affaires/${projectId}`);
+    await page.goto(`/dashboard/affaires/${projectId}?view=estimate`);
 
     const palette = await openCommandPalette(page);
     await palette.getByRole("option", { name: /Confirmer le brief affaire/i }).click();

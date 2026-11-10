@@ -716,6 +716,7 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  // TI-686 D10: the override names each blocked line with its coded reason (forced_items); an engineer is refused.
   it("blocks non-admin override attempts for level C guard failures", async () => {
     const supabase = createSupabaseMock({
       jobLevel: "C",
@@ -723,6 +724,7 @@ describe("applyTakeoffJob", () => {
         baseTakeoffItem({
           id: TAKEOFF_ITEM_ID_1,
           confidence: 0.2,
+          evidence: null,
           is_verified: false,
         }),
       ],
@@ -746,7 +748,8 @@ describe("applyTakeoffJob", () => {
         strategy: "merge",
         target_section_id: SECTION_ID,
         override: true,
-        override_justification: "Validation manuelle exceptionnelle",
+        forced_justifications: ["Validation manuelle exceptionnelle"],
+        forced_items: [{ item_id: TAKEOFF_ITEM_ID_1, reason_code: "additional_evidence", justification_index: 0 }],
       })
     ).rejects.toMatchObject({
       status: 403,
@@ -763,6 +766,7 @@ describe("applyTakeoffJob", () => {
         baseTakeoffItem({
           id: TAKEOFF_ITEM_ID_1,
           confidence: 0.2,
+          evidence: null,
           is_verified: false,
         }),
       ],
@@ -790,7 +794,8 @@ describe("applyTakeoffJob", () => {
         strategy: "merge",
         target_section_id: SECTION_ID,
         override: true,
-        override_justification: "Validation manuelle exceptionnelle",
+        forced_justifications: ["Validation manuelle exceptionnelle"],
+        forced_items: [{ item_id: TAKEOFF_ITEM_ID_1, reason_code: "additional_evidence", justification_index: 0 }],
       })
     ).rejects.toMatchObject({
       status: 403,
@@ -799,7 +804,7 @@ describe("applyTakeoffJob", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("uses tenant low-confidence threshold for level C guard", async () => {
+  it("keeps a tenant confidence threshold advisory while applying level C quantities", async () => {
     const supabase = createSupabaseMock({
       jobLevel: "C",
       takeoffItems: [
@@ -825,22 +830,9 @@ describe("applyTakeoffJob", () => {
       },
     } as never);
 
-    await expect(
-      applyTakeoffJob(JOB_ID, {
-        strategy: "merge",
-        target_section_id: SECTION_ID,
-      })
-    ).rejects.toMatchObject({
-      status: 422,
-      code: "TAKEOFF_APPLY_GUARD_FAILED",
-      details: {
-        blocked_items: expect.arrayContaining([
-          expect.objectContaining({ item_id: TAKEOFF_ITEM_ID_1 }),
-        ]),
-      },
-    });
-
-    expect(supabase.rpc).not.toHaveBeenCalled();
+    await applyTakeoffJob(JOB_ID, { strategy: "merge", target_section_id: SECTION_ID });
+    expect(getTakeoffLowConfidenceThresholdForTenant).toHaveBeenCalled();
+    expect(supabase.rpc).toHaveBeenCalled();
   });
 
   it("blocks a high-confidence level C item when its localized proof is missing", async () => {

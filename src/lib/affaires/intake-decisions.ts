@@ -1,3 +1,4 @@
+import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import "server-only";
 
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -191,10 +192,12 @@ export async function classifyAutonomousAffaireDocument(input: {
 }): Promise<{
   result: AffaireIntakeClassificationResult;
   source: "ai" | "heuristic";
+  analysisFailure?: IntakeAnalysisFailure;
 }> {
   const capability = getIntakeDecisionsCapability();
   const context = input.decisionsContext;
-  const fallback = (message: string, issues: string[] = []) => ({
+  const fallback = (message: string, issues: string[] = [], scope: IntakeAnalysisFailure["scope"] = "provider") => ({
+    analysisFailure: { code: scope === "document" ? "DOCUMENT_UNREADABLE" : "AI_UNAVAILABLE", message, scope },
     source: "heuristic" as const,
     result: {
       ...input.heuristicResult,
@@ -233,13 +236,13 @@ export async function classifyAutonomousAffaireDocument(input: {
     });
   } catch {
     return fallback(
-      "La lecture locale du document a échoué. Aucun appel Decisions effectué.",
+      "La lecture locale du document a échoué. Aucun appel Decisions effectué.", [], "document",
     );
   }
   if (!content.text.trim() && !content.images.length)
     return fallback(
       "Aucun contenu exploitable n’a été extrait. Aucun appel Decisions effectué ; classement par nom à confirmer.",
-      content.issues,
+      content.issues, "document",
     );
   // Reservation/lease failures always propagate; they are never persisted as an AI fallback.
   await input.beforeProviderCall?.();

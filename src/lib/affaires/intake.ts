@@ -49,6 +49,16 @@ export function isAffaireIntakeCadDocument(fileName: string) {
   return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
 }
 
+/** A DXF is read in MergeOne (view, quantities, plotted PDF), and so is a DWG once converted; an RVT is only kept. */
+export const AFFAIRE_INTAKE_DXF_NOTICE = "Original DXF conservé. Ouvrez-le pour visualiser le plan et relever ses quantités ; ajoutez son tracé PDF au dossier pour le métré.";
+export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD 2004 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
+
+export function affaireIntakeCadNotice(fileName: string): string | null {
+  if (!isAffaireIntakeCadDocument(fileName)) return null;
+  const extension = getAffaireIntakeFileExtension(fileName);
+  return extension === "dxf" ? AFFAIRE_INTAKE_DXF_NOTICE : extension === "dwg" ? AFFAIRE_INTAKE_DWG_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
+}
+
 export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {
   return isAffaireIntakeCadDocument(fileName)
     ? CAD_MIME_TYPES[getAffaireIntakeFileExtension(fileName)]
@@ -122,7 +132,7 @@ function addMissingDatetimeSeconds(value: unknown) {
     : value;
 }
 
-export const affaireIntakeExtractedMetadataSchema = z
+const affaireIntakeAiMetadataSchema = z
   .object({
     projectName: z.string().trim().max(255).nullable(),
     clientName: z.string().trim().max(255).nullable(),
@@ -132,8 +142,20 @@ export const affaireIntakeExtractedMetadataSchema = z
     ),
     detectedLots: z.array(z.string().trim().min(1).max(160)).max(20),
     detectedVariants: z.array(z.string().trim().min(1).max(160)).max(20),
+    documentNature: z.string().trim().min(1).max(160).nullable().optional(),
   })
   .strict();
+
+export const affaireIntakeCategoryProposalSchema = z.object({
+  category: affaireIntakeDocumentKindSchema,
+  confidence: z.number().min(0).max(1),
+  analyzedAt: z.string().datetime({ offset: true }),
+  nature: z.string().trim().min(1).max(160).nullable(),
+}).strict();
+
+export const affaireIntakeExtractedMetadataSchema = affaireIntakeAiMetadataSchema.extend({
+  aiCategoryProposal: affaireIntakeCategoryProposalSchema.optional(),
+}).strict();
 
 export const affaireIntakeClassificationResultSchema = z
   .object({
@@ -149,6 +171,11 @@ export const affaireIntakeClassificationResultSchema = z
     }),
   })
   .strict();
+
+// The provider returns extracted facts only; proposal identity/date are server-owned.
+export const affaireIntakeClassificationAiResultSchema = affaireIntakeClassificationResultSchema.extend({
+  extractedMetadata: affaireIntakeAiMetadataSchema.default({ projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] }),
+});
 
 export type AffaireIntakeDocumentKind = z.infer<
   typeof affaireIntakeDocumentKindSchema
@@ -459,6 +486,12 @@ export function normalizeAffaireIntakeExtractedMetadata(
     return parsed.data;
   }
 
+  if (value && typeof value === "object" && "aiCategoryProposal" in value) {
+    const { aiCategoryProposal: _proposal, ...facts } = value;
+    void _proposal;
+    const base = affaireIntakeAiMetadataSchema.safeParse(facts);
+    if (base.success) return base.data;
+  }
   return createEmptyAffaireIntakeExtractedMetadata();
 }
 
@@ -518,9 +551,15 @@ export function buildAffaireIntakeStoragePath(input: {
 
 export const AFFAIRE_INTAKE_ANALYSIS_STALE_MS = 10 * 60_000;
 
-export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null }) {
+export const AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE = "Analyse IA en cours.";
+
+export function isAffaireIntakeReanalysisPending(document: { issues?: string[] | null }) {
+  return document.issues?.includes(AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE) === true;
+}
+
+export function isAffaireIntakeAnalysisStale(document: { classificationStatus?: string | null; classificationUpdatedAt?: string | null; issues?: string[] | null }) {
   const updated = Date.parse(document.classificationUpdatedAt ?? "");
-  return document.classificationStatus === "processing" && Number.isFinite(updated)
+  return (document.classificationStatus === "processing" || isAffaireIntakeReanalysisPending(document)) && Number.isFinite(updated)
     && updated < Date.now() - AFFAIRE_INTAKE_ANALYSIS_STALE_MS;
 }
 
@@ -529,11 +568,12 @@ export function getHeuristicAffaireDocumentClassification(input: {
   mimeType?: string | null;
 }): AffaireIntakeClassificationResult {
   const extension = getAffaireIntakeFileExtension(input.fileName);
-  if (isAffaireIntakeCadDocument(input.fileName)) {
+  const cadNotice = affaireIntakeCadNotice(input.fileName);
+  if (cadNotice) {
     return {
       documentKind: "plans",
       confidence: 0.64,
-      issues: [AFFAIRE_INTAKE_CAD_NOTICE],
+      issues: [cadNotice],
       extractedMetadata: createEmptyAffaireIntakeExtractedMetadata(),
     };
   }
@@ -635,6 +675,7 @@ export function isAffaireIntakeDocumentProcessing(
   document: AffaireIntakeReviewableDocument
 ) {
   if (
+    isAffaireIntakeReanalysisPending(document) ||
     document.classificationStatus === "queued" ||
     document.classificationStatus === "processing"
   ) {

@@ -18,7 +18,9 @@
 import { QUANTITY_REVIEW_PERCENT } from "@/lib/takeoff/quantity-policy";
 
 export const ROOM_RULES_VERSION = 1;
-export const AREA_PRINTED_RULE_VERSION = 2;
+// 3 (TI-686 D9): V needs a coded reason and the basis of the printed surface; the details carry the basis the price
+// line expects. A new version reopens every earlier V given without them.
+export const AREA_PRINTED_RULE_VERSION = 3;
 
 /**
  * Starting values (3/11/2026), provisional: the bench gives two closed room polygons only (D RDC, outside the

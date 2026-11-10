@@ -227,6 +227,22 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
+  const classificationSchema = body.input.find(entry => entry.role === "developer")?.content;
+  if (typeof classificationSchema === "string" && classificationSchema.includes('"documentKind"')) {
+    const sourceText = body.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
+      .filter(part => part.type === "input_text").map(part => part.text).join("\n");
+    const word = sourceText.includes("ARMY Dossier fictif de plomberie");
+    assert(pdf || (word && sourceText.includes("Tube cuivre DN20") && sourceText.includes("12 mètres")), "Uploaded PDF or extracted Word body/table must reach the classifier.");
+    const output = { documentKind: word ? "cctp" : "plans", confidence: 0.97, issues: [], extractedMetadata: {
+      projectName: "ARMY réanalyse", clientName: "Client réanalyse fictif", deadlineAt: null,
+      detectedLots: ["Plomberie"], detectedVariants: [], documentNature: word ? "Notice technique" : "Vue isométrique",
+    } };
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : "pdf" }) + "\n");
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   assert(sourceMatched(), "Uploaded source must reach the plan request.");
   const data = { items: [{ designation: "ARMY copper pipe", quantity: 12.5, unit: "m", source_page: 1 }], warnings: [],
     metadata: { level: "A", prompt_version: "takeoff-a-v1", file_type: "csv", schema_version: "v1" } };

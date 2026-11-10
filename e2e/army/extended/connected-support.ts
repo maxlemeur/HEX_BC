@@ -114,8 +114,11 @@ export async function connectedLine(ui: ConnectedUi, versionId: string, values: 
   await connectedOpen(ui, versionId, true);
   const cell = ui.browser.locator(`[data-cell-id="${line.id}::quantity"]`);
   const input = ui.screen.getByLabel(`Quantité pour ${title}`, { exact: true });
-  // Preserve the legacy first ordinary click and focused-input oracle.
+  // Spreadsheet contract: the first ordinary click selects the cell and keeps
+  // the focus on it; F2 edits in place, with the input focused and visible.
   await cell.click();
+  await expect(cell).toBeFocused();
+  await ui.browser.keyboard.press("F2");
   await expect(input).toBeFocused();
   await expect.poll(() => ui.browser.evaluate(id => {
     const element = document.querySelector(`[data-cell-id="${id}::quantity"] input`);

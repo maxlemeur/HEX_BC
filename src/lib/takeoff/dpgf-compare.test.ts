@@ -171,31 +171,31 @@ describe("hasBlockingTakeoffDpgfExceptions", () => {
     ).toBe(false);
   });
 
-  it("keeps orphan takeoff items blocking when DPGF target lines exist", () => {
+  it("recommends review without blocking orphan quantities with DPGF targets", () => {
     expect(
       hasBlockingTakeoffDpgfExceptions({
         ...baseSummary,
         total_lines: 3,
         unused_takeoff_items: 1,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("blocks unresolved confirmations and significant gaps", () => {
+  it("keeps confirmations and significant gaps non blocking", () => {
     expect(
       hasBlockingTakeoffDpgfExceptions({
         ...baseSummary,
         total_lines: 2,
         to_confirm: 1,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasBlockingTakeoffDpgfExceptions({
         ...baseSummary,
         total_lines: 2,
         significant_gaps: 1,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not count a recorded manual decision as unresolved", () => {

@@ -72,6 +72,7 @@ export function EstimateEditorBody({
         onMouseDown={onBodyMouseDown}
         role="grid"
         aria-readonly={isReadOnly}
+        aria-multiselectable="true"
         aria-rowcount={spreadsheetRowCount}
         aria-label="Lignes de devis"
         data-testid="estimate-editor-body"

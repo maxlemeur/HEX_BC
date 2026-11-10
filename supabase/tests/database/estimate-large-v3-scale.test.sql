@@ -17,12 +17,18 @@
 --   nested statements): 1 000 single-row INSERTs took 235 ms of a 733 ms copy in WSL; a copy whose operation 500 names
 --   a parent that does not exist is refused at that operation by the same loop as before (index 500, the 500 previous
 --   ones rolled back) and writes nothing. The 3,5 s CI/production maximum of that copy is asserted by
---   supabase/tests/ceiling where the database checks run alone (docs/testing/lot3-1-v3-copy-scale.md).
+--   supabase/tests/ceiling where the database checks run alone (docs/testing/lot3-1-v3-copy-scale.md);
+-- - one line added through the grid (public.atomic_create_estimate_item) writes that line and updates none of the
+--   1 900 stored ones. Before 20261110025003 its v3 projection rewrote every line of the version twice
+--   (bulk_update_estimate_items negates each position, then restores every column: 3 802 row updates with unchanged
+--   amounts, each running the row policies, the per-line revision trigger and an audit row): 9,9 s for this statement on the 2 031-item version locally, over the API roles' 8 s
+--   statement_timeout (57014, « Impossible de créer la ligne et ses totaux. »), and about 2 s on an ordinary estimate.
+--   Its answer had no content revision either: the editor read the whole estimate again to learn it.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(14);
+select plan(15);
 
 \ir ../fixtures/large-v3-estimate.sql
 select pg_temp.lb29_run(1);
@@ -98,6 +104,12 @@ select is(
   jsonb_build_object('committed', false, 'results', 501, 'index', 500, 'code', 'ESTIMATE_BATCH_INVALID_INPUT',
     'rolled_back', 500, 'items_written', 0, 'version_unchanged', true),
   'a 1 000-operation copy whose operation 500 names a missing parent is refused at that operation, nothing written'
+);
+
+select is(
+  pg_temp.lb29_add_line(),
+  '{"outcome":"ok","items_written":1,"stored_lines_updated":0,"answers_its_revision":true}'::jsonb,
+  'a line added through the grid to the 2 031-item v3 writes that line, updates none of the stored ones and answers with the content revision of its version'
 );
 
 select * from finish();

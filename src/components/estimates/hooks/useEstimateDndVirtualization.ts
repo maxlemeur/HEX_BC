@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type RefObject,
+} from "react";
 import {
   KeyboardSensor,
   PointerSensor,
@@ -40,11 +47,18 @@ type EstimateVirtualizationConfig = {
 };
 
 const ROOT_KEY = "root";
-const DEFAULT_VIRTUAL_ROW_ESTIMATE = 56;
+const DEFAULT_VIRTUAL_ROW_ESTIMATE = 36;
 const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
+// Module constants on purpose: `useSensor` memoises on the identity of its
+// options. Written inline they were new at every render of the table, the
+// drag-and-drop context changed with them, and every mounted row rendered again
+// for each scroll step.
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 8 } };
+const TOUCH_SENSOR_OPTIONS = { activationConstraint: { delay: 200, tolerance: 8 } };
+const KEYBOARD_SENSOR_OPTIONS = { coordinateGetter: sortableKeyboardCoordinates };
 
 function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
@@ -93,6 +107,8 @@ export type UseEstimateDndVirtualizationInput = {
   tableCardRef: RefObject<HTMLDivElement | null>;
   scrollToItemId?: string | null;
   onScrollToItemHandled?: () => void;
+  /** Row (item id or client key) to keep mounted while virtualized. */
+  getPinnedRowId?: () => string | null;
 };
 
 export function useEstimateDndVirtualization({
@@ -112,6 +128,7 @@ export function useEstimateDndVirtualization({
   tableCardRef,
   scrollToItemId,
   onScrollToItemHandled,
+  getPinnedRowId,
 }: UseEstimateDndVirtualizationInput) {
   const shouldVirtualize = Boolean(virtualization?.enabled);
 
@@ -172,6 +189,15 @@ export function useEstimateDndVirtualization({
     suggestionsByItemId,
   ]);
 
+  // The row holding the active cell stays mounted while it is scrolled out of
+  // view: keyboard focus survives the scroll and typing still lands in it.
+  const virtualRowIndexByItemIdRef = useRef<ReadonlyMap<string, number>>(new Map());
+  const getPinnedIndex = useCallback(() => {
+    const rowId = getPinnedRowId?.() ?? null;
+    if (rowId === null) return null;
+    return virtualRowIndexByItemIdRef.current.get(rowId) ?? null;
+  }, [getPinnedRowId]);
+
   const {
     scrollRef: virtualScrollRef,
     virtualItems,
@@ -184,14 +210,13 @@ export function useEstimateDndVirtualization({
     enabled: shouldVirtualize && hasVisibleRows,
     estimateSize: virtualization?.rowEstimate ?? DEFAULT_VIRTUAL_ROW_ESTIMATE,
     overscan: virtualization?.overscan ?? DEFAULT_VIRTUAL_OVERSCAN,
+    getPinnedIndex,
   });
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, POINTER_SENSOR_OPTIONS),
+    useSensor(TouchSensor, TOUCH_SENSOR_OPTIONS),
+    useSensor(KeyboardSensor, KEYBOARD_SENSOR_OPTIONS)
   );
 
   const itemById = useMemo(() => {
@@ -370,18 +395,21 @@ export function useEstimateDndVirtualization({
     [canMoveToParent, canReorder, itemById, itemsByParent, onMoveItem, onReorder]
   );
 
+  // Every row of the list, not only the mounted window, as dnd-kit does for its
+  // own virtualized lists: the sortable context then keeps the same value while
+  // the grid scrolls. Listing the window handed a new context to every mounted
+  // row at each scroll step, which rendered them all for one line coming in.
   const virtualizedSortableIds = useMemo(() => {
     if (!canReorder || !isVirtualized) return [] as string[];
 
     const ids: string[] = [];
-    virtualItems.forEach((virtualRow) => {
-      const row = flattenedRows[virtualRow.index];
-      if (row?.kind === "item") {
+    flattenedRows.forEach((row) => {
+      if (row.kind === "item") {
         ids.push(row.item.id);
       }
     });
     return ids;
-  }, [canReorder, flattenedRows, isVirtualized, virtualItems]);
+  }, [canReorder, flattenedRows, isVirtualized]);
 
   const virtualRowIndexByItemId = useMemo(() => {
     const map = new Map<string, number>();
@@ -395,6 +423,9 @@ export function useEstimateDndVirtualization({
     });
     return map;
   }, [flattenedRows, isVirtualized]);
+  useLayoutEffect(() => {
+    virtualRowIndexByItemIdRef.current = virtualRowIndexByItemId;
+  }, [virtualRowIndexByItemId]);
 
   const handleNavigationCellNotMounted = useCallback(
     (cell: SpreadsheetCell) => {

@@ -13,7 +13,7 @@ import { expect } from "e2e";
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, readPlanSets, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
@@ -43,6 +43,11 @@ let fixtureEmail: string;
 let labDatasetDir: string;
 let labOutputDir: string;
 const LAB_VECTOR_DOCUMENT = "fictif-plan-calques";
+// The intake journeys wait for work of their own development server: a page refresh after a reclassification, an
+// analysis of each piece. A CI runner shares its processors with the second worker and the built application: the
+// same requests that answer in under a second locally took 11 to 15 s there (run 42822760346, both attempts, and
+// 13.2 s in the green run 42822852964), the whole default assertion budget. The outcome asserted stays the same.
+const DEV_SERVER_WORK = { timeout: 60_000 };
 let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
 /** The fixture also logs a client that left a proxied request; the server absorbs it and keeps serving (TI-667). */
 const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.provider === "process-diagnostic"
@@ -149,7 +154,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
   const jobs = ownedTakeoffJobs(browser, estimate);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
   await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
@@ -189,7 +194,7 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Ancienne préparation" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
-    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
     await saveTakeoffPreparation({ ...ui, army });
@@ -261,7 +266,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Compte déconnecté" }, army);
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
-    await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
     await dialog.getByText("Assistance au cadrage", { exact: true }).click();
@@ -487,7 +492,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Préparation Decisions" }, army);
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await saveTakeoffPreparation({ ...ui, army });
@@ -578,7 +583,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   expect(uploaded.status).toBe(200);
   await expect(screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible();
   const [planFile] = await readPlanFiles(browser, planSet.id);
-  await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name], processing: { level: "C" } });
   await dialog.getByRole("button", /Mes documents$/).click();
@@ -1036,7 +1041,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   await expect(screen.getByRole("button", `Supprimer ${path.basename(probe.pdfPath)}`, { exact: true })).toBeVisible();
   const [planFile] = await readPlanFiles(browser, planSet.id);
   expect(planFile.file_size_bytes).toBe((await readFile(probe.pdfPath)).length);
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
   const preparationInput: Parameters<typeof fillTakeoffPreparation>[1] = { sources: [path.basename(probe.pdfPath)], sourceRevision: probe.sourceRevision,
     objective: "count", unit: "u", levels: "R+1", zones: "Zone 1", inclusions: probe.inclusions, exclusions: probe.exclusions,
@@ -1170,6 +1175,172 @@ if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbit
       .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
     await verifyPriceReuseArbitration(ui, army, { userId, tenantId: member.data!.tenant_id }, readTransport);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+
+test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classification", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("INTRETRY01 uses only the fictional provider transport fixture.");
+  if (!await preparePlanFixture()) throw new Error("INTRETRY01 requires its own temporary ChatGPT profile.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-intake-retry-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Relance avec classement manuel" }, army);
+    const { client } = await localClient();
+    const documents = async () => {
+      const result = await client.from("affaire_intake_documents")
+        .select("id,document_kind,classification_status,classification_source,classified_by,classified_at,manually_overridden_at,confidence,document_priority,plan_copy_generation,extracted_metadata,issues,updated_at")
+        .eq("project_id", ids.projectId);
+      if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
+      return result.data;
+    };
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
+    await upload.setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    await expect.poll(async () => (await documents()).filter(doc => doc.classification_status === "classified").length,
+      { timeout: 60_000 }).toBe(1);
+    const document = (await documents())[0];
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${document.id}#intake`);
+    await screen.getByRole("button", "Détails de sample-plan.pdf", { exact: true }).click();
+    const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+    await details.getByRole("button", "Reclasser", { exact: true }).click();
+    await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "annexes" });
+    await details.getByRole("button", "Valider", { exact: true }).click();
+    await expect.poll(async () => (await documents())[0]).toMatchObject({ document_kind: "annexes", classification_source: "manual" });
+    await details.getByRole("button", "Reclasser", { exact: true }).click();
+    await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "plans" });
+    await details.getByRole("button", "Valider", { exact: true }).click();
+    await expect.poll(async () => (await documents())[0]).toMatchObject({ document_kind: "plans", classification_source: "manual" });
+    await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
+    const before = (await documents())[0];
+    const sets = await readPlanSets(browser, ids.projectId);
+    expect(sets).toHaveLength(1);
+    const copiesBefore = await readPlanFiles(browser, sets[0].id);
+    expect(copiesBefore).toHaveLength(1);
+    // The document desk keeps the dialog open while the reclassification is pending.
+    await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
+    await details.getByRole("button", "Fermer", { exact: true }).click();
+    await expect(details).not.toBeVisible();
+    const retry = screen.getByRole("button", "Relancer l’analyse (1)", { exact: true });
+    await expect(retry).toBeEnabled();
+    await retry.click();
+    await expect(screen.getByText(/1 classement manuel conservé/)).toBeVisible(DEV_SERVER_WORK);
+    const after = (await documents())[0];
+    for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
+      "manually_overridden_at", "confidence", "document_priority", "plan_copy_generation"] as const) expect(after[field]).toEqual(before[field]);
+    expect(after.updated_at).not.toBe(before.updated_at);
+    expect(await readPlanFiles(browser, sets[0].id)).toEqual(copiesBefore);
+    expect(after.extracted_metadata).toMatchObject({ clientName: "Client réanalyse fictif" });
+    const events = await client.from("affaire_intake_events").select("after_payload,reason")
+      .eq("document_id", document.id).eq("reason", "Analyse relancée manuellement.");
+    expect(events.error).toBeNull();
+    expect(events.data).toHaveLength(1);
+    expect(events.data![0].after_payload).toMatchObject({ document_kind: "plans", proposed_document_kind: "plans", analysis_source: "ai" });
+    await screen.getByRole("button", "Détails de sample-plan.pdf", { exact: true }).click();
+    await expect(details.getByText(/Classement manuel « Plans » conservé/)).toBeVisible();
+    await details.getByRole("button", "Fermer", { exact: true }).click();
+    await setDecisionsControl({ timeoutWriting: true });
+    try {
+      await retry.click();
+      await expect(screen.getByText(/0 pièce analysée. 1 pièce non analysée./)).toBeVisible();
+      const failed = (await documents())[0];
+      for (const field of ["document_kind", "classification_status", "classification_source", "classified_by", "classified_at",
+        "manually_overridden_at", "confidence", "document_priority", "plan_copy_generation"] as const) expect(failed[field]).toEqual(before[field]);
+      expect(failed.extracted_metadata).toEqual(after.extracted_metadata);
+      expect(await readPlanFiles(browser, sets[0].id)).toEqual(copiesBefore);
+    } finally { await setDecisionsControl({}); }
+    const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    expect(transport.filter(entry => entry.inputKind === "intake-classification").length).toBeGreaterThanOrEqual(2);
+    await recordEvidence(army, "intake-manual-reanalysis", { documentId: document.id, manualCategory: after.document_kind,
+      aiProposedCategory: "plans", preservedManualFields: true, provider: "chatgpt-fixture",
+      boundary: "Owned ephemeral backend, fictional PDF and simulated ChatGPT transport; no private source or live inference." });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+
+test("INTWORD01 Word analysis reports per-file failures and preserves manual choice until a proposal is applied", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("INTWORD01 requires the fictional provider transport fixture.");
+  if (!await preparePlanFixture()) throw new Error("INTWORD01 requires its own temporary profile.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-word-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Word et propositions" }, army);
+    const { client } = await localClient();
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const files = [
+      { name: "01-corrompu.docx", bytes: Buffer.from([1, 2, 3]) },
+      { name: "02-note.doc", bytes: await readFile("e2e/fixtures/word/intake-word.doc") },
+      { name: "03-note.docx", bytes: await readFile("e2e/fixtures/word/intake-word.docx") },
+      { name: "04-plan.pdf", bytes: await readFile("e2e/fixtures/sample-plan.pdf") },
+    ];
+    for (const file of files) await writeFile(path.join(directory, file.name), file.bytes);
+    const documents = async () => {
+      const result = await client.from("affaire_intake_documents")
+        .select("id,file_name,classification_status,classification_source,document_kind,extracted_metadata,manually_overridden_at")
+        .eq("project_id", ids.projectId).order("created_at");
+      if (result.error) throw new Error(`Owned Word read failed: ${result.error.code}`);
+      return result.data;
+    };
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
+      .setInputFiles(files.map(file => path.join(directory, file.name)));
+    await expect.poll(async () => {
+      const rows = await documents();
+      return rows.length === 4 && rows.every(row => !["queued", "processing"].includes(row.classification_status));
+    }, { timeout: 60_000 }).toBe(true);
+    for (const row of await documents()) {
+      const category = row.file_name.endsWith(".pdf") ? "annexes" : "emails";
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${row.id}#intake`);
+      await screen.getByRole("button", `Détails de ${row.file_name}`, { exact: true }).click();
+      const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+      await details.getByRole("button", "Reclasser", { exact: true }).click();
+      await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: category });
+      await details.getByRole("button", "Valider", { exact: true }).click();
+      await expect.poll(async () => (await documents()).find(doc => doc.id === row.id)).toMatchObject({ document_kind: category, classification_source: "manual" });
+      await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
+      await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
+      await details.getByRole("button", "Fermer", { exact: true }).click();
+      await expect(details).not.toBeVisible();
+    }
+    await screen.getByRole("button", "Relancer l’analyse (4)", { exact: true }).click();
+    await expect(screen.getByText(/3 pièces analysées. 1 pièce non analysée./)).toBeVisible(DEV_SERVER_WORK);
+    await expect(screen.getByText("01-corrompu.docx : Le fichier Word est invalide ou corrompu. Réenregistrez-le en DOCX ou exportez-le en PDF.", { exact: true })).toBeVisible();
+    await expect(screen.getByText(/sélection restante/)).toHaveCount(0);
+    const rows = await documents();
+    expect(rows.filter(row => row.classification_source === "manual")).toHaveLength(4);
+    for (const word of rows.filter(row => row.file_name.startsWith("02-") || row.file_name.startsWith("03-"))) {
+      expect(word).toMatchObject({ document_kind: "emails", extracted_metadata: { clientName: "Client réanalyse fictif", aiCategoryProposal: { category: "cctp" } } });
+    }
+    const pdf = rows.find(row => row.file_name === "04-plan.pdf")!;
+    expect(pdf.document_kind).toBe("annexes");
+    await screen.getByRole("button", "Voir la proposition IA pour 04-plan.pdf", { exact: true }).click();
+    const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+    const proposal = details.getByRole("region", "Proposition de catégorie IA", { exact: true });
+    await expect(proposal.getByText("Proposition IA : Plans", { exact: true })).toBeVisible();
+    await expect(proposal.getByText("Vue isométrique", { exact: true })).toBeVisible();
+    await details.getByRole("button", "Fermer", { exact: true }).click();
+    expect((await documents()).find(row => row.id === pdf.id)?.document_kind).toBe("annexes");
+    await screen.getByRole("button", "Voir la proposition IA pour 04-plan.pdf", { exact: true }).click();
+    await proposal.getByRole("button", "Appliquer la catégorie proposée", { exact: true }).click();
+    await expect.poll(async () => (await documents()).find(row => row.id === pdf.id)).toMatchObject({ document_kind: "plans", classification_source: "manual" });
+    await recordEvidence(army, "word-analysis-proposal", { supportedFormats: ["doc", "docx"], invalidFirstFileDidNotStopOthers: true,
+      successful: 3, failed: "01-corrompu.docx", manualChoicePreservedBeforeAcceptance: true, categoryAfterExplicitAcceptance: "plans",
+      boundary: "Fictional documents, isolated DB/Storage and simulated provider transport; no private file or live inference." });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;

@@ -29,6 +29,7 @@ import { buildDpgfApplyQuantityPolicy } from "@/lib/takeoff/dpgf-apply-quantitie
 import { computeTakeoffDpgfRows, hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
+import { FORCE_MESSAGES, forcedItemError, packForcedItems, type ForcedEntry } from "@/lib/takeoff/force-reasons";
 import { failurePartners, isLineId, leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
@@ -36,7 +37,7 @@ import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/er
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import { parseWithSchema, TAKEOFF_TENANT_ADMIN_ROLE } from "@/lib/takeoff/server-helpers";
-import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
+import type { TakeoffApplyRequest, TakeoffApplyResponse } from "@/lib/takeoff/types";
 
 /**
  * A blocked item as the guard error carries it: the error details keep four levels (sanitizeUnknown), so the failed
@@ -46,11 +47,49 @@ function blockedItemDetails({ rule_failures: failures, ...item }: GuardBlockedIt
   return failures ? { ...item, rule_codes: failures.map((failure) => failure.code), rule_reasons: failures.map((failure) => failure.reason) } : item;
 }
 
+/**
+ * TI-686 D10 (H7): the override's entry of each blocked line, checked against the line as the guard read it; the entries
+ * of lines that do not block are left out, the lines sorted and each justification stored once. A blocked line without
+ * an entry, or whose entry does not hold, refuses the override before any audit (422, guard « override_reasons »).
+ */
+function forcedOverride(blocked: readonly GuardBlockedItem[], payload: TakeoffApplyRequest, jobId: string) {
+  const justifications = payload.forced_justifications ?? [];
+  const entries = new Map((payload.forced_items ?? []).map((entry) => [entry.item_id.toLowerCase(), entry]));
+  const missing_item_ids: string[] = [];
+  const invalid_items: Array<{ item_id: string; error: string }> = [];
+  const forced: ForcedEntry[] = [];
+  for (const line of blocked) {
+    const entry = entries.get(line.item_id.toLowerCase());
+    if (!entry) {
+      missing_item_ids.push(line.item_id);
+      continue;
+    }
+    const error = forcedItemError(line, entry, justifications);
+    if (error) {
+      invalid_items.push({ item_id: line.item_id, error });
+      continue;
+    }
+    forced.push({ item_id: line.item_id, reason_code: entry.reason_code, false_positive_rules: entry.false_positive_rules,
+      justification: justifications[entry.justification_index] });
+  }
+  if (missing_item_ids.length > 0 || invalid_items.length > 0) {
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message: FORCE_MESSAGES.overrideReasons,
+      details: { guard: "override_reasons", missing_item_ids, invalid_items },
+      retryable: false,
+      jobId,
+    });
+  }
+  return packForcedItems(forced);
+}
+
 function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
   if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
 
   throw forbidden(
-    "Seul un administrateur peut forcer l'application des items non vérifiés."
+    "Seul un administrateur peut forcer l'application des lignes bloquées."
   );
 }
 
@@ -178,18 +217,7 @@ export async function applyTakeoffJob(
       if (!guardResult.passed) {
         if (payload.override === true) {
           assertTakeoffApplyOverrideAdminRole(tenantRole);
-          const overrideJustification = payload.override_justification?.trim();
-
-          if (!overrideJustification) {
-            throw new TakeoffError({
-              status: 422,
-              code: TakeoffErrorCode.BAD_REQUEST,
-              message:
-                "override_justification est obligatoire pour un override admin.",
-              retryable: false,
-              jobId: normalizedJobId,
-            });
-          }
+          const forced = forcedOverride(guardResult.blocked_items, payload, normalizedJobId);
 
           // Bound to each lifted line's state (TI-677 PR D): the trigger refuses the override once one of them changed.
           const states = new Map(guardItems.map((item) => [item.id, item.override_state]));
@@ -209,7 +237,7 @@ export async function applyTakeoffJob(
                 const state = states.get(i.item_id);
                 return state ? [state] : [];
               }),
-              justification: overrideJustification,
+              ...forced,
             }),
             mode: "fail-hard",
           });

@@ -103,6 +103,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run audit:dependencies
 
+      # Controle statique (moins d'une seconde) deja present dans check:quality :
+      # sans lui, un push direct sur main ne le voyait que la nuit suivante.
+      - name: Check generated database types
+        if: ${{ !cancelled() }}
+        run: npm run check:database-types
+
       - name: Verify dependency signatures
         if: ${{ !cancelled() }}
         run: npm run audit:signatures

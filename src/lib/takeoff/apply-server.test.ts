@@ -103,11 +103,11 @@ describe("takeoff apply orchestration", () => {
     expect(logTakeoffAuditEvent).toHaveBeenLastCalledWith(expect.objectContaining({ action: "takeoff.apply.completed" }));
   });
 
-  it("blocks the whole application when the global DPGF summary has unresolved exceptions", async () => {
-    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 } } as never);
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422, details: { guard: "dpgf_comparison" } });
-    expect(repository.issueTakeoffDpgfApplyAuthorization).not.toHaveBeenCalled();
-    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  it("issues a guarded authorization despite non-blocking DPGF quantity warnings", async () => {
+    vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary: { ...summary, significant_gaps: 1 }, rows: [] } as never);
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.issueTakeoffDpgfApplyAuthorization).toHaveBeenCalled();
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
   });
 
   it("revokes the issued authorization when the atomic RPC fails, retaining the named timeout", async () => {
@@ -126,23 +126,140 @@ describe("takeoff apply orchestration", () => {
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.7);
     // TI-677 (PR D): the override records each blocked line's state; the trigger refuses it once a line changed.
     const state = { item_id: SECTION_ID, quantity: 4, unit: "ml", updated_at: "2026-10-28T09:00:00.123456+00:00",
-      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: "Plan A", source_page: 1, is_verified: false,
+      rule_failures: [], rules_stale: false, designation: "Canalisation", evidence: null, source_page: 1, is_verified: false,
       quantity_entered_by: null };
     const included = { id: "66666666-6666-4666-8666-666666666666", designation: "Vanne", confidence: 0.9, evidence: "Plan A",
       source_page: 1, is_verified: true, is_excluded: false,
       override_state: { ...state, item_id: "66666666-6666-4666-8666-666666666666" } };
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([{
-      id: SECTION_ID, designation: "Canalisation", confidence: 0.6, evidence: "Plan A", source_page: 1, is_verified: false, is_excluded: false,
+      id: SECTION_ID, designation: "Canalisation", confidence: 0.6, evidence: null, source_page: 1, is_verified: false, is_excluded: false,
       override_state: state,
     }, included] as never);
-    await applyTakeoffJob(JOB_ID, { ...request, override: true, override_justification: "  Contrôle manuel  " });
+    await applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: ["  Contrôle manuel du plan  "],
+      forced_items: [{ item_id: SECTION_ID, reason_code: "controlled_correction", justification_index: 0 }] });
     expect(getTakeoffLowConfidenceThresholdForTenant).toHaveBeenCalledWith(TENANT_ID, { supabase: auth.supabase });
     expect(logTakeoffAuditEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
       action: "takeoff.apply.override", mode: "fail-hard",
-      metadata: expect.objectContaining({ threshold: 0.7, justification: "Contrôle manuel", blocked_item_ids: [SECTION_ID],
-        blocked_items_state: [state] }),
+      metadata: { estimate_version_id: VERSION_ID, threshold: 0.7, blocked_item_ids: [SECTION_ID], blocked_items_count: 1,
+        blocked_items_state: [state], forced_justifications: ["Contrôle manuel du plan"],
+        forced_items: [{ item_id: SECTION_ID, reason_code: "controlled_correction", justification_index: 0 }] },
     }));
     calledBefore(vi.mocked(logTakeoffAuditEvent), vi.mocked(bulkUpdateEstimateItems));
+  });
+});
+
+// TI-686 D10: an administrator forces each blocked line with a coded reason and a justification (H7). Since TI-681,
+// lines block for their missing localized proof or page (level C), results to compute again or a blocking rule. Ways it
+// fails, written before the change:
+// - an override that names one blocked line lifts the others (the job-level justification covered every line);
+// - a reason that names a rule is accepted on a line whose results are unreadable, or where no rule blocks;
+// - the audit stores the same justification once per line, or keeps entries for lines that do not block;
+// - a cap on the number of lines refuses a large job;
+// - a client still sending the job-level justification is accepted.
+describe("takeoff apply with per-line override reasons", () => {
+  const A = "a6860000-0000-4000-8000-00000000000a";
+  const B = "a6860000-0000-4000-8000-00000000000b";
+  const C = "a6860000-0000-4000-8000-00000000000c";
+  const NOTE = "Fiche du fabricant jointe, conforme au CCTP.";
+  const material = [{ rule: "dn_network", status: "fail", code: "DN_NETWORK_MATERIAL_BLOCKED", version: 3, acceptable: false,
+    reason: "Matériau interdit sur ce réseau (fictif)." }];
+  const state = (id: string) => ({ item_id: id, quantity: 4, unit: "ml", updated_at: "2026-10-28T09:00:00.123456+00:00",
+    rule_failures: [], rules_stale: false, designation: id, evidence: null, source_page: 1, is_verified: false, quantity_entered_by: null });
+  // A: no localized proof (level C); B: a blocked material; C: admitted.
+  const guardLine = (id: string, overrides: Record<string, unknown> = {}) => ({ id, designation: `Ligne ${id.slice(-1)}`,
+    confidence: 0.95, evidence: "Repère localisé", source_page: 1, is_verified: false, is_excluded: false, rule_results: [],
+    rules_stale: false, override_state: state(id), ...overrides });
+  const lines = (bOverrides: Record<string, unknown> = { rule_results: material }) => [
+    guardLine(B, bOverrides), guardLine(A, { evidence: null }), guardLine(C)];
+  const levelC = () => vi.mocked(getTakeoffJobDetailByIdOrThrow).mockReset()
+    .mockResolvedValueOnce({ ...completedJob, level: "C" } as never)
+    .mockResolvedValue({ ...completedJob, level: "C", status: "applied" } as never);
+  const auditMetadata = () => vi.mocked(logTakeoffAuditEvent).mock.calls
+    .find(([event]) => event.action === "takeoff.apply.override")?.[0].metadata as Record<string, unknown> | undefined;
+
+  beforeEach(() => {
+    levelC();
+    vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.5);
+  });
+
+  it("refuses an override that leaves a blocked line without its reason, before any audit or write", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(lines() as never);
+    await expect(applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE],
+      forced_items: [{ item_id: A, reason_code: "additional_evidence", justification_index: 0 }] }))
+      .rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR",
+        details: { guard: "override_reasons", missing_item_ids: [B], invalid_items: [] } });
+    expect(auditMetadata()).toBeUndefined();
+    expect(bulkUpdateEstimateItems).not.toHaveBeenCalled();
+    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  });
+
+  it("records each blocked line once, sorted, its justification stored once, the admitted line left out", async () => {
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(lines() as never);
+    await applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE, `  ${NOTE} `],
+      forced_items: [
+        { item_id: C, reason_code: "controlled_correction", justification_index: 0 },
+        { item_id: B, reason_code: "rule_false_positive", false_positive_rules: ["dn_network"], justification_index: 1 },
+        { item_id: A, reason_code: "additional_evidence", justification_index: 0 },
+      ] });
+    const metadata = auditMetadata();
+    expect(metadata).toMatchObject({ blocked_items_count: 2, forced_justifications: [NOTE], forced_items: [
+      { item_id: A, reason_code: "additional_evidence", justification_index: 0 },
+      { item_id: B, reason_code: "rule_false_positive", false_positive_rules: ["dn_network"], justification_index: 0 },
+    ] });
+    expect(metadata?.blocked_item_ids).toEqual(expect.arrayContaining([A, B]));
+    expect(metadata).not.toHaveProperty("justification");
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalled();
+  });
+
+  // The route reads unreadable results as none and stale: a reason that names a rule cannot hold there.
+  it("accepts an unconditional reason on a line whose results are unreadable, never a false positive", async () => {
+    const unreadable = { rule_results: [], rules_stale: true };
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(lines(unreadable) as never);
+    await expect(applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE], forced_items: [
+      { item_id: A, reason_code: "additional_evidence", justification_index: 0 },
+      { item_id: B, reason_code: "rule_false_positive", false_positive_rules: ["dn_network"], justification_index: 0 },
+    ] })).rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR", details: { guard: "override_reasons",
+      missing_item_ids: [], invalid_items: [{ item_id: B, error: expect.stringMatching(/faux positif/i) }] } });
+    expect(auditMetadata()).toBeUndefined();
+
+    vi.mocked(logTakeoffAuditEvent).mockClear();
+    levelC();
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(lines(unreadable) as never);
+    await applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE], forced_items: [
+      { item_id: A, reason_code: "additional_evidence", justification_index: 0 },
+      { item_id: B, reason_code: "additional_evidence", justification_index: 0 },
+    ] });
+    expect(auditMetadata()?.forced_items).toHaveLength(2);
+  });
+
+  it("forces 1 500 blocked lines in one override, with no cap on their number", async () => {
+    const many = Array.from({ length: 1500 }, (_, index) =>
+      guardLine(`a6860000-0000-4000-8000-${String(index).padStart(12, "0")}`, { evidence: null }));
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(many as never);
+    await applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE],
+      forced_items: many.map((item) => ({ item_id: item.id, reason_code: "additional_evidence", justification_index: 0 })) });
+    expect(auditMetadata()).toMatchObject({ blocked_items_count: 1500, forced_justifications: [NOTE] });
+    expect(auditMetadata()?.forced_items).toHaveLength(1500);
+  });
+
+  it("keeps the override to administrators: an engineer is refused before any reason is read", async () => {
+    vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ ...auth, tenantRole: "engineer" } as never);
+    vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue(lines() as never);
+    await expect(applyTakeoffJob(JOB_ID, { ...request, override: true, forced_justifications: [NOTE],
+      forced_items: [{ item_id: A, reason_code: "additional_evidence", justification_index: 0 }] }))
+      .rejects.toMatchObject({ status: 403 });
+    expect(auditMetadata()).toBeUndefined();
+  });
+
+  it("refuses the job-level justification of the former override, and an override without its lines", async () => {
+    await expect(applyTakeoffJob(JOB_ID, { ...request, override: true, override_justification: NOTE }))
+      .rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
+    await expect(applyTakeoffJob(JOB_ID, { ...request, override: true }))
+      .rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
+    await expect(applyTakeoffJob(JOB_ID, { ...request, forced_justifications: [NOTE],
+      forced_items: [{ item_id: A, reason_code: "additional_evidence", justification_index: 0 }] }))
+      .rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
+    expect(repository.listTakeoffApplyGuardItems).not.toHaveBeenCalled();
   });
 });
 
@@ -193,14 +310,14 @@ describe("takeoff apply with a duplicate the mapping plan skips", () => {
   it("never asks the database about a partner id that is no line id", async () => {
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, ["not-a-line", OTHER_JOB_LINE.toUpperCase()])] as never);
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    await applyTakeoffJob(JOB_ID, request);
     expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [OTHER_JOB_LINE] }));
   });
 
   it("reads a partner of another job as the database holds it", async () => {
     vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([guardLine(RETAINED, [OTHER_JOB_LINE])] as never);
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, false]]));
-    await expect(applyTakeoffJob(JOB_ID, request)).rejects.toMatchObject({ status: 422 });
+    await applyTakeoffJob(JOB_ID, request);
     expect(repository.listTakeoffRulePartnerExclusions).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID,
       itemIds: [OTHER_JOB_LINE] }));
     vi.mocked(repository.listTakeoffRulePartnerExclusions).mockResolvedValue(new Map([[OTHER_JOB_LINE, true]]));

@@ -411,7 +411,7 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
         return preparation;
       };
       // La préparation du hub reste accessible sur une v3, avant toute ligne de devis.
-      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      await app.open(`/dashboard/affaires/${anchor.projectId}?view=estimate`);
       const prompt = screen.getByRole("region", "Préparation du métré", { exact: true });
       await expect(prompt).toBeVisible({ timeout: 60_000 });
       const prepare = prompt.getByRole("button", "Préparer le métré", { exact: true });

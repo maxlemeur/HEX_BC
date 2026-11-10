@@ -50,6 +50,7 @@ export async function bulkUpdateEstimateItems(
       version: {
         id: version.id,
         updated_at: version.updated_at,
+        content_revision: version.content_revision,
       },
     };
   }
@@ -136,7 +137,7 @@ export async function bulkUpdateEstimateItems(
     // pair its newer token with the totals calculated before this RPC.
     const { data: savedVersion, error: savedVersionError } = await supabase
       .from("estimate_versions")
-      .select("id, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents")
+      .select("id, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents")
       .eq("tenant_id", tenantId)
       .eq("id", versionId)
       .single();
@@ -145,7 +146,7 @@ export async function bulkUpdateEstimateItems(
     }
     return {
       updated_count: rpcUpdatedCount ?? 0,
-      version: { id: savedVersion.id, updated_at: savedVersion.updated_at },
+      version: { id: savedVersion.id, updated_at: savedVersion.updated_at, content_revision: savedVersion.content_revision },
       totals: {
         total_ht_cents: savedVersion.total_ht_cents,
         total_tax_cents: savedVersion.total_tax_cents,

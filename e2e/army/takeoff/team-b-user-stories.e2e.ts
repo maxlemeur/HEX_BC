@@ -1228,9 +1228,9 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
 
   test("US-6.2 keeps takeoff recovery context visible in the affaire-first hub", async ({ ui: page }) => {
     const projectId = await createPendingRecoveryFixture(page);
-    await page.goto(`/dashboard/affaires/${projectId}`);
+    // The plans card belongs to « Chiffrage »; its anchor opens that section of the workbench.
+    await page.goto(`/dashboard/affaires/${projectId}#plans`);
 
-    await page.getByText("Détails du dossier et du devis", { exact: true }).click();
     const plansSection = page.locator("#plans");
 
     await expect(plansSection).toBeVisible();
@@ -1248,7 +1248,8 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
 
   test("US-6.3 makes the main, adjacent and legacy takeoff hierarchy explicit", async ({ ui: page }) => {
     const ids = await createHierarchyFixture(page);
-    await page.goto(`/dashboard/affaires/${ids.projectId}`);
+    // The journey and its study tools are shown in « Vue d’ensemble ».
+    await page.goto(`/dashboard/affaires/${ids.projectId}?view=overview`);
 
     if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
     await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();

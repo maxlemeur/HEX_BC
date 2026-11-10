@@ -1,0 +1,85 @@
+.affaire-workbench { --workbench-rail: 250px; background: var(--surface); margin: -24px; min-height: calc(100dvh - 60px); }
+.affaire-workbench .affaire-compact-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; padding: 28px 30px; border-bottom: 1px solid var(--border); }
+.affaire-compact-heading .affaire-heading-icon { display: grid; place-items: center; width: 58px; height: 58px; flex-shrink: 0; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 12px; color: var(--primary); }
+.affaire-compact-heading h1 { font-size: 34px; line-height: 1.2; font-weight: 700; letter-spacing: -.03em; overflow-wrap: anywhere; min-width: 0; }
+.affaire-heading-context { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; padding-left: 22px; border-left: 1px solid var(--border); color: var(--muted-foreground); font-size: 14px; }
+.affaire-heading-context > strong { border-radius: 20px; padding: 6px 14px; color: var(--primary); background: var(--info-subtle); font-weight: 600; }
+.affaire-compact-heading > button { margin-left: auto; }
+.affaire-workbench-layout { display: grid; grid-template-columns: var(--workbench-rail) minmax(0, 1fr); min-height: calc(100dvh - 175px); }
+.affaire-workbench-nav { padding: 26px 12px; background: var(--surface-subtle); border-right: 1px solid var(--border); }
+.affaire-workbench-nav > button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; color: var(--foreground); text-align: left; font-size: 15px; font-weight: 500; cursor: pointer; }
+.affaire-workbench-nav > button:hover { background: var(--muted); }
+.affaire-workbench-nav > button[aria-current=page] { background: var(--info-subtle); color: var(--primary); font-weight: 650; }
+.affaire-workbench-nav svg { flex-shrink: 0; }
+.affaire-workbench-count { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; margin-left: auto; border-radius: 20px; background: var(--warning); color: var(--warning-foreground); font-size: 12px; }
+.affaire-workbench-content { min-width: 0; padding: 30px; }
+.affaire-workbench [hidden] { display: none !important; }
+.affaire-workbench-intro { margin-bottom: 36px; }
+.affaire-workbench-intro h2 { font-size: 34px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; }
+.affaire-workbench-intro > p { margin-top: 8px; font-size: 18px; color: var(--muted-foreground); }
+.affaire-dossier-columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; }
+.affaire-dossier-columns h3 { font-size: 24px; line-height: 1.3; font-weight: 650; letter-spacing: -.02em; }
+.affaire-workbench-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.affaire-workbench-section-heading > button { font-size: 13px; }
+.affaire-file-list { width: 100%; font-size: 15px; }
+.affaire-file-list-head, .affaire-file-list-row { display: grid; grid-template-columns: minmax(0, 1fr) 32%; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); }
+.affaire-file-list-head { min-height: 42px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-foreground); }
+.affaire-file-list-row { min-height: 68px; }
+.affaire-file-list-row > span { overflow-wrap: anywhere; color: var(--muted-foreground); }
+.affaire-file-list-row button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0; text-align: left; cursor: pointer; font-weight: 550; }
+.affaire-file-list-row button span { overflow-wrap: anywhere; }
+.affaire-file-list-row button svg { flex-shrink: 0; }
+.affaire-file-list-row button:hover span { color: var(--primary); text-decoration: underline; }
+.affaire-file-pdf { color: var(--danger); }
+.affaire-file-other { color: var(--primary); }
+.affaire-workbench-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 22px; font-size: 14px; line-height: 1.6; color: var(--muted-foreground); }
+.affaire-workbench-note svg { margin-top: 2px; flex-shrink: 0; }
+.affaire-dossier-brief { min-width: 0; border-left: 1px solid var(--border); padding-left: 24px; }
+.affaire-brief-status { display: inline-flex; padding: 5px 10px; margin-top: 16px; border-radius: 8px; background: var(--warning-subtle); color: var(--warning); font-size: 14px; font-weight: 550; }
+.affaire-brief-status.is-confirmed { background: var(--success-subtle); color: var(--success); }
+.affaire-brief-facts { margin: 22px 0; }
+.affaire-brief-facts > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 16px; }
+.affaire-brief-facts dt { font-weight: 550; }
+.affaire-brief-facts dd { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.affaire-dossier-blockers { margin: 20px 0 24px; }
+.affaire-dossier-blockers h4 { font-size: 17px; font-weight: 650; margin-bottom: 10px; }
+.affaire-dossier-blockers p { padding: 9px 0 9px 16px; border-bottom: 1px solid var(--border); border-left: 3px solid var(--warning-border); font-size: 14px; }
+.affaire-dossier-blockers small { display: block; margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
+.affaire-workbench .affaire-review-brief { min-height: 52px; font-size: 17px; padding-inline: 24px; }
+.affaire-register-access { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 22px; }
+.affaire-register-access > span { font-size: 12px; color: var(--muted-foreground); }
+.affaire-workbench-text-action { display: inline-flex; align-items: center; gap: 12px; padding: 6px 0; min-height: 36px; color: var(--primary); font-size: 14px; font-weight: 550; cursor: pointer; }
+.affaire-workbench-estimate-link { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 24px 0; margin-top: 36px; border-block: 1px solid var(--border); color: var(--muted-foreground); font-size: 14px; }
+.affaire-workbench-estimate-link strong { color: var(--foreground); font-size: 17px; }
+.affaire-workbench-estimate-action { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; color: var(--primary); font-weight: 550; }
+.affaire-workbench-empty { color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
+.affaire-workbench .affaire-brief-details { margin-top: 28px; }
+.affaire-brief-details > summary { padding: 16px 0; cursor: pointer; color: var(--primary); font-size: 14px; font-weight: 550; }
+.affaire-workbench button:focus-visible, .affaire-workbench a:focus-visible, .affaire-workbench summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.affaire-workbench #brief > section > div:first-child { flex-wrap: wrap; }
+.affaire-workbench #brief > section > div:first-child > div { flex-wrap: wrap; }
+@media (max-width: 1100px) {
+  .affaire-workbench { --workbench-rail: 190px; }
+  .affaire-workbench-content { padding: 24px; }
+  .affaire-dossier-columns { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .affaire-dossier-brief { border-left: 0; border-top: 1px solid var(--border); padding: 28px 0 0; }
+}
+@media (max-width: 767px) {
+  .affaire-workbench { margin: -24px -12px; }
+  .affaire-workbench .affaire-compact-heading { padding: 20px 16px; gap: 12px; }
+  .affaire-compact-heading h1 { font-size: 24px; flex: 1; }
+  .affaire-compact-heading .affaire-heading-icon { width: 42px; height: 42px; }
+  .affaire-heading-context { order: 3; width: 100%; border-left: 0; padding-left: 0; gap: 14px; }
+  .affaire-compact-heading > button { padding-inline: 8px; font-size: 12px; }
+  .affaire-workbench-layout { display: block; }
+  .affaire-workbench-nav { display: flex; gap: 6px; padding: 10px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .affaire-workbench-nav > button { width: auto; flex-shrink: 0; margin: 0; padding: 9px 12px; gap: 8px; font-size: 13px; }
+  .affaire-workbench-nav svg { width: 17px; }
+  .affaire-workbench-content { padding: 24px 16px; }
+  .affaire-workbench-intro { margin-bottom: 28px; }
+  .affaire-workbench-intro h2 { font-size: 25px; }
+  .affaire-workbench-intro > p { font-size: 14px; }
+  .affaire-dossier-columns h3 { font-size: 19px; }
+  .affaire-brief-facts > div { grid-template-columns: 110px minmax(0, 1fr); }
+  .affaire-workbench-estimate-action { width: 100%; margin-left: 0; }
+}

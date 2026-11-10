@@ -530,6 +530,9 @@ describe("local Supabase CI", () => {
       "github.event_name == 'pull_request' && 'pull_request' || 'local'"
     );
     expect(workflow).not.toContain("github.event.before");
+    // Un push direct sur main qui touche la base lance la matrice sans
+    // attendre la nuit ; les autres pushs ne la lancent pas.
+    expect(workflow).toMatch(/\n  push:\n    branches: \["main"\]\n    paths:\n      - "supabase\/\*\*"\n/u);
     expect(workflow).toContain("github.ref || github.run_id");
     expect(workflow).toContain(
       "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"

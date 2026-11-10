@@ -4,7 +4,7 @@ import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import type { PageAnchors } from "@/lib/takeoff/rules/registration";
 import type { VectorPageRecord } from "@/lib/takeoff/vectors/persistence";
-import { persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
 
 // TI-677 (Codex #160, thread 4467830243), prerequisite of MERGEONE_TAKEOFF_RULES=1: the page row was inserted with
 // anchors over the 262,144-byte check of takeoff_vector_pages.rule_anchors; the insert failed and the processor
@@ -39,6 +39,14 @@ afterEach(() => {
 });
 
 describe("registration anchors written with the page", () => {
+  it("does not delete the selected reading or report a fallback after an ambiguous selection response", async () => {
+    const fake = createSupabaseFake({ tables: {} });
+    const error = Object.assign(new Error("Selection response lost after commit"), { code: "TAKEOFF_QUANTITY_SOURCE_SELECTION_UNRESOLVED" });
+    await expect(discardTakeoffVectorReading({ supabase: fake.client as never, job: JOB,
+      resultId: "9f000000-0000-4000-8000-000000000004", error })).rejects.toBe(error);
+    expect(fake.writesTo("takeoff_items")).toHaveLength(0);
+    expect(fake.writesTo("takeoff_vector_pages")).toHaveLength(0);
+  });
   it("bounds anchors over 256 KiB before the insert, so that the page and its reading are kept", async () => {
     const anchors: PageAnchors = { version: 1,
       texts: Array.from({ length: 1500 }, (_, index): [string, number, number] => [`${"管".repeat(74)}${String(index).padStart(6, "0")}`, index, 1]),

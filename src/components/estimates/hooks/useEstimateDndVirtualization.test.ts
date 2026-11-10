@@ -289,4 +289,58 @@ describe("useEstimateDndVirtualization", () => {
       ["line-source"]
     );
   });
+
+  it("hands the rows the same sensors and sortable ids while the window scrolls", () => {
+    const section = createItem({ id: "section-a", item_type: "section", position: 1 });
+    const lines = Array.from({ length: 40 }, (_, index) =>
+      createItem({ id: `line-${index}`, parent_id: "section-a", position: index + 1 })
+    );
+    const itemsByParent = new Map<string, EstimateItem[]>([
+      ["root", [section]],
+      ["section-a", lines],
+    ]);
+    const getVisibleItems = (parentId: string | null) => itemsByParent.get(parentId ?? "root") ?? [];
+    const depthMap = new Map<string, number>([["section-a", 0], ...lines.map((line) => [line.id, 1] as [string, number])]);
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+    const stableInput = {
+      canReorder: true,
+      maxSectionDepth: 2,
+      itemsByParent,
+      onReorder: vi.fn(),
+      onMoveItem: vi.fn(),
+      hasVisibleRows: true,
+      getVisibleItems,
+      depthMap,
+      mergedUnitDrafts: {},
+      mergedSupplyTypeDrafts: {},
+      qualityFlagsByItemId: {},
+      suggestionsByItemId: new Map(),
+      virtualization: { enabled: true },
+      tableCardRef,
+    };
+    const windowOf = (start: number) => ({
+      scrollRef: createRef<HTMLDivElement>(),
+      virtualItems: Array.from({ length: 10 }, (_, offset) => ({ index: start + offset, start: 0, size: 35 })),
+      totalSize: 41 * 35,
+      measureElement: vi.fn(),
+      scrollToIndex: vi.fn(),
+      isVirtualized: true,
+    });
+    mockUseVirtualList.mockReturnValue(windowOf(0));
+
+    const { result, rerender } = renderHook(() => useEstimateDndVirtualization(stableInput));
+    const first = result.current;
+
+    // One line leaves the window, one comes in: a scroll step.
+    mockUseVirtualList.mockReturnValue(windowOf(1));
+    rerender();
+
+    // dnd-kit hands these to every mounted row through its contexts: a new
+    // identity here renders every row again for each scroll step.
+    expect(result.current.sensors).toBe(first.sensors);
+    expect(result.current.virtualizedSortableIds).toBe(first.virtualizedSortableIds);
+    // Every row of the list, mounted or not, so that the order of a drop is known.
+    expect(result.current.virtualizedSortableIds).toEqual(["section-a", ...lines.map((line) => line.id)]);
+  });
 });

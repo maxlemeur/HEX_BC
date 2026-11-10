@@ -79,7 +79,7 @@ describe("ValidationReviewPanel", () => {
 
   // D18f, written before the fix: a line showed its score badge beside « Confiance faible » and « Confiance moyenne »
   // (0,42), or « Confiance inconnue » beside « Confiance moyenne » (no confidence): contradictory badges on one line.
-  it("shows one confidence badge per line: faible under the low threshold, else inconnue, else moyenne", () => {
+  it("shows one qualitative confidence badge and explains a missing score", () => {
     render(
       <ValidationReviewPanel
         items={[
@@ -96,7 +96,7 @@ describe("ValidationReviewPanel", () => {
       within(screen.getByRole("article", { name: designation })).getAllByText(/^Confiance/).map((badge) => badge.textContent);
     expect(confidenceBadges("Tube cuivre 14")).toEqual(["Confiance faible"]);
     expect(confidenceBadges("Tube cuivre 12")).toEqual(["Confiance faible"]);
-    expect(confidenceBadges("Tube cuivre 16")).toEqual(["Confiance inconnue"]);
+    expect(confidenceBadges("Tube cuivre 16")).toEqual(["Confiance faible · score absent"]);
     expect(confidenceBadges("Tube cuivre 18")).toEqual(["Confiance moyenne"]);
   });
 });
