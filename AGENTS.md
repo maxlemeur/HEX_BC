@@ -136,7 +136,10 @@ contract take precedence over historical reports and procedures.
   documentation-only starts a full Critical run of about 15 minutes, and nothing
   cancels it. After pushing, read the Quality Gate and Critical results of your
   commit. If your change made one red, fix it before other work; if it was
-  already red, say so in your report.
+  already red, say so in your report. The push also queues the Full and calc-v3
+  [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
+  one at a time: an open issue « CI rouge sur main » names their red journeys,
+  and one your change caused is yours to fix.
 - Pull requests are the exception (asked for, Dependabot, or an environment that
   cannot push to `main`). Open them ready for review, never as drafts, with the
   template. Push once per review round, since a new push cancels the runs in

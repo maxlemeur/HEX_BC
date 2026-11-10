@@ -66,8 +66,10 @@ fois et une journée chargée compte plus de vingt push.
   carte d'impact) ne démarre aucune campagne et n'en remplace aucune.
 
 Le résultat d'un commit se lit donc sur la première campagne terminée qui le
-contient : de l'ordre d'une heure après le push (estimation à deux jobs de
-front), davantage derrière une campagne déjà en cours. Une campagne rouge ouvre le [ticket d'alerte](#alerte-des-campagnes-de-main).
+contient : environ 45 minutes après le push (première campagne mesurée, le
+10/11/2026 : Full 40 minutes, Calc-v3 46 minutes), davantage derrière une
+campagne déjà en cours. Une campagne rouge ouvre le
+[ticket d'alerte](#alerte-des-campagnes-de-main).
 
 ## Avant un push direct sur main
 
