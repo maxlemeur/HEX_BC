@@ -79,7 +79,6 @@ import {
   type EstimateSectionCalculation,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
-  useGridActiveRowId,
   useGridNavigation,
   type GridNavigationResult,
 } from "@/hooks/useGridNavigation";
@@ -88,6 +87,11 @@ import {
   useEstimateGridCellActions,
   useEstimateGridClipboardEvents,
 } from "@/components/estimates/hooks/useEstimateGridCellActions";
+import { GridActiveRow, resolveActiveLineBreadcrumb } from "@/components/estimates/grid/EstimateGridActiveRow";
+import {
+  extractTrackedSuggestionValuesFromPatch,
+  useSuggestionCorrectionTracking,
+} from "@/components/estimates/hooks/useSuggestionCorrectionTracking";
 import {
   useColumnVisibility,
   type ColumnKey,
@@ -186,15 +190,11 @@ export type {
   SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
 import {
-  TRACKED_SUGGESTION_CORRECTION_FIELDS,
   type AppliedSuggestionContext,
   type EstimateQualityFilter,
   type EstimateVirtualizationConfig,
   type EstimateEditorItemMeta,
   type EstimateEditorItemPatch,
-  type SuggestionAppliedValues,
-  type SuggestionCorrectionFieldName,
-  type SuggestionCorrectionValue,
 } from "@/components/estimates/estimate-editor-table-types";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -618,65 +618,6 @@ function toNonEmptyString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeSuggestionCorrectionValue(
-  fieldName: SuggestionCorrectionFieldName,
-  value: unknown
-): SuggestionCorrectionValue {
-  if (fieldName === "k_fo" || fieldName === "k_mo") {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number.parseFloat(value.replace(",", "."));
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-    return null;
-  }
-
-  return toNonEmptyString(value);
-}
-
-function readTrackedFieldValueFromPatch(
-  patch: ItemPatch,
-  fieldName: SuggestionCorrectionFieldName
-): SuggestionCorrectionValue | undefined {
-  if (!(fieldName in patch)) return undefined;
-  const rawValue = patch[fieldName];
-  if (rawValue === undefined) return undefined;
-  return normalizeSuggestionCorrectionValue(fieldName, rawValue);
-}
-
-function toSuggestionCorrectionTextValue(value: SuggestionCorrectionValue) {
-  if (value === null) return null;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value) : null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function areSuggestionCorrectionValuesEqual(
-  left: SuggestionCorrectionValue,
-  right: SuggestionCorrectionValue
-) {
-  if (typeof left === "number" || typeof right === "number") {
-    return typeof left === "number" && typeof right === "number" && left === right;
-  }
-  return left === right;
-}
-
-function extractTrackedSuggestionValuesFromPatch(patch: ItemPatch) {
-  const trackedValues: SuggestionAppliedValues = {};
-  TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
-    const fieldValue = readTrackedFieldValueFromPatch(patch, fieldName);
-    if (fieldValue === undefined) return;
-    trackedValues[fieldName] = fieldValue;
-  });
-  return trackedValues;
-}
-
 function normalizeQuickFilterTerm(value: string) {
   return value.trim().toLowerCase();
 }
@@ -883,43 +824,6 @@ export function resolveEstimateViewportColumns(
   isMobileViewport: boolean
 ): ReadonlySet<ColumnKey> {
   return isMobileViewport ? MOBILE_ESSENTIAL_COLUMNS : visibleColumns;
-}
-
-/** « Lot > Sous-lot » of the active line; null on a section or at the root. */
-function resolveActiveLineBreadcrumb(
-  activeClientKey: string | null,
-  itemByClientKey: ReadonlyMap<string, EstimateItem>,
-  itemById: ReadonlyMap<string, EstimateItem>,
-) {
-  if (!activeClientKey) return null;
-  const activeItem = itemByClientKey.get(activeClientKey);
-  if (!activeItem || activeItem.item_type !== "line") return null;
-
-  const labels: string[] = [];
-  let cursorParentId = activeItem.parent_id;
-  let guard = 0;
-  while (cursorParentId && guard < 100) {
-    guard += 1;
-    const parent = itemById.get(cursorParentId);
-    if (!parent || parent.item_type !== "section") break;
-    labels.push(parent.title || "Sans titre");
-    cursorParentId = parent.parent_id;
-  }
-  return labels.length === 0 ? null : labels.reverse().join(" > ");
-}
-
-/**
- * Renders what depends on the active row. Moving the active cell re-renders
- * this subtree only, never the table.
- */
-function GridActiveRow({
-  navigation,
-  children,
-}: {
-  navigation: GridNavigationResult;
-  children: (activeClientKey: string | null) => React.ReactNode;
-}) {
-  return <>{children(useGridActiveRowId(navigation))}</>;
 }
 
 export function EstimateEditorTable({
@@ -1417,82 +1321,15 @@ export function EstimateEditorTable({
     });
   }, []);
 
-  const collectSuggestionCorrections = useCallback(
-    (itemId: string, patch: ItemPatch): SuggestionCorrectionPayload[] => {
-      if (!isSuggestionLearningEnabled) return [];
-      if (!onTrackSuggestionCorrections) return [];
-
-      const appliedContext = appliedSuggestionContextByItemIdRef.current[itemId];
-      if (!appliedContext) return [];
-
-      const item = itemById.get(itemId);
-      if (!item || item.item_type !== "line") return [];
-
-      const corrections: SuggestionCorrectionPayload[] = [];
-
-      TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
-        if (appliedContext.trackedFieldDivergences[fieldName]) {
-          return;
-        }
-
-        const correctedValue = readTrackedFieldValueFromPatch(patch, fieldName);
-        if (correctedValue === undefined) return;
-
-        const suggestedValue = appliedContext.suggestedValues[fieldName];
-        if (suggestedValue === undefined) return;
-
-        if (areSuggestionCorrectionValuesEqual(suggestedValue, correctedValue)) {
-          return;
-        }
-
-        appliedContext.trackedFieldDivergences[fieldName] = true;
-        corrections.push({
-          rule_id: appliedContext.ruleId,
-          field_name: fieldName,
-          original_value: toSuggestionCorrectionTextValue(suggestedValue),
-          corrected_value: toSuggestionCorrectionTextValue(correctedValue),
-          item_title: item.title ?? "",
-        });
-      });
-
-      return corrections;
-    },
-    [isSuggestionLearningEnabled, itemById, onTrackSuggestionCorrections]
-  );
-
-  const sendSuggestionCorrections = useCallback(
-    (corrections: SuggestionCorrectionPayload[]) => {
-      if (corrections.length === 0 || !onTrackSuggestionCorrections) return;
-      void onTrackSuggestionCorrections(corrections).catch((error) => {
-        console.error("Impossible d'envoyer les corrections de suggestion.", error);
-      });
-    },
-    [onTrackSuggestionCorrections]
-  );
-
-  const patchItemWithSuggestionTracking = useCallback(
-    (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
-      onPatchItem(itemId, patch, options);
-
-      if (options?.persist !== true) return;
-      sendSuggestionCorrections(collectSuggestionCorrections(itemId, patch));
-    },
-    [collectSuggestionCorrections, onPatchItem, sendSuggestionCorrections]
-  );
-
-  // Cells written together by the grid correct the suggestions as a cell-by-cell entry
-  // does, once the batch is accepted and in a single send.
-  const applyCellPatchesWithSuggestionTracking = useMemo(() => {
-    if (!onApplyCellPatches) return undefined;
-    return async (entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>) => {
-      const applied = await onApplyCellPatches(entries);
-      if (applied === false) return false;
-      sendSuggestionCorrections(
-        entries.flatMap((entry) => collectSuggestionCorrections(entry.itemId, entry.patch))
-      );
-      return true;
-    };
-  }, [collectSuggestionCorrections, onApplyCellPatches, sendSuggestionCorrections]);
+  const { patchItemWithSuggestionTracking, applyCellPatchesWithSuggestionTracking } =
+    useSuggestionCorrectionTracking({
+      isEnabled: isSuggestionLearningEnabled,
+      appliedContextByItemIdRef: appliedSuggestionContextByItemIdRef,
+      itemById,
+      onPatchItem,
+      onApplyCellPatches,
+      onTrackSuggestionCorrections,
+    });
 
   const handleUnitCommit = useCallback(
     (itemId: string) => {
