@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_CAD_NOTICE,
+  AFFAIRE_INTAKE_DXF_NOTICE,
+  affaireIntakeCadNotice,
   getAffaireIntakeAllowedMimeTypes,
   getHeuristicAffaireDocumentClassification,
   inferAffaireIntakeMimeType,
@@ -40,12 +42,25 @@ describe("CAD/BIM dossier originals", () => {
     expect(validate("maquette.rvt", "application/octet-stream", 0).valid).toBe(false);
   });
 
-  it.each(["dpgf.dwg", "cctp.dxf", "maquette.rvt"])("does not infer readable business content from %s", (name) => {
+  it.each([
+    ["dpgf.dwg", AFFAIRE_INTAKE_CAD_NOTICE],
+    ["cctp.dxf", AFFAIRE_INTAKE_DXF_NOTICE],
+    ["maquette.rvt", AFFAIRE_INTAKE_CAD_NOTICE],
+  ])("does not infer readable business content from %s", (name, notice) => {
     const result = getHeuristicAffaireDocumentClassification({ fileName: name });
     expect(result.documentKind).toBe("plans");
     expect(result.confidence).toBeLessThan(0.65);
-    expect(result.issues).toContain(AFFAIRE_INTAKE_CAD_NOTICE);
+    expect(result.issues).toEqual([notice]);
     expect(result.extractedMetadata.detectedLots).toEqual([]);
+  });
+
+  it("tells a DXF, which MergeOne reads, from the originals it only keeps", () => {
+    expect(affaireIntakeCadNotice("Réseaux EF.DXF")).toBe(AFFAIRE_INTAKE_DXF_NOTICE);
+    expect(affaireIntakeCadNotice("réseaux.dwg")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
+    expect(affaireIntakeCadNotice("maquette.rvt")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
+    expect(affaireIntakeCadNotice("plan.dxf.pdf")).toBeNull();
+    expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
+    expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("Aperçu et métré non disponibles");
   });
 
   it("allows a downloadable original on Drive but keeps ordinary MIME validation", () => {

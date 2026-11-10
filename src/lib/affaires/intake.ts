@@ -49,6 +49,14 @@ export function isAffaireIntakeCadDocument(fileName: string) {
   return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
 }
 
+/** A DXF is read in MergeOne (view, quantities, plotted PDF); a DWG or an RVT is only kept. */
+export const AFFAIRE_INTAKE_DXF_NOTICE = "Original DXF conservé. Ouvrez-le pour visualiser le plan et relever ses quantités ; ajoutez son tracé PDF au dossier pour le métré.";
+
+export function affaireIntakeCadNotice(fileName: string): string | null {
+  if (!isAffaireIntakeCadDocument(fileName)) return null;
+  return getAffaireIntakeFileExtension(fileName) === "dxf" ? AFFAIRE_INTAKE_DXF_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
+}
+
 export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {
   return isAffaireIntakeCadDocument(fileName)
     ? CAD_MIME_TYPES[getAffaireIntakeFileExtension(fileName)]
@@ -558,11 +566,12 @@ export function getHeuristicAffaireDocumentClassification(input: {
   mimeType?: string | null;
 }): AffaireIntakeClassificationResult {
   const extension = getAffaireIntakeFileExtension(input.fileName);
-  if (isAffaireIntakeCadDocument(input.fileName)) {
+  const cadNotice = affaireIntakeCadNotice(input.fileName);
+  if (cadNotice) {
     return {
       documentKind: "plans",
       confidence: 0.64,
-      issues: [AFFAIRE_INTAKE_CAD_NOTICE],
+      issues: [cadNotice],
       extractedMetadata: createEmptyAffaireIntakeExtractedMetadata(),
     };
   }

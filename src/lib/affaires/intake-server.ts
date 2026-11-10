@@ -733,6 +733,16 @@ function toSafeMimeType(file: File) {
   return file.type.trim().toLowerCase() || inferAffaireIntakeMimeType(file.name) || "application/octet-stream";
 }
 
+/**
+ * What goes to the storage for a deposited file: its bytes under the type the
+ * dossier records. The storage reads the type of the body, not the option
+ * beside it, and the bucket only takes the types it lists.
+ */
+function toStoredUpload(file: File): { mimeType: string; body: File } {
+  const mimeType = toSafeMimeType(file);
+  return { mimeType, body: file.type === mimeType ? file : new File([file], file.name, { type: mimeType }) };
+}
+
 function addIssue(issues: string[], issue: string) {
   const trimmed = issue.trim();
   if (!trimmed) {
@@ -2262,7 +2272,7 @@ export async function createAffaireIntakeUpload(
 
   for (const file of files) {
     const documentId = randomUUID();
-    const mimeType = toSafeMimeType(file);
+    const { mimeType, body: storedBody } = toStoredUpload(file);
     const storagePath = buildAffaireIntakeStoragePath({
       tenantId: project.tenant_id,
       projectId: project.id,
@@ -2331,7 +2341,7 @@ export async function createAffaireIntakeUpload(
 
     const { error: storageError } = await context.supabase.storage
       .from(AFFAIRE_INTAKE_BUCKET)
-      .upload(storagePath, file, {
+      .upload(storagePath, storedBody, {
         contentType: mimeType,
         upsert: false,
       });
@@ -2455,6 +2465,7 @@ export const __securityTesting__ = {
   classifyAffaireIntakeDocument,
   generateAffaireBriefDraft,
   validateAffaireIntakeUploadBatch,
+  toStoredUpload,
   validateSpreadsheetBudget,
   buildSpreadsheetSnippet,
   SPREADSHEET_MAX_ARCHIVE_ENTRIES,
