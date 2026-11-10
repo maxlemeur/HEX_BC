@@ -8,7 +8,7 @@ import type {
   TakeoffMetricsRecentJob,
   TakeoffRuleForcingMetrics,
 } from "@/lib/takeoff/types";
-import { TAKEOFF_RULE_FORCING_RATE_NOTE } from "@/lib/takeoff/metrics-types";
+import { TAKEOFF_RULE_FORCING_GUIDE, TAKEOFF_RULE_FORCING_RATE_NOTE } from "@/lib/takeoff/metrics-types";
 import type { TakeoffPilotWeeklySnapshot } from "@/lib/takeoff/pilot-metrics";
 
 import {
@@ -265,6 +265,7 @@ export function CorrectionByLevelTable({
 export function RuleForcingTable({ data }: { data: TakeoffRuleForcingMetrics }) {
   return (
     <div>
+      <p className="px-4 pt-3 text-xs text-muted-foreground">{TAKEOFF_RULE_FORCING_GUIDE}</p>
       {data.forcedLines === 0 ? (
         <p className="px-4 pt-3 text-sm text-muted-foreground">Aucune ligne forcée sur la période.</p>
       ) : null}
@@ -287,9 +288,11 @@ export function RuleForcingTable({ data }: { data: TakeoffRuleForcingMetrics }) 
                 <td className="px-4 py-3 text-right">{formatNumber(row.forcedLines)}</td>
                 <td className="px-4 py-3 text-right">{formatNumber(row.falsePositiveLines)}</td>
                 <td className="px-4 py-3 text-right font-semibold">
-                  {row.falsePositiveRate === null
-                    ? "-"
-                    : `${formatPercent(row.falsePositiveRate)} % (${formatNumber(row.falsePositiveLines)}/${formatNumber(row.failedLines)})`}
+                  {!row.canBlock
+                    ? "Sans objet"
+                    : row.falsePositiveRate === null
+                      ? "-"
+                      : `${formatPercent(row.falsePositiveRate)} % (${formatNumber(row.falsePositiveLines)}/${formatNumber(row.failedLines)})`}
                 </td>
               </tr>
             ))}

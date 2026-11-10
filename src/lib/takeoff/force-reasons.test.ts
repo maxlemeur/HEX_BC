@@ -109,6 +109,21 @@ describe("forceReasonsFor and forcedItemError", () => {
     }
   });
 
+  // Every overlap code this version writes is a quantity warning; a code it does not know (written by another version of
+  // the rules) keeps its protection (quantity-review-policy.ts) and blocks: « doublon résolu » then holds, as in SQL.
+  it("offers « doublon résolu » on a zone or room overlap that blocks the line, and accepts it", () => {
+    for (const rule of ["zone_overlap", "room_overlap"] as const) {
+      const overlap = { rule, status: "fail", code: "OVERLAP_FROM_ANOTHER_VERSION", version: 9, acceptable: true,
+        reason: "Chevauchement relevé par une autre version des règles (fictif)." } as unknown as TakeoffRuleResult;
+      const entry = blocked(line(ids.a, { rule_results: [overlap] }));
+      expect(entry.rule_failures?.map((failure) => failure.rule)).toEqual([rule]);
+      expect(forceReasonsFor(entry)).toEqual(["rule_false_positive", "additional_evidence", "engineer_or_client_confirmation",
+        "controlled_correction", "duplicate_resolved", "priced_hypothesis"]);
+      expect(forcedItemError(entry, forced("duplicate_resolved"), [NOTE])).toBeNull();
+      expect(forcedItemError(entry, forced("duplicate_resolved"), ["Trop bref"])).toBe(FORCE_MESSAGES.justification);
+    }
+  });
+
   // listTakeoffApplyGuardItems reads unreadable results as [] and stale: the four unconditional reasons only.
   it("offers only the unconditional reasons on results to compute again, as on unreadable ones", () => {
     const stale = blocked(line(ids.b, { rules_stale: true, rule_results: [blockedMaterial] }));

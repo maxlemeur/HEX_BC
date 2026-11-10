@@ -1,5 +1,5 @@
 import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
-import { FORCE_REASONS } from "@/lib/takeoff/force-reason-labels";
+import { forceReasonLabel } from "@/lib/takeoff/force-reason-labels";
 
 type EstimateLineTruthSourceKind =
   | "manual"
@@ -276,8 +276,7 @@ const OVERRIDE_LIFTED = "un administrateur a levé ce qui la bloquait (preuve lo
 /** TI-686 D10: the coded reasons of the forced sources (once each, in their order), as the override recorded them. */
 function forcedReasonLabels(provision: TakeoffProvision) {
   const labels = provision.sources.flatMap((source) => {
-    const label = source.forced && source.forced_reason
-      ? FORCE_REASONS[source.forced_reason as keyof typeof FORCE_REASONS] : undefined;
+    const label = source.forced && source.forced_reason ? forceReasonLabel(source.forced_reason) : undefined;
     return label ? [label] : [];
   });
   return [...new Set(labels)];

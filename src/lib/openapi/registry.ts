@@ -1308,6 +1308,7 @@ const takeoffRuleForcingRowSchema = z.object({
   forcedLines: z.number().int().min(0),
   falsePositiveLines: z.number().int().min(0),
   falsePositiveRate: z.number().min(0).max(100).nullable(),
+  canBlock: z.boolean(),
 });
 const takeoffRuleForcingMetricsSchema = z.object({
   forcedLines: z.number().int().min(0),

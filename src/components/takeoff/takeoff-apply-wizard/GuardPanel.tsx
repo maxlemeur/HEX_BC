@@ -298,7 +298,7 @@ export function GuardPanel({
           </button>
           {!canOverride ? (
             <p className="mt-2 text-xs text-danger" role="status">
-              Un aperçu d’impact à jour est requis avant toute dérogation.
+              Un aperçu d’impact à jour est requis avant tout forçage.
             </p>
           ) : null}
         </div>

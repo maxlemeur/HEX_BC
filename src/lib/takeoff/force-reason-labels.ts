@@ -12,3 +12,8 @@ export const FORCE_REASONS = {
   duplicate_resolved: "Doublon résolu",
   priced_hypothesis: "Hypothèse chiffrée",
 } as const satisfies Record<ForceReason, string>;
+
+/** The label of a stored reason code; none for any other text, a key every object inherits (« constructor ») included. */
+export function forceReasonLabel(code: string): string | undefined {
+  return Object.hasOwn(FORCE_REASONS, code) ? FORCE_REASONS[code as ForceReason] : undefined;
+}

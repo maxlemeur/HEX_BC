@@ -5,7 +5,9 @@ import { buildRuleForcingStats } from "@/lib/takeoff/stats-forcing";
 // TI-686 D10 (H19): per rule, the applied lines it fails, those forced past one of its blocking failures, and those an
 // administrator declared a false positive of it when forcing (a failure settled by V is never one). Since TI-681 only a
 // failure that is not a quantity warning blocks (today the network materials of dn_network): a scale, a printed
-// surface or an overlap is counted where it fails, never forced nor declared. All values are fictional.
+// surface or an overlap is counted where it fails, never forced nor declared, and its rate is not applicable (null,
+// not a misleading 0 %) unless a code another version of the rules wrote blocked a line on the period. All values are
+// fictional.
 
 const line = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const J1 = "10000000-0000-4000-8000-000000000001";
@@ -83,7 +85,8 @@ const overrideAudits = [
 const consumptions = [{ audit_log_id: CONSUMED, job_id: J1 }];
 
 const row = (rule: string, label: string, failedLines: number, forcedLines: number, falsePositiveLines: number,
-  falsePositiveRate: number | null) => ({ rule, label, failedLines, forcedLines, falsePositiveLines, falsePositiveRate });
+  falsePositiveRate: number | null, canBlock = rule === "dn_network") =>
+  ({ rule, label, failedLines, forcedLines, falsePositiveLines, falsePositiveRate, canBlock });
 
 describe("buildRuleForcingStats", () => {
   it("rates the false positives declared at forcing over the applied lines each rule fails", () => {
@@ -91,9 +94,9 @@ describe("buildRuleForcingStats", () => {
 
     expect(stats.rows).toEqual([
       row("dn_network", "DN et réseau", 11, 5, 3, 27.3),
-      row("zone_overlap", "Doublon entre zones", 1, 0, 0, 0),
-      row("scale_dimension", "Échelle et cotes", 5, 0, 0, 0),
-      row("area_printed", "Aire et surface imprimée", 2, 0, 0, 0),
+      row("zone_overlap", "Doublon entre zones", 1, 0, 0, null),
+      row("scale_dimension", "Échelle et cotes", 5, 0, 0, null),
+      row("area_printed", "Aire et surface imprimée", 2, 0, 0, null),
       row("room_overlap", "Pièces qui se chevauchent", 0, 0, 0, null),
       row("closed_box", "Boîte fermée", 0, 0, 0, null),
       row("non_observable", "Quantité à saisir", 0, 0, 0, null),
@@ -119,7 +122,35 @@ describe("buildRuleForcingStats", () => {
 
     expect(stats.rows.find((entry) => entry.rule === "dn_network")).toEqual(row("dn_network", "DN et réseau", 1, 1, 1, 100));
     expect(stats.rows.find((entry) => entry.rule === "scale_dimension"))
-      .toEqual(row("scale_dimension", "Échelle et cotes", 1, 0, 0, 0));
+      .toEqual(row("scale_dimension", "Échelle et cotes", 1, 0, 0, null));
+  });
+
+  // N counts every applied line the rule fails, its failures settled by V included (N1-N3 above); only n leaves them out.
+  it("counts the failures settled by V in N, never in n", () => {
+    const stats = buildRuleForcingStats({
+      jobs: [{ id: J1, status: "applied" }],
+      items: [item(11, J1, [blocked]), item(21, J1, [notAllowed], { verified: true })],
+      overrideAudits: [override(CONSUMED, J1, [{ n: 11, reason: "rule_false_positive", rules: ["dn_network"] }])],
+      consumptions,
+    });
+
+    expect(stats.rows[0]).toEqual(row("dn_network", "DN et réseau", 2, 1, 1, 50));
+  });
+
+  // Every overlap code this version writes is a quantity warning; a code it does not know (another version of the rules)
+  // keeps its protection and blocks: the rule was forced on the period, so its rate applies.
+  it("rates a rule that never blocks today once a code of another version blocked a forced line", () => {
+    const other = { rule: "zone_overlap", status: "fail", code: "ZONE_OVERLAP_FROM_ANOTHER_VERSION", version: 9,
+      acceptable: true, reason: "Chevauchement relevé par une autre version des règles (fictif)." };
+    const stats = buildRuleForcingStats({
+      jobs: [{ id: J1, status: "applied" }],
+      items: [item(61, J1, [other]), item(63, J1, [duplicateOf(line(99), OTHER_JOB)])],
+      overrideAudits: [override(CONSUMED, J1, [{ n: 61, reason: "rule_false_positive", rules: ["zone_overlap"] }])],
+      consumptions,
+    });
+
+    expect(stats.rows.find((entry) => entry.rule === "zone_overlap"))
+      .toEqual(row("zone_overlap", "Doublon entre zones", 2, 1, 1, 50, true));
   });
 
   it("reads stored values it cannot parse as nothing", () => {

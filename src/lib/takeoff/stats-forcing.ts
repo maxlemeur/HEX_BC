@@ -2,7 +2,7 @@ import { blockingRules, type LeftOut } from "@/lib/takeoff/rules/blocking";
 import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
-import { TAKEOFF_RULE_IDS, type TakeoffRuleId, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
+import { TAKEOFF_RULE_CODES, TAKEOFF_RULE_IDS, type TakeoffRuleId, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import { isQuantityWarning } from "@/lib/takeoff/quantity-review-policy";
 import type { TakeoffRuleForcingMetrics } from "@/lib/takeoff/metrics-types";
 
@@ -18,7 +18,11 @@ import type { TakeoffRuleForcingMetrics } from "@/lib/takeoff/metrics-types";
 //   of R blocked it, as TI-681 defines it (checkApplyGuard): a quantity warning (a scale, a printed surface, an overlap,
 //   a missing DN…) never blocks, so it is never forced nor declared.
 // - Declared a false positive of R: a line forced past R whose coded reason is rule_false_positive naming R. A false
-//   positive settled by V is not one (H19). The counts never exceed one another: n <= forced <= N.
+//   positive settled by V is not one (H19), though its line counts in N. The counts never exceed one another:
+//   n <= forced <= N.
+// - A rule whose failures are all quantity warnings never blocks, so it is never forced: its rate is not applicable
+//   (null, never a 0 % that would read as a reliable rule), unless a code this version does not know (another version
+//   of the rules wrote it) kept its protection and blocked a line forced on the period.
 // What the stored values hold is read as tolerantly as the guard reads it: unreadable results as none, an audit whose
 // forced entries do not parse as forcing nothing.
 
@@ -56,6 +60,10 @@ function readResults(value: unknown): TakeoffRuleResult[] {
   const results = TakeoffRuleResultsSchema.safeParse(value ?? []);
   return results.success ? results.data : [];
 }
+
+/** The rules one of whose known failures blocks a line since TI-681 (today dn_network, its network materials). */
+const RULES_THAT_BLOCK: ReadonlySet<TakeoffRuleId> = new Set(TAKEOFF_RULE_IDS.filter((rule) =>
+  TAKEOFF_RULE_CODES[rule].fail.some((code: string) => !isQuantityWarning(code))));
 
 /** A rate in percent with one decimal, as the other rates of the payload; none without any line. */
 function rate(count: number, total: number): number | null {
@@ -119,8 +127,9 @@ export function buildRuleForcingStats(input: {
     forcedLines,
     rows: TAKEOFF_RULE_IDS.map((rule) => {
       const { failed, forced, declared } = counts.get(rule)!;
+      const canBlock = RULES_THAT_BLOCK.has(rule) || forced > 0;
       return { rule, label: TAKEOFF_RULE_LABELS[rule], failedLines: failed, forcedLines: forced,
-        falsePositiveLines: declared, falsePositiveRate: rate(declared, failed) };
+        falsePositiveLines: declared, falsePositiveRate: canBlock ? rate(declared, failed) : null, canBlock };
     }),
   };
 }

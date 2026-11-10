@@ -76,13 +76,13 @@ insert into public.estimate_versions (id, tenant_id, project_id, version_number,
   commercial_rounding_cents, total_ht_cents, total_tax_cents, total_ttc_cents)
 select pg_temp.fr_version(job_case), current_setting('test.tenant_id')::uuid, 'c4000000-0000-4000-8000-000000000010', job_case,
   3, 3, 'EUR', 'draft', 'fixed', 1, 0, 1, 0, 'simple', 2000, 'none', 1, 1.3, 1.2, 0, 0, 0, 0, 0, 0
-from generate_series(1, 27) as job_case;
+from generate_series(1, 29) as job_case;
 
 do $seed$
 declare
   job_case integer;
 begin
-  for job_case in 1..27 loop
+  for job_case in 1..29 loop
     perform set_config('miaouffrage.estimate_v3_writer', pg_temp.fr_version(job_case)::text, true);
     insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
     values (pg_temp.fr_section(job_case), current_setting('test.tenant_id')::uuid, pg_temp.fr_version(job_case), 'section', 1,
@@ -96,20 +96,22 @@ insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, sess
 select pg_temp.fr_version(job_case),
   case when job_case = 26 then 'c4000000-0000-4000-8000-000000000002'::uuid else 'c4000000-0000-4000-8000-000000000001'::uuid end,
   current_setting('test.tenant_id')::uuid, statement_timestamp() + interval '30 minutes', gen_random_uuid()
-from generate_series(1, 27) as job_case;
+from generate_series(1, 29) as job_case;
 
 -- The jobs ...2nn and their lines c4000000-0000-4000-8001-…nn1 (and …nn2). What blocks a line since TI-681
 -- (protection): evidence (no localized proof), material (a blocked material), stale (a blocked material whose results
 -- are to compute again), unreadable (no localized proof, results the route's schema cannot read: it reads them as none
 -- and stale), scale (no localized proof and an unverified scale warning), duplicate (no localized proof and a duplicate
--- between zones), admitted (nothing).
+-- between zones), admitted (nothing), overlap and room (a zone or a room overlap under a code that is not a quantity
+-- warning, as another version of the rules could write it: an unknown code keeps its protection and blocks).
 create temporary table fr_lines (job_case integer, line integer, protection text) on commit drop;
 insert into fr_lines values
   (1, 1, 'evidence'), (2, 1, 'evidence'), (3, 1, 'evidence'), (3, 2, 'material'), (4, 1, 'evidence'), (5, 1, 'evidence'),
   (6, 1, 'evidence'), (7, 1, 'evidence'), (8, 1, 'evidence'), (9, 1, 'evidence'), (10, 1, 'evidence'), (11, 1, 'material'),
   (12, 1, 'material'), (13, 1, 'material'), (14, 1, 'material'), (15, 1, 'material'), (16, 1, 'scale'), (17, 1, 'duplicate'),
   (18, 1, 'stale'), (19, 1, 'stale'), (20, 1, 'unreadable'), (21, 1, 'unreadable'), (22, 1, 'material'), (23, 1, 'evidence'),
-  (24, 1, 'evidence'), (24, 2, 'admitted'), (25, 1, 'evidence'), (26, 1, 'evidence'), (27, 1, 'evidence');
+  (24, 1, 'evidence'), (24, 2, 'admitted'), (25, 1, 'evidence'), (26, 1, 'evidence'), (27, 1, 'evidence'),
+  (28, 1, 'overlap'), (29, 1, 'room');
 
 create or replace function pg_temp.fr_job(p_case integer)
 returns uuid
@@ -137,13 +139,16 @@ insert into public.takeoff_items (id, tenant_id, job_id, designation, quantity, 
   source_page, is_verified, rule_results, rules_evaluated_at, rules_stale, rules_stale_at, created_at)
 select pg_temp.fr_line(fixture.job_case, fixture.line), current_setting('test.tenant_id')::uuid, pg_temp.fr_job(fixture.job_case),
   format('Ligne %s.%s (%s)', fixture.job_case, fixture.line, fixture.protection), 4, 'ml', 0.95,
-  case when fixture.protection in ('material', 'stale', 'admitted') then 'Repère localisé' end, 'plan-fictif.pdf', 1, false,
+  case when fixture.protection in ('material', 'stale', 'admitted', 'overlap', 'room') then 'Repère localisé' end,
+  'plan-fictif.pdf', 1, false,
   case fixture.protection
     when 'material' then '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":3,"acceptable":false,"reason":"Matériau interdit (fictif)."}]'
     when 'stale' then '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED","version":3,"acceptable":false,"reason":"Matériau interdit (fictif)."}]'
     when 'unreadable' then '[{"rule":"dn_network","status":"pass"}]'
     when 'scale' then '[{"rule":"scale_dimension","status":"fail","code":"SCALE_DIMENSION_MISMATCH","version":2,"acceptable":true,"reason":"Une cote contredit l''échelle (fictif)."}]'
     when 'duplicate' then '[{"rule":"zone_overlap","status":"fail","code":"ZONE_OVERLAP_DUPLICATE","version":101,"acceptable":true,"reason":"Tronçon compté aussi sur Z2 (fictif).","details":{"partner_count":1,"overlap_m":1,"partners":[{"item_id":"c4000000-0000-4000-8000-0000000fffff","job_id":"c4000000-0000-4000-8000-000000000299","zone":"Z2","designation":"EF","overlap_m":1,"resolved":false}]}}]'
+    when 'overlap' then '[{"rule":"zone_overlap","status":"fail","code":"ZONE_OVERLAP_FROM_ANOTHER_VERSION","version":109,"acceptable":true,"reason":"Chevauchement entre zones relevé par une autre version des règles (fictif)."}]'
+    when 'room' then '[{"rule":"room_overlap","status":"fail","code":"ROOM_OVERLAP_FROM_ANOTHER_VERSION","version":9,"acceptable":true,"reason":"Pièces qui se chevauchent, relevées par une autre version des règles (fictif)."}]'
     else '[]'
   end::jsonb,
   case when fixture.protection <> 'admitted' then now() end,
@@ -317,6 +322,13 @@ where record_id = pg_temp.fr_job(26) and action = 'takeoff.apply.override';
 -- 27: a priced hypothesis (unconditional), justifications stored once for one line.
 select pg_temp.fr_override(27, array[1], jsonb_build_object('forced_justifications', jsonb_build_array(current_setting('test.note')),
   'forced_items', jsonb_build_array(pg_temp.fr_item(27, 'priced_hypothesis'))));
+-- 28, 29: « doublon résolu » on a zone overlap, then on a room overlap, that blocks the line (its only protection).
+-- Positive coverage added after the migration (review of 72eb97dc), not a regression: it passes on the migration as
+-- written.
+select pg_temp.fr_override(28, array[1], jsonb_build_object('forced_justifications', jsonb_build_array(current_setting('test.note')),
+  'forced_items', jsonb_build_array(pg_temp.fr_item(28, 'duplicate_resolved'))));
+select pg_temp.fr_override(29, array[1], jsonb_build_object('forced_justifications', jsonb_build_array(current_setting('test.note')),
+  'forced_items', jsonb_build_array(pg_temp.fr_item(29, 'duplicate_resolved'))));
 
 -- The applications -------------------------------------------------------------------------------------------
 
@@ -326,6 +338,12 @@ select is(array(select distinct fixture.job_case from fr_lines fixture
     join public.takeoff_items ti on ti.id = pg_temp.fr_line(fixture.job_case, fixture.line)
     where ti.rules_stale order by fixture.job_case),
   array[18, 19], '(fixture) only the lines of cases 18 and 19 are to compute again');
+-- The overlaps of cases 28 and 29 block their lines, as TI-681 reads them (their codes are no quantity warning).
+select is(array(select fixture.job_case from fr_lines fixture
+    join public.takeoff_items ti on ti.id = pg_temp.fr_line(fixture.job_case, fixture.line)
+    where fixture.protection in ('overlap', 'room')
+      and public.takeoff_item_rule_blocked(ti.rule_results, ti.rules_stale, ti.is_verified) order by fixture.job_case),
+  array[28, 29], '(fixture) the overlaps of cases 28 and 29 block their lines');
 
 set local role authenticated;
 select pg_temp.fr_as('c4000000-0000-4000-8000-000000000001');
@@ -361,16 +379,18 @@ select is(pg_temp.fr_apply(24), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'an entry fo
 select is(pg_temp.fr_apply(25), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
   'an audit that keeps the former job-level justification beside its forced entries is refused (H10)');
 select is(pg_temp.fr_apply(27), 'ok', 'a priced hypothesis is consumed');
+select is(pg_temp.fr_apply(28), 'ok', '« doublon résolu » on a zone overlap that blocks the line is consumed');
+select is(pg_temp.fr_apply(29), 'ok', '« doublon résolu » on a room overlap that blocks the line is consumed');
 select pg_temp.fr_as('c4000000-0000-4000-8000-000000000002');
 select is(pg_temp.fr_apply(26), 'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'an engineer cannot force, even with a valid override');
 reset role;
 
 select is(array(select job_case from (select distinct job_case from fr_lines) as job
     where pg_temp.fr_consumed(job_case) > 0 order by job_case),
-  array[8, 9, 19, 21, 22, 27], 'each valid override is consumed once, and only those');
+  array[8, 9, 19, 21, 22, 27, 28, 29], 'each valid override is consumed once, and only those');
 select is((select count(*)::integer from public.takeoff_apply_override_consumptions consumed
     where consumed.job_id in (select pg_temp.fr_job(job_case) from fr_lines)),
-  6, 'no override is consumed twice');
+  8, 'no override is consumed twice');
 
 -- Reading the consumptions (TI-686 D10, H11, migration …_takeoff_override_consumptions_admin_read.sql) -----------
 -- The pilot metrics count the false positives declared at forcing from the consumed overrides, read with the signed-in
@@ -410,7 +430,7 @@ select set_config('test.consumed_audit', (select consumed.audit_log_id::text fro
 
 set local role authenticated;
 select pg_temp.fr_as('c4000000-0000-4000-8000-000000000001');
-select is(pg_temp.fr_read_consumptions(), '6 6', 'an administrator of the tenant reads its six consumptions (H11)');
+select is(pg_temp.fr_read_consumptions(), '8 8', 'an administrator of the tenant reads its eight consumptions (H11)');
 select is(pg_temp.fr_write_consumptions(format(
     'insert into public.takeoff_apply_override_consumptions (audit_log_id, tenant_id, job_id, estimate_version_id, user_id) '
     'select al.id, al.tenant_id, al.record_id, al.estimate_version_id, al.user_id from public.audit_logs al '

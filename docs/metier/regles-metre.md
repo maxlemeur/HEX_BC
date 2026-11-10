@@ -221,10 +221,10 @@ d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sec
 - La justification est enregistrée avec la vérification (`verification_justification`)
   et journalisée. Rouvrir la ligne ou modifier son contenu l'efface.
 - Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
-  ligne ; sinon, seul un administrateur peut forcer l'application, avec une justification
-  écrite (voir « Override admin »). La ligne forcée entre alors au devis comme provision
-  interne (TI-686, D10). La réserve dans l'offre (TI-682) et la variante restent à
-  construire.
+  ligne ; sinon, seul un administrateur peut forcer l'application, avec un motif codé et
+  une justification écrite (voir « Override admin »). La ligne forcée entre alors au devis
+  comme provision interne (TI-686, D10). La réserve dans l'offre (TI-682) et la variante
+  restent à construire.
 
 **Cas tranchés par TI-685** (l'ancienne liste « à trancher ») :
 
@@ -533,7 +533,8 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     `checkApplyGuard`) : un avertissement de quantité (échelle, surface écrite, doublon entre zones, pièces qui se
     chevauchent, DN manquant…) ne bloque jamais, donc ne se déclare pas en faux positif. Aujourd'hui, seuls les échecs
     de matériau de `dn_network` (interdit, à justifier, PE gaz, bloqué) peuvent bloquer : « Doublon résolu » ne vaut
-    pour aucune ligne tant que les chevauchements restent des avertissements.
+    que pour un chevauchement sous un code que cette version ne connaît pas (écrit par une autre version des règles),
+    qui garde sa protection et bloque.
   - Des résultats illisibles (lus comme vides et à recalculer par la route) ou à recalculer n'admettent que les quatre
     motifs inconditionnels.
   - La requête d'application porte `override: true`, `forced_justifications` (chaque texte une fois) et
@@ -574,16 +575,20 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
   `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
   règle, sur les jobs appliqués de la période (section « Forçages par règle ») :
-  - « Lignes en échec appliquées » (N) : les lignes non exclues où la règle échoue, sauf un échec laissé de côté
-    (partenaires tous exclus parmi les lignes du job ; un partenaire d'un autre job compte comme présent) ;
+  - « Lignes en échec appliquées » (N) : les lignes non exclues où la règle échoue, y compris celles dont V a
+    accepté l'échec, sauf un échec laissé de côté (partenaires tous exclus parmi les lignes du job ; un partenaire
+    d'un autre job compte comme présent) ;
   - « Forcées » : celles d'un audit de forçage consommé dont l'échec de cette règle bloquait la ligne au sens de
     TI-681. Un avertissement de quantité ne bloque jamais : l'échelle, la surface écrite, les chevauchements, les
     boîtes fermées et les quantités à saisir n'ont ni ligne forcée ni faux positif, et le N de `dn_network` compte
     aussi ses avertissements (réseau, matériau ou DN manquant, DN hors série) ;
   - « Faux positifs déclarés au forçage » (n) : celles forcées en `rule_false_positive` qui nomment la règle. Un
-    échec accepté par V n'y entre jamais (H19), même s'il était un faux positif ;
+    échec accepté par V n'y entre jamais (H19), même s'il était un faux positif : seul n l'écarte, pas N ;
   - le taux observé n/N, sans taux quand N = 0, avec la mention « Taux observé sur l'effectif affiché : un
-    indicateur, pas une borne de fiabilité. ».
+    indicateur, pas une borne de fiabilité. ». Une règle dont tous les échecs sont des avertissements de quantité
+    n'a pas de taux mais « Sans objet » (`canBlock` faux), plutôt qu'un 0 % qui la ferait passer pour fiable ; un
+    code qu'une autre version des règles a écrit garde sa protection et peut bloquer : la règle a alors son taux si
+    une ligne a été forcée sur cet échec dans la période. Le texte de la section dit ce que comptent n et N.
   - Les lignes d'un job appliqué sont figées, leurs `rule_results` aussi : le calcul
     ([`stats-forcing.ts`](../../src/lib/takeoff/stats-forcing.ts)) les relit tels qu'ils ont été appliqués, et un audit
     non consommé ne compte pas. La route lit les consommations avec le client de l'administrateur : la politique

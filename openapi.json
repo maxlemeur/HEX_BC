@@ -77342,6 +77342,9 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "canBlock": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -77350,7 +77353,8 @@
                         "failedLines",
                         "forcedLines",
                         "falsePositiveLines",
-                        "falsePositiveRate"
+                        "falsePositiveRate",
+                        "canBlock"
                       ],
                       "additionalProperties": false
                     }

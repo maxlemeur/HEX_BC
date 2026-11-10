@@ -47,6 +47,16 @@ describe("resolveEstimateLineTruth, takeoff provisions", () => {
       .toMatch(/^Ligne forcée à l’application du métré \(motifs : Preuve complémentaire, Faux positif de règle\) : /);
   });
 
+  // The marker stores the reason as any text: only the six codes have a label, never a key every object inherits (it
+  // would print a function or an object in the detail).
+  it("names no reason for a stored code that is not one of the six, inherited keys included", () => {
+    const withoutReason = resolveEstimateLineTruth(line("takeoff", marked(FORCED)))?.qtyStatus.detail;
+    for (const forced_reason of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "trust_me"]) {
+      expect(resolveEstimateLineTruth(line("takeoff", marked({ ...FORCED, forced_reason })))?.qtyStatus.detail, forced_reason)
+        .toBe(withoutReason);
+    }
+  });
+
   it("says a line forced as a priced hypothesis was forced, not entered", () => {
     const truth = resolveEstimateLineTruth(line("takeoff", marked({ ...FORCED, forced_reason: "priced_hypothesis" })));
     expect(truth?.qtyStatus).toEqual({

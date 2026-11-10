@@ -303,10 +303,6 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           <h2 className="text-sm font-semibold text-foreground-secondary">
             Forçages par règle
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Faux positifs déclarés par un administrateur en forçant une ligne bloquée, sur les lignes appliquées de la
-            période. Un échec accepté par une vérification n’y figure pas.
-          </p>
         </div>
         <RuleForcingTable data={data.ruleForcing} />
       </Card>

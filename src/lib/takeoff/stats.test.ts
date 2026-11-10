@@ -768,6 +768,7 @@ describe("buildTakeoffMetricsStatsPayload", () => {
     expect(payload.ruleForcing.forcedLines).toBe(2);
     expect(payload.ruleForcing.rows.find((row) => row.rule === "dn_network")).toEqual({
       rule: "dn_network", label: "DN et réseau", failedLines: 2, forcedLines: 2, falsePositiveLines: 1, falsePositiveRate: 50,
+      canBlock: true,
     });
     // An override is not a correction of the takeoff.
     expect(payload.corrections.kpis.totalEvents).toBe(0);
