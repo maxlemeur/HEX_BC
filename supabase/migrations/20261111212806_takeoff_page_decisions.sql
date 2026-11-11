@@ -400,7 +400,9 @@ begin
       'source_metadata', item.source_metadata) order by item.id), '[]'::jsonb)
     into estimate_lines
   from public.estimate_items as item
-  where item.version_id = p_version_id and item.tenant_id = version_tenant and item.source_job_id is not null;
+  where item.version_id = p_version_id and item.tenant_id = version_tenant and item.source_job_id is not null
+    -- A line only: an ouvrage's section carries its source line too, but holds no quantity of the page.
+    and item.item_type = 'line'::public.estimate_item_type;
 
   with referenced as (
     select distinct source.id
@@ -583,8 +585,10 @@ begin
   if caller_id is null then
     raise exception 'TAKEOFF_APPLY_AUTH_REQUIRED' using errcode = '42501';
   end if;
+  -- The job's row, locked as the application locks it: a record waits for an application in flight, then sees it
+  -- applied (frozen), and never replaces the decisions an application is reading.
   select job.tenant_id, job.estimate_version_id, job.status into job_tenant_id, job_version_id, job_status
-  from public.takeoff_jobs as job where job.id = p_job_id;
+  from public.takeoff_jobs as job where job.id = p_job_id for update;
   if job_tenant_id is null
     or not coalesce(public.has_tenant_role(job_tenant_id,
       array['admin'::public.tenant_role, 'engineer'::public.tenant_role]), false) then
@@ -610,6 +614,9 @@ begin
       where pg_catalog.jsonb_typeof(decision.value) <> 'object'
         or pg_catalog.jsonb_typeof(decision.value -> 'document') is distinct from 'object'
         or (decision.value ->> 'decision') is null or (decision.value ->> 'decision') not in ('replace', 'keep_both')
+        or (decision.value -> 'source_page' is not null and decision.value -> 'source_page' <> 'null'::jsonb
+          and (pg_catalog.jsonb_typeof(decision.value -> 'source_page') <> 'number'
+            or (decision.value ->> 'source_page') !~ '^[1-9][0-9]{0,8}$'))
         or pg_catalog.jsonb_typeof(coalesce(decision.value -> 'lines', '[]'::jsonb)) <> 'array'
         or pg_catalog.jsonb_typeof(coalesce(decision.value -> 'pairs', '[]'::jsonb)) <> 'array'
         or pg_catalog.jsonb_array_length(coalesce(decision.value -> 'lines', '[]'::jsonb)) = 0
@@ -624,6 +631,7 @@ begin
         or exists (select 1 from pg_catalog.jsonb_array_elements(coalesce(decision.value -> 'lines', '[]'::jsonb)) as line(value)
           where private.takeoff_uuid_or_null(line.value -> 'estimate_item_id') is null
             or pg_catalog.jsonb_typeof(line.value -> 'expected_updated_at') is distinct from 'string'
+            or (line.value ->> 'expected_updated_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}(:?[0-9]{2})?)$'
             or (line.value ->> 'action') is null or (line.value ->> 'action') not in ('update', 'remove', 'keep')
             or (line.value -> 'take' is not null and line.value -> 'take' <> 'null'::jsonb
               and (line.value ->> 'take') not in ('new', 'keep_mine'))
@@ -730,7 +738,8 @@ begin
 
   -- Each earlier estimate line of these pages, as it is before the application: its sources and its measured quantity
   -- (the sum of its source lines, rounded up as finalize_takeoff_lengths rounds a length), to tell a quantity changed by
-  -- hand. An engine 1/2 line names no source: its quantity is its measure.
+  -- hand. An engine 1/2 line names no source (and a source may no longer be readable): its measure is unknown, and the
+  -- estimator is asked.
   drop table if exists pg_temp._ti682_lines;
   create temporary table _ti682_lines on commit drop as
   select item.id, pg_catalog.to_jsonb(item) as snapshot, item.updated_at, item.quantity, item.title, item.description,
@@ -738,11 +747,13 @@ begin
     coalesce(item.unit_code, (private.normalize_unit(item.description)).unit_code,
       'status:' || item.pricing_status::text) as unit_key,
     sources.ids as source_ids,
-    case when pg_catalog.cardinality(sources.ids) > 0 then measured.raw else item.quantity end as measured_raw,
-    unit.factor
+    case when pg_catalog.cardinality(sources.ids) > 0 and measured.readable = pg_catalog.cardinality(sources.ids)
+      then measured.raw end as measured_raw,
+    unit.factor,
+    item.source_metadata ->> 'mapping_action' = 'apply_assembly' as assembly
   from public.estimate_items as item
   cross join lateral (select private.takeoff_estimate_line_item_ids(item.source_metadata, item.source_job_id) as ids) as sources
-  cross join lateral (select pg_catalog.sum(source.quantity) as raw from public.takeoff_items as source
+  cross join lateral (select pg_catalog.sum(source.quantity) as raw, pg_catalog.count(*) as readable from public.takeoff_items as source
     where source.id = any(sources.ids) and source.tenant_id = p_tenant_id) as measured
   cross join lateral (select case coalesce((private.normalize_unit(coalesce(item.unit_code, item.description))).unit_code,
       private.unit_token(coalesce(item.unit_code, item.description)))
@@ -875,12 +886,34 @@ begin
               or nullif(other_line.identity #>> '{document,content_hash}', '') is not null)
             and not private.takeoff_same_document(other_line.identity -> 'document', old_line.identity -> 'document')))
     union all
+    -- A quantity changed by hand: neither the sum of its sources rounded (since TI-681) nor their raw sum (a length
+    -- applied before); unknown for an engine 1/2 line.
     select 'take_required', line.id, pg_catalog.min(choice.file_name), pg_catalog.min(choice.source_page), 9
     from pg_temp._ti682_lines as line join pg_temp._ti682_choices as choice on choice.estimate_item_id = line.id
-    where choice.action = 'update' and pg_catalog.cardinality(line.source_ids) > 0
-      and line.quantity is distinct from (case when line.factor is not null
-        then pg_catalog.ceil(line.measured_raw * line.factor) / line.factor else line.measured_raw end)
+    where choice.action = 'update'
+      and (line.measured_raw is null or (line.quantity is distinct from line.measured_raw
+        and line.quantity is distinct from (case when line.factor is not null
+          then pg_catalog.ceil(line.measured_raw * line.factor) / line.factor else line.measured_raw end)))
     group by line.id having pg_catalog.bool_and(choice.take is null)
+    union all
+    -- A line that also carries pages this takeoff does not read is not removed: they would go with it.
+    select 'remove_other_pages', choice.estimate_item_id, choice.file_name, choice.source_page, 10
+    from pg_temp._ti682_choices as choice join pg_temp._ti682_lines as line on line.id = choice.estimate_item_id
+    where choice.action = 'remove' and exists (select 1 from pg_catalog.unnest(line.source_ids) as source(id)
+      where not exists (select 1 from pg_temp._ti682_conflicts as conflict
+        where conflict.estimate_item_id = line.id and conflict.earlier_item_id = source.id))
+    union all
+    -- An ouvrage's component holds the ouvrage's quantity, not a measure: never replaced by a new line.
+    select 'assembly_line', pair.estimate_item_id, null, null, 1
+    from pg_temp._ti682_pairs as pair join pg_temp._ti682_lines as line on line.id = pair.estimate_item_id
+    where line.assembly
+    union all
+    -- A « replacement » that keeps every earlier line and replaces nothing keeps both measures: that needs a reason.
+    select 'nothing_replaced', null, pg_catalog.min(choice.file_name), pg_catalog.min(choice.source_page), 12
+    from pg_temp._ti682_choices as choice join pg_temp._ti682_lines as line on line.id = choice.estimate_item_id
+    where choice.decision = 'replace'
+    group by choice.decision_id
+    having pg_catalog.bool_and(choice.action = 'keep') and not pg_catalog.bool_or(line.source_provider = 'dpgf')
   ) as invalid
   order by invalid.rank, invalid.file_name, invalid.source_page
   limit 1;
@@ -1012,7 +1045,7 @@ begin
   ) as added;
 
   update public.estimate_items as item
-  set quantity = case when outcome.take = 'keep_mine' then item.quantity
+  set quantity = case when outcome.take = 'keep_mine' then outcome.previous_quantity
       when outcome.factor is not null then pg_catalog.ceil(outcome.new_raw * outcome.factor) / outcome.factor
       else outcome.new_raw end,
     -- What `merge` may have rewritten on its own earlier line is the estimator's: title, description, price, category.
@@ -1124,6 +1157,21 @@ begin
     end if;
     raise exception 'TAKEOFF_PAGE_ALREADY_APPLIED' using errcode = '23514',
       detail = private.takeoff_page_refusal_detail('page_already_applied', uncovered);
+  end if;
+
+  -- A DPGF target « replaced » with its page must have been fed again by this takeoff: else its earlier measure stays
+  -- beside the new lines of the page, both counted without a reason.
+  select (line.value ->> 'estimate_item_id')::uuid into dpgf_target
+  from public.takeoff_page_decisions as decision
+  cross join lateral pg_catalog.jsonb_array_elements(decision.lines) as line(value)
+  join public.estimate_items as item on item.id = (line.value ->> 'estimate_item_id')::uuid and item.version_id = p_version_id
+  where decision.job_id = p_job_id and decision.tenant_id = job_tenant and decision.estimate_version_id = p_version_id
+    and decision.decision = 'replace' and line.value ->> 'action' = 'keep' and item.source_provider = 'dpgf'
+    and (item.source_metadata #>> '{takeoff_quantity_policy,job_id}') is distinct from p_job_id::text
+  limit 1;
+  if dpgf_target is not null then
+    raise exception 'TAKEOFF_PAGE_DECISION_INVALID' using errcode = '22023',
+      detail = pg_catalog.jsonb_build_object('scope', 'page', 'reason', 'dpgf_not_replaced', 'estimate_item_id', dpgf_target)::text;
   end if;
 
   -- D-6: a DPGF target keeps the measure of the last takeoff only. Keeping both on a page whose new lines now feed a

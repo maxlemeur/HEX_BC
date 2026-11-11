@@ -79,7 +79,8 @@ select is((select x.recorded from extensions.dblink('page_setup', format($decide
     'content_hash', null, 'logical_document_id', null, 'file_name', 'plan-fictif.pdf'), 'source_page', 1,
     'earlier_job_ids', jsonb_build_array('d2900000-0000-4000-8000-000000000301'), 'decision', 'replace', 'reason_code', null, 'note', null,
     'lines', (select jsonb_agg(jsonb_build_object('estimate_item_id', item.id, 'expected_updated_at', item.updated_at, 'action', 'update',
-      'take', null, 'item_ids', '[]'::jsonb)) from public.estimate_items item
+      -- An engine 2 line names no source: whether it was changed by hand cannot be seen, so the estimator chooses.
+      'take', 'new', 'item_ids', '[]'::jsonb)) from public.estimate_items item
       where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'),
     'pairs', (select jsonb_agg(jsonb_build_object('takeoff_item_id', %2$L, 'estimate_item_id', item.id)) from public.estimate_items item
       where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'))))$decide$, job.id, job.line), false)
