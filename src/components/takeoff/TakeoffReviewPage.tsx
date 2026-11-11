@@ -315,8 +315,6 @@ export default function TakeoffReviewPage({
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
-  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
-  const pagesInEstimate = useTakeoffJobPageContributions(jobId);
   const [tables, setTables] = useState<TakeoffTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1067,6 +1065,9 @@ export default function TakeoffReviewPage({
     dpgfCompareLoading || dpgfCompareData === null;
   const hasDpgfValidationError = dpgfCompareError !== null;
   const hasAlreadyBeenApplied = jobStatus === "applied" || applySuccess !== null;
+  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision),
+  // read again once it is applied here: the estimate then holds its lines.
+  const pagesInEstimate = useTakeoffJobPageContributions(jobId, hasAlreadyBeenApplied);
   const canOpenApplyWizard =
     !hasAlreadyBeenApplied &&
     jobStatus === "completed" &&

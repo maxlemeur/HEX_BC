@@ -12,7 +12,15 @@ export const takeoffPageContributionsResponseSchema = z.object({
     page: z.number().int().positive().nullable(),
     /** This takeoff's lines on the page; the screens show the page while one of them is included. Empty for a launch. */
     item_ids: z.array(uuid),
-    earlier: z.array(z.object({ job_id: uuid, line_count: z.number().int().positive() }).strict()).min(1),
+    earlier: z.array(z.object({
+      job_id: uuid,
+      line_count: z.number().int().positive(),
+      /**
+       * That takeoff's own lines on the page that feed the estimate: a Z1/Z2 partner among them is this page read twice.
+       * Empty when the estimate lines name no source line (engines 1 and 2).
+       */
+      takeoff_item_ids: z.array(uuid),
+    }).strict()).min(1),
     /** The estimate lines this takeoff itself still has on the page: an applied takeoff counts the page twice only then. */
     own_line_count: z.number().int().nonnegative(),
   }).strict()),

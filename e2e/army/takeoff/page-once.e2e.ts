@@ -14,8 +14,9 @@ import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./wor
 // estimator is warned. A fictional vector plan, uploaded directly with its confirmed preparation, is read by the real
 // worker and applied once; the same PDF (same content hash), uploaded again under another name so that only its hash
 // can tie the two, is read by a second takeoff of the same estimate version. Its targeted and complete reviews name the page, the first takeoff (which the link opens) and its line in
-// the estimate; the application wizard names them before its last click. Nothing is applied twice here: the warning
-// decides nothing. TKR01 and TKR02 (two zone plans, two pages) are the negative control. Fictional plans only.
+// the estimate; the application wizard names them before its last click. The warning decides nothing: applied anyway
+// from the targeted review, the page is in the estimate twice, and the banner, read again without a reload, says so.
+// TKR01 and TKR02 (two zone plans, two pages) are the negative control. Fictional plans only.
 
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 240_000 };
 const REGION = "Pages déjà au devis";
@@ -28,7 +29,7 @@ async function readPages(ui: WorkerUi, jobId: string) {
   return read.body.data;
 }
 
-armyTest("TKD01 a page another takeoff already brought into the estimate is named in both reviews and in the wizard, with that takeoff", options,
+armyTest("TKD01 a page another takeoff already brought into the estimate is named in both reviews and in the wizard, with that takeoff, and again once applied", options,
   async (ui) => {
     const { ids, jobId: first, fileName, tenantId, client, owner } = await launchWorkerVectorUpload(ui);
     const network = VECTOR_PLAN.networks[0];
@@ -37,7 +38,8 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
       confidence: 0.95, evidence: "Lecture contrôlée du réseau EF sur le plan fictif, page 1." }];
     const firstRun = await startOwnedWorker(ui, ids, first, "success", { vectors: true, owner, providerItems }).done;
     expect(firstRun.outcome.status).toBe("completed");
-    expect(firstRun.items.filter((item) => !item.is_excluded).map((item) => [item.designation, item.quantity])).toEqual([[network.designation, network.length_m]]);
+    const firstRetained = firstRun.items.filter((item) => !item.is_excluded);
+    expect(firstRetained.map((item) => [item.designation, item.quantity])).toEqual([[network.designation, network.length_m]]);
     const target = await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} target`);
     const applied = await applyOwnedTakeoff(ui.browser, ids.versionId, first, { strategy: "append", target_section_id: target.parent_id });
     expect(applied.status).toBe(200);
@@ -73,6 +75,8 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
       pages: [{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 0 }],
       jobs: [{ id: first, estimate_version_id: ids.versionId, source_file_name: fileName }] });
     expect(pages.pages[0].item_ids).toEqual(expect.arrayContaining(retained.map((item) => item.id)));
+    // The first takeoff's own line on the page, named: a Z1/Z2 partner is placed on the page by it, not by its takeoff.
+    expect(pages.pages[0].earlier[0].takeoff_item_ids).toEqual(firstRetained.map((item) => item.id));
     await recordEvidence(ui.army, "TKD01-read", { ids, first, second, pages, estimateLines: estimateLines.map((line) => line.id) });
 
     // The targeted review names it at its head; « Ouvrir le métré » opens the first takeoff.
@@ -118,6 +122,37 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     expect(after.map((line) => [line.id, Number(line.quantity)])).toEqual([[estimateLines[0].id, network.length_m]]);
     const job = await client.from("takeoff_jobs").select("status").eq("id", second).single();
     expect(job.data).toEqual({ status: "completed" });
-    await recordEvidence(ui.army, "TKD01-warned", { ids, first, second, screenshots,
-      boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 on one fictional vector plan uploaded twice with the same confirmed preparation; nothing applied twice." });
+
+    // Applied anyway from the targeted review: the banner reads the estimate again on the same screen (the read taken
+    // before holds none of this takeoff's lines) and names the page, now in the estimate twice.
+    await ui.app.open(targeted);
+    const before = ui.screen.getByRole("region", REGION, { exact: true });
+    await expect(before).toContainText("Appliquer ce métré ajouterait ces pages une seconde fois");
+    await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+    const applyWizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+    await applyWizard.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });
+    await applyWizard.getByRole("button", "Suivant", { exact: true }).click();
+    await applyWizard.getByRole("radio", /^Ajouter sans effacer/).check();
+    await applyWizard.getByRole("button", "Suivant", { exact: true }).click();
+    await expect(applyWizard).toContainText(network.designation);
+    await applyWizard.getByRole("button", "Suivant", { exact: true }).click();
+    const [applyResponse] = await Promise.all([
+      ui.browser.waitForResponse(`**/api/takeoff/jobs/${second}/apply`),
+      applyWizard.getByRole("button", "Confirmer l'application", { exact: true }).click(),
+    ]);
+    expect(applyResponse.status).toBe(200);
+    await expect(applyWizard).toBeHidden();
+    const twice = ui.screen.getByRole("region", REGION, { exact: true });
+    await expect(twice).toContainText(pageRow);
+    await expect(twice).toContainText("Ce métré est déjà appliqué : ces pages sont au devis deux fois.");
+    screenshots.push(await ui.app.screenshot("ti682-targeted-review-page-applied-twice"));
+    const appliedPages = await readPages(ui, second);
+    expect(appliedPages.pages).toMatchObject([{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 1 }]);
+
+    // The warning decided nothing: the run is now in the estimate twice, the second takeoff applied.
+    const doubled = (await readEstimate(ui.browser, ids.versionId)).items.filter((item) => item.title === network.designation);
+    expect(doubled.map((line) => Number(line.quantity))).toEqual([network.length_m, network.length_m]);
+    expect((await client.from("takeoff_jobs").select("status").eq("id", second).single()).data).toEqual({ status: "applied" });
+    await recordEvidence(ui.army, "TKD01-warned", { ids, first, second, screenshots, appliedPages, doubled: doubled.map((line) => line.id),
+      boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 on one fictional vector plan uploaded twice with the same confirmed preparation; applied twice only after both reviews and the wizard warned." });
   });

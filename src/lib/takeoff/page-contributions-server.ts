@@ -125,7 +125,8 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
   return parseWithSchema(takeoffPageContributionsResponseSchema, {
     version_id: input.versionId,
     pages: result.pages.map((page) => ({ file_name: page.file_name, page: page.page, item_ids: input.launchLines ? [] : page.item_ids,
-      earlier: page.earlier.map((earlier) => ({ job_id: earlier.job_id, line_count: earlier.estimate_item_ids.length })),
+      earlier: page.earlier.map((earlier) => ({ job_id: earlier.job_id, line_count: earlier.estimate_item_ids.length,
+        takeoff_item_ids: earlier.takeoff_item_ids })),
       own_line_count: page.own_estimate_item_ids.length })),
     jobs: [...named].flatMap((id) => {
       const job = jobs.get(id);

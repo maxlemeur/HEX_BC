@@ -151,9 +151,12 @@ ce qu'une application écrit ne change.
   - en tête de la revue ciblée et de la revue complète : par page, le métré antérieur
     (sa date et son fichier, avec « Ouvrir le métré ») et le nombre de lignes qu'il a
     apportées au devis. Une page dont toutes les lignes sont exclues n'est plus
-    signalée. Un doublon entre zones dont la ligne partenaire vient du métré antérieur
-    de la page compare deux lectures de la même page : le bandeau dit de ne pas
-    retirer la ligne pour le régler ;
+    signalée. Un doublon entre zones dont la ligne partenaire est une ligne que le
+    métré antérieur a lue sur cette page compare deux lectures de la même page : le
+    bandeau dit de ne pas retirer la ligne pour le régler. Le métré antérieur seul ne
+    suffit pas (il a pu lire aussi une autre zone) ; faute de pouvoir placer la ligne
+    partenaire sur la page (ligne de devis sans ligne source, moteurs 1 et 2), il ne
+    dit rien ;
   - dans l'assistant d'application, à la confirmation : la notice « Pages déjà au
     devis » (pages, métré antérieur, nombre de lignes). Les lignes que le plan
     d'application ignore ou range dans un ouvrage n'y comptent pas, et le texte dit ce
@@ -161,7 +164,9 @@ ce qu'une application écrit ne change.
     que les lignes de même désignation et unité, « Remplacer » ne vide que la section
     cible) ;
   - une fois le métré appliqué, seules restent signalées les pages où ses propres
-    lignes sont encore au devis : là, la page y est deux fois.
+    lignes sont encore au devis : là, la page y est deux fois. Ses lignes sans page
+    sont sur la page signalée, par la même règle. Appliqué depuis la revue, le
+    bandeau relit le devis.
 - **Provenance périmée.** Une clé d'arrondi ou de ligne DPGF écrite par un autre métré
   que le dernier de la ligne (une fusion ultérieure l'a gardée) ne compte pas.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions`, et

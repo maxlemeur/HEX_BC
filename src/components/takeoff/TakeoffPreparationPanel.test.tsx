@@ -111,7 +111,7 @@ describe("TakeoffPreparationPanel", () => {
   it("names the pages of the chosen plans the target version already holds, and keeps the launch open", async () => {
     pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, other_takeoff_line_count: 4, unidentified_item_ids: [],
       jobs: [{ id: "66666666-6666-4666-8666-666666666666", estimate_version_id: VERSION_ID, created_at: "2026-11-10T09:30:00.000Z", source_file_name: SOURCE.document_name }],
-      pages: [{ file_name: SOURCE.document_name, page: 1, item_ids: [], earlier: [{ job_id: "66666666-6666-4666-8666-666666666666", line_count: 4 }], own_line_count: 0 }] });
+      pages: [{ file_name: SOURCE.document_name, page: 1, item_ids: [], earlier: [{ job_id: "66666666-6666-4666-8666-666666666666", line_count: 4, takeoff_item_ids: [] }], own_line_count: 0 }] });
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
     const notice = await screen.findByRole("region", { name: "Pages déjà au devis" });
     expect(notice).toHaveTextContent("Plan plomberie R+1.pdf, page 1 : déjà au devis par le métré du 10/11/2026");

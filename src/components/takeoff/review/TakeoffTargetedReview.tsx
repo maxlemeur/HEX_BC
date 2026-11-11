@@ -133,7 +133,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
-  const pagesInEstimate = useTakeoffJobPageContributions(jobId);
+  // Read again once applied here: the estimate then holds this takeoff's lines.
+  const pagesInEstimate = useTakeoffJobPageContributions(jobId, job?.status === "applied");
 
   useEffect(() => {
     const controller = new AbortController();

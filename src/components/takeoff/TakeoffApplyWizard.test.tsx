@@ -231,7 +231,7 @@ describe("TakeoffApplyWizard", () => {
     const EARLIER_JOB = "66666666-6666-4666-8666-666666666666";
     const conflict = { version_id: VERSION_ID, jobs: [{ id: EARLIER_JOB, estimate_version_id: VERSION_ID,
       created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan.pdf" }], unidentified_item_ids: [], other_takeoff_line_count: 2,
-      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ITEM_ID], earlier: [{ job_id: EARLIER_JOB, line_count: 2 }], own_line_count: 0 }] };
+      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ITEM_ID], earlier: [{ job_id: EARLIER_JOB, line_count: 2, takeoff_item_ids: [] }], own_line_count: 0 }] };
 
     it("names the page, the earlier takeoff and its lines at the confirmation, without a decision", async () => {
       vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);

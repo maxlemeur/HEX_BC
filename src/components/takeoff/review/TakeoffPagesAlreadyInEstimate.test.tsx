@@ -9,8 +9,9 @@ vi.mock("@/lib/takeoff/page-contributions-client", () => ({
 import {
   TakeoffLaunchPagesNotice,
   TakeoffPagesAlreadyInEstimateBanner,
+  useTakeoffJobPageContributions,
 } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
-import { fetchLaunchPageContributions } from "@/lib/takeoff/page-contributions-client";
+import { fetchLaunchPageContributions, fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-client";
 import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contributions-contracts";
 
 // TI-682 lot D, PR 1: the estimator sees, before the last click, that a page of this takeoff is already in the
@@ -18,7 +19,11 @@ import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contri
 // - nothing is shown at all (today: two takeoffs of one page are never compared);
 // - the page is shown without the earlier takeoff, or without how many lines it brought;
 // - a page whose lines the estimator has all excluded is still reported (a false alarm teaches to ignore it);
-// - the launch reads every source, not the active plans the takeoff will read.
+// - the launch reads every source, not the active plans the takeoff will read;
+// - once this takeoff is applied on screen, the banner keeps the read taken before, which holds none of its lines,
+//   and hides the page just added a second time;
+// - a Z1/Z2 duplicate with a line of the earlier takeoff on another of its pages is called « the same page read
+//   twice »: the estimator would keep a run counted twice.
 
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const EARLIER_JOB = "11111111-1111-4111-8111-111111111111";
@@ -28,17 +33,18 @@ const line = (n: number) => `33333333-3333-4333-8333-${String(n).padStart(12, "0
 
 const READ: TakeoffPageContributionsResponse = {
   version_id: VERSION_ID,
-  pages: [{ file_name: "plan-fictif-R+1.pdf", page: 1, item_ids: [line(1), line(2)], earlier: [{ job_id: EARLIER_JOB, line_count: 3 }], own_line_count: 0 }],
+  pages: [{ file_name: "plan-fictif-R+1.pdf", page: 1, item_ids: [line(1), line(2)], earlier: [{ job_id: EARLIER_JOB, line_count: 3, takeoff_item_ids: [line(50)] }], own_line_count: 0 }],
   jobs: [{ id: EARLIER_JOB, estimate_version_id: EARLIER_VERSION, created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan-fictif-R+1.pdf" }],
   unidentified_item_ids: [line(9)],
   other_takeoff_line_count: 3,
 };
 const item = (n: number, is_excluded = false, rule_results: Array<{ rule: string; status: string; details?: unknown }> = []) => ({ id: line(n), is_excluded, rule_results });
-const duplicateOf = (jobId: string) => ({ rule: "zone_overlap", status: "fail", details: { partners: [{ item_id: line(50), job_id: jobId, zone: "Z1" }] } });
+const duplicateOf = (jobId: string, partnerId = line(50)) => ({ rule: "zone_overlap", status: "fail", details: { partners: [{ item_id: partnerId, job_id: jobId, zone: "Z1" }] } });
 const href = (job: { id: string; estimate_version_id: string }) => `/review/${job.id}?versionId=${job.estimate_version_id}`;
 
 beforeEach(() => {
   vi.mocked(fetchLaunchPageContributions).mockReset();
+  vi.mocked(fetchTakeoffJobPageContributions).mockReset();
 });
 afterEach(() => cleanup());
 
@@ -82,6 +88,37 @@ describe("the review banner", () => {
       items={[item(1, false, [duplicateOf(EARLIER_JOB)]), item(2)]} />);
     expect(screen.getByRole("region", { name: "Pages déjà au devis" }))
       .toHaveTextContent("ce n’est pas une autre zone, ne retirez pas la ligne pour le régler");
+  });
+
+  it("says nothing of a Z1/Z2 duplicate with a line the earlier takeoff read on another page", () => {
+    // The earlier takeoff read zones A and B; this one rereads A but overlaps B's line: a real duplicate between zones.
+    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: READ, error: null }} applied={false} jobHref={href}
+      items={[item(1, false, [duplicateOf(EARLIER_JOB, line(60))]), item(2)]} />);
+    const banner = screen.getByRole("region", { name: "Pages déjà au devis" });
+    expect(banner).toHaveTextContent("plan-fictif-R+1.pdf, page 1");
+    expect(banner).not.toHaveTextContent("ne retirez pas la ligne");
+  });
+
+  it("says nothing of a Z1/Z2 duplicate when the earlier takeoff's lines on the page are not known", () => {
+    const unknown = { ...READ, pages: [{ ...READ.pages[0], earlier: [{ job_id: EARLIER_JOB, line_count: 3, takeoff_item_ids: [] }] }] };
+    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: unknown, error: null }} applied={false} jobHref={href}
+      items={[item(1, false, [duplicateOf(EARLIER_JOB)]), item(2)]} />);
+    expect(screen.getByRole("region", { name: "Pages déjà au devis" })).not.toHaveTextContent("ne retirez pas la ligne");
+  });
+
+  it("reads the pages again once this takeoff is applied on screen, and names the page now there twice", async () => {
+    vi.mocked(fetchTakeoffJobPageContributions)
+      .mockResolvedValueOnce(READ)
+      .mockResolvedValueOnce({ ...READ, pages: [{ ...READ.pages[0], own_line_count: 1 }] });
+    function Review({ applied }: Readonly<{ applied: boolean }>) {
+      const read = useTakeoffJobPageContributions(line(70), applied);
+      return <TakeoffPagesAlreadyInEstimateBanner read={read} items={[item(1)]} applied={applied} jobHref={href} />;
+    }
+    const { rerender } = render(<Review applied={false} />);
+    expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("Appliquer ce métré ajouterait ces pages une seconde fois");
+    rerender(<Review applied />);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("ces pages sont au devis deux fois"));
+    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a Z1/Z2 duplicate with a takeoff of another zone as it is", () => {

@@ -32,20 +32,25 @@ function takeoffLabel(job: Job | undefined) {
   return `le métré du ${Number.isNaN(date.getTime()) ? "—" : dateFormat.format(date)}${job.source_file_name ? ` (${job.source_file_name})` : ""}`;
 }
 
-/** The read of the pages of a takeoff its version already holds from another; none while `jobId` is null. */
-export function useTakeoffJobPageContributions(jobId: string | null): Read {
-  const [read, setRead] = useState<Read & { jobId: string | null }>({ jobId: null, data: null, error: null });
+/**
+ * The read of the pages of a takeoff its version already holds from another; none while `jobId` is null. Read again
+ * once the takeoff is applied: the read taken before holds none of its lines, and the page it just added again would
+ * stay hidden. The earlier read is not shown meanwhile.
+ */
+export function useTakeoffJobPageContributions(jobId: string | null, applied = false): Read {
+  const key = jobId ? `${jobId}:${applied ? "applied" : "open"}` : null;
+  const [read, setRead] = useState<Read & { key: string | null }>({ key: null, data: null, error: null });
   useEffect(() => {
-    if (!jobId) return;
+    if (!key || !jobId) return;
     const controller = new AbortController();
     void fetchTakeoffJobPageContributions(jobId, { signal: controller.signal }).then(
-      (data) => setRead({ jobId, data, error: null }),
+      (data) => setRead({ key, data, error: null }),
       (error: unknown) => {
-        if (!controller.signal.aborted) setRead({ jobId, data: null, error: error instanceof Error ? error.message : "Vérification indisponible." });
+        if (!controller.signal.aborted) setRead({ key, data: null, error: error instanceof Error ? error.message : "Vérification indisponible." });
       });
     return () => controller.abort();
-  }, [jobId]);
-  return read.jobId === jobId ? { data: read.data, error: read.error } : { data: null, error: null };
+  }, [jobId, key]);
+  return read.key === key ? { data: read.data, error: read.error } : { data: null, error: null };
 }
 
 /**
@@ -58,24 +63,32 @@ export function pagesToShow(data: TakeoffPageContributionsResponse | null, items
   const included = items ? new Set(items.filter((item) => !item.is_excluded).map((item) => item.id)) : null;
   const pages = data.pages.filter((page) => (applied ? page.own_line_count > 0
     : included ? page.item_ids.some((id) => included.has(id)) : true));
-  // The earlier takeoffs of each line's pages: a Z1/Z2 duplicate whose partner is one of them is this page read twice.
-  const earlierOf = new Map<string, Set<string>>();
+  // The earlier takeoffs' own lines on each line's pages: a Z1/Z2 duplicate whose partner is one of them is this page
+  // read twice. The partner's takeoff alone proves nothing: it may have read another page (another zone) as well.
+  const sameLine = (jobId: string, itemId: string) => `${jobId.toLowerCase()}:${itemId.toLowerCase()}`;
+  const earlierLinesOf = new Map<string, Set<string>>();
   for (const page of pages) for (const id of page.item_ids) {
-    earlierOf.set(id, new Set([...(earlierOf.get(id) ?? []), ...page.earlier.map((earlier) => earlier.job_id)]));
+    const lines = earlierLinesOf.get(id) ?? new Set<string>();
+    for (const earlier of page.earlier) for (const itemId of earlier.takeoff_item_ids) lines.add(sameLine(earlier.job_id, itemId));
+    earlierLinesOf.set(id, lines);
   }
-  const partnerJobs = (details: unknown) => {
+  const partnerLines = (details: unknown) => {
     const partners = details && typeof details === "object" ? (details as { partners?: unknown }).partners : null;
-    return Array.isArray(partners) ? partners.map((partner) => (partner as { job_id?: unknown } | null)?.job_id) : [];
+    return Array.isArray(partners) ? partners.flatMap((partner) => {
+      const { job_id: jobId, item_id: itemId } = (partner ?? {}) as { job_id?: unknown; item_id?: unknown };
+      return typeof jobId === "string" && typeof itemId === "string" ? [sameLine(jobId, itemId)] : [];
+    }) : [];
   };
   return {
     pages,
     // Only meaningful when another takeoff is in the estimate: those lines could not be compared to it.
     unidentified: data.other_takeoff_line_count > 0
       ? data.unidentified_item_ids.filter((id) => (included ? included.has(id) : true)).length : 0,
-    // A Z1/Z2 duplicate of a line of those pages with a line of the earlier takeoff: one page read twice, not two zones.
+    // A Z1/Z2 duplicate of a line of those pages with a line the earlier takeoff read on that page: one page read
+    // twice, not two zones. Nothing is said when the partner cannot be placed on the page.
     zoneOverlap: (items ?? []).some((item) => !item.is_excluded && (item.rule_results ?? []).some((result) =>
       result.rule === "zone_overlap" && result.status === "fail"
-      && partnerJobs(result.details).some((job) => typeof job === "string" && earlierOf.get(item.id)?.has(job.toLowerCase())))),
+      && partnerLines(result.details).some((line) => earlierLinesOf.get(item.id)?.has(line)))),
   };
 }
 
