@@ -285,8 +285,9 @@ d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sec
 - Un matériau bloqué ne s'accepte jamais (`TAKEOFF_RULE_NOT_ACCEPTABLE`) : corriger la
   ligne ; sinon, seul un administrateur peut forcer l'application, avec un motif codé et
   une justification écrite (voir « Override admin »). La ligne forcée entre alors au devis
-  comme provision interne (TI-686, D10). La réserve dans l'offre (TI-682) et la variante
-  restent à construire.
+  comme provision interne (TI-686, D10). Une réserve dans l'offre s'ajoute dans l'éditeur du
+  devis, par « Motifs et réserves » (TI-682, [cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)) ;
+  la variante reste à construire.
 
 **Cas tranchés par TI-685** (l'ancienne liste « à trancher ») :
 
@@ -641,8 +642,9 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
     métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient
     (`takeoff-provision-exports.test.ts`, `dpgf-export.test.ts`, TKF02).
-  - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
-    `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+  - Le choix explicite d'une réserve dans l'offre (TI-682) est rangé hors du marqueur, sous la clé
+    `offer_treatment`, écrite par « Motifs et réserves » dans l'éditeur du devis : une ligne de provision métré y est
+    proposée d'office, avec son badge. Le traitement par défaut reste la provision interne.
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
   `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
   règle, sur les jobs appliqués de la période (section « Forçages par règle ») :
@@ -665,7 +667,7 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     non consommé ne compte pas. La route lit les consommations avec le client de l'administrateur : la politique
     « Admins can view override consumptions » donne aux administrateurs du tenant la lecture seule de
     `takeoff_apply_override_consumptions` (H11) ; un ingénieur n'en lit aucune, et aucune écriture n'est ouverte.
-- La réserve dans l'offre (TI-682) et la variante restent à construire.
+- La réserve dans l'offre se décide dans l'éditeur du devis (TI-682) ; la variante reste à construire.
 - L'audit `takeoff.apply.override` doit nommer toutes les lignes bloquées, anciennes et nouvelles raisons.
 - Le trigger refuse un audit qui en oublie une.
 - Il consomme l'audit une seule fois.

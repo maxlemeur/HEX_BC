@@ -27,6 +27,7 @@ import type { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import type { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
 import type { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
+import type { EstimateOfferTreatmentsDialog } from "@/components/estimates/v3/EstimateOfferTreatmentsDialog";
 import type { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import type { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
@@ -268,6 +269,8 @@ export type EstimateEditorStateModel = {
           | ComponentProps<typeof VersionZeroDraftDialog>
           | null;
         sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog>;
+        /** TI-682 : « Motifs et réserves », moteur 3 seulement ; nul tant que la fenêtre est fermée. */
+        offerTreatmentsDialogProps: ComponentProps<typeof EstimateOfferTreatmentsDialog> | null;
       };
 };
 
@@ -335,6 +338,8 @@ export function useEstimateEditorState({
   } | null>(null);
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
+  // TI-682 : la fenêtre « Motifs et réserves » appartient à la version où elle a été ouverte.
+  const [offerTreatmentsDialogVersionId, setOfferTreatmentsDialogVersionId] = useState<string | null>(null);
   const settingsSaveGenerationRef = useRef(0);
   const settingsSavePromiseRef = useRef<{
     versionId: string;
@@ -1681,6 +1686,7 @@ export function useEstimateEditorState({
     openPriceReuseDialog: openPriceReuseDialogAction,
     closePriceReuseDialog,
     confirmPriceReuse: handleConfirmPriceReuse,
+    saveOfferTreatments,
     clearImportSummary,
   } = importController.actions;
   const handleOpenPriceReuseDialog = useCallback(() => {
@@ -2413,6 +2419,24 @@ export function useEstimateEditorState({
     },
     [closeEstimateStructureDraftDialogAction, highlightAiMutationItems]
   );
+  const isOfferTreatmentsDialogOpen = isV3 && offerTreatmentsDialogVersionId !== null &&
+    offerTreatmentsDialogVersionId === resolvedVersionId;
+  const openOfferTreatmentsDialog = useCallback(() => {
+    clearImportSummary();
+    closeSendGatingDialog();
+    setOfferTreatmentsDialogVersionId(resolvedVersionId);
+  }, [clearImportSummary, closeSendGatingDialog, resolvedVersionId]);
+  const closeOfferTreatmentsDialog = useCallback(() => setOfferTreatmentsDialogVersionId(null), []);
+  const isOfferTreatmentsReadOnly = isReadOnly || isConflictLocked || isSaveBlocked || isSavingSettings;
+  const offerTreatmentsDialogProps = useMemo<ComponentProps<typeof EstimateOfferTreatmentsDialog> | null>(
+    () => isOfferTreatmentsDialogOpen && version
+      ? { isOpen: true, items, limitsText: version.exclusions ?? null, isReadOnly: isOfferTreatmentsReadOnly,
+          projectId: version.project_id ?? null,
+          onClose: closeOfferTreatmentsDialog, onSave: saveOfferTreatments }
+      : null,
+    [closeOfferTreatmentsDialog, isOfferTreatmentsDialogOpen, isOfferTreatmentsReadOnly, items, saveOfferTreatments, version]
+  );
+
   const toolbarProps: ComponentProps<typeof EstimateEditorToolbar> | null = version
     ? {
         projectName,
@@ -2451,6 +2475,7 @@ export function useEstimateEditorState({
         onSend: () => void handleStatusChange("sent"),
         onAccept: () => void handleStatusChange("accepted"),
         onOpenExclusions: () => handleOpenSettingsDrawer("exclusions"),
+        onOpenOfferTreatments: isV3 ? openOfferTreatmentsDialog : undefined,
         onArchive: () => void handleStatusChange("archived"),
         onExportExcel: () => void handleExportExcel(),
         onExportCSV: () => void handleExportCSV(),
@@ -2740,6 +2765,7 @@ export function useEstimateEditorState({
     canForce: isAdmin,
     projectId: version?.project_id ?? null,
     onClose: closeSendGatingDialog,
+    onOpenOfferTreatments: isV3 ? openOfferTreatmentsDialog : undefined,
     onConfirm: () => void handleConfirmSend(false),
     onForceConfirm: () => void handleConfirmSend(true),
   };
@@ -2818,6 +2844,7 @@ export function useEstimateEditorState({
       generatedOuvrageDialogProps,
       versionZeroDraftDialogProps,
       sendGatingDialogProps,
+      offerTreatmentsDialogProps,
     },
   };
 }

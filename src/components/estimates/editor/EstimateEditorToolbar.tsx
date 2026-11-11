@@ -86,6 +86,7 @@ type MoreActionsDropdownProps = {
   onExportExcel: () => void;
   onExportCSV: () => void;
   onOpenExclusions: () => void;
+  onOpenOfferTreatments?: () => void;
   onExportDpgf: () => void;
   onExportBdc: () => void;
   onImportDpgfSource: () => void;
@@ -148,6 +149,7 @@ function MoreActionsDropdown({
   onExportExcel,
   onExportCSV,
   onOpenExclusions,
+  onOpenOfferTreatments,
   onExportDpgf,
   onExportBdc,
   onImportDpgfSource,
@@ -452,6 +454,20 @@ function MoreActionsDropdown({
           >
             Exclusions
           </button>
+          {onOpenOfferTreatments ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                close();
+                onOpenOfferTreatments();
+              }}
+              data-testid="estimate-page-toolbar-offer-treatments-button"
+            >
+              Motifs et réserves
+            </button>
+          ) : null}
           <div className="my-1 border-t border-border" role="separator" />
           <button
             type="button"
@@ -552,6 +568,8 @@ type EstimateEditorToolbarProps = {
   onSend: () => void;
   onAccept: () => void;
   onOpenExclusions: () => void;
+  /** TI-682 : moteur 3 seulement. */
+  onOpenOfferTreatments?: () => void;
   onArchive: () => void;
   onExportExcel: () => void;
   onExportCSV: () => void;
@@ -599,6 +617,7 @@ export function EstimateEditorToolbar({
   onSend,
   onAccept,
   onOpenExclusions,
+  onOpenOfferTreatments,
   onArchive,
   onExportExcel,
   onExportCSV,
@@ -747,6 +766,7 @@ export function EstimateEditorToolbar({
             onExportExcel={onExportExcel}
             onExportCSV={onExportCSV}
             onOpenExclusions={onOpenExclusions}
+            onOpenOfferTreatments={onOpenOfferTreatments}
             onExportDpgf={onExportDpgf}
             onExportBdc={onExportBdc}
             onImportDpgfSource={onImportDpgfSource}

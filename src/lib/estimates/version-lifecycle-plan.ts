@@ -79,7 +79,7 @@ export function resolveEstimateSendOverride(
     .filter((key) => (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(key));
   if (notForceable.length > 0) {
     throw badRequest(
-      "Envoi bloqué : des lignes « Non chiffrée » restent à classer (chiffrez-les, ou passez-les en Inclus, Pour mémoire, Hors lot ou Sans objet). Un administrateur ne peut pas forcer cet envoi.",
+      "Envoi bloqué : des lignes « Non chiffrée » restent à classer (chiffrez-les, passez-les en Inclus, Pour mémoire, Hors lot ou Sans objet, ou écrivez une réserve dans l’offre). Un administrateur ne peut pas forcer cet envoi.",
       { gating, not_forceable: notForceable },
       "ESTIMATE_GATING_NOT_FORCEABLE"
     );

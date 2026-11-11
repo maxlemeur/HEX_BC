@@ -2180,3 +2180,121 @@ armyTest("V3E22 a queued line save cannot clear an undo recovery when its acknow
       await browser.unroute(itemUrl);
     }
   });
+
+/* ---------- TI-682 (D12) : motifs d'exclusion et réserves dans l'offre (docs/metier/cycle-de-vie.md) ---------- */
+
+const offerTreatmentOf = (state: ArmyEstimate, id: string) => {
+  const metadata = state.items.find(item => item.id === id)?.source_metadata;
+  const stored = metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>).offer_treatment : undefined;
+  return stored && typeof stored === "object" ? stored as Record<string, unknown> : null;
+};
+const offerText = (state: ArmyEstimate) => (state.version as unknown as { exclusions: string | null }).exclusions;
+
+armyTest("V3E23 a « Non chiffrée » v3 line blocks the send until « Motifs et réserves » writes its reserve in the offer text, an out-of-scope line gets its internal reason, and withdrawing the reserve blocks the send again",
+  options(300_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E23");
+    const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    // P : 2 ml, 15,00 € + 1 h/u (40 €/h) = 135,40 € HT (V3E08) ; NC et HL : statuts à 0 €, entrées gardées.
+    const [lineP, lineNc, lineHl] = await seedLines(ui, army, draft, "v3e23", [
+      withLabor(title("P"), 2, 1500, 1, draft.tuyauteurId, { unit_code: "ml" }),
+      statusLine(title("NC"), "not_priced"), statusLine(title("HL"), "out_of_scope"),
+    ]);
+    const TOTALS: Totals = [13540, 2708, 16248];
+    const seeded = await readConsistent(ui, draft.versionId);
+    expect(totalsOf(seeded)).toEqual(TOTALS);
+    const gatingView = (gating: Gating) => ({
+      unclassified: flaggedIds(gating, "not_priced_unclassified", [lineNc.id]),
+      unclassifiedBlocks: gating.blockingFlags.some(flag => flag.key === "not_priced_unclassified"),
+      withoutReason: flaggedIds(gating, "exclusion_without_reason", [lineHl.id]),
+      notWritten: flaggedIds(gating, "offer_reserve_not_written", [lineP.id, lineNc.id, lineHl.id]),
+      basisConflict: flaggedIds(gating, "offer_reserve_basis_conflict", [lineP.id, lineNc.id, lineHl.id]),
+    });
+    const before = gatingView(await readGating(ui, draft.versionId));
+    await recordEvidence(army, "v3e23-gating-before", { versionId: draft.versionId, actual: before });
+    expect(before, "an unpriced line blocks the send and an out-of-scope line asks for its reason").toEqual({
+      unclassified: [lineNc.id], unclassifiedBlocks: true, withoutReason: [lineHl.id], notWritten: [], basisConflict: [],
+    });
+
+    await openV3Editor(ui, army, draft, "v3e23");
+    await waitForDraftLease(ui);
+    const openWindow = async () => {
+      await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
+      await screen.getByTestId("estimate-page-toolbar-offer-treatments-button").tap();
+      const dialog = screen.getByRole("dialog", "Motifs et réserves", { exact: true });
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      return dialog;
+    };
+    const RESERVE = "non chiffré, à définir après relevé sur site.";
+    const SENTENCE = `Réserve — « ${lineNc.title} » : ${RESERVE}`;
+    let dialog = await openWindow();
+    const save = () => dialog.getByRole("button", "Enregistrer", { exact: true });
+    expect(await save().isEnabled(), "nothing to save before a change").toBe(false);
+    await dialog.getByLabel(`Réserve dans l’offre : ${lineNc.title}`, { exact: true }).fill(RESERVE);
+    // A reserve states its basis: without one the window refuses by name and sends nothing.
+    await save().tap();
+    const refusal = normalized(await dialog.getByTestId("offer-treatments-error").textContent());
+    const untouched = await readConsistent(ui, draft.versionId);
+    await recordEvidence(army, "v3e23-basis-required", { refusal, revision: [seeded.version.content_revision, untouched.version.content_revision] });
+    expect(refusal).toContain("Choisissez la base des réserves");
+    expect(untouched.version.content_revision, "a refused save writes nothing").toBe(seeded.version.content_revision);
+    await dialog.getByTestId("offer-treatments-basis").selectOption({ value: "private_estimate" });
+    await dialog.getByLabel(`Motif d’exclusion : ${lineHl.title}`, { exact: true }).selectOption({ value: "other_lot" });
+    await dialog.getByLabel(`Précision du motif : ${lineHl.title}`, { exact: true }).fill("Lot gros œuvre");
+    await save().tap();
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
+
+    const written = await waitState(ui, draft.versionId, state => offerTreatmentOf(state, lineNc.id) !== null);
+    const pick = (stored: Record<string, unknown> | null, keys: string[]) =>
+      stored ? Object.fromEntries(keys.map(key => [key, stored[key]])) : null;
+    const writtenView = {
+      text: offerText(written), totals: totalsOf(written),
+      reserve: pick(offerTreatmentOf(written, lineNc.id), ["kind", "basis", "text", "sentence"]),
+      reason: pick(offerTreatmentOf(written, lineHl.id), ["kind", "reason_code", "note"]),
+      priced: offerTreatmentOf(written, lineP.id),
+      authored: [lineNc.id, lineHl.id].every(id => offerTreatmentOf(written, id)?.decided_by === draft.owner.userId),
+      statuses: [lineNc.id, lineHl.id].map(id => written.items.find(item => item.id === id)?.pricing_status),
+      gating: gatingView(await readGating(ui, draft.versionId)),
+    };
+    await recordEvidence(army, "v3e23-written", { versionId: draft.versionId, actual: writtenView });
+    expect(writtenView, "the reserve is on the line and in the offer text, the reason on its line, no amount moved").toEqual({
+      text: SENTENCE, totals: TOTALS,
+      reserve: { kind: "offer_reserve", basis: "private_estimate", text: RESERVE, sentence: SENTENCE },
+      reason: { kind: "internal_exclusion", reason_code: "other_lot", note: "Lot gros œuvre" },
+      priced: null, authored: true, statuses: ["not_priced", "out_of_scope"],
+      gating: { unclassified: [], unclassifiedBlocks: false, withoutReason: [], notWritten: [], basisConflict: [] },
+    });
+    await expect(screen.getByTestId("estimate-editor-alerts-region"))
+      .toContainText("Motifs et réserves enregistrés : 1 réserve écrite dans l’offre, 1 motif d’exclusion.");
+
+    // The estimator reads the sentence where the offer text is edited, and the window shows the stored decisions.
+    await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
+    await screen.getByTestId("estimate-page-toolbar-exclusions-button").tap();
+    const limits = settingsDialog(ui).getByLabel("Précisions et exclusions particulières", { exact: true });
+    await expect(limits).toHaveValue(SENTENCE, { timeout: 30_000 });
+    await settingsDialog(ui).getByRole("button", "Fermer", { exact: true }).tap();
+    await expect(settingsDialog(ui)).toBeHidden({ timeout: 30_000 });
+
+    // Withdrawing the reserve takes its sentence out of the offer text, and the line blocks the send again.
+    dialog = await openWindow();
+    const reserveField = dialog.getByLabel(`Réserve dans l’offre : ${lineNc.title}`, { exact: true });
+    await expect(reserveField).toHaveValue(RESERVE);
+    await expect(dialog.getByTestId("offer-treatments-basis")).toHaveValue("private_estimate");
+    await expect(dialog.getByLabel(`Motif d’exclusion : ${lineHl.title}`, { exact: true })).toHaveValue("other_lot");
+    await reserveField.fill("");
+    await save().tap();
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
+    const withdrawn = await waitState(ui, draft.versionId, state => offerTreatmentOf(state, lineNc.id) === null);
+    const withdrawnView = {
+      text: offerText(withdrawn), totals: totalsOf(withdrawn), reserve: offerTreatmentOf(withdrawn, lineNc.id),
+      reason: pick(offerTreatmentOf(withdrawn, lineHl.id), ["kind", "reason_code", "note"]),
+      gating: gatingView(await readGating(ui, draft.versionId)),
+    };
+    await recordEvidence(army, "v3e23-withdrawn", { versionId: draft.versionId, actual: withdrawnView, nativeDialogs: dialogs });
+    expect(withdrawnView, "without its reserve the unpriced line blocks the send again; the reason stays").toEqual({
+      text: null, totals: TOTALS, reserve: null,
+      reason: { kind: "internal_exclusion", reason_code: "other_lot", note: "Lot gros œuvre" },
+      gating: { unclassified: [lineNc.id], unclassifiedBlocks: true, withoutReason: [], notWritten: [], basisConflict: [] },
+    });
+  });

@@ -90,6 +90,13 @@ const EstimateSendGatingDialog = dynamic(
     })),
   { ssr: false, loading: () => null }
 );
+const EstimateOfferTreatmentsDialog = dynamic(
+  () =>
+    import("@/components/estimates/v3/EstimateOfferTreatmentsDialog").then((module) => ({
+      default: module.EstimateOfferTreatmentsDialog,
+    })),
+  { ssr: false, loading: () => null }
+);
 const SupplierPreselectionDialog = dynamic(
   () =>
     import("@/components/estimates/SupplierPreselectionDialog").then((module) => ({
@@ -362,6 +369,11 @@ export function EstimateEditorPage({
       {readyMeta.versionZeroDraftDialogProps ? (
         <div data-testid="estimate-editor-version-zero-dialog-region">
           <VersionZeroDraftDialog {...readyMeta.versionZeroDraftDialogProps} />
+        </div>
+      ) : null}
+      {readyMeta.offerTreatmentsDialogProps ? (
+        <div data-testid="estimate-editor-offer-treatments-dialog-region">
+          <EstimateOfferTreatmentsDialog {...readyMeta.offerTreatmentsDialogProps} />
         </div>
       ) : null}
       <div data-testid="estimate-editor-send-gating-dialog-region">

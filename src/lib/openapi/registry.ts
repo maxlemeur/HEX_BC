@@ -113,6 +113,7 @@ import {
   updateLaborRoleSchema,
   updateSuggestionRuleSchema,
 } from "@/lib/estimates/schemas";
+import { setOfferTreatmentsResultSchema, setOfferTreatmentsSchema } from "@/lib/estimates/offer-treatment-plan";
 import {
   estimateDeltaExplanationQuerySchema,
   estimateExplanationDetailQueryParamSchema,
@@ -1838,6 +1839,16 @@ const apiEstimateEventsSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateEventsResponse",
   estimateEventsDataSchema
 );
+const apiEstimateOfferTreatmentsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateOfferTreatmentsResponse",
+  setOfferTreatmentsResultSchema
+);
+const setOfferTreatmentsBody = jsonBody({
+  name: "SetEstimateOfferTreatmentsRequest",
+  description:
+    "Motifs internes d'exclusion et reserves ecrites dans l'offre, par ligne ; decision nulle pour retirer. La revision de contenu lue par l'editeur est exigee.",
+  schema: setOfferTreatmentsSchema,
+});
 const apiEstimateGatingSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateGatingResponse",
   estimateGatingDataSchema
@@ -4227,6 +4238,22 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Evenements de version retournes.",
         apiEstimateEventsSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "put",
+    path: "/api/estimates/{versionId}/offer-treatments",
+    summary: "Enregistrer motifs d'exclusion et reserves de l'offre",
+    description:
+      "Moteur 3, brouillon verrouille par la session. Enregistre le motif interne d'une ligne exclue du prix, ou la reserve ecrite dans l'offre d'une ligne chiffree ou non chiffree (base : devis prive, ou quantites declarees indicatives), et ecrit la phrase de chaque reserve dans les precisions et limites de prestation, en une transaction. Aucun montant ne change.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter],
+    requestBody: setOfferTreatmentsBody,
+    responses: {
+      "200": jsonResponse(
+        "Motifs et reserves enregistres.",
+        apiEstimateOfferTreatmentsSchemaDefinition
       ),
     },
   },

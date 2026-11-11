@@ -80,8 +80,49 @@ On la chiffre, ou on lui donne le statut que le client lira : « Inclus »,
 l'envoi est refusé ; aucun réglage du tenant ne rétrograde ce blocage, et un
 administrateur ne peut pas le forcer. Une ligne « chiffrée » sans prix ni
 heures, qui partirait à 0 €, bloque aussi l'envoi par défaut : pour offrir une
-prestation, on lui donne le statut « Inclus ». La réserve écrite dans l'offre,
-rattachée à une ligne, reste à construire.
+prestation, on lui donne le statut « Inclus ».
+
+Motifs et réserves (TI-682, D12, moteur 3). La fenêtre « Motifs et réserves » de
+l'éditeur, ouverte par « Plus d'actions » ou depuis le contrôle d'envoi, enregistre
+une décision par ligne, sous la clé `offer_treatment` de `source_metadata` :
+
+- **Motif d'exclusion, interne.** Une ligne « Inclus », « Pour mémoire », « Hors
+  lot » ou « Sans objet » reçoit un motif codé (à la charge d'un autre lot, fourni
+  ou réalisé par le client, hors périmètre de la consultation, compris dans une
+  autre ligne du devis, sans objet sur ce projet, autre motif avec précision). Il n'est imprimé dans aucune sortie client. Une ligne
+  « Hors lot » ou « Sans objet » sans motif est signalée par le contrôle d'envoi
+  (`exclusion_without_reason`, avertissement par défaut, réglable par le tenant).
+- **Réserve dans l'offre.** Une ligne « Non chiffrée », ou une ligne « Chiffrée »
+  dont la quantité est provisoire, reçoit une réserve. Sa phrase, « Réserve —
+  « titre de la ligne » : texte », est écrite sur sa propre ligne dans « Précisions
+  et limites de prestation » (`estimate_versions.exclusions`), le texte que le gel,
+  le sceau, le PDF et le portail portent déjà : le contrat client 2 ne change pas.
+  Une réserve s'écrit sur une base, la même pour tout le devis : devis privé, ou
+  quantités déclarées indicatives par le règlement de consultation. En marché
+  public sans quantités indicatives, il n'y a pas de réserve : on pose la question
+  à l'acheteur ou on chiffre une provision.
+
+Une ligne « Non chiffrée » sous réserve est classée : elle ne bloque plus l'envoi,
+tant que sa phrase figure dans le texte de l'offre. Si le texte est modifié à la
+main et perd la phrase, l'envoi est bloqué (`offer_reserve_not_written`) ; deux
+bases dans un même devis le bloquent aussi (`offer_reserve_basis_conflict`). Une
+décision gardée d'un ancien statut ne vaut plus : un motif ne classe pas une
+ligne redevenue chiffrée, ni une réserve une ligne passée « Hors lot ». Tant que
+le texte de l'offre garde la phrase d'une telle réserve, l'envoi est bloqué par
+le même indicateur. Dans les deux cas, « Motifs et réserves » signale la ligne et
+son enregistrement remet le texte en accord : la phrase disparue est réécrite, la
+phrase périmée retirée.
+
+L'écriture passe par une seule fonction, `set_estimate_line_offer_treatments` :
+brouillon du moteur 3, révision lue par l'éditeur, auteur et instant posés par la
+base, décisions et texte de l'offre dans la même transaction, aucun montant
+modifié. Limites connues : les classeurs (standard, DPGF, BDC) ne portent pas la
+réserve, qui est dans le texte de l'offre ; une copie garde les décisions de ses
+lignes, et une réserve copiée dans un devis dont le texte n'a pas sa phrase est
+signalée comme absente ; la ligne est nommée par son titre, pas par un numéro.
+[Règles](../../src/lib/estimates/offer-treatment.ts),
+[plan d'enregistrement](../../src/lib/estimates/offer-treatment-plan.ts),
+[route](../../src/lib/estimates/offer-treatment-server.ts).
 
 La préparation fige les montants avec le moteur épinglé, génère un document lié
 à cette révision et calcule le sceau. Le PDF publié est identifié par son chemin

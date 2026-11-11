@@ -19,11 +19,15 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "version_zero_review_pending",
   "not_priced_unclassified",
   "priced_line_without_amount",
+  "exclusion_without_reason",
+  "offer_reserve_not_written",
+  "offer_reserve_basis_conflict",
 ] as const;
 
 /**
  * TI-682 (D25): flags no tenant setting can downgrade. A « Non chiffrée » line is a line still to classify: it is
- * priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors lot », « Sans objet »).
+ * priced, given the status the client reads (« Inclus », « Pour mémoire », « Hors lot », « Sans objet »), or left
+ * « Non chiffrée » under a reserve written in the offer (offer-treatment.ts).
  */
 export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = ["not_priced_unclassified"];
 
@@ -99,12 +103,27 @@ export const ESTIMATE_GATING_FLAG_META: Record<
   not_priced_unclassified: {
     label: "Lignes non chiffrées à classer",
     description:
-      "Une ligne « Non chiffrée » ne part pas chez le client sans décision. Chiffrez-la, ou donnez-lui le statut qui convient : Inclus, Pour mémoire, Hors lot ou Sans objet.",
+      "Une ligne « Non chiffrée » ne part pas chez le client sans décision. Chiffrez-la, donnez-lui le statut qui convient (Inclus, Pour mémoire, Hors lot ou Sans objet), ou écrivez une réserve dans l’offre si le devis est privé ou si le règlement de consultation déclare les quantités indicatives.",
   },
   priced_line_without_amount: {
     label: "Lignes chiffrées à 0 €",
     description:
       "Une ligne « Chiffrée » sans prix ni heures partirait à 0 €. Chiffrez-la, ou donnez-lui le statut « Inclus » ou « Pour mémoire ».",
+  },
+  exclusion_without_reason: {
+    label: "Exclusions sans motif interne",
+    description:
+      "Une ligne « Hors lot » ou « Sans objet » garde le motif de son exclusion. Le client lit le statut ; le motif reste interne. Renseignez-le dans « Motifs et réserves ».",
+  },
+  offer_reserve_not_written: {
+    label: "Réserves à réécrire dans l’offre",
+    description:
+      "Le texte « Précisions et limites de prestation » ne correspond plus aux réserves des lignes : la phrase d’une réserve en a disparu, et le client ne la lirait pas, ou il garde la phrase d’une ligne dont le statut a changé. Ouvrez « Motifs et réserves » et enregistrez : le texte de l’offre est remis en accord.",
+  },
+  offer_reserve_basis_conflict: {
+    label: "Réserves sur deux bases différentes",
+    description:
+      "Les réserves d’un même devis reposent sur une seule base : devis privé, ou quantités déclarées indicatives par le règlement de consultation. Alignez-les dans « Motifs et réserves ».",
   },
 };
 
@@ -134,6 +153,10 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   version_zero_review_pending: "blocking",
   not_priced_unclassified: "blocking",
   priced_line_without_amount: "blocking",
+  // The reason is internal: its absence is shown before sending and a tenant can make it blocking.
+  exclusion_without_reason: "warning",
+  offer_reserve_not_written: "blocking",
+  offer_reserve_basis_conflict: "blocking",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

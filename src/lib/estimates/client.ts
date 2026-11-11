@@ -11,6 +11,7 @@ import { toEstimateImportSourceClient, toEstimateImportSectionClient, toImportEs
 import { toAffaireLinkedDpgfSourceClient, toImportLinkedDpgfSourceClient, type AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
 import { parseImportSourcesResponse, parseImportSectionsPreviewResponse, parseImportSectionsResponse, parseDuplicateSectionResponse, parseLinkedDpgfSourceResponse, parseImportLinkedDpgfResponse } from "@/lib/estimates/section-copy-response";
 import { type EstimateEditorData, type VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
+import { setOfferTreatmentsResultSchema, type SetOfferTreatmentsInput, type SetOfferTreatmentsResult } from "@/lib/estimates/offer-treatment-plan";
 import { priceReuseApplySchema, priceReuseArbitrationSchema, priceReusePreviewSchema, type PriceReuseApplyInput, type PriceReuseApplyResult, type PriceReuseArbitration, type PriceReuseArbitrationInput, type PriceReusePreview } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 import { downloadBlob } from "@/lib/browser-download";
@@ -1968,6 +1969,18 @@ export async function applyEstimatePriceReuse(targetVersionId: string, input: Pr
     "Impossible de reprendre les prix.",
     (value) => priceReuseApplySchema.parse(value),
     { mutation: { versionId: targetVersionId, structural: true } }
+  );
+}
+
+/** TI-682 : motifs d'exclusion et réserves de l'offre, une écriture atomique de l'éditeur à la révision lue. */
+export async function saveEstimateOfferTreatments(versionId: string, input: SetOfferTreatmentsInput,
+  updatedAt: string): Promise<SetOfferTreatmentsResult> {
+  return requestJson(
+    `/api/estimates/${versionId}/offer-treatments`,
+    { method: "PUT", headers: { "Content-Type": "application/json", "If-Match": updatedAt }, body: JSON.stringify(input) },
+    "Impossible d’enregistrer motifs et réserves.",
+    (value) => setOfferTreatmentsResultSchema.parse(value),
+    { mutation: { versionId, structural: true } }
   );
 }
 

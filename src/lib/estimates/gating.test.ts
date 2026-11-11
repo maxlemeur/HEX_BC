@@ -26,6 +26,7 @@ import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
+import { buildOfferReserveSentence } from "@/lib/estimates/offer-treatment";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -61,6 +62,8 @@ function createSupabaseGatingMock(input: {
   marginTiers: unknown[];
   documents: unknown[];
   supplierPrices?: unknown[];
+  /** The offer text of the version row, read only when a line carries an offer decision. */
+  versionExclusions?: string | null;
 }) {
   const estimateItemsBuilder = createOrderBuilder(
     {
@@ -112,6 +115,14 @@ function createSupabaseGatingMock(input: {
         return {
           select: vi.fn(() => supplierPricesBuilder),
         };
+      }
+      if (table === "estimate_versions" && input.versionExclusions !== undefined) {
+        const versionBuilder = {
+          eq: vi.fn(),
+          maybeSingle: vi.fn().mockResolvedValue({ data: { exclusions: input.versionExclusions }, error: null }),
+        };
+        versionBuilder.eq.mockReturnValue(versionBuilder);
+        return { select: vi.fn(() => versionBuilder) };
       }
       throw new Error(`Unexpected table: ${table}`);
     }),
@@ -719,6 +730,103 @@ describe("estimate send gating", () => {
       }),
     ]);
     expect(result.warningFlags.map((flag) => flag.key)).not.toContain("not_priced_unclassified");
+  });
+
+  // TI-682 (D12): a reserve written in the offer classifies a « Non chiffrée » line; an exclusion keeps its reason.
+  describe("offer reserves and exclusion reasons", () => {
+    const DECIDED = { decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T14:00:00.000Z" };
+    const reserveOf = (title: string, text: string, basis = "private_estimate") => ({
+      offer_treatment: { version: 1, kind: "offer_reserve", basis, text,
+        sentence: buildOfferReserveSentence(title, text), ...DECIDED },
+    });
+    const statusLine = (id: string, pricingStatus: string, sourceMetadata: unknown = {}) => ({
+      ...createLineItem({ id, quantity: 0, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
+      pricing_status: pricingStatus, title: id, source_metadata: sourceMetadata,
+    });
+    const evaluate = (items: unknown[], versionExclusions: string | null | undefined, version: Record<string, unknown> = {}) =>
+      evaluateEstimateSendGating({
+        supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }], versionExclusions }) as never,
+        tenantId: TENANT_ID,
+        version: { id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 0,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: 3, ...version },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
+    const sentence = buildOfferReserveSentence("Calorifuge", "non chiffré, à définir sur relevé.");
+
+    it("lets a « Non chiffrée » line leave under a reserve the offer text holds, reading that text once", async () => {
+      const result = await evaluate(
+        [statusLine("reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé."))],
+        `Hors percements.\n\n${sentence}`);
+      expect(result.canSend).toBe(true);
+      expect(result.blockingFlags).toEqual([]);
+    });
+
+    it("keeps it blocked, and not forceable, once the sentence has left the offer text", async () => {
+      const result = await evaluate(
+        [statusLine("reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé."))],
+        "Hors percements.");
+      expect(result.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
+        ["not_priced_unclassified", ["reserved"]],
+        ["offer_reserve_not_written", ["reserved"]],
+      ]);
+    });
+
+    it("uses the offer text of the version row when the caller already has it", async () => {
+      const result = await evaluate(
+        [statusLine("reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé."))],
+        undefined, { exclusions: sentence });
+      expect(result.canSend).toBe(true);
+    });
+
+    it("blocks reserves resting on two bases, and a priced line whose reserve is not written", async () => {
+      const other = buildOfferReserveSentence("Réseau EU", "quantité provisionnelle.");
+      const conflict = await evaluate([
+        statusLine("a-reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé.")),
+        { ...createLineItem({ id: "b-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced",
+          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.", "indicative_quantities") },
+      ], `${sentence}\n${other}`);
+      expect(conflict.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
+        ["not_priced_unclassified", ["a-reserved"]],
+        ["offer_reserve_basis_conflict", ["a-reserved", "b-priced"]],
+      ]);
+
+      const unwritten = await evaluate([
+        { ...createLineItem({ id: "b-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced",
+          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.") },
+      ], null);
+      expect(unwritten.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
+        ["offer_reserve_not_written", ["b-priced"]],
+      ]);
+    });
+
+    it("warns about « Hors lot » and « Sans objet » lines without a reason, and a tenant can make it blocking", async () => {
+      const items = [
+        statusLine("hors-lot", "out_of_scope"),
+        statusLine("sans-objet", "not_applicable", { offer_treatment: { version: 1, kind: "internal_exclusion",
+          reason_code: "other_lot", note: null, ...DECIDED } }),
+        statusLine("inclus", "included"),
+      ];
+      const byDefault = await evaluate(items, undefined);
+      expect(byDefault.canSend).toBe(true);
+      expect(byDefault.warningFlags).toEqual([
+        expect.objectContaining({ key: "exclusion_without_reason", item_ids: ["hors-lot"],
+          label: "Exclusions sans motif interne" }),
+      ]);
+
+      vi.mocked(getFeatureFlagValueForTenant).mockResolvedValueOnce("exclusion_without_reason").mockResolvedValueOnce(null);
+      const strict = await evaluate(items, undefined);
+      expect(strict.canSend).toBe(false);
+      expect(strict.blockingFlags.map((flag) => flag.key)).toEqual(["exclusion_without_reason"]);
+    });
+
+    it("reads no decision on engines 1 and 2", async () => {
+      const result = await evaluate(
+        [{ ...createLineItem({ id: "line", quantity: 2, unitPriceHtCents: 1500 }),
+          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.") }],
+        undefined, { calc_engine_version: 2 });
+      expect(result.blockingFlags).toEqual([]);
+      expect(result.warningFlags).toEqual([]);
+    });
   });
 
   // TI-682 (D25): never a line at 0 € without saying so. Engine 3 has the statuses to say it (« Inclus », « Pour mémoire »).

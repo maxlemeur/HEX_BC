@@ -33,10 +33,17 @@ type EstimateSendGatingDialogProps = {
   warningFlags: EstimateSendGatingFlag[];
   canForce: boolean;
   projectId?: string | null;
+  /** TI-682 : ouvre « Motifs et réserves » depuis un point qui s'y traite (moteur 3). */
+  onOpenOfferTreatments?: () => void;
   onClose: () => void;
   onConfirm: () => void;
   onForceConfirm: () => void;
 };
+
+/** Les points que « Motifs et réserves » lève : une réserve, un motif, une réserve à réécrire, une base à unifier. */
+const OFFER_TREATMENT_FLAG_KEYS: ReadonlySet<string> = new Set([
+  "not_priced_unclassified", "exclusion_without_reason", "offer_reserve_not_written", "offer_reserve_basis_conflict",
+]);
 
 function formatFlagCount(count: number) {
   return `${count} point${count > 1 ? "s" : ""} à traiter`;
@@ -284,7 +291,11 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   );
 }
 
-function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null) {
+function renderFlags(
+  flags: EstimateSendGatingFlag[],
+  projectId?: string | null,
+  offerTreatments?: { open: () => void; disabled: boolean }
+) {
   return (
     <ul className="space-y-2 text-sm">
       {flags.map((flag, index) => (
@@ -319,6 +330,19 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
                 {flag.description}
               </p>
               {renderFlagDetails(flag)}
+              {offerTreatments && OFFER_TREATMENT_FLAG_KEYS.has(flag.key) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={offerTreatments.open}
+                  disabled={offerTreatments.disabled}
+                  data-testid={`estimate-send-gating-offer-treatments-${flag.key}`}
+                >
+                  Ouvrir Motifs et réserves
+                </Button>
+              ) : null}
               {registerAction ? (
                 <div className="mt-2 rounded-lg bg-surface px-2.5 py-2">
                   <p className="text-xs font-medium text-primary">
@@ -350,12 +374,14 @@ export function EstimateSendGatingDialog({
   warningFlags,
   canForce,
   projectId,
+  onOpenOfferTreatments,
   onClose,
   onConfirm,
   onForceConfirm,
 }: Readonly<EstimateSendGatingDialogProps>) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  const offerTreatments = onOpenOfferTreatments ? { open: onOpenOfferTreatments, disabled: isSubmitting } : undefined;
   const hasBlocking = blockingFlags.length > 0;
   const hasWarnings = warningFlags.length > 0;
   const canConfirmWithoutForce = !hasBlocking;
@@ -408,7 +434,7 @@ export function EstimateSendGatingDialog({
               <p className="mb-2 text-xs text-muted-foreground">
                 Tant qu&apos;un point bloquant subsiste, l&apos;envoi au client reste en attente.
               </p>
-              {renderFlags(blockingFlags, projectId)}
+              {renderFlags(blockingFlags, projectId, offerTreatments)}
               {hasNotForceable && canForce ? (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Les lignes non chiffrées se classent avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;il en reste.
@@ -424,7 +450,7 @@ export function EstimateSendGatingDialog({
               <p className="mb-2 text-xs text-muted-foreground">
                 Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent être assumés explicitement.
               </p>
-              {renderFlags(warningFlags, projectId)}
+              {renderFlags(warningFlags, projectId, offerTreatments)}
             </section>
           ) : null}
           {!hasBlocking && !hasWarnings ? (

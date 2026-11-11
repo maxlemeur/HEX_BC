@@ -12,8 +12,9 @@ présume pas qu'un matériau est autorisé parce que son diamètre existe.
   forcer l’application, avec un motif codé et une justification écrite de 10 à 500
   caractères par ligne (TI-686, D10 : journalisés dans `audit_logs`, jamais imprimés
   pour le client ; « Faux positif de règle » nomme `dn_network`). La ligne forcée entre
-  au devis comme provision interne : le client voit une ligne chiffrée ordinaire. La
-  réserve dans l'offre (TI-682) et la variante restent à construire.
+  au devis comme provision interne : le client voit une ligne chiffrée ordinaire. Une
+  réserve dans l'offre s'ajoute dans l'éditeur du devis (« Motifs et réserves », TI-682) ;
+  la variante reste à construire.
 - PVC en eaux grasses, galvanisé/PEHD en EF et EFA, cuivre en condensats, PEHD en
   RIA et multicouche en GLY/départ/retour : justification du système et des conditions.
 - Inox en condensats : admis ; cuivre en glycol et PER en bouclage ECS : inchangés.

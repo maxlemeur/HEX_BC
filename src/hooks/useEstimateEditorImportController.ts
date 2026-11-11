@@ -13,6 +13,7 @@ import {
 
 import {
   applyEstimatePriceReuse,
+  saveEstimateOfferTreatments,
   applyEstimateStructureDraft,
   fetchEstimateEditorData,
   fetchAffaireLinkedDpgfSource,
@@ -27,11 +28,24 @@ import {
   type ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
 import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
+import type { SetOfferTreatmentsInput, SetOfferTreatmentsResult } from "@/lib/estimates/offer-treatment-plan";
 import type { PriceReuseApplyInput, PriceReuseApplyResult } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 
 const euros = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+
+/** TI-682 : ce que l'enregistrement a laissé sur les lignes nommées. */
+function describeOfferTreatmentsResult(result: SetOfferTreatmentsResult) {
+  const count = (kind: "offer_reserve" | "internal_exclusion") =>
+    result.items.filter((item) => item.offer_treatment?.kind === kind).length;
+  const parts = [
+    [count("offer_reserve"), "réserve écrite dans l’offre", "réserves écrites dans l’offre"] as const,
+    [count("internal_exclusion"), "motif d’exclusion", "motifs d’exclusion"] as const,
+    [result.items.filter((item) => item.offer_treatment === null).length, "décision retirée", "décisions retirées"] as const,
+  ].filter(([n]) => n > 0).map(([n, one, many]) => `${n} ${n > 1 ? many : one}`);
+  return parts.length > 0 ? `Motifs et réserves enregistrés : ${parts.join(", ")}.` : "Motifs et réserves enregistrés.";
+}
 
 /** Résumé de l'éditeur : les PU de vente différents de la référence (coefficients, taux horaires) sont nommés. */
 function describePriceReuseResult(result: PriceReuseApplyResult) {
@@ -57,7 +71,8 @@ export type EstimateEditorImportMutation =
   | "estimate-sections"
   | "structure-draft"
   | "linked-dpgf"
-  | "price-reuse";
+  | "price-reuse"
+  | "offer-treatments";
 
 /** Reprise des prix confirmée dans le dialogue (docs/metier/reprise-des-prix.md). */
 export type EstimateEditorPriceReuseInput = PriceReuseApplyInput;
@@ -116,6 +131,8 @@ export type EstimateEditorImportController = {
     openPriceReuseDialog: () => boolean;
     closePriceReuseDialog: () => void;
     confirmPriceReuse: (input: EstimateEditorPriceReuseInput) => Promise<void>;
+    /** TI-682 : enregistre motifs d'exclusion et réserves de l'offre, puis relit le devis. */
+    saveOfferTreatments: (decisions: SetOfferTreatmentsInput["decisions"]) => Promise<void>;
     applyEstimateStructureDraft: (
       draftId: string,
       input: ApplyEstimateStructureDraftPayload
@@ -771,6 +788,31 @@ export function useEstimateEditorImportController({
     [getVersionSnapshot, runStructuralMutation]
   );
 
+  const saveOfferTreatments = useCallback(
+    async (decisions: SetOfferTreatmentsInput["decisions"]) => {
+      await runStructuralMutation<SetOfferTreatmentsResult>({
+        kind: "offer-treatments",
+        actionLabel: "enregistrer motifs et réserves",
+        failureMessage: "Impossible d’enregistrer motifs et réserves.",
+        tokenRefreshFailureMessage:
+          "Impossible de rafraichir le jeton de version après l’enregistrement des motifs et réserves.",
+        execute: (versionId) => {
+          // Read after the pending edits were saved: the revision is the one this write follows.
+          const snapshot = getVersionSnapshot();
+          if (!snapshot?.updated_at || typeof snapshot.content_revision !== "number") {
+            throw new ExpectedImportOperationError(STALE_OPERATION_MESSAGE);
+          }
+          return saveEstimateOfferTreatments(versionId,
+            { expected_content_revision: snapshot.content_revision, decisions }, snapshot.updated_at);
+        },
+        getResultVersionId: (result) => result.version.id,
+        getVersionToken: (result) => result.version,
+        buildSummary: (result) => describeOfferTreatmentsResult(result),
+      });
+    },
+    [getVersionSnapshot, runStructuralMutation]
+  );
+
   const openEstimateStructureDraftDialog = useCallback(() => {
     if (!canOpenDialog()) return false;
     setScopedImportUiState({
@@ -888,6 +930,7 @@ export function useEstimateEditorImportController({
       openPriceReuseDialog,
       closePriceReuseDialog,
       confirmPriceReuse,
+      saveOfferTreatments,
       applyEstimateStructureDraft: applyStructureDraft,
       clearImportSummary,
     }),
@@ -904,6 +947,7 @@ export function useEstimateEditorImportController({
       openImportFromEstimateDialog,
       openPriceReuseDialog,
       refreshLinkedDpgfSource,
+      saveOfferTreatments,
     ]
   );
 
