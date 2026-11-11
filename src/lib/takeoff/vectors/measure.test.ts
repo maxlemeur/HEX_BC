@@ -684,7 +684,7 @@ describe("review of 3/11/2026", () => {
     expect(lines.map((entry) => entry.str)).toEqual(["EU - PVC DN 40"]);
     expect(readLabelBlocks(lines.length ? [{ str: "EU - PVC", x: 300, y: 400, width: 26.4, height: 6, angle: up },
       { str: " DN 40", x: 300, y: 373.6, width: 19.8, height: 6, angle: up }] : []).map((block) => block.label))
-      .toEqual([{ network: "EU", material: "pvc", materialLabel: "PVC", dn: 40, insulated: false }]);
+      .toEqual([{ network: "EU", material: "pvc", materialLabel: "PVC", dn: 40, notation: "DN", insulated: false }]);
     expect(classOfLayerName("XX_CHW_R-1")).toBe("CHW");
     expect(classOfLayerName("XX_CHW L00-R")).toBe("CHW-R");
   });

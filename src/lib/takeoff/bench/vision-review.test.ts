@@ -192,6 +192,25 @@ describe("applyVisionAnswers", () => {
     expect([repeat.corrected, repeat.items[0], repeat.data[0]]).toEqual([[], items[0], data[0]]);
   });
 
+  it("keeps the notation the plan prints when the answer gives the same number without one (TI-683)", () => {
+    const outerItems: TakeoffItem[] = [{ ...items[0], designation: "EU fonte SMU Ø 110" }];
+    const outerData: BenchRuleData[] = [{ ...data[0], inputs: ruleInputsFromVector({ kind: "network", network: "EU", material: "fonte", dn: 110, notation: "Ø", quantity: 5 }) }];
+    // The same reading with a bare number: nothing changes, the line is not counted as corrected.
+    const repeat = applyVisionAnswers({ items: outerItems, data: outerData, answers: new Map([[0, answer({ network: "EU", material: "fonte", dn: "110" })]]) });
+    expect([repeat.corrected, repeat.items[0], repeat.data[0]]).toEqual([[], outerItems[0], outerData[0]]);
+    // Only the material is corrected: the size stays as printed, at its version.
+    const material = applyVisionAnswers({ items: outerItems, data: outerData, answers: new Map([[0, answer({ network: "EU", material: "pvc", dn: "110" })]]) });
+    expect(material.items[0].designation).toBe("EU PVC Ø 110");
+    expect(material.data[0]?.inputs).toMatchObject({ version: 2, material: "pvc", dn: "Ø 110" });
+    // An answer that prints its notation is taken as printed; another number without notation is « DN n », read either way.
+    const nominal = applyVisionAnswers({ items: outerItems, data: outerData, answers: new Map([[0, answer({ network: "EU", material: "fonte", dn: "DN 100" })]]) });
+    expect(nominal.data[0]?.inputs).toMatchObject({ version: 2, dn: "DN 100" });
+    const outer = applyVisionAnswers({ items, data, answers: new Map([[0, answer({ dn: "Ø 22" })]]) });
+    expect([outer.items[0].designation, outer.data[0]?.inputs.dn, outer.data[0]?.inputs.version]).toEqual(["EF cuivre Ø 22", "Ø 22", 2]);
+    const bare = applyVisionAnswers({ items: outerItems, data: outerData, answers: new Map([[0, answer({ network: "EU", material: "fonte", dn: "125" })]]) });
+    expect(bare.data[0]?.inputs).toMatchObject({ version: 1, dn: "DN 125" });
+  });
+
   it("carries the correction to the pipe's insulation line, capped too (V13)", () => {
     const withInsulation: TakeoffItem[] = [items[0], { designation: "EF calorifuge DN 22", quantity: 3, unit: "ml", source_page: 1, confidence: 0.9, evidence: "Fictional" }];
     const insulation: BenchRuleData = { inputs: ruleInputsFromVector({ kind: "insulation", network: "EF", material: "calorifuge", dn: 22, quantity: 3 }),

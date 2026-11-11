@@ -1,12 +1,14 @@
 import { readItemKey, unquote } from "@/lib/takeoff/bench/item-keys";
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
-import { findNetworkDiameterEntries } from "@/lib/takeoff/rules/network-diameters";
+import { findNetworkDiameterEntries, resolveNetworkSize } from "@/lib/takeoff/rules/network-diameters";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
+import { printedSize as printedVectorSize, type SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
 
 // Inputs of the fixed rules for one line (TI-664 step 0), written once by the
 // worker and never by the user:
-// - a vector line (TI-662) gives its geometry's network, material and DN, the
-//   DN printed « DN n » as the plan label reads it;
+// - a vector line (TI-662) gives its geometry's network, material and size, the
+//   size with the notation its plan label prints (« DN 100 », « Ø 110 »:
+//   TI-683, D7), never rewritten into one another;
 // - any other line (levels B and C, the model's answer) is read in its
 //   designation, category and evidence by the bench's deterministic reader
 //   (item-keys.ts, the DN through price-reuse-matching.ts and the diameter
@@ -31,7 +33,22 @@ import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/
 // - An m2 line read as a network is an insulation surface (keys.ts), never a
 //   pipe: the DN rule does not read it.
 
-export const TAKEOFF_RULE_INPUTS_VERSION = 1;
+// 2 (TI-683): a vector size is written with the notation of its label. A vector size written at version 1 is « DN n »
+// whatever the plan printed, and is read either way (sizeReadings); so is a size whose notation is not known today.
+export const TAKEOFF_RULE_INPUTS_VERSION = 2;
+/** The version of a vector size written without its notation: « DN n », read as a nominal DN or as an outer diameter. */
+const VECTOR_SIZE_WITHOUT_NOTATION_VERSION = 1;
+
+/**
+ * The texts a line's size is read as: the size as printed, and for a vector size written without its notation
+ * (version 1) the outer diameter of the same number too (« DN 110 » of a cast-iron pipe the plan labelled « Ø 110 »).
+ * One reading for the DN rule and for the duplicates between zones.
+ */
+export function sizeReadings(inputs: Pick<TakeoffRuleInputs, "source" | "version" | "dn">): string[] {
+  if (inputs.dn === null) return [];
+  const withoutNotation = inputs.source === "vector" && inputs.version <= VECTOR_SIZE_WITHOUT_NOTATION_VERSION && inputs.dn.startsWith("DN ");
+  return withoutNotation ? [inputs.dn, `Ø ${inputs.dn.slice(3)}`] : [inputs.dn];
+}
 
 const NON_OBSERVABLE_PATTERNS: ReadonlyArray<{ cause: NonObservableCause; pattern: RegExp }> = [
   { cause: "weld", pattern: /^(?:soudures?|brasures?)\b/i },
@@ -96,12 +113,13 @@ export function ruleInputsFromDesignation(line: DesignationLine): TakeoffRuleInp
   // Every printed size counts, whatever the reader kept (it reads « DN 22 » and skips « Ø 23 » beside it). A size no
   // series has is kept as printed, the first the material's series lacks, never a known one printed beside it
   // (« DN 22 / DN 23 », « DN 22 / Ø 23 »); two known sizes are none (« DN 22 / Ø 28 »); one size printed two ways is
-  // one (« DN 20 / Ø 22 » of a copper tube). The series is the one the DN rule retains on the network read (D18c):
+  // one (« DN 20 / Ø 22 » of a copper tube), kept by the text that names one tube alone (oneTube, TI-683). The series
+  // is the one the DN rule retains on the network read (D18c):
   // « EU inox DN 100 / Ø 110 » is one drainage size, « EU inox DN 100 / Ø 108 » keeps the Ø 108 NF EN 1124 lacks.
-  const dn = reason === "dn_ambiguous" ? null
+  const kept = reason === "dn_ambiguous" ? null
     : unknownSize(line.designation, network, material) ?? (severalSizes(line.designation, network, material) ? null
       : key.dn?.printed ?? printedSizes(line.designation)[0] ?? null);
-  return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn };
+  return { ...base, kind: wrapped ? "insulation" : "network", network, material, dn: oneTube(kept, line.designation, network, material) };
 }
 
 /**
@@ -132,6 +150,16 @@ function unknownSize(designation: string, network: NetworkCode | null, material:
   return printedSizes(designation).find((size) => findNetworkDiameterEntries(size, network, material).length === 0) ?? null;
 }
 
+/**
+ * One size printed two ways names its tube by the text that names one tube alone (TI-683): « EF inox DN 100 / Ø 108 »
+ * is the Ø 108 press-fit tube, where « DN 100 » alone is that one or the Ø 114,3 welded one. The size kept stays as it
+ * is when it already names one tube (« DN 20 / Ø 22 » of a copper tube), or when no printed size does.
+ */
+function oneTube(kept: string | null, designation: string, network: NetworkCode | null, material: MaterialCode | null) {
+  if (kept === null || resolveNetworkSize(kept, network, material).status !== "ambiguous") return kept;
+  return printedSizes(designation).find((size) => resolveNetworkSize(size, network, material).status === "resolved") ?? kept;
+}
+
 /** Whether a designation prints two known sizes: two printed sizes with no entry (family and outer diameter) in common. */
 function severalSizes(designation: string, network: NetworkCode | null, material: MaterialCode | null) {
   const sizes = printedSizes(designation)
@@ -144,17 +172,24 @@ export type VectorLine = {
   network: NetworkCode | null;
   material: MaterialCode | null;
   dn: number | null;
+  /** The notation the plan label prints the size in; absent or null when it is not known (a reading of before TI-683). */
+  notation?: SizeNotation | null;
   quantity: number;
   /** A room: its printed label and printed surface (the page's reading). */
   room?: string | null;
   printed_m2?: number | null;
 };
 
-/** Inputs of a vector line (TI-662): its geometry's attributes, the DN as the plan label prints it. */
+/**
+ * Inputs of a vector line (TI-662): its geometry's attributes, the size as the plan label prints it (TI-683). A size
+ * without a known notation is written as before, « DN n » at version 1, and read either way.
+ */
 export function ruleInputsFromVector(line: VectorLine): TakeoffRuleInputs {
+  const withoutNotation = line.dn !== null && (line.notation ?? null) === null;
   return {
-    version: TAKEOFF_RULE_INPUTS_VERSION, source: "vector", kind: line.kind, network: line.network, material: line.material,
-    dn: line.dn === null ? null : `DN ${line.dn}`, non_observable: null, model_quantity: line.quantity,
+    version: withoutNotation ? VECTOR_SIZE_WITHOUT_NOTATION_VERSION : TAKEOFF_RULE_INPUTS_VERSION,
+    source: "vector", kind: line.kind, network: line.network, material: line.material,
+    dn: line.dn === null ? null : printedVectorSize(line.dn, line.notation), non_observable: null, model_quantity: line.quantity,
     ...(line.kind === "surface" ? { room: line.room ?? null, printed_m2: line.printed_m2 ?? null } : {}),
   };
 }
@@ -167,11 +202,12 @@ export function ruleInputsFromVectorRecord(record: {
   item: { quantity: number };
   geometry: { kind: VectorLine["kind"]; network: NetworkCode | null; material: MaterialCode | null; dn: number | null; area_m2?: number | null };
   room?: { label: string; printed_m2: number };
+  notation?: SizeNotation | null;
 }): TakeoffRuleInputs {
   const { item, geometry } = record;
   if (geometry.kind !== "surface") {
     return ruleInputsFromVector({ kind: geometry.kind, network: geometry.network, material: geometry.material, dn: geometry.dn,
-      quantity: item.quantity });
+      notation: record.notation, quantity: item.quantity });
   }
   return ruleInputsFromVector({ kind: "surface", network: null, material: null, dn: null,
     quantity: record.geometry.area_m2 ?? item.quantity,

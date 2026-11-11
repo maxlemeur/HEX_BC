@@ -10,6 +10,7 @@ import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
 import { vectorNetworkDesignation } from "@/lib/takeoff/vectors/items";
+import type { SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
 
 // The targeted vision pass of the takeoff bench (TI-664 step 3, TI-658 pipeline step 5: « ChatGPT seulement pour ce
 // que la géométrie ne donne pas »). After the fixed rules of a pass, ChatGPT (local profile) reviews the lines they
@@ -31,7 +32,7 @@ import { vectorNetworkDesignation } from "@/lib/takeoff/vectors/items";
 //   the run (the script's preflight and classifyCallError).
 
 export const VISION_REVIEW_VERSION = 1;
-export const VISION_REVIEW_PROMPT_VERSION = "takeoff-vision-review-v1";
+export const VISION_REVIEW_PROMPT_VERSION = "takeoff-vision-review-v2";
 export const VISION_REVIEW_LIMITS = {
   linesPerPage: 12,
   linesPerCall: 6,
@@ -153,7 +154,7 @@ export function visionPrompt(lines: readonly VisionLine[]) {
     "- « corrige » si le libellé donne le réseau, le matériau ou la taille que la lecture n'a pas, ou une autre valeur : renvoie les trois, en codes de la liste ci-dessous ;",
     "- « confirme » si la lecture est juste (la règle a raison : taille ou matériau vraiment non admis) ;",
     "- « illisible » si le libellé n'est pas lisible ou absent de l'image. N'invente jamais une valeur.",
-    `Codes de réseau : ${NETWORK_CODES.join(", ")}. Codes de matériau du tube : ${VISION_PIPE_MATERIALS.join(", ")} (un calorifuge n'est pas un matériau de tube). Taille : le nombre imprimé (« 22 », « 110 »), sinon null.`,
+    `Codes de réseau : ${NETWORK_CODES.join(", ")}. Codes de matériau du tube : ${VISION_PIPE_MATERIALS.join(", ")} (un calorifuge n'est pas un matériau de tube). Taille : telle qu'imprimée, avec sa notation (« DN 22 », « Ø 110 »), ou le nombre seul si aucune n'est imprimée, sinon null.`,
     "",
     "Lignes :",
     ...described,
@@ -162,10 +163,13 @@ export function visionPrompt(lines: readonly VisionLine[]) {
   ].join("\n");
 }
 
-/** A size as the rules read it (« DN 22 »). */
-function ruleSize(dn: string) {
-  const number = dn.replace(/^(?:DN ?|[Øø] ?)/i, "").replace(",", ".");
-  return `DN ${Number(number)}`;
+/**
+ * A size as the vision pass answers it, with the notation it gives (TI-683: « Ø 110 » is never rewritten « DN 110 »).
+ * A bare number has no notation: it is written as a vector size of before the notation was kept, « DN n » read either way.
+ */
+function answeredSize(dn: string): { dn: number; notation: SizeNotation | null } {
+  const notation = /^DN/i.test(dn) ? "DN" : /^[Øø]/.test(dn) ? "Ø" : null;
+  return { dn: Number(dn.replace(/^(?:DN ?|[Øø] ?)/i, "").replace(",", ".")), notation };
 }
 
 /**
@@ -183,22 +187,27 @@ export function applyVisionAnswers(input: { items: readonly TakeoffItem[]; data:
     if (answer.verdict !== "corrige" || !item || !datum || datum.inputs.kind !== "network") continue;
     const network = answer.network ?? datum.inputs.network;
     const material = answer.material ?? datum.inputs.material;
-    const dn = answer.dn === null ? datum.inputs.dn : ruleSize(answer.dn);
     if (network === null || (material !== null && WRAPPING_MATERIALS.includes(material))) continue;
+    // The size the answer gives, else the line's own, kept as it was written (its notation and its inputs version).
+    const answered = answer.dn === null ? null : answeredSize(answer.dn);
+    // A bare number that repeats the line's keeps the size as the plan prints it: « 110 » never rewrites « Ø 110 ».
+    const sameNumber = answered !== null && answered.notation === null && datum.inputs.dn !== null && answeredSize(datum.inputs.dn).dn === answered.dn;
+    const correctedInputs = answered === null || sameNumber
+      ? { ...datum.inputs, network, material }
+      : ruleInputsFromVector({ kind: "network", network, material, dn: answered.dn, notation: answered.notation, quantity: datum.inputs.model_quantity });
+    const dn = correctedInputs.dn;
     // A « corrige » that repeats the reading changes nothing.
     if (network === datum.inputs.network && material === datum.inputs.material && dn === datum.inputs.dn) continue;
-    const size = dn === null ? null : Number(dn.replace(/^DN /, ""));
     const capped = (value: number | null | undefined) => Math.min(value ?? VISION_CORRECTED_CONFIDENCE, VISION_CORRECTED_CONFIDENCE);
-    data[index] = { ...datum, inputs: ruleInputsFromVector({ kind: "network", network, material, dn: size, quantity: datum.inputs.model_quantity }) };
-    items[index] = { ...item, designation: vectorNetworkDesignation(network, material, size), confidence: capped(item.confidence) };
+    data[index] = { ...datum, inputs: correctedInputs };
+    items[index] = { ...item, designation: vectorNetworkDesignation(network, material, dn), confidence: capped(item.confidence) };
     // vectorItems writes a total's insulation line right after its pipe, on the same network and size: it follows.
     const sibling = input.data[index + 1];
     const siblingItem = input.items[index + 1];
     if (sibling && siblingItem && sibling.inputs.kind === "insulation" && sibling.inputs.network === datum.inputs.network
-      && sibling.inputs.dn === datum.inputs.dn && size !== null) {
-      data[index + 1] = { ...sibling, inputs: ruleInputsFromVector({ kind: "insulation", network, material: "calorifuge", dn: size,
-        quantity: sibling.inputs.model_quantity }) };
-      items[index + 1] = { ...siblingItem, designation: vectorNetworkDesignation(network, "calorifuge", size), confidence: capped(siblingItem.confidence) };
+      && sibling.inputs.dn === datum.inputs.dn && dn !== null) {
+      data[index + 1] = { ...sibling, inputs: { ...sibling.inputs, network, dn, version: correctedInputs.version } };
+      items[index + 1] = { ...siblingItem, designation: vectorNetworkDesignation(network, "calorifuge", dn), confidence: capped(siblingItem.confidence) };
     }
     corrected.push(index);
   }
