@@ -5,6 +5,7 @@ import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
+import { readSiteCostSource } from "@/lib/estimates/fo-price-origin";
 
 import { getFeatureFlagValueForTenant, getStalePriceDaysForTenant } from "@/lib/feature-flags";
 
@@ -637,7 +638,7 @@ export async function getEstimateSupplierComparisons(
 
   let itemsQuery = supabase
     .from("estimate_items")
-    .select("id, item_type, title, quantity, description, unit_code, selected_supplier_price_id")
+    .select("id, item_type, title, quantity, description, unit_code, selected_supplier_price_id, fo_price_origin")
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -661,6 +662,7 @@ export async function getEstimateSupplierComparisons(
     description: string | null;
     unit_code?: string | null;
     selected_supplier_price_id: string | null;
+    fo_price_origin?: unknown;
   }>;
   const lineItems = items.filter((item) => item.item_type === "line");
   const itemById = new Map(lineItems.map((item) => [item.id, item]));
@@ -846,6 +848,7 @@ export async function getEstimateSupplierComparisons(
       comparisons,
       itemTitleById,
       estimateCurrency,
+      siteCostItemIds: new Set(lineItems.filter((item) => readSiteCostSource(item.fo_price_origin)).map((item) => item.id)),
     }),
   };
 }
