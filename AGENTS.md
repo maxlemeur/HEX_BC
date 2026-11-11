@@ -9,10 +9,11 @@ contract take precedence over historical reports and procedures.
   skills and installed API docs when relevant; reuse unchanged references.
 - `main` is protected: it only moves through a pull request whose required
   checks (`quality-gate`, `army-critical`, `army-takeoff`, `army-calc-v3`,
-  `smoke`) are green, and a direct push is refused. Work on a branch created
-  from `origin/main`, from the canonical checkout or a cloud session alike. Use
-  a detached verification worktree when credentials or concurrent work require
-  isolation; an uncommitted task diff alone does not require one.
+  `smoke`, `rls-matrix`) are green, and a direct push is refused. Work on a
+  branch created from `origin/main`, from the canonical checkout or a cloud
+  session alike. Use a detached verification worktree when credentials or
+  concurrent work require isolation; an uncommitted task diff alone does not
+  require one.
 - Preserve unrelated changes, untracked files and personal data. Never stage
   `.env`, `CLAUDE.local.md`, `settings.local.json`, `design-qa.md` or `outputs/`.
 - Complete requested changes through verification, review, commit, push, pull
