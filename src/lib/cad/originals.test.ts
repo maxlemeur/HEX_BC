@@ -4,7 +4,8 @@ import { openCfb } from "@/lib/cad/cfb";
 import { CadReadError } from "@/lib/cad/dxf";
 import { dxfBytes, line } from "@/lib/cad/dxf.test-utils";
 import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, element, fcstd, geometry, label, segment, shape, type FcstdEntry } from "@/lib/cad/fcstd.test-utils";
-import { readCadOriginal } from "@/lib/cad/original";
+import { boilerRoomIfc } from "@/lib/cad/ifc.test-utils";
+import { cadOriginalFormat, readCadOriginal } from "@/lib/cad/original";
 import { CadPlotError, plotCadDrawing } from "@/lib/cad/plot";
 import { basicFileInfo, cfbBytes, dibBytes, dwgBytes, pngBytes, revitPreview } from "@/lib/cad/originals.test-utils";
 import { readDwgSummary, readRvtSummary } from "@/lib/cad/summary";
@@ -252,13 +253,24 @@ describe("readCadOriginal", () => {
     expect(whole.kind === "drawing" && whole.drawing.warnings).toEqual([]);
   });
 
+  it("reads an IFC model with its elements and its mesh", async () => {
+    expect(cadOriginalFormat(" Maquette CVC.IFC ")).toBe("ifc");
+    const original = await readCadOriginal("Chaufferie.IFC", boilerRoomIfc());
+    if (original.kind !== "ifc") throw new Error("model expected");
+    expect(original.model).toMatchObject({ schema: "IFC4", elements: 12, truncated: { elements: false, rows: false, geometry: false, apart: false } });
+    expect(original.model.mesh?.triangles).toBeGreaterThan(400);
+  });
+
   it("refuses a file whose content is not what its name says", async () => {
     expect(await refusal("plan.dwg", dxfBytes({}))).toBe("not_dwg");
     expect(await refusal("plan.dxf", dwgBytes())).toBe("not_dxf");
     expect(await refusal("plan.rvt", dwgBytes())).toBe("not_rvt");
     expect(await refusal("plan.fcstd", dwgBytes())).toBe("not_fcstd");
     expect(await refusal("plan.FCStd", new Uint8Array())).toBe("empty");
-    expect(await refusal("plan.ifc", dwgBytes())).toBe("unsupported");
+    expect(await refusal("plan.ifc", dwgBytes())).toBe("not_ifc");
+    expect(await refusal("plan.ifc", dxfBytes({}))).toBe("not_ifc");
+    expect(await refusal("plan.dxf", boilerRoomIfc())).toBe("not_dxf");
+    expect(await refusal("plan.ifczip", boilerRoomIfc())).toBe("unsupported");
     expect(await refusal("plan.fcstd1", fcstd(documentXml(BOILER_ROOM)))).toBe("unsupported");
     expect(await refusal("plan", dwgBytes())).toBe("unsupported");
   });

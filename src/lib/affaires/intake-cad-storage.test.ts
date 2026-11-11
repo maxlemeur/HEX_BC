@@ -7,7 +7,7 @@ import { __securityTesting__ } from "@/lib/affaires/intake-server";
 // "image/vnd.dxf", as Chromium does on Linux, had its original refused.
 describe("what the storage receives of a deposited file", () => {
   it("stores a CAD original as plain bytes, whatever type the browser gave it", async () => {
-    for (const [name, type] of [["Réseaux.dxf", "image/vnd.dxf"], ["Plan.dwg", "image/vnd.dwg"], ["Maquette.rvt", ""], ["Chaufferie.FCStd", "application/zip"]]) {
+    for (const [name, type] of [["Réseaux.dxf", "image/vnd.dxf"], ["Plan.dwg", "image/vnd.dwg"], ["Maquette.rvt", ""], ["Chaufferie.FCStd", "application/zip"], ["Maquette.ifc", "application/x-step"]]) {
       const stored = __securityTesting__.toStoredUpload(new File(["0\nEOF\n"], name, { type }));
       expect(stored.mimeType).toBe("application/octet-stream");
       expect(stored.body.type).toBe("application/octet-stream");
