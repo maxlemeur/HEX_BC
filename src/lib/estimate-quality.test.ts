@@ -166,7 +166,9 @@ describe("estimate quality flags", () => {
     expect(flags).not.toContain("missing_price");
   });
 
-  it("flags a supply value on a POSE SEULE line", () => {
+  // Réponse de Maxime du 11/11/2026 : une POSE SEULE peut porter une petite fourniture nécessaire à la pose
+  // (supportage). Un coût saisi ne contredit donc plus la nature et ne bloque pas l'envoi.
+  it("accepts a small supply on a POSE SEULE line", () => {
     const flags = computeEstimateQualityFlagsForItem(
       createLine({
         id: "pose-only-with-supply",
@@ -178,7 +180,7 @@ describe("estimate quality flags", () => {
       }),
     );
 
-    expect(flags).toContain("line_nature_mismatch");
+    expect(flags).toEqual([]);
   });
 
   // L'article d'origine (type de fourniture, offre) porte les temps de pose : il ne contredit pas POSE SEULE

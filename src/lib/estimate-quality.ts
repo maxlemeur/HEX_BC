@@ -191,10 +191,10 @@ export function computeEstimateQualityFlagsForItem(
   if (expectsLabor && !splitEnabled && laborHours > 0 && !laborRoleId) {
     flags.push("missing_labor_role");
   }
-  // TI-539 : sur une ligne POSE SEULE, seul un coût de fourniture saisi contredit le choix ; le type de
-  // fourniture ou l'offre de l'article d'origine (qui porte les temps de pose) ne valent pas fourniture due.
-  const contradictsNoSupply =
-    lineNature === "pose_only" ? unitPriceHtCents > 0 : hasSupplyComponent;
+  // TI-539 : rien de fourniture ne contredit une ligne POSE SEULE. Le type de fourniture ou l'offre de l'article
+  // d'origine portent les temps de pose, et un coût saisi est une petite fourniture nécessaire à la pose
+  // (supportage ; réponse de Maxime du 11/11/2026).
+  const contradictsNoSupply = lineNature !== "pose_only" && hasSupplyComponent;
   if (
     (lineNature === "supply_only" && hasLaborComponent) ||
     (!expectsSupply && contradictsNoSupply)

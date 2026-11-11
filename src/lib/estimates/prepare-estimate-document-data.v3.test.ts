@@ -332,7 +332,8 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
       contract, layout: { ...DEFAULT_ESTIMATE_PDF_LAYOUT, includeTerms: false }, terms: null,
     })).replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
     const markedTitle = marked.rows.find((row) => row.id === fixtureLineId(2))!.title;
-    expect(portalText(marked)).toContain(`${markedTitle} — POSE SEULE`);
+    expect(portalText(marked)).toContain(`${markedTitle} POSE SEULE`);
+    expect(portalText(marked)).not.toMatch(/[\u2013\u2014] ?POSE SEULE/);
     expect(portalText(marked).split("POSE SEULE")).toHaveLength(2);
     expect(portalText(ordinary)).not.toContain("POSE SEULE");
   });

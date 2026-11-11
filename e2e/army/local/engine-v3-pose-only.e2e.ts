@@ -171,11 +171,11 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     ]);
     for (const printedRow of [
       `${mixed.title} 2 u 179,30 € 358,60 €`, `${article} 1 u 129,04 € 129,04 €`,
-      `${pose.title} — ${MENTION} 3 u 72,00 € 216,00 €`, "Total HT net 703,64 €",
+      `${pose.title} ${MENTION} 3 u 72,00 € 216,00 €`, "Total HT net 703,64 €",
     ]) expect(pdf.text).toContain(printedRow);
     expect(pdf.text.split(MENTION)).toHaveLength(2);
     const printed = await printText(app, screen, browser, draft.versionId);
-    expect(printed).toContain(`${pose.title} — ${MENTION}`);
+    expect(printed).toContain(`${pose.title} ${MENTION}`);
     expect(printed.split(MENTION)).toHaveLength(2);
     const printScreenshot = await app.screenshot("PS53901-pose-seule-print");
     const sendable = await readGating(ui, draft.versionId);

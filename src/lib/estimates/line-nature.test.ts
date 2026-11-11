@@ -7,6 +7,7 @@ import {
   lineNatureExpectsLabor,
   lineNatureExpectsSupply,
   POSE_ONLY_MENTION,
+  poseOnlyDesignation,
   resolveEstimateLineNature,
   resolvePromotedEstimateLineNature,
   selectableEstimateLineNatures,
@@ -143,5 +144,15 @@ describe("POSE SEULE", () => {
   it("is written with the validated words", () => {
     expect(POSE_ONLY_MENTION).toBe("POSE SEULE");
     expect(ESTIMATE_LINE_NATURE_LABELS.pose_only).toBe("POSE SEULE");
+  });
+
+  // Réponse de Maxime du 11/11/2026 : pas de tiret long. La mention suit la désignation comme dans ses devis, et un
+  // titre qui la porte déjà (lignes importées « Ballon ECS 30 litres POSE SEULE ») ne la répète pas.
+  it("follows the designation without a long dash, and is not repeated on a title that already carries it", () => {
+    expect(poseOnlyDesignation("pose radiateur client")).toBe("pose radiateur client POSE SEULE");
+    expect(poseOnlyDesignation("Ballon ECS 30 litres POSE SEULE")).toBe("Ballon ECS 30 litres POSE SEULE");
+    expect(poseOnlyDesignation("Pose seule d'un WC")).toBe("Pose seule d'un WC");
+    expect(poseOnlyDesignation("Repose seulement")).toBe("Repose seulement POSE SEULE");
+    expect(poseOnlyDesignation("pose radiateur client")).not.toMatch(/[\u2013\u2014]/);
   });
 });

@@ -8,7 +8,8 @@ export const ESTIMATE_LINE_NATURES = [
 /**
  * TI-539 : mots validés de la mention, dans l'éditeur et sur le devis imprimé. « POSE SEULE » est une
  * prestation de pose dont la fourniture n'est pas due : son coût de fourniture nul est voulu, et sa
- * main-d'œuvre reste facturée. C'est un choix explicite de l'utilisateur : aucune création, aucun import
+ * main-d'œuvre reste facturée. Elle peut porter une petite fourniture nécessaire à la pose (supportage ;
+ * réponse de Maxime du 11/11/2026). C'est un choix explicite de l'utilisateur : aucune création, aucun import
  * ni aucune saisie ne la déduit d'un prix vide ou nul (une ligne sans fourniture déduite reste
  * « Main-d'œuvre seule », qui n'imprime rien).
  */
@@ -102,6 +103,15 @@ export function resolveEstimateLineNature(
   return "supply_only";
 }
 
+/**
+ * Désignation imprimée d'une ligne POSE SEULE (aperçu, PDF, portail). La mention suit la désignation sans tiret
+ * long, comme dans les devis de Maxime (« Ballon ECS 30 litres POSE SEULE », sa réponse du 11/11/2026) ; un titre
+ * qui la porte déjà ne la répète pas.
+ */
+export function poseOnlyDesignation(title: string): string {
+  return /\bpose\s+seule\b/i.test(title) ? title : `${title} ${POSE_ONLY_MENTION}`;
+}
+
 /** Vrai pour une ligne que l'utilisateur a explicitement notée POSE SEULE (TI-539). */
 export function isPoseOnlyLine(item: {
   item_type?: string | null;
@@ -128,8 +138,8 @@ export function selectableEstimateLineNatures(input: {
  * Promotes a line when an edit introduces the component excluded by its
  * current nature. It deliberately never demotes a line: a missing value can
  * be temporary and the explicit nature remains the validation intent.
- * POSE SEULE is never promoted: a supply value entered on it stays a visible
- * inconsistency until the user changes the nature.
+ * POSE SEULE is never promoted: a supply value entered on it is a small supply
+ * needed for the fitting (supports), and the line keeps its nature.
  */
 export function resolvePromotedEstimateLineNature(
   current: LineNatureSource,

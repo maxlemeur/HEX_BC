@@ -91,10 +91,12 @@ et incomplet », et l'envoi est refusé jusqu'à la saisie du coût dans le devi
 qui ne modifie pas le catalogue. Pour une pose dont la fourniture n'est pas due,
 l'utilisateur choisit explicitement la nature « POSE SEULE » : son coût de
 fourniture nul est admis, sa main-d'œuvre reste facturée, et la mention est
-imprimée avec la désignation sur l'aperçu, le PDF et le portail (clé `poseOnly`
-du contrat client 2, qui doit suivre la nature de la ligne figée). Rien ne
-déduit cette nature d'un prix vide, et un coût saisi sur une ligne POSE SEULE
-reste une incohérence bloquante jusqu'au changement de nature. La copie d'une
+imprimée à la suite de la désignation, sans tiret long, sur l'aperçu, le PDF et
+le portail (clé `poseOnly` du contrat client 2, qui doit suivre la nature de la
+ligne figée) ; un titre qui porte déjà « pose seule » ne la répète pas. Rien ne
+déduit cette nature d'un prix vide. Une ligne POSE SEULE peut porter une petite
+fourniture nécessaire à la pose (supportage) : un coût saisi n'y est pas une
+incohérence (réponses de Maxime du 11 novembre 2026). La copie d'une
 version ou d'une variante garde la nature de chaque ligne. La mention voyage
 dans le contrat client 2 : la nature n'est proposée que sur un devis du moteur 3,
 et les exports tableur ne la portent pas. Un article du catalogue reste une
