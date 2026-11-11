@@ -65,6 +65,11 @@ le défaut.
 réservé aux parcours critical sur la pile éphémère possédée. La CI critical
 utilise 2 ; les autres valeurs ne sont pas une garantie de fiabilité. Les
 comptes et fixtures partagés interdisent de généraliser ce parallélisme.
+Avec plus d'un worker, une sélection filtrée qui contient les deux fichiers des
+[parcours ChatGPT local](chatgpt-local.md#vérification) est refusée avant la
+pile : chacun démarre son serveur de développement, et les deux ne tournent
+jamais en même temps sur une machine. Les lancer avec un worker (le défaut) ou
+dans deux exécutions.
 
 ### Port applicatif et cause d'un échec
 

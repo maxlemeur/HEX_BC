@@ -34,6 +34,11 @@
 //    whole suite, a nightly full listing taken from the map instead of
 //    e2e.config.ts and the working tree (an unregistered journey would never
 //    run), or a matrix output the workflow cannot read.
+// 10. two journeys that each start their own cold development server
+//    (army-shards.json neverTogether: the two chatgpt-local files) planned in
+//    one shard, where its two workers would compile both servers at once on
+//    one runner: because another file outweighs them, because their measured
+//    seconds fit one shard, or because the list names a file no suite runs.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -132,6 +137,10 @@ function mapGlobs(): Array<{ where: string; glob: string }> {
 function criticalSuiteFromConfig(): string[] {
   return criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), files);
 }
+
+// The former chatgpt-local.e2e.ts, split so that no single file sets the duration of the Critical check.
+const CHATGPT_TAKEOFF = "e2e/army/local/chatgpt-local-takeoff.e2e.ts";
+const CHATGPT_DECISIONS = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
 
 // Owner request of 18/10/2026: the takeoff (métré) journeys join the map.
 const TAKEOFF_GLOB = "e2e/army/takeoff/**/*.e2e.ts";
@@ -304,22 +313,32 @@ describe("TesterArmy critical impact map", () => {
   });
 
   it("selects the journeys of the lab's Verdicts screen and of the provider fixtures the local server preloads", () => {
-    // TI-662 review: VEC01 (chatgpt-local.e2e.ts) judges a run on the Verdicts screen through the campaign routes.
-    const chatgptLocal = "e2e/army/local/chatgpt-local.e2e.ts";
+    // TI-662 review: VEC01 (chatgpt-local-decisions.e2e.ts) judges a run on the Verdicts screen through the campaign routes.
     const takeoffLab = "e2e/army/local/takeoff-lab.e2e.ts";
     const verdicts = ["src/components/takeoff/lab/LabVerdictsScreen.tsx", "src/app/dashboard/admin/takeoff/lab/verdicts/page.tsx",
       ...files.filter((file) => file.startsWith("src/app/api/admin/takeoff/lab/campaigns/") && file.endsWith("/route.ts"))];
     expect(verdicts.length).toBeGreaterThanOrEqual(5);
-    for (const file of verdicts) expect(select([file]).files, file).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+    for (const file of verdicts) expect(select([file]).files, file).toEqual(expect.arrayContaining([CHATGPT_DECISIONS, takeoffLab]));
     // Preloaded with NODE_OPTIONS --import (no import names them): their rule, not the nonRuntime journey folders, decides.
-    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+    // Both development servers of the former chatgpt-local.e2e.ts preload the provider fixture.
+    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([CHATGPT_TAKEOFF, CHATGPT_DECISIONS, takeoffLab]));
     expect(select(["e2e/army/local/profile-provider-fixture.mjs"]).files).toContain("e2e/army/local/profile-polish.e2e.ts");
     // TI-662 L3d: the owned takeoff worker of TKW10 imports the provider fixture by path, and its review viewer shows the reading.
     const workerLifecycle = "e2e/army/takeoff/worker-lifecycle.e2e.ts";
     expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).fullOnly.files).toContain(workerLifecycle);
     expect(select(["src/components/takeoff/review/TakeoffVectorViewer.tsx"]).fullOnly.files).toContain(workerLifecycle);
     // The helpers of those folders stay non-runtime themselves: their importing journeys select them.
-    expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([chatgptLocal, takeoffLab]));
+    expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([CHATGPT_DECISIONS, takeoffLab]));
+    // The shared server lifecycle of the two files selects both, and so does everything the former single file was selected for.
+    expect(select(["e2e/army/local/chatgpt-local-journey-support.ts"]).files).toEqual(expect.arrayContaining([CHATGPT_TAKEOFF, CHATGPT_DECISIONS]));
+    for (const shared of ["scripts/dev-chatgpt-local.mjs", "e2e/army/local/chatgpt-server-support.ts", "e2e/fixtures/sample-plan.pdf",
+      "src/app/dashboard/estimates/new/page.tsx", "src/app/dashboard/affaires/page.tsx", "src/app/dashboard/affaires/[projectId]/page.tsx",
+      "src/app/dashboard/affaires/[projectId]/plans/page.tsx", "src/components/takeoff/TakeoffPreparationPanel.tsx"]) {
+      expect(fileSet.has(shared), shared).toBe(true);
+      expect(select([shared]).files, shared).toEqual(expect.arrayContaining([CHATGPT_TAKEOFF, CHATGPT_DECISIONS]));
+    }
+    // PRX02 (price reuse arbitration) lives in the Decisions file.
+    expect(select(["src/components/estimates/PriceReuseDialog.tsx"]).files).toContain(CHATGPT_DECISIONS);
   });
 
   it("runs every takeoff journey a pull request reaches, and all of them when unsure", () => {
@@ -589,6 +608,62 @@ describe("TesterArmy shard plans", () => {
     expect(unmapped.mode).toBe("full");
     expect(unmapped.shards).toMatchObject(whole);
   });
+
+  it("never plans two journeys that each start a development server in one shard", () => {
+    expect(durations.neverTogether).toEqual([[CHATGPT_DECISIONS, CHATGPT_TAKEOFF]]);
+    const shardsOf = (plan: ShardPlan, file: string) => plan.shards.filter((shard) => shard.files.includes(file)).map((shard) => shard.shard);
+    const expectApart = (plan: ShardPlan, label: string) => {
+      const [takeoff, decisions] = [shardsOf(plan, CHATGPT_TAKEOFF), shardsOf(plan, CHATGPT_DECISIONS)];
+      expect([takeoff.length, decisions.length], label).toEqual([1, 1]);
+      expect(takeoff[0], label).not.toBe(decisions[0]);
+    };
+
+    // The plans of this tree: the whole critical suite, a selection that reaches both files, the nightly full suite.
+    const critical = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"], repositoryFiles: files });
+    expectApart(critical.shards, "full critical suite");
+    const fixture = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/local/chatgpt-provider-fixture.mjs"], repositoryFiles: files });
+    expect(fixture.mode).toBe("files");
+    expectApart(fixture.shards, "provider fixture selection");
+    expectApart(planFullSuite(root, { repositoryFiles: files }), "nightly full suite");
+
+    const setup = map.suite.setup;
+    const base = { suite: "critical" as const, setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE, wholeSuite: false };
+    const measured = (seconds: Record<string, number>, secondsPerShard: number, maxShards: number, neverTogether = durations.neverTogether): ShardDurations =>
+      ({ ...durations, neverTogether, suites: { ...durations.suites, critical: { maxShards, secondsPerShard, workers: 2 } }, seconds });
+
+    // A heavier third journey: longest first onto the least loaded shard would put both servers in the second shard.
+    const heavier = "e2e/army/local/legacy-editor-parity.e2e.ts";
+    const three = [setup, heavier, CHATGPT_TAKEOFF, CHATGPT_DECISIONS];
+    const weights = { [heavier]: 500, [CHATGPT_TAKEOFF]: 450, [CHATGPT_DECISIONS]: 407 };
+    const unruled = planShards({ ...base, files: three, durations: measured(weights, 700, 2, []) });
+    expect(shardsOf(unruled, CHATGPT_TAKEOFF)).toEqual(shardsOf(unruled, CHATGPT_DECISIONS));
+    const ruled = planShards({ ...base, files: three, durations: measured(weights, 700, 2) });
+    expect(ruled.shards.map((shard) => shard.seconds)).toEqual([907, 450]);
+    expectApart(ruled, "heavier third journey");
+    expectPartition(ruled, three, "heavier third journey");
+
+    // Seconds that fit one shard: two shards all the same, and one when only one of the two files is selected.
+    const light = measured({ [CHATGPT_TAKEOFF]: 10, [CHATGPT_DECISIONS]: 10 }, 300, 5);
+    const both = planShards({ ...base, files: [setup, CHATGPT_TAKEOFF, CHATGPT_DECISIONS], durations: light });
+    expect(both.shards).toHaveLength(2);
+    expectApart(both, "seconds that fit one shard");
+    expectPartition(both, [setup, CHATGPT_TAKEOFF, CHATGPT_DECISIONS], "seconds that fit one shard");
+    expect(planShards({ ...base, files: [setup, CHATGPT_TAKEOFF], durations: light }).shards).toHaveLength(1);
+    // The input order changes nothing.
+    expect(planShards({ ...base, files: [...three].reverse(), durations: measured(weights, 700, 2) }).shards).toEqual(ruled.shards);
+
+    // A list the planner cannot honour is refused with the durations file: a lone file, a file twice, a file no
+    // suite runs, more files than a suite that runs them has shards.
+    const journeys = [...map.suite.journeys, ...fullOnlySuiteFromConfig(), ...fullSelectionListing()];
+    const problems = (neverTogether: unknown) => validateShardDurations({ ...durations, neverTogether } as ShardDurations, journeys);
+    expect(problems([[CHATGPT_TAKEOFF, CHATGPT_DECISIONS]])).toEqual([]);
+    expect(problems(undefined)).toEqual([]);
+    for (const refused of [[[CHATGPT_TAKEOFF]], [[CHATGPT_TAKEOFF, CHATGPT_TAKEOFF]], [[CHATGPT_TAKEOFF, "e2e/army/local/zz-missing.e2e.ts"]],
+      [[CHATGPT_TAKEOFF, CHATGPT_DECISIONS], [CHATGPT_TAKEOFF, heavier]], [CHATGPT_TAKEOFF, CHATGPT_DECISIONS], "all",
+      [map.suite.journeys.filter((journey) => journey !== setup).slice(0, durations.suites.critical.maxShards + 1)]]) {
+      expect(problems(refused), JSON.stringify(refused).slice(0, 120)).not.toEqual([]);
+    }
+  }, 30_000);
 
   it("shards the nightly full suite from e2e.config.ts and the working tree, its development phase in its own job", () => {
     const added = "e2e/army/extended/zz-unregistered-journey.e2e.ts";

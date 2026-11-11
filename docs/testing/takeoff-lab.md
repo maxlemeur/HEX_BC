@@ -116,12 +116,12 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
 ## Parcours E2E
 
 `e2e/army/local/takeoff-lab.e2e.ts` (listes `full` et `critical` de
-`e2e.config.ts`) lance le serveur local comme `chatgpt-local.e2e.ts`, avec la
+`e2e.config.ts`) lance le serveur local comme les parcours ChatGPT local, avec la
 fixture `chatgpt-provider-fixture.mjs` et Decisions en fixture : aucun appel réel.
 Son dataset fictif et sa sortie vide sont sous
 `.e2e/army/critical/artifacts/<id>/`.
 
-L'écran Vecteurs est prouvé par VEC01 de `chatgpt-local.e2e.ts` : un plan fictif
+L'écran Vecteurs est prouvé par VEC01 de `chatgpt-local-decisions.e2e.ts` : un plan fictif
 à calques (`lab-vector-plan-fixture.ts`) dans un dataset fictif sous les artefacts
 du run, la fixture Decisions qui répond EU à 0,8 pour chaque groupe. Il retient
 aussi la réponse Decisions pendant un changement de document : l'essai enregistré

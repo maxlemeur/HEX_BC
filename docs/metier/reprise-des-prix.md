@@ -117,7 +117,7 @@ Le rapprochement et le plan d'écriture ont des tests isolés de leurs pièges
 ([`price-reuse-matching.test.ts`](../../src/lib/estimates/price-reuse-matching.test.ts),
 [`price-reuse-plan.test.ts`](../../src/lib/estimates/price-reuse-plan.test.ts)).
 Les parcours PRX01 ([`engine-v3-price-reuse.e2e.ts`](../../e2e/army/local/engine-v3-price-reuse.e2e.ts),
-sans IA) et PRX02 ([`chatgpt-local.e2e.ts`](../../e2e/army/local/chatgpt-local.e2e.ts),
+sans IA) et PRX02 ([`chatgpt-local-decisions.e2e.ts`](../../e2e/army/local/chatgpt-local-decisions.e2e.ts),
 Decisions et forfait ChatGPT simulés) vérifient les statuts affichés, les prix
 écrits, les quantités conservées, la ligne déjà chiffrée intacte, la référence
 inchangée, le refus d'une référence modifiée après la comparaison et les totaux

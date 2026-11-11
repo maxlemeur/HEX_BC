@@ -40,7 +40,8 @@
       "e2e/army/local/business-lifecycle.e2e.ts",
       "e2e/army/local/catalogue-provenance.e2e.ts",
       "e2e/army/local/intake-cad.e2e.ts",
-      "e2e/army/local/chatgpt-local.e2e.ts",
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
@@ -247,7 +248,8 @@
       "e2e/army/critical/plan-center.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
-      "e2e/army/local/chatgpt-local.e2e.ts",
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/legacy-editor-parity.e2e.ts",
       "e2e/army/local/legacy-currency-parity.e2e.ts",
       "e2e/army/local/legacy-access-parity.e2e.ts",
@@ -278,7 +280,8 @@
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
-      "e2e/army/local/chatgpt-local.e2e.ts",
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
@@ -305,7 +308,8 @@
       "e2e/army/local/affaire-hub-fresh-start.e2e.ts",
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
-      "e2e/army/local/chatgpt-local.e2e.ts",
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/engine-v3-exports.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
@@ -319,7 +323,8 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
-      "e2e/army/local/chatgpt-local.e2e.ts"
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-takeoff.e2e.ts"
     ],
     "affaire-takeoff": [
       "e2e/army/critical/hub-launch-metre.e2e.ts",
@@ -709,7 +714,8 @@
       ],
       "journeys": [
         "@plans",
-        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+        "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts",
@@ -815,7 +821,8 @@
         "e2e/army/critical/hub-launch-metre.e2e.ts",
         "e2e/army/critical/hub-plans-card.e2e.ts",
         "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
-        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+        "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
       ]
@@ -927,7 +934,7 @@
         "e2e/army/local/engine-v3-price-reuse-support.ts"
       ],
       "journeys": [
-        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts",
         "e2e/army/local/engine-v3-fo-provision.e2e.ts",
         "e2e/army/local/engine-v3-price-reuse.e2e.ts"
       ]
@@ -945,13 +952,15 @@
         "e2e/army/local/profile-provider-fixture.mjs",
         "scripts/dev-chatgpt-local.mjs",
         "e2e/army/local/chatgpt-server-support.ts",
+        "e2e/army/local/chatgpt-local-journey-support.ts",
         "e2e/army/local/engine-v3-takeoff-journey.ts",
         "e2e/army/local/engine-v3-creators.e2e.ts",
         "e2e/army/local/engine-v3-creators-support.ts",
         "e2e/army/local/engine-v3-price-reuse-support.ts"
       ],
       "journeys": [
-        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+        "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/local/profile-polish.e2e.ts",
         "e2e/army/local/takeoff-lab.e2e.ts"
       ]
@@ -974,7 +983,7 @@
     },
     {
       "id": "takeoff-lab-vectors",
-      "note": "Labo métré, écran Vecteurs et tâche « classe de calque » (TI-662) : lecture par mots-clés, classement Decisions des groupes de tracés en fixture et mesure, parcours VEC01 de chatgpt-local.e2e.ts, qui juge aussi l'essai sur l'écran Verdicts par les routes de campagne ; refus d'accès dans LAB03.",
+      "note": "Labo métré, écran Vecteurs et tâche « classe de calque » (TI-662) : lecture par mots-clés, classement Decisions des groupes de tracés en fixture et mesure, parcours VEC01 de chatgpt-local-decisions.e2e.ts, qui juge aussi l'essai sur l'écran Verdicts par les routes de campagne ; refus d'accès dans LAB03.",
       "paths": [
         "src/app/dashboard/admin/takeoff/lab/vectors/**",
         "src/app/api/admin/takeoff/lab/vectors/**",
@@ -992,7 +1001,7 @@
         "e2e/army/local/takeoff-lab-support.ts"
       ],
       "journeys": [
-        "e2e/army/local/chatgpt-local.e2e.ts",
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts",
         "e2e/army/local/takeoff-lab.e2e.ts"
       ]
     },
