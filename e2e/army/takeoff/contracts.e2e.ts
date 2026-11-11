@@ -1,6 +1,11 @@
-import { expect } from "e2e";
+import { readFile } from "node:fs/promises";
 
-import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
+import { expect } from "e2e";
+import * as XLSX from "xlsx";
+
+import {
+  apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, resolveDownload,
+} from "../critical/fixtures";
 import { applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
 import { nativeTest } from "./native-ui";
 import { launchWorkerCsv } from "./worker-support";
@@ -236,6 +241,30 @@ armyTest("TKF07 an administrator forces each blocked line from the apply wizard 
   await recordEvidence(army, "takeoff-ui-forced-apply-persisted", { ids, seed, lines: measures.map(item => ({
     designation: item.designation, quantity: after.items.find(row => row.title === item.designation)?.quantity ?? null,
     qtyStatus: truth(item.designation) ?? null })) });
+  // TI-682 lot C (H12 lifted for the CSV): the CSV the editor downloads names both forced lines « Provision interne »; the
+  // admitted line and the line created by hand stay empty. The editor writes it for a v1/v2 (this campaign's engine 2) and
+  // the server for a v3. The client and supplier workbooks never carry it (TKF02, takeoff-provision-exports.test.ts).
+  await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+  await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+  const exportMenu = screen.getByRole("button", "Exporter", { exact: true });
+  await expect(exportMenu).toBeEnabled({ timeout: 30_000 });
+  await exportMenu.tap();
+  const csvItem = screen.getByRole("button", "Fichier CSV (.csv)", { exact: true });
+  await expect(csvItem).toBeEnabled({ timeout: 30_000 });
+  const csvFile = await browser.waitForDownload(() => csvItem.tap(), { timeout: 60_000 });
+  const csvPath = await resolveDownload(csvFile);
+  const csvBytes = await readFile(csvPath);
+  const book = XLSX.read(csvBytes, { type: "buffer", raw: true, FS: ";" });
+  const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets[book.SheetNames[0]], { header: 1, raw: true, defval: "" });
+  const header = (rows[0] ?? []).map(cell => String(cell));
+  const provisionOf = (title: string) =>
+    rows.find(row => row[header.indexOf("Désignation")] === title)?.[header.indexOf("Provision métré")] ?? null;
+  const titles = [...measures.map(item => item.designation), `${army.runPrefix} forced target`];
+  const csv = { filename: csvFile.suggestedFilename, column: header.at(-1) ?? null, lines: titles.map(title => [title, provisionOf(title)]) };
+  await recordEvidence(army, "takeoff-ui-forced-apply-csv", { ids, engine: after.version.calc_engine_version, path: csvPath,
+    bytes: csvBytes.length, csv });
+  expect(csv).toEqual({ filename: expect.stringMatching(/\.csv$/), column: "Provision métré",
+    lines: [[titles[0], "Provision interne"], [titles[1], "Provision interne"], [titles[2], ""], [titles[3], ""]] });
 });
 
 armyTest("TKF03 foundations, provenance edit and pagination limits remain observable", options, async ({ app, screen, browser, army }) => {

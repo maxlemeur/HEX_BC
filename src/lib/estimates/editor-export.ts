@@ -21,6 +21,10 @@ import {
   MAJORATION_PERCENT_HEADER,
 } from "@/lib/estimates/majoration";
 import {
+  TAKEOFF_PROVISION_EXPORT_HEADER,
+  takeoffProvisionExportLabel,
+} from "@/lib/estimates/takeoff-provision";
+import {
   alternativePriceForLineUnit,
   type SupplierOfferPurchaseUnit,
 } from "@/lib/estimates/supplier-offer-purchase-unit";
@@ -82,6 +86,8 @@ export type EstimateLineExportRow = {
   line_total_ht_cents: number | "";
   tax_rate_bp: number | "";
   line_total_ttc_cents: number | "";
+  /** TI-682 lot C: « Provision interne », « Hypothèse » or empty, from the line's takeoff marker. */
+  takeoff_provision: string;
 };
 
 export type SupplierComparisonAlternative = SupplierOfferPurchaseUnit & {
@@ -440,6 +446,7 @@ export function buildEstimateLineExportRows(input: {
         line_total_ht_cents: item.line_total_ht_cents ?? "",
         tax_rate_bp: item.tax_rate_bp ?? "",
         line_total_ttc_cents: item.line_total_ttc_cents ?? "",
+        takeoff_provision: takeoffProvisionExportLabel(item.source_metadata),
       };
     });
 }
@@ -487,8 +494,7 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   },
 ];
 
-const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
-  ...LINE_EXPORT_COLUMNS,
+const LABOR_SPLIT_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "h_mo_atelier", header: "h MO atelier" },
   { key: "labor_role_atelier", header: "Rôle MO atelier" },
   { key: "k_mo_atelier", header: "K MO atelier" },
@@ -497,10 +503,28 @@ const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[
   { key: "k_mo_chantier", header: "K MO chantier" },
 ];
 
+// TI-682 lot C: internal column, after every other one (labor split included), as in the v3 server CSV. This CSV is
+// internal; the client and supplier workbooks come from the server and never carry it.
+const TAKEOFF_PROVISION_EXPORT_COLUMN: ExportColumn<EstimateLineExportRow> = {
+  key: "takeoff_provision",
+  header: TAKEOFF_PROVISION_EXPORT_HEADER,
+};
+
+const LINE_EXPORT_COLUMNS_WITHOUT_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
+  ...LINE_EXPORT_COLUMNS,
+  TAKEOFF_PROVISION_EXPORT_COLUMN,
+];
+
+const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
+  ...LINE_EXPORT_COLUMNS,
+  ...LABOR_SPLIT_EXPORT_COLUMNS,
+  TAKEOFF_PROVISION_EXPORT_COLUMN,
+];
+
 export function getEstimateLineExportColumns(
   isLaborSplitEnabled: boolean
 ): ExportColumn<EstimateLineExportRow>[] {
   return isLaborSplitEnabled
     ? LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT
-    : LINE_EXPORT_COLUMNS;
+    : LINE_EXPORT_COLUMNS_WITHOUT_LABOR_SPLIT;
 }

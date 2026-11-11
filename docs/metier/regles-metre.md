@@ -698,12 +698,21 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
     provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
     interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+  - Les exports CSV internes le portent (TI-682, lot C ; H12 levé pour le CSV) : le CSV d'une v3, écrit par le serveur,
+    et le CSV d'une v1/v2, écrit par l'éditeur, ont une dernière colonne « Provision métré », après toutes les autres
+    (ventilation atelier/chantier comprise). Elle vaut « Provision interne » pour une source forcée, « Hypothèse » pour
+    une source saisie en hypothèse ou forcée en « Hypothèse chiffrée », et reste vide sans marqueur ; un marqueur
+    illisible s'y lit « Provision interne », jamais vide. Une hypothèse incluse sans saisie n'a pas de marqueur et
+    reste vide tant que l'application ne la marque pas. La lecture des lignes par l'éditeur garde le marqueur d'une
+    ligne issue d'une structure IA ou d'un ouvrage généré, que leur provenance réécrit.
   - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
     page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
     une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne
     forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie.
-  - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client (copie
-    commerciale, PDF, portail, export DPGF) ne lit `source_metadata` ; les tests de garde le vérifient.
+  - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client ou fournisseur
+    (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
+    métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient
+    (`takeoff-provision-exports.test.ts`, `dpgf-export.test.ts`, TKF02).
   - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
     `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
