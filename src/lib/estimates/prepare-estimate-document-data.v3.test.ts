@@ -89,7 +89,7 @@ function row(overrides: Partial<EstimateItem>): EstimateItem {
     id: fixtureLineId(1), created_at: "2026-10-17T08:00:00.000Z", updated_at: "2026-10-17T08:00:00.000Z",
     tenant_id: TENANT_ID, version_id: VERSION_ID, parent_id: null, item_type: "line", line_nature: "supply_and_labor",
     position: 0, title: "Ligne", description: null, quantity: null, unit_price_ht_cents: null, tax_rate_bp: 2000,
-    k_fo: 1, fo_price_origin: null, fo_provision: 1, h_mo: null, h_mo_majoration: 1, k_mo: 1, h_mo_atelier: null, k_mo_atelier: null,
+    k_fo: 1, fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false, h_mo: null, h_mo_majoration: 1, k_mo: 1, h_mo_atelier: null, k_mo_atelier: null,
     labor_role_atelier_id: null,
     h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null, pu_ht_cents: null, labor_role_id: null,
     category_id: null, supply_type_id: null, selected_supplier_price_id: null, source_provider: null, source_job_id: null,
@@ -336,5 +336,39 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
     expect(portalText(marked)).not.toMatch(/[\u2013\u2014] ?POSE SEULE/);
     expect(portalText(marked).split("POSE SEULE")).toHaveLength(2);
     expect(portalText(ordinary)).not.toContain("POSE SEULE");
+  });
+
+  // TI-682, lot C (D25, Z-a): the internal reason of an exclusion stays internal. A line excluded after « Non chiffrée »
+  // prints, and is sealed in the client contract 2, exactly as the same line without a reason: only its status shows.
+  it("TI-682 imprime une ligne exclue avec motif interne comme la même ligne sans motif (document et contrat client 2)", () => {
+    const { input } = frozen({ discount_amount_cents: 101 });
+    const withReason = (reasoned: boolean): PrepareV3Input => ({ ...input, items: input.items.map((item) =>
+      item.item_type !== "line" || item.pricing_status === "priced" ? item : {
+        ...item, was_not_priced: reasoned,
+        status_reason: reasoned ? { code: "client_supplied", note: "MOTIF CONFIDENTIEL fourni par le client" } : null,
+      } as typeof item) });
+    const printed = (source: PrepareV3Input) => {
+      const prepared = prepareV3(source);
+      return {
+        document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
+          sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
+        contract: buildClientContract2({
+          version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
+            contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
+            contractorRole: "principal", taxRateBp: 2000 },
+          project: { name: "ARMY v3 project", reference: null, estimateReference: null, clientName: null, siteAddress: null },
+          issuer: { userId: "11111111-1111-4111-8111-111111111111", displayName: "ARMY actor", displayRole: null, phone: null,
+            email: null },
+          company: COMPANY_INFO, sourceRows: source.items, prepared, exclusions: null,
+        }),
+      };
+    };
+    const reasoned = withReason(true);
+    expect(reasoned.items.some((item) => item.item_type === "line" && item.pricing_status === "for_memory")).toBe(true);
+    const ordinary = printed(withReason(false));
+    const internal = printed(reasoned);
+    expect(internal).toEqual(ordinary);
+    expect(JSON.stringify(internal.contract.rows)).toContain("for_memory");
+    expect(JSON.stringify(internal)).not.toMatch(/MOTIF CONFIDENTIEL|status_reason|was_not_priced|client_supplied|Fourni ou réalisé/);
   });
 });

@@ -348,12 +348,10 @@ export function filterAffaireHubCommandBarSuggestions(
 
 export function getAffaireHubIntakeWorkspacePresentation(input: {
   dominantIntent: CockpitIntent | null;
-  isReadOnlyReview?: boolean;
 }) {
   return {
     hideAddFilesAction: input.dominantIntent === "add_missing_pieces",
     hideMissingPiecesAction: input.dominantIntent === "add_missing_pieces",
-    showBridgeDpgfImport: !input.isReadOnlyReview,
   };
 }
 
@@ -647,9 +645,8 @@ export function AffaireHub({
     () =>
       getAffaireHubIntakeWorkspacePresentation({
         dominantIntent: dominantFlowIntent,
-        isReadOnlyReview,
       }),
-    [dominantFlowIntent, isReadOnlyReview],
+    [dominantFlowIntent],
   );
   const hiddenPilotageExceptionIds = useMemo(() => {
     return getAffaireHubHiddenPilotageExceptionIds({
@@ -921,6 +918,20 @@ export function AffaireHub({
     },
     [router, summary.project.id],
   );
+  // TI-670 : l'import structuré s'ouvre sur les DPGF classées du dossier, depuis la carte DPGF du panneau Étude.
+  // L'ancien pont de l'espace de dépôt n'était rendu qu'au départ à zéro, donc sans aucune pièce à importer.
+  const startIntakeDpgfImport = () => {
+    setImportResult(null);
+    setIntakeDpgfCandidates((intakeWorkspace?.documents ?? [])
+      .filter((document) => !document.isBeingDeleted && document.detectedCategory === "dpgf" &&
+        document.classificationStatus === "classified" && document.uploadStatus === "uploaded")
+      .map((document) => ({
+        documentId: document.documentId,
+        fileName: document.fileName,
+        label: `${document.fileName}${document.documentPriority === "primary" ? " · principale" : ""}${document.driveSource ? ` · ${document.driveSource.folderName ?? "Drive"} · version ${document.driveSource.revision}` : ""} · copie ${document.documentId.slice(-8)}`,
+      })));
+    setShowImportFlow(true);
+  };
 
 
   const journey = buildAffaireJourney({ intakeWorkspace: intakeWorkspace ?? null, dpgfSource, plansSummary: plansSummary ?? null, approvalSummary: approvalSummary ?? null, currentVersion: summary.currentVersion ?? null, lineCount: summary.lineCount, structureMode: summary.structureMode, finishLineSummary, takeoffEnabled, plansError: sectionErrors?.plansSummary });
@@ -1248,6 +1259,7 @@ export function AffaireHub({
               preparationIsNextStep={dominantFlowIntent === "analyze_plans"}
               hidePreparationAction={showTakeoffPrompt}
               onExecuteSuggestion={handleExecuteCockpitSuggestion}
+              onImportDpgf={isReadOnlyReview || !intakeWorkspace?.canManageDocuments ? undefined : startIntakeDpgfImport}
             />
                 }
                 hiddenExceptionIds={hiddenPilotageExceptionIds}
@@ -1280,22 +1292,6 @@ export function AffaireHub({
                     entryMode={isFreshStartState}
                     hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
                     hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
-                    onBridgeDpgfImport={
-                      !intakeWorkspacePresentation.showBridgeDpgfImport
-                        ? undefined
-                        : () => {
-                            setImportResult(null);
-                            setIntakeDpgfCandidates((intakeWorkspace?.documents ?? [])
-                              .filter((document) => !document.isBeingDeleted && document.detectedCategory === "dpgf" &&
-                                document.classificationStatus === "classified" && document.uploadStatus === "uploaded")
-                              .map((document) => ({
-                                documentId: document.documentId,
-                                fileName: document.fileName,
-                                label: `${document.fileName}${document.documentPriority === "primary" ? " · principale" : ""}${document.driveSource ? ` · ${document.driveSource.folderName ?? "Drive"} · version ${document.driveSource.revision}` : ""} · copie ${document.documentId.slice(-8)}`,
-                              })));
-                            setShowImportFlow(true);
-                          }
-                    }
                     dpgfAlreadyImported={dpgfSource !== null}
                     plansSynced={(plansSummary?.planSetCount ?? 0) > 0}
                   />

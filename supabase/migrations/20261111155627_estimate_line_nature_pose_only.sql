@@ -10,7 +10,8 @@
 --
 -- 1. public.estimate_line_nature gains 'pose_only'.
 -- 2. private.canonical_estimate_batch_operations accepts it (latest owning definition:
---    20261109183432_estimate_fo_price_origin.sql; only the accepted list changes).
+--    20261111144803_estimate_line_status_reason.sql, which added the key status_reason; only the accepted list
+--    of natures changes here).
 -- 3. public.estimate_offer_client_valid_v2 accepts the optional key `poseOnly` on a line row, exactly true (latest
 --    owning definition: 20261029204225_estimate_pdf_contract_parent_index.sql).
 -- 4. public.estimate_offer_client_items_match_v2 requires the key to follow the nature of the frozen line (latest
@@ -32,7 +33,7 @@ CREATE OR REPLACE FUNCTION private.canonical_estimate_batch_operations(operation
 AS $function$
 declare op jsonb; result jsonb[]:='{}'; data jsonb; pair record; key text; value jsonb; name text;
   common_keys text[]:=array['parent_id','position','title','aid'];
-  line_keys text[]:=array['line_nature','description','quantity','unit_price_ht_cents','tax_rate_bp','k_fo','h_mo','h_mo_majoration','k_mo','h_mo_atelier','k_mo_atelier','labor_role_atelier_id','h_mo_chantier','k_mo_chantier','labor_role_chantier_id','labor_role_id','category_id','supply_type_id','product_id','selected_supplier_price_id','fo_price_origin','unit_code','pricing_status','h_mo_per_unit','h_mo_atelier_per_unit','h_mo_chantier_per_unit'];
+  line_keys text[]:=array['line_nature','description','quantity','unit_price_ht_cents','tax_rate_bp','k_fo','h_mo','h_mo_majoration','k_mo','h_mo_atelier','k_mo_atelier','labor_role_atelier_id','h_mo_chantier','k_mo_chantier','labor_role_chantier_id','labor_role_id','category_id','supply_type_id','product_id','selected_supplier_price_id','fo_price_origin','unit_code','pricing_status','h_mo_per_unit','h_mo_atelier_per_unit','h_mo_chantier_per_unit','status_reason']; -- TI-682 (ajout) : status_reason
   source_keys text[]:=array['source_provider','source_job_id','source_file_name','source_page'];
   money_keys text[]:=array['pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'];
   allowed text[];
@@ -71,6 +72,14 @@ begin
         end if;
       elsif key='fo_price_origin' then
         if value<>'null'::jsonb and jsonb_typeof(value)<>'object' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      elsif key='status_reason' then -- TI-682 (ajout) : motif interne d'une exclusion, nul pour l'effacer
+        if value<>'null'::jsonb then -- TI-682 (ajout)
+          if jsonb_typeof(value)<>'object' or value-array['code','note']<>'{}'::jsonb or value ? 'note' and jsonb_typeof(value->'note') not in('string','null') then perform private.estimate_batch_error('INVALID_INPUT'); end if; -- TI-682 (ajout)
+          -- TI-682 (ajout) : note sans les blancs ASCII des deux bouts (comme les notes du métré), nulle si vide.
+          value:=jsonb_build_object('code',value->'code','note',coalesce(to_jsonb(nullif(regexp_replace(coalesce(value->>'note',''),'^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$','','g'),'')),'null'::jsonb)); -- TI-682 (ajout)
+          if not public.estimate_status_reason_valid(value) then perform private.estimate_batch_error('INVALID_INPUT'); end if; -- TI-682 (ajout)
+          data:=jsonb_set(data,array[key],value); -- TI-682 (ajout)
+        end if; -- TI-682 (ajout)
       elsif key='unit_code' then
         if value<>'null'::jsonb and jsonb_typeof(value)<>'string' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
         data:=jsonb_set(data,array[key],coalesce(to_jsonb(nullif(btrim(data->>key),'')),'null'));
@@ -309,7 +318,8 @@ $$;
 
 -- 5. A duplicated version or a variant keeps the nature of each line. The copy listed every column but this one,
 --    so the normalisation trigger re-derived it: a POSE SEULE line came back as labor_only and its mention left
---    the copied quote without a trace. Same body as 20261109183432_estimate_fo_price_origin.sql, plus the column.
+--    the copied quote without a trace. Same body as 20261111144803_estimate_line_status_reason.sql (which copies
+--    was_not_priced and status_reason), plus the column.
 CREATE OR REPLACE FUNCTION public.duplicate_estimate_version_without_product_id(source_version_id uuid, as_variant boolean DEFAULT false)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -586,6 +596,8 @@ begin
     h_mo_atelier_per_unit,
     h_mo_chantier_per_unit,
     product_id,
+    was_not_priced, -- TI-682 (ajout) : la copie garde « a été Non chiffrée »
+    status_reason, -- TI-682 (ajout) : et le motif interne
     line_nature -- TI-539 (ajout) : la copie garde la nature choisie de chaque ligne
   )
   select
@@ -631,6 +643,8 @@ begin
     src.h_mo_atelier_per_unit,
     src.h_mo_chantier_per_unit,
     case when source_is_v3 then src.product_id end,
+    src.was_not_priced, -- TI-682 (ajout)
+    src.status_reason, -- TI-682 (ajout)
     src.line_nature -- TI-539 (ajout)
   from source_item_hierarchy hierarchy
   join public.estimate_items src on src.id = hierarchy.id
@@ -734,6 +748,7 @@ begin
 
   return new_version_id;
 end;
-$function$;
+$function$
+;
 
 commit;
