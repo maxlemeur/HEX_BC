@@ -11,7 +11,9 @@ import type { EstimateV3ExportDocument } from "@/lib/estimates/v3-export";
 export const FIXTURE_TAKEOFF_JOB_ID = "30000000-0000-4000-8000-000000000003";
 const FIXTURE_TAKEOFF_ITEM_ID = "40000000-0000-4000-8000-000000000004";
 
-export type FixtureTakeoffSource = { forced?: boolean; forced_reason?: string | null; entry_category?: string | null };
+export type FixtureTakeoffSource = {
+  forced?: boolean; forced_reason?: string | null; entry_category?: string | null; hypothesis_cause?: string | null;
+};
 
 /** source_metadata carrying a version 1 takeoff marker with the given sources (private.takeoff_mark_provisions). */
 export function takeoffProvisionMetadata(...sources: FixtureTakeoffSource[]): Record<string, unknown> {
