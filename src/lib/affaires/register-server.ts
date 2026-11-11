@@ -1687,7 +1687,7 @@ export async function fetchAffaireRegisterPage(
   if (input.blockingOnly) {
     // Filter before the page limit: a blocker must remain reachable even when
     // the newest page contains only nonblocking or already resolved entries.
-    const blockingFilter = "severity.eq.critical,metadata->revalidationRequest->>status.eq.required";
+    const blockingFilter = "severity.eq.critical,status.eq.clarify_with_client,metadata->revalidationRequest->>status.eq.required";
     query = query.in("status", ["open", "clarify_with_client"]).or(blockingFilter);
     if (focusedQuery) {
       focusedQuery = focusedQuery.in("status", ["open", "clarify_with_client"]).or(blockingFilter);
