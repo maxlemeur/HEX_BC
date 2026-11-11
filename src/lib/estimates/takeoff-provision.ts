@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { Json } from "@/types/database";
+
 /**
  * TI-686 D10/D12: the marker the takeoff application writes on an estimate line built from a line an administrator
  * forced past the apply guard, or from a quantity entered as a hypothesis (private.takeoff_mark_provisions, migration
@@ -54,4 +56,33 @@ export function readTakeoffProvision(sourceMetadata: unknown): TakeoffProvision 
   const hypothesis = sources.some((source) => source.entry_category === "hypothesis"
     || source.forced_reason === "priced_hypothesis");
   return { kind: hypothesis ? "hypothesis" : "internal_provision", treatment: "internal_provision", readable: true, sources };
+}
+
+/**
+ * The marker of a line as an object to spread into a source_metadata that a read projection rebuilds (AI structure or
+ * generated ouvrage provenance), so that the editor, its line truth and its CSV still read it; empty without a marker.
+ */
+export function keepTakeoffProvision(sourceMetadata: Json | null | undefined): { [TAKEOFF_PROVISION_KEY]?: Json } {
+  if (!isRecord(sourceMetadata)) return {};
+  const marker = sourceMetadata[TAKEOFF_PROVISION_KEY];
+  return marker === undefined || marker === null ? {} : { [TAKEOFF_PROVISION_KEY]: marker };
+}
+
+/** TI-682 lot C: header of the internal CSV column that names the takeoff provision of each line (H12 lifted). */
+export const TAKEOFF_PROVISION_EXPORT_HEADER = "Provision métré";
+
+const TAKEOFF_PROVISION_EXPORT_LABELS: Readonly<Record<TakeoffProvision["kind"], string>> = {
+  internal_provision: "Provision interne",
+  hypothesis: "Hypothèse",
+};
+
+/**
+ * The cell of an estimate line in the « Provision métré » column: empty without a marker, « Provision interne » for a
+ * forced source or an unreadable marker, « Hypothèse » for a source resting on one. Only the internal CSV exports (the
+ * v3 server CSV and the v1/v2 editor CSV) write it; the DPGF, standard and BDC workbooks can reach a client or a
+ * supplier and never do.
+ */
+export function takeoffProvisionExportLabel(sourceMetadata: unknown): string {
+  const provision = readTakeoffProvision(sourceMetadata);
+  return provision ? TAKEOFF_PROVISION_EXPORT_LABELS[provision.kind] : "";
 }

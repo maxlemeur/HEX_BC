@@ -15,6 +15,7 @@ import { ESTIMATE_EXPORT_PROGRESS_COMPLETE } from "@/lib/estimates/export-stream
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { TAKEOFF_PROVISION_EXPORT_HEADER, takeoffProvisionExportLabel } from "@/lib/estimates/takeoff-provision";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import {
   amountsSourceLabel,
@@ -38,6 +39,8 @@ import {
  * atelier et chantier ajoutées à la fin, comme le CSV v1/v2 ; sur une ligne ventilée (`uses_split` du moteur), h/u, rôle
  * et K MO de la ligne, que le moteur ignore, restent vides. Le CSV d'une v1/v2 reste construit par l'éditeur
  * (`editor-export.ts`) : cette route le refuse par un 409 nommé. Même écriture que ce CSV (SheetJS, « ; », BOM UTF-8).
+ * TI-682 lot C : dernière colonne « Provision métré » (marqueur `takeoff_provision` de la ligne), après toutes les autres,
+ * ventilation comprise ; le CSV est interne, les classeurs DPGF, standard et BDC ne la portent pas.
  */
 
 export const ESTIMATE_V3_CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
@@ -52,7 +55,8 @@ const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO a
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
-    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : [])];
+    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : []),
+    TAKEOFF_PROVISION_EXPORT_HEADER];
 }
 
 /** Lignes du CSV v3 (en-tête, lignes du document, puis pied sous « Désignation » / « Total HT »). */
@@ -115,6 +119,7 @@ export function buildEstimateV3CsvRows(input: {
         ? [hours(item.h_mo_atelier_per_unit), role(item.labor_role_atelier_id), item.k_mo_atelier ?? 1,
           hours(item.h_mo_chantier_per_unit), role(item.labor_role_chantier_id), item.k_mo_chantier ?? 1]
         : ["", "", "", "", "", ""]),
+      takeoffProvisionExportLabel(item.source_metadata),
     ]);
   }
   const totalColumn = header.indexOf(`Total HT (${currency})`);

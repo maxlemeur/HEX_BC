@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 
-import { buildEstimateLineExportRows, normalizeSupplierComparisonsByItemId, type SupplierComparisonsByItemId } from "@/lib/estimates/editor-export";
+vi.mock("@/lib/browser-download", () => ({ downloadBlob: vi.fn() }));
+
+import { downloadBlob } from "@/lib/browser-download";
+import {
+  buildEstimateLineExportRows,
+  getEstimateLineExportColumns,
+  normalizeSupplierComparisonsByItemId,
+  type SupplierComparisonsByItemId,
+} from "@/lib/estimates/editor-export";
 import type { EstimateItem } from "@/lib/estimates/editor-items";
 import { formatCurrency } from "@/lib/money";
 
@@ -142,6 +151,7 @@ describe("estimate editor line export rows", () => {
         line_total_ht_cents: 15600,
         tax_rate_bp: 2000,
         line_total_ttc_cents: 18720,
+        takeoff_provision: "",
       },
     ]);
   });
@@ -165,5 +175,57 @@ describe("estimate editor export of a converted offer", () => {
       supplierComparisonsByItemId: comparisons,
     });
     expect(rows.map((row) => row.supplier_1.split(" | ")[1])).toEqual([formatCurrency(8748, "EUR"), formatCurrency(26245, "EUR")]);
+  });
+});
+
+// TI-682 lot C, PR 1 (H12 lifted for the CSV): the CSV a v1/v2 editor writes says which lines come from a takeoff
+// provision, as the v3 server CSV does. The marker lives in source_metadata.takeoff_provision (readTakeoffProvision).
+describe("estimate editor CSV takeoff provision column (TI-682)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const jobId = "30000000-0000-4000-8000-000000000003";
+  const source = (overrides: Record<string, unknown>) => ({
+    takeoff_item_id: "40000000-0000-4000-8000-000000000004", forced: false, forced_reason: null, entry_category: null, ...overrides,
+  });
+  const marker = (...sources: ReturnType<typeof source>[]) => ({ takeoff_provision: { version: 1, job_id: jobId, sources } });
+  const lines = [
+    { title: "Ligne sans marqueur", metadata: {}, expected: "" },
+    { title: "Ligne forcée", metadata: marker(source({ forced: true, forced_reason: "additional_evidence" })), expected: "Provision interne" },
+    { title: "Ligne hypothèse", metadata: marker(source({ entry_category: "hypothesis" })), expected: "Hypothèse" },
+    { title: "Ligne illisible", metadata: { takeoff_provision: "?" }, expected: "Provision interne" },
+  ];
+
+  async function downloadedCsv(isLaborSplitEnabled: boolean) {
+    const rows = buildEstimateLineExportRows({
+      items: lines.map((line, index) => createItem({ id: `line-${index}`, parent_id: null, title: line.title, source_metadata: line.metadata })),
+      currency: "EUR",
+      supplyTypeById: new Map(),
+      laborRoleById: new Map(),
+      qualityFlagsByItemId: {},
+    });
+    const { exportToCSV } = await import("@/lib/export");
+    await exportToCSV(rows, getEstimateLineExportColumns(isLaborSplitEnabled), { filename: "chiffrage" });
+    const [blob] = vi.mocked(downloadBlob).mock.calls[0];
+    const csv = await blob.text();
+    const workbook = XLSX.read(csv.replace(/^\ufeff/, ""), { type: "string", raw: true, FS: ";" });
+    return XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
+  }
+
+  it("states for each engine 2 line whether it comes from a takeoff provision, an hypothesis, or neither", async () => {
+    const parsed = await downloadedCsv(false);
+    const designation = parsed[0].indexOf("Désignation");
+    const provision = parsed[0].indexOf("Provision métré");
+    expect(provision).toBeGreaterThan(-1);
+    expect(parsed.slice(1).map((row) => [row[designation], row[provision]])).toEqual(lines.map((line) => [line.title, line.expected]));
+  });
+
+  it("appends the column after every existing one, labor split included", async () => {
+    const base = ["Chemin chapitre", "Désignation", "Flags qualité", "Unité", "Quantité", "Prix unitaire HT (EUR)", "Type FO",
+      "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
+      "Total HT (EUR)", "TVA (%)", "Total TTC (EUR)"];
+    const split = ["h MO atelier", "Rôle MO atelier", "K MO atelier", "h MO chantier", "Rôle MO chantier", "K MO chantier"];
+    expect((await downloadedCsv(false))[0]).toEqual([...base, "Provision métré"]);
+    vi.clearAllMocks();
+    expect((await downloadedCsv(true))[0]).toEqual([...base, ...split, "Provision métré"]);
   });
 });
