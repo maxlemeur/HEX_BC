@@ -13,6 +13,7 @@ import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs, type ChatGptBenchArgs } from "@/lib/takeoff/bench/args";
 import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
+import { measuredLengthsByScope } from "@/lib/takeoff/bench/measured";
 import { remapBenchRunPages, selectBenchPages } from "@/lib/takeoff/bench/pages";
 import { buildBenchReport, renderBenchReportMarkdown, rulesSection, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
 import {
@@ -30,7 +31,7 @@ import {
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, stoppedVisionBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
 import { renderVisionSection, visionReport } from "@/lib/takeoff/bench/vision-report";
 import { VISION_CORRECTED_CONFIDENCE, VISION_REVIEW_LIMITS, VISION_REVIEW_PROMPT_VERSION, VISION_REVIEW_VERSION } from "@/lib/takeoff/bench/vision-review";
@@ -392,7 +393,9 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   };
   const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
   const baselineReport = baseline ? buildBenchReport({ metadata: baseline.metadata, run: baseline.run, scopes, noise: dataset.noise }) : null;
-  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport) : null;
+  const scored = report.couples.flatMap((couple) => couple.passes).flatMap((pass) => pass.scopes);
+  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport,
+    { slices: scopeSlices(result.vector.passes, scored), measured: measuredLengthsByScope(dataset.measured, scored) }) : null;
   const decisions = budget && capability ? {
     capability: { status: capability.status, model: capability.model }, budget: budget.snapshot(),
     stop: result.run.stop?.error.name === "DecisionsStop" ? { reason: result.run.stop.error.code, message: result.run.stop.error.message, at: result.run.stop.at } : null,

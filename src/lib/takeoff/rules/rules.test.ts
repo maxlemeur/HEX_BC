@@ -820,6 +820,22 @@ describe("duplicate runs between zones", () => {
     expect(rule(result.results, "z1b", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
   });
 
+  it("reports unselected vector overlaps without counting excluded partners", () => {
+    const candidate = { is_excluded: true, unselected_vector: true };
+    const both = zones({ z1: candidate, z2: candidate });
+    for (const id of ["z1", "z2"]) {
+      expect(rule(both.results, id, "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+      expect(rule(both.results, id, "zone_overlap")?.reason).toContain("non retenue");
+    }
+    const mixed = zones({ z2: candidate });
+    expect(rule(mixed.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(mixed.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(zones({ z1: candidate, z2: { is_excluded: true } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z1: candidate, z2: candidate, z2Level: "R+2" }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
   it("spends no reduction on an excluded partner", () => {
     // z1 reduced by 1 m shares 1 m with z2 (excluded) and 1 m with z3 (included): its reduction settles z3.
     const z3 = line("z3", { job_id: "job-z3", page_key: "job-z3#1", geometry: { segments_m: [[-76, 1, -73, 1]], polygon_m: null, length_m: 3, area_m2: null },

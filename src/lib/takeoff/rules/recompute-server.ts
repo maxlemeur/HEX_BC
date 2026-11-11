@@ -1,5 +1,7 @@
 import "server-only";
 
+import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -46,7 +48,7 @@ const AnchorsSchema: z.ZodType<PageAnchors> = z.object({
 
 type JobRow = { id: string; status: string; created_at: string };
 type ItemRow = {
-  id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; updated_at: string;
+  id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; exclusion_reason: string | null; updated_at: string;
   metadata: unknown; source_file_name: string | null; source_page: number | null; rule_results: unknown; rules_stale: boolean;
   rules_stale_at: string | null;
   rules_evaluated_at: string | null; quantity_entry_category: string | null; is_verified: boolean;
@@ -126,7 +128,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   const jobIds = jobs.map((job) => job.id);
 
   const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
-    .select(("id, job_id, designation, unit, quantity, is_excluded, updated_at, metadata, source_file_name, source_page, "
+    .select(("id, job_id, designation, unit, quantity, is_excluded, exclusion_reason, updated_at, metadata, source_file_name, source_page, "
       + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entry_category, is_verified") as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, jobIds as never));
   if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
@@ -164,7 +166,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
     const stored = geometries.get(item.id);
     return {
       id: item.id, job_id: item.job_id, designation: item.designation, unit: item.unit, quantity: Number(item.quantity),
-      is_excluded: item.is_excluded, frozen: status.get(item.job_id) === "applied",
+      is_excluded: item.is_excluded, unselected_vector: Boolean(stored) && isUnselectedVectorReading(item), frozen: status.get(item.job_id) === "applied",
       // TI-686 D12: an entry is a quantity attested with its category, which survives the deletion of its author.
       quantity_entered: item.quantity_entry_category != null,
       inputs,

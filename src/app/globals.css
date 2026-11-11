@@ -1,6 +1,7 @@
 @layer theme, base, legacy, components, utilities;
 
-@import "tailwindcss";
+/* Runtime logs and generated artifacts must not trigger stylesheet rebuilds. */
+@import "tailwindcss" source("../");
 @import "tw-animate-css";
 @import "../styles/shadcn-utilities.css";
 @import "../styles/tokens.css";

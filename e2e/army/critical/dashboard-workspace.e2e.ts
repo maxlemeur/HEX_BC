@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
+import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { measure } from "../performance/measure";
 import { armyTest, recordEvidence, type ArmyState } from "./fixtures";
@@ -37,6 +38,10 @@ async function dashboardFixture(browser: Browser, baseUrl: string, army: ArmySta
       version_number: 1, status: project.status, calc_engine_version: 2, updated_at: project.updatedAt,
     })));
     if (versions.error) throw new Error(`Dashboard version fixtures failed: ${versions.error.code}`);
+    // These two statements fill tables the planner last saw with 1 and 0 rows. Until autovacuum's next pass, up to
+    // a minute later, the whole shard plans its row policies for empty tables: a line creation of the journey
+    // running beside DASH01 took 11 s and Postgres cut it at its 8 s limit (57014, pull request #230).
+    await querySql("analyze public.estimate_projects; analyze public.estimate_versions;");
     army.ownedEstimates.push(...projects.map(project => ({ projectId: project.id, versionId: project.versionId })));
   }
   await recordEvidence(army, "dashboard-prerequisites", { count, tenantId: owner.tenantId,
