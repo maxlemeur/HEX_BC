@@ -26,8 +26,8 @@ type EstimateLineNatureSelectProps = {
 
 const COMPACT_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures",
-  supply_and_labor: "Fournitures + MO",
-  labor_only: "Main-d’œuvre",
+  supply_and_labor: "Fournitures + pose",
+  labor_only: "Pose",
   pose_only: POSE_ONLY_MENTION,
 };
 
@@ -102,7 +102,7 @@ export function EstimateLineNatureSelect({
       </select>
       <span hidden id={descriptionId}>
         La désignation reste libre. La nature détermine les données de
-        fournitures et de main-d’œuvre attendues avant publication.
+        fournitures et de pose attendues avant publication. Le choix POSE SEULE ajoute cette mention sur le devis.
       </span>
     </label>
   );

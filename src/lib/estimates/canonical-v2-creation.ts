@@ -1,3 +1,4 @@
+import { readFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
@@ -129,6 +130,8 @@ export type CanonicalV2TemplateItem = Pick<
   k_mo_chantier: number | null;
   k_fo_manual?: boolean | null;
   kit_metier?: boolean;
+  line_nature?: EstimateItemInsert["line_nature"];
+  fo_price_origin?: unknown;
 } & Partial<Pick<
   EstimateItemInsert,
   "unit_code" | "pricing_status" | "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit"
@@ -466,6 +469,8 @@ function toV3TemplateLine(
     quantity: source.quantity ?? 1,
     unit_price_ht_cents: source.unit_price_ht_cents ?? 0,
     k_fo: source.k_fo ?? 1,
+    line_nature: source.line_nature ?? null,
+    fo_price_origin: readFoPriceOrigin(source.fo_price_origin),
     ...(source.k_fo_manual !== null && source.k_fo_manual !== undefined ? { k_fo_manual: source.k_fo_manual } : {}),
     h_mo: source.h_mo ?? 0,
     k_mo: source.k_mo ?? 1,
@@ -791,7 +796,7 @@ function resolveV3VersionPayload(input: {
   };
 }
 
-function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRecord & { k_fo_manual?: boolean | null } {
+function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRecord & Pick<CanonicalEstimateCreationItem, "k_fo_manual" | "line_nature" | "fo_price_origin"> {
   return {
     id: item.id!,
     parent_id: item.parent_id ?? null,
@@ -804,6 +809,8 @@ function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRec
     tax_rate_bp: item.tax_rate_bp ?? null,
     k_fo: item.k_fo ?? null,
     k_fo_manual: item.k_fo_manual,
+    line_nature: item.line_nature ?? null,
+    fo_price_origin: item.fo_price_origin ?? null,
     h_mo: item.h_mo ?? null,
     h_mo_majoration: item.h_mo_majoration ?? 1,
     k_mo: item.k_mo ?? null,

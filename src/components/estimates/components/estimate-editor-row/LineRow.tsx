@@ -1,6 +1,4 @@
 "use client";
-import { KFO_HELP } from "@/lib/estimates/unified-kfo";
-import { parseKfoDraft } from "@/lib/estimates/editor-values";
 
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 
@@ -25,7 +23,6 @@ import {
 
 import { EditableCell } from "@/components/estimates/EditableCell";
 import { computeEstimateLineMargin, formatMarkupRatio } from "@/lib/estimates/line-margin";
-import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { hasTakeoffSourceBadge } from "@/lib/takeoff/source-badge";
 import { Popover } from "@/components/ui-legacy/Popover";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
@@ -49,6 +46,7 @@ import {
   type SpreadsheetEditorProps,
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
+import { KfoDraftInput } from "@/components/estimates/components/estimate-editor-row/KfoDraftInput";
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
@@ -66,7 +64,6 @@ import {
   formatCentsInput,
   formatNumberDisplay,
   getQualityFlagCellTarget,
-  parseCoefficientDraft,
   parseQuantityInput,
   readLaborSplitFields,
   toCellClassName,
@@ -989,16 +986,14 @@ export function LineRow({
             "estimate-cell estimate-col--fo",
           )}
         >
-          <DecimalDraftInput
+          <KfoDraftInput
             className="estimate-input estimate-input--compact-number"
             ref={kFoEditorProps.ref}
             tabIndex={kFoEditorProps.tabIndex}
-            value={v3Grid ? Number((kFoValue * Number(item.fo_provision ?? 1)).toFixed(6)) : kFoValue}
-            emptyValue={1}
-            commitOnUnchangedBlur={!v3Grid}
-            parseValue={v3Grid ? parseKfoDraft : parseCoefficientDraft}
+            value={kFoValue}
+            isV3={Boolean(v3Grid)}
+            foProvision={item.fo_provision}
             aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
-            title={KFO_HELP}
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
             onValueChange={(value) => onPatchItem(item.id, { k_fo: value, ...(v3Grid ? { k_fo_manual: true } : {}) }, { persist: false })}

@@ -90,15 +90,17 @@ Avec les bases initiales, vérifier ces montants **avant marge** :
 | Robinet DN 25 | 58,43 € | 1,02 | 59,60 € |
 | Pose seule WC | 175,50 € | 1 | 175,50 € |
 
-La nature POSE SEULE et l’origine `site` doivent être fournies par TI-539/TI-541
-sur `main` avant la recette SQL et navigateur de cette section. Les tests de
-projection/calcul isolés ne qualifient pas leur persistance ni leur interface.
+TI-534 intègre `origin/main` contenant TI-539 et TI-541 (base `0a5f58e5`). La
+migration unifiée est postérieure à celle de TI-541 et conserve sa provenance
+`site` et sa règle POSE SEULE. Le sélecteur emploie « Pose » ; le choix explicite
+« POSE SEULE » ajoute cette mention après la désignation dans le devis.
+Les tests isolés de calcul ne remplacent pas la recette de persistance et d’interface.
 
 ## Qualification automatisée
 
 Les parcours FO53401/02 protègent les sélections de prix et leur provenance.
-FO53410/11/12/13/14 couvrent le coefficient unique, sa précision, les préférences,
-le choix manuel, les écritures API, les anciens brouillons et le PDF du kit. Depuis un checkout sans `.env`, avec les
+FO53410/11/12/13/14/15/16 couvrent le coefficient unique, sa précision, les préférences,
+le choix manuel, les écritures API, les anciens brouillons, le PDF du kit et la conservation de POSE SEULE/coût chantier après copie et création depuis un modèle. Depuis un checkout sans `.env`, avec les
 dépendances de `.nvmrc` et les prérequis du
 [guide local](tester-army-local-development.md) :
 

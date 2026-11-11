@@ -203,3 +203,12 @@ it("leaves WC labour unchanged when its small supply coefficient is overridden",
   Object.assign(input.items[0], projectUnifiedKfo({ ...row, k_fo: 1.1, k_fo_manual: true }, settings));
   expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(17585);
 });
+
+// A pricing edit of a historical two-factor line must match SQL round(product,6),
+// including floating-point noise and a real half-up boundary.
+it.each([[1.003, 1.03, 1.03309], [1.13625, 1.03, 1.170338]])(
+  "folds legacy K FO %s and provision %s to the stored six-decimal value", (kFo, provision, expected) => {
+    const before = { supply_type_id: TUBE, k_fo: kFo, k_fo_manual: null, fo_provision: provision, unit_price_ht_cents: 10000 };
+    const updated = projectUnifiedKfo({ ...before, unit_price_ht_cents: 11000 }, new Map(), before);
+    expect(updated).toMatchObject({ k_fo: expected, k_fo_manual: true, fo_provision: 1 });
+  });

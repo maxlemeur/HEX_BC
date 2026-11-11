@@ -82,7 +82,7 @@ function readOnlyDatabase() {
       user_id: ACTOR_ID, session_id: SESSION_ID, locked_at: UPDATED_AT,
       expires_at: "2099-01-01T00:00:00.000Z" }],
     margin_tiers: [], feature_flags: [], labor_roles: [], estimate_categories: [],
-    supply_types: [], products: [], supplier_pricebook: [],
+    supply_types: [], products: [], supplier_pricebook: [], estimate_fo_preferences: [],
   };
   const forbiddenWrite = vi.fn(() => { throw new Error("Unexpected direct write"); });
   const commit = vi.fn<(input: Record<string, unknown>) => Promise<unknown>>();
@@ -415,16 +415,16 @@ describe("executeEstimateBatch", () => {
   // TI-541, réponse de Maxime du 11/11/2026 : une POSE SEULE ne prend ni pertes ni transport. La projection contrôlée
   // par la base (D12) porte donc une provision de 1 sur une ligne qui devient POSE SEULE ou qui est créée ainsi, et
   // reprend celle du type quand la ligne quitte cette nature.
-  it("projects a POSE SEULE line without FO provision, and with its type's provision again when it leaves the nature", async () => {
+  it("projects automatic POSE SEULE K FO as one, restoring the configured family coefficient when it leaves", async () => {
     const TUBE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const POSE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     Object.assign(db.version, {
       calc_engine_version: 3, sale_coefficient_fo: 1, sale_coefficient_mo: 1, discount_amount_cents: null,
       gross_ht_cents: 2030, discount_applied_cents: 0, commercial_rounding_cents: 0,
     });
-    const v3Line = { h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: "priced", supply_type_id: TUBE_ID };
+    const v3Line = { h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: "priced", supply_type_id: TUBE_ID, k_fo_manual: false };
     db.rows.estimate_items = [section(),
-      { ...line(), ...v3Line, fo_provision: 1.03, line_nature: "supply_only" },
+      { ...line(), ...v3Line, k_fo: 1.03, fo_provision: 1, line_nature: "supply_only" },
       { ...line(), ...v3Line, id: POSE_ID, position: 2, fo_provision: 1, line_nature: "pose_only" }];
     db.rows.supply_types = [{ id: TUBE_ID, tenant_id: TENANT_ID, code: "tube", name: "Tube", default_fo_provision: 1.03 }];
     db.commit.mockResolvedValue({ data: null, error: { code: "40001", message: "ESTIMATE_BATCH_STALE" } });

@@ -95,7 +95,10 @@ begin
     new.fo_provision := 1;
     return new;
   end if;
-  if version_status is distinct from 'draft'::public.estimate_status then return new; end if;
+  if version_status is distinct from 'draft'::public.estimate_status then
+    new.fo_provision := coalesce(new.fo_provision,1);
+    return new;
+  end if;
   -- Version duplication supplies the coefficient, provenance and saved origin verbatim.
   if tg_op='INSERT' and new.fo_provision is not null then return new; end if;
 
@@ -492,8 +495,8 @@ begin
     src.quantity,
     src.unit_price_ht_cents,
     src.tax_rate_bp,
-    case when source_is_v3 then round(coalesce(src.k_fo,1)*coalesce(src.fo_provision,1),6) else src.k_fo end,
-    case when source_is_v3 then coalesce(src.k_fo_manual,true) end,
+    case when source_is_v3 and src.item_type='line' then round(coalesce(src.k_fo,1)*coalesce(src.fo_provision,1),6) else src.k_fo end,
+    case when source_is_v3 and src.item_type='line' then coalesce(src.k_fo_manual,true) end,
     case when source_is_v3 then 1 else src.fo_provision end, -- unified factor copied once
     src.h_mo,
     src.h_mo_majoration,
@@ -655,6 +658,15 @@ begin
       elsif key='fo_price_origin' then$new$);
    definition:=replace(definition,'item_row.tax_rate_bp,item_row.k_fo,item_row.h_mo','item_row.tax_rate_bp,item_row.k_fo,item_row.k_fo_manual,item_row.h_mo');
    definition:=replace(definition,'k_fo=item_row.k_fo,','k_fo=item_row.k_fo,k_fo_manual=item_row.k_fo_manual,');
+   if (select proname from pg_proc where oid=routine.oid)='persist_estimate_creation_atomic' then
+     -- Canonical creation is a multiline writer. Keep explicit nature and manual neutrality from saved models.
+     if position(E'      k_fo,\n' in definition)=0 or position(E'      k_fo numeric,\n' in definition)=0 then
+       raise exception 'TI534_CANONICAL_CREATION_KFO_ANCHOR';
+     end if;
+     definition:=replace(definition,E'      k_fo,\n',E'      k_fo,\n      k_fo_manual,\n      line_nature,\n');
+     definition:=replace(definition,E'      item.k_fo,\n',E'      item.k_fo,\n      item.k_fo_manual,\n      item.line_nature,\n');
+     definition:=replace(definition,E'      k_fo numeric,\n',E'      k_fo numeric,\n      k_fo_manual boolean,\n      line_nature public.estimate_line_nature,\n');
+   end if;
    if (select proname from pg_proc where oid=routine.oid)='commit_estimate_batch' then
      -- An explicit coefficient without a mode is a manual API edit; false is an explicit refresh.
      definition:=replace(definition,

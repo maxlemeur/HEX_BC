@@ -1,4 +1,5 @@
 /** Current v3 supply projections use one K FO. Historical provision values are retained until an explicit edit. */
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import {
   clearStaleFoPriceOrigin,
   readFoPriceOrigin,
@@ -126,7 +127,7 @@ export function projectUnifiedKfo<
   if (previous && previous.k_fo_manual == null && item.k_fo_manual == null) {
     return {
       ...item,
-      k_fo: (item.k_fo ?? 1) * (previous.fo_provision ?? 1),
+      k_fo: multiplyToStoredEstimateNumeric(item.k_fo ?? 1, previous.fo_provision ?? 1, 6),
       k_fo_manual: true,
       fo_provision: 1,
     };

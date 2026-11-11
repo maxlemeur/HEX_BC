@@ -19,6 +19,8 @@ import {
   waitForDraftLease,
 } from "./engine-v3-editor-support";
 import { querySql } from "./calculation-gate-support";
+import { instantiateTemplate } from "./engine-v3-creators-support";
+import { setTenantCalcPolicy } from "./engine-v3-persistence-support";
 
 const options = {
   session: "army",
@@ -495,4 +497,49 @@ armyTest("FO53414 an unrelated draft edit preserves an unknown historical coeffi
     return [line.k_fo, line.fo_provision, line.k_fo_manual, line.line_total_ht_cents];
   }).toEqual([1.017, 1, true, 26442]);
   await recordEvidence(ui.army, "fo534-legacy-draft", { item: (await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === id) });
+});
+
+armyTest("FO53416 POSE SEULE keeps a neutral editable K FO and its site source through a saved template", options, async (ui) => {
+  const draft = await prepareV3Draft(ui, ui.army, "FO534POSE");
+  await querySql(`insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube') on conflict (tenant_id,code) do nothing;`);
+  const types = await connectedApi<{ supply_types: Array<{ id: string; code: string }> }>(ui, "GET", `/api/estimates/${draft.versionId}`);
+  const selectionId = randomUUID();
+  const origin = { selection_id: selectionId, source_id: selectionId, kind: "site", transport_mode: null,
+    site: { supplier: "Négoce Fictif", offer_reference: "POSE-534", offer_date: "2026-11-03", document: null } };
+  const title = `${ui.army.runPrefix} pose avec supportage`;
+  const [created] = await seedLines(ui, ui.army, draft, "pose", [{ title, line_nature: "pose_only", unit_code: "ens",
+    pricing_status: "priced", quantity: 1, unit_price_ht_cents: 350, h_mo_per_unit: 0.5, labor_role_id: draft.tuyauteurId,
+    k_fo: 1, k_mo: 1, supply_type_id: types.supply_types.find(row => row.code === "tube")!.id, fo_price_origin: origin }]);
+  expect(created).toMatchObject({ line_nature: "pose_only", k_fo: 1, k_fo_manual: false, fo_provision: 1,
+    pu_ht_cents: 2855, line_total_ht_cents: 2855, fo_price_origin: origin });
+  await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
+  await waitForDraftLease(ui);
+  await showStandardColumns(ui);
+  const input = ui.screen.getByLabel(`Coefficient fourniture K FO pour ${title}`, { exact: true });
+  for (const [value, price] of [["1,1", 2901], ["1", 2855]] as const) {
+    await input.fill(value);
+    await input.press("Tab");
+    await saveLineEditsWithShortcut(ui, draft.versionId, title, ui.army);
+    await expect.poll(async () => {
+      const line = (await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === created.id)!;
+      return [line.line_nature, line.k_fo, line.k_fo_manual, line.fo_provision, line.pu_ht_cents, line.h_mo_per_unit];
+    }).toEqual(["pose_only", Number(value.replace(",", ".")), true, 1, price, 0.5]);
+  }
+  await releaseVersion(ui.browser, draft.versionId);
+  const saved = await connectedApi<{ template: { id: string } }>(ui, "POST", "/api/estimates/templates",
+    { source_version_id: draft.versionId, name: `${ui.army.runPrefix} modèle pose` });
+  const copy = await connectedApi<{ template: { id: string } }>(ui, "POST", `/api/estimates/templates/${saved.template.id}/duplicate`,
+    { name: `${ui.army.runPrefix} copie modèle pose` });
+  // prepareV3Draft restores policy2 after creation. Open policy3 explicitly for this new canonical version.
+  const reason = `${ui.army.runPrefix} pose template v3`;
+  await setTenantCalcPolicy(draft.owner, { engine: 3, fo: "1.30", mo: "1.20", reason });
+  const instantiated = await instantiateTemplate(ui, ui.army, copy.template.id,
+    { project_id: draft.projectId, expected_calc_engine_version: 3 }, "fo534-pose-site").finally(() =>
+      setTenantCalcPolicy(draft.owner, { engine: 2, fo: "1.30", mo: "1.20", reason: `${reason} fin` }));
+  expect([instantiated.status, instantiated.body.ok]).toEqual([201, true]);
+  const estimate = await readEstimate(ui.browser, instantiated.body.data!.versionId!);
+  expect(estimate.items.find(row => row.item_type === "line")).toMatchObject({ title, line_nature: "pose_only",
+    k_fo: 1, k_fo_manual: true, fo_provision: 1, fo_price_origin: origin, unit_price_ht_cents: 350,
+    h_mo_per_unit: 0.5, pu_ht_cents: 2855, line_total_ht_cents: 2855 });
+  await recordEvidence(ui.army, "fo534-pose-site-template", { original: created, copied: estimate.items });
 });

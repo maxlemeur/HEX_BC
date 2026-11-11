@@ -19,8 +19,8 @@ export type EstimateLineNature = (typeof ESTIMATE_LINE_NATURES)[number];
 
 export const ESTIMATE_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures seules",
-  supply_and_labor: "Fournitures + main-d’œuvre",
-  labor_only: "Main-d’œuvre seule",
+  supply_and_labor: "Fournitures + pose",
+  labor_only: "Pose",
   pose_only: POSE_ONLY_MENTION,
 };
 
