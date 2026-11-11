@@ -21,7 +21,20 @@
 -- marks nothing of this job.
 -- TI-686 D10 (…_takeoff_apply_force_reasons.sql): the override names each forced line with its coded reason, and the
 -- marker carries it (forced_reason: a false positive of the blocked material, the other lines forced with an
--- unconditional reason); red on the M3 writer, which wrote null. All values are fictional.
+-- unconditional reason); red on the M3 writer, which wrote null.
+-- TI-682 lot C (…_takeoff_hypothesis_provision_marker.sql): since lot B an hypothesis nobody attested arrives excluded
+-- (an estimate, metadata.quantity_nature « estimated », or a quantity a plan cannot show, metadata.rule_inputs
+-- .non_observable), and its reviewer may include it without entering its quantity. Such a line is marked at application
+-- too, and every source says why it is an hypothesis: hypothesis_cause, as public.takeoff_item_hypothesis_cause reads
+-- it (entered_hypothesis, estimated, non_observable, or null). Cases written before the migration (red on e5bbe1c8):
+-- - an estimate and a quantity a plan cannot show, included without entry, carry the marker with their cause, through
+--   either overload and either engine; so do the line an estimate folded into an ouvrage materializes, a DPGF line
+--   reconciled from an estimated run, and a length line merging an estimated run with an ordinary one (only the
+--   estimated run is its source);
+-- - each source of a forced line or of an entered hypothesis names its cause (null, entered_hypothesis);
+-- - a duplicated version (engine 3 and engine 2) keeps the marker with its cause.
+-- Guards: an estimate attested on a site survey is no hypothesis and carries no marker; stored amounts and totals equal
+-- the same application where these lines are ordinary (engine 3 and engine 2). All values are fictional.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -51,7 +64,8 @@ values ('c3000000-0000-4000-8000-000000000010', current_setting('test.tenant_id'
 
 -- Drafts: ...101 v3 without DPGF line (4 arguments: forced, hypothesis, ouvrage, then a merge), ...102 its twin with V
 -- instead of the override, ...103 engine 2 (4 arguments), ...104 v3 with a DPGF line (5 arguments: reconciled target),
--- ...105 engine 2 with a DPGF line (5 arguments).
+-- ...105 engine 2 with a DPGF line (5 arguments), ...106 engine 2, twin of ...103 with ordinary lines and V instead of
+-- the override (TI-682 lot C).
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
   currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
   rounding_mode, rounding_step_cents, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
@@ -66,7 +80,8 @@ from (values
   ('c3000000-0000-4000-8000-000000000102'::uuid, 2, 3),
   ('c3000000-0000-4000-8000-000000000103'::uuid, 3, 2),
   ('c3000000-0000-4000-8000-000000000104'::uuid, 4, 3),
-  ('c3000000-0000-4000-8000-000000000105'::uuid, 5, 2)
+  ('c3000000-0000-4000-8000-000000000105'::uuid, 5, 2),
+  ('c3000000-0000-4000-8000-000000000106'::uuid, 6, 2)
 ) as fixture(id, number, engine);
 
 do $seed$
@@ -79,7 +94,8 @@ begin
       ('c3000000-0000-4000-8000-000000000102'::uuid, 'c3000000-0000-4000-8000-000000000112'::uuid),
       ('c3000000-0000-4000-8000-000000000103'::uuid, 'c3000000-0000-4000-8000-000000000113'::uuid),
       ('c3000000-0000-4000-8000-000000000104'::uuid, 'c3000000-0000-4000-8000-000000000114'::uuid),
-      ('c3000000-0000-4000-8000-000000000105'::uuid, 'c3000000-0000-4000-8000-000000000115'::uuid)
+      ('c3000000-0000-4000-8000-000000000105'::uuid, 'c3000000-0000-4000-8000-000000000115'::uuid),
+      ('c3000000-0000-4000-8000-000000000106'::uuid, 'c3000000-0000-4000-8000-000000000116'::uuid)
     ) as section(version_id, id)
   loop
     perform set_config('miaouffrage.estimate_v3_writer', seeded.version_id::text, true);
@@ -122,51 +138,89 @@ from (values
   ('c3000000-0000-4000-8000-000000000204'::uuid, 'c3000000-0000-4000-8000-000000000103'::uuid),
   ('c3000000-0000-4000-8000-000000000205'::uuid, 'c3000000-0000-4000-8000-000000000104'::uuid),
   ('c3000000-0000-4000-8000-000000000206'::uuid, 'c3000000-0000-4000-8000-000000000104'::uuid),
-  ('c3000000-0000-4000-8000-000000000207'::uuid, 'c3000000-0000-4000-8000-000000000105'::uuid)
+  ('c3000000-0000-4000-8000-000000000207'::uuid, 'c3000000-0000-4000-8000-000000000105'::uuid),
+  ('c3000000-0000-4000-8000-000000000208'::uuid, 'c3000000-0000-4000-8000-000000000104'::uuid),
+  ('c3000000-0000-4000-8000-000000000209'::uuid, 'c3000000-0000-4000-8000-000000000106'::uuid)
 ) as fixture(id, version_id);
 
 -- protection: what blocks a forced line (null: nothing does) — no localized proof (evidence), no page (page), a blocked
--- material (material), results to compute again (stale).
+-- material (material), results to compute again (stale). metadata: what the worker wrote (TI-682 lot C: an estimate, a
+-- quantity a plan cannot show; the marker reads only this, never the rule results, and NON_OBSERVABLE_TO_ENTER never
+-- blocks an application); entry: the category of a quantity entered as anything but a hypothesis.
 create temporary table prov_items (
   id uuid primary key, job_id uuid, designation text, quantity numeric, unit text, confidence numeric,
-  verified boolean, hypothesis boolean, rank integer, protection text
+  verified boolean, hypothesis boolean, rank integer, protection text, metadata jsonb not null default '{}'::jsonb,
+  entry text
 ) on commit drop;
 insert into prov_items values
   -- ...201 (4 arguments, v3): forced F (no localized proof) and an admitted run of the same line (merged with it once
   -- rounded), verified K, hypothesis H, hypothesis folded into an ouvrage.
-  ('c3000000-0000-4000-8000-000000000301', 'c3000000-0000-4000-8000-000000000201', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'evidence'),
-  ('c3000000-0000-4000-8000-000000000302', 'c3000000-0000-4000-8000-000000000201', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 2, null),
-  ('c3000000-0000-4000-8000-000000000303', 'c3000000-0000-4000-8000-000000000201', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null),
-  ('c3000000-0000-4000-8000-000000000304', 'c3000000-0000-4000-8000-000000000201', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null),
-  ('c3000000-0000-4000-8000-000000000305', 'c3000000-0000-4000-8000-000000000201', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, false, 5, null),
+  ('c3000000-0000-4000-8000-000000000301', 'c3000000-0000-4000-8000-000000000201', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'evidence', '{}', null),
+  ('c3000000-0000-4000-8000-000000000302', 'c3000000-0000-4000-8000-000000000201', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000303', 'c3000000-0000-4000-8000-000000000201', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000304', 'c3000000-0000-4000-8000-000000000201', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000305', 'c3000000-0000-4000-8000-000000000201', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, false, 5, null, '{}', null),
+  -- TI-682 lot C, ...201: an estimate and a quantity a plan cannot show, included without entry; an estimate attested on
+  -- a site survey; an estimated run and an ordinary run of one length line (merged once rounded).
+  ('c3000000-0000-4000-8000-000000000306', 'c3000000-0000-4000-8000-000000000201', 'P3 Support estimé', 8, 'u', 0.95, false, false, 6, null, '{"quantity_nature":"estimated"}', null),
+  ('c3000000-0000-4000-8000-000000000307', 'c3000000-0000-4000-8000-000000000201', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 7, null, '{"rule_inputs":{"non_observable":"weld"}}', null),
+  ('c3000000-0000-4000-8000-000000000308', 'c3000000-0000-4000-8000-000000000201', 'P3 Gaine relevée', 5, 'u', 0.95, false, false, 8, null, '{"quantity_nature":"estimated"}', 'site_survey'),
+  ('c3000000-0000-4000-8000-000000000309', 'c3000000-0000-4000-8000-000000000201', 'P3 Gaine estimée', 4.4, 'ml', 0.95, false, false, 9, null, '{"quantity_nature":"estimated"}', null),
+  ('c3000000-0000-4000-8000-00000000030a', 'c3000000-0000-4000-8000-000000000201', 'P3 Gaine estimée', 1.3, 'ml', 0.95, false, false, 10, null, '{}', null),
   -- ...203: the same measures, F with its localized proof instead of the override (twin of ...201).
-  ('c3000000-0000-4000-8000-000000000321', 'c3000000-0000-4000-8000-000000000203', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, null),
-  ('c3000000-0000-4000-8000-000000000322', 'c3000000-0000-4000-8000-000000000203', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 2, null),
-  ('c3000000-0000-4000-8000-000000000323', 'c3000000-0000-4000-8000-000000000203', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null),
-  ('c3000000-0000-4000-8000-000000000324', 'c3000000-0000-4000-8000-000000000203', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null),
-  ('c3000000-0000-4000-8000-000000000325', 'c3000000-0000-4000-8000-000000000203', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, false, 5, null),
+  ('c3000000-0000-4000-8000-000000000321', 'c3000000-0000-4000-8000-000000000203', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000322', 'c3000000-0000-4000-8000-000000000203', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000323', 'c3000000-0000-4000-8000-000000000203', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000324', 'c3000000-0000-4000-8000-000000000203', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000325', 'c3000000-0000-4000-8000-000000000203', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, false, 5, null, '{}', null),
+  -- TI-682 lot C: the same lines, ordinary (the estimate attested on a survey as in ...201).
+  ('c3000000-0000-4000-8000-000000000326', 'c3000000-0000-4000-8000-000000000203', 'P3 Support estimé', 8, 'u', 0.95, false, false, 6, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000327', 'c3000000-0000-4000-8000-000000000203', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 7, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000328', 'c3000000-0000-4000-8000-000000000203', 'P3 Gaine relevée', 5, 'u', 0.95, false, false, 8, null, '{"quantity_nature":"estimated"}', 'site_survey'),
+  ('c3000000-0000-4000-8000-000000000329', 'c3000000-0000-4000-8000-000000000203', 'P3 Gaine estimée', 4.4, 'ml', 0.95, false, false, 9, null, '{}', null),
+  ('c3000000-0000-4000-8000-00000000032a', 'c3000000-0000-4000-8000-000000000203', 'P3 Gaine estimée', 1.3, 'ml', 0.95, false, false, 10, null, '{}', null),
   -- ...204 (4 arguments, engine 2): forced F (no page).
-  ('c3000000-0000-4000-8000-000000000331', 'c3000000-0000-4000-8000-000000000204', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'page'),
-  ('c3000000-0000-4000-8000-000000000332', 'c3000000-0000-4000-8000-000000000204', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 2, null),
-  ('c3000000-0000-4000-8000-000000000333', 'c3000000-0000-4000-8000-000000000204', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 3, null),
+  ('c3000000-0000-4000-8000-000000000331', 'c3000000-0000-4000-8000-000000000204', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'page', '{}', null),
+  ('c3000000-0000-4000-8000-000000000332', 'c3000000-0000-4000-8000-000000000204', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000333', 'c3000000-0000-4000-8000-000000000204', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 3, null, '{}', null),
+  -- TI-682 lot C: an estimate and a quantity a plan cannot show, included without entry.
+  ('c3000000-0000-4000-8000-000000000334', 'c3000000-0000-4000-8000-000000000204', 'P3 Support estimé', 8, 'u', 0.95, false, false, 4, null, '{"quantity_nature":"estimated"}', null),
+  ('c3000000-0000-4000-8000-000000000335', 'c3000000-0000-4000-8000-000000000204', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 5, null, '{"rule_inputs":{"non_observable":"weld"}}', null),
+  -- ...209 (4 arguments, engine 2, TI-682 lot C): the same measures, F with its page and the hypotheses ordinary (twin of
+  -- ...204).
+  ('c3000000-0000-4000-8000-000000000371', 'c3000000-0000-4000-8000-000000000209', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000372', 'c3000000-0000-4000-8000-000000000209', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000373', 'c3000000-0000-4000-8000-000000000209', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 3, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000374', 'c3000000-0000-4000-8000-000000000209', 'P3 Support estimé', 8, 'u', 0.95, false, false, 4, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000375', 'c3000000-0000-4000-8000-000000000209', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 5, null, '{}', null),
   -- ...205 (5 arguments, v3): a forced (blocked material) and a verified run reconciled on the DPGF line, a verified
   -- line of its own, a hypothesis, a hypothesis folded into an ouvrage.
-  ('c3000000-0000-4000-8000-000000000341', 'c3000000-0000-4000-8000-000000000205', 'EF cuivre DN 22', 10, 'ml', 0.95, false, false, 1, 'material'),
-  ('c3000000-0000-4000-8000-000000000342', 'c3000000-0000-4000-8000-000000000205', 'EF cuivre DN 22', 20, 'ml', 0.95, false, false, 2, null),
-  ('c3000000-0000-4000-8000-000000000343', 'c3000000-0000-4000-8000-000000000205', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null),
-  ('c3000000-0000-4000-8000-000000000344', 'c3000000-0000-4000-8000-000000000205', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null),
-  ('c3000000-0000-4000-8000-000000000345', 'c3000000-0000-4000-8000-000000000205', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 5, null),
+  ('c3000000-0000-4000-8000-000000000341', 'c3000000-0000-4000-8000-000000000205', 'EF cuivre DN 22', 10, 'ml', 0.95, false, false, 1, 'material', '{}', null),
+  ('c3000000-0000-4000-8000-000000000342', 'c3000000-0000-4000-8000-000000000205', 'EF cuivre DN 22', 20, 'ml', 0.95, false, false, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000343', 'c3000000-0000-4000-8000-000000000205', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 3, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000344', 'c3000000-0000-4000-8000-000000000205', 'P3 Ensemble supposé', 1, 'ens', 0.95, false, true, 4, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000345', 'c3000000-0000-4000-8000-000000000205', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 5, null, '{}', null),
+  -- TI-682 lot C: an estimate folded into an ouvrage, a quantity a plan cannot show, both included without entry.
+  ('c3000000-0000-4000-8000-000000000346', 'c3000000-0000-4000-8000-000000000205', 'P3 Ensemble estimé', 1, 'ens', 0.95, false, false, 6, null, '{"quantity_nature":"estimated"}', null),
+  ('c3000000-0000-4000-8000-000000000347', 'c3000000-0000-4000-8000-000000000205', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 7, null, '{"rule_inputs":{"non_observable":"weld"}}', null),
   -- ...207 (5 arguments, engine 2): forced F (results to compute again) and a hypothesis run of the same line (merged
   -- with it once rounded).
-  ('c3000000-0000-4000-8000-000000000361', 'c3000000-0000-4000-8000-000000000207', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'stale'),
-  ('c3000000-0000-4000-8000-000000000362', 'c3000000-0000-4000-8000-000000000207', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 2, null),
-  ('c3000000-0000-4000-8000-000000000363', 'c3000000-0000-4000-8000-000000000207', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 3, null),
-  ('c3000000-0000-4000-8000-000000000364', 'c3000000-0000-4000-8000-000000000207', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, true, 4, null),
+  ('c3000000-0000-4000-8000-000000000361', 'c3000000-0000-4000-8000-000000000207', 'P3 Tube forcé', 12.5, 'ml', 0.95, false, false, 1, 'stale', '{}', null),
+  ('c3000000-0000-4000-8000-000000000362', 'c3000000-0000-4000-8000-000000000207', 'P3 Collier supposé', 6, 'u', 0.95, false, true, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000363', 'c3000000-0000-4000-8000-000000000207', 'P3 Vanne vérifiée', 4, 'u', 0.3, true, false, 3, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000364', 'c3000000-0000-4000-8000-000000000207', 'P3 Tube forcé', 2.2, 'ml', 0.95, false, true, 4, null, '{}', null),
+  -- TI-682 lot C: a quantity a plan cannot show, an estimated run and an ordinary run of one length line, included
+  -- without entry.
+  ('c3000000-0000-4000-8000-000000000365', 'c3000000-0000-4000-8000-000000000207', 'P3 Soudure non observable', 3, 'u', 0.95, false, false, 5, null, '{"rule_inputs":{"non_observable":"weld"}}', null),
+  ('c3000000-0000-4000-8000-000000000366', 'c3000000-0000-4000-8000-000000000207', 'P3 Gaine estimée', 4.4, 'ml', 0.95, false, false, 6, null, '{"quantity_nature":"estimated"}', null),
+  ('c3000000-0000-4000-8000-000000000367', 'c3000000-0000-4000-8000-000000000207', 'P3 Gaine estimée', 1.3, 'ml', 0.95, false, false, 7, null, '{}', null),
   -- The later jobs (written once the first application is done): ...202 merges onto the forced line of ...201 and adds a
-  -- line; ...206 reconciles the DPGF line again from a single verified run.
-  ('c3000000-0000-4000-8000-000000000311', 'c3000000-0000-4000-8000-000000000202', 'P3 Tube forcé', 13, 'ml', 0.95, false, false, 1, null),
-  ('c3000000-0000-4000-8000-000000000312', 'c3000000-0000-4000-8000-000000000202', 'P3 Nouvelle ligne', 2, 'u', 0.95, false, false, 2, null),
-  ('c3000000-0000-4000-8000-000000000351', 'c3000000-0000-4000-8000-000000000206', 'EF cuivre DN 22', 30, 'ml', 0.95, false, false, 1, null);
+  -- line; ...206 reconciles the DPGF line again from a single verified run; ...208 (TI-682 lot C) reconciles it again from
+  -- a single estimated run, included without entry.
+  ('c3000000-0000-4000-8000-000000000311', 'c3000000-0000-4000-8000-000000000202', 'P3 Tube forcé', 13, 'ml', 0.95, false, false, 1, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000312', 'c3000000-0000-4000-8000-000000000202', 'P3 Nouvelle ligne', 2, 'u', 0.95, false, false, 2, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000351', 'c3000000-0000-4000-8000-000000000206', 'EF cuivre DN 22', 30, 'ml', 0.95, false, false, 1, null, '{}', null),
+  ('c3000000-0000-4000-8000-000000000352', 'c3000000-0000-4000-8000-000000000208', 'EF cuivre DN 22', 30, 'ml', 0.95, false, false, 1, null, '{"quantity_nature":"estimated"}', null);
 
 create or replace function pg_temp.prov_seed_items(p_jobs uuid[])
 returns void
@@ -174,35 +228,67 @@ language sql
 as $$
   insert into public.takeoff_items (id, tenant_id, job_id, designation, quantity, unit, confidence, evidence, source_file_name,
     source_page, is_verified, verified_by, verified_at, quantity_entered_by, quantity_entered_at, quantity_entry_category,
-    quantity_entry_note, rule_results, rules_evaluated_at, rules_stale, rules_stale_at, created_at)
+    quantity_entry_note, rule_results, rules_evaluated_at, rules_stale, rules_stale_at, metadata, created_at)
   select item.id, current_setting('test.tenant_id')::uuid, item.job_id, item.designation, item.quantity, item.unit,
     item.confidence, case when item.protection is distinct from 'evidence' then 'Repère localisé' end, 'plan-fictif.pdf',
     case when item.protection is distinct from 'page' then 1 end, item.verified,
     case when item.verified then 'c3000000-0000-4000-8000-000000000001'::uuid end, case when item.verified then now() end,
-    case when item.hypothesis then 'c3000000-0000-4000-8000-000000000001'::uuid end, case when item.hypothesis then now() end,
-    case when item.hypothesis then 'hypothesis' end,
+    case when item.hypothesis or item.entry is not null then 'c3000000-0000-4000-8000-000000000001'::uuid end,
+    case when item.hypothesis or item.entry is not null then now() end,
+    case when item.hypothesis then 'hypothesis' else item.entry end,
     case when item.hypothesis then 'Quantité supposée, à confirmer au relevé.' end,
     case when item.protection = 'material' then '[{"rule":"dn_network","status":"fail","code":"DN_NETWORK_MATERIAL_BLOCKED",
       "version":1,"acceptable":false,"reason":"Matériau interdit sur ce réseau (fictif)."}]'::jsonb else '[]'::jsonb end,
     case when item.protection = 'material' then now() end,
     item.protection is not distinct from 'stale', case when item.protection = 'stale' then now() end,
-    now() + item.rank * interval '1 second'
+    item.metadata, now() + item.rank * interval '1 second'
   from prov_items item
   where item.job_id = any(p_jobs)
 $$;
 
 select pg_temp.prov_seed_items(array[
   'c3000000-0000-4000-8000-000000000201', 'c3000000-0000-4000-8000-000000000203', 'c3000000-0000-4000-8000-000000000204',
-  'c3000000-0000-4000-8000-000000000205', 'c3000000-0000-4000-8000-000000000207'
+  'c3000000-0000-4000-8000-000000000205', 'c3000000-0000-4000-8000-000000000207', 'c3000000-0000-4000-8000-000000000209'
 ]::uuid[]);
+
+-- TI-682 lot B: an hypothesis nobody attested arrives excluded with its reason (the insert trigger). Its reviewer includes
+-- it without entering its quantity (« I » in the targeted review, the include toggle of the complete review): the review
+-- writes is_excluded false and clears the reason. Returns the lines included.
+create or replace function pg_temp.prov_include_hypotheses(p_jobs uuid[])
+returns integer
+language sql
+as $$
+  with included as (
+    update public.takeoff_items item
+    set is_excluded = false, exclusion_reason = null
+    where item.job_id = any(p_jobs)
+      and item.is_excluded
+      and item.exclusion_reason like 'Hypothèse non présélectionnée : %'
+    returning item.id
+  )
+  select count(*)::integer from included
+$$;
+
+select is(pg_temp.prov_include_hypotheses(array[
+  'c3000000-0000-4000-8000-000000000201', 'c3000000-0000-4000-8000-000000000203', 'c3000000-0000-4000-8000-000000000204',
+  'c3000000-0000-4000-8000-000000000205', 'c3000000-0000-4000-8000-000000000207', 'c3000000-0000-4000-8000-000000000209'
+]::uuid[]), 9,
+  'fixture: the nine estimates and quantities a plan cannot show arrive excluded as hypotheses (lot B), then are included without entry');
+select is((select count(*)::integer from public.takeoff_items item where item.id in ('c3000000-0000-4000-8000-000000000308',
+    'c3000000-0000-4000-8000-000000000328') and not item.is_excluded and item.quantity_entry_category = 'site_survey'), 2,
+  'fixture: an estimate attested on a site survey is no hypothesis and arrives included');
 
 insert into public.estimate_assemblies (id, tenant_id, created_by, name) values
   ('c3000000-0000-4000-8000-000000000401', current_setting('test.tenant_id')::uuid,
-   'c3000000-0000-4000-8000-000000000001', 'P3 ouvrage distribution');
+   'c3000000-0000-4000-8000-000000000001', 'P3 ouvrage distribution'),
+  ('c3000000-0000-4000-8000-000000000402', current_setting('test.tenant_id')::uuid,
+   'c3000000-0000-4000-8000-000000000001', 'P3 ouvrage support');
 insert into public.estimate_assembly_items (id, tenant_id, assembly_id, title, unit, default_quantity, h_mo, position,
   cost_type, unit_cost_ht_cents)
 values ('c3000000-0000-4000-8000-000000000411', current_setting('test.tenant_id')::uuid,
-  'c3000000-0000-4000-8000-000000000401', 'P3 Tube distribution', 'ml', 10, 0, 1, 'material', 500);
+  'c3000000-0000-4000-8000-000000000401', 'P3 Tube distribution', 'ml', 10, 0, 1, 'material', 500),
+  ('c3000000-0000-4000-8000-000000000412', current_setting('test.tenant_id')::uuid,
+  'c3000000-0000-4000-8000-000000000402', 'P3 Support distribution', 'u', 4, 0, 1, 'material', 300);
 
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
 select version.id, 'c3000000-0000-4000-8000-000000000001', version.tenant_id,
@@ -357,13 +443,23 @@ as $$
   select jsonb_build_object('version', 1, 'job_id', p_job_id, 'sources', to_jsonb(p_sources))
 $$;
 
+-- TI-682 lot C: every source says why it is an hypothesis (hypothesis_cause); a quantity entered as one is
+-- « entered_hypothesis », a source no hypothesis rests on null.
 create or replace function pg_temp.prov_source(p_item_id uuid, p_forced boolean, p_entry_category text,
-  p_forced_reason text default null)
+  p_forced_reason text default null, p_hypothesis_cause text default null)
 returns jsonb
 language sql
 as $$
   select jsonb_build_object('takeoff_item_id', p_item_id, 'forced', p_forced, 'forced_reason', p_forced_reason,
-    'entry_category', p_entry_category)
+    'entry_category', p_entry_category, 'hypothesis_cause',
+    coalesce(p_hypothesis_cause, case when p_entry_category = 'hypothesis' then 'entered_hypothesis' end))
+$$;
+
+create or replace function pg_temp.prov_unmarked(p_version_id uuid, p_title text)
+returns boolean
+language sql
+as $$
+  select coalesce(not (pg_temp.prov_line(p_version_id, p_title) -> 'source_metadata' ? 'takeoff_provision'), false)
 $$;
 
 -- Stored amounts of a version and its lines, by title: a length merge (TI-681) keeps the line with the smallest id,
@@ -395,7 +491,12 @@ select is(pg_temp.prov_apply('v3-4', 'c3000000-0000-4000-8000-000000000201', 'ap
     "c3000000-0000-4000-8000-000000000301": {"action": "set_price", "unit_price_cents": 1234},
     "c3000000-0000-4000-8000-000000000302": {"action": "set_price", "unit_price_cents": 500},
     "c3000000-0000-4000-8000-000000000304": {"action": "apply_assembly", "assembly_id": "c3000000-0000-4000-8000-000000000401"},
-    "c3000000-0000-4000-8000-000000000305": {"action": "set_price", "unit_price_cents": 1234}
+    "c3000000-0000-4000-8000-000000000305": {"action": "set_price", "unit_price_cents": 1234},
+    "c3000000-0000-4000-8000-000000000306": {"action": "set_price", "unit_price_cents": 700},
+    "c3000000-0000-4000-8000-000000000307": {"action": "set_price", "unit_price_cents": 900},
+    "c3000000-0000-4000-8000-000000000308": {"action": "set_price", "unit_price_cents": 300},
+    "c3000000-0000-4000-8000-000000000309": {"action": "set_price", "unit_price_cents": 1500},
+    "c3000000-0000-4000-8000-00000000030a": {"action": "set_price", "unit_price_cents": 1500}
   }', null), 'ok', '4 arguments, v3: the admin applies the job with its override');
 select is(coalesce(current_setting('miaouffrage.estimate_v3_writer', true), ''), '',
   '4 arguments, v3: the writer contract is restored once the application returns');
@@ -430,6 +531,25 @@ select is((select count(*)::integer from public.estimate_items item
     where item.version_id = 'c3000000-0000-4000-8000-000000000101' and item.item_type = 'section'
       and item.source_metadata ? 'takeoff_provision'), 0,
   '4 arguments, v3: only lines carry the marker, never the ouvrage''s section');
+-- TI-682 lot C: an hypothesis included without entry.
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Support estimé') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000201',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000306', false, null, null, 'estimated')),
+  '4 arguments, v3: an estimate included without entry enters as a provision, an hypothesis because it is estimated');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Soudure non observable') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000201',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000307', false, null, null, 'non_observable')),
+  '4 arguments, v3: a quantity a plan cannot show, included without entry, enters as a provision, an hypothesis because it is not observable');
+select ok(pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000101', 'P3 Gaine relevée'),
+  '4 arguments, v3: an estimate attested on a site survey is no hypothesis and carries no marker');
+select is(pg_temp.prov_line_count('c3000000-0000-4000-8000-000000000101', 'P3 Gaine estimée'), 1,
+  '4 arguments, v3: an estimated run and an ordinary run of one length line are merged into one estimate line (TI-681)');
+select is((pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Gaine estimée') ->> 'quantity')::numeric, 6::numeric,
+  '4 arguments, v3: the merged line is rounded once (4,4 + 1,3 = 5,7 -> 6)');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Gaine estimée') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000201',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000309', false, null, null, 'estimated')),
+  '4 arguments, v3: the merged length line names its estimated run, never its ordinary run');
 
 -- The twin: the line with its localized proof instead of the override. The marker changes no stored amount.
 set local role authenticated;
@@ -438,7 +558,12 @@ select is(pg_temp.prov_apply('v3-4-twin', 'c3000000-0000-4000-8000-000000000203'
     "c3000000-0000-4000-8000-000000000321": {"action": "set_price", "unit_price_cents": 1234},
     "c3000000-0000-4000-8000-000000000322": {"action": "set_price", "unit_price_cents": 500},
     "c3000000-0000-4000-8000-000000000324": {"action": "apply_assembly", "assembly_id": "c3000000-0000-4000-8000-000000000401"},
-    "c3000000-0000-4000-8000-000000000325": {"action": "set_price", "unit_price_cents": 1234}
+    "c3000000-0000-4000-8000-000000000325": {"action": "set_price", "unit_price_cents": 1234},
+    "c3000000-0000-4000-8000-000000000326": {"action": "set_price", "unit_price_cents": 700},
+    "c3000000-0000-4000-8000-000000000327": {"action": "set_price", "unit_price_cents": 900},
+    "c3000000-0000-4000-8000-000000000328": {"action": "set_price", "unit_price_cents": 300},
+    "c3000000-0000-4000-8000-000000000329": {"action": "set_price", "unit_price_cents": 1500},
+    "c3000000-0000-4000-8000-00000000032a": {"action": "set_price", "unit_price_cents": 1500}
   }', null), 'ok', 'twin: the same job with the line''s localized proof instead of the override applies');
 reset role;
 select is(pg_temp.prov_consumed('c3000000-0000-4000-8000-000000000203'), 0,
@@ -446,6 +571,10 @@ select is(pg_temp.prov_consumed('c3000000-0000-4000-8000-000000000203'), 0,
 select ok(coalesce(not (pg_temp.prov_line('c3000000-0000-4000-8000-000000000102', 'P3 Tube forcé') -> 'source_metadata'
     ? 'takeoff_provision'), false),
   'twin: the line admitted with its proof carries no marker');
+select ok(pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000102', 'P3 Support estimé')
+    and pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000102', 'P3 Soudure non observable')
+    and pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000102', 'P3 Gaine estimée'),
+  'twin: the same lines, ordinary, carry no marker');
 select ok((select (amounts #>> '{version,3}')::integer > 0 from prov_amounts where case_name = 'forced'),
   'twin: the forced application has an amount to compare');
 select is(pg_temp.prov_amounts_of('c3000000-0000-4000-8000-000000000102'),
@@ -493,9 +622,16 @@ select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000101', 'P3 Collier 
 
 set local role authenticated;
 select is(pg_temp.prov_apply('v2-4', 'c3000000-0000-4000-8000-000000000204', 'append',
-  'c3000000-0000-4000-8000-000000000113', '{}', null), 'ok', '4 arguments, engine 2: the admin applies the job with its override');
+  'c3000000-0000-4000-8000-000000000113', '{
+    "c3000000-0000-4000-8000-000000000331": {"action": "set_price", "unit_price_cents": 1234},
+    "c3000000-0000-4000-8000-000000000333": {"action": "set_price", "unit_price_cents": 500},
+    "c3000000-0000-4000-8000-000000000334": {"action": "set_price", "unit_price_cents": 700},
+    "c3000000-0000-4000-8000-000000000335": {"action": "set_price", "unit_price_cents": 900}
+  }', null), 'ok',
+  '4 arguments, engine 2: the admin applies the job with its override');
 reset role;
 select pg_temp.prov_clear();
+insert into prov_amounts values ('forced-v2', pg_temp.prov_amounts_of('c3000000-0000-4000-8000-000000000103'));
 select is(pg_temp.prov_consumed('c3000000-0000-4000-8000-000000000204'), 1,
   '4 arguments, engine 2: a line without its page (level C) is still blocked, and the override lifts it');
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Tube forcé') #> '{source_metadata,takeoff_provision}',
@@ -509,13 +645,46 @@ select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Collier 
 select ok(coalesce(not (pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Vanne vérifiée') -> 'source_metadata'
     ? 'takeoff_provision'), false),
   '4 arguments, engine 2: a verified line carries no marker');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Support estimé') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000204',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000334', false, null, null, 'estimated')),
+  '4 arguments, engine 2: an estimate included without entry enters as a provision, an hypothesis because it is estimated');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000103', 'P3 Soudure non observable') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000204',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000335', false, null, null, 'non_observable')),
+  '4 arguments, engine 2: a quantity a plan cannot show, included without entry, enters as a provision');
+
+-- The engine 2 twin (TI-682 lot C): the forced line with its page, the hypotheses ordinary. The markers change no amount.
+set local role authenticated;
+select is(pg_temp.prov_apply('v2-4-twin', 'c3000000-0000-4000-8000-000000000209', 'append',
+  'c3000000-0000-4000-8000-000000000116', '{
+    "c3000000-0000-4000-8000-000000000371": {"action": "set_price", "unit_price_cents": 1234},
+    "c3000000-0000-4000-8000-000000000373": {"action": "set_price", "unit_price_cents": 500},
+    "c3000000-0000-4000-8000-000000000374": {"action": "set_price", "unit_price_cents": 700},
+    "c3000000-0000-4000-8000-000000000375": {"action": "set_price", "unit_price_cents": 900}
+  }', null), 'ok',
+  'engine 2 twin: the same job with the line''s page instead of the override and ordinary lines applies');
+reset role;
+select pg_temp.prov_clear();
+select is(pg_temp.prov_consumed('c3000000-0000-4000-8000-000000000209'), 0,
+  'engine 2 twin: nothing blocked, no override consumed');
+select ok(pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000106', 'P3 Tube forcé')
+    and pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000106', 'P3 Support estimé')
+    and pg_temp.prov_unmarked('c3000000-0000-4000-8000-000000000106', 'P3 Soudure non observable'),
+  'engine 2 twin: the admitted and ordinary lines carry no marker');
+select ok((select (amounts #>> '{version,3}')::integer > 0 from prov_amounts where case_name = 'forced-v2'),
+  'engine 2 twin: the forced application has an amount to compare');
+select is(pg_temp.prov_amounts_of('c3000000-0000-4000-8000-000000000106'),
+  (select amounts from prov_amounts where case_name = 'forced-v2'),
+  '(guard) engine 2: stored line amounts and version totals equal the same application without override nor hypothesis');
 
 -- 5 arguments (DPGF authorization), engine 3 ---------------------------------------------------------------
 
 set local role authenticated;
 select is(pg_temp.prov_apply('v3-5', 'c3000000-0000-4000-8000-000000000205', 'merge',
   'c3000000-0000-4000-8000-000000000114', '{
-    "c3000000-0000-4000-8000-000000000344": {"action": "apply_assembly", "assembly_id": "c3000000-0000-4000-8000-000000000401"}
+    "c3000000-0000-4000-8000-000000000344": {"action": "apply_assembly", "assembly_id": "c3000000-0000-4000-8000-000000000401"},
+    "c3000000-0000-4000-8000-000000000346": {"action": "apply_assembly", "assembly_id": "c3000000-0000-4000-8000-000000000402"}
   }', 'provisions-205'), 'ok', '5 arguments, v3: the admin reconciles the DPGF line with its override');
 select is(coalesce(current_setting('miaouffrage.estimate_v3_writer', true), ''), '',
   '5 arguments, v3: the writer contract is restored once the application returns');
@@ -547,6 +716,14 @@ select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'P3 Tube dis
 select ok(coalesce(not (pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'P3 Vanne vérifiée') -> 'source_metadata'
     ? 'takeoff_provision'), false),
   '5 arguments, v3: a verified line carries no marker');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'P3 Support distribution') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000205',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000346', false, null, null, 'estimated')),
+  '5 arguments, v3: the line an estimate included without entry materializes in an ouvrage keeps the hypothesis');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'P3 Soudure non observable') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000205',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000347', false, null, null, 'non_observable')),
+  '5 arguments, v3: a quantity a plan cannot show, included without entry, enters as a provision');
 
 -- The DPGF line reconciled again from a single verified run: the marker of the previous application goes.
 select pg_temp.prov_seed_items(array['c3000000-0000-4000-8000-000000000206']::uuid[]);
@@ -574,6 +751,35 @@ select ok(coalesce(not (pg_temp.prov_line('c3000000-0000-4000-8000-000000000104'
     ? 'takeoff_provision'), false),
   '5 arguments, v3: a reconciliation without provision source removes the marker of the previous application');
 
+-- TI-682 lot C: the DPGF line reconciled again from a single estimated run, included without entry.
+select pg_temp.prov_seed_items(array['c3000000-0000-4000-8000-000000000208']::uuid[]);
+select is(pg_temp.prov_include_hypotheses(array['c3000000-0000-4000-8000-000000000208']::uuid[]), 1,
+  'fixture: the estimated run arrives excluded as an hypothesis, then is included without entry');
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+values (current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000000208', 'c3000000-0000-4000-8000-000000000104',
+  'c3000000-0000-4000-8000-000000000001', encode(sha256(convert_to('provisions-208', 'UTF8')), 'hex'),
+  jsonb_build_object('quantity_policy', jsonb_build_array(jsonb_build_object(
+    'target_id', 'c3000000-0000-4000-8000-000000000124',
+    'expected_updated_at', (select updated_at from public.estimate_items where id = 'c3000000-0000-4000-8000-000000000124'),
+    'reference_quantity', 30, 'measured_quantity', 30, 'priced_quantity', 30, 'absolute_gap', 0, 'reviewed', false,
+    'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
+    'source_metadata', jsonb_build_object('dpgf_source_quantity', 30, 'dpgf_source_unit', 'ml', 'fixture', 'preserve'),
+    'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
+      from public.takeoff_items ti where ti.id = 'c3000000-0000-4000-8000-000000000352')))),
+  now() + interval '5 minutes');
+set local role authenticated;
+select is(pg_temp.prov_apply('v3-5-estimated', 'c3000000-0000-4000-8000-000000000208', 'merge',
+  'c3000000-0000-4000-8000-000000000114', '{}', 'provisions-208'), 'ok',
+  '5 arguments, v3: a later job reconciles the DPGF line from an estimated run');
+reset role;
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'EF cuivre DN 22') #>> '{source_metadata,takeoff_quantity_policy,job_id}',
+  'c3000000-0000-4000-8000-000000000208', '5 arguments, v3: the estimated reconciliation took the DPGF line');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000104', 'EF cuivre DN 22') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000208',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000352', false, null, null, 'estimated')),
+  '5 arguments, v3: a DPGF line reconciled from an estimated run included without entry carries the hypothesis');
+
 -- 5 arguments (DPGF authorization), engine 2 ---------------------------------------------------------------
 
 set local role authenticated;
@@ -600,8 +806,43 @@ select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Collier 
 select ok(coalesce(not (pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Vanne vérifiée') -> 'source_metadata'
     ? 'takeoff_provision'), false),
   '5 arguments, engine 2: a verified line carries no marker');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Soudure non observable') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000207',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000365', false, null, null, 'non_observable')),
+  '5 arguments, engine 2: a quantity a plan cannot show, included without entry, enters as a provision');
+select is((pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Gaine estimée') ->> 'quantity')::numeric, 6::numeric,
+  '5 arguments, engine 2: an estimated run and an ordinary run of one length line are merged once rounded (5,7 -> 6)');
+select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'P3 Gaine estimée') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000207',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000366', false, null, null, 'estimated')),
+  '5 arguments, engine 2: the merged length line names its estimated run, never its ordinary run');
+
 select is(pg_temp.prov_line('c3000000-0000-4000-8000-000000000105', 'Réseau DPGF fictif') -> 'source_metadata',
   '{"dpgf_source_quantity": 2}'::jsonb, '5 arguments, engine 2: a DPGF line the job does not touch is left as it was');
+
+-- Duplication (TI-682 lot C): a copy keeps the marker as written, its hypothesis causes included.
+set local role authenticated;
+select set_config('test.duplicate_v3', public.duplicate_estimate_version('c3000000-0000-4000-8000-000000000101')::text, true);
+select set_config('test.duplicate_v2', public.duplicate_estimate_version('c3000000-0000-4000-8000-000000000103')::text, true);
+reset role;
+select is((select array_agg(version.calc_engine_version order by version.calc_engine_version desc) from public.estimate_versions version
+    where version.id in (current_setting('test.duplicate_v3')::uuid, current_setting('test.duplicate_v2')::uuid)),
+  array[3, 2]::smallint[], 'duplication: the v3 and the engine 2 versions are duplicated with their engine');
+select is(
+  (select jsonb_object_agg(item.title, item.source_metadata -> 'takeoff_provision') from public.estimate_items item
+    where item.version_id = current_setting('test.duplicate_v3')::uuid and item.item_type = 'line'
+      and item.title in ('P3 Support estimé', 'P3 Soudure non observable', 'P3 Gaine estimée', 'P3 Collier supposé')),
+  (select jsonb_object_agg(item.title, item.source_metadata -> 'takeoff_provision') from public.estimate_items item
+    where item.version_id = 'c3000000-0000-4000-8000-000000000101' and item.item_type = 'line'
+      and item.title in ('P3 Support estimé', 'P3 Soudure non observable', 'P3 Gaine estimée', 'P3 Collier supposé')),
+  'duplication, v3: the copy keeps each marker as written');
+select is(pg_temp.prov_line(current_setting('test.duplicate_v3')::uuid, 'P3 Support estimé')
+    #>> '{source_metadata,takeoff_provision,sources,0,hypothesis_cause}', 'estimated',
+  'duplication, v3: the copied estimate still says it is an hypothesis because it is estimated');
+select is(pg_temp.prov_line(current_setting('test.duplicate_v2')::uuid, 'P3 Soudure non observable') #> '{source_metadata,takeoff_provision}',
+  pg_temp.prov_marker('c3000000-0000-4000-8000-000000000204',
+    pg_temp.prov_source('c3000000-0000-4000-8000-000000000335', false, null, null, 'non_observable')),
+  'duplication, engine 2: the copy keeps the marker of a quantity a plan cannot show');
 
 -- The writer -----------------------------------------------------------------------------------------------
 
