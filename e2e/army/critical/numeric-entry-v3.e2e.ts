@@ -1,8 +1,10 @@
 import { expect } from "e2e";
 
 import {
-  armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, waitForAutoSave,
+  armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, waitForAutoSave, saveLineEditsWithShortcut,
 } from "./fixtures";
+
+import { prepareV3Draft, seedLines, showStandardColumns, waitForDraftLease } from "../local/engine-v3-editor-support";
 
 // Sub-lot 2.3 (A8, D11, P-11, C-11): failure modes are in docs/testing/estimate-input-import-2.3.md.
 // numeric-entry.e2e.ts keeps the d484c5a1 recipe; steps 1 to 5 were written red before 2.3, step 6
@@ -238,3 +240,72 @@ armyTest(
     });
   },
 );
+
+// Browser constraint-validation can steal focus; a DOM-only test cannot expose it.
+armyTest("NUMNAV01 invalid estimate numbers release focus without saving and recover after correction or Escape",
+  { session: "army", tags: ["critical", "local", "numeric-entry"], timeout: 240_000 }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const draft = await prepareV3Draft(ui, army, "NUMNAV01");
+    const title = `${army.runPrefix} numeric navigation`;
+    const [line] = await seedLines(ui, army, draft, "numeric-navigation", [{ title, quantity: 2, unit_code: "u",
+      pricing_status: "priced", unit_price_ht_cents: 10000, h_mo_per_unit: 1, labor_role_id: draft.tuyauteurId,
+      k_fo: 1, k_mo: 1, tax_rate_bp: 2000 }]);
+    await app.open(`/dashboard/estimates/${draft.versionId}/edit`);
+    await waitForDraftLease(ui);
+    await showStandardColumns(ui);
+    const priceLabel = `Prix d’achat unitaire HT pour ${title}`;
+    const coefficientLabel = `Coefficient fourniture K FO pour ${title}`;
+    const price = screen.getByLabel(priceLabel, { exact: true });
+    const coefficient = screen.getByLabel(coefficientLabel, { exact: true });
+    const activeLabel = () => browser.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null);
+    const savedLine = async () => (await readEstimate(browser, draft.versionId)).items.find(item => item.id === line.id)!;
+    const unchanged = async () => {
+      const saved = await savedLine();
+      expect([saved.unit_price_ht_cents, saved.k_fo, saved.line_total_ht_cents])
+        .toEqual([line.unit_price_ht_cents, line.k_fo, line.line_total_ht_cents]);
+    };
+    for (const token of ["", "1.250", "12x"]) {
+      await price.fill(token);
+      await price.press("Tab");
+      await expect(price).toHaveAttribute("aria-invalid", "true");
+      await expect.poll(activeLabel).not.toBe(priceLabel);
+      if (token === "") await recordEvidence(army, "numeric-empty-draft-navigation", { screenshot: await app.screenshot("numeric-empty-draft-navigation") });
+      await screen.getByRole("tab", "Insérer", { exact: true }).click();
+      await expect(screen.getByRole("tab", "Insérer", { exact: true })).toHaveAttribute("aria-selected", "true");
+      await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
+      await unchanged();
+      await price.fill("100,00");
+      await price.press("Tab");
+      await expect(price).not.toHaveAttribute("aria-invalid", "true");
+    }
+    await coefficient.fill("1,2,3");
+    await coefficient.press("Tab");
+    await expect(coefficient).toHaveAttribute("aria-invalid", "true");
+    await expect.poll(activeLabel).not.toBe(coefficientLabel);
+    await screen.getByRole("tab", "Insérer", { exact: true }).click();
+    await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
+    await unchanged();
+    await coefficient.fill("1,5");
+    await coefficient.press("Tab");
+    await price.fill("80,25");
+    await price.press("Tab");
+    await saveLineEditsWithShortcut(ui, draft.versionId, title, army);
+    await expect.poll(async () => { const saved = await savedLine(); return [saved.unit_price_ht_cents, saved.k_fo]; })
+      .toEqual([8025, 1.5]);
+    await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
+    for (const [field, label] of [[price, priceLabel], [coefficient, coefficientLabel]] as const) {
+      await field.fill("invalid");
+      await field.press("Escape");
+      await expect(field).not.toHaveAttribute("aria-invalid", "true");
+      const validity = await browser.evaluate((name) => {
+        const input = Array.from(document.querySelectorAll("input")).find(node => node.getAttribute("aria-label") === name);
+        return input ? { customError: input.validity.customError, value: input.value } : null;
+      }, label);
+      expect(validity?.customError).toBe(false);
+    }
+    await recordEvidence(army, "numeric-navigation-restored", { versionId: draft.versionId, saved: await savedLine() });
+    await browser.reload();
+    await waitForDraftLease(ui);
+    expect((await savedLine()).unit_price_ht_cents).toBe(8025);
+    expect((await savedLine()).k_fo).toBe(1.5);
+  });
