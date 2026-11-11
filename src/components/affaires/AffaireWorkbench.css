@@ -26,6 +26,7 @@
 .affaire-file-list-head { min-height: 42px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-foreground); }
 .affaire-file-list-row { min-height: 68px; }
 .affaire-file-list-row > span { overflow-wrap: anywhere; color: var(--muted-foreground); }
+.affaire-file-confidence { display: inline-block; margin-left: 8px; border-radius: 4px; padding: 3px 6px; background: #eef3fb; color: #36557d; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .affaire-file-list-row button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0; text-align: left; cursor: pointer; font-weight: 550; }
 .affaire-file-list-row button span { overflow-wrap: anywhere; }
 .affaire-file-list-row button svg { flex-shrink: 0; }

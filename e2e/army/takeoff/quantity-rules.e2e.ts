@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { expect, type JsonValue } from "e2e";
 import type { Browser } from "@e2e-dev/web";
+import * as XLSX from "xlsx";
 
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 
-import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
+import {
+  apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, resolveDownload,
+} from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
 import { ownedTakeoffJobs } from "../critical/plans-support";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
-import { localTakeoffWorkerClient } from "./fixtures";
+import { localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
 import { signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
 import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 
@@ -675,4 +679,114 @@ armyTest("TKR07 the complete review sends a weld count to the targeted review, w
       rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
     await recordEvidence(ui.army, "TKR07-hypothesis", { ids, jobs, line: weld.id, quantity: stored.quantity,
       category: stored.quantity_entry_category ?? null, note: stored.quantity_entry_note ?? null });
+  });
+
+// TI-682 lot C: an estimate (metadata.quantity_nature « estimated ») arrives excluded as an hypothesis (lot B). Its
+// reviewer includes it with « I » in the targeted review, without entering its quantity, and applies the job: the line
+// reaches the estimate as an hypothesis provision. The internal line truth and the internal CSV say « Hypothèse » and why;
+// the line measured beside it stays measured; the printed estimate shows an ordinary priced line (H9). No worker: the
+// job is seeded as the worker writes it, and the insert trigger excludes the estimate.
+armyTest("TKR08 an estimate included with I, without entry, reaches the estimate as an hypothesis in its line truth and the CSV", options,
+  async (ui) => {
+    const { app, screen, browser, army } = ui;
+    await browser.emulateMedia({ reducedMotion: "reduce" });
+    const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-TKR08`, title: "Inclusion sans saisie" }, army);
+    const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} lot supports`);
+    expect(target.parent_id).toMatch(/^[0-9a-f-]{36}$/i);
+    const estimated = `${army.runPrefix} Supports estimés`;
+    const measured = `${army.runPrefix} Vannes relevées`;
+    const seed = await (await localTakeoffFixture(army, ids)).seed("B", [
+      { designation: estimated, quantity: 14, unit: "u", confidence: 0.9, metadata: { quantity_nature: "estimated" } },
+      { designation: measured, quantity: 3, unit: "u", confidence: 0.9 },
+    ]);
+    const arrived = await readItems(ui, seed.jobId);
+    const line = (designation: string) => arrived.find((item) => item.designation === designation)!;
+    expect([estimated, measured].map((designation) => ({ designation, is_excluded: line(designation).is_excluded,
+      exclusion_reason: line(designation).exclusion_reason, quantity_entry_category: line(designation).quantity_entry_category })))
+      .toEqual([
+        { designation: estimated, is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated,
+          quantity_entry_category: null },
+        { designation: measured, is_excluded: false, exclusion_reason: null, quantity_entry_category: null },
+      ]);
+
+    // The targeted review: the estimate is listed as an hypothesis; « I » includes it, unentered.
+    expect((await apiRequest<{ data: { released: boolean } }>(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
+    await app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review/targeted?versionId=${ids.versionId}`);
+    await expect(screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
+    const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
+    const option = list.getByRole("option", new RegExp(`^${estimated}`));
+    await expect(option).toContainText("Hypothèse");
+    await option.click();
+    await expect(screen.getByRole("region", "Décision sur la ligne", { exact: true }))
+      .toContainText(TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated);
+    const included = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/items`);
+    await browser.keyboard.press("i");
+    expect((await included).status).toBe(200);
+    await expect(list.getByRole("option", new RegExp(`^${estimated}`))).toHaveCount(0);
+    const decided = (await readItems(ui, seed.jobId)).find((item) => item.designation === estimated)!;
+    expect(decided).toMatchObject({ quantity: 14, is_excluded: false, exclusion_reason: null, quantity_entry_category: null,
+      quantity_entry_note: null });
+    await recordEvidence(army, "TKR08-included", { ids, jobId: seed.jobId, line: decided.id, quantity: decided.quantity,
+      category: decided.quantity_entry_category ?? null });
+
+    // Applied through the wizard of the targeted review.
+    await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+    const wizard = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+    await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    await wizard.getByRole("radio", /^Ajouter sans effacer/).check();
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    await expect(wizard).toContainText(estimated);
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    const applied = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
+    await wizard.getByRole("button", "Confirmer l'application", { exact: true }).click();
+    const response = await applied;
+    const body = await response.json<Envelope<{ job: { status: string } }>>();
+    await recordEvidence(army, "TKR08-applied", { ids, jobId: seed.jobId, status: response.status, job: body.data?.job ?? null,
+      errorCode: body.error?.code ?? null });
+    expect([response.status, body.data?.job?.status]).toEqual([200, "applied"]);
+    await expect(wizard).toBeHidden();
+
+    // The line truth of the internal estimate: « Hypothèse », because the quantity is estimated and was not entered.
+    const estimate = await readEstimate(browser, ids.versionId);
+    const truth = (title: string) => (estimate.items.find((item) => item.title === title)?.line_truth as
+      { qtyStatus?: { code?: string; label?: string; detail?: string } } | null | undefined)?.qtyStatus;
+    expect(estimate.items.filter((item) => item.title === estimated).map((item) => Number(item.quantity))).toEqual([14]);
+    expect(truth(estimated)).toEqual({ code: "hypothesis", label: "Hypothèse",
+      detail: "Quantité estimée au métré, sans mesure sur un plan, comptée sans saisie : provision à confirmer ; le client voit une "
+        + "ligne ordinaire." });
+    expect(truth(measured)?.code).toBe("measured");
+    await recordEvidence(army, "TKR08-line-truth", { ids, lines: [estimated, measured].map((title) => ({ title, qtyStatus: truth(title) ?? null })) });
+
+    // The internal CSV the editor downloads names the estimate « Hypothèse »; the measured line and the line created by
+    // hand stay empty.
+    await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const exportMenu = screen.getByRole("button", "Exporter", { exact: true });
+    await expect(exportMenu).toBeEnabled({ timeout: 30_000 });
+    await exportMenu.tap();
+    const csvItem = screen.getByRole("button", "Fichier CSV (.csv)", { exact: true });
+    await expect(csvItem).toBeEnabled({ timeout: 30_000 });
+    const csvFile = await browser.waitForDownload(() => csvItem.tap(), { timeout: 60_000 });
+    const csvPath = await resolveDownload(csvFile);
+    const csvBytes = await readFile(csvPath);
+    const book = XLSX.read(csvBytes, { type: "buffer", raw: true, FS: ";" });
+    const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets[book.SheetNames[0]], { header: 1, raw: true, defval: "" });
+    const header = (rows[0] ?? []).map((cell) => String(cell));
+    const provisionOf = (title: string) =>
+      rows.find((row) => row[header.indexOf("Désignation")] === title)?.[header.indexOf("Provision métré")] ?? null;
+    const titles = [estimated, measured, `${army.runPrefix} lot supports`];
+    const csv = { column: header.at(-1) ?? null, lines: titles.map((title) => [title, provisionOf(title)]) };
+    await recordEvidence(army, "TKR08-csv", { ids, engine: estimate.version.calc_engine_version, path: csvPath,
+      bytes: csvBytes.length, csv });
+    expect(csv).toEqual({ column: "Provision métré", lines: [[titles[0], "Hypothèse"], [titles[1], ""], [titles[2], ""]] });
+
+    // The printed estimate: an ordinary priced line, never the hypothesis (H9).
+    await browser.goto(`/dashboard/estimates/${ids.versionId}/print?price_mode=unit_and_total&detail_level=lines`, { waitUntil: "domcontentloaded" });
+    await expect(screen.getByRole("heading", "Devis", { exact: true })).toBeVisible();
+    const printed = await browser.evaluate(() => Array.from(document.querySelectorAll(".estimate-document"))
+      .filter((element) => element.getClientRects().length > 0).map((element) => element.textContent ?? "").join(" "));
+    await recordEvidence(army, "TKR08-print", { versionId: ids.versionId, printed });
+    expect(printed).toContain(estimated);
+    expect(printed).not.toMatch(/Provision interne|Hypothèse|provision à confirmer|forç|dérogation/);
   });
