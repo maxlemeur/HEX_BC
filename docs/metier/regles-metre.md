@@ -108,7 +108,7 @@ Deux garanties, décidées le 6 novembre 2026 (D11, D12).
 - La protection vaut par métré : deux métrés de la même page appliqués au même
   devis ne sont pas comparés par ce refus. Elle lit la page que chaque ligne porte,
   que le relecteur peut corriger. Depuis le lot D, un second métré de la page est
-  signalé (section suivante), sans encore être refusé.
+  signalé, et n'est appliqué que par une décision (section suivante).
 
 ## Une page n'entre qu'une fois au devis — TI-682 (lot D)
 
@@ -117,8 +117,9 @@ remplace l'ancienne. Une révision du plan (même « Référence du plan ») est
 page. Avant ce lot, rien ne comparait deux métrés d'une même page : relancer un plan
 et l'appliquer avec « Ajouter » doublait ses quantités sans un mot.
 
-**Première étape : prévenir (PR 1).** Rien n'est encore refusé ni remplacé ; rien de
-ce qu'une application écrit ne change.
+**Prévenir (PR 1), puis remplacer (PR 2).** La définition de « même page » et la
+lecture du devis ci-dessous servent aux deux : l'avertissement des revues, et la
+décision et le refus à l'application.
 
 - **Même page.** Deux lignes de métré lisent la même page quand elles lisent le même
   document et la même page, ou que la page manque sur l'une des deux (faute de
@@ -163,20 +164,18 @@ ce qu'une application écrit ne change.
     suffit pas (il a pu lire aussi une autre zone) ; faute de pouvoir placer la ligne
     partenaire sur la page (ligne de devis sans ligne source, moteurs 1 et 2), il ne
     dit rien ;
-  - dans l'assistant d'application, à la confirmation : la notice « Pages déjà au
-    devis » (pages, métré antérieur, nombre de lignes). Les lignes que le plan
-    d'application ignore ou range dans un ouvrage n'y comptent pas, et le texte dit ce
-    que la stratégie choisie fait de la mesure précédente (« Fusionner » ne remplace
-    que les lignes de même désignation et unité, « Remplacer » ne vide que la section
-    cible) ;
+  - dans l'assistant d'application, à la confirmation : la décision « Pages déjà au
+    devis » (section suivante) ;
   - une fois le métré appliqué, seules restent signalées les pages où ses propres
-    lignes sont encore au devis : là, la page y est deux fois. Ses lignes sans page
+    lignes sont encore au devis : là, la page y est deux fois, sauf si le chiffreur a
+    gardé les deux mesures (le bandeau dit alors ce choix et son motif). Ses lignes sans page
     sont sur la page signalée, par la même règle. Appliqué depuis la revue, le
     bandeau relit le devis ; il le relit aussi quand la revue complète enregistre la
     page source corrigée d'une ligne. L'exclusion d'une ligne ne demande pas de
     relecture : le bandeau filtre les pages sur les lignes affichées.
-- **Provenance périmée.** Une clé d'arrondi ou de ligne DPGF écrite par un autre métré
-  que le dernier de la ligne (une fusion ultérieure l'a gardée) ne compte pas.
+- **Provenance périmée.** Une clé d'arrondi, de ligne DPGF ou de remplacement écrite
+  par un autre métré que le dernier de la ligne (une fusion ultérieure l'a gardée) ne
+  compte pas.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
   version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
@@ -184,14 +183,73 @@ ce qu'une application écrit ne change.
   métrés, et la RLS des lignes du devis, des lignes de métré et des métrés la bornent. La définition est écrite une
   fois en TypeScript
   ([`page-contributions.ts`](../../src/lib/takeoff/page-contributions.ts)), sur la table
-  de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts),
-  que la jumelle SQL de l'étape suivante lira.
+  de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts).
+  Sa jumelle SQL (`private.takeoff_pages_already_in_estimate` et ses fonctions) lit les
+  mêmes cas : [`page-contributions.vectors.json`](../../src/lib/takeoff/page-contributions.vectors.json),
+  joués par Vitest et par `takeoff-page-contributions-twin.test.sql`.
 - **Ce qui ne relève pas d'une règle fixe** : c'est une décision par page, prise à
   l'application, pas une erreur de quantité d'une ligne ; les règles fixes ne lisent
   ni le devis ni une version copiée.
-- **Étape suivante (PR 2)** : remplacer la mesure antérieure ligne à ligne, ou garder
-  les deux avec un motif, et le refus en base d'une page appliquée deux fois sans
-  décision.
+
+**Remplacer ou garder les deux (PR 2).** À la confirmation de l'assistant, pour chaque
+page déjà au devis, le chiffreur choisit ; la base refuse une page appliquée une
+seconde fois sans décision.
+
+- **Remplacer la mesure précédente** (recommandé, présélectionné). Ligne à ligne : la
+  ligne de devis garde son identifiant, sa place, son titre (le libellé du chiffreur),
+  son prix, sa catégorie, ses réglages de main-d'œuvre et de fourniture, son statut et
+  ses colonnes du lot C. Sa quantité perd la part de la page (ses lignes de métré
+  sources sur la page) et reçoit la nouvelle mesure ; une longueur est arrondie une
+  fois au mètre, comme `finalize_takeoff_lengths`. Une ligne qui couvrait aussi
+  d'autres pages garde leur part. Sa provenance devient le nouveau métré (clé
+  `takeoff_page_replacement` : quantité précédente, part retirée, part ajoutée,
+  sources). Le marqueur de provision suit le nouveau métré : le dernier métré gagne.
+- **Appariement proposé** ([`page-replacement.ts`](../../src/lib/takeoff/page-replacement.ts)),
+  entre une ligne du nouveau métré et une ligne de métré source de la page, dans
+  l'ordre : même désignation et même unité que la ligne source (pas le titre du devis,
+  que le chiffreur a pu renommer) ; même réseau (nature, réseau, matériau, DN) pour
+  une ligne vectorielle ; même unité et désignation proche (indice de Jaccard des mots
+  ≥ 0,5), la meilleure. Chaque source sert une fois ; plusieurs lignes nouvelles
+  peuvent remplacer les sources d'une longueur regroupée. Jamais deux unités, jamais
+  une ligne DPGF (son rapprochement la remplace déjà), jamais d'un document à un autre :
+  une ligne qui ne connaît que le nom de son plan n'est pas appariée sur une page où
+  deux plans identifiés de ce nom se rencontrent (la limite de groupement de la
+  PR 1). Le chiffreur corrige chaque paire ; la liste ne propose que ce que la base
+  accepte. Mesuré sur les sorties du banc (trois relances, sans appel au modèle) :
+  70,4 % des lignes vision et 98,6 % des lignes vectorielles sont appariées.
+- **Lignes que le nouveau métré n'a plus** : aucun choix par défaut, « Retirer du
+  devis » ou « Garder », et deux boutons qui règlent toutes les lignes en un clic.
+  La confirmation attend un choix pour chacune.
+- **Quantité modifiée à la main** (elle diffère de ce que ses sources donnent) :
+  « Prendre la nouvelle mesure » ou « Garder ma quantité » ; jamais écrasée sans ce
+  choix. Une ligne des moteurs 1 et 2 ne nomme pas ses sources : elle est remplacée
+  entière, et sa modification à la main ne peut pas être vue.
+- **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
+  ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
+  ingénieurs comme aux administrateurs. Refusé sur une page qui alimente une ligne
+  DPGF déjà alimentée par un autre métré, tant que la ligne DPGF ne garde que la
+  dernière mesure.
+- **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
+  « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
+  vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
+- **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
+  l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
+  remplacer. La proposition lit la version où l'application écrit (celle du métré).
+- **En base**, sous le verrou de la version, dans la transaction de l'application
+  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261111212806_takeoff_page_decisions.sql)) :
+  les décisions sont relues contre le devis tel qu'il est (une ligne supprimée ou
+  modifiée depuis la proposition, une décision d'une autre personne : 409, à relire),
+  le remplacement s'applique, puis le filet `private.assert_takeoff_pages_once`
+  vérifie que chaque contribution antérieure restante sur une page du métré est
+  gardée par une décision, ligne source par ligne source. Sans décision :
+  `TAKEOFF_PAGE_ALREADY_APPLIED`, 422 qui nomme la page. Les décisions
+  (`takeoff_page_decisions`) sont gelées à l'application et rattachées aux métrés,
+  non recopiées avec une version.
+- **Ce qui reste possible** : une ligne collée ou recréée à la main (sans provenance) ;
+  une section copiée dans la même version ; des lignes sans plan ni page ; un même plan
+  déposé sous deux noms sans préparation ; un même dessin dans deux fichiers
+  différents (rôle de Z1/Z2) ; « garder les deux » choisi à tort, mais motivé et
+  tracé.
 
 ## Entrées
 

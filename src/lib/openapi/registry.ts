@@ -2,6 +2,7 @@ import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
+import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1915,6 +1916,15 @@ const apiTakeoffPageContributionsSchemaDefinition = successResponseSchemaDefinit
   "ApiTakeoffPageContributionsResponse",
   takeoffPageContributionsResponseSchema
 );
+const apiTakeoffPageReplacementSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPageReplacementResponse",
+  takeoffPageReplacementResponseSchema
+);
+const takeoffPageReplacementBody = jsonBody({
+  name: "TakeoffPageReplacementRequest",
+  description: "Strategie, section cible et ajustements de mapping de l'assistant d'application.",
+  schema: takeoffPageReplacementRequestSchema,
+});
 const takeoffLaunchPageContributionsBody = jsonBody({
   name: "TakeoffLaunchPageContributionsRequest",
   description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
@@ -3179,6 +3189,20 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   },
   {
     method: "post",
+    path: "/api/takeoff/jobs/{jobId}/page-replacement",
+    summary: "Proposition de remplacement des pages deja au devis",
+    description:
+      "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffPageReplacementBody,
+    responses: {
+      "200": jsonResponse("Proposition par page.", apiTakeoffPageReplacementSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
     path: "/api/takeoff/page-contributions",
     summary: "Pages des plans d'un lancement deja au devis",
     description:
@@ -3438,7 +3462,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/apply",
     summary: "Appliquer un job Takeoff",
     description:
-      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items).",
+      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items). TI-682 lot D : une page de plan qu'un autre metre a deja apportee au devis n'entre que par une decision (page_decisions : remplacer sa mesure ligne a ligne, ou garder les deux avec un motif) ; sans elle, 422 details.guard page_already_applied ; une decision invalide, 422 page_decision ; une decision perimee, 409 page_decision.",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: applyTakeoffJobBody,
