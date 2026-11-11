@@ -1,3 +1,5 @@
+import { Plus } from "lucide-react";
+
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
@@ -46,12 +48,10 @@ export function RegisterEntryForm({
     return (
       <button
         type="button"
-        className="mt-4 flex w-full items-center gap-2 rounded-2xl border border-dashed border-border-strong bg-surface-subtle/60 px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:border-border-strong hover:bg-muted/80 hover:text-foreground"
+        className="register-add-point"
         onClick={() => onToggleExpanded(true)}
       >
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-border text-xs font-bold text-muted-foreground">
-          +
-        </span>
+        <Plus size={17} aria-hidden="true" />
         Ajouter un point
       </button>
     );
