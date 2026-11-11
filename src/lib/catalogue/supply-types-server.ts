@@ -5,7 +5,6 @@ import { badRequest, conflict, forbidden, mapSupabaseError } from "@/lib/estimat
 
 import {
   supplyTypeCodeFromName,
-  supplyTypeNameKey,
   type CreateSupplyTypeInput,
   type SupplyTypeRecord,
 } from "./supply-types";
@@ -28,38 +27,30 @@ export async function listSupplyTypes(): Promise<{ items: SupplyTypeRecord[] }> 
  * of the tenant, so the application reserves its growth to administrators, like the rest of the catalogue.
  */
 export async function createSupplyType(input: CreateSupplyTypeInput): Promise<{ item: SupplyTypeRecord }> {
-  const { supabase, tenantId, isTenantAdmin } = await getAuthenticatedTenantContext();
+  const { supabase, isTenantAdmin } = await getAuthenticatedTenantContext();
   if (!isTenantAdmin) {
     throw forbidden("La gestion du catalogue est réservée aux administrateurs.");
   }
-  const code = supplyTypeCodeFromName(input.name);
-  if (!code) {
+  if (!supplyTypeCodeFromName(input.name)) {
     throw badRequest("Le nom du type de fourniture doit contenir une lettre ou un chiffre.");
   }
 
-  const nameKey = supplyTypeNameKey(input.name);
-  const existing = await supabase
-    .from("supply_types")
-    .select("code, name")
-    .eq("tenant_id", tenantId);
-  if (existing.error) {
-    throw mapSupabaseError(existing.error, "Impossible de vérifier les types de fourniture existants.");
-  }
-  const taken = (existing.data ?? []).find(
-    (type) => supplyTypeNameKey(type.name) === nameKey || type.code === code,
-  );
-  if (taken) {
-    throw conflict(`Ce type de fourniture existe déjà : « ${taken.name} ».`);
-  }
-
-  const { data, error } = await supabase
-    .from("supply_types")
-    .insert({ tenant_id: tenantId, code, name: input.name })
-    .select("id, code, name")
-    .single();
+  // The duplicate check and the insert are one database call, under a lock per tenant: two administrators
+  // creating "Tube" and "Tubes" at the same moment cannot both succeed.
+  const { data, error } = await supabase.rpc("create_supply_type", { p_name: input.name }).single();
   if (error) {
-    if (error.code === "23505") {
-      throw conflict("Ce type de fourniture existe déjà.");
+    if (error.message.includes("SUPPLY_TYPE_NAME_TAKEN")) {
+      throw conflict(
+        error.details
+          ? `Ce type de fourniture existe déjà : « ${error.details} ».`
+          : "Ce type de fourniture existe déjà.",
+      );
+    }
+    if (error.message.includes("SUPPLY_TYPE_ADMIN_REQUIRED")) {
+      throw forbidden("La gestion du catalogue est réservée aux administrateurs.");
+    }
+    if (error.message.includes("SUPPLY_TYPE_NAME_INVALID")) {
+      throw badRequest("Le nom du type de fourniture doit contenir une lettre ou un chiffre.");
     }
     throw mapSupabaseError(error, "Impossible de créer le type de fourniture.");
   }

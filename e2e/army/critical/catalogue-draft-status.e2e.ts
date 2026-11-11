@@ -118,10 +118,13 @@ armyTest(
     const supplyType = (await created(await apiRequest<Envelope<{ item: { id: string; name: string } }>>(
       browser, "POST", "/api/catalogue/supply-types", { name: supplyTypeName },
     ))).item;
-    const duplicate = await apiRequest<Envelope<never>>(
-      browser, "POST", "/api/catalogue/supply-types", { name: supplyTypeName.toUpperCase() },
-    );
-    expect(duplicate.status).toBe(409);
+    for (const takenName of [supplyTypeName.toUpperCase(), `${supplyTypeName}s`]) {
+      const duplicate = await apiRequest<Envelope<never>>(
+        browser, "POST", "/api/catalogue/supply-types", { name: takenName },
+      );
+      expect(duplicate.status).toBe(409);
+      expect(duplicate.body.error?.message).toBe(`Ce type de fourniture existe déjà : « ${supplyTypeName} ».`);
+    }
 
     // The catalogue screen: the draft is marked, validating it opens the form on what is missing.
     await browser.goto(

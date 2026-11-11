@@ -12,7 +12,10 @@
 --  7. l'ancienne signature de la page reste appelable à côté de la nouvelle ;
 --  8. la suppression du compte du validateur laisse l'article pointer vers un utilisateur disparu : la clé
 --     étrangère efface l'auteur (ON DELETE SET NULL) et le déclencheur ne doit pas le rétablir ;
---  9. une unité vide passe la validation.
+--  9. une unité vide passe la validation ;
+-- 10. un type de fourniture est créé deux fois sous le même nom (casse, accents, ponctuation, pluriel, ou type
+--     historique dont le code ne dérive pas du nom), par un non-administrateur, ou dans un autre tenant que le
+--     tenant actif.
 
 begin;
 
@@ -281,6 +284,86 @@ select ok(
 select ok(
   has_function_privilege('authenticated', 'public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[])', 'execute'),
   'un utilisateur connecté peut appeler la page du catalogue'
+);
+
+-- 10. Création d'un type de fourniture : administrateur, tenant actif, jamais deux fois le même nom.
+insert into public.supply_types (tenant_id, code, name)
+values (current_setting('test.tenant_a')::uuid, 'cat_5d41402abc4b2a76', 'Calorifuge C5');
+
+select results_eq(
+  $$select code, name from public.create_supply_type('  Tube inox C5 ')$$,
+  $$values ('tube_inox_c5'::text, 'Tube inox C5'::text)$$,
+  'le type est créé avec un code dérivé de son nom'
+);
+
+select is(
+  (select supply_type.tenant_id from public.supply_types supply_type where supply_type.code = 'tube_inox_c5'),
+  current_setting('test.tenant_a')::uuid,
+  'le type est créé dans le tenant actif'
+);
+
+select throws_ok(
+  $$select * from public.create_supply_type('TUBÉ-INOX c5.')$$,
+  '23505', 'SUPPLY_TYPE_NAME_TAKEN',
+  'un nom déjà pris à la casse, aux accents et à la ponctuation près est refusé'
+);
+
+select lives_ok(
+  $$select * from public.create_supply_type('C5 raccord')$$,
+  'un second type se crée'
+);
+
+select throws_ok(
+  $$select * from public.create_supply_type('c5 Raccords')$$,
+  '23505', 'SUPPLY_TYPE_NAME_TAKEN',
+  'le pluriel d''un nom existant est refusé'
+);
+
+select throws_ok(
+  $$select * from public.create_supply_type('calorifuge c5')$$,
+  '23505', 'SUPPLY_TYPE_NAME_TAKEN',
+  'le nom d''un type historique, dont le code ne dérive pas du nom, est refusé'
+);
+
+select throws_ok(
+  $$select * from public.create_supply_type(' -- / ')$$,
+  '22023', 'SUPPLY_TYPE_NAME_INVALID',
+  'un nom sans lettre ni chiffre est refusé'
+);
+
+-- Le même nom reste libre dans un autre tenant.
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"c5000000-0000-4000-8000-000000000002","role":"authenticated"}',
+  true
+);
+
+select lives_ok(
+  $$select * from public.create_supply_type('Tube inox C5')$$,
+  'le même nom se crée dans un autre tenant'
+);
+
+-- Un membre non administrateur ne crée pas de type.
+update public.tenant_memberships set role = 'engineer'
+where user_id = 'c5000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+  $$select * from public.create_supply_type('Robinetterie C5')$$,
+  '42501', 'SUPPLY_TYPE_ADMIN_REQUIRED',
+  'un ingénieur ne crée pas de type de fourniture'
+);
+
+select set_config('request.jwt.claims', '{"role":"anon"}', true);
+
+select throws_ok(
+  $$select * from public.create_supply_type('Robinetterie C5')$$,
+  '42501', 'SUPPLY_TYPE_ADMIN_REQUIRED',
+  'sans utilisateur connecté, aucun type n''est créé'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.create_supply_type(text)', 'execute'),
+  'un visiteur anonyme ne peut pas appeler la création d''un type de fourniture'
 );
 
 select * from finish();

@@ -320,4 +320,94 @@ $$;
 revoke execute on function public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[]) from public, anon;
 grant execute on function public.catalogue_products_page(text, text[], text[], text[], text[], text[], text, text, integer, integer, text[]) to authenticated;
 
+-- Supply types: created by an administrator, never twice under the same name.
+-- The estimate engine matches an article's type to a supply type by code or name, ignoring a final "s", and
+-- gives up when two match (private.derive_estimate_item_fo_provision): "Tube" beside "Tubes" silently loses the
+-- line's supply type. Historical types carry a code unrelated to their name (cat_<md5>), so the name is compared.
+-- The check and the insert run under one advisory lock per tenant: two concurrent creations cannot both pass.
+-- Direct inserts keep their historical rights (any member, RLS); the application only creates through this.
+create function private.supply_type_name_key(p_name text)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select case
+    when pg_catalog.length(folded.key) > 1 and pg_catalog.right(folded.key, 1) = 's'
+      then pg_catalog.left(folded.key, pg_catalog.length(folded.key) - 1)
+    else folded.key
+  end
+  from (
+    select pg_catalog.btrim(
+      pg_catalog.regexp_replace(
+        pg_catalog.lower(extensions.unaccent('extensions.unaccent'::regdictionary, coalesce(p_name, ''))),
+        '[^a-z0-9]+', '_', 'g'
+      ),
+      '_'
+    ) as key
+  ) folded;
+$$;
+
+revoke execute on function private.supply_type_name_key(text) from public, anon, authenticated;
+
+create function public.create_supply_type(p_name text)
+returns table (id uuid, code text, name text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_tenant_id uuid := public.current_tenant_id();
+  clean_name text := pg_catalog.btrim(coalesce(p_name, ''));
+  name_key text;
+  new_code text;
+  taken_name text;
+begin
+  if (select auth.uid()) is null or target_tenant_id is null
+    or not public.has_tenant_role(target_tenant_id, array['admin'::public.tenant_role])
+  then
+    raise exception using errcode = '42501', message = 'SUPPLY_TYPE_ADMIN_REQUIRED';
+  end if;
+
+  name_key := private.supply_type_name_key(clean_name);
+  new_code := pg_catalog.btrim(
+    pg_catalog.regexp_replace(
+      pg_catalog.lower(extensions.unaccent('extensions.unaccent'::regdictionary, clean_name)),
+      '[^a-z0-9]+', '_', 'g'
+    ),
+    '_'
+  );
+  if new_code = '' or pg_catalog.length(clean_name) > 80 then
+    raise exception using errcode = '22023', message = 'SUPPLY_TYPE_NAME_INVALID';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('supply_type_name:' || target_tenant_id::text, 0)
+  );
+
+  select supply_type.name
+    into taken_name
+  from public.supply_types supply_type
+  where supply_type.tenant_id = target_tenant_id
+    and (
+      private.supply_type_name_key(supply_type.name) = name_key
+      or supply_type.code = new_code
+    )
+  order by supply_type.created_at, supply_type.id
+  limit 1;
+
+  if taken_name is not null then
+    raise exception using errcode = '23505', message = 'SUPPLY_TYPE_NAME_TAKEN', detail = taken_name;
+  end if;
+
+  return query
+    insert into public.supply_types as created (tenant_id, code, name)
+    values (target_tenant_id, new_code, clean_name)
+    returning created.id, created.code, created.name;
+end;
+$$;
+
+revoke execute on function public.create_supply_type(text) from public, anon;
+grant execute on function public.create_supply_type(text) to authenticated;
+
 commit;
