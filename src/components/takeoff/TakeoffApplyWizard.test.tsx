@@ -1,4 +1,4 @@
-import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen,waitFor,within } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 vi.mock("@/lib/estimates/editor-read-client", () => ({
@@ -9,9 +9,15 @@ vi.mock("@/lib/takeoff/client", () => ({
   previewTakeoffConversion: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/page-contributions-client", () => ({
+  fetchTakeoffJobPageContributions: vi.fn(),
+  fetchLaunchPageContributions: vi.fn(),
+}));
+
 import { TakeoffApplyWizard } from "@/components/takeoff/TakeoffApplyWizard";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/editor-read-client";
 import { previewTakeoffConversion } from "@/lib/takeoff/client";
+import { fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-client";
 
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -114,6 +120,8 @@ describe("TakeoffApplyWizard", () => {
       },
     ] as never);
     vi.mocked(previewTakeoffConversion).mockResolvedValue(PREVIEW_RESPONSE);
+    vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
+      unidentified_item_ids: [], other_takeoff_line_count: 0 });
   });
 
   it("requires a fresh preview after an override changes", async () => {
@@ -216,5 +224,46 @@ describe("TakeoffApplyWizard", () => {
     await waitFor(() => expect(screen.getByText(RULE_REASON, { exact: false })).toBeInTheDocument());
     expect(screen.getByText(/Doublon entre zones/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled();
+  });
+  // TI-682 lot D, PR 1: a page of this takeoff that another takeoff already brought into the estimate is named before
+  // the last click, with that takeoff and its lines; nothing to decide yet. Written before the notice existed.
+  describe("pages already in the estimate", () => {
+    const EARLIER_JOB = "66666666-6666-4666-8666-666666666666";
+    const conflict = { version_id: VERSION_ID, jobs: [{ id: EARLIER_JOB, estimate_version_id: VERSION_ID,
+      created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan.pdf" }], unidentified_item_ids: [], other_takeoff_line_count: 2,
+      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ITEM_ID], earlier: [{ job_id: EARLIER_JOB, line_count: 2 }] }] };
+
+    it("names the page, the earlier takeoff and its lines at the confirmation, without a decision", async () => {
+      vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);
+      vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
+      renderRuleWizard();
+      await reachConfirmation();
+      const notice = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      expect(notice).toHaveTextContent("plan.pdf, page 1 : déjà au devis par le métré du 10/11/2026 (plan.pdf), 2 lignes");
+      expect(within(notice).queryByRole("button")).toBeNull();
+      expect(within(notice).queryByRole("radio")).toBeNull();
+      expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled();
+      expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, expect.anything());
+    });
+
+    it("shows it with a preset strategy too", async () => {
+      vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);
+      render(
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+          submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn().mockResolvedValue(undefined)}
+          items={[{ ...RULE_ITEM, rule_results: [] }]} jobLevel="C" presetStrategy="append" />
+      );
+      await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("plan.pdf, page 1");
+    });
+
+    it("shows nothing when the estimate holds none of its pages", async () => {
+      vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
+      renderRuleWizard();
+      await reachConfirmation();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled());
+      expect(screen.queryByRole("region", { name: "Pages déjà au devis" })).toBeNull();
+    });
   });
 });

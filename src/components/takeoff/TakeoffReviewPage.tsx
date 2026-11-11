@@ -20,6 +20,7 @@ import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
+import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
 import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
   TakeoffReviewModeSwitch,
@@ -314,6 +315,8 @@ export default function TakeoffReviewPage({
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
+  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
+  const pagesInEstimate = useTakeoffJobPageContributions(jobId);
   const [tables, setTables] = useState<TakeoffTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1285,6 +1288,11 @@ export default function TakeoffReviewPage({
         aria-labelledby={`takeoff-review-mode-${currentReviewMode}-tab`}
         className="space-y-4"
       >
+      <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
+        jobHref={(earlier) => isAffaireContext
+          ? `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`
+          : `/dashboard/estimates/${earlier.estimate_version_id}/takeoff/${earlier.id}/review`} />
+
       {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
       {jobLevel === "C" && (

@@ -9,6 +9,7 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target 
 import { LoadingState } from "@/components/layout/loading-state";
 import { QuantityEntryDialog } from "@/components/takeoff/review/QuantityEntryDialog";
 import { TakeoffReviewPolicyPanel } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
+import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
@@ -131,6 +132,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [importantIds, setImportantIds] = useState<string[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
+  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
+  const pagesInEstimate = useTakeoffJobPageContributions(jobId);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -433,6 +436,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           <Link href={`/dashboard/affaires/${projectId}/takeoff`} className={buttonVariants({ variant: "ghost", size: "xs" })}>Métrés</Link>
         </nav>
       </header>
+      {job ? (
+        <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
+          jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
+      ) : null}
       <TakeoffReviewPolicyPanel jobId={jobId} items={items} providerMeta={providerMeta}
         onImportantItems={setImportantIds} onFocusItem={setSelectedId} />
       <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}

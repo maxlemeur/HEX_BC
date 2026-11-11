@@ -100,6 +100,7 @@
       "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
       "e2e/army/takeoff/import-format-completion.e2e.ts",
       "e2e/army/takeoff/intake-dossier.e2e.ts",
+      "e2e/army/takeoff/page-once.e2e.ts",
       "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
       "e2e/army/takeoff/targeted-policy.e2e.ts",
@@ -1049,6 +1050,25 @@
         "e2e/army/takeoff/quantity-rules.e2e.ts",
         "e2e/army/critical/takeoff-protective-quantities.e2e.ts",
         "e2e/army/takeoff/targeted-policy.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-page-once",
+      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues, notice de l'assistant et du lancement (TKD01) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
+      "paths": [
+        "src/lib/takeoff/page-contributions*.ts",
+        "src/app/api/takeoff/page-contributions/**",
+        "src/app/api/takeoff/jobs/**/page-contributions/**",
+        "src/components/takeoff/review/TakeoffPagesAlreadyInEstimate.tsx",
+        "src/components/takeoff/review/TakeoffTargetedReview.tsx",
+        "src/components/takeoff/TakeoffReviewPage.tsx",
+        "src/components/takeoff/TakeoffApplyWizard.tsx",
+        "src/components/takeoff/TakeoffPreparationPanel.tsx",
+        "e2e/army/takeoff/vector-plan-fixture.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/page-once.e2e.ts",
+        "e2e/army/takeoff/quantity-rules.e2e.ts"
       ]
     },
     {

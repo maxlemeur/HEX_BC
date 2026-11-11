@@ -1,6 +1,7 @@
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
+import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1910,6 +1911,15 @@ const apiTakeoffReviewContextSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffReviewContextResponse",
   takeoffReviewContextResponseSchema
 );
+const apiTakeoffPageContributionsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPageContributionsResponse",
+  takeoffPageContributionsResponseSchema
+);
+const takeoffLaunchPageContributionsBody = jsonBody({
+  name: "TakeoffLaunchPageContributionsRequest",
+  description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
+  schema: takeoffLaunchPageContributionsRequestSchema,
+});
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
   takeoffVectorReadingResponseSchema
@@ -3144,6 +3154,32 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [takeoffJobIdPathParameter],
     responses: {
       "200": jsonResponse("Contexte du controle cible.", apiTakeoffReviewContextSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/page-contributions",
+    summary: "Pages du metre deja au devis par un autre metre",
+    description:
+      "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que sa version de devis porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/page-contributions",
+    summary: "Pages des plans d'un lancement deja au devis",
+    description:
+      "Lecture seule (TI-682), avant un lancement : les pages des plans choisis que la version cible porte deja par un metre, avec ce metre et son nombre de lignes. N'ecrit rien.",
+    tags: ["Takeoff"],
+    requestBody: takeoffLaunchPageContributionsBody,
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },
