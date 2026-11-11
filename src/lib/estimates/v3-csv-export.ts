@@ -15,6 +15,7 @@ import { ESTIMATE_EXPORT_PROGRESS_COMPLETE } from "@/lib/estimates/export-stream
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { formatStatusReason } from "@/lib/estimates/status-reason";
 import { TAKEOFF_PROVISION_EXPORT_HEADER, takeoffProvisionExportLabel } from "@/lib/estimates/takeoff-provision";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import {
@@ -41,6 +42,9 @@ import {
  * (`editor-export.ts`) : cette route le refuse par un 409 nommé. Même écriture que ce CSV (SheetJS, « ; », BOM UTF-8).
  * TI-682 lot C : dernière colonne « Provision métré » (marqueur `takeoff_provision` de la ligne), après toutes les autres,
  * ventilation comprise ; le CSV est interne, les classeurs DPGF, standard et BDC ne la portent pas.
+ * TI-682 lot C, PR 3 : puis « Motif interne » (motif d'une ligne exclue après « Non chiffrée », `status_reason`), dernière
+ * colonne ; même règle, aucun classeur client ou fournisseur ne la porte. Moteur 3 seulement (le CSV v1/v2 n'en a pas :
+ * aucune ligne v1/v2 ne porte de statut ni de motif).
  */
 
 export const ESTIMATE_V3_CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
@@ -52,11 +56,14 @@ type CsvCell = string | number;
 const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier",
   "K MO chantier"];
 
+/** TI-682 lot C : motif interne d'une exclusion, après « Provision métré ». */
+export const STATUS_REASON_EXPORT_HEADER = "Motif interne";
+
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
     `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : []),
-    TAKEOFF_PROVISION_EXPORT_HEADER];
+    TAKEOFF_PROVISION_EXPORT_HEADER, STATUS_REASON_EXPORT_HEADER];
 }
 
 /** Lignes du CSV v3 (en-tête, lignes du document, puis pied sous « Désignation » / « Total HT »). */
@@ -119,6 +126,7 @@ export function buildEstimateV3CsvRows(input: {
           hours(item.h_mo_chantier_per_unit), role(item.labor_role_chantier_id), item.k_mo_chantier ?? 1]
         : ["", "", "", "", "", ""]),
       takeoffProvisionExportLabel(item.source_metadata),
+      formatStatusReason(item.status_reason),
     ]);
   }
   const totalColumn = header.indexOf(`Total HT (${currency})`);

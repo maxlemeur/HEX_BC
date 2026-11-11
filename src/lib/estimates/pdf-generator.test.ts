@@ -608,6 +608,24 @@ describe("estimate pdf generator", () => {
     }
   });
 
+  // TI-682, lot C (D25): the internal reason of an exclusion never reaches the published client copy nor the document.
+  it("never publishes nor prints the internal reason of an exclusion", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    const ordinaryClients = usePdfClients({ itemOverrides: { was_not_priced: false, status_reason: null } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const ordinary = publishedCopy(ordinaryClients.serviceRoleSupabase);
+    const reasonClients = usePdfClients({ itemOverrides: { was_not_priced: true,
+      status_reason: { code: "client_supplied", note: "MOTIF CONFIDENTIEL fourni par le client" } } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const reasoned = publishedCopy(reasonClients.serviceRoleSupabase);
+
+    expect(ordinary.contract).toContain("\"saleHtCents\":10000");
+    expect(reasoned).toEqual(ordinary);
+    for (const printed of [reasoned.contract, reasoned.document]) {
+      expect(printed).not.toMatch(/MOTIF CONFIDENTIEL|status_reason|was_not_priced|client_supplied|Fourni ou réalisé/);
+    }
+  });
+
   it("keeps unexpected CGV loading errors visible", async () => {
     const supabase = createSupabasePdfMock({
       termsTemplateError: {

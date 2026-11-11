@@ -50,6 +50,7 @@ returns numeric language sql stable security invoker set search_path='' as $$
  left join public.estimate_fo_preferences pref on pref.tenant_id=p_tenant and pref.user_id=p_owner and pref.supply_type_id=s.id;
 $$;
 revoke all on function private.estimate_kfo_base(uuid,uuid,uuid,jsonb) from public,anon,authenticated;
+-- Rebuilt from TI-541 on origin/main (20261111181152): site origin guards retained.
 create or replace function private.derive_estimate_item_fo_provision()
 returns trigger language plpgsql security definer set search_path = '' as $fo$
 declare
@@ -65,12 +66,11 @@ declare
   source_kind text;
   transport text;
   product_type text;
-  provision numeric;
-  sensitive boolean;
   inferred_type uuid;
   exact_type_count integer;
   requested_selection uuid;
   preserve_absence boolean := false;
+  site boolean := false;
 begin
   if tg_op='INSERT' and new.fo_price_origin='{}'::jsonb then
     preserve_absence := true;
@@ -84,7 +84,8 @@ begin
     and new.product_id is not distinct from old.product_id
     and new.selected_supplier_price_id is not distinct from old.selected_supplier_price_id
     and new.unit_price_ht_cents is not distinct from old.unit_price_ht_cents
-    and new.fo_price_origin is not distinct from old.fo_price_origin then return new; end if;
+    and new.fo_price_origin is not distinct from old.fo_price_origin
+    and coalesce(new.line_nature::text='pose_only',false)=coalesce(old.line_nature::text='pose_only',false) then return new; end if;
 
   select v.calc_engine_version,v.tenant_id,v.status,p.user_id into engine,tenant,version_status,owner_id from public.estimate_versions v join public.estimate_projects p on p.id=v.project_id and p.tenant_id=v.tenant_id where v.id=new.version_id;
   if new.item_type is distinct from 'line'::public.estimate_item_type or engine is distinct from 3 then
@@ -95,8 +96,9 @@ begin
     return new;
   end if;
   if version_status is distinct from 'draft'::public.estimate_status then return new; end if;
-  -- A version copy carries its saved coefficient and override provenance verbatim.
+  -- Version duplication supplies the coefficient, provenance and saved origin verbatim.
   if tg_op='INSERT' and new.fo_provision is not null then return new; end if;
+
   -- Unknown legacy provenance is conservatively manual, even when K FO equals one.
   manual := coalesce(new.k_fo_manual,case when tg_op='UPDATE' then true else coalesce(new.k_fo,1) <> 1 end);
   if tg_op='UPDATE' and old.k_fo_manual is null and new.k_fo_manual is null then
@@ -107,16 +109,27 @@ begin
     elsif new.k_fo is distinct from old.k_fo and new.k_fo_manual is null then manual := true; end if;
   end if;
 
+  -- TI-541: a site cost is typed for this quote with its source. It never comes from the catalogue,
+  -- so no catalogue row is read for it and it replaces any retained supplier offer.
+  site := coalesce(new.fo_price_origin->>'kind'='site',false)
+    and (tg_op='INSERT' or new.fo_price_origin is distinct from old.fo_price_origin);
+  if site and new.selected_supplier_price_id is not null then
+    raise exception using errcode='22023',message='FO_PRICE_SOURCE_INVALID';
+  end if;
+
   if tg_op='INSERT' then
-    selected := not preserve_absence and (new.selected_supplier_price_id is not null or new.product_id is not null);
+    selected := not preserve_absence and not site and (new.selected_supplier_price_id is not null or new.product_id is not null);
   else
     changed_origin := new.fo_price_origin is distinct from old.fo_price_origin;
-    selected := (new.selected_supplier_price_id is not null and new.selected_supplier_price_id is distinct from old.selected_supplier_price_id)
+    selected := not site and ((new.selected_supplier_price_id is not null and new.selected_supplier_price_id is distinct from old.selected_supplier_price_id)
       or (new.product_id is not null and new.product_id is distinct from old.product_id)
-      or (changed_origin and new.fo_price_origin is not null);
-    if not selected and (new.unit_price_ht_cents is distinct from old.unit_price_ht_cents
-      or new.selected_supplier_price_id is distinct from old.selected_supplier_price_id
-      or new.product_id is distinct from old.product_id) then
+      or (changed_origin and new.fo_price_origin is not null));
+    -- A catalogue origin falls with its price, its offer or its article. A kept site cost is proven by its offer,
+    -- not by the catalogue: it only falls with its price, and survives a detached or deleted article.
+    if not selected and not site and (new.unit_price_ht_cents is distinct from old.unit_price_ht_cents
+      or coalesce(old.fo_price_origin->>'kind','')<>'site'
+        and (new.selected_supplier_price_id is distinct from old.selected_supplier_price_id
+          or new.product_id is distinct from old.product_id)) then
       new.fo_price_origin := null;
     end if;
   end if;
@@ -165,10 +178,13 @@ begin
     end if;
   end if;
 
+  -- TI-534: K FO is the only supply factor. POSE SEULE has a neutral automatic base,
+  -- including a site cost or small supplies; an explicit user override is always retained.
   new.k_fo_manual := manual;
   new.fo_provision := 1;
   if not manual then
-    new.k_fo := private.estimate_kfo_base(tenant,owner_id,new.supply_type_id,new.fo_price_origin);
+    new.k_fo := case when new.line_nature::text='pose_only' then 1
+      else private.estimate_kfo_base(tenant,owner_id,new.supply_type_id,new.fo_price_origin) end;
   end if;
   return new;
 end;
@@ -458,7 +474,10 @@ begin
     h_mo_per_unit,
     h_mo_atelier_per_unit,
     h_mo_chantier_per_unit,
-    product_id
+    product_id,
+    was_not_priced, -- TI-682 (ajout) : la copie garde « a été Non chiffrée »
+    status_reason, -- TI-682 (ajout) : et le motif interne
+    line_nature -- TI-539 (ajout) : la copie garde la nature choisie de chaque ligne
   )
   select
     (item_id_map->>hierarchy.id::text)::uuid,
@@ -473,9 +492,9 @@ begin
     src.quantity,
     src.unit_price_ht_cents,
     src.tax_rate_bp,
-    src.k_fo,
-    src.k_fo_manual,
-    src.fo_provision, -- TI-534 (ajout)
+    case when source_is_v3 then round(coalesce(src.k_fo,1)*coalesce(src.fo_provision,1),6) else src.k_fo end,
+    case when source_is_v3 then coalesce(src.k_fo_manual,true) end,
+    case when source_is_v3 then 1 else src.fo_provision end, -- unified factor copied once
     src.h_mo,
     src.h_mo_majoration,
     src.k_mo,
@@ -503,7 +522,10 @@ begin
     src.h_mo_per_unit,
     src.h_mo_atelier_per_unit,
     src.h_mo_chantier_per_unit,
-    case when source_is_v3 then src.product_id end
+    case when source_is_v3 then src.product_id end,
+    src.was_not_priced, -- TI-682 (ajout)
+    src.status_reason, -- TI-682 (ajout)
+    src.line_nature -- TI-539 (ajout)
   from source_item_hierarchy hierarchy
   join public.estimate_items src on src.id = hierarchy.id
   order by hierarchy.depth asc, src.position asc, src.id asc;
@@ -606,7 +628,8 @@ begin
 
   return new_version_id;
 end;
-$function$;
+$function$
+;
 -- The neutral retired provision carries no information; omit it from compact write receipts.
 -- Public read decoders restore its neutral default. Non-neutral historical provisions are kept.
 create function private.estimate_kfo_receipt_item(p_item jsonb) returns jsonb language sql immutable set search_path='' as $$
@@ -719,26 +742,28 @@ $kit_contract$;
 -- Saved templates carry effective supply prices and their hidden-kit boundary.
 alter table public.estimate_template_items add column k_fo_manual boolean;
 alter table public.estimate_template_items add column kit_metier boolean not null default false;
+alter table public.estimate_template_items add column line_nature public.estimate_line_nature;
+alter table public.estimate_template_items add column fo_price_origin jsonb;
 do $templates$
 declare definition text; previous text;
 begin
  select pg_get_functiondef('public.create_estimate_template_from_version(uuid,text,text)'::regprocedure) into definition;
  previous := definition;
  definition := replace(definition,'    src.k_fo,','    case when source_version.calc_engine_version=3 and src.item_type=''line'' then round(coalesce(src.k_fo,1)*coalesce(src.fo_provision,1),6) else src.k_fo end,');
- definition := replace(definition,E'    h_mo_chantier_per_unit\n  )',E'    h_mo_chantier_per_unit, k_fo_manual, kit_metier\n  )');
- definition := replace(definition,E'    src.h_mo_chantier_per_unit\n  from',E'    src.h_mo_chantier_per_unit,\n    case when source_version.calc_engine_version=3 and src.item_type=''line'' then true end,\n    coalesce(src.source_metadata @> ''{"kit_metier":true}''::jsonb,false)\n  from');
+ definition := replace(definition,E'    h_mo_chantier_per_unit\n  )',E'    h_mo_chantier_per_unit, k_fo_manual, kit_metier, line_nature, fo_price_origin\n  )');
+ definition := replace(definition,E'    src.h_mo_chantier_per_unit\n  from',E'    src.h_mo_chantier_per_unit,\n    case when source_version.calc_engine_version=3 and src.item_type=''line'' then true end,\n    coalesce(src.source_metadata @> ''{"kit_metier":true}''::jsonb,false), src.line_nature, src.fo_price_origin\n  from');
  if definition=previous or position('kit_metier' in definition)=0 then raise exception 'TI534_TEMPLATE_SAVE_ANCHOR'; end if;
  execute definition;
  select pg_get_functiondef('public.duplicate_estimate_template(uuid,text)'::regprocedure) into definition;
  previous := definition;
- definition := replace(definition,E'    h_mo_chantier_per_unit\n  )',E'    h_mo_chantier_per_unit, k_fo_manual, kit_metier\n  )');
- definition := replace(definition,E'    src.h_mo_chantier_per_unit\n  from',E'    src.h_mo_chantier_per_unit, src.k_fo_manual, src.kit_metier\n  from');
+ definition := replace(definition,E'    h_mo_chantier_per_unit\n  )',E'    h_mo_chantier_per_unit, k_fo_manual, kit_metier, line_nature, fo_price_origin\n  )');
+ definition := replace(definition,E'    src.h_mo_chantier_per_unit\n  from',E'    src.h_mo_chantier_per_unit, src.k_fo_manual, src.kit_metier, src.line_nature, src.fo_price_origin\n  from');
  if definition=previous or position('src.kit_metier' in definition)=0 then raise exception 'TI534_TEMPLATE_DUPLICATE_ANCHOR'; end if;
  execute definition;
  select pg_get_functiondef('public.insert_estimate_template_into_version(uuid,uuid,uuid)'::regprocedure) into definition;
  previous := definition;
- definition := replace(definition,E'h_mo_atelier_per_unit, h_mo_chantier_per_unit\n    )',E'h_mo_atelier_per_unit, h_mo_chantier_per_unit, k_fo_manual, source_metadata\n    )');
- definition := replace(definition,E'      chantier_per_unit\n    )',E'      chantier_per_unit,\n      case when is_v3 then tpl_item.k_fo_manual end,\n      case when tpl_item.kit_metier then ''{"kit_metier":true}''::jsonb else ''{}''::jsonb end\n    )');
+ definition := replace(definition,E'h_mo_atelier_per_unit, h_mo_chantier_per_unit\n    )',E'h_mo_atelier_per_unit, h_mo_chantier_per_unit, k_fo_manual, source_metadata, line_nature, fo_price_origin\n    )');
+ definition := replace(definition,E'      chantier_per_unit\n    )',E'      chantier_per_unit,\n      case when is_v3 then tpl_item.k_fo_manual end,\n      case when tpl_item.kit_metier then ''{"kit_metier":true}''::jsonb else ''{}''::jsonb end,\n      tpl_item.line_nature,\n      case when is_v3 then tpl_item.fo_price_origin end\n    )');
  if definition=previous or position('tpl_item.kit_metier' in definition)=0 then raise exception 'TI534_TEMPLATE_INSERT_ANCHOR'; end if;
  execute definition;
  -- A section saved as an ouvrage records an explicit coefficient in component metadata.

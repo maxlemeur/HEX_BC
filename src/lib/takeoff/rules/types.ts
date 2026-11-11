@@ -51,6 +51,10 @@ export const TAKEOFF_RULE_CODES = {
 type CodesOf<R extends TakeoffRuleId> = (typeof TAKEOFF_RULE_CODES)[R]["pass" | "fail"][number];
 export type TakeoffRuleCode = { [R in TakeoffRuleId]: CodesOf<R> }[TakeoffRuleId];
 
+/** What two copies of one run read differently (TI-684): the network, the material or the DN. */
+export const ZONE_OVERLAP_DIFFERENCES = ["network", "material", "dn"] as const;
+export type ZoneOverlapDifference = (typeof ZONE_OVERLAP_DIFFERENCES)[number];
+
 /** A duplicate run of another page (Z1/Z2): the other line and the length both count. */
 export type ZoneOverlapPartner = {
   item_id: string;
@@ -60,6 +64,11 @@ export type ZoneOverlapPartner = {
   overlap_m: number;
   /** The pair is resolved: both lines' reductions remove this length (never in a group of three lines or more). */
   resolved: boolean;
+  /**
+   * The other line is drawn at the same place but read differently (TI-684): one run counted twice with a wrong
+   * reading, or two pipes drawn over each other. Absent when both lines carry one reading.
+   */
+  differs?: ZoneOverlapDifference[];
 };
 
 export type TakeoffRuleDetails = {

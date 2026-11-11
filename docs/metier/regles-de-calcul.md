@@ -132,6 +132,42 @@ données et CSV affichent un seul K FO, y compris pour les anciennes lignes.
 Le contrôle D11 d’import compare les colonnes du classeur avant application
 des paramètres courants ; il vérifie l’interprétation du fichier.
 
+**Coût chantier** (TI-541) : une offre négociée pour un chantier se saisit sur la
+ligne du devis, depuis son menu « … », avec sa source : fournisseur, référence de
+l'offre, date, pièce éventuelle, et transport inclus ou non. Elle remplace la
+base de la ligne pour ce devis seulement. C'est une troisième provenance
+(`fo_price_origin.kind = "site"`), à côté de l'offre fournisseur et du prix de
+référence du catalogue. Rien n'est écrit dans le catalogue : ni article, ni
+offre, ni prix de référence, et la moyenne des offres ne la voit pas. L'article
+de la ligne reste lié ; l'offre du catalogue retenue est retirée. La source reste
+lisible après réouverture, copie de version et émission ; elle n'est jamais
+imprimée sur le devis du client. Un transport inclus dans l'offre donne 1,010 aux
+tubes, calorifuges et isolants, comme pour une offre du catalogue. Retaper le
+coût à la main efface la source, puisqu'elle ne prouve plus la valeur. Choisir
+ensuite un article ou une offre du catalogue la remplace. Détacher l'article, ou
+le supprimer du catalogue, ne retire ni la source ni sa provision : la preuve du
+coût est l'offre, pas le catalogue. La présélection des fournisseurs ne propose
+rien sur une ligne à coût chantier. La copie d'une section vers un autre devis
+emporte le coût et sa source ; la reprise de prix copie le prix sans sa source.
+**POSE SEULE** (TI-539, TI-541) : une ligne POSE SEULE ne prend ni pertes ni
+transport. Sa provision FO vaut 1,000 tant qu'elle garde cette nature, quel que
+soit son type de fourniture, y compris sur la petite fourniture nécessaire à la
+pose (supportage) qu'elle peut porter, saisie à la main ou en coût chantier. La
+provision se redérive du type quand la ligne quitte POSE SEULE. Exemple : pose
+d'un appareil à 150,00 €, 10 ens, coefficients à 1 : 150,00 × 1 = 150,00 €
+l'unité, soit 1 500,00 € (et non 151,50 € l'unité avec 1,010). Source : réponse
+de Maxime du 11 novembre 2026.
+
+Le même menu écrit le **détail du coût de fourniture** de la ligne, facteur par
+facteur : base et provenance, × provision FO, × K FO, = coût FO unitaire, puis
+× coefficient de vente FO. Les produits sont ceux du moteur, sans arrondi
+intermédiaire ; seul l'affichage est arrondi au centime
+([fo-cost-detail.ts](../../src/lib/estimates/fo-cost-detail.ts)). K FO garde son
+nom (décision M534-04 de TI-534) : c'est le coefficient manuel de la ligne sur
+le seul coût de fourniture, avant marge. Exemple : référence 10,00 €, K FO 0,90,
+provision 1,01 donne 9,09 € ; provision 1,03 donne 9,27 €. Le modifier ne change
+ni la main-d'œuvre, ni la provision, ni le catalogue.
+
 Si la ventilation atelier/chantier est activée et renseignée, la MO unitaire
 additionne les deux couples heures/taux/coefficient avant la majoration. Une
 ligne non `priced` (`included`, `for_memory`, `not_priced`, `out_of_scope`,
@@ -139,7 +175,9 @@ ligne non `priced` (`included`, `for_memory`, `not_priced`, `out_of_scope`,
 Cela ne la rend pas automatiquement prête à l'émission : le gel applique ses
 propres contrôles de complétude, d'unité et de taux, et une ligne `not_priced`
 bloque l'envoi tant qu'elle n'est pas classée (TI-682, voir
-[cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)).
+[cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)). Une ligne classée
+après avoir été `not_priced` porte un motif interne (`status_reason`) avant
+l'envoi ; ce motif ne change aucun montant et n'entre pas dans le sceau.
 
 Le pied suit cet ordre :
 

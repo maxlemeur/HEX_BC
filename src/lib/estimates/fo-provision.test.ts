@@ -52,6 +52,22 @@ describe("TI-534 FO provision mirror", () => {
     expect(withRederivedFoProvision(undefined, legacy, PROVISIONS)).toBe(legacy);
   });
 
+  // Réponse de Maxime du 11/11/2026 : une POSE SEULE ne prend ni pertes ni transport, même avec une petite
+  // fourniture (supportage). Sa provision vaut 1 tant qu'elle garde cette nature, et se redérive quand elle la quitte.
+  it("gives a POSE SEULE line a provision of 1, whatever its type, and re-derives it when the nature leaves", () => {
+    expect(deriveFoProvision(TUBE, PROVISIONS, undefined, "pose_only")).toBe(1);
+    expect(deriveFoProvision(null, PROVISIONS, undefined, "pose_only")).toBe(1);
+    expect(deriveFoProvision(TUBE, PROVISIONS, undefined, "labor_only")).toBe(1.03);
+    const tube = { supply_type_id: TUBE, fo_provision: 1.03, line_nature: "supply_and_labor" as const };
+    const pose = withRederivedFoProvision(tube, { ...tube, line_nature: "pose_only" as const }, PROVISIONS);
+    expect(pose.fo_provision).toBe(1);
+    // A type change on a POSE SEULE line keeps 1; leaving the nature takes the type's provision again.
+    expect(withRederivedFoProvision(pose, { ...pose, supply_type_id: RACCORD }, PROVISIONS).fo_provision).toBe(1);
+    expect(withRederivedFoProvision(pose, { ...pose, line_nature: "supply_and_labor" as const }, PROVISIONS).fo_provision).toBe(1.03);
+    // Another edit of a POSE SEULE line keeps 1, as for any line.
+    expect(withRederivedFoProvision(pose, { ...pose, unit_price_ht_cents: 500 }, PROVISIONS).fo_provision).toBe(1);
+  });
+
   it("gives a v3 line recovered with a pending supply type the provision of that type, nothing else", () => {
     const server = { item_type: "line", supply_type_id: RACCORD, fo_provision: 1.01 };
     const recovered = { ...server, supply_type_id: TUBE };

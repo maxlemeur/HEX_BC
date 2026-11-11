@@ -1156,6 +1156,55 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
+-- TI-539 : mention « POSE SEULE » du contrat 2. La clé facultative `poseOnly` d'une ligne vaut exactement `true` ;
+-- le validateur la refuse sur une section ou sous une autre valeur, et l'appariement exige qu'elle suive la nature
+-- de la ligne figée : ni mention inventée sur une ligne ordinaire, ni mention oubliée sur une ligne POSE SEULE.
+-- Isolation (AGENTS.md) : seule la publication service_role reçoit un contrat présenté ; aucun parcours ne peut
+-- présenter une copie dont la mention diffère du devis figé. La nature de la ligne figée O2 est posée hors
+-- déclencheurs, dans le sous-bloc annulé de la sonde.
+-- ---------------------------------------------------------------------------
+create function pg_temp.c2_pose_match(p_contract jsonb)
+returns text
+language sql
+stable
+as $$
+  select pg_temp.v3_probe(array[
+      'set local session_replication_role = replica',
+      format($s$update public.estimate_items set line_nature = 'pose_only' where id = %L::uuid$s$,
+        pg_temp.c2_item('a3270000-0000-4000-8000-000000000120', 2)),
+      'set local session_replication_role = origin',
+      'set local role service_role'
+    ],
+    format('select public.estimate_offer_client_items_match_v2(%L::jsonb, version)::text from public.estimate_versions version where version.id = %L::uuid',
+      p_contract, 'a3270000-0000-4000-8000-000000000120'))
+$$;
+
+select is(
+  array[
+    pg_temp.c2_valid(pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,2,poseOnly}', 'true')),
+    pg_temp.c2_valid(pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,2,poseOnly}', 'false')),
+    pg_temp.c2_valid(pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,2,poseOnly}', '"true"')),
+    pg_temp.c2_valid(pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,0,poseOnly}', 'true'))
+  ],
+  array['ok:true', 'ok:false', 'ok:false', 'ok:false'],
+  'TI-539 the contract 2 validator accepts poseOnly true on a line and refuses false, a string, or the key on a section'
+);
+
+select is(
+  array[
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120', pg_temp.c2_set(
+      pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,2,poseOnly}', 'true')),
+    pg_temp.c2_pose_match(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2')),
+    pg_temp.c2_pose_match(pg_temp.c2_set(
+      pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,2,poseOnly}', 'true')),
+    pg_temp.c2_pose_match(pg_temp.c2_set(
+      pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,3,poseOnly}', 'true'))
+  ],
+  array['ok:false', 'ok:false', 'ok:true', 'ok:false'],
+  'TI-539 the contract 2 item match refuses an invented mention, a forgotten mention and a mention on another line, and accepts the mention of the frozen POSE SEULE line'
+);
+
+-- ---------------------------------------------------------------------------
 -- F27-14, F27-15 : publication sans gel document v3 frais.
 -- ---------------------------------------------------------------------------
 select matches(

@@ -53,6 +53,8 @@ import { CatalogueSuggestionsPopover } from "@/components/estimates/components/e
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
+import { siteCostLabelOf, V3SiteCostControl, V3SiteCostDialog } from "@/components/estimates/v3/V3SiteCostControl";
+import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
 import { readEstimateV3GridLineMargin, useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
 import {
   type CataloguePriceSuggestion,
@@ -327,6 +329,7 @@ export function LineRow({
 }: LineRowProps) {
   const [catalogueSuggestionsAnchor, setCatalogueSuggestionsAnchor] =
     useState<HTMLDivElement | null>(null);
+  const [siteCostOpen, setSiteCostOpen] = useState(false); // TI-541 : formulaire du coût chantier, hors du menu « … ».
   const v3Grid = useEstimateV3Grid(); // Lot 2, sous-lot 2.6 : cellules v3 déléguées (V3LineCells).
 
   const treeConnectorSegments = buildTreeConnectorSegments(treeConnectorMeta);
@@ -350,10 +353,11 @@ export function LineRow({
   const selectedSupplierText = isSupplierColumnVisible && selectedSupplierName
     ? `${selectedSupplierName}${selectedSupplierReference ? ` · ${selectedSupplierReference}` : ""}`
     : selectedSupplierLabel;
+  const siteCostLabel = v3Grid ? siteCostLabelOf(item) : null; // TI-541 : un coût chantier tient la place de l'offre du catalogue, avec sa source.
   const supplierOfferContent = (
     <div className="flex min-w-0 items-center gap-2 text-xs" data-testid={item.selected_supplier_price_id ? "estimate-line-selected-supplier" : "estimate-line-supplier-empty"}>
-      <span className="min-w-0 flex-1 truncate text-[var(--slate-600)]" aria-label={item.selected_supplier_price_id ? selectedSupplierLabel : "Aucune offre retenue"} title={item.selected_supplier_price_id ? selectedSupplierLabel : "Aucune offre retenue"}>
-        {item.selected_supplier_price_id ? selectedSupplierText : "Aucune offre retenue"}
+      <span className="min-w-0 flex-1 truncate text-[var(--slate-600)]" aria-label={item.selected_supplier_price_id ? selectedSupplierLabel : siteCostLabel ?? "Aucune offre retenue"} title={item.selected_supplier_price_id ? selectedSupplierLabel : siteCostLabel ?? "Aucune offre retenue"}>
+        {item.selected_supplier_price_id ? selectedSupplierText : siteCostLabel ?? "Aucune offre retenue"}
       </span>
       {!hideEditingActions ? (
         <button
@@ -519,6 +523,7 @@ export function LineRow({
         onPatchItem={onPatchItem}
       />
       <EstimateLineTruthBadges item={item} />
+      {siteCostLabel ? <span className="text-xs text-[var(--slate-600)]" data-testid="estimate-line-site-cost-badge" title={siteCostLabel}>Coût chantier</span> : null}
       {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Type FO à préciser</span> : null}
       {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
         <div className="estimate-quality-dots">
@@ -593,6 +598,7 @@ export function LineRow({
   // Contenus longs ou rares : ils vivent dans le menu « … » de la ligne au lieu
   // d'ajouter un rang de badges et de messages sous le titre.
   const hasLineDetails =
+    siteCostLabel !== null ||
     hasTakeoffSourceBadge(item.source_provider) ||
     hasSupplierComparisonMismatch ||
     actionableOutlierFlags.length > 0;
@@ -824,9 +830,11 @@ export function LineRow({
               <div className="estimate-line-more__items">
                 <div className="estimate-line-more__state">{lineStateNodes}</div>
                 {v3Grid ? <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : null}
+                {v3Grid && item.pricing_status === "priced" ? <V3SiteCostControl item={item} saleCoefficientFo={v3Grid.saleCoefficientFo} isReadOnly={isReadOnly} onEditSiteCost={() => setSiteCostOpen(true)} /> : null}
                 {lineDetailNodes}
               </div>
             </Popover>
+            {v3Grid ? <V3SiteCostDialog item={item} open={siteCostOpen} isReadOnly={isReadOnly} onClose={() => setSiteCostOpen(false)} onPatchItem={onPatchItem} /> : null}
           </div>
         </div>
       </div>
@@ -907,7 +915,7 @@ export function LineRow({
             priceOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""
-          }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`,
+          }${!item.unit_price_ht_cents && !isPoseOnlyLine(item) ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
         type="text"

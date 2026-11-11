@@ -79,6 +79,8 @@ export type EstimateEditorItemPatch = Partial<
     | "fo_price_origin"
     // Lot 2, sous-lot 2.6 : saisies d'une ligne v3 (D4, D9), jamais leurs totaux dérivés.
     | "unit_code" | "pricing_status" | "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit"
+    // TI-682, lot C : motif interne d'une exclusion, écrit avec le statut ou après lui.
+    | "status_reason"
   >
 > &
   LaborSplitItemFields;

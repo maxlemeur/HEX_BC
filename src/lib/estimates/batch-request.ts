@@ -1,4 +1,5 @@
 import type { BatchOperationInput } from "@/lib/estimates/schemas";
+import { normalizeStatusReason, type EstimateStatusReasonCode } from "@/lib/estimates/status-reason";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 // Browser-safe request identity only. The server still validates with Zod.
@@ -15,6 +16,8 @@ const LINE_FIELDS = [
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id", "fo_price_origin",
   // Lot 2, sous-lot 2.5 : colonnes de saisie v3 (D4, D9), jamais retirées en silence.
   "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
+  // TI-682, lot C : motif interne d'une exclusion.
+  "status_reason",
 ] as const;
 const UPDATE_FIELDS = [
   "line_nature", "parent_id", "position", "title", "aid", "description",
@@ -24,6 +27,7 @@ const UPDATE_FIELDS = [
   "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents", "labor_role_id",
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id", "fo_price_origin",
   "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
+  "status_reason",
 ] as const;
 const UUID_FIELDS = new Set([
   "parent_id", "source_job_id", "labor_role_id", "labor_role_atelier_id",
@@ -55,6 +59,10 @@ function canonicalItemData(data: object, fields: readonly string[]) {
       // refusée par la préparation (ESTIMATE_V3_UNIT_UNKNOWN), jamais remplacée par une unité.
       const trimmed = value.trim();
       result[field] = trimmed ? normalizeMeasurementUnit(trimmed).unitCode ?? trimmed : null;
+    } else if (field === "status_reason" && value !== null && typeof value === "object") {
+      // Stored as the database stores it: { code, note } with the note trimmed, null when empty.
+      const reason = value as { code: EstimateStatusReasonCode; note?: string | null };
+      result[field] = normalizeStatusReason(reason);
     } else {
       result[field] = value;
     }

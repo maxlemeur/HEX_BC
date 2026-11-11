@@ -32,7 +32,7 @@ function item(overrides: Partial<EstimateItemRow> = {}): EstimateItemRow {
     line_total_ht_cents: 9000, line_tax_cents: 1800, line_total_ttc_cents: 10800,
     source_provider: "takeoff", source_job_id: "job", source_file_name: "lot.pdf",
     source_page: 4, source_metadata: { extraction: "measured" },
-    unit_code: null, pricing_status: "priced", fo_price_origin: null, fo_provision: 1,
+    unit_code: null, pricing_status: "priced", fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false,
     h_mo_per_unit: null, h_mo_atelier_per_unit: null, h_mo_chantier_per_unit: null,
     snapshot_fo_ht_cents: null, snapshot_gross_fo_ht_cents: null,
     snapshot_gross_ht_cents: null, snapshot_mo_atelier_ht_cents: null,
@@ -269,5 +269,17 @@ describe("estimate sibling permutation plans", () => {
         expected_target_ids: ["c", "moving"], received_target_ids: lists.orderedTargetIds,
       },
     });
+  });
+});
+
+// TI-682, lot C: the internal reason of an exclusion is written by the batch only. The single-item creation (the
+// editor's restore of a deleted line, the public route) refuses it by name, before the database refuses it generically.
+describe("internal reason on a single-item creation", () => {
+  it("refuses a status_reason by name and creates the same line without it", () => {
+    const input = { item_type: "line", title: "Calorifuge", pricing_status: "out_of_scope", unit_code: "u" } as CreateEstimateItemInput;
+    expect(publicError(() => creation({ ...input, status_reason: { code: "other_trade", note: null } } as CreateEstimateItemInput)))
+      .toMatchObject({ status: 400, code: "ESTIMATE_STATUS_REASON_BATCH_ONLY" });
+    expect(creation(input)).not.toHaveProperty("status_reason");
+    expect(creation({ ...input, status_reason: null } as CreateEstimateItemInput)).not.toHaveProperty("status_reason");
   });
 });

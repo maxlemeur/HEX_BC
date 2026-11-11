@@ -5,6 +5,7 @@ import type {
   EstimateDocumentV3PreparedData,
   EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
 import { OfferCaptureError } from "@/lib/estimates/offer-contract-capture";
 import {
   parseOfferDocumentProof,
@@ -60,7 +61,7 @@ export type ClientContract2BuildInput = {
   project: ClientContract2["project"];
   issuer: ClientContract2["issuer"];
   company: ClientContract2["company"];
-  sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "quantity">[] & readonly { source_metadata?: unknown }[];
+  sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "quantity" | "line_nature">[] & readonly { source_metadata?: unknown }[];
   prepared: Pick<EstimateDocumentV3PreparedData, "layout" | "numberingById" | "sectionTotalsById" | "v3">;
   exclusions: string | null;
 };
@@ -108,7 +109,9 @@ export function buildClientContract2(input: ClientContract2BuildInput): ClientCo
         rows.push({ kind: "line", ...common, quantity: entry.quantity, unitCode: line.unitCode, unitLabel: line.unitLabel,
           pricingStatus: line.pricingStatus, taxRateBp: line.taxRateBp, unitSaleHtCents: line.unitSaleHtCents,
           saleHtCents: line.saleHtCents,
-          ...(showPortions ? { foSaleHtCents: line.foSaleHtCents, moSaleHtCents: line.moSaleHtCents } : {}) });
+          ...(showPortions ? { foSaleHtCents: line.foSaleHtCents, moSaleHtCents: line.moSaleHtCents } : {}),
+          // TI-539 : le choix explicite POSE SEULE de la ligne figée s'imprime avec sa désignation.
+          ...(isPoseOnlyLine(entry) ? { poseOnly: true as const } : {}) });
       }
     }
   };

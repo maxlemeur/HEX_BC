@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
+import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
+import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 
 import { ESTIMATE_STATUS_VALUES } from "@/lib/estimates/status";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
@@ -88,10 +90,12 @@ export const estimateEditorItemSchema = z.object({
   selected_supplier_details: z.object({
     price_id: uuid, name: z.string().nullable(), reference: z.string().nullable(),
   }).nullable().optional(),
-  line_nature: z.enum(["supply_only", "supply_and_labor", "labor_only"]).nullable(),
+  line_nature: z.enum(ESTIMATE_LINE_NATURES).nullable(),
   fo_price_origin: foPriceOriginSchema.nullable().default(null),
   fo_provision: number.nullable().default(1), aid: z.string().nullable(),
   unit_code: z.string().nullable(), pricing_status: z.enum(ESTIMATE_LINE_PRICING_STATUSES),
+  // TI-682, lot C: internal; the editor and the send window read them, the client never does.
+  status_reason: estimateStatusReasonSchema.nullable().default(null), was_not_priced: z.boolean().default(false),
   line_total_ht_cents: integer.nullable(), line_tax_cents: integer.nullable(), line_total_ttc_cents: integer.nullable(),
   snapshot_pu_ht_cents: integer.nullable(), snapshot_gross_ht_cents: integer.nullable(),
   snapshot_gross_fo_ht_cents: integer.nullable(), snapshot_fo_ht_cents: integer.nullable(),

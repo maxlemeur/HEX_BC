@@ -97,6 +97,31 @@ describe("page triage run", () => {
     expect(retried.triage?.accepted).toBe(false);
   });
 
+  it("offers a free level of the scope on the page that prints it and stores the answer as written (TI-687)", async () => {
+    const seen: Array<Parameters<TakeoffPageTriageDecide>[0]> = [];
+    const decide: TakeoffPageTriageDecide = async (input) => {
+      seen.push(input);
+      const result = answer(input);
+      return { ...result, answers: result.answers.map((entry) => entry.name === "page_level" ? { ...entry, value: "L00" } : entry) };
+    };
+    const bytes = await fictionalPdf(["DATA HALL L00 PLUMBING", "DATA HALL GANTRY CHW"]);
+    const scope = { levels: ["L00", "L01"], zones: [] };
+    const run = await base(bytes, decide, { scope });
+    const choices = (page: number) => {
+      const question = seen.find((input) => input.evidence.page === page)!.questions.find((entry) => entry.name === "page_level");
+      return question?.type === "choice" ? question.choices.map((choice) => choice.value) : null;
+    };
+    expect(choices(1)).toEqual(["L00", "inconnu"]);
+    expect(choices(2)).toBeNull();
+    expect(run.triage?.pages.map((page) => [page.page, page.level])).toEqual([[1, "L00"], [2, null]]);
+    // The declared labels are part of the triage identity; a scope of known levels keeps the identity it had.
+    const other = await base(bytes, decide, { scope: { levels: ["L00", "GANTRY"], zones: [] } });
+    expect(other.triage?.questions_fingerprint).not.toBe(run.triage?.questions_fingerprint);
+    const known = await base(bytes, decide, { scope: { levels: ["R+1"], zones: [] } });
+    const sameKnown = await base(bytes, decide, { scope: { levels: ["Niveau R+1", "Tous les niveaux du lot"], zones: [] } });
+    expect(sameKnown.triage?.questions_fingerprint).toBe(known.triage?.questions_fingerprint);
+  });
+
   it("keeps a correction on a page that is asked again", async () => {
     const bytes = await fictionalPdf(["FACADE NORD", "PLAN R+1 Zone 1"]);
     const decide: TakeoffPageTriageDecide = async (input) => answer(input);

@@ -8,9 +8,11 @@ import {
   apiRequest, armyTest, readEstimate, recordEvidence, resolveDownload, saveLineEditsWithShortcut, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
-import { readWorkbookRows, type WorkbookRow } from "./engine-v3-emission-support";
+import * as XLSX from "xlsx";
+
+import { generatePdf, printText, readWorkbookRows, type WorkbookRow } from "./engine-v3-emission-support";
 import {
-  BANNER, addGridLine, checkpoint, clickSaveSettings, eur, fillCell, grid, lineView, lockVersion, normalized, openSettings,
+  BANNER, addGridLine, checkpoint, openLineStateControl, clickSaveSettings, eur, fillCell, grid, lineView, lockVersion, normalized, openSettings,
   openV3Editor, pause, prepareV3Draft, readConsistent, releaseVersion, seedLines, settingsDialog, switchToExpertMode,
   waitForDraftLease, type Envelope, type LineView, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
@@ -49,6 +51,10 @@ import { insertProjectMarginRule } from "./engine-v3-persistence-support";
 //  V3E18 — restauration d'un brouillon en conflit par l'écrivain v3, jamais la marge v2 ;
 //  V3E19 — unité d'une règle de suggestion écrite dans unit_code en lot et sur une ligne ; unité inconnue refusée par
 //          son nom ; une unité choisie n'est jamais remplacée (revue de 2.6b, A15).
+// TI-682, lot C (PR 3) :
+//  V3E23 — une ligne « Non chiffrée » passée « Hors lot » sans motif : la grille demande le motif sans refuser le
+//          statut ; l'envoi liste la ligne, sans forçage ; le motif saisi dans la fenêtre d'envoi la libère ; le CSV
+//          interne le montre, l'impression client ne le montre pas.
 // Le refus générique du moteur 3 (bandeau de 2.1) n'est jamais une issue admise d'une action de la grille v3.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
@@ -1316,6 +1322,104 @@ armyTest("V3E16 included, for-memory and out-of-scope v3 lines at 0 € raise no
     }
     await recordEvidence(army, "v3e16-editor-dots", { versionId: draft.versionId, actual: dots, nativeDialogs: dialogs });
     expect(dots, "the v3 editor shows no missing price or labour time on status lines").toEqual(empty);
+  });
+
+armyTest("V3E23 a « Non chiffrée » v3 line classified « Hors lot » asks its internal reason without refusing the status; the send lists it, with no override, until the reason is entered there; the CSV shows the reason, the print does not",
+  options(300_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E23");
+    const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    const note = "Lot CVC du marché, chiffré par un autre corps d'état";
+    const [lineP, lineN] = await seedLines(ui, army, draft, "v3e23", [
+      withLabor(title("P"), 2, 1500, 1, draft.tuyauteurId, { unit_code: "ml" }),
+      statusLine(title("N"), "not_priced", "supply_only"),
+    ]);
+    const record = (label: string, data: unknown) => recordEvidence(army, label, data);
+    // A document exists before the send is checked: the only blockers left are the line's.
+    await generatePdf(browser, record, "v3e23", draft.versionId);
+    const lineState = (state: ArmyEstimate) => {
+      const item = state.items.find(row => row.id === lineN.id);
+      return item ? { status: item.pricing_status, wasNotPriced: item.was_not_priced, reason: item.status_reason ?? null } : null;
+    };
+
+    // The grid asks for the reason when the « Non chiffrée » line goes « Hors lot », and saves the status anyway.
+    await openV3Editor(ui, army, draft, "v3e23");
+    await waitForDraftLease(ui);
+    const status = await openLineStateControl(ui, title("N"), "Statut de chiffrage");
+    await status.selectOption({ value: "out_of_scope" });
+    const asked = screen.getByRole("dialog", "Motif interne de l'exclusion", { exact: true });
+    await expect(asked).toBeVisible({ timeout: 30_000 });
+    await pause(500); // the dialog's opening transition, for a readable capture
+    const askedScreenshot = await app.screenshot("v3e23-reason-dialog");
+    await asked.getByRole("button", "Plus tard", { exact: true }).click();
+    await expect(asked).toBeHidden({ timeout: 30_000 });
+    const classified = await waitForAutoSave(ui, draft.versionId, state => lineState(state)?.status === "out_of_scope", army);
+    await record("v3e23-classified", { versionId: draft.versionId, lineId: lineN.id, actual: lineState(classified) });
+    expect(lineState(classified), "the status is saved without a reason, and the line stays « was not priced »")
+      .toEqual({ status: "out_of_scope", wasNotPriced: true, reason: null });
+    const gating = await readGating(ui, draft.versionId);
+    const gatingView = { canSend: gating.canSend, blocking: gating.blockingFlags.map(flag => flag.key).sort(),
+      excluded: flaggedIds(gating, "excluded_without_reason", [lineP.id, lineN.id]) };
+    await record("v3e23-gating-without-reason", { versionId: draft.versionId, gating, actual: gatingView });
+    expect(gatingView, "the send is blocked by the missing reason, and by it alone").toEqual({
+      canSend: false, blocking: ["excluded_without_reason"], excluded: [lineN.id] });
+
+    // The send window lists the line by its title, offers the administrator no override, and takes the reason.
+    const send = screen.getByTestId("estimate-page-toolbar-send-button");
+    await expect(send).toBeEnabled({ timeout: 30_000 });
+    await send.click();
+    const sendWindow = screen.getByRole("dialog", "Vérification avant envoi", { exact: true });
+    await expect(sendWindow).toBeVisible({ timeout: 30_000 });
+    await expect(sendWindow.getByText("Motif interne d'exclusion à saisir", { exact: true })).toBeVisible();
+    await expect(sendWindow.getByText(title("N"), { exact: true })).toBeVisible();
+    // No override is offered. The campaign's user is not an administrator (profiles.role), so this window never offers
+    // one to it; the refusal for an administrator is proved without a browser: ESTIMATE_GATING_NOT_FORCEABLE
+    // (version-lifecycle-plan.test.ts) and the withheld button (EstimateSendGatingDialog.test.tsx).
+    const override = await sendWindow.getByRole("button", "Forcer l'envoi", { exact: true }).count();
+    const confirmBefore = await sendWindow.getByRole("button", "Envoyer", { exact: true }).isEnabled();
+    await pause(500);
+    const listedScreenshot = await app.screenshot("v3e23-send-window-listed");
+    await sendWindow.getByRole("combobox", `Motif interne pour ${title("N")}`, { exact: true }).selectOption({ value: "other_trade" });
+    await sendWindow.getByRole("textbox", `Précision du motif pour ${title("N")}`, { exact: true }).fill(note);
+    await sendWindow.getByRole("button", `Enregistrer le motif de ${title("N")}`, { exact: true }).click();
+    await expect(sendWindow.getByText("Aucun point bloquant ni avertissement : la version peut être envoyée.", { exact: true }))
+      .toBeVisible({ timeout: 60_000 });
+    const confirmAfter = await sendWindow.getByRole("button", "Envoyer", { exact: true }).isEnabled();
+    const releasedScreenshot = await app.screenshot("v3e23-send-window-released");
+    await record("v3e23-send-window", { versionId: draft.versionId, actual: { override, confirmBefore, confirmAfter },
+      screenshots: [askedScreenshot, listedScreenshot, releasedScreenshot] });
+    expect({ override, confirmBefore, confirmAfter }, "no override; the send opens once the reason is entered")
+      .toEqual({ override: 0, confirmBefore: false, confirmAfter: true });
+    // The critical guard refuses any status mutation: the version is not sent here (V3M journeys send).
+    await sendWindow.getByRole("button", "Annuler", { exact: true }).click();
+    await expect(sendWindow).toBeHidden({ timeout: 30_000 });
+
+    const reasoned = await readEstimate(browser, draft.versionId);
+    const released = await readGating(ui, draft.versionId);
+    await record("v3e23-reasoned", { versionId: draft.versionId, line: lineState(reasoned), gating: released });
+    expect({ line: lineState(reasoned), canSend: released.canSend }).toEqual({
+      line: { status: "out_of_scope", wasNotPriced: true, reason: { code: "other_trade", note } }, canSend: true });
+
+    // The internal CSV carries the reason in its last column; the client's print never does.
+    const csv = await browser.evaluate(async (versionId) => {
+      const response = await fetch(`/api/estimates/${versionId}/export?format=csv`, { credentials: "same-origin", redirect: "error" });
+      return { status: response.status, text: await response.text() };
+    }, draft.versionId);
+    const book = XLSX.read(csv.text.replace(/^\ufeff/, ""), { type: "string", raw: true, FS: ";" });
+    const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets[book.SheetNames[0]], { header: 1, raw: true, defval: "" });
+    const header = (rows[0] ?? []).map(cell => String(cell));
+    const reasonOf = (lineTitle: string) =>
+      rows.find(row => row[header.indexOf("Désignation")] === lineTitle)?.[header.indexOf("Motif interne")] ?? null;
+    const csvView = { status: csv.status, last: header.slice(-2), reasons: [reasonOf(title("P")), reasonOf(title("N"))] };
+    const printed = await printText(app, screen, browser, draft.versionId);
+    const printView = { line: printed.includes(title("N")), status: printed.includes("Hors lot"), note: printed.includes(note),
+      label: printed.includes("Autre lot ou corps d'état") };
+    await record("v3e23-outputs", { versionId: draft.versionId, csv: csvView, print: printView, nativeDialogs: dialogs });
+    expect(csvView).toEqual({ status: 200, last: ["Provision métré", "Motif interne"],
+      reasons: ["", `Autre lot ou corps d'état : ${note}`] });
+    expect(printView, "the client's print shows the line and its status, never its internal reason")
+      .toEqual({ line: true, status: true, note: false, label: false });
   });
 
 /**

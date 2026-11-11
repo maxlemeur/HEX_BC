@@ -1,4 +1,5 @@
 import type { FoPriceOrigin } from "@/lib/estimates/fo-price-origin";
+import type { EstimateStatusReason } from "@/lib/estimates/status-reason";
 import type { Database as GeneratedDatabase, Json } from "./database.generated";
 
 export type { Json } from "./database.generated";
@@ -15,7 +16,7 @@ type CheckedColumnSpec<T extends {
     : never;
 }> = T;
 type CheckedColumns = CheckedColumnSpec<{
-  estimate_items: { fo_price_origin: FoPriceOrigin | null };
+  estimate_items: { fo_price_origin: FoPriceOrigin | null; status_reason: EstimateStatusReason | null };
   profiles: { ui_mode: "simplified" | "expert" };
   procurement_storage_cleanup_outbox: { bucket_id: "devis" };
   supplier_pricebook: { transport_mode: "included" | "excluded" | null; zero_price_kind: "included" | "free" | null; purchase_rounding: "none" | "ceil" | null };

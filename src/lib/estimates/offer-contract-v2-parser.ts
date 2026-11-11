@@ -59,6 +59,11 @@ type Line2 = {
   unitSaleHtCents: number | null;
   /** Brut de ligne ⌈Q × PU⌋ (0 sur une ligne non chiffrée). */
   saleHtCents: number;
+  /**
+   * TI-539 : présente (et alors `true`) sur une ligne que l'utilisateur a notée POSE SEULE ; le document
+   * imprime la mention avec sa désignation. Absente sinon : une copie d'avant TI-539 reste valide à l'identique.
+   */
+  poseOnly?: true;
 };
 export type CommercialRow2 = Section2 | Line2 | (Section2 & SaleFoMo2) | (Line2 & SaleFoMo2);
 export type ClientContract2DiscountIntent = { kind: "none" | "amount" } | { kind: "rate"; rateBp: number };
@@ -157,7 +162,7 @@ function row(value: unknown): CommercialRow2 {
   choice(kind, ["section", "line"], "rows.kind");
   const source = object(value, ["kind", "id", "parentId", "position", "depth", "title", "saleHtCents",
     ...(section ? ["number"] : ["quantity", "unitCode", "unitLabel", "pricingStatus", "taxRateBp", "unitSaleHtCents"])],
-  "rows", ["foSaleHtCents", "moSaleHtCents", ...(section ? ["kitMetier"] : [])]);
+  "rows", ["foSaleHtCents", "moSaleHtCents", ...(section ? ["kitMetier"] : ["poseOnly"])]);
   const common = {
     id: uuid(source.id, "rows.id"), parentId: nullableUuid(source.parentId, "rows.parentId"),
     position: integer(source.position, 0, MAX_CENTS, "rows.position"),
@@ -176,6 +181,7 @@ function row(value: unknown): CommercialRow2 {
     pricingStatus: choice(source.pricingStatus, ESTIMATE_LINE_PRICING_STATUSES, "rows.pricingStatus"),
     taxRateBp: integer(source.taxRateBp, 0, 10_000, "rows.taxRateBp"),
     unitSaleHtCents: source.unitSaleHtCents === null ? null : cents(source.unitSaleHtCents, "rows.unitSaleHtCents"),
+    ...(Object.hasOwn(source, "poseOnly") ? { poseOnly: source.poseOnly === true ? true as const : invalid("rows.poseOnly") } : {}),
   };
   if ((line.unitCode === null) !== (line.unitLabel === null)) invalid("rows.unit");
   if (line.pricingStatus === "priced") {

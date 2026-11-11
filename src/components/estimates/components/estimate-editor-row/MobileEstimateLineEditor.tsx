@@ -34,8 +34,8 @@ import {
 } from "@/lib/money";
 import {
   ESTIMATE_LINE_NATURE_LABELS,
-  ESTIMATE_LINE_NATURES,
   resolveEstimateLineNature,
+  selectableEstimateLineNatures,
   type EstimateLineNature,
 } from "@/lib/estimates/line-nature";
 
@@ -189,7 +189,7 @@ export function MobileEstimateLineEditor({
                   )
                 }
               >
-                {ESTIMATE_LINE_NATURES.map((nature) => (
+                {selectableEstimateLineNatures({ printsPoseOnly: isV3, current: resolveEstimateLineNature(item) }).map((nature) => (
                   <option key={nature} value={nature}>
                     {ESTIMATE_LINE_NATURE_LABELS[nature]}
                   </option>

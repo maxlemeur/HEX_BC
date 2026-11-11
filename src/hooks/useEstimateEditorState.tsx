@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { applyStatusReasonRules, type EstimateStatusReason } from "@/lib/estimates/status-reason";
 import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
@@ -95,6 +96,7 @@ import {
 } from "@/lib/estimates/v3-editor-writer";
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
+  ESTIMATE_V3_PRICING_STATUS_OPTIONS,
 } from "@/lib/estimates/v3-editor";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 import {
@@ -1513,7 +1515,10 @@ export function useEstimateEditorState({
         // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3. Un changement de type
         // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
         const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
-        return withRederivedFoProvision(current, item, foProvisionBySupplyTypeId);
+        // TI-682, lot C : la ligne reste celle que la base garde (« a été Non chiffrée » collant, motif effacé quand
+        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet).
+        const tracked = current ? applyStatusReasonRules(current, item) : item;
+        return withRederivedFoProvision(current, tracked, foProvisionBySupplyTypeId);
       }
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
@@ -2392,7 +2397,8 @@ export function useEstimateEditorState({
   );
 
   const v3Grid = useMemo<EstimateV3GridModel | null>(
-    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp }),
+    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
+      saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null }),
     [v3Breakdown, allowedTaxRatesBp]
   );
 
@@ -2557,9 +2563,10 @@ export function useEstimateEditorState({
             isExpert,
             onOpenSettings: handleOpenSettingsDrawer,
             v3Summary: v3Breakdown === undefined ? undefined : buildEstimateV3SummaryView(v3Breakdown),
+            missingSupplyCostCount: qualityCounts.byFlag.missing_price,
           }
         : null,
-    [handleOpenSettingsDrawer, isExpert, settings, totals, v3Breakdown]
+    [handleOpenSettingsDrawer, isExpert, qualityCounts.byFlag.missing_price, settings, totals, v3Breakdown]
   );
 
   const snapshotContext = version?.calc_snapshot_context;
@@ -2732,6 +2739,25 @@ export function useEstimateEditorState({
     ]
   );
 
+  // TI-682, lot C : les lignes exclues après « Non chiffrée » sans motif interne, nommées dans la fenêtre d'envoi, où
+  // leur motif se saisit sur place (enregistré par le lot, puis l'envoi est contrôlé de nouveau).
+  const statusReasonItemIds = sendGating?.blockingFlags.find((flag) => flag.key === "excluded_without_reason")?.itemIds;
+  const statusReasonLines = useMemo(() => (statusReasonItemIds ?? []).map((itemId) => {
+    const item = items.find((candidate) => candidate.id === itemId);
+    return {
+      id: itemId,
+      title: item?.title?.trim() || "Sans titre",
+      statusLabel: ESTIMATE_V3_PRICING_STATUS_OPTIONS.find((option) => option.value === item?.pricing_status)?.label ?? "",
+    };
+  }), [items, statusReasonItemIds]);
+  const { requestSend: recheckSend } = statusController.actions;
+  const saveStatusReasonFromSendDialog = useCallback(async (itemId: string, reason: EstimateStatusReason) => {
+    await handlePatchItem(itemId, { status_reason: reason }, { persist: true });
+    const flushed = await flushBufferedItemUpdates();
+    if (flushed === "error" || flushed === "blocked") return;
+    await recheckSend();
+  }, [flushBufferedItemUpdates, handlePatchItem, recheckSend]);
+
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
@@ -2740,6 +2766,8 @@ export function useEstimateEditorState({
     warningFlags: sendGating?.warningFlags ?? [],
     canForce: isAdmin,
     projectId: version?.project_id ?? null,
+    statusReasonLines,
+    onSaveStatusReason: isReadOnly || isConflictLocked || isViewerReadOnly ? undefined : saveStatusReasonFromSendDialog,
     onClose: closeSendGatingDialog,
     onConfirm: () => void handleConfirmSend(false),
     onForceConfirm: () => void handleConfirmSend(true),

@@ -55,6 +55,7 @@ const V3_INPUT_ITEM_KEYS = [
   "h_mo_per_unit",
   "h_mo_atelier_per_unit",
   "h_mo_chantier_per_unit",
+  "status_reason",
 ] as const;
 
 /** Libellés de la grille (contrat d'écran §4.2) ; le référentiel garde ses libellés d'import. */

@@ -556,6 +556,27 @@ describe("estimate server coverage additions", () => {
     expect(result.exceptions[0]?.reason).toBe("currency_mismatch");
   });
 
+  // TI-541. Isolated: a bulk preselection that silently replaces a negotiated site cost by the only catalogue
+  // offer cannot be told from a wanted choice once written; the proposal list is the only place to refuse it.
+  it("ne propose pas de remplacer un cout chantier par l'offre du catalogue", () => {
+    const comparison = (itemId: string) => ({
+      item_id: itemId, selected_supplier_price_id: null, best_supplier_price_id: "price-1",
+      coverage_status: "covered" as const, risk_flags: [], selected_alternative: null,
+      alternatives: [{ kind: "best_price" as const, supplier_price_id: "price-1", supplier_id: "supplier-1", supplier_name: "Fournisseur",
+        adjusted_unit_price_cents: 10000, unit_price_cents: 10000, currency: "EUR", supplier_reference: "REF-1", catalogue_url: null,
+        updated_at: "2026-03-01T00:00:00.000Z", is_stale: false, product_designation: "Tube", is_selected: false }],
+    });
+    const result = buildEstimateSupplierPreselectionReview({
+      estimateCurrency: "EUR",
+      itemTitleById: new Map([["site-line", "Tube du chantier"], ["free-line", "Tube"]]),
+      comparisons: [comparison("site-line"), comparison("free-line")],
+      siteCostItemIds: new Set(["site-line"]),
+    });
+    expect(result.proposals.map((proposal) => proposal.item_id)).toEqual(["free-line"]);
+    expect(result.exceptions).toHaveLength(0);
+    expect(result.summary).toMatchObject({ total_items: 2, proposed_items: 1, already_selected_items: 1 });
+  });
+
   it("includes descendant variants when listing comparison data", async () => {
     const base = createAuth("engineer");
     const versionAccessBuilder = createVersionAccessBuilder({

@@ -37,6 +37,7 @@ export function createEstimateEditorResponseFixture() {
     labor_role_atelier_id: null, labor_role_chantier_id: null,
     category_id: null, supply_type_id: null, selected_supplier_price_id: null,
     product_id: null, line_nature: "supply_only", fo_price_origin: null, fo_provision: 1, aid: null,
+    status_reason: null, was_not_priced: false,
     line_total_ht_cents: 2600, line_tax_cents: 520, line_total_ttc_cents: 3120,
     unit_code: "m", pricing_status: "priced", h_mo_per_unit: 0,
     h_mo_atelier_per_unit: null, h_mo_chantier_per_unit: null,
