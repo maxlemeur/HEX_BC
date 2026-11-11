@@ -7,19 +7,22 @@ contract take precedence over historical reports and procedures.
 
 - Start with Git status and affected code, tests and configuration. Read history,
   skills and installed API docs when relevant; reuse unchanged references.
-- Work on `main` and push to `main` directly, from the canonical checkout or a
-  cloud session alike; create or switch branches only when asked, or when the
-  environment cannot push to `main`. Use a detached verification worktree when
-  credentials or concurrent work require isolation; an uncommitted task diff
-  alone does not require one.
+- `main` is protected: it only moves through a pull request whose required
+  checks (`quality-gate`, `army-critical`, `army-takeoff`, `army-calc-v3`,
+  `smoke`) are green, and a direct push is refused. Work on a branch created
+  from `origin/main`, from the canonical checkout or a cloud session alike. Use
+  a detached verification worktree when credentials or concurrent work require
+  isolation; an uncommitted task diff alone does not require one.
 - Preserve unrelated changes, untracked files and personal data. Never stage
   `.env`, `CLAUDE.local.md`, `settings.local.json`, `design-qa.md` or `outputs/`.
-- Complete requested changes through verification, review, commit and push without
-  repeated approval. Keep implementation focused. Analysis-only requests end with
-  findings. Ask only for a missing decision or an action outside the authorized scope.
-- Opening or merging a pull request, deployment, shared/remote migrations, access
-  changes and destructive actions require the explicit go of the owner, the person
-  who gave the current request. Tool permissions alone do not provide it.
+- Complete requested changes through verification, review, commit, push, pull
+  request and its automatic merge without repeated approval. Keep implementation
+  focused. Analysis-only requests end with findings. Ask only for a missing
+  decision or an action outside the authorized scope.
+- Deployment, shared/remote migrations, access changes and destructive actions
+  require the explicit go of the owner, the person who gave the current request.
+  So does merging a pull request you were not asked to deliver (someone else's,
+  Dependabot, a release). Tool permissions alone do not provide it.
 
 ## Product and data contracts
 
@@ -77,7 +80,7 @@ contract take precedence over historical reports and procedures.
 | Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
 | Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
 | Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
-| Push to `main` of code or journeys | `npm run e2e:army:reach` first: the Critical run of a push leaves out the takeoff, development, extended and calc-v3 journeys. Run the commands it prints for the journeys it maps to the change. Where it falls back to every takeoff journey or calc-v3 phase, run those whose screens or data the change can alter; the Full and calc-v3 campaigns that follow the push cover the others. |
+| Pull request of code or journeys | `npm run e2e:army:reach` first: the checks of a pull request run the critical and takeoff journeys and the calc-v3 phases it reaches, but leave out the development phase and the extended journeys, which only run in the Full campaign after the merge. Run the commands it prints for those two; the takeoff journeys and calc-v3 phases it lists run in the pull request. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
 | Final code | `npm run verify:pr` once (about 3 minutes cold, 1.5 warm). Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
@@ -132,20 +135,22 @@ contract take precedence over historical reports and procedures.
   of work, stage only scoped files and run `git diff --cached --check`. Use
   Conventional Commits in English, with the Linear id when one exists (`TI-681`).
   Report any blocker instead of claiming completion.
-- Push once per finished task, not per commit: every push to `main` that is not
-  documentation-only starts a full Critical run of about 15 minutes, and nothing
-  cancels it. After pushing, read the Quality Gate and Critical results of your
-  commit. If your change made one red, fix it before other work; if it was
-  already red, say so in your report. The push also queues the Full and calc-v3
+- Deliver each finished task as one pull request: open it ready for review,
+  never as a draft, with the template, then enable its automatic merge
+  (`gh pr merge --auto --squash`). It merges by itself once the required checks
+  are green. Push once per finished task or review round, not per commit: a new
+  push cancels the runs in progress and starts every check again.
+- Read the checks of your pull request. If your change made one red, fix it
+  before other work. If the red does not come from your change, say so in the
+  pull request with the evidence (the same journey red on `main`, or failing
+  without your diff) before rerunning the failed job; see Verification.
+- Merge `origin/main` into the branch only for a conflict, a migration to restamp
+  or a dependency on code that landed on `main`. Do not stack pull requests.
+- The merge is a push to `main`: unless it is documentation-only, it starts a full
+  Critical run of about 15 minutes and queues the Full and calc-v3
   [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
-  one at a time: an open issue « CI rouge sur main » names their red journeys,
+  one at a time. An open issue « CI rouge sur main » names their red journeys,
   and one your change caused is yours to fix.
-- Pull requests are the exception (asked for, Dependabot, or an environment that
-  cannot push to `main`). Open them ready for review, never as drafts, with the
-  template. Push once per review round, since a new push cancels the runs in
-  progress. Merge `origin/main` into the branch only for a conflict, a migration
-  to restamp or a dependency on code that landed on `main`. Do not stack them.
-  Green ones merge one at a time, on the owner's go.
 - Pushes do not deploy: Vercel Git deployment is disabled in `vercel.json`.
   Before a separately authorized deployment, confirm required shared migrations
   are applied.
