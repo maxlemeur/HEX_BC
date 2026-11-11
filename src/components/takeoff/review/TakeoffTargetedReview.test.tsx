@@ -416,7 +416,7 @@ describe("TakeoffTargetedReview", () => {
     const earlierVersion = "77777777-7777-4777-8777-777777777777";
     vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, other_takeoff_line_count: 2, unidentified_item_ids: [],
       jobs: [{ id: earlier, estimate_version_id: earlierVersion, created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan.pdf" }],
-      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ids.z1, ids.z2], earlier: [{ job_id: earlier, line_count: 2 }] }] });
+      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ids.z1, ids.z2], earlier: [{ job_id: earlier, line_count: 2 }], own_line_count: 0 }] });
     await open();
     const banner = await screen.findByRole("region", { name: "Pages déjà au devis" });
     expect(banner).toHaveTextContent("plan.pdf, page 1 : déjà au devis par le métré du 10/11/2026 (plan.pdf), 2 lignes");

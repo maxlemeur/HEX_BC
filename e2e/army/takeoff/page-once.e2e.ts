@@ -12,8 +12,8 @@ import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./wor
 // TI-682 lot D, PR 1: a plan page enters an estimate once. Today nothing compares two takeoffs of one page: relaunch
 // a plan and apply it with « Ajouter », its quantities are counted twice without a word. Before any refusal, the
 // estimator is warned. A fictional vector plan, uploaded directly with its confirmed preparation, is read by the real
-// worker and applied once; the same PDF (same content hash) is read again by a second takeoff of the same estimate
-// version. Its targeted and complete reviews name the page, the first takeoff (which the link opens) and its line in
+// worker and applied once; the same PDF (same content hash), uploaded again under another name so that only its hash
+// can tie the two, is read by a second takeoff of the same estimate version. Its targeted and complete reviews name the page, the first takeoff (which the link opens) and its line in
 // the estimate; the application wizard names them before its last click. Nothing is applied twice here: the warning
 // decides nothing. TKR01 and TKR02 (two zone plans, two pages) are the negative control. Fictional plans only.
 
@@ -44,16 +44,19 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     // The first takeoff's own page is in the estimate through itself only: nothing to report.
     expect(await readPages(ui, first)).toMatchObject({ pages: [], other_takeoff_line_count: 0 });
 
-    // The same plan read again: the same bytes and confirmed preparation, a new takeoff of the same version.
+    // The same plan read again: the same bytes and confirmed preparation, a new takeoff of the same version, under another
+    // file name: neither side has a plan file, so only the content hash can tell it is the same page.
     const second = randomUUID();
+    const relaunchName = fileName.replace(/\.pdf$/, "-relance.pdf");
+    expect(relaunchName).not.toBe(fileName);
     const bytes = Buffer.from(await buildVectorPlanPdf({ printedScale: false }));
-    const sourcePath = `${tenantId}/${second}/${fileName}`;
+    const sourcePath = `${tenantId}/${second}/${relaunchName}`;
     (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId: second });
     expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
     const snapshot = await client.from("takeoff_jobs").select("preparation_snapshot").eq("id", first).single();
     expect(snapshot.error).toBeNull();
     const inserted = await client.from("takeoff_jobs").insert({ id: second, tenant_id: tenantId, estimate_version_id: ids.versionId,
-      created_by: owner.userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
+      created_by: owner.userId, level: "C", status: "pending", source_file_name: relaunchName, source_file_path: sourcePath,
       source_file_type: "application/pdf", source_file_size_bytes: bytes.length, execution_provider: "gemini",
       preparation_snapshot: (snapshot.data as { preparation_snapshot: unknown }).preparation_snapshot } as never).select("id").single();
     expect(inserted.error).toBeNull();
@@ -67,14 +70,15 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     expect(estimateLines).toHaveLength(1);
     const pages = await readPages(ui, second);
     expect(pages).toMatchObject({ version_id: ids.versionId, unidentified_item_ids: [], other_takeoff_line_count: 1,
-      pages: [{ file_name: fileName, page: 1, earlier: [{ job_id: first, line_count: 1 }] }],
+      pages: [{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 0 }],
       jobs: [{ id: first, estimate_version_id: ids.versionId, source_file_name: fileName }] });
     expect(pages.pages[0].item_ids).toEqual(expect.arrayContaining(retained.map((item) => item.id)));
     await recordEvidence(ui.army, "TKD01-read", { ids, first, second, pages, estimateLines: estimateLines.map((line) => line.id) });
 
     // The targeted review names it at its head; « Ouvrir le métré » opens the first takeoff.
     const targeted = `/dashboard/affaires/${ids.projectId}/takeoff/${second}/review/targeted?versionId=${ids.versionId}`;
-    const pageRow = new RegExp(`${fileName.replace(/[.+]/g, "\\$&")}, page 1 : déjà au devis par le métré du \\d{2}/\\d{2}/\\d{4} \\(.+\\), 1 ligne`);
+    const escaped = (name: string) => name.replace(/[.+]/g, "\\$&");
+    const pageRow = new RegExp(`${escaped(relaunchName)}, page 1 : déjà au devis par le métré du \\d{2}/\\d{2}/\\d{4} \\(${escaped(fileName)}\\), 1 ligne`);
     await ui.app.open(targeted);
     const banner = ui.screen.getByRole("region", REGION, { exact: true });
     await expect(banner).toBeVisible();

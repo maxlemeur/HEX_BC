@@ -231,7 +231,7 @@ describe("TakeoffApplyWizard", () => {
     const EARLIER_JOB = "66666666-6666-4666-8666-666666666666";
     const conflict = { version_id: VERSION_ID, jobs: [{ id: EARLIER_JOB, estimate_version_id: VERSION_ID,
       created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan.pdf" }], unidentified_item_ids: [], other_takeoff_line_count: 2,
-      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ITEM_ID], earlier: [{ job_id: EARLIER_JOB, line_count: 2 }] }] };
+      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ITEM_ID], earlier: [{ job_id: EARLIER_JOB, line_count: 2 }], own_line_count: 0 }] };
 
     it("names the page, the earlier takeoff and its lines at the confirmation, without a decision", async () => {
       vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);
@@ -256,6 +256,29 @@ describe("TakeoffApplyWizard", () => {
       await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
       fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
       expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("plan.pdf, page 1");
+    });
+
+    it("drops a page whose lines the mapping plan skips", async () => {
+      vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);
+      vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("skip"));
+      renderRuleWizard();
+      await reachConfirmation();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled());
+      expect(screen.queryByRole("region", { name: "Pages déjà au devis" })).toBeNull();
+    });
+
+    it("says what « Fusionner » does to the earlier measure", async () => {
+      vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(conflict);
+      vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction("set_price"));
+      renderRuleWizard();
+      await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      fireEvent.click(screen.getByRole("radio", { name: /^Fusionner/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Suivant" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      expect(await screen.findByRole("region", { name: "Pages déjà au devis" }))
+        .toHaveTextContent("Fusionner ne remplace que les lignes de même désignation et de même unité");
     });
 
     it("shows nothing when the estimate holds none of its pages", async () => {

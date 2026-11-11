@@ -13,6 +13,8 @@ export const takeoffPageContributionsResponseSchema = z.object({
     /** This takeoff's lines on the page; the screens show the page while one of them is included. Empty for a launch. */
     item_ids: z.array(uuid),
     earlier: z.array(z.object({ job_id: uuid, line_count: z.number().int().positive() }).strict()).min(1),
+    /** The estimate lines this takeoff itself still has on the page: an applied takeoff counts the page twice only then. */
+    own_line_count: z.number().int().nonnegative(),
   }).strict()),
   /** The other takeoffs named above. */
   jobs: z.array(z.object({
@@ -37,7 +39,10 @@ export const takeoffLaunchPageContributionsRequestSchema = z.object({
     logical_document_id: z.string().trim().max(4000).nullable(),
     file_name: z.string().trim().min(1).max(4000),
     pages: z.array(z.number().int().positive()).max(2000),
-  }).strict()).min(1).max(500),
+  }).strict()).min(1).max(500)
+    // One launch reads at most 2,000 pages in all (the largest plan set), so the comparison stays bounded.
+    .refine((documents) => documents.reduce((total, document) => total + Math.max(1, document.pages.length), 0) <= 2000,
+      "Trop de pages pour une vérification."),
 }).strict();
 
 export type TakeoffLaunchPageContributionsRequest = z.infer<typeof takeoffLaunchPageContributionsRequestSchema>;

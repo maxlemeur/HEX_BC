@@ -28,7 +28,7 @@ const line = (n: number) => `33333333-3333-4333-8333-${String(n).padStart(12, "0
 
 const READ: TakeoffPageContributionsResponse = {
   version_id: VERSION_ID,
-  pages: [{ file_name: "plan-fictif-R+1.pdf", page: 1, item_ids: [line(1), line(2)], earlier: [{ job_id: EARLIER_JOB, line_count: 3 }] }],
+  pages: [{ file_name: "plan-fictif-R+1.pdf", page: 1, item_ids: [line(1), line(2)], earlier: [{ job_id: EARLIER_JOB, line_count: 3 }], own_line_count: 0 }],
   jobs: [{ id: EARLIER_JOB, estimate_version_id: EARLIER_VERSION, created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan-fictif-R+1.pdf" }],
   unidentified_item_ids: [line(9)],
   other_takeoff_line_count: 3,
@@ -55,9 +55,15 @@ describe("the review banner", () => {
     expect(banner).not.toHaveTextContent("doublon entre zones");
   });
 
-  it("says the page is in the estimate twice once this takeoff is applied", () => {
-    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: READ, error: null }} items={[item(1)]} applied jobHref={href} />);
+  it("says the page is in the estimate twice once this takeoff is applied, while its own lines are still there", () => {
+    const twice = { ...READ, pages: [{ ...READ.pages[0], own_line_count: 1 }] };
+    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: twice, error: null }} items={[item(1)]} applied jobHref={href} />);
     expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("ces pages sont au devis deux fois");
+  });
+
+  it("says nothing of a page an applied takeoff no longer has in the estimate (its lines were removed or replaced)", () => {
+    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: READ, error: null }} items={[item(1)]} applied jobHref={href} />);
+    expect(screen.queryByRole("region", { name: "Pages déjà au devis" })).toBeNull();
   });
 
   it("stops reporting a page whose lines are all excluded", () => {

@@ -94,13 +94,20 @@ export function takeoffLinePageIdentity(
   return { document, page: page(line.source_page) };
 }
 
-/** The takeoff lines an estimate line comes from (engine 3 provenance), each once, in the order read. */
-export function estimateLineTakeoffItemIds(sourceMetadata: unknown): string[] {
+/**
+ * The takeoff lines an estimate line comes from (engine 3 provenance), each once, in the order read. A rounding or
+ * DPGF key written by another takeoff than the line's last one (`sourceJobId`) is stale: a later `merge` rewrote the
+ * line's quantity and `takeoff_item_id` but kept the key. Its lines no longer feed the line and are not read.
+ */
+export function estimateLineTakeoffItemIds(sourceMetadata: unknown, sourceJobId?: string | null): string[] {
   const metadata = record(sourceMetadata);
   if (!metadata) return [];
+  const lineJob = uuid(sourceJobId);
   const listed = (key: string) => {
-    const ids = record(metadata[key])?.item_ids;
-    return Array.isArray(ids) ? ids : [];
+    const entry = record(metadata[key]);
+    const keyJob = uuid(entry?.job_id);
+    if (lineJob && keyJob && keyJob !== lineJob) return [];
+    return Array.isArray(entry?.item_ids) ? entry.item_ids : [];
   };
   const ids = [metadata.takeoff_item_id, ...listed("takeoff_length_rounding"), ...listed("takeoff_quantity_policy")]
     .map(uuid).filter((value): value is string => value !== null);
@@ -127,7 +134,7 @@ type Contribution = { job_id: string; identity: TakeoffPageIdentity | null };
  * takeoff lines it names: its own file and page are the DPGF's.
  */
 export function estimateLineContributions(line: EstimateLineProvenance, earlierItems: ReadonlyMap<string, EarlierTakeoffLine>): Contribution[] {
-  const sources = estimateLineTakeoffItemIds(line.source_metadata).flatMap((itemId) => {
+  const sources = estimateLineTakeoffItemIds(line.source_metadata, line.source_job_id).flatMap((itemId) => {
     const item = earlierItems.get(itemId);
     return item ? [{ job_id: item.job_id.toLowerCase(), identity: item.identity }] : [];
   });
@@ -148,6 +155,8 @@ export type PageAlreadyInEstimate = {
   item_ids: string[];
   /** Each other takeoff that brought this page, with the estimate lines it brought there. */
   earlier: Array<{ job_id: string; estimate_item_ids: string[] }>;
+  /** The estimate lines this takeoff itself brought on the page (an applied takeoff whose lines are still there). */
+  own_estimate_item_ids: string[];
 };
 export type PagesAlreadyInEstimate = {
   pages: PageAlreadyInEstimate[];
@@ -170,28 +179,54 @@ export function findPagesAlreadyInEstimate(input: {
 }): PagesAlreadyInEstimate {
   const jobId = input.jobId?.toLowerCase() ?? null;
   const unidentified = input.newLines.filter((line) => line.identity === null).map((line) => line.id);
-  const contributions = input.estimateLines.flatMap((line) => estimateLineContributions(line, input.earlierItems)
-    .filter((contribution) => contribution.job_id !== jobId).map((contribution) => ({ ...contribution, estimate_item_id: line.id })));
-  const otherLines = new Set(contributions.map((contribution) => contribution.estimate_item_id));
-  // One entry per page as the screen names it: two documents the new takeoff names alike are one row.
-  const pages = new Map<string, { file_name: string | null; page: number | null; item_ids: Set<string>; earlier: Map<string, Set<string>> }>();
+  // Compared page by page, not line by line: the lines of one page share one identity.
+  const newPages = new Map<string, { identity: TakeoffPageIdentity; item_ids: string[] }>();
   for (const line of input.newLines) {
-    const identity = line.identity;
-    if (!identity) continue;
-    for (const contribution of contributions) {
-      if (!contribution.identity || !isSamePage(identity, contribution.identity)) continue;
+    if (!line.identity) continue;
+    const key = JSON.stringify(line.identity);
+    const group = newPages.get(key) ?? { identity: line.identity, item_ids: [] };
+    group.item_ids.push(line.id);
+    newPages.set(key, group);
+  }
+  const contributed = new Map<string, { job_id: string; identity: TakeoffPageIdentity; estimate_item_ids: Set<string> }>();
+  const otherLines = new Set<string>();
+  for (const line of input.estimateLines) {
+    for (const contribution of estimateLineContributions(line, input.earlierItems)) {
+      if (contribution.job_id !== jobId) otherLines.add(line.id);
+      if (!contribution.identity) continue;
+      const key = JSON.stringify([contribution.job_id, contribution.identity]);
+      const group = contributed.get(key) ?? { job_id: contribution.job_id, identity: contribution.identity, estimate_item_ids: new Set<string>() };
+      group.estimate_item_ids.add(line.id);
+      contributed.set(key, group);
+    }
+  }
+  // One entry per page as the screen names it: two documents the new takeoff names alike are one row.
+  type Entry = { file_name: string | null; page: number | null; item_ids: Set<string>; earlier: Map<string, Set<string>>; own: Set<string> };
+  const pages = new Map<string, Entry>();
+  const own: Array<{ key: string; ids: Set<string> }> = [];
+  for (const { identity, item_ids } of newPages.values()) {
+    for (const contribution of contributed.values()) {
+      if (!isSamePage(identity, contribution.identity)) continue;
       const shown = identity.page ?? contribution.identity.page;
       const fileName = identity.document.file_name ?? contribution.identity.document.file_name;
       const key = JSON.stringify([normalizedName(fileName) ?? identity.document.plan_file_id ?? identity.document.content_hash, shown]);
-      const entry = pages.get(key) ?? { file_name: fileName, page: shown, item_ids: new Set<string>(), earlier: new Map<string, Set<string>>() };
-      entry.item_ids.add(line.id);
-      entry.earlier.set(contribution.job_id, (entry.earlier.get(contribution.job_id) ?? new Set()).add(contribution.estimate_item_id));
+      if (contribution.job_id === jobId) {
+        own.push({ key, ids: contribution.estimate_item_ids });
+        continue;
+      }
+      const entry = pages.get(key) ?? { file_name: fileName, page: shown, item_ids: new Set<string>(), earlier: new Map<string, Set<string>>(), own: new Set<string>() };
+      for (const id of item_ids) entry.item_ids.add(id);
+      const ids = entry.earlier.get(contribution.job_id) ?? new Set<string>();
+      for (const id of contribution.estimate_item_ids) ids.add(id);
+      entry.earlier.set(contribution.job_id, ids);
       pages.set(key, entry);
     }
   }
+  for (const { key, ids } of own) for (const id of ids) pages.get(key)?.own.add(id);
   const found: PageAlreadyInEstimate[] = [...pages.values()].map((entry) => ({ file_name: entry.file_name, page: entry.page,
     item_ids: [...entry.item_ids].sort(),
-    earlier: [...entry.earlier].map(([job, ids]) => ({ job_id: job, estimate_item_ids: [...ids].sort() })).sort((a, b) => a.job_id.localeCompare(b.job_id)) }));
+    earlier: [...entry.earlier].map(([job, ids]) => ({ job_id: job, estimate_item_ids: [...ids].sort() })).sort((a, b) => a.job_id.localeCompare(b.job_id)),
+    own_estimate_item_ids: [...entry.own].sort() }));
   return {
     pages: found.sort((left, right) => (left.file_name ?? "").localeCompare(right.file_name ?? "", "fr")
       || (left.page ?? Number.MAX_SAFE_INTEGER) - (right.page ?? Number.MAX_SAFE_INTEGER)),

@@ -50,12 +50,14 @@ export function useTakeoffJobPageContributions(jobId: string | null): Read {
 
 /**
  * The pages to show now: a page stays while one of this takeoff's lines on it is included (an excluded line
- * brings nothing to the estimate). Without the lines, every page reported.
+ * brings nothing to the estimate). Without the lines, every page reported. Once this takeoff is applied, only the
+ * pages where its own lines are still in the estimate are there twice; elsewhere the estimate holds one measure.
  */
-export function pagesToShow(data: TakeoffPageContributionsResponse | null, items?: readonly Item[]) {
+export function pagesToShow(data: TakeoffPageContributionsResponse | null, items?: readonly Item[], applied = false) {
   if (!data) return { pages: [] as Page[], unidentified: 0, zoneOverlap: false };
   const included = items ? new Set(items.filter((item) => !item.is_excluded).map((item) => item.id)) : null;
-  const pages = included ? data.pages.filter((page) => page.item_ids.some((id) => included.has(id))) : data.pages;
+  const pages = data.pages.filter((page) => (applied ? page.own_line_count > 0
+    : included ? page.item_ids.some((id) => included.has(id)) : true));
   // The earlier takeoffs of each line's pages: a Z1/Z2 duplicate whose partner is one of them is this page read twice.
   const earlierOf = new Map<string, Set<string>>();
   for (const page of pages) for (const id of page.item_ids) {
@@ -127,8 +129,8 @@ function NotCompared({ count }: Readonly<{ count: number }>) {
 export function TakeoffPagesAlreadyInEstimateBanner({ read, items, applied, jobHref, className }: Readonly<{
   read: Read; items: readonly Item[]; applied: boolean; jobHref: (job: Job) => string; className?: string;
 }>) {
-  const shown = useMemo(() => pagesToShow(read.data, items), [items, read.data]);
-  if (read.error) return <p className={cn("text-xs text-muted-foreground", className)}>Vérification des pages déjà au devis indisponible : {read.error}</p>;
+  const shown = useMemo(() => pagesToShow(read.data, items, applied), [applied, items, read.data]);
+  if (read.error) return <p className={cn("text-xs text-muted-foreground", className)}>Vérification des pages déjà au devis indisponible.</p>;
   if (!read.data || (shown.pages.length === 0 && shown.unidentified === 0)) return null;
   if (shown.pages.length === 0) return <div className={className}><NotCompared count={shown.unidentified} /></div>;
   return (
@@ -149,15 +151,24 @@ export function TakeoffPagesAlreadyInEstimateBanner({ read, items, applied, jobH
   );
 }
 
+/** What the chosen strategy does to the earlier measure of those pages (nothing yet replaces a page as a whole). */
+const STRATEGY_EFFECT = {
+  append: "Confirmer ajoutera ces pages une seconde fois au devis, à côté de la mesure précédente.",
+  merge: "Fusionner ne remplace que les lignes de même désignation et de même unité : les autres seront ajoutées à côté de la mesure précédente.",
+  replace: "Remplacer vide seulement la section cible : les lignes du métré précédent rangées dans une autre section resteront au devis.",
+} as const;
+
 /** The apply wizard: the same pages, without links, and no decision to take yet. */
-export function TakeoffPagesAlreadyInEstimateNotice({ read, items }: Readonly<{ read: Read; items?: readonly Item[] }>) {
+export function TakeoffPagesAlreadyInEstimateNotice({ read, items, strategy }: Readonly<{
+  read: Read; items?: readonly Item[]; strategy: keyof typeof STRATEGY_EFFECT;
+}>) {
   const shown = useMemo(() => pagesToShow(read.data, items), [items, read.data]);
-  if (read.error) return <p className="text-xs text-muted-foreground">Vérification des pages déjà au devis indisponible : {read.error}</p>;
+  if (read.error) return <p className="text-xs text-muted-foreground">Vérification des pages déjà au devis indisponible.</p>;
   if (!read.data || shown.pages.length === 0) return null;
   return (
     <Frame>
       <PageRows data={read.data} pages={shown.pages} />
-      <p className="text-foreground-secondary">Confirmer ajoutera ces pages une seconde fois au devis, à côté de la mesure précédente.</p>
+      <p className="text-foreground-secondary">{STRATEGY_EFFECT[strategy]}</p>
       <NotCompared count={shown.unidentified} />
     </Frame>
   );
@@ -181,7 +192,7 @@ export function TakeoffLaunchPagesNotice({ versionId, sources }: Readonly<{
     return () => controller.abort();
   }, [key]);
   if (!key || read.key !== key) return null;
-  if (read.error) return <p className="text-xs text-muted-foreground">Vérification des pages déjà au devis indisponible : {read.error}</p>;
+  if (read.error) return <p className="text-xs text-muted-foreground">Vérification des pages déjà au devis indisponible.</p>;
   if (!read.data || read.data.pages.length === 0) return null;
   return (
     <Frame>

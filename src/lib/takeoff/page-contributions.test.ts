@@ -101,6 +101,12 @@ describe("estimateLineTakeoffItemIds — the takeoff lines an estimate line come
   it("reads the source of an assembly line", () => {
     expect(estimateLineTakeoffItemIds({ takeoff_item_id: id(5), mapping_action: "apply_assembly", assembly_id: id(9) })).toEqual([id(5)]);
   });
+  it("ignores a rounding or DPGF key another takeoff left behind (a later merge kept it)", () => {
+    const stale = { takeoff_item_id: id(1), takeoff_length_rounding: { job_id: JOB_EARLIER, item_ids: [id(2)] },
+      takeoff_quantity_policy: { job_id: JOB_EARLIER, item_ids: [id(3)] } };
+    expect(estimateLineTakeoffItemIds(stale, JOB_NEW)).toEqual([id(1)]);
+    expect(estimateLineTakeoffItemIds(stale, JOB_EARLIER)).toEqual([id(1), id(2), id(3)]);
+  });
   it("ignores what is not an identifier", () => {
     expect(estimateLineTakeoffItemIds({ takeoff_item_id: "x", takeoff_length_rounding: { item_ids: "y" }, takeoff_quantity_policy: null })).toEqual([]);
     expect(estimateLineTakeoffItemIds(null)).toEqual([]);
@@ -123,7 +129,7 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
       earlierItems: new Map([earlier(1, at({ content_hash: HASH, file_name: "plan.pdf" }, 1)), earlier(2, at({ content_hash: HASH, file_name: "plan.pdf" }, 1))]),
     });
     expect(result.pages).toEqual([{ file_name: "plan.pdf", page: 1, item_ids: [id(101), id(102)],
-      earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201), id(202)] }] }]);
+      earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201), id(202)] }], own_estimate_item_ids: [] }]);
     expect(result.other_takeoff_line_count).toBe(2);
   });
 
@@ -145,7 +151,7 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
       estimateLines: [estimateLine(201, { source_metadata: { takeoff_item_id: id(1), takeoff_length_rounding: { item_ids: [id(1), id(2)] } } })],
       earlierItems: new Map([earlier(1, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 1)), earlier(2, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 2))]),
     });
-    expect(result.pages).toEqual([{ file_name: "plan.pdf", page: 2, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }] }]);
+    expect(result.pages).toEqual([{ file_name: "plan.pdf", page: 2, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }], own_estimate_item_ids: [] }]);
   });
 
   it("reads a DPGF target by its takeoff sources, never by the DPGF's own file and page", () => {
@@ -179,7 +185,7 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
       estimateLines: [estimateLine(201, { source_file_name: "plan r+1.pdf", source_page: 1 }), estimateLine(202, { source_file_name: "Plan R+1.pdf", source_page: 2 })],
       earlierItems: new Map(),
     });
-    expect(result.pages).toEqual([{ file_name: "Plan R+1.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }] }]);
+    expect(result.pages).toEqual([{ file_name: "Plan R+1.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }], own_estimate_item_ids: [] }]);
   });
 
   it("does not count a pasted line, a manual line nor the takeoff's own lines", () => {
@@ -222,9 +228,9 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
       ]),
     });
     expect(result.pages).toEqual([
-      { file_name: "plan.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }] },
+      { file_name: "plan.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)] }], own_estimate_item_ids: [] },
       { file_name: "plan.pdf", page: 2, item_ids: [id(101), id(102)], earlier: [
-        { job_id: JOB_EARLIER, estimate_item_ids: [id(203)] }, { job_id: JOB_OTHER, estimate_item_ids: [id(202)] }] },
+        { job_id: JOB_EARLIER, estimate_item_ids: [id(203)] }, { job_id: JOB_OTHER, estimate_item_ids: [id(202)] }], own_estimate_item_ids: [] },
     ]);
   });
 
@@ -236,7 +242,35 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
       estimateLines: [estimateLine(301, { source_metadata: { takeoff_item_id: id(1) } })],
       earlierItems: new Map([earlier(1, at({ logical_document_id: "PLB-R1", plan_file_id: PLAN_A, file_name: "ind A.pdf" }, 1))]),
     });
-    expect(result.pages).toEqual([{ file_name: "ind B.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(301)] }] }]);
+    expect(result.pages).toEqual([{ file_name: "ind B.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(301)] }], own_estimate_item_ids: [] }]);
+  });
+
+  it("does not name an earlier takeoff through a key a later merge left on the line", () => {
+    // B's DPGF target, later matched by title by C's merge: the line is C's, on another page; B's policy key stayed.
+    const result = findPagesAlreadyInEstimate({
+      jobId: JOB_NEW,
+      newLines: [newLine(101, at({ file_name: "plan.pdf" }, 1))],
+      estimateLines: [estimateLine(201, { source_job_id: JOB_OTHER,
+        source_metadata: { takeoff_item_id: id(2), takeoff_quantity_policy: { job_id: JOB_EARLIER, item_ids: [id(1)] } } })],
+      earlierItems: new Map([earlier(1, at({ file_name: "plan.pdf" }, 1)), earlier(2, at({ file_name: "plan.pdf" }, 4), JOB_OTHER)]),
+    });
+    expect(result.pages).toEqual([]);
+  });
+
+  it("counts on each page the lines this takeoff itself still has in the estimate", () => {
+    const result = findPagesAlreadyInEstimate({
+      jobId: JOB_NEW,
+      newLines: [newLine(101, at({ file_name: "plan.pdf" }, 1)), newLine(102, at({ file_name: "plan.pdf" }, 2))],
+      estimateLines: [
+        estimateLine(201, { source_metadata: { takeoff_item_id: id(1) } }),
+        estimateLine(202, { source_metadata: { takeoff_item_id: id(2) } }),
+        estimateLine(203, { source_job_id: JOB_NEW, source_metadata: { takeoff_item_id: id(101) } }),
+      ],
+      earlierItems: new Map([earlier(1, at({ file_name: "plan.pdf" }, 1)), earlier(2, at({ file_name: "plan.pdf" }, 2)),
+        earlier(101, at({ file_name: "plan.pdf" }, 1), JOB_NEW)]),
+    });
+    expect(result.pages.map((page) => [page.page, page.own_estimate_item_ids])).toEqual([[1, [id(203)]], [2, []]]);
+    expect(result.other_takeoff_line_count).toBe(2);
   });
 });
 

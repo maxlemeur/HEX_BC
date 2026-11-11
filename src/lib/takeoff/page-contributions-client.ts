@@ -9,7 +9,14 @@ import {
 const FAILURE = "Impossible de vérifier les pages déjà au devis.";
 
 async function read(path: string, init: RequestInit): Promise<TakeoffPageContributionsResponse> {
-  const response = await fetch(path, { credentials: "same-origin", ...init, headers: { accept: "application/json", ...(init.headers ?? {}) } });
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", ...init, headers: { accept: "application/json", ...(init.headers ?? {}) } });
+  } catch (error) {
+    // A network failure carries the browser's own (English) message: never shown as is.
+    if (init.signal?.aborted) throw error;
+    throw new Error(FAILURE);
+  }
   const body = await response.json().catch(() => null) as { ok?: boolean; data?: unknown; error?: { message?: unknown } } | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(typeof body?.error?.message === "string" && body.error.message.trim() ? body.error.message : FAILURE);

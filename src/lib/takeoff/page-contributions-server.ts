@@ -38,7 +38,8 @@ type Supabase = AuthenticatedTakeoffContext["supabase"];
 type Context = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId">;
 
 type TakeoffLineRow = { id: string; job_id: string; source_file_name: string | null; source_page: number | null; source_document: unknown };
-type EstimateLineRow = Omit<EstimateLineProvenance, "source_metadata"> & { takeoff_item_id: unknown; rounding_item_ids: unknown; policy_item_ids: unknown };
+type EstimateLineRow = Omit<EstimateLineProvenance, "source_metadata"> & { takeoff_item_id: unknown; rounding_item_ids: unknown; rounding_job_id: unknown;
+  policy_item_ids: unknown; policy_job_id: unknown };
 type JobRow = { id: string; estimate_version_id: string; created_at: string; source_file_name: string | null; sources: unknown };
 
 const TAKEOFF_LINE_SELECT = "id,job_id,source_file_name,source_page,source_document:metadata->source_document";
@@ -46,7 +47,9 @@ const TAKEOFF_LINE_SELECT = "id,job_id,source_file_name,source_page,source_docum
 const ESTIMATE_LINE_SELECT = "id,source_provider,source_job_id,source_file_name,source_page,"
   + "takeoff_item_id:source_metadata->>takeoff_item_id,"
   + "rounding_item_ids:source_metadata->takeoff_length_rounding->item_ids,"
-  + "policy_item_ids:source_metadata->takeoff_quantity_policy->item_ids";
+  + "rounding_job_id:source_metadata->takeoff_length_rounding->>job_id,"
+  + "policy_item_ids:source_metadata->takeoff_quantity_policy->item_ids,"
+  + "policy_job_id:source_metadata->takeoff_quantity_policy->>job_id";
 const JOB_SELECT = "id,estimate_version_id,created_at,source_file_name,sources:preparation_snapshot->preparation->sources";
 
 const sourcesSchema = z.array(z.object({
@@ -59,15 +62,6 @@ const sourcesSchema = z.array(z.object({
 
 function readFailed(error: unknown, message: string, jobId?: string): never {
   throw toTakeoffError(mapSupabaseError(error as never, message), { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
-}
-
-async function readTakeoffLinesOfJobs(context: Context, jobIds: readonly string[]) {
-  if (!jobIds.length) return [];
-  const { data, error } = await readAllRowsInChunks(jobIds, (chunk) => context.supabase.from("takeoff_items" as never)
-    .select(TAKEOFF_LINE_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, context.tenantId as never).in("job_id" as never, chunk as never) as never);
-  if (error) readFailed(error, "Impossible de lire les lignes des métrés déjà au devis.");
-  return (data ?? []) as unknown as TakeoffLineRow[];
 }
 
 async function readTakeoffLinesById(context: Context, ids: readonly string[]) {
@@ -86,9 +80,10 @@ async function readEstimateProvenance(context: Context, versionId: string): Prom
     .eq("tenant_id" as never, context.tenantId as never).eq("version_id" as never, versionId as never)
     .not("source_job_id" as never, "is", null) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire la provenance des lignes du devis.");
-  return ((data ?? []) as unknown as EstimateLineRow[]).map(({ takeoff_item_id, rounding_item_ids, policy_item_ids, ...line }) => ({
+  return ((data ?? []) as unknown as EstimateLineRow[]).map(({ takeoff_item_id, rounding_item_ids, rounding_job_id, policy_item_ids, policy_job_id, ...line }) => ({
     ...line,
-    source_metadata: { takeoff_item_id, takeoff_length_rounding: { item_ids: rounding_item_ids }, takeoff_quantity_policy: { item_ids: policy_item_ids } },
+    source_metadata: { takeoff_item_id, takeoff_length_rounding: { job_id: rounding_job_id, item_ids: rounding_item_ids },
+      takeoff_quantity_policy: { job_id: policy_job_id, item_ids: policy_item_ids } },
   }));
 }
 
@@ -113,16 +108,15 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
   launchLines?: readonly NewTakeoffLine[];
 }): Promise<TakeoffPageContributionsResponse> {
   const estimateLines = await readEstimateProvenance(context, input.versionId);
-  const others = estimateLines.filter((line) => line.source_job_id !== input.jobId);
-  const referenced = new Set(others.flatMap((line) => estimateLineTakeoffItemIds(line.source_metadata)));
-  const otherJobIds = [...new Set(others.map((line) => line.source_job_id!))];
-  // A line's sources are its takeoff's lines; read by takeoff (paged), then by id for any a line names elsewhere.
-  const byJob = (await readTakeoffLinesOfJobs(context, otherJobIds)).filter((line) => referenced.has(line.id));
-  const found = new Set(byJob.map((line) => line.id));
-  const earlierRows = [...byJob, ...await readTakeoffLinesById(context, [...referenced].filter((id) => !found.has(id)))];
-  const jobs = new Map((await readJobs(context, [...new Set([...(input.jobId ? [input.jobId] : []), ...otherJobIds,
-    ...earlierRows.map((line) => line.job_id)])])).map((job) => [job.id, job]));
-  const earlierItems = new Map<string, EarlierTakeoffLine>(earlierRows.map((line) => [line.id, { id: line.id, job_id: line.job_id,
+  // The source lines the estimate names, read by id (chunked): this takeoff's own are already read.
+  const own = new Set(input.ownLines.map((line) => line.id));
+  const referenced = [...new Set(estimateLines.flatMap((line) => estimateLineTakeoffItemIds(line.source_metadata, line.source_job_id)))]
+    .filter((id) => !own.has(id));
+  const sourceRows = [...input.ownLines, ...await readTakeoffLinesById(context, referenced)];
+  const jobs = new Map((await readJobs(context, [...new Set([...(input.jobId ? [input.jobId] : []),
+    ...estimateLines.flatMap((line) => line.source_job_id ? [line.source_job_id] : []), ...sourceRows.map((line) => line.job_id)])]))
+    .map((job) => [job.id, job]));
+  const earlierItems = new Map<string, EarlierTakeoffLine>(sourceRows.map((line) => [line.id, { id: line.id, job_id: line.job_id,
     identity: takeoffLinePageIdentity(line, sourcesOf(jobs.get(line.job_id))) }]));
   const ownSources = input.jobId ? sourcesOf(jobs.get(input.jobId)) : null;
   const newLines = input.launchLines ?? input.ownLines.map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
@@ -131,7 +125,8 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
   return parseWithSchema(takeoffPageContributionsResponseSchema, {
     version_id: input.versionId,
     pages: result.pages.map((page) => ({ file_name: page.file_name, page: page.page, item_ids: input.launchLines ? [] : page.item_ids,
-      earlier: page.earlier.map((earlier) => ({ job_id: earlier.job_id, line_count: earlier.estimate_item_ids.length })) })),
+      earlier: page.earlier.map((earlier) => ({ job_id: earlier.job_id, line_count: earlier.estimate_item_ids.length })),
+      own_line_count: page.own_estimate_item_ids.length })),
     jobs: [...named].flatMap((id) => {
       const job = jobs.get(id);
       return job ? [{ id: job.id, estimate_version_id: job.estimate_version_id, created_at: job.created_at, source_file_name: job.source_file_name }] : [];
