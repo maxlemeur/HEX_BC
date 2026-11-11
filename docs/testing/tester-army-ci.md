@@ -62,6 +62,26 @@ alternative de filtre sans correspondance et un fichier local oublié des
 collecteurs ou du registre d'exclusions. Chaque fichier demandé doit ensuite
 être réellement exécuté et réussi.
 
+## Check rouge sur une pull request
+
+Les runners sont partagés par toutes les pull requests et par `main`. Un
+nouveau push relance tous les checks de la pull request ; une relance ne
+reprend que les jobs en échec. Chercher la cause avant de réagir :
+
+| Cause du rouge | Indice | Réaction |
+| --- | --- | --- |
+| Le changement de la pull request | Le parcours échoue avec le diff et passe sans lui | Corriger, puis pousser une fois |
+| Panne d'infrastructure ou parcours instable | Échec d'installation, de téléversement d'artefact ou de démarrage ; parcours vert sur le même commit ailleurs | Le noter dans la pull request avec la preuve, puis `gh run rerun <run-id> --failed`, sans nouveau commit |
+| Rouge hérité de `main` | Le même parcours est rouge sur `main` ([ticket d'alerte](#alerte-des-campagnes-de-main) ou dernier run Critical de `main`) | Le noter dans la pull request, attendre le correctif sur `main`, puis fusionner `origin/main` une seule fois |
+
+Une relance rejoue le commit de fusion calculé au moment du push : elle ne
+voit pas un correctif arrivé ensuite sur `main`. C'est le seul cas où une
+fusion de `origin/main` répond à un rouge.
+
+`main` n'exige pas une branche à jour pour fusionner. Fusionner `origin/main`
+sans conflit signalé par GitHub, ou cliquer « Update branch », relance tous les
+checks sans rien qualifier de plus.
+
 ## Campagnes de main après un push
 
 Le run Critical d'un push `main` ne lance ni les parcours du métré, ni les
