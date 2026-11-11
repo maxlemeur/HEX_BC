@@ -6,7 +6,7 @@ import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
 import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
-import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
+import { OTHER_CLASSES, printedSize, type SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
 
 // What the takeoff worker persists of a vector reading (TI-662, TI-664 §0 input
 // contract), versioned and bounded like its tables (takeoff_vector_pages
@@ -182,6 +182,11 @@ export type VectorItemRecord = {
   geometry: VectorItemGeometry;
   /** A room: the label and surface printed in it, carried to its rule inputs (TI-664), never persisted with the geometry. */
   room?: { label: string; printed_m2: number };
+  /**
+   * A network or its insulation: the notation its size is printed in, carried to its rule inputs (TI-683). The
+   * geometry keeps the number alone; the designation and the rule inputs hold the size as printed.
+   */
+  notation?: SizeNotation | null;
 };
 
 const MATERIAL_LABELS: Record<string, string> = {
@@ -240,8 +245,12 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   const records: VectorItemRecord[] = [];
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
-    const runs = (reading.networks?.runs ?? []).filter((run) => run.network === total.network && run.material === total.material && run.dn === total.dn);
+    const runs = (reading.networks?.runs ?? []).filter((run) => run.network === total.network && run.material === total.material
+      && run.dn === total.dn && (run.notation ?? null) === (total.notation ?? null));
     const material = total.material ? MATERIAL_LABELS[total.material] ?? total.material : null;
+    const size = total.dn === null ? null : printedSize(total.dn, total.notation);
+    // A reading of before the notation was kept has none to carry: its sizes stay « DN n », read either way.
+    const notation = total.notation === undefined ? {} : { notation: total.notation };
     const code = total.network === "EUV" ? "EU/EV" : total.network;
     const base = { network: total.network, material: total.material, dn: total.dn, zone: location.zone, level: location.level,
       groups: groupsOf(total.network), polygon_m: null, area_m2: null, transform: null };
@@ -250,24 +259,26 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       const count = pipes.length > 1 ? part.runs.length : total.runs;
       records.push({
         item: {
-          designation: [code, material, total.dn === null ? null : `DN ${total.dn}`].filter(Boolean).join(" "),
+          designation: [code, material, size].filter(Boolean).join(" "),
           quantity: part.quantity, unit: "ml", category: "réseau (lecture vectorielle)",
           confidence: total.dn !== null && total.material !== null ? VECTOR_ITEM_CONFIDENCE.labelled : VECTOR_ITEM_CONFIDENCE.review,
           evidence: `Lecture vectorielle : ${count} tronçon${count > 1 ? "s" : ""} d’axe${partOf(index, pipes.length)}, échelle ${scale}.`,
         },
         geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "network", ...base, segments_m: part.runs.map(segmentOf), length_m: part.length_m }),
+        ...notation,
       });
     });
     if (total.insulated_m !== null && total.insulated_m >= 0.01 && total.dn !== null) {
       const insulated = lengthParts(runs.filter((run) => run.insulated), total.insulated_m, denominator);
       insulated.forEach((part, index) => records.push({
         item: {
-          designation: `${code} calorifuge DN ${total.dn}`, quantity: part.quantity, unit: "ml", category: "calorifuge (lecture vectorielle)",
+          designation: `${code} calorifuge ${size}`, quantity: part.quantity, unit: "ml", category: "calorifuge (lecture vectorielle)",
           confidence: VECTOR_ITEM_CONFIDENCE.labelled,
           evidence: `Lecture vectorielle : tronçons dont le libellé indique un calorifuge${partOf(index, insulated.length)}, échelle ${scale}.`,
         },
         geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "insulation", ...base, material: "calorifuge",
           segments_m: part.runs.map(segmentOf), length_m: part.length_m }),
+        ...notation,
       }));
     }
   }

@@ -1,4 +1,5 @@
 import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { ResolvedSize, SizeCandidate } from "@/lib/takeoff/rules/network-diameters";
 
 // Fixed quantity rules of the takeoff (TI-664, TI-658 pipeline step 6): « the
 // model proposes, fixed rules decide, the user settles what fails ». Each rule
@@ -68,6 +69,10 @@ export type TakeoffRuleDetails = {
   network?: NetworkCode | null;
   material?: MaterialCode | null;
   dn?: string | null;
+  /** The tube the printed size resolved to: outer diameter, wall and derived nominal DN (TI-683, Q7). */
+  size?: ResolvedSize;
+  /** The tubes an ambiguous printed size may be (copper « DN 15 »: Ø 15 or Ø 18), by outer diameter. */
+  size_candidates?: SizeCandidate[];
   allowed_materials?: MaterialCode[];
   partners?: ZoneOverlapPartner[];
   /** Every partner of a duplicate (the list may be cut when stored): with it, a guard knows the list is whole (TI-677). */
@@ -111,7 +116,8 @@ export type NonObservableCause = "vertical" | "weld" | "tap" | "support" | "inst
 /**
  * What the rules read on a line, written by the worker (metadata.rule_inputs, or the vector geometry):
  * - kind: a network length (ml), an insulation length, a room surface (m2), a count (u), or null (none read);
- * - network, material and the DN as printed (« DN 22 », « 22x1,2 »), read on the plan label or the designation;
+ * - network, material and the size as printed (« DN 22 », « Ø 110 », « 22x1,2 », « 20/22 »), read on the plan label or
+ *   the designation and never rewritten (TI-683): the nominal DN is derived by the DN rule, with the outer diameter;
  * - non_observable: the cause when the line is a quantity the plan view cannot give;
  * - model_quantity: the quantity the model (or the vector reading) proposed, before any edit.
  */
