@@ -102,7 +102,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
 
   // Deleting the last plan reopens its gap wherever the dossier is derived: the register's
-  // critical question, the synced plan set and the confirmed brief that listed it.
+  // advisory question, the synced plan set and the confirmed brief that listed it.
   const plan = (await documents()).find((doc) => doc.file_name === fixtures[1].name)!;
   const plansGap = async () => (await client.from("affaire_register_entries").select("severity,is_active")
     .eq("project_id", ids.projectId).eq("kind", "missing_piece").eq("code", "missing_plans").eq("is_active", true)).data;
@@ -120,7 +120,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   await screen.getByRole("button", "Confirmer la suppression", { exact: true }).click();
   await expect(planRow).toHaveCount(0);
   expect((await documents()).find((doc) => doc.id === plan.id)).toMatchObject({ upload_status: "rejected", storage_path: null });
-  await expect.poll(plansGap).toEqual([{ severity: "critical", is_active: true }]);
+  await expect.poll(plansGap).toEqual([{ severity: "warning", is_active: true }]);
   await expect.poll(async () => (await readBrief()).status).toBe("a_confirmer");
   const reopened = await readBrief();
   expect(reopened.confirmed_at).toBeNull();

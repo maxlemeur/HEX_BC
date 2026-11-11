@@ -150,6 +150,7 @@ armyTest("REG02 blocking register includes old client decisions and revalidation
   }));
   extra.push(
     { id: randomUUID(), text: "Retour client critique ancien", kind: "assumption", severity: "critical", status: "clarify_with_client", metadata: {}, updated_at: old },
+    { id: randomUUID(), text: "Pièce non critique attendue du client", kind: "missing_piece", severity: "warning", status: "clarify_with_client", metadata: {}, updated_at: old },
     { id: randomUUID(), text: "Revalidation ancienne non critique", kind: "assumption", severity: "warning", status: "open", updated_at: old,
       metadata: { revalidationRequest: { status: "required", requestedAt: old, requestedByUserId: f.userId, previousStatus: "validated", cause: "addendum_received", impactedStages: ["submission_readiness"] } } },
     { id: randomUUID(), text: "Critique déjà traité", kind: "assumption", severity: "critical", status: "validated", metadata: {}, updated_at: new Date().toISOString() },
@@ -159,14 +160,17 @@ armyTest("REG02 blocking register includes old client decisions and revalidation
   const register = ui.screen.getByRole("region", "Points à traiter", { exact: true });
   await expect(register.getByRole("button", "Charger les points suivants", { exact: true })).toBeEnabled();
   await expect(register.getByRole("button", "Traiter Retour client critique ancien", { exact: true })).toHaveCount(0);
-  await register.getByRole("button", "Bloquants 3", { exact: true }).click();
-  await expect(register.getByRole("article")).toHaveCount(3);
+  await register.getByRole("button", "Bloquants 4", { exact: true }).click();
+  await expect(register.getByRole("article")).toHaveCount(4);
   await expect(register.getByRole("button", "Traiter DPGF manquant", { exact: true })).toBeVisible();
   await expect(register.getByRole("button", "Traiter Retour client critique ancien", { exact: true })).toBeVisible();
+  const waitingDocument = register.getByRole("article").filter({ hasText: "Pièce non critique attendue du client" });
+  await expect(waitingDocument).toBeVisible();
+  await expect(waitingDocument).toHaveAttribute("data-blocking", "true");
   await expect(register.getByRole("button", "Traiter Revalidation ancienne non critique", { exact: true })).toBeVisible();
   await expect(register.getByRole("button", "Traiter Critique déjà traité", { exact: true })).toHaveCount(0);
   await ui.browser.reload();
-  await expect(register.getByRole("article")).toHaveCount(3);
-  await expect(register.getByText("3 points bloquent la remise", { exact: true })).toBeVisible();
-  await recordEvidence(ui.army, "register-blocking-pages", { projectId: f.projectId, oldBlockers: extra.slice(12, 14).map((entry) => entry.id), expectedBlockers: 3, excludesResolvedCritical: true });
+  await expect(register.getByRole("article")).toHaveCount(4);
+  await expect(register.getByText("4 points bloquent la remise", { exact: true })).toBeVisible();
+  await recordEvidence(ui.army, "register-blocking-pages", { projectId: f.projectId, oldBlockers: extra.slice(12, 15).map((entry) => entry.id), expectedBlockers: 4, excludesResolvedCritical: true });
 });

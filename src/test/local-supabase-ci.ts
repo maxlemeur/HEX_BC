@@ -269,8 +269,9 @@ export async function findAvailablePort(
   }
   const candidates = Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
     .filter((port) => !reserved.has(port) && !BROWSER_RESTRICTED_LOCAL_PORTS.has(port) &&
-      // CLI2.121 reserves these ports for native service backends, never public endpoints.
-      (port < 10000 || port > 19999) &&
+      // CLI3 reserves backend ports 10000-19999 and automatic public listeners 20000-32767.
+      // An automatic listener can start before our pinned inspector is registered.
+      (port < 10000 || port > 32767) &&
       !ephemeralRanges.some(([first, last]) => port >= first && port <= last));
   const offset = candidates.length ? randomInt(candidates.length) : 0;
   for (let index = 0; index < candidates.length; index += 1) {

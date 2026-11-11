@@ -210,7 +210,7 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
               {documents.length > 8 ? <button className="affaire-workbench-text-action" type="button" onClick={onOpenDocuments}>Voir les {documents.length} pièces <ArrowRight size={16} aria-hidden="true" /></button> : null}
               {workspace?.missingPieces.some((piece) => piece.code === "missing_plans") ? <p className="affaire-workbench-note"><Info size={17} aria-hidden="true" />Des pièces sont reçues. Vérifiez leur classement si des plans restent signalés manquants.</p> : null}
             </>
-          ) : <p className="affaire-workbench-empty">{workspace ? "Ajoutez les pièces pour préparer le périmètre de l’étude." : "Le dossier ne peut pas être chargé. Actualisez la page pour réessayer."}</p>}
+          ) : <p className="affaire-workbench-empty">{workspace ? "Aucune pièce n’est obligatoire. Vous pouvez démarrer le devis sur une page blanche." : "Le dossier ne peut pas être chargé. Actualisez la page pour réessayer."}</p>}
         </section>
         <section className="affaire-dossier-brief" aria-label="Résumé du brief">
           <h3>Brief de l’affaire</h3>

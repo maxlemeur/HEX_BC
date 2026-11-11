@@ -526,6 +526,29 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
         "Analyse et comparaison disponibles tant que le principal n'est pas choisi.",
       ]).filter(Boolean),
     };
+  } else if (missingPieces.length > 0 && criticalMissingPieces.length === 0) {
+    const hasLines = (input.structureMode?.lineCount ?? 0) > 0;
+    title = hasLines ? "Continuer le chiffrage" : "Démarrer sur une page blanche";
+    summary = "Aucune pièce n’est obligatoire pour le chiffrage manuel. Ajoutez les documents disponibles quand vous en avez besoin.";
+    statusLabel = "Pièces facultatives";
+    statusVariant = "info";
+    heroState = "ready_to_continue";
+    readinessLevel = canonicalReadinessStatus ?? "ready_with_reservations";
+    primaryAction = toHrefAction({
+      key: "manual-estimate",
+      label: hasLines ? "Ouvrir le devis" : "Démarrer sur une page blanche",
+      description: "Compléter le devis manuellement sans document ni brief préalable.",
+      href: manualEstimateHref,
+      variant: "primary",
+    });
+    resultCard = {
+      kind: "structure",
+      title,
+      message: summary,
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: hasLines ? ["Mode manuel actif"] : [],
+    };
   } else if (criticalMissingPieces.length > 0 || missingPieces.length > 0) {
     const count = criticalMissingPieces.length > 0 ? criticalMissingPieces.length : missingPieces.length;
     const missingPiecesAllowContinuation = allowsCanonicalContinuation && canonicalReadinessStatus !== "not_ready";
