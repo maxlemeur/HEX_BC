@@ -321,6 +321,6 @@
     "20261110094505_takeoff_override_consumptions_admin_read.sql": "5c2e53f3741e3de8ca6c6869fad2f5d0e8a31bd598d63d41c436f98cbcd45075",
     "20261111035718_takeoff_hypothesis_preselection.sql": "a96e818834e86d78c53664f84ec259a747a24fb94219400967420d2420e4db93",
     "20261111124022_takeoff_hypothesis_provision_marker.sql": "68f852010a64c62542ec95d64844cefad4bab1d9a637800da452ddb5e4923f3d",
-    "20261111153500_catalogue_engineer_rights.sql": "2669c290f971d8c0cabe88b03284be57eab3e97336d278015fb5f46856cccac3"
+    "20261111153500_catalogue_engineer_rights.sql": "fbdbec667f0219d4440e8906e538a3738491ebf75974cd85c245e83a7ce98dac"
   }
 }

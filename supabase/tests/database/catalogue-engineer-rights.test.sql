@@ -7,7 +7,8 @@
 --   C2 the author of a row is chosen or rewritten by the caller;
 --   C3 an engineer changes or deletes a row of the shared base while the setting is off, or cannot once it is on;
 --   C4 the setting is written by someone other than an admin of the tenant, or reaches another tenant;
---   C5 an engineer changes a reference price without a validation, or validates one.
+--   C5 an engineer changes a reference price without a validation, or validates one;
+--   C6 a supplier or an item is moved to another tenant by a member holding a write role in both.
 -- Every statement goes through pg_temp.ce_run (role and JWT subject switched in a sub-block), so a red assertion
 -- fails on its own reason and the suite runs to the end. Fixtures rolled back at the end.
 
@@ -412,6 +413,42 @@ select is(
   'ok 0',
   'C3 and engineers are back to what they added'
 );
+-- ---------------------------------------------------------------------------
+-- C6: a row never changes tenant under a signed-in member, even one holding a write role in both tenants.
+-- ---------------------------------------------------------------------------
+insert into public.tenant_memberships (id, tenant_id, user_id, role, is_default) values
+  ('ce689000-0000-4000-8000-000000000022', pg_temp.fx('tenant_b'), pg_temp.fx('engineer_1'), 'engineer', false),
+  ('ce689000-0000-4000-8000-000000000012', pg_temp.fx('tenant_b'), pg_temp.fx('admin_a'), 'admin', false);
+
+select matches(
+  pg_temp.ce_run('engineer_1', format(
+    'update public.suppliers set tenant_id = %L where id = %L',
+    pg_temp.fx('tenant_b'), 'ce689000-0000-4000-8000-0000000000c1')),
+  '^42501 CATALOGUE_RECORD_TENANT_FROZEN',
+  'C6 an engineer of both tenants cannot move the supplier they added to the other tenant'
+);
+select matches(
+  pg_temp.ce_run('engineer_1', format(
+    'update public.products set tenant_id = %L where id = %L',
+    pg_temp.fx('tenant_b'), 'ce689000-0000-4000-8000-0000000000c2')),
+  '^42501 ',
+  'C6 nor the item they added'
+);
+select matches(
+  pg_temp.ce_run('admin_a', format(
+    'update public.suppliers set tenant_id = %L where id = %L',
+    pg_temp.fx('tenant_b'), 'ce689000-0000-4000-8000-0000000000a1')),
+  '^42501 CATALOGUE_RECORD_TENANT_FROZEN',
+  'C6 an admin of both tenants cannot move a shared supplier either'
+);
+select is(
+  (select count(*)::integer from public.suppliers supplier
+   where supplier.id in ('ce689000-0000-4000-8000-0000000000c1', 'ce689000-0000-4000-8000-0000000000a1')
+     and supplier.tenant_id = pg_temp.fx('tenant_a')),
+  2,
+  'C6 both suppliers are still in tenant A'
+);
+
 select is(
   pg_temp.ce_run('engineer_1', $$delete from public.suppliers where id = 'ce689000-0000-4000-8000-0000000000c1'$$),
   'ok 1',

@@ -102,7 +102,8 @@ revoke all on function public.set_tenant_catalogue_policy(uuid, boolean) from pu
 grant execute on function public.set_tenant_catalogue_policy(uuid, boolean) to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 2. Who added a supplier or an item. Stamped by the base, never by the caller.
+-- 2. Who added a supplier or an item. Stamped by the base, never by the caller. The same trigger freezes the
+--    tenant of a row for signed-in members (CATALOGUE_RECORD_TENANT_FROZEN).
 -- ---------------------------------------------------------------------------
 alter table public.suppliers
   add column created_by uuid references public.profiles(id) on delete set null;
@@ -132,6 +133,11 @@ begin
     new.created_by := auth.uid();
   else
     new.created_by := old.created_by;
+    -- The update policies read the new row's tenant: without this, a member holding a write role in two tenants
+    -- could move a supplier or an item from one to the other.
+    if new.tenant_id is distinct from old.tenant_id then
+      raise exception using errcode = '42501', message = 'CATALOGUE_RECORD_TENANT_FROZEN';
+    end if;
   end if;
   return new;
 end;
