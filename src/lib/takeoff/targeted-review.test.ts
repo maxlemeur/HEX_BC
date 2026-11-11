@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import { acceptanceOf, targetedReviewLines, zoneOverlapGuidance } from "@/lib/takeoff/targeted-review";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 // TI-664 L5c, what the targeted review offers on a line. Ways it fails, written before the code:
 // - F1: it lists a line the apply guard neither blocks nor finds uncertain, or misses one it does (an excluded line, a
@@ -16,7 +17,7 @@ import { acceptanceOf, targetedReviewLines, zoneOverlapGuidance } from "@/lib/ta
 //   offered again after the length was removed, « Retirer la ligne » on a line whose partner was just excluded, V
 //   accepting a failure the user has not seen; a reduction computed from a quantity above the measured length.
 
-type Line = ApplyGuardItem & { quantity: number; metadata: Record<string, unknown> };
+type Line = ApplyGuardItem & { quantity: number; metadata: Record<string, unknown>; exclusion_reason?: string | null };
 
 let next = 0;
 function line(overrides: Partial<Line> = {}): Line {
@@ -39,6 +40,36 @@ const partner = (overrides: Record<string, unknown> = {}) => ({ item_id: "111111
   job_id: "22222222-2222-4222-8222-222222222222", zone: "Z2", designation: "EF Inox 316L DN 22", overlap_m: 1, resolved: false, ...overrides });
 
 describe("targetedReviewLines", () => {
+  // TI-682 D11: an hypothesis arrives excluded; it stays in the list until someone decides it. Ways it fails: the
+  // weld to enter leaves the list with its exclusion and nobody enters it; V is offered on a line still excluded; a
+  // line its reviewer excluded, or a vector measure left out, comes back in the list.
+  it("keeps an hypothesis nobody decided in the list, and never one somebody excluded", () => {
+    const toEnter = rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false });
+    const weld = line({ rule_results: [toEnter], is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable });
+    const estimate = line({ is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated });
+    const excludedByReviewer = line({ rule_results: [toEnter], is_excluded: true, exclusion_reason: "Hors lot." });
+    const vector = line({ is_excluded: true, metadata: { vector: { kind: "network" } },
+      exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." });
+    const clean = line();
+
+    const review = targetedReviewLines([weld, estimate, excludedByReviewer, vector, clean], 0.5, "C");
+    expect(review.lines.map((entry) => [entry.item.id, entry.tier, entry.reasons, entry.rule_failures.map((failure) => failure.code)])).toEqual([
+      [weld.id, "uncertain", ["rule_failed"], ["NON_OBSERVABLE_TO_ENTER"]],
+      [estimate.id, "uncertain", [], []],
+    ]);
+    expect(review.guard.passed).toBe(true);
+    expect(acceptanceOf(weld, "C")).toEqual({ enabled: false, reason: expect.stringContaining("Hypothèse non présélectionnée") });
+    expect(acceptanceOf(estimate, "C")).toEqual({ enabled: false, reason: expect.stringContaining("Hypothèse non présélectionnée") });
+  });
+
+  it("lists an hypothesis its reviewer included as any other line", () => {
+    const toEnter = rule({ rule: "non_observable", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false });
+    const includedWeld = line({ rule_results: [toEnter] });
+    const includedEstimate = line({ metadata: { quantity_nature: "estimated" } });
+    const review = targetedReviewLines([includedWeld, includedEstimate], 0.5, "C");
+    expect(review.lines.map((entry) => entry.item.id)).toEqual([includedWeld.id]);
+  });
+
   it("lists exactly the guard's rejected then uncertain lines", () => {
     const rejected = line({ rule_results: [rule({})] });
     const uncertain = line({ confidence: 0.6 });

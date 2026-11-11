@@ -8,6 +8,7 @@ import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-co
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
 import {
   launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readWorkerDecisionsCalls, startOwnedWorker,
@@ -599,4 +600,46 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
   await recordEvidence(ui.army, "TKW10-decisions-failed", { failedJobId, fileName, vectorPage: failedPage, items: failed.items,
     boundary: "The provider fixture answers 500 to the one Decisions call; the worker completes the job with its keyword reading." });
+});
+
+// TI-682 D11: an hypothesis is never preselected. The real level B processor, the fixed rules on: a weld count a plan
+// cannot show arrives excluded with its reason, the valve count beside it stays preselected. The review lists the weld
+// until its quantity is entered with what it rests on, which includes it.
+armyTest("TKW11 a quantity a plan cannot show arrives excluded with its reason, and the count beside it stays preselected", options, async (ui) => {
+  const { ids, jobId } = await launchWorkerPdf(ui);
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { rules: true, providerItems: [
+    { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.99, evidence: "Supposées, page 1" },
+    { designation: "ARMY worker valve", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
+  ] }).done;
+  expect(completed.outcome.status).toBe("completed");
+  expect(completed.items.map(({ designation, quantity, is_excluded, exclusion_reason }) => ({ designation, quantity, is_excluded, exclusion_reason }))
+    .sort((left, right) => right.designation.localeCompare(left.designation))).toEqual([
+    { designation: "Soudures inox", quantity: 48, is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable },
+    { designation: "ARMY worker valve", quantity: 3, is_excluded: false, exclusion_reason: null },
+  ]);
+  const weld = completed.items.find((item) => item.designation === "Soudures inox")!;
+
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review/targeted?versionId=${ids.versionId}&line=${weld.id}`);
+  const list = ui.screen.getByRole("listbox", "Lignes à trancher", { exact: true });
+  const panel = ui.screen.getByRole("region", "Décision sur la ligne", { exact: true });
+  await expect(list.getByRole("option", /^Soudures inox/)).toContainText("Hypothèse");
+  await expect(panel).toContainText(TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable);
+  await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
+  await expect(panel.getByRole("button", /^Accepter/)).toBeDisabled();
+  await expect(panel.getByRole("button", /^Inclure/)).toHaveCount(0);
+
+  await panel.getByLabel("Quantité à saisir", { exact: true }).click();
+  await ui.browser.keyboard.press("Enter");
+  const entry = ui.screen.getByRole("dialog", "Justifier la quantité saisie", { exact: true });
+  await entry.getByLabel("Justification", { exact: true }).selectOption({ value: "site_survey" });
+  const attested = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/items`);
+  await entry.getByRole("button", "Enregistrer la quantité", { exact: true }).click();
+  expect((await attested).status).toBe(200);
+  await expect(list.getByRole("option", /^Soudures inox/)).toHaveCount(0);
+  const stored = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}?items_limit=200`);
+  expect([stored.status, stored.body.ok]).toEqual([200, true]);
+  const entered = stored.body.data.items.data.find((item) => item.id === weld.id);
+  expect(entered).toMatchObject({ quantity: 48, is_excluded: false, exclusion_reason: null, quantity_entry_category: "site_survey" });
+  await recordEvidence(ui.army, "TKW11-hypothesis-not-preselected", { ids, jobId, arrived: completed.items, entered,
+    boundary: "Real level B processor with the fixed rules on; controlled provider answer; the entry goes through the targeted review." });
 });

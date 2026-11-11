@@ -107,3 +107,61 @@ armyTest("TKQ02 usable vector measurement takes priority with a visible gap and 
   await recordEvidence(ui.army, "TKQ02-source-priority", { ids, jobId, retained, applied,
     boundary: "Real extraction of an owned fictional PDF; controlled model interpretation; no human timing measurement." });
 });
+
+// TI-682 D11: the worker pairs a vector measure with the vision line of the same identity (TKQ02). A vector measure it
+// could not pair stays excluded, without a group: included by hand beside the length the model read on its page, both
+// readings reached the estimate. The application now refuses them by page, and takes the measure once the other
+// reading is left out.
+armyTest("TKQ03 a vector measure the worker did not pair is refused beside the vision reading of its page, then applied alone", options, async ui => {
+  const { ids, jobId, fileName, owner, client } = await launchWorkerVectorUpload(ui);
+  const network = VECTOR_PLAN.networks[0];
+  // The model reads the same run without its material or diameter: nothing pairs it with the measure.
+  const vision = "Réseau eau froide du plan";
+  const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner,
+    providerItems: [{ designation: vision, quantity: network.length_m + 2, unit: "ml", source_page: 1,
+      confidence: 0.95, evidence: "Lecture contrôlée du réseau EF sur le plan fictif, page 1." }] }).done;
+  expect(completed.outcome.status).toBe("completed");
+  expect(completed.items.filter(item => !item.is_excluded).map(item => item.designation)).toEqual([vision]);
+  const target = await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} target`);
+  const readings = await client.from("takeoff_items").select("id,designation,metadata,is_excluded,updated_at,source_file_name,source_page").eq("job_id", jobId);
+  expect(readings.error).toBeNull();
+  const measure = readings.data!.find(item => item.metadata?.vector && item.designation === network.designation)!;
+  const model = readings.data!.find(item => !item.metadata?.vector)!;
+  expect(measure).toMatchObject({ is_excluded: true, source_file_name: fileName, source_page: 1 });
+  expect(measure.metadata?.quantity_source?.group ?? null).toBeNull();
+  expect(model).toMatchObject({ designation: vision, is_excluded: false, source_file_name: fileName, source_page: 1 });
+
+  // The bypass: the measure included by hand, the vision line of its page still included.
+  const included = await apiRequest(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, {
+    items: [{ item_id: measure.id, updated_at: measure.updated_at, fields: { is_excluded: false, exclusion_reason: null } }],
+  });
+  expect(included.status).toBe(200);
+  const refused = await applyOwnedTakeoff(ui.browser, ids.versionId, jobId, { strategy: "append", target_section_id: target.parent_id });
+  expect(refused.status).toBe(422);
+  const refusal = (refused.body as { error?: { code?: string; message?: string; details?: Record<string, unknown> } }).error;
+  expect(refusal?.code).toBe("TAKEOFF_APPLY_GUARD_FAILED");
+  expect(refusal?.message).toContain(`de la page 1 de « ${fileName} »`);
+  expect(refusal?.message).toContain("Conservez une seule lecture par page");
+  expect(refusal?.details).toMatchObject({ guard: "quantity_sources", scope: "page", dimension: "length", source_page: 1, source_file_name: fileName });
+  expect((await readEstimate(ui.browser, ids.versionId)).items.filter(item => item.title === network.designation || item.title === vision)).toEqual([]);
+  const jobAfterRefusal = await client.from("takeoff_jobs").select("status").eq("id", jobId).single();
+  expect(jobAfterRefusal.data?.status).toBe("completed");
+
+  // One reading of the page: the vision line left out, the measure applied.
+  const excluded = await apiRequest(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, {
+    items: [{ item_id: model.id, updated_at: model.updated_at,
+      fields: { is_excluded: true, exclusion_reason: "Lecture du plan écartée : mesure vectorielle retenue." } }],
+  });
+  expect(excluded.status).toBe(200);
+  const applied = await applyOwnedTakeoff(ui.browser, ids.versionId, jobId, { strategy: "append", target_section_id: target.parent_id,
+    overrides: [{ item_id: measure.id, action: "set_price", action_params: { unit_price_cents: 1000 } }] });
+  expect(applied.status).toBe(200);
+  const estimate = await readEstimate(ui.browser, ids.versionId);
+  expect(estimate.items.filter(item => item.title === vision)).toEqual([]);
+  const lines = estimate.items.filter(item => item.title === network.designation);
+  expect(lines).toHaveLength(1);
+  expect(lines[0].quantity).toBe(network.length_m);
+  await recordEvidence(ui.army, "TKQ03-one-reading-per-page", { ids, jobId, measure: measure.id, model: model.id,
+    refused: { status: refused.status, error: refusal }, applied: { status: applied.status, quantity: lines[0].quantity },
+    boundary: "Real extraction of an owned fictional PDF; controlled model interpretation; no human timing measurement." });
+});

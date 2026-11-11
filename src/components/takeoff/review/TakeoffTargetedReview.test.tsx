@@ -19,6 +19,7 @@ import { TakeoffTargetedReview } from "@/components/takeoff/review/TakeoffTarget
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, patchTakeoffItems } from "@/lib/takeoff/client";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 // TI-664 L5c, the targeted review's decisions as the browser drives them. Ways it fails, written before the screen:
 // - F6: a quantity the plan cannot show, already right, cannot be settled: confirming it never sends its attestation;
@@ -102,6 +103,103 @@ afterEach(() => {
 });
 
 describe("TakeoffTargetedReview", () => {
+  // TI-682 D11: an hypothesis arrives excluded. Ways the screen fails: the weld leaves the list with its exclusion and
+  // is never entered; its entry is saved but the line stays excluded, out of the estimate; V or Inclure counts a
+  // quantity to enter nobody entered; an estimate cannot be included from the list.
+  it("keeps an hypothesis that arrived excluded in the list, and includes it with its entered quantity", async () => {
+    const weld = { ...ITEMS[0], is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [weld, ITEMS[1], ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true, item: { ...weld, is_excluded: false,
+      exclusion_reason: null, quantity_entry_category: "site_survey", quantity_entry_note: null,
+      rule_results: [{ rule: "non_observable", status: "pass", code: "NON_OBSERVABLE_ENTERED", version: 1, acceptable: false, reason: "Saisie." }],
+      updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const user = userEvent.setup();
+    const list = await open();
+    const option = within(list).getByRole("option", { name: /Soudures des réseaux/ });
+    expect(within(option).getByText("Hypothèse")).toBeInTheDocument();
+    choose(list, "Soudures des réseaux");
+
+    expect(screen.getByText(TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Accepter/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Inclure/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(list, { key: "i" });
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(list, { key: "F2" });
+    const quantity = await screen.findByLabelText("Quantité à saisir");
+    await waitFor(() => expect(quantity).toHaveFocus());
+    fireEvent.keyDown(quantity, { key: "Enter" });
+    const dialog = await screen.findByRole("dialog", { name: "Justifier la quantité saisie" });
+    await user.selectOptions(within(dialog).getByLabelText("Justification"), "site_survey");
+    await user.click(within(dialog).getByRole("button", { name: "Enregistrer la quantité" }));
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter, updated_at: weld.updated_at,
+      fields: { quantity: 12, quantity_entry: expect.objectContaining({ category: "site_survey" }), is_excluded: false, exclusion_reason: null } }] }));
+    await waitFor(() => expect(within(list).queryByText("Soudures des réseaux")).not.toBeInTheDocument());
+  });
+
+  it("asks what a weld rests on even before its rules were computed, and never offers Inclure for it", async () => {
+    const weld = { ...item(ids.toEnter, "Soudures des réseaux", 12, []), unit: "u", rules_evaluated_at: null, is_excluded: true,
+      exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [weld, ITEMS[1], ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "Soudures des réseaux");
+
+    expect(screen.queryByRole("button", { name: /^Inclure/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(list, { key: "i" });
+    fireEvent.keyDown(list, { key: "F2" });
+    const quantity = await screen.findByLabelText("Quantité à saisir");
+    await waitFor(() => expect(quantity).toHaveFocus());
+    fireEvent.keyDown(quantity, { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Justifier la quantité saisie" })).toBeInTheDocument();
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+  });
+
+  it("leaves an hypothesis of an applied job as it is: nothing includes it", async () => {
+    const estimate = { ...item(ids.toEnter, "Réseau EF estimé", 40, []), unit: "ml", is_excluded: true,
+      exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "applied", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [estimate, ITEMS[1], ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "Réseau EF estimé");
+
+    expect(screen.getByRole("button", { name: /^Inclure/ })).toBeDisabled();
+    fireEvent.keyDown(list, { key: "i" });
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+  });
+
+  it("includes an estimate that arrived excluded with Inclure, and never accepts it with V", async () => {
+    const estimate = { ...item(ids.toEnter, "Réseau EF estimé", 40, []), unit: "ml", metadata: { quantity_nature: "estimated" },
+      is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [estimate, ITEMS[1], ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.toEnter, success: true,
+      item: { ...estimate, is_excluded: false, exclusion_reason: null, updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    const list = await open();
+    choose(list, "Réseau EF estimé");
+
+    expect(screen.getByText(TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Accepter/ })).toBeDisabled();
+    fireEvent.keyDown(list, { key: "v" });
+    expect(patchTakeoffItems).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^Inclure/ })).toBeEnabled();
+    fireEvent.keyDown(list, { key: "i" });
+
+    await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter, updated_at: estimate.updated_at,
+      fields: { is_excluded: false, exclusion_reason: null } }] }));
+    await waitFor(() => expect(within(list).queryByText("Réseau EF estimé")).not.toBeInTheDocument());
+  });
+
   // TI-686 D12: Enter on a quantity to enter opens « Justifier la quantité saisie »; the quantity is saved with what it
   // rests on, and the line then shows it.
   it("attests a quantity to enter confirmed as it is with its category, and never offers V for it", async () => {

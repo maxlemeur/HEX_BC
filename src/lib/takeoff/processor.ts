@@ -82,6 +82,7 @@ import {
 import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
+import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
   isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, type VectorPageOutcome,
@@ -1633,6 +1634,10 @@ async function persistTakeoffResultAndItems(input: {
               designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
               category: typeof item.metadata.category === "string" ? item.metadata.category : null,
             })) : null;
+            const metadata = ruleInputs ? { ...item.metadata, rule_inputs: ruleInputs } : item.metadata;
+            // TI-682 (D11): an hypothesis is never preselected; it arrives excluded, with its reason. Every row of the
+            // insert carries both columns: a bulk insert refuses rows whose keys differ.
+            const preselection = hypothesisPreselection({ metadata });
             return {
               tenant_id: input.job.tenant_id,
               job_id: input.job.id,
@@ -1644,8 +1649,10 @@ async function persistTakeoffResultAndItems(input: {
               evidence: item.evidence,
               source_file_name: item.source_file_name,
               source_page: item.source_page,
-              metadata: ruleInputs ? { ...item.metadata, rule_inputs: ruleInputs } : item.metadata,
-              ...(ruleInputs ? { rules_stale: true } : {}),
+              metadata,
+              is_excluded: preselection?.is_excluded ?? false,
+              exclusion_reason: preselection?.exclusion_reason ?? null,
+              ...(withRules ? { rules_stale: ruleInputs !== null } : {}),
             };
           }) as never
         );

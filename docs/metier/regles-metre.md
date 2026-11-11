@@ -45,6 +45,68 @@ Le code est dans [`src/lib/takeoff/rules/`](../../src/lib/takeoff/rules/). Le ba
 la mesure avec `npm run takeoff:bench -- --pipeline vector`
 ([`vector-rules.ts`](../../src/lib/takeoff/bench/vector-rules.ts)).
 
+## Présélection et lecture unique par page — TI-682 (lot B)
+
+Deux garanties, décidées le 6 novembre 2026 (D11, D12).
+
+**Une hypothèse n'est jamais présélectionnée.**
+
+- Une quantité est une hypothèse quand rien ne l'atteste :
+  - son auteur l'a saisie comme telle (catégorie « Hypothèse ») ;
+  - ou personne ne l'a attestée, et le métré a été demandé comme une estimation
+    (`metadata.quantity_nature = estimated`), ou un plan ne peut pas la montrer
+    (`metadata.rule_inputs.non_observable`).
+- Une quantité attestée sur autre chose (relevé, autre plan, DPGF, confirmation
+  écrite, calcul) n'est plus une hypothèse.
+- Cette définition existe une fois en SQL (`public.takeoff_item_hypothesis_cause`)
+  et une fois en TypeScript ([`hypothesis.ts`](../../src/lib/takeoff/hypothesis.ts)).
+  Les deux lisent les mêmes cas, écrits dans
+  [`takeoff-hypothesis-preselection.test.sql`](../../supabase/tests/database/takeoff-hypothesis-preselection.test.sql).
+- À la création, une hypothèse que personne n'a attestée arrive **exclue, avec son
+  motif**. Le worker l'écrit ainsi, et un déclencheur à l'insertion le garantit pour
+  tout autre écrivain. Une ligne ordinaire garde sa présélection.
+- Elle reste dans la revue ciblée, marquée « Hypothèse », tant que personne ne l'a
+  tranchée (la revue complète y renvoie). Seule exception : une hypothèse que la
+  sélection apparie à une mesure vectorielle devient la lecture alternative écartée,
+  comme toute autre ligne appariée. Sinon :
+  - saisir sa quantité avec ce qui la fonde l'inclut ;
+  - « Inclure » (touche I) inclut une quantité estimée ;
+  - l'exclure avec un motif la retire de la liste.
+
+  « Accepter » (V) ne l'inclut jamais.
+- Un métré demandé comme une estimation arrive donc sans aucune ligne du modèle
+  présélectionnée : chaque quantité s'inclut par un choix. Les mesures vectorielles
+  exploitables suivent leur règle habituelle.
+- La sélection des sources de TI-681 lit toujours une hypothèse comme la lecture
+  alternative qu'elle est : elle l'apparie à une mesure vectorielle comparable,
+  comme avant, et appliquer les deux reste refusé.
+- Sans les règles fixes (`MERGEONE_TAKEOFF_RULES`), le signal « non observable »
+  n'existe pas : seule l'estimation est lue.
+
+**Jamais la lecture vectorielle et la lecture du plan d'une même page ensemble.**
+
+- La sélection de TI-681 apparie une mesure vectorielle et la ligne du modèle de
+  même identité : appliquer les deux est refusé (inchangé).
+- Une mesure vectorielle que la sélection n'a pas appariée reste exclue. Incluse à la
+  main, elle est refusée à l'application tant qu'une ligne du modèle de la même page
+  est incluse, sauf si l'unité de cette ligne prouve qu'elle compte autre chose :
+  - un comptage (« u ») ne double jamais une mesure : il reste à côté ;
+  - une longueur reste à côté d'une pièce mesurée, une surface à côté d'un tronçon
+    mesuré ; jamais à côté d'un calorifuge mesuré, que le modèle lit en mètres ou en
+    mètres carrés ;
+  - rien d'autre n'est une preuve : un forfait ou un ensemble, une masse, une unité
+    inconnue du référentiel, une unité absente.
+- Faute de preuve, les deux lignes sont aussi sur la même page : une page, un fichier
+  ou un document source qui manque sur l'une des deux.
+- Les lignes que la sélection a retenues continuent de passer, y compris à côté
+  d'une ligne de la page qu'elle n'a pas appariée avec sa mesure.
+- Le refus est un 422 qui nomme la page. Il se lève dans la revue : exclure l'une
+  des deux lectures, ou corriger l'unité d'un comptage mal écrit. Une ligne seulement
+  ignorée dans le plan d'application compte encore comme incluse.
+- La protection vaut par métré : deux métrés de la même page appliqués au même
+  devis ne sont pas comparés. Elle lit la page que chaque ligne porte, que le
+  relecteur peut corriger.
+
 ## Entrées
 
 Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.

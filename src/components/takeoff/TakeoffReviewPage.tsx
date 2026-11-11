@@ -107,6 +107,7 @@ import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
+import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
   TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
@@ -1170,7 +1171,10 @@ export default function TakeoffReviewPage({
     ? "Centre d'activité métrés"
     : "Retour à l'extraction";
   // TI-664 L5c: the lines the guard rejects or finds uncertain, settled one by one in the targeted review (affaire).
-  const targetedReviewCount = guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0;
+  // TI-682 D11: the hypotheses that arrived excluded are decided there too; a takeoff asked as an estimate has no
+  // other line to review.
+  const targetedReviewCount = (guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0)
+    + items.filter(isUndecidedHypothesis).length;
   const targetedReviewHref = isAffaireContext
     ? `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`
     : undefined;

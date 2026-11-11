@@ -59,6 +59,30 @@ function takeoffV3UnresolvedUnitsMessage(items: TakeoffV3UnresolvedUnit[]) {
   return `Unité inconnue du devis moteur 3 pour ${named}${more}. ${advice}`;
 }
 
+const takeoffSourcesConflictSchema = z.object({
+  scope: z.enum(["group", "page"]),
+  dimension: z.string().nullable().optional(),
+  source_file_name: z.string().nullable().optional(),
+  source_page: z.number().int().nullable().optional(),
+});
+
+/** Which reasoning refused two readings, as the guard's detail says it (JSON); null when it says nothing readable. */
+function parseTakeoffSourcesConflict(detail: string | null | undefined) {
+  if (!detail) return null;
+  try {
+    const parsed = takeoffSourcesConflictSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** « de la page 3 de plan.pdf », with what the guard named. */
+function takeoffConflictPage(conflict: { source_file_name?: string | null; source_page?: number | null }) {
+  const page = typeof conflict.source_page === "number" ? `de la page ${conflict.source_page}` : "d’une même page";
+  return conflict.source_file_name ? `${page} de « ${conflict.source_file_name} »` : page;
+}
+
 export function mapApplyTakeoffRpcError(
   error: ApplyTakeoffRpcError,
   input: { jobId: string }
@@ -81,9 +105,15 @@ export function mapApplyTakeoffRpcError(
   };
 
   if (normalized.includes("takeoff_alternative_sources_conflict")) {
+    // TI-682 (D11): the guard says which reasoning refused (private.assert_takeoff_single_quantity_source): two readings
+    // the worker paired, or a vector line it did not pair beside a vision line of its page that nothing proves to
+    // count something else. The detail's dimension (the measure's own) is kept for the diagnosis.
+    const conflict = parseTakeoffSourcesConflict(error.details);
     return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
-      message: "Deux lectures alternatives sont retenues pour la même quantité. Conservez une seule source par poste ou zone.",
-      details: { ...details, guard: "quantity_sources" }, retryable: false, jobId: input.jobId });
+      message: conflict?.scope === "page"
+        ? `Une mesure vectorielle et une ligne lue sur le plan ${takeoffConflictPage(conflict)} sont retenues ensemble. Conservez une seule lecture par page : excluez l’une des deux dans la revue. Seuls un comptage ou une mesure d’une autre nature, dans une unité connue, restent à côté d’une mesure.`
+        : "Deux lectures alternatives sont retenues pour la même quantité. Conservez une seule source par poste ou zone.",
+      details: { ...details, guard: "quantity_sources", ...(conflict ?? {}) }, retryable: false, jobId: input.jobId });
   }
 
   if (normalized.includes("takeoff_dpgf_quantity_")) {
