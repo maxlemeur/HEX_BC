@@ -25,7 +25,7 @@ import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
 // reanalysis (INTRETRY01, INTWORD01). The takeoff jobs run in chatgpt-local-takeoff.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). Each test that needs a ChatGPT profile writes its
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
-const server = chatGptLocalServer("decisions");
+const server = chatGptLocalServer();
 let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;

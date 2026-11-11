@@ -2561,9 +2561,10 @@ export function useEstimateEditorState({
             isExpert,
             onOpenSettings: handleOpenSettingsDrawer,
             v3Summary: v3Breakdown === undefined ? undefined : buildEstimateV3SummaryView(v3Breakdown),
+            missingSupplyCostCount: qualityCounts.byFlag.missing_price,
           }
         : null,
-    [handleOpenSettingsDrawer, isExpert, settings, totals, v3Breakdown]
+    [handleOpenSettingsDrawer, isExpert, qualityCounts.byFlag.missing_price, settings, totals, v3Breakdown]
   );
 
   const snapshotContext = version?.calc_snapshot_context;
