@@ -36,6 +36,35 @@
       "workers": 1
     }
   },
+  "calcV3": {
+    "note": "Répartition des phases calc-v3 en groupes (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-calc-v3.ts : chaque groupe est un job qui exécute ses phases l'une après l'autre sur une seule pile. maxGroups : nombre maximal de jobs d'une campagne ; une sélection de moins de phases garde un groupe par phase. seconds : durée mesurée des parcours de chaque phase, sans la préparation que le groupe ne paie qu'une fois ; elle ne sert qu'à équilibrer les groupes, jamais à choisir les phases. Une phase absente compte defaultSeconds. Une phase n'est jamais coupée entre deux groupes.",
+    "measured": [
+      "Jobs verts « army-calc-v3 <phase> » du 3 au 10/11/2026 (API GitHub Actions des jobs, un job par phase) : médiane par phase de l'étape « Run native database and TesterArmy calc-v3 phases », moins les 133 s de préparation fixe (pile, contrôles de la base et build) qu'un groupe ne paie qu'une fois. Étape entière : offers-zero-price 403 s, source-coverage-decisions 383, source-coverage-edits 381, source-coverage-recovery 315, offers-purchase-unit 269, resend-portal 251, journeys 208, resume 207, emission 206, numeric 196, generated-recovery 188, components 184, emission-v3 181, assembly-totals 173, batch-client 171, navigation-lease 167, mobile 155, generated-atomic 149, access 146. defaultSeconds : moyenne des 19 phases (1806 s / 19)."
+    ],
+    "maxGroups": 5,
+    "defaultSeconds": 95,
+    "seconds": {
+      "journeys": 75,
+      "components": 51,
+      "numeric": 63,
+      "resume": 74,
+      "access": 13,
+      "offers-zero-price": 270,
+      "offers-purchase-unit": 136,
+      "emission": 73,
+      "emission-v3": 48,
+      "resend-portal": 118,
+      "source-coverage-decisions": 250,
+      "source-coverage-edits": 248,
+      "source-coverage-recovery": 182,
+      "generated-atomic": 16,
+      "generated-recovery": 55,
+      "navigation-lease": 34,
+      "batch-client": 38,
+      "assembly-totals": 40,
+      "mobile": 22
+    }
+  },
   "seconds": {
     "e2e/army/critical/access-boundaries.e2e.ts": 1,
     "e2e/army/critical/affaire-pilotage-drawer.e2e.ts": 10,

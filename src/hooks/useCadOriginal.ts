@@ -121,9 +121,15 @@ export function useCadOriginal(source: CadOriginalSource | null) {
         session.close();
         return fail("La lecture de ce fichier prend trop de temps.");
       }
-      if (outcome === "closed" || !outcome.ok) return fail(cadReadMessage(outcome === "closed" ? "failed" : outcome.reason));
+      if (outcome === "closed" || !outcome.ok) {
+        // Nothing was read: the worker has nothing to plot, and its reader gives back what it holds.
+        session.close();
+        return fail(cadReadMessage(outcome === "closed" ? "failed" : outcome.reason));
+      }
       if (outcome.type !== "read") return;
       const { original } = outcome;
+      // The reader of an IFC model holds hundreds of megabytes, and a model is not plotted: its worker ends here.
+      if (original.kind === "ifc") session.close();
       if (original.kind !== "summary" || original.summary.format !== "dwg" || drawingUrl === null) return setState({ status: "ready", original });
 
       // The DWG stays shown by what its file says whenever its drawing does not come.

@@ -22,7 +22,9 @@ type Collector = { server: Server; origin: string; directory: string; close: () 
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md. Each phase
 // is its own TesterArmy invocation of e2e.calc-v3.config.ts with fresh
 // fixtures; every phase serves the same owned production build (`next start`),
-// the emission phases last, with the sentinel collector. A phase passes only when
+// the emission phases with the sentinel collector. The phases asked (all of
+// them, one, or the list of a CI group job) run one after another, and a red
+// phase never stops the ones after it. A phase passes only when
 // every selected result passed, nothing was skipped, retried, interrupted or
 // silently deselected, its server guard reported, the sources and build stayed
 // frozen and its evidence survived redaction.
@@ -40,7 +42,9 @@ export type CalcV3CampaignInput = {
   psql: string;
   admin: SupabaseClient<Database>;
   owner: CalcV3Owner;
-  phase?: CalcV3Phase;
+  /** The phases to run, in this order; absent: every phase, in the order of the phase table. */
+  phases?: readonly CalcV3Phase[];
+  /** Filters the journeys of the single phase asked. */
   grep?: string;
   remember: (secret: string) => void;
   redact: (value: string) => string;
@@ -390,7 +394,7 @@ export async function runCalcV3Campaign(input: CalcV3CampaignInput) {
     }
   }
   const scrub = scrubber(input.redact);
-  const phases = input.phase ? [input.phase] : [...CALC_V3_PHASES];
+  const phases = input.phases ? [...input.phases] : [...CALC_V3_PHASES];
   const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
   // A stop request ends the campaign after the current step; the runner's
   // finally still destroys the owned stack. Children receive the terminal's
@@ -402,7 +406,7 @@ export async function runCalcV3Campaign(input: CalcV3CampaignInput) {
   process.on("SIGTERM", onSigterm);
   try {
     const sourcesBefore = await campaignSources(input.root);
-    const campaign: Record<string, unknown> = { schemaVersion: "calc-v3-campaign-1", phases: [], selection: { phase: input.phase ?? "all", grep: input.grep ?? null }, sourcesBefore };
+    const campaign: Record<string, unknown> = { schemaVersion: "calc-v3-campaign-1", phases: [], selection: { phases: input.phases ?? "all", grep: input.grep ?? null }, sourcesBefore };
     if (phases.some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")) await input.build();
     const failures: string[] = [];
     for (const phase of phases) {

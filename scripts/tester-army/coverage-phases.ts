@@ -18,7 +18,8 @@ const phase = (file: string, count: number): CalcV3PhaseDefinition => ({
 export const COVERAGE_PHASE_DEFINITIONS: Readonly<Record<CoveragePhase, CalcV3PhaseDefinition>> = {
   mobile: { ...phase("e2e/army/local/mobile-journeys.e2e.ts", 3), target: "chromium-mobile" },
   // SC01 to SC09 each take about a minute on their own fresh scenario: three
-  // parallel phases keep the CCTP journeys off the campaign's critical path.
+  // phases, which the plan spreads over its group jobs, keep the CCTP journeys
+  // off the campaign's critical path.
   "source-coverage-decisions": { ...phase(sourceCoverage, 4), defaultGrep: "^SC0(1-03|2|4|5)\\s" },
   "source-coverage-edits": { ...phase(sourceCoverage, 4), defaultGrep: "^SC06\\s" },
   "source-coverage-recovery": { ...phase(sourceCoverage, 3), defaultGrep: "^SC0[789]\\s" },

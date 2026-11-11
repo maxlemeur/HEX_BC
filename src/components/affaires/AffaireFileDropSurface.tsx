@@ -130,7 +130,7 @@ export function AffaireFileDropSurface({
             </p>
             {!compact ? (
               <p className="mt-1.5 text-xs font-medium text-primary">
-                Les originaux DWG/DXF/RVT/FCStd sont conservés ; ajoutez un PDF ou un quantitatif pour leur exploitation.
+                Les originaux DWG/DXF/RVT/IFC/FCStd sont conservés ; ajoutez un PDF ou un quantitatif pour leur exploitation.
               </p>
             ) : null}
           </div>

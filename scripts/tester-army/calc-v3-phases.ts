@@ -103,7 +103,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   },
   // Sub-lots 2.2 (A7, P-08) and 2.9 (P-18): zero-priced supplier offers, units and purchase units,
   // on catalogue records seeded for each phase (docs/testing/estimate-engine-v3-2.2.md, -2.9.md).
-  // One phase per file, so the two run in parallel jobs.
+  // One phase per file, so the plan can put the two in different group jobs.
   "offers-zero-price": {
     serverMode: "production",
     tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
@@ -166,4 +166,21 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
 
 export function isCalcV3Phase(value: unknown): value is CalcV3Phase {
   return typeof value === "string" && (CALC_V3_PHASES as readonly string[]).includes(value);
+}
+
+/**
+ * The runner's calc-v3 --phase value: one phase, or several distinct ones separated by commas, which then
+ * run one after another on the same owned stack, in that order (a group job of the calc-v3 workflow).
+ */
+export function parseCalcV3Phases(value: string): CalcV3Phase[] {
+  const phases = value.split(",");
+  if (!phases.every(isCalcV3Phase) || new Set(phases).size !== phases.length) {
+    throw new Error(`--phase names one calc-v3 phase, or several distinct ones separated by commas: ${CALC_V3_PHASES.join("|")}.`);
+  }
+  return phases;
+}
+
+/** The scope a runner manifest records for these phases; without a list, the complete campaign. */
+export function calcV3Scope(phases: readonly string[] | undefined): string {
+  return phases ? `calc-v3-${phases.join(",")}` : "calc-v3";
 }

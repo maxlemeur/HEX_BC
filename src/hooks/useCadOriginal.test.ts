@@ -91,6 +91,8 @@ describe("useCadOriginal", () => {
     const first = await lastRequest(() => workers[0]);
     await answer(workers[0], { requestId: first.requestId, ok: false, type: "read", reason: "binary_dxf" });
     expect(result.current.state).toEqual({ status: "error", message: cadReadMessage("binary_dxf") });
+    // A worker that read nothing has nothing to plot: it is ended with what its reader holds.
+    expect(workers[0].terminate).toHaveBeenCalledTimes(1);
 
     act(() => result.current.retry());
     expect(result.current.state).toEqual({ status: "loading" });

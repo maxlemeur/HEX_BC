@@ -26,7 +26,11 @@
 //    skipped as outside its positional files);
 // 8. the full suite qualified without its development phase, or a filtered
 //    (--grep) dispatch recorded as the full suite;
-// 9. a calc-v3 phase red, missing, or recorded under another phase;
+// 9. calc-v3 groups (several phases on one stack per job): a group without
+//    evidence, a red phase inside a group, a planned phase no group ran, a
+//    phase run by two groups or by none of the plan's, a group whose manifest
+//    or campaign does not list its planned phases, or a group plan that does
+//    not partition the selected phases (one left out, one twice, an empty group);
 // 10. a single unit read as missing because actions/download-artifact puts the
 //    only artifact a pattern matches directly in its path (no subdirectory;
 //    run 39120187109), or a flat download taken for one of several units;
@@ -412,47 +416,180 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).scope).toBe("full");
   });
 
-  it("records calc-v3 none only with a successful plan and skipped phases", () => {
-    const input: AggregateInput = { suite: "calc-v3", plan: ["none"], evidence, out,
-      results: { "army-calc-v3-plan": "success", "army-calc-v3-phase": "skipped" }, revision: REVISION };
-    expect(aggregateEvidence(input)).toMatchObject({ status: "not-run" });
-    expect(aggregateEvidence({ ...input, results: { ...input.results, "army-calc-v3-plan": "failure" } }).status).toBe("failed");
-    expect(aggregateEvidence({ ...input, plan: [] }).status).toBe("failed");
-    expect(aggregateEvidence({ ...input, results: { ...input.results, "army-calc-v3-phase": "success" } }).status).toBe("failed");
+  const calcResults = { "army-calc-v3-plan": "success", "army-calc-v3-group": "success" };
+  const groupMatrix = (groups: string[][]) => groups.map((phases, index) => ({ group: index + 1, total: groups.length, phases: phases.join(",") }));
+  /** A calc-v3 plan as the plan job hands it: the selected phases and the matrix of its group jobs. */
+  const calc = (groups: string[][], overrides: { phases?: string[]; groups?: unknown; results?: Record<string, string> } = {}): AggregateInput => ({
+    suite: "calc-v3", plan: { phases: overrides.phases ?? groups.flat(), groups: "groups" in overrides ? overrides.groups : groupMatrix(groups) },
+    evidence, out, results: overrides.results ?? calcResults, revision: REVISION,
+  });
+  /** A group job's evidence: the runner manifest of its --phase list and the campaign's calc-v3.json. */
+  const writeGroup = (group: number, planned: string[], options: {
+    /** Phases calc-v3.json lists, with their status; the planned ones, passed, by default. */
+    ran?: [phase: string, status: string][];
+    extra?: Record<string, unknown>;
+    files?: Record<string, string>;
+    artifact?: string;
+  } = {}) => {
+    const ran = options.ran ?? planned.map((phase): [string, string] => [phase, "passed"]);
+    return writeUnit({
+      suite: "calc-v3", artifact: options.artifact ?? `army-calc-v3-group-${group}-evidence`, scope: `calc-v3-${planned.join(",")}`, phases: [],
+      extra: { calcV3Phases: planned, calcV3: "calc-v3.json", ...(ran.every(([, status]) => status === "passed") ? {} : { status: "failed" }), ...options.extra },
+      calcV3: { phases: ran.map(([phase, status]) => ({ phase, status })) }, files: options.files,
+    });
+  };
+  const reset = () => {
+    fs.rmSync(evidence, { recursive: true, force: true });
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.mkdirSync(evidence);
+  };
+  const PLAN = [["journeys", "resume"], ["components"]];
+
+  it("records calc-v3 none only with a successful plan, no group and skipped group jobs", () => {
+    const none = calc([], { phases: ["none"], results: { "army-calc-v3-plan": "success", "army-calc-v3-group": "skipped" } });
+    expect(aggregateEvidence(none)).toMatchObject({ status: "not-run", problems: [], evidence: null });
+    expect(aggregateEvidence({ ...none, results: { ...none.results, "army-calc-v3-plan": "failure" } }).status).toBe("failed");
+    expect(aggregateEvidence({ ...none, results: { ...none.results, "army-calc-v3-group": "success" } }).status).toBe("failed");
+    expect(aggregateEvidence(calc([], { results: none.results })).status).toBe("failed");
+    expect(problems(calc([["journeys"]], { phases: ["none"], results: none.results })))
+      .toMatchObject({ status: "failed", problems: expect.stringContaining("without phases plans no group") });
   });
 
-  it("passes calc-v3 only when every planned phase passed on its own stack", () => {
-    const calc = (phases: string[], results = { "army-calc-v3-plan": "success", "army-calc-v3-phase": "success" }): AggregateInput =>
-      ({ suite: "calc-v3", plan: phases, evidence, out, results, revision: REVISION });
-    const writePhase = (phase: string, status = "passed", recorded = phase, files?: Record<string, string>) => writeUnit({
-      suite: "calc-v3", artifact: `army-calc-v3-${phase}-evidence`, scope: `calc-v3-${phase}`, phases: [],
-      extra: { calcV3Phase: phase, calcV3: "calc-v3.json", ...(status === "passed" ? {} : { status }) },
-      calcV3: { phases: [{ phase: recorded, status }] }, files,
+  it("passes calc-v3 when the groups together ran exactly the planned phases, each once and passed", () => {
+    writeGroup(1, PLAN[0]);
+    writeGroup(2, PLAN[1]);
+    const result = aggregateEvidence(calc(PLAN));
+    expect(result).toMatchObject({ status: "passed", problems: [], notPassed: [] });
+    const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({
+      suite: "calc-v3", scope: "calc-v3", status: "passed",
+      plan: { phases: ["journeys", "resume", "components"], groups: groupMatrix(PLAN) },
+      union: { expected: ["components", "journeys", "resume"], executed: ["components", "journeys", "resume"], missing: [], unexpected: [], duplicated: [] },
     });
-    writePhase("journeys");
-    expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed",
-      problems: expect.stringContaining("army-calc-v3-components-evidence") });
-    // A red phase names its red journeys from the report of its own e2e run, as a shard does:
-    // the alert of a scheduled campaign has nothing else to read them from.
-    writePhase("components", "failed", "components", { "components/sdk/report.json": JSON.stringify({ run: { results: [
-      { file: "e2e/army/local/offer-emission.e2e.ts", selected: true, status: "failed", titlePath: ["OF00 emits the frozen PDF"] },
-      { file: "e2e/army/local/offer-emission.e2e.ts", selected: true, status: "passed", titlePath: ["OF0L keeps the lease"] },
-      { file: "e2e/army/local/offer-emission.e2e.ts", selected: false, status: "skipped", titlePath: ["EC01 another phase"] },
-    ] } }) });
-    expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed", problems: expect.stringContaining("components") });
-    expect(aggregateEvidence(calc(["journeys", "components"])).notPassed)
-      .toEqual(["calc-v3 components : offer-emission.e2e.ts : OF00 emits the frozen PDF (failed)"]);
-    fs.rmSync(path.join(evidence, "army-calc-v3-components-evidence"), { recursive: true, force: true });
-    writePhase("components", "passed", "numeric");
-    expect(problems(calc(["journeys", "components"]))).toMatchObject({ status: "failed", problems: expect.stringContaining("numeric") });
-    fs.rmSync(path.join(evidence, "army-calc-v3-components-evidence"), { recursive: true, force: true });
-    writePhase("components");
-    expect(problems(calc(["journeys", "components"], { "army-calc-v3-plan": "success", "army-calc-v3-phase": "failure" })))
-      .toMatchObject({ status: "failed", problems: expect.stringContaining("army-calc-v3-phase failure") });
-    const result = aggregateEvidence(calc(["journeys", "components"]));
-    expect(result.problems).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).units.map((unit: { id: string }) => unit.id))
-      .toEqual(["calc-v3 journeys", "calc-v3 components"]);
+    expect(manifest.units.map((unit: { id: string; artifact: string; phases: string[] }) => [unit.id, unit.artifact, unit.phases])).toEqual([
+      ["group 1/2", "army-calc-v3-group-1-evidence", ["journeys", "resume"]],
+      ["group 2/2", "army-calc-v3-group-2-evidence", ["components"]],
+    ]);
+    // Each group's evidence is retained under its artifact name.
+    expect(fs.existsSync(path.join(out, "units", "army-calc-v3-group-2-evidence", "calc-v3.json"))).toBe(true);
+  });
+
+  it("reads the flat download of a single calc-v3 group, and a complete campaign dispatched in one job", () => {
+    writeGroup(1, ["mobile"], { artifact: "" });
+    expect(aggregateEvidence(calc([["mobile"]]))).toMatchObject({ status: "passed", problems: [] });
+    // The flat evidence of another group's phases is refused by its own identity.
+    expect(problems(calc([["access"]]))).toMatchObject({ status: "failed", problems: expect.stringContaining("records calc-v3 phases mobile, planned access") });
+
+    reset();
+    const whole = () => writeUnit({ suite: "calc-v3", artifact: "army-calc-v3-group-1-evidence", scope: "calc-v3", phases: [],
+      extra: { calcV3: "calc-v3.json" }, calcV3: { phases: ["journeys", "components", "mobile"].map((phase) => ({ phase, status: "passed" })) } });
+    whole();
+    expect(aggregateEvidence(calc([["all"]]))).toMatchObject({ status: "passed", problems: [] });
+    // A --phase run cannot stand for the complete campaign.
+    reset();
+    writeGroup(1, ["journeys", "components", "mobile"]);
+    const listed = problems(calc([["all"]]));
+    expect(listed.status).toBe("failed");
+    expect(listed.problems).toContain("scope calc-v3-journeys,components,mobile, expected calc-v3");
+    expect(listed.problems).toContain("records phases for the whole campaign");
+  });
+
+  it("fails calc-v3 when a group left no evidence, a group job did not succeed or a phase inside a group is red", () => {
+    writeGroup(1, PLAN[0]);
+    const missing = problems(calc(PLAN));
+    expect(missing.status).toBe("failed");
+    expect(missing.problems).toContain("army-calc-v3-group-2-evidence/manifest.json is missing");
+    expect(missing.problems).toContain("Planned phases missing from every group: components.");
+
+    writeGroup(2, PLAN[1]);
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      expect(problems(calc(PLAN, { results: { ...calcResults, "army-calc-v3-group": result } })), result)
+        .toMatchObject({ status: "failed", problems: expect.stringContaining(`army-calc-v3-group ${result}`) });
+    }
+    expect(problems(calc(PLAN, { results: { ...calcResults, "army-calc-v3-plan": "failure" } })))
+      .toMatchObject({ status: "failed", problems: expect.stringContaining("army-calc-v3-plan failure") });
+
+    // A red phase does not hide the group's other phases: it is named, and its red journeys with it, read from
+    // the report of its own e2e run (the alert of a scheduled campaign has nothing else to read them from).
+    reset();
+    writeGroup(1, PLAN[0], { ran: [["journeys", "passed"], ["resume", "failed"]], files: { "resume/sdk/report.json": JSON.stringify({ run: { results: [
+      { file: "e2e/army/local/generated-ouvrage-resume.e2e.ts", selected: true, status: "failed", titlePath: ["GR02 resumes the draft"] },
+      { file: "e2e/army/local/generated-ouvrage-resume.e2e.ts", selected: true, status: "passed", titlePath: ["GR04 keeps the page"] },
+      { file: "e2e/army/local/generated-ouvrage-resume.e2e.ts", selected: false, status: "skipped", titlePath: ["GR01 another selection"] },
+    ] } }) } });
+    writeGroup(2, PLAN[1]);
+    const red = aggregateEvidence(calc(PLAN));
+    expect(red.status).toBe("failed");
+    expect(red.problems.join("\n")).toContain("group 1/2 (army-calc-v3-group-1-evidence) calc-v3.json: phases journeys passed, resume failed.");
+    expect(red.notPassed).toEqual(["calc-v3 resume : generated-ouvrage-resume.e2e.ts : GR02 resumes the draft (failed)"]);
+    expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).units.map((unit: { status: string }) => unit.status)).toEqual(["failed", "passed"]);
+  });
+
+  it("fails calc-v3 on a missing, duplicated or unplanned phase and on a group that does not list its planned phases", () => {
+    const cases: Array<[label: string, write: () => void, expected: string[]]> = [
+      ["a planned phase its group did not run", () => { writeGroup(1, PLAN[0], { ran: [["journeys", "passed"]] }); writeGroup(2, PLAN[1]); },
+        ["group 1/2 (army-calc-v3-group-1-evidence) calc-v3.json did not run resume.", "Planned phases missing from every group: resume."]],
+      ["a phase outside the plan", () => { writeGroup(1, PLAN[0]); writeGroup(2, PLAN[1], { ran: [["components", "passed"], ["numeric", "passed"]] }); },
+        ["group 2/2 (army-calc-v3-group-2-evidence) calc-v3.json ran numeric, which its plan does not list.", "Phases run outside the plan: numeric."]],
+      ["a phase run by two groups", () => { writeGroup(1, PLAN[0]); writeGroup(2, PLAN[1], { ran: [["components", "passed"], ["journeys", "passed"]] }); },
+        ["group 2/2 (army-calc-v3-group-2-evidence) calc-v3.json ran journeys, which its plan does not list.", "Phases run by two groups: journeys."]],
+      ["a phase run twice in its group", () => { writeGroup(1, PLAN[0], { ran: [["journeys", "passed"], ["resume", "passed"], ["resume", "passed"]] }); writeGroup(2, PLAN[1]); },
+        ["group 1/2 (army-calc-v3-group-1-evidence) calc-v3.json ran resume more than once."]],
+      ["a manifest that records other phases than planned", () => { writeGroup(1, PLAN[0], { extra: { calcV3Phases: ["journeys"] } }); writeGroup(2, PLAN[1]); },
+        ["group 1/2 (army-calc-v3-group-1-evidence) records calc-v3 phases journeys, planned journeys,resume."]],
+      ["a manifest that records no phase list", () => { writeGroup(1, PLAN[0], { extra: { calcV3Phases: undefined } }); writeGroup(2, PLAN[1]); },
+        ["group 1/2 (army-calc-v3-group-1-evidence) records calc-v3 phases (none), planned journeys,resume."]],
+      ["another group's evidence under this group's name", () => { writeGroup(1, PLAN[0]); writeGroup(1, PLAN[0], { artifact: "army-calc-v3-group-2-evidence" }); },
+        ["group 2/2 (army-calc-v3-group-2-evidence) has scope calc-v3-journeys,resume, expected calc-v3-components.",
+          "group 2/2 (army-calc-v3-group-2-evidence) records calc-v3 phases journeys,resume, planned components.",
+          "Planned phases missing from every group: components.", "Phases run by two groups: journeys, resume."]],
+      ["a campaign without phases", () => { writeGroup(1, PLAN[0], { ran: [] }); writeGroup(2, PLAN[1]); },
+        ["group 1/2 (army-calc-v3-group-1-evidence) calc-v3.json: phases none.", "calc-v3.json did not run journeys, resume."]],
+    ];
+    for (const [label, write, expected] of cases) {
+      reset();
+      write();
+      const result = problems(calc(PLAN));
+      expect(result.status, label).toBe("failed");
+      for (const message of expected) expect(result.problems, label).toContain(message);
+    }
+  });
+
+  it("fails calc-v3 on a group plan that does not partition the selected phases", () => {
+    writeGroup(1, PLAN[0]);
+    writeGroup(2, PLAN[1]);
+    const cases: Array<[label: string, input: AggregateInput, expected: string]> = [
+      ["a selected phase in no group", calc(PLAN, { phases: ["journeys", "resume", "components", "numeric"] }), "Selected phases planned in no group: numeric."],
+      ["a phase in two groups", calc([["journeys", "resume"], ["components", "journeys"]], { phases: ["journeys", "resume", "components"] }), "Phases planned in 2 groups: journeys."],
+      ["a phase the selection does not list", calc(PLAN, { phases: ["journeys", "components"] }), "Groups plan phases the selection does not list: resume."],
+      ["an empty group", calc(PLAN, { groups: [...groupMatrix(PLAN), { group: 3, total: 3, phases: "" }] }), "Planned group 3 must list at least one phase"],
+      ["a group numbered out of sequence", calc(PLAN, { groups: [{ group: 1, total: 2, phases: "journeys,resume" }, { group: 3, total: 2, phases: "components" }] }), "The plan numbers group 2 as 3/2."],
+      ["phases selected and no group", calc(PLAN, { groups: [] }), "The calc-v3 plan selects phases but plans no group."],
+      ["an unreadable matrix", calc(PLAN, { groups: undefined }), "The calc-v3 group plan is unreadable"],
+      ["a matrix of phase arrays", calc(PLAN, { groups: [{ group: 1, total: 1, phases: ["journeys"] }] }), "The calc-v3 group plan is unreadable"],
+      ["duplicated selected phases", calc(PLAN, { phases: ["journeys", "journeys", "resume", "components"] }), "The calc-v3 plan must list distinct phase names."],
+    ];
+    for (const [label, input, expected] of cases) {
+      expect(problems(input), label).toMatchObject({ status: "failed", problems: expect.stringContaining(expected) });
+    }
+  });
+
+  it("aggregates calc-v3 from the plan job's outputs on the command line", () => {
+    writeGroup(1, PLAN[0]);
+    writeGroup(2, PLAN[1]);
+    const run = (groups: string | undefined, results = "army-calc-v3-plan=success,army-calc-v3-group=success") => spawnSync(process.execPath,
+      [AGGREGATOR, "calc-v3", "--phases", "journeys,resume,components", ...(groups === undefined ? [] : ["--groups", groups]),
+        "--evidence", evidence, "--out", out, "--results", results, "--revision", REVISION],
+      { cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "", GITHUB_STEP_SUMMARY: "" }, windowsHide: true });
+    const passed = run(JSON.stringify(groupMatrix(PLAN)));
+    expect(passed.status, `${passed.stdout}${passed.stderr}`).toBe(0);
+    expect(passed.stdout).toContain("TesterArmy calc-v3 aggregate passed");
+    const unreadable = run("[{");
+    expect(unreadable.status).toBe(1);
+    expect(unreadable.stdout).toContain("The calc-v3 group plan is unreadable");
+    expect(run(JSON.stringify(groupMatrix([["journeys", "resume", "components"]]))).status).toBe(1);
+    // Without the group matrix there is nothing to check the jobs against: a usage error, never a green check.
+    expect(run(undefined).status).toBe(2);
   });
 
   it("exits non-zero on a failed aggregate and hands the workflow the evidence directory to retain", () => {

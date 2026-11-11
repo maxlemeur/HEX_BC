@@ -8,6 +8,7 @@ import { readDxf } from "@/lib/cad/dxf";
 import { dxfBytes, insert, layer, line, lwpolyline } from "@/lib/cad/dxf.test-utils";
 import type { CadOriginal } from "@/lib/cad/original";
 import type { CadModel } from "@/lib/cad/fcstd";
+import type { IfcModel } from "@/lib/cad/ifc";
 import type { CadPlot } from "@/lib/cad/plot";
 import type { CadSummary } from "@/lib/cad/summary";
 import type { CadWorkerRequest, CadWorkerResponse } from "@/workers/cad-reader.worker";
@@ -83,6 +84,19 @@ const MODEL: CadModel = {
 };
 const fcstdSummary = (model: CadModel = MODEL): CadSummary => ({ format: "fcstd", version: { code: "1.0", label: "FreeCAD 1.0" }, thumbnail: null, model });
 const FCSTD = { fileName: "Chaufferie.FCStd" };
+
+// What the reader gives of a fictional IFC model: two pipes of 3 m each in the basement. Its mesh stays out: no graphics card here.
+const IFC_MODEL: IfcModel = {
+  schema: "IFC4", application: "Maquetteur Fictif 2026", classes: ["IfcPipeSegment"], storeys: [{ name: "Sous-sol", elevation: -3 }],
+  rows: [{ cls: 0, type: "Tuyau PVC:Évacuation", section: [110], storey: 0, count: 2, length: 6, lengths: 2, stated: 0, approximate: 0, area: 0, areas: 0, volume: 0, volumes: 0 }],
+  elements: 2, counted: 2, truncated: { elements: false, rows: false, geometry: false, apart: false },
+  mesh: {
+    positions: new Float32Array(9), normals: new Int8Array(9), colors: new Uint8Array(12), indices: new Uint32Array(3),
+    groups: [{ cls: 0, storey: 0, transparent: false, start: 0, count: 3, min: [0, 0, 0], max: [1, 1, 1] }],
+    min: [0, 0, 0], max: [1, 1, 1], triangles: 1, truncated: false,
+  },
+};
+const IFC = { fileName: "Chaufferie.ifc" };
 const DWG: CadOriginal = { kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } };
 
 function Harness({ canManage, onEnlargeableChange, dwg = false, fileName }: { canManage: boolean; onEnlargeableChange(enlargeable: boolean): void; dwg?: boolean; fileName?: string }) {
@@ -107,7 +121,7 @@ async function opened(original: CadOriginal, options: { canManage?: boolean; upl
   const fetchMock = installFetch(options.upload);
   const onEnlargeableChange = vi.fn<(enlargeable: boolean) => void>();
   render(<Harness canManage={options.canManage ?? true} onEnlargeableChange={onEnlargeableChange} fileName={options.fileName} />);
-  expect(screen.getByRole("status")).toHaveTextContent("Lecture du plan…");
+  expect(screen.getByRole("status")).toHaveTextContent(original.kind === "ifc" ? "Lecture de la maquette…" : "Lecture du plan…");
   const request = await lastRequest(() => workers[0]);
   await answer(workers[0], { requestId: request.requestId, ok: true, type: "read", original });
   return { worker: workers[0], workers, fetchMock, onEnlargeableChange, request };
@@ -235,7 +249,8 @@ describe("IntakeCadPreview", () => {
     await opened({ kind: "summary", summary: { format: "rvt", version: null, thumbnail } });
     expect(screen.getByRole("img", { name: "Aperçu enregistré dans le fichier" })).toHaveAttribute("src", "blob:apercu");
     expect(screen.getByText("Version non lue")).toBeInTheDocument();
-    expect(screen.getByText(/Une maquette Revit n’est pas lue/)).toBeInTheDocument();
+    // What is not read says the way that is: the export of the model in IFC.
+    expect(screen.getByText(/Une maquette Revit n’est pas lue dans MergeOne\. Exportez-la en IFC depuis Revit et déposez ce fichier pour la voir en 3D et relever ses quantités/)).toBeInTheDocument();
     cleanup();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:apercu");
   });
@@ -312,6 +327,39 @@ describe("IntakeCadPreview", () => {
     expect(screen.getByText("Aucun objet ayant une forme parmi ceux qui ont été lus")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Cette maquette nomme plus d’objets que MergeOne n’en lit : les suivants, avec leurs formes et leurs esquisses, n’ont pas été lus.");
     expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
+  });
+
+  it("shows what an IFC model holds and lists its quantities in the large view, even in a browser without a 3D view", async () => {
+    const { onEnlargeableChange } = await opened({ kind: "ifc", model: IFC_MODEL }, IFC);
+    expect(screen.getByText("IFC4 · 2 éléments · 1 niveau")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("La vue 3D n’est pas disponible dans ce navigateur. Les quantités de la maquette restent disponibles.");
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Vue 3D et quantités" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(/^Écrite par Maquetteur Fictif 2026 · /)).toBeInTheDocument();
+    const types = within(dialog.getByRole("table", { name: "Quantités par type" }));
+    expect(within(types.getByRole("row", { name: /Tuyau PVC:Évacuation/ })).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Tuyau PVC:Évacuation Ø 110 mm", "2", "6 m"]);
+    // A model is not a plan: nothing to plot for the métré.
+    expect(dialog.queryByRole("button", { name: "Ajouter le tracé PDF au dossier" })).not.toBeInTheDocument();
+  });
+
+  it("ends the worker once an IFC model is read: its reader holds much memory, and nothing more is asked of it", async () => {
+    const { worker } = await opened({ kind: "ifc", model: IFC_MODEL }, IFC);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("IFC4 · 2 éléments · 1 niveau")).toBeInTheDocument();
+  });
+
+  it("keeps the worker of a drawing, which it plots", async () => {
+    const { worker } = await opened({ kind: "drawing", drawing });
+    expect(worker.terminate).not.toHaveBeenCalled();
+  });
+
+  it("has no large view for an IFC model without any element", async () => {
+    const { onEnlargeableChange } = await opened({ kind: "ifc", model: { ...IFC_MODEL, classes: [], storeys: [], rows: [], elements: 0, mesh: null } }, IFC);
+    expect(screen.getByText("IFC4 · Aucun élément")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Vue 3D et quantités" })).not.toBeInTheDocument();
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
   });
 
   it("draws the sketches of a FreeCAD model, and says in the large view what they are and what the model holds", async () => {
