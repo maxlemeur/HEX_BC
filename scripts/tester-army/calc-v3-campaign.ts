@@ -117,7 +117,7 @@ async function campaignSources(root: string) {
 }
 
 function buildIdentity(root: string) {
-  const directory = path.join(root, ".e2e", "army", "next");
+  const directory = path.join(root, ".build", "tester-army", "next");
   return fingerprint(["BUILD_ID", "required-server-files.json", "build-manifest.json"].map((name) => path.join(directory, name)), root);
 }
 

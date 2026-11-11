@@ -261,13 +261,13 @@ jobs:
           directory="$RUNNER_TEMP/army-browser-install"
           mkdir -p "$directory"
           nohup bash -c 'npx @e2e-dev/web install chromium --with-deps > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
-      # Next's webpack cache of the Army build (.e2e/army/next/cache, outside
+      # Next's webpack cache of the Army build (.build/tester-army/next/cache, outside
       # the build fingerprint of build-local.mjs). Every shard restores the
       # latest one main saved; only shard 1 of a push to main saves its own.
       - name: Restore the Army Next build cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .e2e/army/next/cache
+          path: .build/tester-army/next/cache
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
@@ -308,7 +308,7 @@ jobs:
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.shard == 1 }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .e2e/army/next/cache
+          path: .build/tester-army/next/cache
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
@@ -420,7 +420,7 @@ jobs:
       - name: Restore the Army Next build cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .e2e/army/next/cache
+          path: .build/tester-army/next/cache
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-

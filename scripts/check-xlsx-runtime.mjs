@@ -7,7 +7,7 @@ import path from "node:path";
 // Reproduce the Node worker's dependency lookup using only files that Next
 // traced for each import route. A full local node_modules masks missing files.
 const root = process.cwd();
-const distDir = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".e2e/army/next" : ".next");
+const distDir = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".build/tester-army/next" : ".next");
 const routes = [
   "api/imports/route.js.nft.json",
   "api/affaires/[projectId]/intake/files/[documentId]/route.js.nft.json",

@@ -34,8 +34,8 @@ export async function createLocalChatGptOwner() {
 /** Next development servers also need separate output and TypeScript files. */
 export async function prepareChatGptServerWorkspace() {
   const id = `chatgpt-${randomUUID()}`;
-  const distDir = path.resolve(`.e2e/army/next-${id}`);
-  const tsconfig = path.resolve(`.e2e/army/tsconfig-${id}.json`);
+  const distDir = path.resolve(`.build/tester-army/next-${id}`);
+  const tsconfig = path.resolve(`.build/tester-army/tsconfig-${id}.json`);
   await mkdir(path.dirname(tsconfig), { recursive: true });
   await writeFile(tsconfig, JSON.stringify({ extends: "../../tsconfig.json", compilerOptions: { paths: { "@/*": ["../../src/*"] } },
     include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", `next-${id}/types/**/*.ts`, `next-${id}/dev/types/**/*.ts`],

@@ -33,6 +33,7 @@ __pycache__/
 /e2e.settings-followup.config.ts
 
 # next.js
+/.build/
 /.next/
 /out/
 

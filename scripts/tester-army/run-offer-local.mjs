@@ -40,7 +40,7 @@ export async function validateOfferProductionBuild() {
     Array.isArray(build.steps) && build.steps.every((step) => step.exitCode === 0) &&
     isDeepStrictEqual(build.steps.map((step) => step.args), buildCommands),
   "Production offer requires an unchanged successful build for this exact local backend/runtime.");
-  requireValue(build.compiledOutput?.distDir === ".e2e/army/next" &&
+  requireValue(build.compiledOutput?.distDir === ".build/tester-army/next" &&
     Array.isArray(build.compiledOutput.inputs) && build.compiledOutput.inputs.length > 0 &&
     build.compiledOutput.digest === sha256(JSON.stringify(build.compiledOutput.inputs)),
   "Production offer requires a complete compiled-output closure; old manifests are refused.");
@@ -51,12 +51,12 @@ export async function validateOfferProductionBuild() {
     isDeepStrictEqual(build.offerProfileInputs, profile) && isDeepStrictEqual(build.offerProfileInputsAfter, profile),
   "Production offer build sources differ from the current complete source closure.");
   requireValue(sha256(await readFile(path.join(path.dirname(proof.file), "build.log"))) === build.logSha256 &&
-    (await readFile(".e2e/army/next/BUILD_ID", "utf8")).trim() === build.buildId,
+    (await readFile(".build/tester-army/next/BUILD_ID", "utf8")).trim() === build.buildId,
   "Production offer build log or installed BUILD_ID differs from its manifest.");
   const output = await buildOutputEvidence();
   requireValue(isDeepStrictEqual(output, build.compiledOutput), "Production offer compiled output differs from its build closure.");
-  const required = JSON.parse(await readFile(".e2e/army/next/required-server-files.json", "utf8"));
-  requireValue(required.config?.distDir === ".e2e/army/next", "Production offer build must use the isolated Army dist directory.");
+  const required = JSON.parse(await readFile(".build/tester-army/next/required-server-files.json", "utf8"));
+  requireValue(required.config?.distDir === ".build/tester-army/next", "Production offer build must use the isolated Army dist directory.");
   return { manifest: manifestPath, sha256: proof.sha256, buildId: build.buildId,
     sourceDigest: sha256(JSON.stringify(current.inputs)), profileDigest: sha256(JSON.stringify(profile)), compiledOutputDigest: output.digest,
     compiledInputCount: output.inputs.length, distDir: output.distDir };

@@ -467,7 +467,7 @@ export async function loadCoverageProfile(root, { discoveryOnly = false, configu
     if (hash(await readFile(file)) !== input.sha256) throw new Error("Coverage build sources have changed.");
   }
   if (hash(await readFile(path.join(path.dirname(build.file), "build.log"))) !== build.data.logSha256 ||
-    (await readFile(path.join(root, ".e2e/army/next/BUILD_ID"), "utf8")).trim() !== build.data.buildId) {
+    (await readFile(path.join(root, ".build/tester-army/next/BUILD_ID"), "utf8")).trim() !== build.data.buildId) {
     throw new Error("Coverage build log or installed build identity differs.");
   }
   const env = {

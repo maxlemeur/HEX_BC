@@ -140,10 +140,10 @@ async function fixture(name) {
     await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
     await cp(path.join(root, file), path.join(cwd, file));
   }
-  await writeFile(path.join(cwd, ".gitignore"), ".e2e/\nnode_modules/\n");
-  await mkdir(path.join(cwd, ".e2e/army/next"), { recursive: true });
+  await writeFile(path.join(cwd, ".gitignore"), ".e2e/\n.build/\nnode_modules/\n");
+  await mkdir(path.join(cwd, ".build/tester-army/next"), { recursive: true });
   await mkdir(output, { recursive: true });
-  for (const file of ["BUILD_ID", "required-server-files.json", "build-manifest.json"]) await writeFile(path.join(cwd, ".e2e/army/next", file), file === "BUILD_ID" ? "HARNESS\n" : "{}\n");
+  for (const file of ["BUILD_ID", "required-server-files.json", "build-manifest.json"]) await writeFile(path.join(cwd, ".build/tester-army/next", file), file === "BUILD_ID" ? "HARNESS\n" : "{}\n");
   const gitCommands = [["init", "--quiet", "--initial-branch=main"], ["add", "."], ["-c", "user.name=Setup Archive Harness", "-c", "user.email=harness@example.invalid", "commit", "--quiet", "-m", "test fixture only"]].map(args => command(cwd, "git", args));
   assert.ok(gitCommands.every(item => item.exitCode === 0), "ephemeral Git fixture must be captured");
   await cp(path.join(root, "scripts/tester-army/business-corpus-selection.ts"),
@@ -244,6 +244,9 @@ await test("application-log-junction", async f => {
 await test("fresh-success-contract", async f => {
   await mkdir(path.join(f.output, "artifacts/business"), { recursive: true }); await writeFile(path.join(f.output, "artifacts/business/ARMY-OLD-stale.json"), '{"marker":"STALE-BUSINESS"}\n');
   const run = await execute(f, "fresh"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed"); assert.equal((await failures(f)).length, 0);
+  assert.equal(run.manifest.productionBuild.directory, ".build/tester-army/next");
+  assert.ok(run.manifest.productionBuild.inputs.every(entry => entry.path.startsWith(".build/tester-army/next/")), "runtime identity must reference compiler output outside the evidence archive");
+  assert.ok(!(await readdir(f.output)).includes("next"), "evidence must not contain the production build");
   const pilotPaths = run.manifest.source.pilotInputs.map(entry => entry.path);
   assert.equal(new Set(pilotPaths).size, pilotPaths.length, "coverage proof must contain each input exactly once");
   const archiveDirectory = path.join(f.cwd, run.manifest.archive.path);

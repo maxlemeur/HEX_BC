@@ -14,8 +14,8 @@ const nextConfig: NextConfig = {
   },
   ...(process.env.E2E_ARMY === "1"
     ? {
-        distDir: `.e2e/army/next${armyDevServer ? `-${armyDevServer}` : ""}`,
-        typescript: { tsconfigPath: `.e2e/army/tsconfig${armyDevServer ? `-${armyDevServer}` : ""}.json` },
+        distDir: `.build/tester-army/next${armyDevServer ? `-${armyDevServer}` : ""}`,
+        typescript: { tsconfigPath: `.build/tester-army/tsconfig${armyDevServer ? `-${armyDevServer}` : ""}.json` },
       }
     : {}),
   // A journey's own development server (e2e/army/local/chatgpt-server-support.ts) lives for one journey file and keeps

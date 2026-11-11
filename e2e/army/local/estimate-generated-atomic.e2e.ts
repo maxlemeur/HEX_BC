@@ -99,7 +99,7 @@ for (const label of ["existing", "fallback"]) {
       }
       return state;
     };
-    const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+    const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
     const names = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName]));
     const calls: Array<{ action: string; at: string; acceptedCandidates: unknown; draftId: unknown; versionId: unknown;
       operationKey: unknown; expectedUpdatedAt: unknown; sessionPresent: boolean }> = [];

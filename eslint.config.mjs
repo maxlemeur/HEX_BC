@@ -174,6 +174,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".build/**",
     "out/**",
     "build/**",
     "coverage/**",
@@ -181,6 +182,7 @@ const eslintConfig = defineConfig([
     "docs/old_gemini_chiffrage/**",
     // Local e2e outputs and agent scratch directories (git-ignored, may hold huge traces).
     ".e2e/**",
+    "outputs/**",
     // Preserved originals and private audit material are not application sources.
     ".private/**",
     "**/.codex-tmp/**",

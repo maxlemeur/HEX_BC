@@ -59,7 +59,7 @@ export async function prepare(ui: Ui, label: string) {
     }
     return state;
   };
-  const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+  const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
   const names = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName]));
   const ids: Record<string, string> = {};
   for (const name of ["insertGeneratedOuvrages", "updateGeneratedOuvrageSubdetailDraft", "getGeneratedOuvrageApplicationReceipt", "abandonGeneratedOuvrageApplication"]) {

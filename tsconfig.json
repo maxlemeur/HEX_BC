@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "docs/old_gemini_chiffrage/**"]
+  "exclude": ["node_modules", ".build", "outputs", "docs/old_gemini_chiffrage/**"]
 }
