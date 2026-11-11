@@ -70,7 +70,9 @@ Deux garanties, décidées le 6 novembre 2026 (D11, D12).
   sélection apparie à une mesure vectorielle devient la lecture alternative écartée,
   comme toute autre ligne appariée. Sinon :
   - saisir sa quantité avec ce qui la fonde l'inclut ;
-  - « Inclure » (touche I) inclut une quantité estimée ;
+  - « Inclure » (touche I) inclut une quantité estimée ; incluse sans saisie, elle
+    entre au devis comme hypothèse, marquée à l'application (voir « Provision
+    interne », TI-682 lot C) ;
   - l'exclure avec un motif la retire de la liste.
 
   « Accepter » (V) ne l'inclut jamais.
@@ -330,7 +332,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
 **Doublon**
-([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
+([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 2) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
@@ -339,6 +341,17 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - La distance D est comprise : une copie à 5 cm pile est un doublon. Deux tronçons bout à bout ne se recouvrent sur rien, quel que soit le bruit des calculs ; aucun résultat ne dépend de la page prise pour repère.
 - Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur B R+4) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
 - La détection ne dépend pas du règlement : une paire, sa longueur commune et son minimum sont les mêmes qu'elle soit isolée ou dans un groupe (voir Résolution).
+
+**Copies lues autrement** (TI-684, décision D14 du 6 nov. 2026 ; version 2 de la règle) :
+
+- Deux lignes de même genre (tuyau ou calorifuge) dessinées au même endroit sur deux pages d'un niveau forment aussi une paire quand leur réseau, leur matériau ou leur DN se contredisent. Avant la version 2, elles n'étaient jamais comparées : le tronçon comptait deux fois sans alerte.
+- La règle ne sait pas trancher : soit un même tronçon lu différemment sur l'une des pages (il est compté deux fois et une lecture est fausse), soit deux tuyaux distincts dessinés l'un sur l'autre. Elle échoue les deux lignes en `ZONE_OVERLAP_DUPLICATE` et la raison le dit.
+- Le partenaire porte `differs` : ce que les deux lectures ont de différent parmi `network`, `material` et `dn` (« lu autrement (réseau, diamètre) » dans la raison et la revue ciblée). Le diamètre n'est nommé que si les deux tailles imprimées ne désignent aucune taille commune (« DN 100 » et « Ø 110 » en fonte sont une même taille, sur deux réseaux aussi). Un DN non lu contredit un DN lu ; un matériau non lu, ou la nuance non précisée d'un matériau (« inox » à côté d'« inox 316L »), ne contredit rien. Absent quand les deux lignes sont un même tronçon.
+- Mêmes seuils que le doublon : D = 5 cm, 2°, L = 30 cm ou la bande du dessin, par tronçon continu.
+- **Deux tuyaux côte à côte ne sont pas des copies.** Chaque ligne est d'abord réduite à ce qu'aucune ligne de même lecture ne dessine sur l'autre page ; seuls ces restes sont comparés. Eau froide et eau chaude à 4 cm l'une de l'autre, dessinées sur Z1 et sur Z2, restent deux paires isolées, chacune réglée par sa réduction, et non un groupe de quatre lignes. Une copie exclue explique encore son tronçon : l'exclusion règle une quantité, le tracé reste sur la page. À côté d'une copie, un reste d'au plus D n'en est pas un : deux plans recalés à 1 ou 2 cm près laissent un tel éclat au bout de chaque tiret, et ces éclats mis bout à bout feraient du tuyau voisin une copie lue autrement. Un axe qu'aucune copie ne dessine est gardé entier, même court (les cordes d'un tracé courbe).
+- Le règlement est celui de toute paire ou de tout groupe : réduction de la longueur commune, exclusion de la ligne mal lue, ou « Accepter » (V) sur chaque ligne quand ce sont deux tuyaux. Comme tout avertissement de quantité, il ne bloque pas l'application (TI-681).
+- Jamais comparés : un tuyau et son calorifuge, deux lignes d'une même page, deux niveaux, deux pages sans repère commun (« zones non recalées » ne vaut que pour deux lignes qui pourraient être un même tronçon).
+- Chaque ligne d'une page est mesurée contre toutes celles de l'autre en un seul passage : le coût suit le nombre d'axes des pages, pas le nombre de paires de lectures.
 
 **Résolution**
 
@@ -357,6 +370,11 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement. Un recalcul qui lui apporte un échec qu'elle n'avait pas (un nouveau partenaire, une autre règle, un autre code, une autre version) lui retire sa vérification : voir « Décisions ».
 - **Limites connues** :
+  - deux tuyaux réellement superposés en plan sur deux pages (une feuille par réseau, par exemple) échouent comme des copies lues autrement : c'est à l'utilisateur de les accepter (V) ;
+  - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
+  - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
+  - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
+  - la règle du plan agrandi (D14 : le détail fait foi dans son périmètre, le plan d'ensemble contrôle la couverture) n'est pas appliquée : un détail et son plan d'ensemble se règlent comme tout doublon ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
@@ -615,28 +633,39 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
   localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
   bloqué. Une confiance faible ne bloque plus depuis TI-681 : elle ne force rien et ne fait pas de provision. Une
-  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse.
+  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse. Depuis TI-682 lot C
+  (migration `…_takeoff_hypothesis_provision_marker.sql`), toute hypothèse au sens de
+  `public.takeoff_item_hypothesis_cause` y entre de même : une quantité estimée ou qu'un plan ne montre pas, que son
+  relecteur a incluse sans la saisir (touche I de la revue ciblée, inclusion de la revue complète).
   - L'application écrit `source_metadata.takeoff_provision` sur la ligne du devis, dans sa propre transaction et par
     ses deux variantes (sans DPGF et avec l'autorisation DPGF) : `{ version: 1, job_id, sources: [{ takeoff_item_id,
-    forced, forced_reason, entry_category }] }`. Les sources sont les lignes de métré forcées (celles de l'audit
-    consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
-    `20261110094504_takeoff_apply_force_reasons.sql`) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
+    forced, forced_reason, entry_category, hypothesis_cause }] }`. Les sources sont les lignes de métré forcées (celles
+    de l'audit consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
+    `20261110094504_takeoff_apply_force_reasons.sql`) ou qui sont des hypothèses ; une ligne DPGF rapprochée ne nomme
+    que celles-là. `hypothesis_cause` dit pourquoi une source est une hypothèse (`entered_hypothesis` saisie comme
+    telle, `estimated`, `non_observable`), ou vaut `null` ; le marqueur reste en version 1 et un marqueur écrit avant,
+    sans cette clé, se lit comme avant. Les estimations déjà appliquées ne sont pas reprises. Une ligne de
     longueur dont les tronçons sont regroupés et arrondis une seule fois (TI-681) nomme les sources provisionnées de
     tous ses tronçons. Les lignes d'un ouvrage créé depuis une hypothèse gardent le marqueur.
   - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
     provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
-    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne). Une source dont
+    `hypothesis_cause` n'est pas nul se lit « Hypothèse », et le détail dit pourquoi : quantité saisie sur hypothèse,
+    quantité estimée sans mesure sur un plan, ou quantité qu'un plan ne montre pas, comptées sans saisie.
   - Les exports CSV internes le portent (TI-682, lot C ; H12 levé pour le CSV) : le CSV d'une v3, écrit par le serveur,
     et le CSV d'une v1/v2, écrit par l'éditeur, ont une dernière colonne « Provision métré », après toutes les autres
     (ventilation atelier/chantier comprise). Elle vaut « Provision interne » pour une source forcée, « Hypothèse » pour
-    une source saisie en hypothèse ou forcée en « Hypothèse chiffrée », et reste vide sans marqueur ; un marqueur
-    illisible s'y lit « Provision interne », jamais vide. Une hypothèse incluse sans saisie n'a pas de marqueur et
-    reste vide tant que l'application ne la marque pas. La lecture des lignes par l'éditeur garde le marqueur d'une
+    une source qui est une hypothèse (saisie, estimée, non observable) ou forcée en « Hypothèse chiffrée », et reste
+    vide sans marqueur ; un marqueur illisible s'y lit « Provision interne », jamais vide. La lecture des lignes par
+    l'éditeur garde le marqueur d'une
     ligne issue d'une structure IA ou d'un ouvrage généré, que leur provenance réécrit.
   - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
     page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
     une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne
-    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie.
+    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie. Quand une source est elle-même
+    une hypothèse (TI-682 lot C), le détail dit d'abord pourquoi, dans cet ordre : quantité saisie sur hypothèse,
+    estimée, puis qu'un plan ne montre pas ; une ligne aussi forcée s'affiche alors comme cette hypothèse, sans son
+    motif de forçage.
   - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client ou fournisseur
     (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
     métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient

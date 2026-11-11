@@ -66,6 +66,10 @@ const MARKED_LINES = [
   { title: "ARMY forcée", metadata: marker({ forced: true, forced_reason: "additional_evidence" }), expected: "Provision interne" },
   { title: "ARMY hypothèse saisie", metadata: marker({ entry_category: "hypothesis" }), expected: "Hypothèse" },
   { title: "ARMY hypothèse chiffrée", metadata: marker({ forced: true, forced_reason: "priced_hypothesis" }), expected: "Hypothèse" },
+  // TI-682 lot C: an hypothesis included without entry; a forced source whose cause is null stays a provision.
+  { title: "ARMY hypothèse estimée", metadata: marker({ hypothesis_cause: "estimated" }), expected: "Hypothèse" },
+  { title: "ARMY forcée sans hypothèse", metadata: marker({ forced: true, forced_reason: "additional_evidence", hypothesis_cause: null }),
+    expected: "Provision interne" },
   { title: "ARMY marqueur illisible", metadata: { takeoff_provision: { version: 2, sources: "?" } }, expected: "Provision interne" },
   { title: "ARMY autre métadonnée", metadata: { dpgf_row_id: "row-1" }, expected: "" },
 ] as const;
@@ -98,12 +102,12 @@ describe("v3 estimate CSV takeoff provision column (TI-682)", () => {
     const split = ["h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier", "K MO chantier"];
     for (const laborSplit of [false, true]) {
       const rows = csvRows(frozenV3Document(laborSplit));
-      expect(rows[0]).toEqual([...base, ...(laborSplit ? split : []), PROVISION_HEADER]);
+      expect(rows[0]).toEqual([...base, ...(laborSplit ? split : []), PROVISION_HEADER, REASON_HEADER]);
       expect(estimateV3CsvHeader("EUR", laborSplit)).toEqual(rows[0]);
       expect(rows.filter((row) => row.length > 0).every((row) => row.length === rows[0].length)).toBe(true);
       const footer = rows.slice(rows.findIndex((row) => row.length === 0) + 1);
       expect(footer.length).toBeGreaterThan(0);
-      expect(footer.map((row) => row.at(-1))).toEqual(footer.map(() => ""));
+      expect(footer.map((row) => row.slice(-2))).toEqual(footer.map(() => ["", ""]));
     }
   });
 
@@ -113,5 +117,34 @@ describe("v3 estimate CSV takeoff provision column (TI-682)", () => {
     const parsed = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
     const provision = parsed[0].indexOf(PROVISION_HEADER);
     expect(parsed.slice(1, 1 + MARKED_LINES.length).map((row) => row[provision])).toEqual(MARKED_LINES.map((line) => line.expected));
+  });
+});
+
+// TI-682 lot C, PR 3: the internal reason of an exclusion, in the last column « Motif interne », after « Provision
+// métré ». Only the internal CSV carries it (status-reason-exports.test.ts guards the client and supplier workbooks).
+const REASON_HEADER = "Motif interne";
+
+describe("v3 estimate CSV internal reason column (TI-682)", () => {
+  const LINES = [
+    { title: "ARMY chiffrée", metadata: {}, expected: "" },
+    { title: "ARMY hors lot motivé", metadata: {}, pricing_status: "out_of_scope", was_not_priced: true,
+      status_reason: { code: "other_trade", note: "Lot CVC du marché" }, expected: "Autre lot ou corps d'état : Lot CVC du marché" },
+    { title: "ARMY inclus motivé", metadata: {}, pricing_status: "included", was_not_priced: true,
+      status_reason: { code: "included_elsewhere", note: null }, expected: "Compris dans une autre ligne" },
+    { title: "ARMY pour mémoire sans motif", metadata: {}, pricing_status: "for_memory", was_not_priced: true, expected: "" },
+    { title: "ARMY PM du DPGF", metadata: {}, pricing_status: "for_memory", expected: "" },
+  ] as const;
+
+  it("states the internal reason of each excluded line in the last column, empty without one", () => {
+    const rows = csvRows(frozenV3ExportDocument(LINES));
+    const header = rows[0] as string[];
+    expect(header.slice(-2)).toEqual([PROVISION_HEADER, REASON_HEADER]);
+    const designation = header.indexOf("Désignation");
+    expect(rows.slice(1, 1 + LINES.length).map((row) => [row[designation], row.at(-1)]))
+      .toEqual(LINES.map((line) => [line.title, line.expected]));
+    const csv = writeEstimateV3Csv(rows);
+    const workbook = XLSX.read(csv.slice(1), { type: "string", raw: true, FS: ";" });
+    const parsed = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
+    expect(parsed.slice(1, 1 + LINES.length).map((row) => row.at(-1))).toEqual(LINES.map((line) => line.expected));
   });
 });

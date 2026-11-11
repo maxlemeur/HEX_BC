@@ -100,8 +100,12 @@ contract take precedence over historical reports and procedures.
 ## Runtime and workspaces
 
 - Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
-  conforming dependencies; use `npm ci` when installation is needed, inside the
-  checkout root. See the [test guide](e2e/README.md) for setup and suite contents.
+  conforming dependencies. A new worktree whose `package-lock.json` is identical
+  to the canonical checkout's clones that checkout's `node_modules` with the
+  machine's copy-on-write tool when it has one, instead of installing a second
+  copy. Run `npm ci`, inside the checkout root, when the lockfiles differ or
+  there is nothing conforming to reuse. See the [test guide](e2e/README.md) for
+  setup and suite contents.
 - Start the local server someone browses with `npm run dev` or `npm run dev:chatgpt`
   as written, on Next's default compiler (Turbopack). `--webpack` belongs to the
   scripts that already pass it (builds, Army development): in `next dev` it took

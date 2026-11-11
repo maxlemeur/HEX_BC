@@ -18,7 +18,10 @@ import {
   buildTakeoffPageTriageQuestions,
   decideTakeoffPageTriage,
   extractTakeoffLevelZoneCandidates,
+  freeTakeoffLevelLabel,
   normalizeTakeoffLevel,
+  TAKEOFF_LEVEL_LABEL_MAX,
+  takeoffScopeFreeLevels,
   normalizeTakeoffZone,
   reconcileTakeoffPageTriageStatuses,
   setTakeoffSourcePageRetained,
@@ -72,6 +75,30 @@ describe("level and zone candidates", () => {
   it("adds normalised scope entries, drops unreadable ones and deduplicates", () => {
     expect(extractTakeoffLevelZoneCandidates("R+2 Z2", { levels: ["R+2", "Niveau R+3", "Tous"], zones: ["Zone 2", "Z3", "aile nord"] }))
       .toEqual({ levels: ["R+2", "R+3"], zones: ["Z2", "Z3"] });
+  });
+
+  it("keeps a free printed level of the scope as written, only on the pages that print it (TI-687)", () => {
+    const scope = { levels: ["L00", "L01", "GANTRY", "Tous", "R+1"], zones: [] };
+    // « L00 » is printed on this page, « L01 » and « GANTRY » are not; « Tous », printed too, is a word and no level.
+    expect(extractTakeoffLevelZoneCandidates("Tous réseaux DATA HALL L00 PLUMBING LAYOUT", scope).levels).toEqual(["R+1", "L00"]);
+    expect(extractTakeoffLevelZoneCandidates("GANTRY LEVEL - CHW L01", scope).levels).toEqual(["R+1", "GANTRY", "L01"]);
+    // As printed: no other case, no part of a longer word or reference, and never an equivalence with RDC.
+    expect(extractTakeoffLevelZoneCandidates("gantry XL001 L00A AL00 L000 rdc", scope).levels).toEqual(["RDC", "R+1"]);
+    expect(extractTakeoffLevelZoneCandidates("L00", { levels: [], zones: [] }).levels).toEqual([]);
+  });
+
+  it("never ranks a free level among RDC and R±n, and reads no free label in a known level or a zone (TI-687)", () => {
+    const scope = { levels: ["L00", "L-1", "MEZZ", " L 02 ", "R+01", "Niveau R+3", "Z1", "Zone 2", "", "X".repeat(17), "A;B", "Tous"], zones: [] };
+    const text = "SS1 R-1 RDC R+2 L00 L-1 MEZZ L 02 Z1 Zone 2 A;B Tous " + "X".repeat(17);
+    expect(extractTakeoffLevelZoneCandidates(text, scope).levels).toEqual(["SS1", "R-1", "RDC", "R+1", "R+2", "R+3", "L 02", "L-1", "L00", "MEZZ"]);
+    expect(["L00", " GANTRY ", "L  02"].map(freeTakeoffLevelLabel)).toEqual(["L00", "GANTRY", "L 02"]);
+    expect(["R+01", "Niveau R+3", "rdc", "SS 2", "Z1", "Zone 2", "", "A;B", "X".repeat(17), "Tous", "gantry"].map(freeTakeoffLevelLabel)).toEqual(Array(11).fill(null));
+    expect(TAKEOFF_LEVEL_LABEL_MAX).toBe(16);
+  });
+
+  it("lists the free levels of the scope for the triage identity, empty for a scope of known levels (TI-687)", () => {
+    expect(takeoffScopeFreeLevels({ levels: ["R+2", "L01", "L00", "L00", "Tous", "Mezzanine"] })).toEqual(["L00", "L01"]);
+    expect(takeoffScopeFreeLevels({ levels: ["R+2", "Niveau R+3", "rdc"] })).toEqual([]);
   });
 
   it("asks only the type when no level or zone is readable, and always offers inconnu otherwise", () => {

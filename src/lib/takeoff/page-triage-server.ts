@@ -10,6 +10,7 @@ import {
   buildTakeoffPageTriageQuestions,
   decideTakeoffPageTriage,
   extractTakeoffLevelZoneCandidates,
+  takeoffScopeFreeLevels,
   TAKEOFF_PAGE_TRIAGE_UNKNOWN,
   TAKEOFF_PAGE_TYPES,
   type TakeoffPageTriage,
@@ -152,8 +153,12 @@ export async function runTakeoffPageTriage(input: {
   const pageCount = rendered.pageCount;
   const scope = { levels: input.scope.levels.slice(0, 200), zones: input.scope.zones.slice(0, 200) };
   const scopeCandidates = extractTakeoffLevelZoneCandidates("", scope);
+  // The free levels (TI-687) are no candidate of an empty text: they enter the identity by name, and a scope of
+  // known levels keeps the fingerprint it had.
+  const freeLevels = takeoffScopeFreeLevels(scope);
   const questionsFingerprint = sha256(JSON.stringify({
     prompt: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: OPENAI_DECISIONS_MODEL, types: TAKEOFF_PAGE_TYPES, scope: scopeCandidates,
+    ...(freeLevels.length ? { free_levels: freeLevels } : {}),
   }));
   const previous = input.previous?.source_version === input.sourceVersion && input.previous.page_count === pageCount ? input.previous : null;
   const byPage = new Map<number, PdfRenderedPage>(rendered.pages.map((page) => [page.page, page]));

@@ -27760,7 +27760,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         {
@@ -27847,6 +27848,45 @@
                         "out_of_scope",
                         "not_applicable"
                       ]
+                    },
+                    "status_reason": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "other_trade",
+                                "client_supplied",
+                                "included_elsewhere",
+                                "not_required_after_check",
+                                "dpgf_memory_item",
+                                "other"
+                              ]
+                            },
+                            "note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "note"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "was_not_priced": {
+                      "default": false,
+                      "type": "boolean"
                     },
                     "line_total_ht_cents": {
                       "anyOf": [
@@ -28188,6 +28228,8 @@
                     "aid",
                     "unit_code",
                     "pricing_status",
+                    "status_reason",
+                    "was_not_priced",
                     "line_total_ht_cents",
                     "line_tax_cents",
                     "line_total_ttc_cents",
@@ -29571,7 +29613,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         {
@@ -29658,6 +29701,45 @@
                         "out_of_scope",
                         "not_applicable"
                       ]
+                    },
+                    "status_reason": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "other_trade",
+                                "client_supplied",
+                                "included_elsewhere",
+                                "not_required_after_check",
+                                "dpgf_memory_item",
+                                "other"
+                              ]
+                            },
+                            "note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "note"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "was_not_priced": {
+                      "default": false,
+                      "type": "boolean"
                     },
                     "line_total_ht_cents": {
                       "anyOf": [
@@ -29999,6 +30081,8 @@
                     "aid",
                     "unit_code",
                     "pricing_status",
+                    "status_reason",
+                    "was_not_priced",
                     "line_total_ht_cents",
                     "line_tax_cents",
                     "line_total_ttc_cents",
@@ -30452,7 +30536,8 @@
                               "enum": [
                                 "supply_only",
                                 "supply_and_labor",
-                                "labor_only"
+                                "labor_only",
+                                "pose_only"
                               ]
                             },
                             "parent_id": {
@@ -30650,6 +30735,49 @@
                                 }
                               ]
                             },
+                            "status_reason": {
+                              "anyOf": [
+                                {
+                                  "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+                                  "type": "object",
+                                  "properties": {
+                                    "code": {
+                                      "type": "string",
+                                      "enum": [
+                                        "other_trade",
+                                        "client_supplied",
+                                        "included_elsewhere",
+                                        "not_required_after_check",
+                                        "dpgf_memory_item",
+                                        "other"
+                                      ]
+                                    },
+                                    "note": {
+                                      "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée, obligatoire pour le code other.",
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 2000
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "code"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "was_not_priced": {
+                              "not": {}
+                            },
                             "labor_role_id": {
                               "anyOf": [
                                 {
@@ -30829,7 +30957,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         "parent_id": {
@@ -31026,6 +31155,49 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "status_reason": {
+                          "anyOf": [
+                            {
+                              "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "other_trade",
+                                    "client_supplied",
+                                    "included_elsewhere",
+                                    "not_required_after_check",
+                                    "dpgf_memory_item",
+                                    "other"
+                                  ]
+                                },
+                                "note": {
+                                  "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée, obligatoire pour le code other.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "code"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "was_not_priced": {
+                          "not": {}
                         },
                         "pu_ht_cents": {
                           "type": "integer",
@@ -31490,7 +31662,8 @@
                                           "enum": [
                                             "supply_only",
                                             "supply_and_labor",
-                                            "labor_only"
+                                            "labor_only",
+                                            "pose_only"
                                           ]
                                         },
                                         "parent_id": {
@@ -31673,6 +31846,19 @@
                                             }
                                           ]
                                         },
+                                        "status_reason": {
+                                          "anyOf": [
+                                            {
+                                              "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "was_not_priced": {
+                                          "not": {}
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -31844,7 +32030,8 @@
                                       "enum": [
                                         "supply_only",
                                         "supply_and_labor",
-                                        "labor_only"
+                                        "labor_only",
+                                        "pose_only"
                                       ]
                                     },
                                     "parent_id": {
@@ -32026,6 +32213,19 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "status_reason": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "was_not_priced": {
+                                      "not": {}
                                     },
                                     "pu_ht_cents": {
                                       "type": "integer",
@@ -32686,7 +32886,8 @@
                                           "enum": [
                                             "supply_only",
                                             "supply_and_labor",
-                                            "labor_only"
+                                            "labor_only",
+                                            "pose_only"
                                           ]
                                         },
                                         "parent_id": {
@@ -32869,6 +33070,19 @@
                                             }
                                           ]
                                         },
+                                        "status_reason": {
+                                          "anyOf": [
+                                            {
+                                              "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "was_not_priced": {
+                                          "not": {}
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -33040,7 +33254,8 @@
                                       "enum": [
                                         "supply_only",
                                         "supply_and_labor",
-                                        "labor_only"
+                                        "labor_only",
+                                        "pose_only"
                                       ]
                                     },
                                     "parent_id": {
@@ -33222,6 +33437,19 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "status_reason": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "was_not_priced": {
+                                      "not": {}
                                     },
                                     "pu_ht_cents": {
                                       "type": "integer",
@@ -35409,7 +35637,8 @@
                 "enum": [
                   "supply_only",
                   "supply_and_labor",
-                  "labor_only"
+                  "labor_only",
+                  "pose_only"
                 ]
               },
               "parent_id": {
@@ -35606,6 +35835,49 @@
                     "type": "null"
                   }
                 ]
+              },
+              "status_reason": {
+                "anyOf": [
+                  {
+                    "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "other_trade",
+                          "client_supplied",
+                          "included_elsewhere",
+                          "not_required_after_check",
+                          "dpgf_memory_item",
+                          "other"
+                        ]
+                      },
+                      "note": {
+                        "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée, obligatoire pour le code other.",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 2000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "was_not_priced": {
+                "not": {}
               },
               "labor_role_id": {
                 "anyOf": [
@@ -36058,7 +36330,8 @@
                         "enum": [
                           "supply_only",
                           "supply_and_labor",
-                          "labor_only"
+                          "labor_only",
+                          "pose_only"
                         ]
                       },
                       {
@@ -36145,6 +36418,45 @@
                       "out_of_scope",
                       "not_applicable"
                     ]
+                  },
+                  "status_reason": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "other_trade",
+                              "client_supplied",
+                              "included_elsewhere",
+                              "not_required_after_check",
+                              "dpgf_memory_item",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "note"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "was_not_priced": {
+                    "default": false,
+                    "type": "boolean"
                   },
                   "line_total_ht_cents": {
                     "anyOf": [
@@ -36486,6 +36798,8 @@
                   "aid",
                   "unit_code",
                   "pricing_status",
+                  "status_reason",
+                  "was_not_priced",
                   "line_total_ht_cents",
                   "line_tax_cents",
                   "line_total_ttc_cents",
@@ -36561,7 +36875,8 @@
             "enum": [
               "supply_only",
               "supply_and_labor",
-              "labor_only"
+              "labor_only",
+              "pose_only"
             ]
           },
           "parent_id": {
@@ -36758,6 +37073,49 @@
                 "type": "null"
               }
             ]
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "other_trade",
+                      "client_supplied",
+                      "included_elsewhere",
+                      "not_required_after_check",
+                      "dpgf_memory_item",
+                      "other"
+                    ]
+                  },
+                  "note": {
+                    "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée, obligatoire pour le code other.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "was_not_priced": {
+            "not": {}
           },
           "pu_ht_cents": {
             "type": "integer",
@@ -37199,7 +37557,8 @@
                         "enum": [
                           "supply_only",
                           "supply_and_labor",
-                          "labor_only"
+                          "labor_only",
+                          "pose_only"
                         ]
                       },
                       {
@@ -37286,6 +37645,45 @@
                       "out_of_scope",
                       "not_applicable"
                     ]
+                  },
+                  "status_reason": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "other_trade",
+                              "client_supplied",
+                              "included_elsewhere",
+                              "not_required_after_check",
+                              "dpgf_memory_item",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "note"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "was_not_priced": {
+                    "default": false,
+                    "type": "boolean"
                   },
                   "line_total_ht_cents": {
                     "anyOf": [
@@ -37627,6 +38025,8 @@
                   "aid",
                   "unit_code",
                   "pricing_status",
+                  "status_reason",
+                  "was_not_priced",
                   "line_total_ht_cents",
                   "line_tax_cents",
                   "line_total_ttc_cents",
@@ -37786,7 +38186,8 @@
                   "enum": [
                     "supply_only",
                     "supply_and_labor",
-                    "labor_only"
+                    "labor_only",
+                    "pose_only"
                   ]
                 },
                 "parent_id": {
@@ -37983,6 +38384,49 @@
                       "type": "null"
                     }
                   ]
+                },
+                "status_reason": {
+                  "anyOf": [
+                    {
+                      "description": "Motif interne d'une ligne exclue du prix (TI-682) : jamais transmis au client. Moteur 3 seulement, sur une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "other_trade",
+                            "client_supplied",
+                            "included_elsewhere",
+                            "not_required_after_check",
+                            "dpgf_memory_item",
+                            "other"
+                          ]
+                        },
+                        "note": {
+                          "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée, obligatoire pour le code other.",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "was_not_priced": {
+                  "not": {}
                 },
                 "pu_ht_cents": {
                   "type": "integer",
@@ -64211,6 +64655,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -65926,6 +66383,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66255,6 +66725,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66580,6 +67063,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66887,6 +67383,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -67284,6 +67793,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -67591,6 +68113,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -69174,6 +69709,19 @@
                                             },
                                             "resolved": {
                                               "type": "boolean"
+                                            },
+                                            "differs": {
+                                              "minItems": 1,
+                                              "maxItems": 3,
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "network",
+                                                  "material",
+                                                  "dn"
+                                                ]
+                                              }
                                             }
                                           },
                                           "required": [
@@ -69537,6 +70085,19 @@
                                     },
                                     "resolved": {
                                       "type": "boolean"
+                                    },
+                                    "differs": {
+                                      "minItems": 1,
+                                      "maxItems": 3,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "network",
+                                          "material",
+                                          "dn"
+                                        ]
+                                      }
                                     }
                                   },
                                   "required": [

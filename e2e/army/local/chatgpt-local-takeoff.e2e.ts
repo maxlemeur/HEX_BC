@@ -25,7 +25,7 @@ import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the uploaded takeoff leaves the profile that the PDF takeoff, the
 // private business witness and V3C08 reuse, which V3C08 removes.
-const server = chatGptLocalServer();
+const server = chatGptLocalServer("takeoff");
 let localOrigin: string;
 let diagnostics: readonly string[] = [];
 let fixtureStore: string | undefined;

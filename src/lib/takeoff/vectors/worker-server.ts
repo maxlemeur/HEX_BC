@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { createDecisionsTokenBudget, type DecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
+import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
@@ -255,12 +256,14 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     budget: createDecisionsTokenBudget(options.decisions.maxTokens ?? TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS),
   } : null;
   const outcomes: VectorPageOutcome[] = [];
+  // Free printed levels the confirmed preparation declares (L00, GANTRY: TI-687), read in a file name as written.
+  const freeLevels = takeoffScopeFreeLevels(source.preparationSnapshot?.preparation.scope ?? { levels: [] });
   read: for (const original of source.originalPdfSources ?? []) {
     const bytes = new Uint8Array(original.bytes);
     // Hashed once per file, and only when a preparation may name it.
     const documentId = source.preparationSnapshot ? preparationDocumentId(original.document, original.bytes) : null;
     const pages = original.pages.length ? original.pages : Array.from({ length: await getPdfPageCount(original.bytes) }, (_, index) => index + 1);
-    const location = locationFromFileName(original.fileName);
+    const location = locationFromFileName(original.fileName, freeLevels);
     // This document's Decisions calls left for the run, over its pages.
     const allowance = { batch: TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls, dedicated: TAKEOFF_VECTOR_DECISIONS_LIMITS.dedicatedCalls };
     let fingerprint: string | null = null;

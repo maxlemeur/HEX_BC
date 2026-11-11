@@ -40,7 +40,20 @@ type EstimateSettingsSummaryBarProps = {
    * v3 ; nul tant que l'aperçu est indisponible. Aucune marge v2 (multiplicateur ×1) n'y figure.
    */
   v3Summary?: EstimateV3SummaryView | null;
+  /**
+   * TI-539 : nombre de lignes dont la fourniture attendue n'a pas de coût. Un coût manquant n'est pas un
+   * coût nul voulu : tant qu'il en reste, le total affiché est annoncé provisoire et incomplet.
+   */
+  missingSupplyCostCount?: number;
 };
+
+/** Mots de l'annonce d'un total calculé avec des fournitures sans coût (TI-539). */
+export function provisionalTotalNotice(missingSupplyCostCount: number): string | null {
+  if (missingSupplyCostCount <= 0) return null;
+  return missingSupplyCostCount === 1
+    ? "Total provisoire et incomplet : 1 fourniture sans coût."
+    : `Total provisoire et incomplet : ${missingSupplyCostCount} fournitures sans coût.`;
+}
 
 /* ---------- sub-components ---------- */
 
@@ -205,6 +218,7 @@ export function EstimateSettingsSummaryBar({
   isExpert,
   onOpenSettings,
   v3Summary,
+  missingSupplyCostCount = 0,
 }: EstimateSettingsSummaryBarProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const derived = useMemo(() => {
@@ -241,6 +255,7 @@ export function EstimateSettingsSummaryBar({
     setIsDetailsOpen(false);
     onOpenSettings(section);
   };
+  const provisionalNotice = provisionalTotalNotice(missingSupplyCostCount);
 
   return (
     <div
@@ -366,6 +381,12 @@ export function EstimateSettingsSummaryBar({
           )}
         </div>
       )}
+
+      {provisionalNotice ? (
+        <p className="estimate-summary-bar__provisional" role="status" data-testid="estimate-provisional-total">
+          {provisionalNotice}
+        </p>
+      ) : null}
 
       <GearButton onClick={() => onOpenSettings()} />
     </div>

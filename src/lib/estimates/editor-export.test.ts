@@ -39,7 +39,7 @@ function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
     unit_price_ht_cents: 1250,
     tax_rate_bp: 2000,
     k_fo: 1.1,
-    fo_price_origin: null, fo_provision: 1,
+    fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false,
     h_mo: 2.5,
     h_mo_majoration: 1.2,
     k_mo: 1.05,
@@ -192,6 +192,8 @@ describe("estimate editor CSV takeoff provision column (TI-682)", () => {
     { title: "Ligne sans marqueur", metadata: {}, expected: "" },
     { title: "Ligne forcée", metadata: marker(source({ forced: true, forced_reason: "additional_evidence" })), expected: "Provision interne" },
     { title: "Ligne hypothèse", metadata: marker(source({ entry_category: "hypothesis" })), expected: "Hypothèse" },
+    // TI-682 lot C: a quantity a plan cannot show, included without entry.
+    { title: "Ligne non observable", metadata: marker(source({ hypothesis_cause: "non_observable" })), expected: "Hypothèse" },
     { title: "Ligne illisible", metadata: { takeoff_provision: "?" }, expected: "Provision interne" },
   ];
 

@@ -111,7 +111,9 @@ ligne non `priced` (`included`, `for_memory`, `not_priced`, `out_of_scope`,
 Cela ne la rend pas automatiquement prête à l'émission : le gel applique ses
 propres contrôles de complétude, d'unité et de taux, et une ligne `not_priced`
 bloque l'envoi tant qu'elle n'est pas classée (TI-682, voir
-[cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)).
+[cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)). Une ligne classée
+après avoir été `not_priced` porte un motif interne (`status_reason`) avant
+l'envoi ; ce motif ne change aucun montant et n'entre pas dans le sceau.
 
 Le pied suit cet ordre :
 

@@ -11,7 +11,9 @@ import type { EstimateV3ExportDocument } from "@/lib/estimates/v3-export";
 export const FIXTURE_TAKEOFF_JOB_ID = "30000000-0000-4000-8000-000000000003";
 const FIXTURE_TAKEOFF_ITEM_ID = "40000000-0000-4000-8000-000000000004";
 
-export type FixtureTakeoffSource = { forced?: boolean; forced_reason?: string | null; entry_category?: string | null };
+export type FixtureTakeoffSource = {
+  forced?: boolean; forced_reason?: string | null; entry_category?: string | null; hypothesis_cause?: string | null;
+};
 
 /** source_metadata carrying a version 1 takeoff marker with the given sources (private.takeoff_mark_provisions). */
 export function takeoffProvisionMetadata(...sources: FixtureTakeoffSource[]): Record<string, unknown> {
@@ -38,17 +40,27 @@ function documentItem(overrides: Partial<EstimateItem>): EstimateItem {
     snapshot_pu_ht_cents: null, snapshot_fo_ht_cents: null, snapshot_mo_ht_cents: null, snapshot_mo_atelier_ht_cents: null,
     snapshot_mo_chantier_ht_cents: null, line_total_ht_cents: null, line_tax_cents: null, line_total_ttc_cents: null, unit_code: null,
     pricing_status: "priced", h_mo_per_unit: null, h_mo_atelier_per_unit: null, h_mo_chantier_per_unit: null,
-    snapshot_gross_ht_cents: null, snapshot_gross_fo_ht_cents: null,
+    snapshot_gross_ht_cents: null, snapshot_gross_fo_ht_cents: null, was_not_priced: false, status_reason: null,
     ...overrides,
   };
 }
 
+/** One fixture line: a priced supply line by default; TI-682 lot C adds an excluded status and its internal reason. */
+export type FixtureExportLine = {
+  title: string;
+  metadata: unknown;
+  pricing_status?: EstimateItem["pricing_status"];
+  was_not_priced?: boolean;
+  status_reason?: unknown;
+};
+
 export function frozenV3ExportDocument(
-  lines: ReadonlyArray<{ title: string; metadata: unknown }>,
+  lines: ReadonlyArray<FixtureExportLine>,
   options: { laborSplit?: boolean } = {},
 ): EstimateV3ExportDocument {
   const sectionId = "a0000000-0000-4000-8000-00000000000a";
-  const inputs = lines.map((_, index) => v3Line(index + 1, { quantity: 2, unit_price_ht_cents: 1000 + index, unit_code: "u" }));
+  const inputs = lines.map((line, index) => v3Line(index + 1, { quantity: 2, unit_price_ht_cents: 1000 + index, unit_code: "u",
+    ...(line.pricing_status ? { pricing_status: line.pricing_status } : {}) }));
   const breakdown = computeEstimateV3Breakdown({ params: v3Params({ labor_split_enabled: options.laborSplit === true }), items: inputs });
   const projection = projectEstimateV3Snapshot(breakdown);
   const section = documentItem({ id: sectionId, item_type: "section", line_nature: null, title: "ARMY lot", tax_rate_bp: null });
@@ -57,6 +69,8 @@ export function frozenV3ExportDocument(
     return documentItem({
       id: input.id, parent_id: sectionId, position: index, title: lines[index].title,
       source_metadata: lines[index].metadata as EstimateItem["source_metadata"],
+      was_not_priced: lines[index].was_not_priced ?? false,
+      status_reason: (lines[index].status_reason ?? null) as EstimateItem["status_reason"],
       quantity: Number(input.quantity), unit_price_ht_cents: Number(input.unit_price_ht_cents), unit_code: "u",
       pricing_status: breakdown.lines[index].pricing_status, tax_rate_bp: breakdown.lines[index].tax_rate_bp,
       pu_ht_cents: snapshot.pu_ht_cents, snapshot_pu_ht_cents: snapshot.snapshot_pu_ht_cents,
