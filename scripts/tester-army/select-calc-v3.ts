@@ -5,7 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase, type CalcV3Phase } from "./calc-v3-phases.ts";
 import { SOURCE_COVERAGE_PHASES } from "./coverage-phases.ts";
-import { buildSourceGraph, listRepositoryFiles, loadImpactMap, matchesAny, reverseClosure, SHARDS_PATH } from "./select-journeys.ts";
+import {
+  buildSourceGraph, isEntryPoint, listRepositoryFiles, loadImpactMap, matchesAny, reverseClosure, SHARDS_PATH,
+  type ImpactMap, type SourceGraph,
+} from "./select-journeys.ts";
 
 export type CalcSelection = { phases: (CalcV3Phase | "all")[]; reason: string; changedPaths: string[] };
 /** army-shards.json, calcV3: the most group jobs of a campaign and the measured journey seconds of each phase. */
@@ -22,31 +25,90 @@ const rules: { paths: string[]; phases: CalcV3Phase[] }[] = [
   { paths: ["src/**/supplier-offer*", "src/**/supplier-pric*", "src/**/SupplierOffer*"], phases: ["offers-zero-price", "offers-purchase-unit"] },
 ];
 
+/**
+ * Non-runtime for the critical map, yet what every calc-v3 job runs before its first phase: its workflow and
+ * profile, the RLS matrix and its Vitest configuration (src/test/local-supabase-ci.ts, runRlsMatrix), and the
+ * OpenAPI document the owned build validates first (local-recipe-common.mjs, buildCommands).
+ */
+export const CALC_V3_OWN_INPUTS = [
+  ".github/workflows/e2e-army-calc-v3.yml", "e2e.calc-v3.config.ts", "openapi.json", "vitest.config.ts", "src/lib/estimates/rls.e2e.test.ts",
+];
+/** The profile, the campaign and this selector: what they import can alter every phase. */
+export const CALC_V3_RUNNER_ENTRIES = ["e2e/army/local/calc-v3.config.ts", "scripts/tester-army/calc-v3-campaign.ts", "scripts/tester-army/select-calc-v3.ts"];
+/** Journey code of the critical suite: a phase runs one of its journeys only when its table lists the file. */
+const CRITICAL_JOURNEY_CODE = /^e2e\/army\/critical\/.+\.ts$/u;
+/**
+ * Under src/, only a unit test is outside the phases. The owned build of every phase type-checks the rest of
+ * what the map calls non-runtime there (declarations, test utilities, the helpers of src/test), and the stack
+ * preparation and campaign scripts spawn or read some by path (large-estimate-workbook.ts, src/test/fixtures).
+ */
+const UNIT_TEST = /\.test\.tsx?$/u;
+
+/** The files the calc-v3 profile, campaign and selector load, transitively. */
+export function calcV3RunnerClosure(graph: SourceGraph): Set<string> {
+  const closure = new Set<string>();
+  const pending = CALC_V3_RUNNER_ENTRIES.filter((file) => graph.files.has(file));
+  while (pending.length) {
+    const file = pending.pop()!;
+    if (closure.has(file)) continue;
+    closure.add(file);
+    for (const target of graph.imports.get(file) ?? []) pending.push(target);
+  }
+  return closure;
+}
+
+/**
+ * The phases one changed file can alter, or why every phase must run. The file's impact is everything that
+ * loads it or names its API route. Each entry point it reaches must be accounted for: the journey of a phase,
+ * a domain rule, or an entry point no phase loads (what the critical map calls non-runtime, and the journeys
+ * of the critical suite). One the selector does not know runs every phase, whatever else was reached: a page
+ * no rule maps is not proven by the phases of a test that happens to name the same API.
+ * No phase at all is the answer only for a file that is itself outside the phases (a unit test, tooling, a
+ * journey of another suite). Application code that reaches none still runs every phase, and so does a path
+ * absent from the tree: the graph sees the static imports and API literals of the tree, not every way a file
+ * is loaded, nor what still imports a deleted one.
+ */
+export function calcV3Impact(map: ImpactMap, graph: SourceGraph, runner: Set<string>, file: string): { phases: CalcV3Phase[] } | { all: string } {
+  // Global runners, migrations, calculations and unknown dependencies must
+  // exercise every phase; a map miss must never silently discard a journey.
+  if (matchesAny(file, map.full)) return { all: `Shared input: ${file}` };
+  if (!graph.files.has(file)) return { all: `Deleted or unknown path: ${file}` };
+  const outsidePhases = (member: string) => CRITICAL_JOURNEY_CODE.test(member) ||
+    (matchesAny(member, map.nonRuntime) && (!member.startsWith("src/") || UNIT_TEST.test(member)));
+  const phases = new Set<CalcV3Phase>();
+  for (const member of [...reverseClosure(graph, file)].sort()) {
+    const through = member === file ? file : `${file} (through ${member})`;
+    if (graph.runnerClosure.has(member)) return { all: `Loaded by the critical runner, whose fixtures the phases share: ${through}` };
+    if (runner.has(member) || CALC_V3_OWN_INPUTS.includes(member)) return { all: `calc-v3 input: ${through}` };
+    if (member !== file && matchesAny(member, map.full) && !matchesAny(member, map.graph.escalationExcluded)) return { all: `Shared input: ${through}` };
+    // A non-runtime file (a unit test beside the code of a domain rule) matches no rule: the app never loads it.
+    const reached = [
+      ...CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].tests.includes(member)),
+      ...(matchesAny(member, map.nonRuntime) ? [] : rules.filter((rule) => matchesAny(member, rule.paths)).flatMap((rule) => rule.phases)),
+    ];
+    reached.forEach((phase) => phases.add(phase));
+    if (reached.length || !isEntryPoint(graph, member) || outsidePhases(member)) continue;
+    return { all: `Impact not mapped: ${through}` };
+  }
+  if (!phases.size && !outsidePhases(file)) return { all: `Impact not mapped: ${file}` };
+  return { phases: CALC_V3_PHASES.filter((phase) => phases.has(phase)) };
+}
+
 export function selectCalcV3(root: string, paths: string[]): CalcSelection {
   if (!paths.length) return all("Empty or unavailable diff: all phases.");
   try {
     const { map } = loadImpactMap(root), repository = listRepositoryFiles(root);
     if (paths.every((file) => matchesAny(file, map.docs))) return { phases: [], reason: "Documentation only; no journey execution claimed.", changedPaths: paths };
-    const graph = buildSourceGraph(root, map, repository), selected = new Set<CalcV3Phase>();
+    const graph = buildSourceGraph(root, map, repository), runner = calcV3RunnerClosure(graph), selected = new Set<CalcV3Phase>();
     for (const file of paths) {
       if (matchesAny(file, map.docs)) continue;
-      // Global runners, migrations, calculations and unknown dependencies must
-      // exercise every phase; a map miss must never silently discard a journey.
-      if (matchesAny(file, map.full)) return all(`Shared input: ${file}`, paths);
-      const closure = reverseClosure(graph, file);
-      closure.add(file);
-      let reached = false;
-      for (const candidate of closure) {
-        for (const phase of CALC_V3_PHASES) {
-          if (CALC_V3_PHASE_DEFINITIONS[phase].tests.includes(candidate)) { selected.add(phase); reached = true; }
-        }
-        for (const rule of rules) if (matchesAny(candidate, rule.paths)) {
-          rule.phases.forEach((phase) => selected.add(phase)); reached = true;
-        }
-      }
-      if (!reached) return all(`Impact not mapped: ${file}`, paths);
+      const impact = calcV3Impact(map, graph, runner, file);
+      if ("all" in impact) return all(impact.all, paths);
+      impact.phases.forEach((phase) => selected.add(phase));
     }
-    return { phases: CALC_V3_PHASES.filter((phase) => selected.has(phase)), reason: "Affected phases from imports, API references and domain rules.", changedPaths: paths };
+    return selected.size
+      ? { phases: CALC_V3_PHASES.filter((phase) => selected.has(phase)), reason: "Affected phases from imports, API references and domain rules.", changedPaths: paths }
+      : { phases: [], reason: "No phase loads the change: unit tests, tooling or journeys of other suites only.", changedPaths: paths };
   } catch (error) { return all(`Selection failed: ${error instanceof Error ? error.message : String(error)}`, paths); }
 }
 

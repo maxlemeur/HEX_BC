@@ -227,6 +227,7 @@ describe("TesterArmy critical impact map", () => {
     // A new entry point (route, page, script) that no rule covers.
     const synthetic: SourceGraph = {
       files: new Set(["src/app/api/new-endpoint/route.ts", "src/lib/new-endpoint.ts"]),
+      imports: new Map([["src/app/api/new-endpoint/route.ts", new Set(["src/lib/new-endpoint.ts"])]]),
       importers: new Map([["src/lib/new-endpoint.ts", new Set(["src/app/api/new-endpoint/route.ts"])]]),
       apiCallers: new Map(),
       runnerClosure: new Set(),

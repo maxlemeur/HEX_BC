@@ -123,6 +123,8 @@ export type Selection = {
 };
 export type SourceGraph = {
   files: Set<string>;
+  /** What each source file imports: the forward edges, for the closure of a runner's entries. */
+  imports: Map<string, Set<string>>;
   importers: Map<string, Set<string>>;
   apiCallers: Map<string, Set<string>>;
   runnerClosure: Set<string>;
@@ -343,7 +345,7 @@ export function buildSourceGraph(root: string, map: ImpactMap, repositoryFiles =
     runnerClosure.add(file);
     for (const target of imports.get(file) ?? []) pending.push(target);
   }
-  return { files, importers, apiCallers, runnerClosure };
+  return { files, imports, importers, apiCallers, runnerClosure };
 }
 
 /** The file and every file that loads it or names its API route, transitively. */

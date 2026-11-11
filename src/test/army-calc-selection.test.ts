@@ -1,7 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CALC_V3_PHASES, parseCalcV3Phases } from "../../scripts/tester-army/calc-v3-phases";
 import {
-  groupMatrix, loadCalcV3GroupDurations, planCalcV3, planCalcV3Groups, planOutputs, selectCalcV3, validateCalcV3GroupDurations,
+  CALC_V3_OWN_INPUTS, CALC_V3_RUNNER_ENTRIES, groupMatrix, loadCalcV3GroupDurations, planCalcV3, planCalcV3Groups, planOutputs, selectCalcV3,
+  validateCalcV3GroupDurations,
   type CalcV3GroupDurations,
 } from "../../scripts/tester-army/select-calc-v3";
 
@@ -17,6 +20,56 @@ describe("calc-v3 impact selection", () => {
     expect(selectCalcV3(root, ["e2e/army/local/mobile-journeys.e2e.ts"]).phases).toEqual(["mobile"]);
     expect(selectCalcV3(root, ["e2e/army/local/estimate-generated-atomic.e2e.ts"]).phases).toContain("generated-atomic");
     expect(selectCalcV3(root, ["e2e/army/local/source-coverage-support.ts"]).phases).toEqual(expect.arrayContaining(["source-coverage-decisions", "source-coverage-edits", "source-coverage-recovery"]));
+  });
+  // What the selection could get wrong without any journey noticing. Too wide: every phase for a change no
+  // phase can load (a unit test, a journey of another suite, a tooling file), nineteen phases of runner time
+  // each time. Too narrow: the phases of one test that happens to reach the change, while a page no rule maps
+  // loads it too; or no phase for calc-v3's own workflow and profile, which the critical map calls non-runtime.
+  it("runs no phase for a change no phase loads: unit tests, the other suites' journeys, tooling", () => {
+    for (const file of [
+      "src/lib/browser-download.test.ts", "src/test/army-app-port.test.ts", "eslint.config.mjs", ".github/workflows/quality-gate.yml",
+      "e2e/army/local/chatgpt-local-decisions.e2e.ts", "e2e/army/critical/dashboard-ux.e2e.ts",
+      "e2e/army/takeoff/import-flow-carry-over.e2e.ts", "e2e/army/takeoff/native-ui.ts",
+    ]) expect(selectCalcV3(root, [file]).phases, file).toEqual([]);
+    // A unit test whose name matches a domain rule (src/**/pdf*) is still a unit test.
+    expect(selectCalcV3(root, ["src/lib/estimates/pdf-generator.test.ts"]).phases).toEqual([]);
+    // Beside the journey of a phase, such a change adds nothing; beside an unknown one, it removes nothing.
+    expect(selectCalcV3(root, ["src/lib/browser-download.test.ts", "e2e/army/local/mobile-journeys.e2e.ts"]).phases).toEqual(["mobile"]);
+    expect(selectCalcV3(root, ["src/lib/browser-download.test.ts", "src/new-unknown-runtime.ts"]).phases).toEqual(CALC_V3_PHASES);
+  });
+  it("runs every phase for application code that reaches no phase, even when only other suites' journeys name it", () => {
+    // Only a takeoff journey names this route. The graph sees static imports and API literals, not every way
+    // the application can reach a route: no phase is proven for runtime code that none is known to load.
+    expect(selectCalcV3(root, ["src/app/api/takeoff/health/route.ts"]).phases).toEqual(CALC_V3_PHASES);
+  });
+  it("runs every phase for a path absent from the tree: nothing shows what still imports a deleted file", () => {
+    for (const file of ["e2e/army/local/deleted-support.ts", "src/lib/deleted.test.ts", "src/lib/estimates/pdf-deleted.ts"]) {
+      expect(selectCalcV3(root, [file]).phases, file).toEqual(CALC_V3_PHASES);
+    }
+  });
+  it("runs every phase for what each calc-v3 job runs or reads before its phases, although the critical map calls it non-runtime", () => {
+    for (const file of [
+      ...CALC_V3_OWN_INPUTS, ...CALC_V3_RUNNER_ENTRIES,
+      // Spawned by the stack preparation (local-supabase-ci.ts), read by path by the campaign scripts
+      // (cctp-native-contract.mjs, check-offer-contract-sql.py) and by a journey (dpgf-import.e2e.ts).
+      "src/test/large-estimate-workbook.ts", "src/test/fixtures/source-coverage-regression.sql",
+      "src/test/fixtures/estimate-offer-contract-regression.sql", "e2e/fixtures/dpgf-minimal.csv",
+      // Type-checked by the owned build of every phase, which only leaves the unit tests out.
+      "src/types/side-effect-imports.d.ts", "src/lib/cad/dxf.test-utils.ts", "src/test/vitest.setup.ts",
+    ]) {
+      // A renamed input would otherwise leave its list silently: the old path selects every phase as a deleted one.
+      expect(fs.existsSync(path.join(root, file)), file).toBe(true);
+      expect(selectCalcV3(root, [file]).phases, file).toEqual(CALC_V3_PHASES);
+    }
+  });
+  it("runs every phase when the change reaches an entry point no phase accounts for, whatever one test reaches", () => {
+    // The emission-v3 journey names an API route that loads the vector extraction; the takeoff pages load it too.
+    expect(selectCalcV3(root, ["src/lib/takeoff/vectors/extraction.ts"]).phases).toEqual(CALC_V3_PHASES);
+  });
+  it("keeps to the phases of support code that journeys of other suites share", () => {
+    const phases = selectCalcV3(root, ["e2e/army/critical/hydration-support.ts"]).phases;
+    expect(phases).toContain("emission-v3");
+    expect(phases).not.toEqual(CALC_V3_PHASES);
   });
   it("keeps scheduled, explicit and unprovable PR plans fail closed", () => {
     expect(planCalcV3(root, { NODE_ENV: "test", EVENT_NAME: "schedule" }).phases).toEqual(CALC_V3_PHASES);
