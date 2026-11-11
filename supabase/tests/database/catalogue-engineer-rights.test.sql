@@ -2,7 +2,7 @@
 -- changes or deletes the ones they added; the admin decides, through public.set_tenant_catalogue_policy, whether
 -- engineers also change the shared base. Validating a reference price stays an admin act.
 --
--- Written red before the migration 20261111153500_catalogue_engineer_rights.sql. Failure modes:
+-- Covers the migration 20261111211901_catalogue_engineer_rights.sql (written with it, not seen red first). Failure modes:
 --   C1 an engineer cannot add a supplier or an item, or a viewer can;
 --   C2 the author of a row is chosen or rewritten by the caller;
 --   C3 an engineer changes or deletes a row of the shared base while the setting is off, or cannot once it is on;
