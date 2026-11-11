@@ -13,13 +13,9 @@ import {
 } from "@/lib/cockpit/events";
 import { AffaireFileDropSurface } from "./AffaireFileDropSurface";
 import { CheckIcon } from "lucide-react";
+import type { IntakeUploadEvent, IntakeUploadResult } from "./IntakeUploadFeedback";
 
-type FileResult = {
-  documentId: string;
-  fileName: string;
-  status: "uploaded" | "rejected";
-  rejectionReason: string | null;
-};
+type FileResult = IntakeUploadResult;
 
 type DropzoneState =
   | { phase: "idle" }
@@ -33,6 +29,7 @@ type IntakeDropzoneProps = {
   onRefresh?: () => void;
   compact?: boolean;
   hideSurface?: boolean;
+  onUploadEvent?: (event: IntakeUploadEvent) => void;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -125,6 +122,7 @@ export function IntakeDropzone({
   onUploadComplete,
   compact = false,
   hideSurface = false,
+  onUploadEvent,
 }: IntakeDropzoneProps) {
   const inputId = `intake-dropzone-input-${projectId}`;
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -140,12 +138,14 @@ export function IntakeDropzone({
       if (files.length === 0) return;
 
       const errors: string[] = [];
+      const rejectedFiles: { fileName: string; message: string }[] = [];
       const validFiles: File[] = [];
 
       for (const file of files) {
         const error = validateFile(file);
         if (error) {
           errors.push(error);
+          rejectedFiles.push({ fileName: file.name, message: error });
         } else {
           validFiles.push(file);
         }
@@ -165,6 +165,8 @@ export function IntakeDropzone({
       for (const file of validFiles) {
         formData.append("files", file);
       }
+      const batchId = crypto.randomUUID();
+      onUploadEvent?.({ type: "started", batchId, fileNames: validFiles.map((file) => file.name), rejectedFiles });
 
       try {
         const response = await fetch(`/api/affaires/${projectId}/intake/files`, {
@@ -177,14 +179,16 @@ export function IntakeDropzone({
           const message = extractUploadErrorMessage(payload, response.status);
           setState({ phase: "error", message });
           setAnnouncement(`Erreur: ${message}`);
+          onUploadEvent?.({ type: "failed", batchId, message });
           return;
         }
 
         const data = extractUploadResponseData(payload);
-        if (!data) {
+        if (!data || data.files.length !== validFiles.length) {
           const message = "Réponse upload invalide.";
           setState({ phase: "error", message });
           setAnnouncement(`Erreur: ${message}`);
+          onUploadEvent?.({ type: "failed", batchId, message });
           return;
         }
 
@@ -198,13 +202,16 @@ export function IntakeDropzone({
         if (rejected > 0) parts.push(`${rejected} rejete${rejected > 1 ? "s" : ""}`);
         setAnnouncement(parts.join(", ") + ".");
 
+        onUploadEvent?.({ type: "completed", batchId, files: data.files });
+
         onUploadComplete(data.uploadId);
       } catch {
         setState({ phase: "error", message: "Erreur réseau. Vérifiez votre connexion." });
         setAnnouncement("Erreur reseau.");
+        onUploadEvent?.({ type: "failed", batchId, message: "Erreur réseau. Vérifiez votre connexion et réessayez." });
       }
     },
-    [projectId, onUploadComplete],
+    [projectId, onUploadComplete, onUploadEvent],
   );
 
   useEffect(() => {
