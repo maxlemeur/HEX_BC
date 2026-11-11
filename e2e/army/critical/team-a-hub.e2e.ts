@@ -178,8 +178,8 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   } });
   expect(upload.status()).toBe(201);
   await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_dpgf");
-  await expect.poll(async () => (await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
-  expect((await activeGaps()).map((entry) => entry.code)).toContain("missing_plans");
+  await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_plans");
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
   await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
   await expect(page.getByText("À arbitrer avant remise", { exact: true })).toHaveCount(0);
 
