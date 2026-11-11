@@ -110,6 +110,28 @@ d'un élément seul le refuse (`ESTIMATE_STATUS_REASON_BATCH_ONLY`). Source :
 [status-reason.ts](../../src/lib/estimates/status-reason.ts), migration
 `20261111144803_estimate_line_status_reason.sql`.
 
+Coût manquant et POSE SEULE (TI-539) : un article du catalogue peut être
+enregistré sans saisir de référence ni de prix (la référence est alors générée)
+et posé sur un brouillon. Un coût de fourniture manquant n'est pas un coût nul
+voulu : la ligne porte « Prix manquant », le résumé annonce « Total provisoire
+et incomplet », et l'envoi est refusé jusqu'à la saisie du coût dans le devis,
+qui ne modifie pas le catalogue. Pour une pose dont la fourniture n'est pas due,
+l'utilisateur choisit explicitement la nature « POSE SEULE » : son coût de
+fourniture nul est admis, sa main-d'œuvre reste facturée, et la mention est
+imprimée à la suite de la désignation, sans tiret long, sur l'aperçu, le PDF et
+le portail (clé `poseOnly` du contrat client 2, qui doit suivre la nature de la
+ligne figée) ; un titre qui porte déjà « pose seule » ne la répète pas. Rien ne
+déduit cette nature d'un prix vide. Une ligne POSE SEULE peut porter une petite
+fourniture nécessaire à la pose (supportage) : un coût saisi n'y est pas une
+incohérence (réponses de Maxime du 11 novembre 2026). La copie d'une
+version ou d'une variante garde la nature de chaque ligne. La mention voyage
+dans le contrat client 2 : la nature n'est proposée que sur un devis du moteur 3,
+et les exports tableur ne la portent pas. Un article du catalogue reste une
+fourniture attendue même sur une ligne « Main-d'œuvre seule » : sans coût, il
+faut le chiffrer, choisir POSE SEULE ou détacher l'article. Source :
+[line-nature.ts](../../src/lib/estimates/line-nature.ts),
+[estimate-quality.ts](../../src/lib/estimate-quality.ts).
+
 La préparation fige les montants avec le moteur épinglé, génère un document lié
 à cette révision et calcule le sceau. Le PDF publié est identifié par son chemin
 et son SHA-256 ; le contrat client, les conditions et les options de présentation
