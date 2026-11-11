@@ -120,6 +120,9 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
   return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
     "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`,
     ...["retry", "resubmit", "reconcile"].map(command => `/api/takeoff/jobs/${absent}/${command}`),
+    // TI-682 lot D: the launch notice (« Vérifier et lancer ») and the review banner read the pages already in the
+    // estimate. V3C08 opens the first just before its first item write: both compiles in one action timed out.
+    "/api/takeoff/page-contributions", `/api/takeoff/jobs/${absent}/page-contributions`,
     "/api/internal/takeoff/process-job", "/api/google-drive/connection"].map(route);
 }
 
@@ -144,7 +147,8 @@ export async function compileChatGptRoutes(origin: string, email: string, wave: 
     const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
     if (login.error) throw new Error("ChatGPT readiness login failed.");
     // Under the 90 s of the hook, so that a slow compile fails here, by name and with its timings kept.
-    const signal = AbortSignal.timeout(80_000);
+    const boundMs = 80_000;
+    const signal = AbortSignal.timeout(boundMs);
     const compile = async (request: CompileRequest) => {
       const requestStarted = Date.now();
       const method = request.method ?? "GET";
@@ -166,6 +170,13 @@ export async function compileChatGptRoutes(origin: string, email: string, wave: 
         } else {
           await response.text();
         }
+      } catch (error) {
+        // The bound rejects with a bare "The operation was aborted due to timeout": name the wave and the entry.
+        if (signal.aborted && error === signal.reason) {
+          throw new Error(`ChatGPT readiness wave ${wave} had no ${status === null ? "answer" : "complete answer"} for ${method} ${
+            request.path} within ${boundMs / 1000} s.`, { cause: error });
+        }
+        throw error;
       } finally {
         requests.push({ method, path: request.path, status, elapsedMs: Date.now() - requestStarted });
       }

@@ -123,17 +123,32 @@ const MATERIAL_PATTERNS: Array<{ code: MaterialCode; label: string; pattern: Reg
   { code: "acier", label: "acier", pattern: /\bacier\b/i },
 ];
 
+/** How a plan prints a size: a nominal DN (« DN 100 ») or an outer diameter (« Ø 110 »). */
+export type SizeNotation = "DN" | "Ø";
+
+/**
+ * A size as its plan label prints it (TI-683, D7): « DN 100 » and « Ø 110 » are never rewritten into one another, the
+ * series of the material and of its usage tells what tube each names. A size whose notation was not kept (a reading
+ * of before TI-683) prints « DN n », as it always was.
+ */
+export function printedSize(dn: number, notation: SizeNotation | null | undefined) {
+  return `${notation ?? "DN"} ${dn}`;
+}
+
 export type PipeLabel = {
   network: NetworkCode | null;
   material: MaterialCode | null;
   materialLabel: string | null;
   dn: number | null;
+  /** The notation of the size the label prints, null without a size. */
+  notation: SizeNotation | null;
   /** The label says the run is insulated (« + calo », « +c20 », « calorifugé »): its insulation length is its length. */
   insulated: boolean;
 };
 
 /**
- * Network, material and DN of a pipe label (« EU - PVC Me DN 40 », « EG-A Plf - Inox 316L DN 22 +c20 »).
+ * Network, material and size of a pipe label (« EU - PVC Me DN 40 », « EG-A Plf - Inox 316L DN 22 +c20 »,
+ * « EU - Fonte Ø 110 »): the size with the notation it is printed in.
  * The network is read in the head of the label (before its first « - » followed by a space, or its first
  * two words), so that a material or a note never reads as a network.
  */
@@ -144,8 +159,11 @@ export function parsePipeLabel(text: string): PipeLabel {
   let network = networkOfSegments(headSegments.slice(0, 2));
   if (!network && headSegments.length > 0) network = networkOfSegments(headSegments.slice(0, 1));
   const material = MATERIAL_PATTERNS.find((entry) => entry.pattern.test(clean)) ?? null;
-  const dnMatch = /\bDN\s*(\d{1,4}(?:[.,]\d)?)\b/i.exec(clean) ?? /[Øø]\s*(\d{2,4})\b/.exec(clean);
-  const dn = dnMatch ? Number(dnMatch[1].replace(",", ".")) : null;
+  const nominal = /\bDN\s*(\d{1,4}(?:[.,]\d)?)\b/i.exec(clean);
+  const dnMatch = nominal ?? /[Øø⌀∅]\s*(\d{2,4}(?:[.,]\d)?)\b/.exec(clean);
+  const value = dnMatch ? Number(dnMatch[1].replace(",", ".")) : null;
+  const dn = value !== null && Number.isFinite(value) ? value : null;
   const insulated = /\+\s*c\s*\d{2}\b|\+\s*calo\b|\bcalorifug/i.test(clean);
-  return { network, material: material?.code ?? null, materialLabel: material?.label ?? null, dn: dn !== null && Number.isFinite(dn) ? dn : null, insulated };
+  return { network, material: material?.code ?? null, materialLabel: material?.label ?? null, dn,
+    notation: dn === null ? null : nominal ? "DN" : "Ø", insulated };
 }

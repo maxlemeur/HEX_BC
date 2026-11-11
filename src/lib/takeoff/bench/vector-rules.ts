@@ -33,17 +33,20 @@ export function vectorItemRuleData(reading: VectorPageReading): BenchRuleData[] 
   const data: BenchRuleData[] = [];
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
-    const runs = (reading.networks?.runs ?? []).filter((run) => run.network === total.network && run.material === total.material && run.dn === total.dn);
+    const runs = (reading.networks?.runs ?? []).filter((run) => run.network === total.network && run.material === total.material
+      && run.dn === total.dn && (run.notation ?? null) === (total.notation ?? null));
     const segments = (insulated: boolean) => runs.filter((run) => !insulated || run.insulated)
       .map(({ segment }): Centreline => [metres(segment.x0), metres(segment.y0), metres(segment.x1), metres(segment.y1)]);
     const quantity = round(total.length_m, 2);
     data.push({
-      inputs: ruleInputsFromVector({ kind: "network", network: total.network, material: total.material, dn: total.dn, quantity }),
+      inputs: ruleInputsFromVector({ kind: "network", network: total.network, material: total.material, dn: total.dn, notation: total.notation,
+        quantity }),
       geometry: { segments_m: segments(false), polygon_m: null, length_m: total.length_m, area_m2: null },
     });
     if (total.insulated_m !== null && total.insulated_m >= 0.01 && total.dn !== null) {
       data.push({
-        inputs: ruleInputsFromVector({ kind: "insulation", network: total.network, material: "calorifuge", dn: total.dn, quantity: round(total.insulated_m, 2) }),
+        inputs: ruleInputsFromVector({ kind: "insulation", network: total.network, material: "calorifuge", dn: total.dn, notation: total.notation,
+          quantity: round(total.insulated_m, 2) }),
         geometry: { segments_m: segments(true), polygon_m: null, length_m: total.insulated_m, area_m2: null },
       });
     }

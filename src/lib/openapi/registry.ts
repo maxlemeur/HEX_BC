@@ -1,6 +1,7 @@
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
+import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -47,243 +48,7 @@ import {
   sourceReferenceErrorResponseSchema,
 } from "@/lib/estimates/source-reference-contracts";
 
-import {
-  headerParameter,
-  jsonBody,
-  jsonResponse,
-  multipartBody,
-  pathParameter,
-  queryParameter,
-  responseHeader,
-  schemaDefinition,
-  successEnvelopeSchema,
-  successResponseSchemaDefinition,
-} from "@/lib/openapi/registry-helpers";
-
-import type {
-  OpenApiOperationDefinition,
-  OpenApiResponseDefinition,
-} from "@/lib/openapi/registry-helpers";
-
-export type {
-  OpenApiContentType,
-  OpenApiHttpMethod,
-  OpenApiOperationDefinition,
-  OpenApiParameterDefinition,
-  OpenApiRequestBodyDefinition,
-  OpenApiResponseContentDefinition,
-  OpenApiResponseDefinition,
-  OpenApiResponseHeaderDefinition,
-  OpenApiSchemaDefinition,
-  OpenApiSchemaIO,
-} from "@/lib/openapi/registry-helpers";
-
-import {
-  batchOperationsSchema,
-  bulkUpdateEstimateItemsRequestSchema,
-  createEstimateAssemblySchema,
-  createEstimateCategorySchema,
-  createEstimateItemSchema,
-  createEstimateSchema,
-  createEstimateTemplateFromVersionSchema,
-  createEstimateVariantSchema,
-  createLaborRoleSchema,
-  createSuggestionRuleSchema,
-  deleteEstimateItemSchema,
-  duplicateEstimateTemplateSchema,
-  estimatePurchaseOrderDraftsCreateSchema,
-  estimateSupplierComparisonsRequestSchema,
-  instantiateEstimateFromTemplateSchema,
-  listEstimateAssembliesQuerySchema,
-  listEstimateTemplatesQuerySchema,
-  moveEstimateItemSchema,
-  patchEstimateStatusSchema,
-  patchEstimateVersionSchema,
-  promoteEstimateVariantSchema,
-  purgeSuggestionLearningSchema,
-  reviewSuggestionLearningSchema,
-  reorderEstimateItemsSchema,
-  sendEstimateSchema,
-  suggestionLearningFieldSchema,
-  suggestionRuleFeedbackSchema,
-  trackSuggestionCorrectionsSchema,
-  updateEstimateAssemblySchema,
-  updateEstimateItemSchema,
-  updateEstimateTemplateSchema,
-  updateLaborRoleSchema,
-  updateSuggestionRuleSchema,
-} from "@/lib/estimates/schemas";
-import {
-  estimateDeltaExplanationQuerySchema,
-  estimateExplanationDetailQueryParamSchema,
-  estimateExplanationResponseSchema,
-} from "@/lib/estimates/explanation-schemas";
-import { pricesActionSchema } from "@/lib/catalogue/schemas";
-import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
-import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
-import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
-import { estimateItemV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
-import { TakeoffErrorCode } from "@/lib/takeoff/errors";
-
-const uuidSchema = z.string().uuid("Identifiant invalide.");
-const ifMatchHeaderSchema = z.string().trim().min(1, "Jeton de concurrence invalide.");
-const forceQuerySchema = z.enum(["0", "1", "true", "false"]);
-const dryRunQuerySchema = z.enum(["0", "1", "true", "false"]);
-const suggestPricesQuerySchema = z
-  .string()
-  .trim()
-  .min(2, "Le paramètre q doit contenir au moins 2 caractères.");
-const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
-const pdfFormatQuerySchema = z.enum(["json"]);
-const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
-const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
-const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
-const takeoffJobsPeriodQuerySchema = z.enum(["7d", "30d", "90d"]);
-const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
-const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
-const takeoffCompareThresholdQuerySchema = z.number().min(0.5).max(0.99);
-const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
-  "0",
-  "1",
-  "true",
-  "false",
-]);
-const takeoffPlanFileContentTypeSchema = z.literal("application/pdf");
-const maxTakeoffPlanFileSizeBytes = 50 * 1024 * 1024;
-const idempotencyKeyHeaderSchema = z
-  .string()
-  .trim()
-  .min(1, "Idempotency-Key invalide.")
-  .max(255, "Idempotency-Key invalide.");
-const takeoffLevelSchema = z.enum(["A", "B", "C"]);
-const takeoffJobStatusSchema = z.enum([
-  "pending",
-  "processing",
-  "completed",
-  "failed",
-  "canceled",
-  "applied",
-]);
-const takeoffErrorCodeSchema = z.nativeEnum(TakeoffErrorCode);
-
-export const apiErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  details: z.unknown().optional(),
-});
-
-export const apiFailureResponseSchema = z.object({
-  ok: z.literal(false),
-  error: apiErrorSchema,
-});
-
-export const takeoffApiErrorSchema = z.object({
-  code: takeoffErrorCodeSchema,
-  message: z.string(),
-  details: z.unknown().optional(),
-  retryable: z.boolean().optional(),
-  jobId: z.string().optional(),
-  level: takeoffLevelSchema.optional(),
-});
-
-export const apiTakeoffFailureResponseSchema = z.object({
-  ok: z.literal(false),
-  error: takeoffApiErrorSchema,
-});
-
-export const apiSuccessUnknownSchema = successEnvelopeSchema(z.unknown());
-
-const outlierFlagSchema = z.enum(["price_outlier", "quantity_outlier"]);
-
-const outlierStateSchema = z.object({
-  dismissed_by_item_id: z.record(z.string(), z.array(outlierFlagSchema)),
-});
-
-const toggleOutlierDismissSchema = z.object({
-  item_id: uuidSchema,
-  flag_key: outlierFlagSchema,
-  dismissed: z.boolean(),
-});
-
-export const apiOutlierStateResponseSchema = z.object({
-  ok: z.literal(true),
-  data: outlierStateSchema,
-});
-
-const pdfStatusSchema = z.discriminatedUnion("status", [
-  z.object({
-    status: z.literal("missing"),
-  }),
-  z.object({
-    status: z.literal("processing"),
-    last_error: z.string().optional(),
-  }),
-  z.object({
-    status: z.literal("failed"),
-    last_error: z.string().optional(),
-  }),
-  z.object({
-    status: z.literal("ready"),
-    download_url: z.string().url(),
-    file_path: z.string(),
-    sha256_hash: z.string().optional(),
-    generated_at: z.string().optional(),
-    file_size_bytes: z.number().int().min(0).optional(),
-  }),
-]);
-
-export const apiPdfStatusResponseSchema = z.object({
-  ok: z.literal(true),
-  data: pdfStatusSchema,
-});
-
-const estimatePdfLayoutSchema = z.object({
-  preset: z.enum(["client_detailed", "decision_summary", "fo_mo"]),
-  detailLevel: z.union([
-    z.literal(1),
-    z.literal(2),
-    z.literal(3),
-    z.literal(4),
-    z.literal("lines"),
-  ]),
-  priceMode: z.enum(["total_only", "unit_and_total", "fo_mo_and_total"]),
-  density: z.enum(["compact", "standard", "comfortable"]),
-  showNumbering: z.boolean(),
-  showSectionSubtotals: z.boolean(),
-  conditionsPlacement: z.enum(["auto", "new_page"]),
-  includeTerms: z.boolean(),
-});
-
-const estimatePdfLayoutConfigurationSchema = z.object({
-  lineCount: z.number().int().min(0),
-  sectionCountsByLevel: z.object({
-    "1": z.number().int().min(0),
-    "2": z.number().int().min(0),
-    "3": z.number().int().min(0),
-    "4": z.number().int().min(0),
-  }),
-  hasConditions: z.boolean(),
-  terms: z.object({
-    available: z.boolean(),
-    policy: z.enum(["optional", "default", "required"]),
-    title: z.string().nullable(),
-    version: z.number().int().min(1).nullable(),
-  }),
-});
-
-const insertAssemblyIntoVersionBodySchema = z.object({
-  after_item_id: z.union([uuidSchema, z.null()]).optional(),
-});
-
-const estimateItemTypeSchema = z.enum(["section", "line"]);
-const suggestionFeedbackSchema = z.enum(["accept", "reject"]);
-const supplierAlternativeKindSchema = z.enum([
-  "best_price",
-  "most_recent",
-  "preferred_supplier",
-]);
-const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
-
+<<<<<<< HEAD
 const estimateItemSchema = z
   .object({
     selected_supplier_details: z.object({
@@ -803,6 +568,845 @@ const estimateTemplateItemSchema = z
     k_fo: z.number().nullable(),
     k_fo_manual: z.boolean().nullable().optional(),
     kit_metier: z.boolean().optional(),
+    h_mo: z.number().nullable(),
+    h_mo_majoration: z.number().nullable(),
+    k_mo: z.number().nullable(),
+    h_mo_atelier: z.number().nullable(),
+    k_mo_atelier: z.number().nullable(),
+    labor_role_atelier_id: uuidSchema.nullable(),
+    h_mo_chantier: z.number().nullable(),
+    k_mo_chantier: z.number().nullable(),
+    labor_role_chantier_id: uuidSchema.nullable(),
+    pu_ht_cents: z.number().nullable(),
+    labor_role_id: uuidSchema.nullable(),
+    category_id: uuidSchema.nullable(),
+    supply_type_id: uuidSchema.nullable(),
+    line_total_ht_cents: z.number().nullable(),
+    line_tax_cents: z.number().nullable(),
+    line_total_ttc_cents: z.number().nullable(),
+  })
+  .passthrough();
+
+const estimateTemplateDetailSchema = estimateTemplateSummarySchema.extend({
+  items: z.array(estimateTemplateItemSchema),
+});
+
+const estimateAssemblySummarySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    reference_code: z.string().nullable(),
+    unit: z.string().nullable(),
+    pricing_source: z.string().nullable(),
+    ds_cents: z.number().int(),
+    indicative_target_price_cents: z.number().int(),
+    avg_output_rate: z.number().nullable(),
+    avg_time_hours: z.number().nullable(),
+    source_metadata: z.record(z.string(), z.unknown()).nullable(),
+    created_by: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    item_count: z.number().int(),
+    member_count: z.number().int(),
+  })
+  .passthrough();
+
+const estimateAssemblyItemSchema = z
+  .object({
+    id: uuidSchema,
+    assembly_id: uuidSchema,
+    title: z.string(),
+    unit: z.string().nullable(),
+    k_fo: z.number().nullable(),
+    k_mo: z.number().nullable(),
+    labor_role_id: uuidSchema.nullable(),
+    supply_type_id: uuidSchema.nullable(),
+    default_quantity: z.number().nullable(),
+    h_mo: z.number().nonnegative(),
+    position: z.number().int(),
+    cost_type: z.enum(["material", "labor", "equipment", "subcontract"]),
+    unit_cost_ht_cents: z.number().int(),
+    loss_coeff_bp: z.number().int(),
+    yield_value: z.number().nullable(),
+    yield_unit: z.string().nullable(),
+    source_metadata: z.record(z.string(), z.unknown()),
+  })
+  .passthrough();
+
+const estimateAssemblyMemberSchema = z
+  .object({
+    id: uuidSchema,
+    parent_assembly_id: uuidSchema,
+    child_assembly_id: uuidSchema,
+    quantity: z.number().nonnegative(),
+    position: z.number().int().positive(),
+    child_assembly: z
+      .object({
+        id: uuidSchema,
+        name: z.string(),
+        reference_code: z.string().nullable(),
+        unit: z.string().nullable(),
+        ds_cents: z.number().int(),
+        avg_time_hours: z.number().nullable(),
+      })
+      .nullable(),
+  })
+=======
+import {
+  headerParameter,
+  jsonBody,
+  jsonResponse,
+  multipartBody,
+  pathParameter,
+  queryParameter,
+  responseHeader,
+  schemaDefinition,
+  successEnvelopeSchema,
+  successResponseSchemaDefinition,
+} from "@/lib/openapi/registry-helpers";
+
+import type {
+  OpenApiOperationDefinition,
+  OpenApiResponseDefinition,
+} from "@/lib/openapi/registry-helpers";
+
+export type {
+  OpenApiContentType,
+  OpenApiHttpMethod,
+  OpenApiOperationDefinition,
+  OpenApiParameterDefinition,
+  OpenApiRequestBodyDefinition,
+  OpenApiResponseContentDefinition,
+  OpenApiResponseDefinition,
+  OpenApiResponseHeaderDefinition,
+  OpenApiSchemaDefinition,
+  OpenApiSchemaIO,
+} from "@/lib/openapi/registry-helpers";
+
+import {
+  batchOperationsSchema,
+  bulkUpdateEstimateItemsRequestSchema,
+  createEstimateAssemblySchema,
+  createEstimateCategorySchema,
+  createEstimateItemSchema,
+  createEstimateSchema,
+  createEstimateTemplateFromVersionSchema,
+  createEstimateVariantSchema,
+  createLaborRoleSchema,
+  createSuggestionRuleSchema,
+  deleteEstimateItemSchema,
+  duplicateEstimateTemplateSchema,
+  estimatePurchaseOrderDraftsCreateSchema,
+  estimateSupplierComparisonsRequestSchema,
+  instantiateEstimateFromTemplateSchema,
+  listEstimateAssembliesQuerySchema,
+  listEstimateTemplatesQuerySchema,
+  moveEstimateItemSchema,
+  patchEstimateStatusSchema,
+  patchEstimateVersionSchema,
+  promoteEstimateVariantSchema,
+  purgeSuggestionLearningSchema,
+  reviewSuggestionLearningSchema,
+  reorderEstimateItemsSchema,
+  sendEstimateSchema,
+  suggestionLearningFieldSchema,
+  suggestionRuleFeedbackSchema,
+  trackSuggestionCorrectionsSchema,
+  updateEstimateAssemblySchema,
+  updateEstimateItemSchema,
+  updateEstimateTemplateSchema,
+  updateLaborRoleSchema,
+  updateSuggestionRuleSchema,
+} from "@/lib/estimates/schemas";
+import {
+  estimateDeltaExplanationQuerySchema,
+  estimateExplanationDetailQueryParamSchema,
+  estimateExplanationResponseSchema,
+} from "@/lib/estimates/explanation-schemas";
+import { pricesActionSchema } from "@/lib/catalogue/schemas";
+import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
+import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
+import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
+import { estimateItemV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
+import { TakeoffErrorCode } from "@/lib/takeoff/errors";
+
+const uuidSchema = z.string().uuid("Identifiant invalide.");
+const ifMatchHeaderSchema = z.string().trim().min(1, "Jeton de concurrence invalide.");
+const forceQuerySchema = z.enum(["0", "1", "true", "false"]);
+const dryRunQuerySchema = z.enum(["0", "1", "true", "false"]);
+const suggestPricesQuerySchema = z
+  .string()
+  .trim()
+  .min(2, "Le paramètre q doit contenir au moins 2 caractères.");
+const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
+const pdfFormatQuerySchema = z.enum(["json"]);
+const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
+const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
+const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffJobsPeriodQuerySchema = z.enum(["7d", "30d", "90d"]);
+const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
+const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffCompareThresholdQuerySchema = z.number().min(0.5).max(0.99);
+const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
+  "0",
+  "1",
+  "true",
+  "false",
+]);
+const takeoffPlanFileContentTypeSchema = z.literal("application/pdf");
+const maxTakeoffPlanFileSizeBytes = 50 * 1024 * 1024;
+const idempotencyKeyHeaderSchema = z
+  .string()
+  .trim()
+  .min(1, "Idempotency-Key invalide.")
+  .max(255, "Idempotency-Key invalide.");
+const takeoffLevelSchema = z.enum(["A", "B", "C"]);
+const takeoffJobStatusSchema = z.enum([
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "canceled",
+  "applied",
+]);
+const takeoffErrorCodeSchema = z.nativeEnum(TakeoffErrorCode);
+
+export const apiErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  details: z.unknown().optional(),
+});
+
+export const apiFailureResponseSchema = z.object({
+  ok: z.literal(false),
+  error: apiErrorSchema,
+});
+
+export const takeoffApiErrorSchema = z.object({
+  code: takeoffErrorCodeSchema,
+  message: z.string(),
+  details: z.unknown().optional(),
+  retryable: z.boolean().optional(),
+  jobId: z.string().optional(),
+  level: takeoffLevelSchema.optional(),
+});
+
+export const apiTakeoffFailureResponseSchema = z.object({
+  ok: z.literal(false),
+  error: takeoffApiErrorSchema,
+});
+
+export const apiSuccessUnknownSchema = successEnvelopeSchema(z.unknown());
+
+const outlierFlagSchema = z.enum(["price_outlier", "quantity_outlier"]);
+
+const outlierStateSchema = z.object({
+  dismissed_by_item_id: z.record(z.string(), z.array(outlierFlagSchema)),
+});
+
+const toggleOutlierDismissSchema = z.object({
+  item_id: uuidSchema,
+  flag_key: outlierFlagSchema,
+  dismissed: z.boolean(),
+});
+
+export const apiOutlierStateResponseSchema = z.object({
+  ok: z.literal(true),
+  data: outlierStateSchema,
+});
+
+const pdfStatusSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("missing"),
+  }),
+  z.object({
+    status: z.literal("processing"),
+    last_error: z.string().optional(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    last_error: z.string().optional(),
+  }),
+  z.object({
+    status: z.literal("ready"),
+    download_url: z.string().url(),
+    file_path: z.string(),
+    sha256_hash: z.string().optional(),
+    generated_at: z.string().optional(),
+    file_size_bytes: z.number().int().min(0).optional(),
+  }),
+]);
+
+export const apiPdfStatusResponseSchema = z.object({
+  ok: z.literal(true),
+  data: pdfStatusSchema,
+});
+
+const estimatePdfLayoutSchema = z.object({
+  preset: z.enum(["client_detailed", "decision_summary", "fo_mo"]),
+  detailLevel: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal("lines"),
+  ]),
+  priceMode: z.enum(["total_only", "unit_and_total", "fo_mo_and_total"]),
+  density: z.enum(["compact", "standard", "comfortable"]),
+  showNumbering: z.boolean(),
+  showSectionSubtotals: z.boolean(),
+  conditionsPlacement: z.enum(["auto", "new_page"]),
+  includeTerms: z.boolean(),
+});
+
+const estimatePdfLayoutConfigurationSchema = z.object({
+  lineCount: z.number().int().min(0),
+  sectionCountsByLevel: z.object({
+    "1": z.number().int().min(0),
+    "2": z.number().int().min(0),
+    "3": z.number().int().min(0),
+    "4": z.number().int().min(0),
+  }),
+  hasConditions: z.boolean(),
+  terms: z.object({
+    available: z.boolean(),
+    policy: z.enum(["optional", "default", "required"]),
+    title: z.string().nullable(),
+    version: z.number().int().min(1).nullable(),
+  }),
+});
+
+const insertAssemblyIntoVersionBodySchema = z.object({
+  after_item_id: z.union([uuidSchema, z.null()]).optional(),
+});
+
+const estimateItemTypeSchema = z.enum(["section", "line"]);
+const suggestionFeedbackSchema = z.enum(["accept", "reject"]);
+const supplierAlternativeKindSchema = z.enum([
+  "best_price",
+  "most_recent",
+  "preferred_supplier",
+]);
+const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
+
+const estimateItemSchema = z
+  .object({
+    selected_supplier_details: z.object({
+      price_id: uuidSchema,
+      name: z.string().nullable(),
+      reference: z.string().nullable(),
+    }).nullable().optional(),
+    id: uuidSchema,
+    version_id: uuidSchema,
+    parent_id: uuidSchema.nullable().optional(),
+    item_type: estimateItemTypeSchema,
+    position: z.number().int(),
+    title: z.string(),
+    description: z.string().nullable().optional(),
+    quantity: z.number().nullable().optional(),
+    unit_price_ht_cents: z.number().nullable().optional(),
+    tax_rate_bp: z.number().int().nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    h_mo: z.number().nullable().optional(),
+    h_mo_majoration: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    h_mo_atelier: z.number().nullable().optional(),
+    k_mo_atelier: z.number().nullable().optional(),
+    labor_role_atelier_id: uuidSchema.nullable().optional(),
+    h_mo_chantier: z.number().nullable().optional(),
+    k_mo_chantier: z.number().nullable().optional(),
+    labor_role_chantier_id: uuidSchema.nullable().optional(),
+    pu_ht_cents: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    supply_type_id: uuidSchema.nullable().optional(),
+    selected_supplier_price_id: uuidSchema.nullable().optional(),
+    source_provider: z.string().nullable().optional().describe(
+      "Origine immédiate de la ligne, sous forme de texte libre. assembly_library désigne une ligne réutilisée depuis la bibliothèque d'ouvrages."
+    ),
+    source_metadata: z.unknown().optional().describe(
+      "Provenance JSON. Pour assembly_library : kind=assembly_library et library_origin contenant assembly_id (ouvrage feuille), assembly_item_id et source_metadata (copie JSON exacte de l'item d'origine). Cette copie historique ne valide pas les quantités ni les exigences du devis actuel."
+    ),
+    line_total_ht_cents: z.number().nullable().optional(),
+    line_tax_cents: z.number().nullable().optional(),
+    line_total_ttc_cents: z.number().nullable().optional(),
+    ...estimateItemV3ResponseFields,
+  })
+>>>>>>> origin/main
+  .passthrough();
+
+const estimateCategorySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    color: z.string().nullable().optional(),
+    position: z.number().int(),
+  })
+  .passthrough();
+
+const supplyTypeSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+  })
+  .passthrough();
+
+const laborRoleSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    hourly_rate_cents: z.number().int().optional(),
+    is_active: z.boolean().optional(),
+    position: z.number().int().optional(),
+  })
+  .passthrough();
+
+const suggestionRuleSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    match_type: z.string(),
+    match_value: z.string(),
+    unit: z.string().nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    position: z.number().int().optional(),
+    is_active: z.boolean().optional(),
+    usage_count: z.number().int().optional(),
+    last_used_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const suggestionLearningReviewStatusSchema = z.enum(["approved", "rejected"]);
+
+const suggestionLearningProposalSchema = z.object({
+  rule_id: uuidSchema,
+  field_name: suggestionLearningFieldSchema,
+  corrected_value: z.string().nullable(),
+  correction_count: z.number().int(),
+  first_seen_at: z.string(),
+  last_seen_at: z.string(),
+  review_status: suggestionLearningReviewStatusSchema.nullable(),
+  decided_by: uuidSchema.nullable(),
+  decided_at: z.string().nullable(),
+  is_active: z.boolean(),
+  sample_original_value: z.string().nullable(),
+  sample_item_title: z.string().nullable(),
+});
+
+const suggestionLearningRuleBoostSchema = z.object({
+  rule_id: uuidSchema,
+  learning_boost: z.number(),
+  overrides: z.object({
+    description: z.string().nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    supply_type_id: uuidSchema.nullable().optional(),
+  }),
+  fields: z.array(suggestionLearningProposalSchema),
+});
+
+const suggestionLearningConfigSchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number().int(),
+  retention_months: z.number().int(),
+});
+
+const suggestionLearningStateSchema = z.object({
+  config: suggestionLearningConfigSchema,
+  proposals: z.array(suggestionLearningProposalSchema),
+  by_rule_id: z.record(z.string(), suggestionLearningRuleBoostSchema),
+});
+
+const suggestionLearningTrackResultSchema = suggestionLearningStateSchema.extend({
+  tracked_count: z.number().int(),
+});
+
+const suggestionLearningPurgeResultSchema = suggestionLearningStateSchema.extend({
+  deleted_count: z.number().int(),
+  retention_months: z.number().int(),
+});
+
+const estimateListItemSchema = z.object({
+  project_id: uuidSchema,
+  project_name: z.string(),
+  project_reference: z.string().nullable(),
+  project_client_name: z.string().nullable(),
+  version_id: uuidSchema,
+  version_number: z.number().int(),
+  status: estimateStatusSchema,
+  title: z.string().nullable(),
+  updated_at: z.string(),
+  total_ht_cents: z.number().int(),
+});
+
+const estimateVersionTokenSchema = z.object({
+  id: uuidSchema,
+  updated_at: z.string(),
+});
+
+const supplierOfferZeroPriceKindSchema = z.enum(["included", "free"]).nullable().optional().describe(
+  "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien."
+);
+
+// 2.9: purchase unit and conversion of an offer; a converted offer prices a line in metres per metre
+// (adjusted_unit_price_cents) and a line written in bars per bar (adjusted_purchase_unit_price_cents).
+const supplierOfferPurchaseUnitFields = {
+  estimate_unit_code: z.string().nullable().optional().describe("2.9 : unité du devis servie par l'offre (code du référentiel)."),
+  estimate_units_per_purchase_unit: z.union([z.number(), z.string()]).nullable().optional().describe(
+    "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre)."),
+  purchase_rounding: z.enum(["none", "ceil"]).nullable().optional().describe("2.9 : arrondi de la quantité d'achat."),
+  adjusted_purchase_unit_price_cents: z.number().int().nullable().optional().describe(
+    "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat."),
+};
+
+const suggestedSupplierAlternativeSchema = z.object({
+  kind: supplierAlternativeKindSchema,
+  supplier_price_id: uuidSchema,
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  unit_price_cents: z.number().int(),
+  adjusted_unit_price_cents: z.number().int(),
+  currency: z.string().nullable(),
+  supplier_reference: z.string().nullable(),
+  unit: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  catalogue_url: z.string().nullable(),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
+  purchase_unit: z.string().nullable().optional().describe("2.9 : unité d'achat de l'offre."),
+  ...supplierOfferPurchaseUnitFields,
+});
+
+const suggestedCataloguePriceSchema = z.object({
+  price_source: z.enum(["supplier", "reference", "none"]),
+  supplier_price_id: uuidSchema.nullable(),
+  product_id: uuidSchema,
+  product_designation: z.string(),
+  product_reference: z.string().nullable(),
+  product_category: z.string().nullable(),
+  product_type: z.string().nullable(),
+  product_material: z.string().nullable(),
+  product_grade: z.string().nullable(),
+  product_dimensions: z.string().nullable(),
+  product_standard: z.string().nullable(),
+  supplier_id: uuidSchema.nullable(),
+  supplier_name: z.string().nullable(),
+  supplier_reference: z.string().nullable(),
+  unit: z.string().nullable(),
+  unit_price_cents: z.number().int(),
+  adjusted_unit_price_cents: z.number().int(),
+  currency: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  stale_days: z.number().int(),
+  relevance_score: z.number(),
+  has_material_index_adjustment: z.boolean(),
+  material_index_code: z.string().nullable(),
+  material_index_value: z.number().nullable(),
+  catalogue_url: z.string().nullable(),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
+  purchase_unit: z.string().nullable().optional().describe("2.9 : unité d'achat de l'offre."),
+  ...supplierOfferPurchaseUnitFields,
+  supplier_offer_count: z.number().int(),
+  alternatives: z.array(suggestedSupplierAlternativeSchema),
+});
+
+const estimateSupplierComparisonAlternativeSchema = z.object({
+  unit: z.string().nullable().optional(),
+  min_quantity: z.number().nullable().optional(),
+  valid_from: z.string().nullable().optional(),
+  valid_to: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
+  unit_price_cents: z.number().int().nullable().optional().describe(
+    "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible."
+  ),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
+  ...supplierOfferPurchaseUnitFields,
+  kind: z.enum([
+    "best_price",
+    "most_recent",
+    "preferred_supplier",
+    "selected_current",
+  ]),
+  supplier_price_id: uuidSchema,
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  adjusted_unit_price_cents: z.number().int(),
+  supplier_reference: z.string().nullable(),
+  catalogue_url: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  product_designation: z.string(),
+  is_selected: z.boolean(),
+});
+
+const estimateSupplierComparisonSchema = z.object({
+  item_id: uuidSchema,
+  quantity: z.number().optional(),
+  unit: z.string().nullable().optional(),
+  selected_supplier_price_id: uuidSchema.nullable(),
+  best_supplier_price_id: uuidSchema.nullable(),
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimateSupplierComparisonCoverageSummarySchema = z.object({
+  total_items: z.number().int(),
+  covered_items: z.number().int(),
+  ambiguous_items: z.number().int(),
+  no_price_items: z.number().int(),
+  stale_items: z.number().int(),
+});
+
+const estimateSupplierPreselectionPatchSchema = z.object({
+  unit_price_ht_cents: z.number().int(),
+  selected_supplier_price_id: uuidSchema,
+});
+
+const estimateSupplierPreselectionProposalSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  item_unit: z.string().nullable().optional().describe("2.9 : unité de la ligne."),
+  current_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  proposed_alternative: estimateSupplierComparisonAlternativeSchema,
+  patch: estimateSupplierPreselectionPatchSchema,
+  reason: z.enum(["single_clear_option"]),
+  explanation: z.string(),
+  is_reversible: z.literal(true),
+});
+
+const estimateSupplierPreselectionExceptionSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  item_unit: z.string().nullable().optional().describe("2.9 : unité de la ligne."),
+  reason: z.enum(["divergence", "stale", "ambiguous", "no_price"]),
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimateSupplierPreselectionSummarySchema = z.object({
+  total_items: z.number().int(),
+  proposed_items: z.number().int(),
+  exception_items: z.number().int(),
+  already_selected_items: z.number().int(),
+  divergence_items: z.number().int(),
+  stale_items: z.number().int(),
+  ambiguous_items: z.number().int(),
+  no_price_items: z.number().int(),
+});
+
+const estimateSupplierPreselectionReviewSchema = z.object({
+  summary: estimateSupplierPreselectionSummarySchema,
+  proposals: z.array(estimateSupplierPreselectionProposalSchema),
+  exceptions: z.array(estimateSupplierPreselectionExceptionSchema),
+});
+
+const estimatePurchaseOrderDraftBlockedReasonSchema = z.enum([
+  "selection_missing",
+  "stale",
+  "ambiguous",
+  "no_price",
+  "missing_quantity",
+  "invalid_quantity",
+  "amount_out_of_range",
+  "missing_unit_price",
+  "supplier_offer_ineligible",
+]);
+
+const estimatePurchaseOrderDraftLineSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  unit: z.string(),
+  review_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  quantity: z.number(),
+  unit_price_ht_cents: z.number().int(),
+  tax_rate_bp: z.number().int(),
+  line_total_ht_cents: z.number().int(),
+  line_tax_cents: z.number().int(),
+  line_total_ttc_cents: z.number().int(),
+  selected_supplier_price_id: uuidSchema,
+  supplier_reference: z.string().nullable(),
+  product_designation: z.string(),
+  ordered_quantity: z.number().describe("2.9 : quantité commandée, dans l'unité d'achat d'une offre convertie (282 ml → 94 barres)."),
+  ordered_unit: z.string().describe("2.9 : unité commandée."),
+  ordered_unit_price_ht_cents: z.number().int().describe("2.9 : prix HT par unité commandée."),
+});
+
+const estimatePurchaseOrderDraftGroupSchema = z.object({
+  group_key: z.string(),
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  line_count: z.number().int(),
+  total_ht_cents: z.number().int(),
+  total_tax_cents: z.number().int(),
+  total_ttc_cents: z.number().int(),
+  lines: z.array(estimatePurchaseOrderDraftLineSchema),
+});
+
+const estimatePurchaseOrderDraftBlockedLineSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  quantity: z.number().nullable(),
+  unit_price_ht_cents: z.number().int().nullable(),
+  tax_rate_bp: z.number().int().nullable(),
+  selected_supplier_price_id: uuidSchema.nullable(),
+  reason: estimatePurchaseOrderDraftBlockedReasonSchema,
+  reason_detail: z.string().nullable().optional(),
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]).nullable(),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimatePurchaseOrderDraftPreparationSummarySchema = z.object({
+  total_supplier_lines: z.number().int(),
+  draftable_lines: z.number().int(),
+  blocked_lines: z.number().int(),
+  transferred_lines: z.number().int(),
+  supplier_groups: z.number().int(),
+  selection_missing_lines: z.number().int(),
+  stale_lines: z.number().int(),
+  ambiguous_lines: z.number().int(),
+  no_price_lines: z.number().int(),
+  missing_quantity_lines: z.number().int(),
+  invalid_quantity_lines: z.number().int(),
+  missing_unit_price_lines: z.number().int(),
+});
+
+const estimateGatingFlagSchema = z.object({
+  key: z.string(),
+  severity: z.enum(["blocking", "warning"]),
+  count: z.number().int(),
+  item_ids: z.array(uuidSchema),
+  label: z.string(),
+  description: z.string(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+
+const estimateGatingSchema = z.object({
+  canSend: z.boolean(),
+  blockingFlags: z.array(estimateGatingFlagSchema),
+  warningFlags: z.array(estimateGatingFlagSchema),
+  stalePriceDays: z.number().int(),
+  checkedAt: z.string(),
+});
+
+const estimateChangelogFieldSchema = z.object({
+  field: z.string(),
+  label: z.string(),
+  kind: z.string(),
+  beforeValue: z.union([z.string(), z.number(), z.null()]),
+  afterValue: z.union([z.string(), z.number(), z.null()]),
+});
+
+const estimateChangelogChangeSchema = z.object({
+  key: z.string(),
+  changeType: z.string(),
+  entityType: z.string(),
+  designation: z.string(),
+  fields: z.array(estimateChangelogFieldSchema),
+  deltaHtCents: z.number(),
+  deltaTtcCents: z.number(),
+});
+
+const estimateChangelogSchema = z.object({
+  sections: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      path: z.array(z.string()),
+      changes: z.array(estimateChangelogChangeSchema),
+      deltaHtCents: z.number(),
+      deltaTtcCents: z.number(),
+    })
+  ),
+  summary: z.object({
+    addedCount: z.number().int(),
+    removedCount: z.number().int(),
+    modifiedCount: z.number().int(),
+    totalChangeCount: z.number().int(),
+    deltaHtCents: z.number(),
+    deltaTtcCents: z.number(),
+  }),
+});
+
+const estimateDraftLockOwnerSchema = z.object({
+  id: uuidSchema,
+  full_name: z.string().nullable(),
+  work_email: z.string().nullable(),
+});
+
+const estimateDraftLockSchema = z.object({
+  id: uuidSchema,
+  version_id: uuidSchema,
+  tenant_id: uuidSchema,
+  user_id: uuidSchema,
+  session_id: uuidSchema,
+  locked_at: z.string(),
+  expires_at: z.string(),
+  is_current_user: z.boolean(),
+  is_current_session: z.boolean(),
+  is_expired: z.boolean(),
+  owner: estimateDraftLockOwnerSchema.nullable(),
+});
+
+const estimateTemplateSummarySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    source_version_id: uuidSchema.nullable(),
+    created_by: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    item_count: z.number().int(),
+  })
+  .passthrough();
+
+const estimateTemplateItemSchema = z
+  .object({
+    id: uuidSchema,
+    template_id: uuidSchema,
+    parent_id: uuidSchema.nullable(),
+    item_type: estimateItemTypeSchema,
+    position: z.number().int(),
+    title: z.string(),
+    description: z.string().nullable(),
+    quantity: z.number().nullable(),
+    unit_price_ht_cents: z.number().nullable(),
+    tax_rate_bp: z.number().nullable(),
+    k_fo: z.number().nullable(),
     h_mo: z.number().nullable(),
     h_mo_majoration: z.number().nullable(),
     k_mo: z.number().nullable(),
@@ -1913,6 +2517,15 @@ const apiTakeoffReviewContextSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffReviewContextResponse",
   takeoffReviewContextResponseSchema
 );
+const apiTakeoffPageContributionsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPageContributionsResponse",
+  takeoffPageContributionsResponseSchema
+);
+const takeoffLaunchPageContributionsBody = jsonBody({
+  name: "TakeoffLaunchPageContributionsRequest",
+  description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
+  schema: takeoffLaunchPageContributionsRequestSchema,
+});
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
   takeoffVectorReadingResponseSchema
@@ -2238,6 +2851,13 @@ const takeoffDpgfCompareVersionIdQueryParameter = queryParameter({
   name: "version_id",
   description: "Version de chiffrage cible pour comparer les lignes DPGF au job takeoff.",
   schemaName: "TakeoffDpgfCompareVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: true,
+});
+const takeoffPageContributionsVersionIdQueryParameter = queryParameter({
+  name: "version_id",
+  description: "Version de chiffrage revue : celle du metre, ou une copie dans laquelle il a ete repris. 404 si elle est illisible ou si le metre n'en fait pas partie.",
+  schemaName: "TakeoffPageContributionsVersionIdQueryParameter",
   schema: uuidSchema,
   required: true,
 });
@@ -3147,6 +3767,32 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [takeoffJobIdPathParameter],
     responses: {
       "200": jsonResponse("Contexte du controle cible.", apiTakeoffReviewContextSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/page-contributions",
+    summary: "Pages du metre deja au devis par un autre metre",
+    description:
+      "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que la version de devis revue porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter, takeoffPageContributionsVersionIdQueryParameter],
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/page-contributions",
+    summary: "Pages des plans d'un lancement deja au devis",
+    description:
+      "Lecture seule (TI-682), avant un lancement : les pages des plans choisis que la version cible porte deja par un metre, avec ce metre et son nombre de lignes. N'ecrit rien.",
+    tags: ["Takeoff"],
+    requestBody: takeoffLaunchPageContributionsBody,
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },
