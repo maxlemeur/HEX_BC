@@ -63,7 +63,8 @@ import {
 // writes the results of the lines it may still change (jobs not applied).
 // - An excluded line is no partner and never blocks: it is compared with
 //   included lines only to show its own results (for the review), as they
-//   would stand if it came back; two excluded lines are never compared.
+//   would stand if it came back. A separate preview also compares automatically excluded vector alternatives,
+//   without changing any retained quantity or included-line result.
 // - Duplicates: a correction settles an isolated pair only; three lines or
 //   more joined by pairs stay failed until each is excluded or accepted.
 // - Copies read differently (TI-684): two lines of one kind drawn at one place
@@ -105,6 +106,8 @@ export type RuleLine = {
   unit: string;
   quantity: number;
   is_excluded: boolean;
+  /** Automatically excluded vector alternative: compare its drawing without retaining its quantity. */
+  unselected_vector?: boolean;
   /** A line of an applied job: compared, never written. */
   frozen: boolean;
   /** A user attested the line's current quantity with its category (TI-686 D12): a quantity to enter is entered. */
@@ -761,6 +764,22 @@ export function evaluateTakeoffRules(input: { lines: readonly RuleLine[]; pages:
   }
   roomOverlaps(input.lines, results);
   const zone = zoneOverlaps(input.lines, pages, results);
+  // Alternative drawings reveal overlaps before a reviewer retains their quantities. Keep the included-line
+  // calculation above unchanged: an excluded alternative never spends a reduction or changes an applied quantity.
+  const candidates = new Set(input.lines.filter(line => line.is_excluded && line.unselected_vector && !line.frozen).map(line => line.id));
+  if (candidates.size > 0) {
+    const preview = new Map<string, TakeoffRuleResult[]>();
+    zoneOverlaps(input.lines.map(line => candidates.has(line.id) ? { ...line, is_excluded: false } : line), pages, preview);
+    for (const id of candidates) {
+      const overlap = preview.get(id)?.find(entry => entry.code === "ZONE_OVERLAP_DUPLICATE");
+      if (!overlap) continue;
+      const partners = overlap.details?.partners ?? [];
+      const reason = `Lecture vectorielle non retenue : recouvrement avec ${partners.map(partner => `« ${partner.designation} » (${partner.zone ?? "autre page"})`).join(", ")}. Comparez les tracés avant de retenir les quantités ; cette ligne reste exclue du devis.`;
+      const existing = results.get(id) ?? [];
+      results.set(id, [...existing.filter(entry => entry.rule !== "zone_overlap"), { ...overlap, reason }]);
+    }
+  }
+
   for (const list of results.values()) list.sort((left, right) => (RULE_ORDER.get(left.rule) ?? 9) - (RULE_ORDER.get(right.rule) ?? 9));
   return { results, transforms: zone.transforms, registrations: zone.registrations };
 }

@@ -204,15 +204,38 @@ armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be c
 armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the user settles it by keyboard, kept after a reload, counted once", options,
   async (ui) => {
     const { ids, target, jobs, client } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
-    // Setup only: the vector EF lines arrive excluded (TI-662); both included, the duplicate appears.
+    // The drawings must reveal their overlap while both vector alternatives are still excluded. No setup
+    // inclusion may be needed to find the duplicate, and finding it must not retain either quantity.
+    const alternatives: Record<string, Item> = {};
     for (const zone of ["Z1", "Z2"] as const) {
       const ef = (await readItems(ui, jobs[zone])).find((item) => item.designation === ZONE_PLANS.designation) as Item;
-      await patchItems(ui, jobs[zone], [{ item: ef, fields: { is_excluded: false } }]);
+      expect(ef).toMatchObject({ is_excluded: true, quantity: ZONE_PLANS.zones[zone].length_m });
+      expect(ef.rule_results?.find((entry) => entry.rule === "zone_overlap")).toMatchObject({
+        code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+      alternatives[zone] = ef;
     }
     // The editor's draft lock goes back: the application takes its own from the review.
     expect((await apiRequest<{ data: { released: boolean } }>(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
     const screen = ui.screen;
     const targeted = (jobId: string) => `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review/targeted?versionId=${ids.versionId}`;
+    for (const zone of ["Z2", "Z1"] as const) {
+      await ui.app.open(`${targeted(jobs[zone])}&line=${alternatives[zone].id}`);
+      const candidate = screen.getByRole("region", "Décision sur la ligne", { exact: true });
+      await expect(candidate).toContainText("ZONE_OVERLAP_DUPLICATE");
+      await expect(candidate).toContainText("Longueur commune à comparer : 1,00 m");
+      await expect(candidate.getByRole("button", /^Accepter/)).toBeDisabled();
+      await expect(candidate.getByRole("button", /^Retirer/)).toHaveCount(0);
+      await ui.browser.reload();
+      await expect(candidate).toContainText("Lecture non retenue au devis.");
+      expect((await readItems(ui, jobs[zone])).find(item => item.id === alternatives[zone].id))
+        .toMatchObject({ is_excluded: true, quantity: ZONE_PLANS.zones[zone].length_m });
+      await recordEvidence(ui.army, `TKR02-unselected-${zone}`, { item: alternatives[zone],
+        screenshot: await ui.app.screenshot(`takeoff-unselected-overlap-${zone}`) });
+      const included = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs[zone]}/items`);
+      await candidate.getByRole("button", /^Inclure/).click();
+      expect((await included).status).toBe(200);
+      expect((await readItems(ui, jobs[zone])).find(item => item.id === alternatives[zone].id)?.is_excluded).toBe(false);
+    }
 
     // Recover an interrupted computation through the UI without changing a business quantity.
     expect((await client.from("takeoff_items").update({ rules_stale: true, rules_stale_at: new Date().toISOString() } as never)

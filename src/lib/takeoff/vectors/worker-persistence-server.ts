@@ -1,5 +1,7 @@
 import "server-only";
 
+import { VECTOR_ITEM_EXCLUSION_REASON } from "@/lib/takeoff/vectors/alternatives";
+
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -28,7 +30,7 @@ import { withUndecidedHypothesesAsAlternatives } from "@/lib/takeoff/hypothesis"
 
 type ServiceClient = SupabaseClient<Database>;
 
-export const VECTOR_ITEM_EXCLUSION_REASON = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
+export { VECTOR_ITEM_EXCLUSION_REASON } from "@/lib/takeoff/vectors/alternatives";
 
 function failed(message: string, error: unknown): never {
   throw Object.assign(new Error(`${message} (${(error as { message?: string } | null)?.message ?? "erreur inconnue"})`), { cause: error });
