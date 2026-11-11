@@ -954,6 +954,14 @@ describe("takeoff bench dataset check", () => {
     expect(result.errors).toHaveLength(1);
   });
 
+  it("leaves a measurement to the error of its plan's truth when that truth is out of schema", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => { truth.lot = "z"; });
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "lot", /./);
+    expect(result.errors.filter((issue) => issue.file.startsWith("truth/measured/"))).toEqual([]);
+  });
+
   it("ignores a hidden file of the folder, as the bench does", async () => {
     await dataset.writeJson("truth/measured/.a-plan-01.json", { anything: true });
     const result = await checkTakeoffBenchDataset(dataset.root);

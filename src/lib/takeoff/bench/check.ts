@@ -763,7 +763,8 @@ async function checkMeasured(check: DatasetCheck) {
     if (path.posix.basename(file, ".json") !== id) check.error(file, ["document"], "a measurement is named truth/measured/<document id>.json");
     const scope = scopes.find((entry) => entry.documents.some((covered) => covered.id === id));
     if (!scope) {
-      check.error(file, ["document"], `no quantity truth covers ${id}: nothing to compare its measurement with`);
+      // A truth that names the plan but is out of schema has its own errors: the measurement adds none.
+      if (!check.coverage.has(id)) check.error(file, ["document"], `no quantity truth covers ${id}: nothing to compare its measurement with`);
       continue;
     }
     if (document.raw_status !== "binary" || document.file_type !== "pdf") {

@@ -137,6 +137,8 @@ export type MeasuredScope = {
   documents: string[];
   role: "truth" | "reserve";
   scored_keys: number;
+  /** The scored lengths without measurement (a line left without length): left to the devis. */
+  unmeasured: KeyLabel[];
   /** The scored lengths that have a measurement, with each run's reading per pass, judged on the measurement. */
   keys: Array<{ key: KeyLabel; devis: number | null; measured: number; vector: MeasuredReading[]; baseline: MeasuredReading[] }>;
 };
@@ -325,12 +327,19 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
   const judgedPlans = measuredIds.filter((id) => notJudged(id) === null);
   const measuredScope = (id: string): MeasuredScope => {
     const reference = vectorPasses[0].find((scope) => scope.id === id) as ScopeScore;
-    const readings = (passes: ScopeScore[][], index: number) => judgedKeys(passes, id).map((keys): MeasuredReading => ({
-      actual: keys[index].actual, status: keys[index].status as MeasuredReading["status"], relative_deviation: round(keys[index].relative_deviation) as number }));
-    const devis = reference.keys.filter((key) => againstMeasurement([key], lengthsOf(id)).length > 0);
-    return { scope: id, documents: reference.documents, role: reference.role, scored_keys: reference.keys.filter(isScoredLength).length,
-      keys: judgedKeys(vectorPasses, id)[0].map((key, index) => ({ key: key.key, devis: devis[index].expected, measured: key.expected as number,
-        vector: readings(vectorPasses, index), baseline: readings(baselinePasses, index) })) };
+    const scored = reference.keys.filter(isScoredLength);
+    // Each key is found again by its identity in every pass of each run, never by its position.
+    const readings = (passes: ScopeScore[][], identity: string) => judgedKeys(passes, id).flatMap((keys): MeasuredReading[] => {
+      const judged = keys.find((key) => measuredKey(key.key) === identity);
+      return judged ? [{ actual: judged.actual, status: judged.status as MeasuredReading["status"], relative_deviation: round(judged.relative_deviation) as number }] : [];
+    });
+    return { scope: id, documents: reference.documents, role: reference.role, scored_keys: scored.length,
+      unmeasured: scored.filter((key) => lengthsOf(id)?.get(measuredKey(key.key)) === undefined).map((key) => key.key),
+      keys: scored.flatMap((key) => {
+        const identity = measuredKey(key.key), length = lengthsOf(id)?.get(identity);
+        return length === undefined ? [] : [{ key: key.key, devis: key.expected, measured: length, vector: readings(vectorPasses, identity),
+          baseline: readings(baselinePasses, identity) }];
+      }) };
   };
   const measuredScopes = judgedPlans.map(measuredScope);
   const judgment = (role: "reserve" | "truth" | "all"): MeasuredJudgment => {
@@ -495,7 +504,7 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
 
 const NOT_JUDGED: Record<MeasuredNotJudged, string> = {
   several_plans: "vérité de plusieurs plans (une mesure se juge sur la vérité d’un seul plan)",
-  not_in_totals: "non noté par les deux runs à chaque passe",
+  not_in_totals: "non noté par les deux runs à chaque passe, ou non lancé",
   not_vector: "plan raster ou mixte (la lecture vectorielle y reprend les lignes de la baseline)",
   no_measured_key: "aucune longueur notée n’a de mesure",
 };

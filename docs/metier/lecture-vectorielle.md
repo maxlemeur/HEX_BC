@@ -498,7 +498,9 @@ la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent p
 - **Plans jugés.** Seuls les plans de la tranche vecteur, notés par les deux runs à
   chaque passe. Sur un plan raster ou mixte, le run vectoriel porte les lignes de la
   baseline : les juger compterait la lecture de la baseline comme celle des vecteurs.
-  Un plan mesuré qui n'est pas jugé est nommé dans le rapport, avec sa raison.
+  Un plan mesuré qui n'est pas jugé est nommé dans le rapport, avec sa raison : vérité
+  de plusieurs plans, plan non noté par les deux runs à chaque passe ou non lancé, plan
+  raster ou mixte, aucune longueur mesurée.
 - **Vérité de plusieurs plans.** Une mesure est celle d'un plan, et se juge sur la
   vérité de ce plan seul. Une vérité de niveau ou de lot a des clés qu'un plan ne trace
   qu'en partie, ou pas du tout : elle reste jugée au devis.
@@ -506,8 +508,8 @@ la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent p
   clés mesurées : c'est ce que le jugement au devis demande à une lecture au-delà du
   dessin. Il est négatif quand le devis compte moins que le dessin.
 - **Trace.** `report.json` garde, par plan jugé et par clé, le devis, la mesure et la
-  lecture de chaque run à chaque passe. `report.md` n'imprime que des parts et des
-  écarts, jamais une quantité.
+  lecture de chaque run à chaque passe, ainsi que les longueurs notées restées sans
+  mesure. `report.md` n'imprime que des parts et des écarts, jamais une quantité.
 
 ## Règles fixes (L5)
 

@@ -602,7 +602,9 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     expect(comparison.measured!.not_judged).toEqual([]);
     // report.json keeps what the judgment stands on: per key, the devis, the measurement and each run's reading per pass.
     const missed = { actual: null, status: "missed", relative_deviation: -1 };
-    expect(comparison.measured!.scopes).toEqual([{ scope: "truth/a-plan-02.json", documents: ["a-plan-02"], role: "reserve", scored_keys: 4, keys: [
+    expect(comparison.measured!.scopes).toEqual([{ scope: "truth/a-plan-02.json", documents: ["a-plan-02"], role: "reserve", scored_keys: 4,
+      // The scored length nobody could measure is named, not only counted.
+      unmeasured: [vectorKeys[3].key], keys: [
       { key: vectorKeys[0].key, devis: 40, measured: 21, vector: [{ actual: 20, status: "ok", relative_deviation: -0.0476 }],
         baseline: [{ actual: 39, status: "out_of_tolerance", relative_deviation: 0.8571 }] },
       { key: vectorKeys[1].key, devis: 30, measured: 20, vector: [{ actual: 12, status: "out_of_tolerance", relative_deviation: -0.4 }], baseline: [missed] },
@@ -623,19 +625,22 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
   });
 
   it("takes the median over the passes, and judges only the plans both runs scored in every pass", () => {
-    const passes = [[scope("a-plan-01", [length(0, 40, 20)])], [scope("a-plan-01", [length(0, 40, 26)])], [scope("a-plan-01", [length(0, 40, 22)])]];
+    // The first pass is the outlier: a judgment that read it for every pass would give 23.8 % and no key within.
+    const passes = [[scope("a-plan-01", [length(0, 40, 26)])], [scope("a-plan-01", [length(0, 40, 20)])], [scope("a-plan-01", [length(0, 40, 22)])]];
     const vector = report(passes, "vector");
     const options = { slices: vectorSlice("a-plan-01"), measured: measuredOn({ "a-plan-01": { 0: 21 } }) };
-    // Errors per pass against 21: 4.8 %, 23.8 %, 4.8 %; within 1, 0, 1.
+    // Errors per pass against 21: 23.8 %, 4.8 %, 4.8 %; within 0, 1, 1.
     const whole = compareVectorWithBaseline(vector, vector, options).measured!;
     expect(whole.totals.truth.vector).toEqual(metrics(1, 1, 1, 0.0476));
-    expect(whole.scopes[0].keys[0].vector.map((reading) => reading.status)).toEqual(["ok", "out_of_tolerance", "ok"]);
+    expect(whole.scopes[0].keys[0].vector.map((reading) => reading.status)).toEqual(["out_of_tolerance", "ok", "ok"]);
     const lost = report([passes[0], [{ ...passes[1][0], status: "read_failed" as const }], passes[2]]);
     const comparison = compareVectorWithBaseline(vector, lost, options);
     expect(comparison.left_out_of_totals).toEqual(["truth/a-plan-01.json"]);
     expect(comparison.measured!.totals.truth).toMatchObject({ plans: [], vector: NONE, baseline: NONE, lengths_gain: null });
     expect(comparison.measured!.scopes).toEqual([]);
     expect(comparison.measured!.not_judged).toEqual([{ scope: "truth/a-plan-01.json", reason: "not_in_totals" }]);
+    expect(renderVectorSections([vectorPass({ "a-plan-01": ["vector"] })], comparison).join("\n")).toMatch(
+      /non noté par les deux runs à chaque passe, ou non lancé[^\n]*truth\/a-plan-01\.json/);
   });
 
   it("judges only the plans of the vector slice: on a raster or mixed plan the vector run holds the baseline's lines", () => {
@@ -662,6 +667,14 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     const blind = compareVectorWithBaseline(vector, baseline, { measured }).measured!;
     expect(blind.totals.all).toMatchObject({ plans: [], vector: NONE, baseline: NONE, lengths_gain: null });
     expect(blind.not_judged.map((entry) => entry.reason)).toEqual(["not_vector", "not_vector", "not_vector"]);
+  });
+
+  it("gives each key its own readings in the trace, whatever the order of the keys in a run", () => {
+    const vector = report([[scope("a-plan-01", [length(0, 40, 20), length(1, 30, 12)])]], "vector");
+    const baseline = report([[scope("a-plan-01", [length(1, 30, 31), length(0, 40, 39)])]]);
+    const [traced] = compareVectorWithBaseline(vector, baseline, { slices: vectorSlice("a-plan-01"), measured: measuredOn({ "a-plan-01": { 0: 21, 1: 20 } }) }).measured!.scopes;
+    expect(traced.keys.map((entry) => [entry.key.dn, entry.devis, entry.measured, entry.vector[0].actual, entry.baseline[0].actual])).toEqual([
+      ["DN 22", 40, 21, 20, 39], ["DN 28", 30, 20, 12, 31]]);
   });
 
   it("keeps the reserve apart from the other plans", () => {
@@ -729,6 +742,7 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     expect(markdown).toContain("### Longueurs jugées à la mesure au trait (jugement ajouté après lecture des résultats v1)");
     expect(markdown).toContain("| **Réserve** | 1 | 3 / 4 | 33 % (1 / 3), erreur médiane 40 % | 0 % (0 / 3), erreur médiane 100 % | gain | +48 % |");
     expect(markdown).toMatch(/plan raster ou mixte[^\n]*truth\/c-plan-02\.json/);
+    expect(markdown).not.toContain("non noté par les deux runs");
     expect(markdown).toMatch(/vérité de plusieurs plans[^\n]*truth\/a-level-01\.json/);
     for (const quantity of [...devis, ...read, ...level, ...Object.values(measure), 31.57, 30.59, 30.83, ...QUANTITIES.length, ...QUANTITIES.surface]) {
       if (quantity === null) continue;
