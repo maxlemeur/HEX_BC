@@ -4,7 +4,7 @@ import { cadLayerSummary, cadModelFileName, cadModelSummary, cadPlotFileName, ca
 import type { CadWarningCode } from "@/lib/cad/model";
 
 describe("cadReadMessage", () => {
-  it.each(["empty", "too_large", "binary_dxf", "not_dxf", "not_dwg", "not_rvt", "not_fcstd", "model_too_large", "unsupported"])("says what to do about %s", (reason) => {
+  it.each(["empty", "too_large", "binary_dxf", "not_dxf", "not_dwg", "not_rvt", "not_fcstd", "damaged_fcstd", "model_too_large", "unsupported"])("says what to do about %s", (reason) => {
     const message = cadReadMessage(reason);
     expect(message).not.toBe(cadReadMessage("failed"));
     expect(message).not.toContain(reason);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { CadReadError, readDxf } from "./dxf";
 import { readFcstd } from "./fcstd";
-import { BOILER_ROOM, PNG, documentXml, element, fcstd, float, geometry, label, segment, shape, type FcstdEntry } from "./fcstd.test-utils";
+import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, element, fcstd, float, geometry, label, segment, shape, type FcstdEntry } from "./fcstd.test-utils";
 import { measureCadDrawing } from "./quantities";
 
 describe("FreeCAD documents", () => {
@@ -224,16 +224,24 @@ describe("FreeCAD documents", () => {
     expect(await reason(fcstd(documentXml(BOILER_ROOM)), { maxDocumentBytes: 100 })).toBe("model_too_large");
     const damaged = fcstd(documentXml(BOILER_ROOM));
     damaged.fill(0xff, 50, 90);
-    expect(await reason(damaged)).toBe("not_fcstd");
+    expect(await reason(damaged)).toBe("damaged_fcstd");
   });
 
-  it("walks a document whose tags are cut short or do not match without failing", async () => {
-    const xml = documentXml(BOILER_ROOM);
-    for (const cut of [xml.slice(0, xml.indexOf("<ObjectData") + 200), xml.replace("</Properties></Object>", "</Object>"), `${xml.slice(0, -12)}<Object name="x`, xml.replace("<ObjectData", "<!-- sans fin <ObjectData")]) {
-      const read = await readFcstd(fcstd(cut));
-      expect(read.summary.version?.label).toBe("FreeCAD 1.0");
-      expect(read.summary.model.total).toBeLessThanOrEqual(4);
+  it("says of a document cut before its end, or whose tags do not match, that it is damaged: half a model is not read as a whole one", async () => {
+    const reason = (bytes: Uint8Array) => readFcstd(bytes).then(() => "read", (error: unknown) => (error instanceof CadReadError ? error.reason : String(error)));
+    const xml = documentXml(SKETCHED_ROOM);
+    // Cut among its objects, in the middle of a sketch, in a tag, in a comment; and a tag that is closed by another.
+    for (const cut of [xml.slice(0, xml.indexOf("<ObjectData") + 200), xml.slice(0, xml.indexOf("Réservations")), `${xml.slice(0, -12)}<Object name="x`, xml.replace("<ObjectData", "<!-- sans fin <ObjectData"), xml.replace("</Properties></Object>", "</Object>")]) {
+      expect(await reason(fcstd(cut))).toBe("damaged_fcstd");
     }
+    // What follows the end of the document takes nothing from it.
+    expect((await readFcstd(fcstd(`${xml}\n<!-- fin -->\n`))).summary.model).toMatchObject({ total: 6, sketches: 2, truncated: false });
+
+    // The document whole, in an archive that says its bytes are not the ones that were saved.
+    const stale = fcstd(xml);
+    const view = new DataView(stale.buffer, stale.byteOffset, stale.byteLength);
+    for (let entry = 0; entry + 4 <= stale.length; entry += 1) if (view.getUint32(entry, true) === 0x02014b50) view.setUint32(entry + 16, view.getUint32(entry + 16, true) ^ 1, true);
+    expect(await reason(stale)).toBe("damaged_fcstd");
   });
 
   it("is not fooled by a thumbnail that is not an image", async () => {

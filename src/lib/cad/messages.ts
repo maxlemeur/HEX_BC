@@ -18,6 +18,7 @@ const READ_MESSAGES: Record<CadReadErrorReason, string> = {
   not_dwg: "Ce fichier porte l’extension DWG mais n’en a pas le contenu.",
   not_rvt: "Ce fichier porte l’extension RVT mais n’en a pas le contenu.",
   not_fcstd: "Ce fichier porte l’extension FCStd mais n’en a pas le contenu.",
+  damaged_fcstd: "Ce document FreeCAD est incomplet ou endommagé : il n’a pas pu être lu. Enregistrez-le à nouveau dans FreeCAD, puis déposez-le.",
   model_too_large: "Le document de ce fichier FreeCAD est trop volumineux pour être lu ici.",
   unsupported: "Ce format n’est pas lu par MergeOne.",
 };

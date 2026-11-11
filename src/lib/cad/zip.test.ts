@@ -50,6 +50,22 @@ describe("zip archives", () => {
     }
   });
 
+  it("gives nothing for an entry whose bytes are not those its checksum was taken on", async () => {
+    // Stored as it is: one letter changed in the archive still reads as text, and is not what was saved.
+    const stored = zipSync({ "Document.xml": [strToU8(LONG), { level: 0 }], "b.txt": strToU8("b") });
+    const at = new TextDecoder("latin1").decode(stored).indexOf("MergeOne MergeOne");
+    stored[at] = "m".charCodeAt(0);
+    const zip = openZip(stored)!;
+    expect(await zip.read("Document.xml", 1 << 20)).toBeNull();
+    expect(text(await zip.read("b.txt", 8))).toBe("b");
+
+    // Deflated data that unfolds well, under a checksum that is not its own.
+    const stale = zipSync({ "Document.xml": strToU8(LONG) });
+    const view = new DataView(stale.buffer, stale.byteOffset, stale.byteLength);
+    for (let entry = 0; entry + 4 <= stale.length; entry += 1) if (view.getUint32(entry, true) === 0x02014b50) view.setUint32(entry + 16, view.getUint32(entry + 16, true) ^ 1, true);
+    expect(await openZip(stale)!.read("Document.xml", 1 << 20)).toBeNull();
+  });
+
   it("refuses what is not a zip, or a zip cut short", () => {
     expect(isZip(strToU8("0\nSECTION\n"))).toBe(false);
     expect(isZip(new Uint8Array())).toBe(false);

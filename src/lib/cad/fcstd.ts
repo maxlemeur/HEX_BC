@@ -174,11 +174,12 @@ function freecadVersion(program: string | undefined): CadSummary["version"] {
   return release ? { code: release, label: `FreeCAD ${release}` } : null;
 }
 
-function readDocument(text: string, limits: FcstdLimits): { version: CadSummary["version"]; found: Found[]; left: number } | null {
+/** `closed`: the document ends as it began; one that does not was cut on its way, or damaged. */
+function readDocument(text: string, limits: FcstdLimits): { version: CadSummary["version"]; found: Found[]; left: number; closed: boolean } | null {
   const stack: string[] = [];
   const byName = new Map<string, Found>();
   // `deep`: tags open past the depth that is kept; `left`: the objects and the sketch elements the limits left out.
-  let isDocument = false, version: CadSummary["version"] = null, left = 0, kept = 0, deep = 0;
+  let isDocument = false, closed = false, version: CadSummary["version"] = null, left = 0, kept = 0, deep = 0;
   let current: Found | null = null, property: { name: string; type: string } | null = null;
   let enumeration: { chosen: number; seen: number } | null = null;
   let geometry: { construction: boolean; shape: Shape | null } | null = null;
@@ -262,6 +263,7 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
       // A closing tag that does not match the open one is passed over: the walk stays where it was.
       if (stack[stack.length - 1] !== name) return;
       stack.pop();
+      if (stack.length === 0) closed = isDocument;
       if (name === "Geometry" && geometry && current) {
         if (!geometry.construction && geometry.shape) {
           if (kept < limits.maxGeometry) {
@@ -277,7 +279,7 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
       } else if (name === "Object" && stack.length === 2) current = null;
     },
   });
-  return isDocument ? { version, found: [...byName.values()], left } : null;
+  return isDocument ? { version, found: [...byName.values()], left, closed } : null;
 }
 
 const real = (value: number) => (Number.isFinite(value) ? String(Number(value.toPrecision(15))) : "0");
@@ -363,9 +365,12 @@ export async function readFcstd(bytes: Uint8Array, options: { limits?: Partial<F
   const zip = isZip(bytes) ? openZip(bytes) : null;
   if (!zip || !zip.names.includes("Document.xml")) throw new CadReadError("not_fcstd");
   const xml = await zip.read("Document.xml", limits.maxDocumentBytes);
-  if (!xml) throw new CadReadError((zip.size("Document.xml") ?? 0) > limits.maxDocumentBytes ? "model_too_large" : "not_fcstd");
+  // The archive names a document that it does not give back as it was saved.
+  if (!xml) throw new CadReadError((zip.size("Document.xml") ?? 0) > limits.maxDocumentBytes ? "model_too_large" : "damaged_fcstd");
   const document = readDocument(new TextDecoder("utf-8").decode(xml), limits);
   if (!document) throw new CadReadError("not_fcstd");
+  // What there is of a document cut on its way is not read: half a model would be listed and measured as a whole one.
+  if (!document.closed) throw new CadReadError("damaged_fcstd");
 
   const image = await zip.read("thumbnails/Thumbnail.png", MAX_THUMBNAIL_BYTES);
   const thumbnail = image && PNG_SIGNATURE.every((value, index) => image[index] === value) ? { type: "image/png" as const, bytes: image } : null;

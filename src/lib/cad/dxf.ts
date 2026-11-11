@@ -18,7 +18,7 @@ export const CAD_LIMITS: CadLimits = {
   maxBytes: 50 * 1024 * 1024, maxEntities: 2_000_000, maxPoints: 4_000_000, maxTexts: 200_000, maxInserts: 500_000, maxDepth: 16,
 };
 
-export type CadReadErrorReason = "empty" | "too_large" | "binary_dxf" | "not_dxf" | "not_dwg" | "not_rvt" | "not_fcstd" | "model_too_large" | "unsupported";
+export type CadReadErrorReason = "empty" | "too_large" | "binary_dxf" | "not_dxf" | "not_dwg" | "not_rvt" | "not_fcstd" | "damaged_fcstd" | "model_too_large" | "unsupported";
 
 export class CadReadError extends Error {
   constructor(readonly reason: CadReadErrorReason) {

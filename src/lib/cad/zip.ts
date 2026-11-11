@@ -1,23 +1,38 @@
 // A zip archive read by its directory, which sits at the end of the file: the
 // names, the sizes and the place of each entry. An entry is unfolded only when
 // asked for, and never past the size it is asked under: the archive comes from
-// outside and may announce anything.
+// outside and may announce anything. What is unfolded is checked against the
+// checksum the directory keeps of it: bytes that changed on their way are not read.
 
 export type ZipArchive = {
   names: string[];
   /** The size the directory announces for that entry once unfolded; null when it is absent. */
   size(name: string): number | null;
-  /** The entry of that name; null when it is absent, larger than `maxBytes`, encrypted, damaged or packed in a way that is not read. */
+  /** The entry of that name; null when it is absent, larger than `maxBytes`, encrypted, damaged, not what its checksum says, or packed in a way that is not read. */
   read(name: string, maxBytes: number): Promise<Uint8Array | null>;
 };
 
-type ZipEntry = { name: string; method: number; packedSize: number; size: number; offset: number; encrypted: boolean };
+type ZipEntry = { name: string; method: number; crc: number; packedSize: number; size: number; offset: number; encrypted: boolean };
 
 const LOCAL_ENTRY = 0x04034b50, DIRECTORY_ENTRY = 0x02014b50, DIRECTORY_END = 0x06054b50;
 const END_SIZE = 22, MAX_COMMENT = 0xffff;
 const STORED = 0, DEFLATED = 8;
 /** Past this a field holds a placeholder: the true value is in a zip64 record, which is not read. */
 const ZIP64 = 0xffffffff;
+
+let crcTable: Uint32Array | null = null;
+
+/** The CRC-32 a zip keeps of each entry. */
+function crc32(bytes: Uint8Array): number {
+  crcTable ??= Uint32Array.from({ length: 256 }, (_, index) => {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    return value >>> 0;
+  });
+  let crc = 0xffffffff;
+  for (let at = 0; at < bytes.length; at += 1) crc = crcTable[(crc ^ bytes[at]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
 export function isZip(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
@@ -80,6 +95,7 @@ export function openZip(bytes: Uint8Array): ZipArchive | null {
         name,
         encrypted: (view.getUint16(at + 8, true) & 1) === 1,
         method: view.getUint16(at + 10, true),
+        crc: view.getUint32(at + 16, true),
         packedSize: view.getUint32(at + 20, true),
         size: view.getUint32(at + 24, true),
         offset: view.getUint32(at + 42, true),
@@ -98,8 +114,8 @@ export function openZip(bytes: Uint8Array): ZipArchive | null {
       const data = entry.offset + 30 + view.getUint16(entry.offset + 26, true) + view.getUint16(entry.offset + 28, true);
       if (data + entry.packedSize > bytes.length) return null;
       const packed = bytes.subarray(data, data + entry.packedSize);
-      if (entry.method === STORED) return entry.packedSize === entry.size ? packed.slice() : null;
-      return entry.method === DEFLATED ? inflate(packed, entry.size) : null;
+      const unfolded = entry.method === STORED ? (entry.packedSize === entry.size ? packed.slice() : null) : entry.method === DEFLATED ? await inflate(packed, entry.size) : null;
+      return unfolded && crc32(unfolded) === entry.crc ? unfolded : null;
     },
   };
 }
