@@ -52,6 +52,7 @@ import { FoProvisionCell } from "@/components/estimates/components/estimate-edit
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
+import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
 import { readEstimateV3GridLineMargin, useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
 import {
   type CataloguePriceSuggestion,
@@ -906,7 +907,7 @@ export function LineRow({
             priceOutlierActive
               ? " bg-orange-50 ring-1 ring-inset ring-orange-300"
               : ""
-          }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`,
+          }${!item.unit_price_ht_cents && !isPoseOnlyLine(item) ? " estimate-cell--required-empty" : ""}`,
         )}
         inputClassName="estimate-input"
         type="text"

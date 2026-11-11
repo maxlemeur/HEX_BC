@@ -5,6 +5,7 @@ import {
 import { BusinessDocumentFrame } from "@/components/documents/BusinessDocumentPrimitives";
 import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
 import { ESTIMATE_SERVICE_LIMITS_TITLE, ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
+import { POSE_ONLY_MENTION } from "@/lib/estimates/line-nature";
 import {
   parseOfferPresentation, type ClientContract1, type CommercialRow1,
   type OfferPresentation, type OfferTermsSnapshot,
@@ -77,7 +78,9 @@ function rowValuesV3(row: CommercialRow2, model: OfferPresentation): string[] {
   const priced = row.pricingStatus === "priced";
   const status = ESTIMATE_V3_STATUS_DOCUMENT_LABELS[row.pricingStatus];
   const split = row as CommercialRow2 & { foSaleHtCents: number; moSaleHtCents: number };
-  return [row.title, quantityFormatter.format(row.quantity), row.unitLabel ?? "-",
+  // TI-539 : la mention validée s'imprime avec la désignation de la ligne, sur le portail comme dans le PDF.
+  const designation = row.poseOnly ? `${row.title} — ${POSE_ONLY_MENTION}` : row.title;
+  return [designation, quantityFormatter.format(row.quantity), row.unitLabel ?? "-",
     ...(layout.priceMode === "unit_and_total" ? [priced && row.unitSaleHtCents !== null ? money(row.unitSaleHtCents) : "-"] : []),
     ...(layout.priceMode === "fo_mo_and_total" ? [priced ? money(split.foSaleHtCents) : "-", priced ? money(split.moSaleHtCents) : "-"] : []),
     priced ? money(row.saleHtCents) : status];

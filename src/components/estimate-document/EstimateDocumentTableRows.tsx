@@ -5,6 +5,7 @@ import {
   type EstimateDocumentV3Line,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import { isPoseOnlyLine, POSE_ONLY_MENTION } from "@/lib/estimates/line-nature";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import { type SectionTotals } from "@/lib/estimate-calculations";
 import {
@@ -160,7 +161,11 @@ function EstimateDocumentLineRow({
           style={{ paddingLeft: `${depth * 16}px` }}
           className="flex items-center gap-2"
         >
-          <span>{resolveTitle(item)}</span>
+          <span>
+            {resolveTitle(item)}
+            {/* TI-539 : même mention et même forme que la copie commerciale émise. */}
+            {isPoseOnlyLine(item) ? ` — ${POSE_ONLY_MENTION}` : null}
+          </span>
         </div>
       </td>
       <td className={`w-16 px-2 text-center font-semibold sm:px-3 print:px-2 ${cellPadding}`}>

@@ -173,7 +173,13 @@ export function computeEstimateQualityFlagsForItem(
     ? laborHoursAtelier + laborHoursChantier
     : laborHours;
 
-  if (expectsSupply && unitPriceHtCents <= 0) {
+  // TI-539 : un article du catalogue est une fourniture. Sans coût, sur une ligne « Main-d'œuvre seule », il ne
+  // devient pas gratuit en silence : le coût manque jusqu'à sa saisie, jusqu'au choix explicite POSE SEULE, ou
+  // jusqu'au détachement de l'article. La nature stockée ne dit pas si elle a été choisie ou déduite (une ligne
+  // avec des heures et aucun prix est déduite « Main-d'œuvre seule ») : la règle vaut donc dans les deux cas.
+  const articleWithoutSupplyNature =
+    lineNature === "labor_only" && Boolean(item.product_id);
+  if ((expectsSupply || articleWithoutSupplyNature) && unitPriceHtCents <= 0) {
     flags.push("missing_price");
   }
   if (quantity <= 0) {
@@ -185,9 +191,13 @@ export function computeEstimateQualityFlagsForItem(
   if (expectsLabor && !splitEnabled && laborHours > 0 && !laborRoleId) {
     flags.push("missing_labor_role");
   }
+  // TI-539 : sur une ligne POSE SEULE, seul un coût de fourniture saisi contredit le choix ; le type de
+  // fourniture ou l'offre de l'article d'origine (qui porte les temps de pose) ne valent pas fourniture due.
+  const contradictsNoSupply =
+    lineNature === "pose_only" ? unitPriceHtCents > 0 : hasSupplyComponent;
   if (
     (lineNature === "supply_only" && hasLaborComponent) ||
-    (lineNature === "labor_only" && hasSupplyComponent)
+    (!expectsSupply && contradictsNoSupply)
   ) {
     flags.push("line_nature_mismatch");
   }

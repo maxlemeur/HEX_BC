@@ -2,7 +2,17 @@ export const ESTIMATE_LINE_NATURES = [
   "supply_only",
   "supply_and_labor",
   "labor_only",
+  "pose_only",
 ] as const;
+
+/**
+ * TI-539 : mots validés de la mention, dans l'éditeur et sur le devis imprimé. « POSE SEULE » est une
+ * prestation de pose dont la fourniture n'est pas due : son coût de fourniture nul est voulu, et sa
+ * main-d'œuvre reste facturée. C'est un choix explicite de l'utilisateur : aucune création, aucun import
+ * ni aucune saisie ne la déduit d'un prix vide ou nul (une ligne sans fourniture déduite reste
+ * « Main-d'œuvre seule », qui n'imprime rien).
+ */
+export const POSE_ONLY_MENTION = "POSE SEULE";
 
 export type EstimateLineNature = (typeof ESTIMATE_LINE_NATURES)[number];
 
@@ -10,6 +20,7 @@ export const ESTIMATE_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures seules",
   supply_and_labor: "Fournitures + main-d’œuvre",
   labor_only: "Main-d’œuvre seule",
+  pose_only: POSE_ONLY_MENTION,
 };
 
 type LineNatureSource = {
@@ -91,10 +102,34 @@ export function resolveEstimateLineNature(
   return "supply_only";
 }
 
+/** Vrai pour une ligne que l'utilisateur a explicitement notée POSE SEULE (TI-539). */
+export function isPoseOnlyLine(item: {
+  item_type?: string | null;
+  line_nature?: EstimateLineNature | null;
+}) {
+  return item.item_type !== "section" && item.line_nature === "pose_only";
+}
+
+/**
+ * Natures offered by a line's select. The POSE SEULE mention is carried by the engine-3 client contract only:
+ * on another engine it would show on the preview and be absent from the issued PDF, so it is not offered there.
+ * A line that already carries it keeps the option.
+ */
+export function selectableEstimateLineNatures(input: {
+  printsPoseOnly: boolean;
+  current: EstimateLineNature;
+}): readonly EstimateLineNature[] {
+  return ESTIMATE_LINE_NATURES.filter(
+    (nature) => nature !== "pose_only" || input.printsPoseOnly || input.current === "pose_only",
+  );
+}
+
 /**
  * Promotes a line when an edit introduces the component excluded by its
  * current nature. It deliberately never demotes a line: a missing value can
  * be temporary and the explicit nature remains the validation intent.
+ * POSE SEULE is never promoted: a supply value entered on it stays a visible
+ * inconsistency until the user changes the nature.
  */
 export function resolvePromotedEstimateLineNature(
   current: LineNatureSource,
@@ -130,7 +165,7 @@ export function resolvePromotedEstimateLineNature(
 }
 
 export function lineNatureExpectsSupply(nature: EstimateLineNature) {
-  return nature !== "labor_only";
+  return nature !== "labor_only" && nature !== "pose_only";
 }
 
 export function lineNatureExpectsLabor(nature: EstimateLineNature) {

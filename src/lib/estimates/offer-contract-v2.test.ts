@@ -358,6 +358,27 @@ describe("ClientContract2 : analyse stricte (D14, sous-lot 2.7)", () => {
     });
   });
 
+  // TI-539 : la mention « POSE SEULE » voyage dans la copie commerciale par une clé facultative de ligne.
+  // Une copie sans la clé reste strictement celle d'avant (aucun sceau existant ne change).
+  describe("TI-539 mention POSE SEULE d'une ligne", () => {
+    it("accepte `poseOnly: true` sur une ligne et la rend à l'identique", () => {
+      const source = contract(); setAt(source, "rows.2.poseOnly", true);
+      const parsed = parseClientContract2Snapshot(source);
+      expect(parsed).toEqual(source);
+      expect(parsed.rows[2]).toMatchObject({ kind: "line", poseOnly: true });
+      expect(parsed.rows.filter((entry) => "poseOnly" in entry)).toHaveLength(1);
+    });
+    it.each([["false", false], ["chaîne", "true"], ["nombre", 1], ["nul", null]])(
+      "refuse une mention qui n'est pas exactement `true` (%s)", (_name, value) => {
+        const changed = contract(); setAt(changed, "rows.2.poseOnly", value);
+        expectInvalid(() => parseClientContract2Snapshot(changed));
+      });
+    it("refuse la mention sur une section", () => {
+      const changed = contract(); setAt(changed, "rows.0.poseOnly", true);
+      expectInvalid(() => parseClientContract2Snapshot(changed));
+    });
+  });
+
   describe("F27-V04 types et domaines", () => {
     const badValues: Array<[string, string, unknown]> = [
       ["contrat 1", "schemaVersion", 1], ["schéma en chaîne", "schemaVersion", "2"], ["schéma futur", "schemaVersion", 3],

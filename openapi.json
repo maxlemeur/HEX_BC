@@ -27760,7 +27760,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         {
@@ -29571,7 +29572,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         {
@@ -30452,7 +30454,8 @@
                               "enum": [
                                 "supply_only",
                                 "supply_and_labor",
-                                "labor_only"
+                                "labor_only",
+                                "pose_only"
                               ]
                             },
                             "parent_id": {
@@ -30829,7 +30832,8 @@
                           "enum": [
                             "supply_only",
                             "supply_and_labor",
-                            "labor_only"
+                            "labor_only",
+                            "pose_only"
                           ]
                         },
                         "parent_id": {
@@ -31490,7 +31494,8 @@
                                           "enum": [
                                             "supply_only",
                                             "supply_and_labor",
-                                            "labor_only"
+                                            "labor_only",
+                                            "pose_only"
                                           ]
                                         },
                                         "parent_id": {
@@ -31844,7 +31849,8 @@
                                       "enum": [
                                         "supply_only",
                                         "supply_and_labor",
-                                        "labor_only"
+                                        "labor_only",
+                                        "pose_only"
                                       ]
                                     },
                                     "parent_id": {
@@ -32686,7 +32692,8 @@
                                           "enum": [
                                             "supply_only",
                                             "supply_and_labor",
-                                            "labor_only"
+                                            "labor_only",
+                                            "pose_only"
                                           ]
                                         },
                                         "parent_id": {
@@ -33040,7 +33047,8 @@
                                       "enum": [
                                         "supply_only",
                                         "supply_and_labor",
-                                        "labor_only"
+                                        "labor_only",
+                                        "pose_only"
                                       ]
                                     },
                                     "parent_id": {
@@ -35409,7 +35417,8 @@
                 "enum": [
                   "supply_only",
                   "supply_and_labor",
-                  "labor_only"
+                  "labor_only",
+                  "pose_only"
                 ]
               },
               "parent_id": {
@@ -36058,7 +36067,8 @@
                         "enum": [
                           "supply_only",
                           "supply_and_labor",
-                          "labor_only"
+                          "labor_only",
+                          "pose_only"
                         ]
                       },
                       {
@@ -36561,7 +36571,8 @@
             "enum": [
               "supply_only",
               "supply_and_labor",
-              "labor_only"
+              "labor_only",
+              "pose_only"
             ]
           },
           "parent_id": {
@@ -37199,7 +37210,8 @@
                         "enum": [
                           "supply_only",
                           "supply_and_labor",
-                          "labor_only"
+                          "labor_only",
+                          "pose_only"
                         ]
                       },
                       {
@@ -37786,7 +37798,8 @@
                   "enum": [
                     "supply_only",
                     "supply_and_labor",
-                    "labor_only"
+                    "labor_only",
+                    "pose_only"
                   ]
                 },
                 "parent_id": {
