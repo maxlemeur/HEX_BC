@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { openCfb } from "@/lib/cad/cfb";
 import { CadReadError } from "@/lib/cad/dxf";
 import { dxfBytes, line } from "@/lib/cad/dxf.test-utils";
+import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, element, fcstd, geometry, label, segment, shape, type FcstdEntry } from "@/lib/cad/fcstd.test-utils";
 import { readCadOriginal } from "@/lib/cad/original";
+import { CadPlotError, plotCadDrawing } from "@/lib/cad/plot";
 import { basicFileInfo, cfbBytes, dibBytes, dwgBytes, pngBytes, revitPreview } from "@/lib/cad/originals.test-utils";
 import { readDwgSummary, readRvtSummary } from "@/lib/cad/summary";
 
@@ -165,18 +167,99 @@ describe("readRvtSummary", () => {
 });
 
 describe("readCadOriginal", () => {
-  it("reads a DXF as a drawing and sums up a DWG or an RVT, by the extension of the file", () => {
-    const drawing = readCadOriginal("Plan R+1.DXF", dxfBytes({ entities: [line("EF", 0, 0, 1000, 0)] }));
+  const refusal = (fileName: string, bytes: Uint8Array) => readCadOriginal(fileName, bytes).then(() => null, (error: unknown) => (error instanceof CadReadError ? error.reason : error));
+
+  it("reads a DXF as a drawing and sums up a DWG or an RVT, by the extension of the file", async () => {
+    const drawing = await readCadOriginal("Plan R+1.DXF", dxfBytes({ entities: [line("EF", 0, 0, 1000, 0)] }));
     expect(drawing.kind === "drawing" && drawing.drawing.paths.count).toBe(1);
-    expect(readCadOriginal("reseaux.DWG", dwgBytes())).toEqual({ kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } });
-    expect(readCadOriginal("maquette.rvt", cfbBytes([]))).toEqual({ kind: "summary", summary: { format: "rvt", version: null, thumbnail: null } });
+    expect(drawing).not.toHaveProperty("source");
+    expect(await readCadOriginal("reseaux.DWG", dwgBytes())).toEqual({ kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } });
+    expect(await readCadOriginal("maquette.rvt", cfbBytes([]))).toEqual({ kind: "summary", summary: { format: "rvt", version: null, thumbnail: null } });
   });
 
-  it("refuses a file whose content is not what its name says", () => {
-    expect(reasonOf(() => readCadOriginal("plan.dwg", dxfBytes({})))).toBe("not_dwg");
-    expect(reasonOf(() => readCadOriginal("plan.dxf", dwgBytes()))).toBe("not_dxf");
-    expect(reasonOf(() => readCadOriginal("plan.rvt", dwgBytes()))).toBe("not_rvt");
-    expect(reasonOf(() => readCadOriginal("plan.ifc", dwgBytes()))).toBe("unsupported");
-    expect(reasonOf(() => readCadOriginal("plan", dwgBytes()))).toBe("unsupported");
+  it("sums up a FreeCAD document that has no sketch, with its objects", async () => {
+    const original = await readCadOriginal("Chaufferie.FCStd", fcstd(documentXml(BOILER_ROOM)));
+    expect(original).toMatchObject({ kind: "summary", summary: { format: "fcstd", version: { code: "1.0", label: "FreeCAD 1.0" }, thumbnail: null, model: { total: 4, sketches: 0, truncated: false } } });
+  });
+
+  it("draws the sketches of a FreeCAD document in millimetres, and keeps what the document says beside the drawing", async () => {
+    const original = await readCadOriginal("chaufferie.fcstd", fcstd(documentXml(SKETCHED_ROOM), { "thumbnails/Thumbnail.png": PNG }));
+    if (original.kind !== "drawing") throw new Error("drawing expected");
+    expect(original.drawing.layers.map((layer) => layer.name)).toEqual(["0", "Local technique", "Réservations"]);
+    expect(original.drawing.units.metresPerUnit).toBe(0.001);
+    expect(original.drawing.paths.count).toBe(5);
+    expect(original.source).toMatchObject({ format: "fcstd", version: { label: "FreeCAD 1.0" }, thumbnail: { type: "image/png", bytes: PNG }, model: { total: 6, sketches: 2 } });
+  });
+
+  it("sums up a FreeCAD document whose sketches make a drawing too heavy to read, and says they are not drawn", async () => {
+    const original = await readCadOriginal("chaufferie.fcstd", fcstd(documentXml(SKETCHED_ROOM)), { limits: { maxBytes: 200 } });
+    expect(original).toMatchObject({ kind: "summary", summary: { format: "fcstd", model: { total: 6, sketches: 0, truncated: true, left: { sketches: true, unread: false, dimensions: false } } } });
+  });
+
+  it("marks as read in part the drawing of sketches that were not all read, which is then not plotted as a whole plan", async () => {
+    const document = fcstd(documentXml(SKETCHED_ROOM));
+    const whole = await readCadOriginal("chaufferie.fcstd", document);
+    if (whole.kind !== "drawing") throw new Error("drawing expected");
+    expect(whole.drawing.truncated).toBe(false);
+    expect(await plotCadDrawing(whole.drawing)).toMatchObject({ paths: 5 });
+
+    // Five elements in the two sketches, three of them read.
+    const cut = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxGeometry: 3 } });
+    if (cut.kind !== "drawing") throw new Error("drawing expected");
+    expect(cut.drawing.paths.count).toBe(3);
+    expect(cut.drawing.truncated).toBe(true);
+    expect(cut.source?.model).toMatchObject({ truncated: true, left: { sketches: true, unread: false, dimensions: false } });
+    const refusal = await plotCadDrawing(cut.drawing).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(CadPlotError);
+    expect((refusal as CadPlotError).reason).toBe("truncated");
+
+    // A document naming more objects than are read may miss a sketch whole: here the second one. The drawing says so, in its own words.
+    const named = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxNames: SKETCHED_ROOM.length - 1 } });
+    if (named.kind !== "drawing") throw new Error("drawing expected");
+    expect(named.drawing.paths.count).toBe(4);
+    expect(named.drawing.truncated).toBe(true);
+    expect(named.drawing.warnings).toEqual([{ code: "object_limit" }]);
+    expect(named.source?.model).toMatchObject({ sketches: 1, truncated: true, left: { objects: true, sketches: false, unread: false } });
+
+    // Dimensions left out of the list of objects take nothing from the drawing.
+    const listed = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxDimensions: 1 } });
+    if (listed.kind !== "drawing") throw new Error("drawing expected");
+    expect(listed.source?.model).toMatchObject({ truncated: true, left: { sketches: false, dimensions: true } });
+    expect(listed.drawing.truncated).toBe(false);
+  });
+
+  it("marks as read in part the drawing of sketches holding an element it does not draw, and says why", async () => {
+    // A room of four walls closed by half an ellipse, which is not drawn: what is measured and plotted would miss it.
+    const oval: FcstdEntry[] = [{ type: "Sketcher::SketchObject", name: "Sketch", properties: [label("Local arrondi"), shape("Sketch"), geometry("Geometry", [
+      segment(0, 0, 4000, 0), segment(4000, 0, 4000, 2000), segment(0, 2000, 0, 0),
+      element("ArcOfEllipse", `<ArcOfEllipse CenterX="2000" CenterY="2000" CenterZ="0" NormalX="0" NormalY="0" NormalZ="1" MajorRadius="2000" MinorRadius="500" AngleXU="0" StartAngle="0" EndAngle="3.14159"/>`),
+    ])] }];
+    const original = await readCadOriginal("local.fcstd", fcstd(documentXml(oval)));
+    if (original.kind !== "drawing") throw new Error("drawing expected");
+    expect(original.drawing.paths.count).toBe(3);
+    expect(original.drawing.unsupported).toEqual([{ type: "ARCOFELLIPSE_NON_LU", count: 1 }]);
+    expect(original.drawing.truncated).toBe(true);
+    expect(original.drawing.warnings).toEqual([{ code: "sketch_unread" }]);
+    expect(original.source?.model).toMatchObject({ truncated: true, left: { sketches: false, unread: true, dimensions: false } });
+    const refusal = await plotCadDrawing(original.drawing).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(CadPlotError);
+    expect((refusal as CadPlotError).reason).toBe("truncated");
+
+    // Sketches cut by a limit say so too; sketches drawn whole say nothing.
+    const cut = await readCadOriginal("chaufferie.fcstd", fcstd(documentXml(SKETCHED_ROOM)), { fcstdLimits: { maxGeometry: 3 } });
+    expect(cut.kind === "drawing" && cut.drawing.warnings).toEqual([{ code: "sketch_limit" }]);
+    const whole = await readCadOriginal("chaufferie.fcstd", fcstd(documentXml(SKETCHED_ROOM)));
+    expect(whole.kind === "drawing" && whole.drawing.warnings).toEqual([]);
+  });
+
+  it("refuses a file whose content is not what its name says", async () => {
+    expect(await refusal("plan.dwg", dxfBytes({}))).toBe("not_dwg");
+    expect(await refusal("plan.dxf", dwgBytes())).toBe("not_dxf");
+    expect(await refusal("plan.rvt", dwgBytes())).toBe("not_rvt");
+    expect(await refusal("plan.fcstd", dwgBytes())).toBe("not_fcstd");
+    expect(await refusal("plan.FCStd", new Uint8Array())).toBe("empty");
+    expect(await refusal("plan.ifc", dwgBytes())).toBe("unsupported");
+    expect(await refusal("plan.fcstd1", fcstd(documentXml(BOILER_ROOM)))).toBe("unsupported");
+    expect(await refusal("plan", dwgBytes())).toBe("unsupported");
   });
 });

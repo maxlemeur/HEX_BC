@@ -5,6 +5,7 @@ import {
   AFFAIRE_INTAKE_CAD_NOTICE,
   AFFAIRE_INTAKE_DWG_NOTICE,
   AFFAIRE_INTAKE_DXF_NOTICE,
+  AFFAIRE_INTAKE_FCSTD_NOTICE,
   affaireIntakeCadNotice,
   affaireIntakeFileUrl,
   getAffaireIntakeAllowedMimeTypes,
@@ -31,6 +32,9 @@ describe("CAD/BIM dossier originals", () => {
     ["réseaux.dxf", "text/plain"],
     ["maquette.rvt", "application/octet-stream"],
     ["maquette.rvt", ""],
+    ["Chaufferie.FCStd", ""],
+    ["chaufferie.fcstd", "application/zip"],
+    ["chaufferie.fcstd", "application/x-extension-fcstd"],
   ])("accepts the original %s with browser MIME %s", (name, type) => {
     expect(validate(name, type)).toEqual({ valid: true });
     expect(inferAffaireIntakeMimeType(name)).toBe("application/octet-stream");
@@ -42,12 +46,18 @@ describe("CAD/BIM dossier originals", () => {
     expect(validate("plan.dwg", "application/x-msdownload").valid).toBe(false);
     expect(validate("plan.dxf", "image/png").valid).toBe(false);
     expect(validate("maquette.rvt", "application/octet-stream", 0).valid).toBe(false);
+    // A FreeCAD document is a zip, and only it may come as one.
+    expect(validate("archive.zip", "application/zip").valid).toBe(false);
+    expect(validate("document.pdf", "application/zip").valid).toBe(false);
+    expect(validate("plan.dwg", "application/zip").valid).toBe(false);
+    expect(validate("maquette.fcstd", "application/x-msdownload").valid).toBe(false);
   });
 
   it.each([
     ["dpgf.dwg", AFFAIRE_INTAKE_DWG_NOTICE],
     ["cctp.dxf", AFFAIRE_INTAKE_DXF_NOTICE],
     ["maquette.rvt", AFFAIRE_INTAKE_CAD_NOTICE],
+    ["cctp.FCStd", AFFAIRE_INTAKE_FCSTD_NOTICE],
   ])("does not infer readable business content from %s", (name, notice) => {
     const result = getHeuristicAffaireDocumentClassification({ fileName: name });
     expect(result.documentKind).toBe("plans");
@@ -60,7 +70,9 @@ describe("CAD/BIM dossier originals", () => {
     expect(affaireIntakeCadNotice("Réseaux EF.DXF")).toBe(AFFAIRE_INTAKE_DXF_NOTICE);
     expect(affaireIntakeCadNotice("réseaux.DWG")).toBe(AFFAIRE_INTAKE_DWG_NOTICE);
     expect(affaireIntakeCadNotice("maquette.rvt")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
+    expect(affaireIntakeCadNotice("Chaufferie.FCStd")).toBe(AFFAIRE_INTAKE_FCSTD_NOTICE);
     expect(affaireIntakeCadNotice("plan.dxf.pdf")).toBeNull();
+    expect(AFFAIRE_INTAKE_FCSTD_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_DWG_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("Aperçu et métré non disponibles");
@@ -77,6 +89,8 @@ describe("CAD/BIM dossier originals", () => {
     const file = { id: "cad", name: "plan.dwg", mimeType: "application/octet-stream", size: "12", version: "1" };
     expect(driveFileRejection(file)).toBeNull();
     expect(driveFileRejection({ ...file, name: "plan.pdf" })).toBe("Format non pris en charge.");
+    expect(driveFileRejection({ ...file, name: "Chaufferie.FCStd", mimeType: "application/zip" })).toBeNull();
+    expect(driveFileRejection({ ...file, name: "archive.zip", mimeType: "application/zip" })).toBe("Format non pris en charge.");
     expect(driveFileRejection({ ...file, capabilities: { canDownload: false } })).toBe("Lecture interdite par le propriétaire.");
   });
 });

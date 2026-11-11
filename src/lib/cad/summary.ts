@@ -7,14 +7,17 @@
 import { isCfb, openCfb } from "./cfb";
 import { CadReadError } from "./dxf";
 import { ACAD_VERSIONS } from "./dxf-records";
+import type { CadModel } from "./fcstd";
 
 export type CadThumbnail = { type: "image/png" | "image/bmp"; bytes: Uint8Array };
 
 export type CadSummary = {
-  format: "dwg" | "rvt";
+  format: "dwg" | "rvt" | "fcstd";
   /** Null when the file does not say. */
   version: { code: string; label: string } | null;
   thumbnail: CadThumbnail | null;
+  /** The objects of a FreeCAD document, with the dimensions it wrote for them. */
+  model?: CadModel;
 };
 
 const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;

@@ -7,7 +7,9 @@ import { downloadBlob } from "@/lib/browser-download";
 import { readDxf } from "@/lib/cad/dxf";
 import { dxfBytes, insert, layer, line, lwpolyline } from "@/lib/cad/dxf.test-utils";
 import type { CadOriginal } from "@/lib/cad/original";
+import type { CadModel } from "@/lib/cad/fcstd";
 import type { CadPlot } from "@/lib/cad/plot";
+import type { CadSummary } from "@/lib/cad/summary";
 import type { CadWorkerRequest, CadWorkerResponse } from "@/workers/cad-reader.worker";
 import { IntakeCadPreview } from "./IntakeCadPreview";
 
@@ -68,38 +70,51 @@ const unitless = readDxf(dxfBytes({ ...fixture, header: [[9, "$ACADVER"], [1, "A
 const DOWNLOAD = "/api/affaires/p1/intake/files/d1/preview?download=1";
 
 const DRAWING = "/api/affaires/p1/intake/files/d1/drawing";
+
+// A fictional boiler room as FreeCAD would describe it: lengths in mm, areas in mm².
+const MODEL: CadModel = {
+  total: 4, sketches: 0, truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false },
+  objects: [
+    { name: "Pipe", label: "Départ chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 4250.5 }] },
+    { name: "Pipe001", label: "Retour chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 1749.5 }] },
+    { name: "Wall", label: "Mur étanche", type: "Part::FeaturePython", kind: "Wall", dimensions: [{ name: "HorizontalArea", kind: "area", value: 1.2e6 }] },
+    { name: "Box", label: "Ballon", type: "Part::Box", kind: "Box", dimensions: [] },
+  ],
+};
+const fcstdSummary = (model: CadModel = MODEL): CadSummary => ({ format: "fcstd", version: { code: "1.0", label: "FreeCAD 1.0" }, thumbnail: null, model });
+const FCSTD = { fileName: "Chaufferie.FCStd" };
 const DWG: CadOriginal = { kind: "summary", summary: { format: "dwg", version: { code: "AC1032", label: "AutoCAD 2018" }, thumbnail: null } };
 
-function Harness({ canManage, onDrawingChange, dwg = false }: { canManage: boolean; onDrawingChange(drawn: boolean): void; dwg?: boolean }) {
+function Harness({ canManage, onEnlargeableChange, dwg = false, fileName }: { canManage: boolean; onEnlargeableChange(enlargeable: boolean): void; dwg?: boolean; fileName?: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <IntakeCadPreview
       projectId="p1"
-      fileName={dwg ? "Réseaux.dwg" : "Réseaux.dxf"}
+      fileName={fileName ?? (dwg ? "Réseaux.dwg" : "Réseaux.dxf")}
       url={DOWNLOAD}
       drawingUrl={dwg ? DRAWING : undefined}
       canManage={canManage}
       expanded={expanded}
       onExpandedChange={setExpanded}
-      onDrawingChange={onDrawingChange}
+      onEnlargeableChange={onEnlargeableChange}
     />
   );
 }
 
 /** The preview once its worker has read the original. */
-async function opened(original: CadOriginal, options: { canManage?: boolean; upload?: Upload } = {}) {
+async function opened(original: CadOriginal, options: { canManage?: boolean; upload?: Upload; fileName?: string } = {}) {
   const workers = installWorkers();
   const fetchMock = installFetch(options.upload);
-  const onDrawingChange = vi.fn<(drawn: boolean) => void>();
-  render(<Harness canManage={options.canManage ?? true} onDrawingChange={onDrawingChange} />);
+  const onEnlargeableChange = vi.fn<(enlargeable: boolean) => void>();
+  render(<Harness canManage={options.canManage ?? true} onEnlargeableChange={onEnlargeableChange} fileName={options.fileName} />);
   expect(screen.getByRole("status")).toHaveTextContent("Lecture du plan…");
   const request = await lastRequest(() => workers[0]);
   await answer(workers[0], { requestId: request.requestId, ok: true, type: "read", original });
-  return { worker: workers[0], workers, fetchMock, onDrawingChange, request };
+  return { worker: workers[0], workers, fetchMock, onEnlargeableChange, request };
 }
 
 /** The large view, opened from the line under the plan. */
-async function enlarged(original: CadOriginal = { kind: "drawing", drawing }, options: { canManage?: boolean; upload?: Upload } = {}) {
+async function enlarged(original: CadOriginal = { kind: "drawing", drawing }, options: { canManage?: boolean; upload?: Upload; fileName?: string } = {}) {
   const view = await opened(original, options);
   await userEvent.click(screen.getByRole("button", { name: "Calques et quantités" }));
   return { ...view, dialog: within(await screen.findByRole("dialog")) };
@@ -126,29 +141,29 @@ afterEach(() => {
 
 describe("IntakeCadPreview", () => {
   it("downloads the original, has it read and shows the plan with what its layers draw", async () => {
-    const { fetchMock, request, onDrawingChange } = await opened({ kind: "drawing", drawing });
+    const { fetchMock, request, onEnlargeableChange } = await opened({ kind: "drawing", drawing });
     expect(fetchMock.mock.calls[0][0]).toBe(DOWNLOAD);
     expect(request).toMatchObject({ type: "read", fileName: "Réseaux.dxf" });
     expect(screen.getByRole("img", { name: "Plan Réseaux.dxf" })).toBeInTheDocument();
     expect(screen.getByText("2 calques · 7 m de tracé")).toBeInTheDocument();
-    expect(onDrawingChange).toHaveBeenLastCalledWith(true);
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(true);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows what a DWG says of itself, and how to have its plan read", async () => {
-    const { onDrawingChange } = await opened(DWG);
+    const { onEnlargeableChange } = await opened(DWG);
     expect(screen.getByText("Format DWG AutoCAD 2018")).toBeInTheDocument();
     expect(screen.getByText(/Enregistrez ce plan en DXF/)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
-    expect(onDrawingChange).toHaveBeenLastCalledWith(false);
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
   });
 
   it("shows a DWG as the plan the server converted it to, and says in the large view that it is a conversion", async () => {
     const workers = installWorkers();
     const fetchMock = installFetch();
-    const onDrawingChange = vi.fn<(drawn: boolean) => void>();
-    render(<Harness canManage dwg onDrawingChange={onDrawingChange} />);
+    const onEnlargeableChange = vi.fn<(enlargeable: boolean) => void>();
+    render(<Harness canManage dwg onEnlargeableChange={onEnlargeableChange} />);
     const first = await lastRequest(() => workers[0]);
     await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: DWG });
     expect(screen.getByRole("status")).toHaveTextContent("Conversion du DWG…");
@@ -158,7 +173,7 @@ describe("IntakeCadPreview", () => {
     expect(second).toMatchObject({ type: "read", fileName: "Réseaux.dwg.dxf" });
     await answer(workers[0], { requestId: second.requestId, ok: true, type: "read", original: { kind: "drawing", drawing } });
     expect(screen.getByRole("img", { name: "Plan Réseaux.dwg" })).toBeInTheDocument();
-    expect(onDrawingChange).toHaveBeenLastCalledWith(true);
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(true);
 
     await userEvent.click(screen.getByRole("button", { name: "Calques et quantités" }));
     const dialog = within(await screen.findByRole("dialog"));
@@ -175,8 +190,8 @@ describe("IntakeCadPreview", () => {
       url === DRAWING
         ? { ok: false, status: 422, json: async () => ({ error: { code: "DWG_CONVERSION_OLD_FORMAT", message: refusal } }) }
         : { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) }));
-    const onDrawingChange = vi.fn<(drawn: boolean) => void>();
-    render(<Harness canManage dwg onDrawingChange={onDrawingChange} />);
+    const onEnlargeableChange = vi.fn<(enlargeable: boolean) => void>();
+    render(<Harness canManage dwg onEnlargeableChange={onEnlargeableChange} />);
     const first = await lastRequest(() => workers[0]);
     await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: { kind: "summary", summary: { format: "dwg", version: { code: "AC1009", label: "AutoCAD R11/R12" }, thumbnail: null } } });
     expect(await screen.findByText(refusal)).toBeInTheDocument();
@@ -184,7 +199,7 @@ describe("IntakeCadPreview", () => {
     expect(screen.queryByText(/Enregistrez ce plan en DXF/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calques et quantités" })).not.toBeInTheDocument();
     expect(workers[0].postMessage).toHaveBeenCalledTimes(1);
-    expect(onDrawingChange).toHaveBeenLastCalledWith(false);
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
     // Asking again would be refused again.
     expect(screen.queryByRole("button", { name: "Réessayer" })).not.toBeInTheDocument();
   });
@@ -196,7 +211,7 @@ describe("IntakeCadPreview", () => {
       url === DRAWING && busy
         ? { ok: false, status: 503, json: async () => ({ error: { code: "DWG_CONVERSION_BUSY", message: "Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant." } }) }
         : { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(8) }));
-    render(<Harness canManage dwg onDrawingChange={vi.fn()} />);
+    render(<Harness canManage dwg onEnlargeableChange={vi.fn()} />);
     const first = await lastRequest(() => workers[0]);
     await answer(workers[0], { requestId: first.requestId, ok: true, type: "read", original: DWG });
     expect(await screen.findByText("Le serveur convertit déjà plusieurs DWG. Réessayez dans un instant.")).toBeInTheDocument();
@@ -225,10 +240,96 @@ describe("IntakeCadPreview", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:apercu");
   });
 
+  it("shows what a FreeCAD model holds, and lists its objects with their dimensions in the large view", async () => {
+    const { onEnlargeableChange } = await opened({ kind: "summary", summary: fcstdSummary() }, FCSTD);
+    expect(screen.getByText("Maquette FreeCAD 1.0")).toBeInTheDocument();
+    expect(screen.getByText("4 objets")).toBeInTheDocument();
+    expect(screen.getByText(/ne sont pas dessinés dans MergeOne/)).toBeInTheDocument();
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText("Maquette FreeCAD 1.0 · 4 objets")).toBeInTheDocument();
+    // By kind: two pipes whose lengths FreeCAD wrote add up to 6 m; no length is invented for the others.
+    const kinds = within(dialog.getByRole("table", { name: "Objets par nature" }));
+    expect(within(kinds.getByRole("row", { name: /Pipe Segment/ })).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Pipe Segment", "2", "6 m"]);
+    expect(within(kinds.getByRole("row", { name: /Wall/ })).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Wall", "1", ""]);
+    const objects = within(dialog.getByRole("table", { name: "Objets et dimensions" }));
+    expect(within(objects.getByRole("row", { name: /Départ chauffage/ })).getAllByRole("cell").map((cell) => cell.textContent?.replace(/\s/gu, " ")))
+      .toEqual(["Départ chauffage", "Pipe Segment", "Diamètre 33,7 mm · Longueur 4 250,5 mm"]);
+    expect(objects.getAllByRole("row")).toHaveLength(5);
+    // Nothing to plot from a model that has no sketch.
+    expect(dialog.queryByRole("button", { name: "Ajouter le tracé PDF au dossier" })).not.toBeInTheDocument();
+  });
+
+  it("exports the objects of a model as a CSV named after it", async () => {
+    await opened({ kind: "summary", summary: fcstdSummary() }, FCSTD);
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Exporter les objets (CSV)" }));
+    const [blob, name] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(name).toBe("Chaufferie - objets.csv");
+    expect(blob.type).toBe("text/csv;charset=utf-8");
+    expect(await blob.text()).toContain("Départ chauffage;Pipe Segment;Part::FeaturePython;Longueur;4250,5;mm");
+  });
+
+  it("says when a model holds more objects than it lists", async () => {
+    const many: CadModel = { ...MODEL, total: 2500, truncated: true };
+    await opened({ kind: "summary", summary: fcstdSummary(many) }, FCSTD);
+    expect(screen.getByText(/^2\s500 objets$/u)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent(/Cette maquette n’a pas été lue en entier : 4 de ses 2\s500 objets sont listés et exportés\./u);
+  });
+
+  it("says when an object of a model has more dimensions than it lists, with what else was left out", async () => {
+    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, truncated: true, left: { objects: false, sketches: false, unread: false, dimensions: true } }) }, FCSTD);
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent("Cette maquette n’a pas été lue en entier : certains de ses objets ont plus de dimensions qu’il n’en est listé.");
+    cleanup();
+
+    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, truncated: true, left: { objects: true, sketches: false, unread: false, dimensions: false } }) }, FCSTD);
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent("Cette maquette n’a pas été lue en entier : elle nomme plus d’objets que MergeOne n’en lit, leur nombre est un minimum.");
+    cleanup();
+
+    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, total: 2500, truncated: true, left: { objects: false, sketches: true, unread: true, dimensions: true } }) }, FCSTD);
+    await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent(
+      /Cette maquette n’a pas été lue en entier : 4 de ses 2\s500 objets sont listés et exportés ; ses esquisses comptent trop d’éléments pour être toutes dessinées ; des éléments de ses esquisses, comme les ellipses et les splines, ne sont pas dessinés ; certains de ses objets ont plus de dimensions qu’il n’en est listé\./u,
+    );
+  });
+
+  it("has no large view for a model in which nothing has a shape", async () => {
+    const { onEnlargeableChange } = await opened({ kind: "summary", summary: fcstdSummary({ objects: [], total: 0, sketches: 0, truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false } }) }, FCSTD);
+    expect(screen.getByText("Aucun objet ayant une forme")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
+    expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says, where there is no large view to say it, that a model names more objects than were read", async () => {
+    // Nothing has a shape among the objects that were read: those that follow were not looked at, and may have one.
+    await opened({ kind: "summary", summary: fcstdSummary({ objects: [], total: 0, sketches: 0, truncated: true, left: { objects: true, sketches: false, unread: false, dimensions: false } }) }, FCSTD);
+    expect(screen.getByText("Aucun objet ayant une forme parmi ceux qui ont été lus")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Cette maquette nomme plus d’objets que MergeOne n’en lit : les suivants, avec leurs formes et leurs esquisses, n’ont pas été lus.");
+    expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
+  });
+
+  it("draws the sketches of a FreeCAD model, and says in the large view what they are and what the model holds", async () => {
+    const { dialog } = await enlarged({ kind: "drawing", drawing, source: fcstdSummary({ ...MODEL, sketches: 3 }) }, FCSTD);
+    expect(screen.getByRole("img", { name: "Plan Chaufferie.FCStd" })).toBeInTheDocument();
+    expect(dialog.getByText(/^Esquisses de la maquette FreeCAD 1\.0 · /)).toBeInTheDocument();
+    expect(dialog.getByText(/Chaque esquisse est dessinée dans son propre plan/)).toBeInTheDocument();
+    expect(dialog.queryByText(/LibreDWG/)).not.toBeInTheDocument();
+    expect(dialog.getByRole("table", { name: "Objets par nature" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Exporter les objets (CSV)" })).toBeInTheDocument();
+    // The sketches are a drawing like another: measured by layer, and plotted for the métré.
+    expect(dialog.getByRole("button", { name: "Ajouter le tracé PDF au dossier" })).toBeInTheDocument();
+  });
+
   it("says why a file was not read and reads it again when asked", async () => {
     const workers = installWorkers();
     installFetch();
-    render(<Harness canManage onDrawingChange={vi.fn()} />);
+    render(<Harness canManage onEnlargeableChange={vi.fn()} />);
     const first = await lastRequest(() => workers[0]);
     await answer(workers[0], { requestId: first.requestId, ok: false, type: "read", reason: "binary_dxf" });
     expect(screen.getByRole("alert")).toHaveTextContent("Ce DXF est au format binaire.");
@@ -385,5 +486,14 @@ describe("IntakeCadPreview", () => {
     const warning = dialog.getByRole("alert");
     expect(warning).toHaveTextContent("Ce dessin compte trop d’objets : la lecture s’est arrêtée avant la fin.");
     expect(warning).toHaveTextContent("Les quantités affichées sont un minimum.");
+  });
+
+  it("says of sketches not all drawn that their quantities are a minimum, and why", async () => {
+    const partial = { ...drawing, truncated: true, warnings: [{ code: "sketch_unread" as const }], unsupported: [{ type: "ELLIPSE_NON_LU", count: 2 }] };
+    const { dialog } = await enlarged({ kind: "drawing", drawing: partial, source: fcstdSummary({ ...MODEL, sketches: 1, truncated: true, left: { objects: false, sketches: false, unread: true, dimensions: false } }) }, FCSTD);
+    const [warning] = dialog.getAllByRole("alert");
+    expect(warning).toHaveTextContent("Des éléments des esquisses ne sont pas dessinés, comme les ellipses et les splines : ils sont comptés sous « Objets non lus ».");
+    expect(warning).toHaveTextContent("Les quantités affichées sont un minimum.");
+    expect(dialog.getByText("ELLIPSE_NON_LU × 2")).toBeInTheDocument();
   });
 });

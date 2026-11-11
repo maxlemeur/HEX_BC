@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileText, Layers, LoaderCircle, RefreshCw } from "lucide-react";
+import { Boxes, Download, FileText, Layers, LoaderCircle, RefreshCw } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCadOriginal } from "@/hooks/useCadOriginal";
@@ -10,6 +10,7 @@ import { addFileToDossier } from "@/lib/affaires/intake-upload-client";
 import { downloadBlob } from "@/lib/browser-download";
 import {
   cadLayerSummary,
+  cadModelSummary,
   cadPlotFileName,
   cadPlotMessage,
   cadQuantitiesFileName,
@@ -24,6 +25,7 @@ import { cadQuantitiesCsv, cadUsedLayers, measureCadDrawing, type CadLayerQuanti
 import type { CadSummary } from "@/lib/cad/summary";
 import { buildCadScene, cadDisplayColor } from "@/lib/cad/view";
 import { IntakeCadCanvas } from "./IntakeCadCanvas";
+import { IntakeCadModel } from "./IntakeCadModel";
 
 /** Blocks listed on the screen at most: the export has them all. */
 const MAX_BLOCK_ROWS = 200;
@@ -31,7 +33,11 @@ const MAX_BLOCK_ROWS = 200;
 const SUMMARY_GUIDANCE: Record<CadSummary["format"], string> = {
   dwg: "Le dessin de ce DWG n’est pas affiché. Enregistrez ce plan en DXF pour le visualiser et relever ses quantités, ou ajoutez son export PDF pour le métré.",
   rvt: "Une maquette Revit n’est pas lue dans MergeOne. Ajoutez ses plans exportés en DXF ou en PDF pour les visualiser et les métrer.",
+  fcstd: "Les solides d’une maquette FreeCAD ne sont pas dessinés dans MergeOne, et cette maquette n’a pas d’esquisse que MergeOne sache dessiner. Pour le métré, ajoutez ses plans exportés en DXF ou en PDF.",
 };
+
+/** A model has a large view when something in it has a shape: the list of its objects. */
+const listedModel = (summary: CadSummary) => (summary.model && summary.model.total > 0 ? summary.model : null);
 
 const counted = (count: number, one: string, many: string) => `${count.toLocaleString("fr-FR")} ${count > 1 ? many : one}`;
 
@@ -42,12 +48,28 @@ type PlotState =
   | { status: "error"; message: string };
 
 /**
- * What the file itself tells of a DWG or a Revit model: its release and the picture it carries.
+ * What the file itself tells of a DWG, a Revit model or a FreeCAD one: its release, the picture it
+ * carries and, for a FreeCAD model, its objects, which the large view lists.
  * `notice` says why a DWG is not drawn, and `onRetry` asks for its drawing again.
  */
-function CadSummaryView({ summary, notice, onRetry }: { summary: CadSummary; notice?: string; onRetry?(): void }) {
+function CadSummaryView({
+  summary,
+  fileName,
+  notice,
+  onRetry,
+  expanded,
+  onExpandedChange,
+}: {
+  summary: CadSummary;
+  fileName: string;
+  notice?: string;
+  onRetry?(): void;
+  expanded: boolean;
+  onExpandedChange(expanded: boolean): void;
+}) {
   const { thumbnail } = summary;
   const [picture, setPicture] = useState<string | null>(null);
+  const model = listedModel(summary);
 
   useEffect(() => {
     if (!thumbnail) return;
@@ -59,25 +81,51 @@ function CadSummaryView({ summary, notice, onRetry }: { summary: CadSummary; not
   const release = summary.version
     ? summary.format === "dwg" ? `Format DWG ${summary.version.label}` : `Maquette ${summary.version.label}`
     : "Version non lue";
+  const figure = picture ? (
+    <figure>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={picture} alt="Aperçu enregistré dans le fichier" />
+      <figcaption>Aperçu enregistré dans le fichier</figcaption>
+    </figure>
+  ) : (
+    <FileText size={30} />
+  );
 
   return (
     <div className="document-cad-summary">
-      {picture ? (
-        <figure>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={picture} alt="Aperçu enregistré dans le fichier" />
-          <figcaption>Aperçu enregistré dans le fichier</figcaption>
-        </figure>
-      ) : (
-        <FileText size={30} />
-      )}
+      {figure}
       <strong>{release}</strong>
+      {summary.model && <span>{cadModelSummary(summary.model)}</span>}
+      {/* The large view says what a model left out; this one may be all there is to say it. */}
+      {summary.model?.left.objects && <p role="alert">Cette maquette nomme plus d’objets que MergeOne n’en lit : les suivants, avec leurs formes et leurs esquisses, n’ont pas été lus.</p>}
       <p>{notice ?? SUMMARY_GUIDANCE[summary.format]}</p>
       {onRetry && (
         <button type="button" className="document-desk-button" onClick={onRetry}>
           <RefreshCw size={14} />
           Réessayer
         </button>
+      )}
+      {model && (
+        <>
+          <button type="button" className="document-desk-text" onClick={() => onExpandedChange(true)}>
+            <Boxes size={13} />
+            Objets et dimensions
+          </button>
+          <Dialog open={expanded} onOpenChange={onExpandedChange}>
+            <DialogContent size="full" className="document-preview-dialog document-cad-dialog">
+              <DialogHeader>
+                <DialogTitle className="break-all">{fileName}</DialogTitle>
+                <DialogDescription>{release} · {cadModelSummary(model)}</DialogDescription>
+              </DialogHeader>
+              <div className="document-cad-workspace">
+                <div className="document-cad-summary document-cad-model-picture">{figure}</div>
+                <div className="document-cad-panel">
+                  <IntakeCadModel model={model} fileName={fileName} open />
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
       )}
     </div>
   );
@@ -96,7 +144,7 @@ function CadDrawingView({
   projectId,
   fileName,
   drawing,
-  convertedFrom,
+  source,
   canManage,
   expanded,
   onExpandedChange,
@@ -105,8 +153,8 @@ function CadDrawingView({
   projectId: string;
   fileName: string;
   drawing: CadDrawing;
-  /** The DWG this drawing was converted from, when it was not read from a DXF. */
-  convertedFrom?: CadSummary;
+  /** What the drawing was made from, when it was not read from a DXF: the DWG it is the conversion of, or the FreeCAD model whose sketches it is. */
+  source?: CadSummary;
   canManage: boolean;
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
@@ -131,6 +179,10 @@ function CadDrawingView({
   const summary = cadLayerSummary({ layers: layers.filter((layer) => shown[layer]).length, length: totals.length, unit: quantities.unit, blocks: totals.blocks });
   const nothingShown = !layers.some((layer) => shown[layer]);
   const asInFile = drawing.layers.every((layer, index) => layer.visible === shown[index]);
+  const sketched = source?.format === "fcstd", model = source && sketched ? listedModel(source) : null;
+  const origin = !source
+    ? drawing.version.label
+    : sketched ? `Esquisses de la maquette ${source.version?.label ?? "FreeCAD"}` : `DWG ${source.version?.label ?? drawing.version.label}, converti par LibreDWG`;
 
   const addPlot = async () => {
     setPlotState({ status: "running" });
@@ -163,7 +215,7 @@ function CadDrawingView({
           <DialogHeader>
             <DialogTitle className="break-all">{fileName}</DialogTitle>
             <DialogDescription>
-              {convertedFrom ? `DWG ${convertedFrom.version?.label ?? drawing.version.label}, converti par LibreDWG` : drawing.version.label} · {summary}
+              {origin} · {summary}
             </DialogDescription>
           </DialogHeader>
           <div className="document-cad-workspace">
@@ -176,7 +228,8 @@ function CadDrawingView({
                 </div>
               )}
 
-              {convertedFrom && <p className="document-cad-hint">Ce dessin est la conversion du DWG par LibreDWG : vérifiez une cote connue avant de vous fier aux quantités.</p>}
+              {source && !sketched && <p className="document-cad-hint">Ce dessin est la conversion du DWG par LibreDWG : vérifiez une cote connue avant de vous fier aux quantités.</p>}
+              {sketched && <p className="document-cad-hint">Chaque esquisse est dessinée dans son propre plan, sur un calque à son nom : les esquisses ne sont pas placées les unes par rapport aux autres comme dans la maquette. Affichez un calque à la fois pour le lire ou le tracer.</p>}
 
               <section aria-labelledby="cad-quantities-title">
                 <header>
@@ -259,6 +312,8 @@ function CadDrawingView({
                 </details>
               )}
 
+              {model && <IntakeCadModel model={model} fileName={fileName} />}
+
               {canManage && (
                 <section aria-labelledby="cad-plot-title" className="document-cad-plot">
                   <header>
@@ -312,9 +367,10 @@ function CadDrawingView({
 
 /**
  * The preview of a CAD original: a DXF is read in the browser and shown with
- * its layers and quantities, and so is a DWG once the server has converted it
- * (`drawingUrl`); a Revit model, or a DWG without its drawing, shows what its file says.
- * `expanded` opens the large view of a drawing, which only a drawing has.
+ * its layers and quantities, and so are a DWG once the server has converted it
+ * (`drawingUrl`) and the sketches of a FreeCAD model; a Revit model, a DWG
+ * without its drawing or a FreeCAD model without a sketch shows what its file says.
+ * `expanded` opens the large view: that of a drawing, or the objects of a model.
  */
 export function IntakeCadPreview({
   projectId,
@@ -324,7 +380,7 @@ export function IntakeCadPreview({
   canManage,
   expanded,
   onExpandedChange,
-  onDrawingChange,
+  onEnlargeableChange,
 }: {
   projectId: string;
   fileName: string;
@@ -335,15 +391,15 @@ export function IntakeCadPreview({
   canManage: boolean;
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
-  /** Told whether a drawing is on screen, which is when the large view can be opened. */
-  onDrawingChange?(drawn: boolean): void;
+  /** Told whether the large view has something to show: a drawing, or the objects of a model. */
+  onEnlargeableChange?(enlargeable: boolean): void;
 }) {
   const { state, retry, plot } = useCadOriginal(useMemo(() => ({ url, fileName, drawingUrl }), [url, fileName, drawingUrl]));
-  const drawn = state.status === "ready" && state.original.kind === "drawing";
+  const enlargeable = state.status === "ready" && (state.original.kind === "drawing" || listedModel(state.original.summary) !== null);
 
   useEffect(() => {
-    onDrawingChange?.(drawn);
-  }, [drawn, onDrawingChange]);
+    onEnlargeableChange?.(enlargeable);
+  }, [enlargeable, onEnlargeableChange]);
 
   if (state.status === "error") {
     return (
@@ -365,13 +421,24 @@ export function IntakeCadPreview({
       </div>
     );
   }
-  if (state.original.kind === "summary") return <CadSummaryView summary={state.original.summary} notice={state.notice} onRetry={state.retryable ? retry : undefined} />;
+  if (state.original.kind === "summary") {
+    return (
+      <CadSummaryView
+        summary={state.original.summary}
+        fileName={fileName}
+        notice={state.notice}
+        onRetry={state.retryable ? retry : undefined}
+        expanded={expanded}
+        onExpandedChange={onExpandedChange}
+      />
+    );
+  }
   return (
     <CadDrawingView
       projectId={projectId}
       fileName={fileName}
       drawing={state.original.drawing}
-      convertedFrom={state.source}
+      source={state.source ?? state.original.source}
       canManage={canManage}
       expanded={expanded}
       onExpandedChange={onExpandedChange}

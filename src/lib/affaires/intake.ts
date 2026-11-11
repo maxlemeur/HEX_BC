@@ -3,7 +3,7 @@ import { z } from "zod";
 export const AFFAIRE_INTAKE_BUCKET = "affaire-intake";
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL = "50 Mo";
-export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML, DWG, DXF, RVT";
+export const AFFAIRE_INTAKE_ACCEPTED_FORMATS_LABEL = "PDF, images, Excel, CSV, Word, TXT, EML, DWG, DXF, RVT, FCStd";
 
 export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "pdf",
@@ -21,6 +21,7 @@ export const AFFAIRE_INTAKE_ALLOWED_EXTENSIONS = [
   "dwg",
   "dxf",
   "rvt",
+  "fcstd",
 ] as const;
 
 export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
@@ -43,14 +44,17 @@ const CAD_MIME_TYPES: Record<string, readonly string[]> = {
   dwg: ["application/octet-stream", "image/vnd.dwg", "application/acad", "application/x-acad", "application/dwg", "application/x-dwg", "image/x-dwg"],
   dxf: ["application/octet-stream", "image/vnd.dxf", "application/dxf", "application/x-dxf", "image/x-dxf", "text/plain"],
   rvt: ["application/octet-stream", "application/vnd.autodesk.revit", "application/x-revit"],
+  // A FreeCAD document is a zip, and is the only original that may be announced as one.
+  fcstd: ["application/octet-stream", "application/zip", "application/x-zip-compressed", "application/x-extension-fcstd"],
 };
 
 export function isAffaireIntakeCadDocument(fileName: string) {
   return Object.hasOwn(CAD_MIME_TYPES, getAffaireIntakeFileExtension(fileName));
 }
 
-/** A DXF is read in MergeOne (view, quantities, plotted PDF), and so is a DWG once converted; an RVT is only kept. */
+/** A DXF is read in MergeOne (view, quantities, plotted PDF), and so is a DWG once converted; a FreeCAD document shows its objects and its sketches; an RVT is only kept. */
 export const AFFAIRE_INTAKE_DXF_NOTICE = "Original DXF conservé. Ouvrez-le pour visualiser le plan et relever ses quantités ; ajoutez son tracé PDF au dossier pour le métré.";
+export const AFFAIRE_INTAKE_FCSTD_NOTICE = "Original FreeCAD conservé. Ouvrez-le pour voir l’aperçu de la maquette, ses objets avec leurs dimensions et ses esquisses ; pour le métré, ajoutez le tracé PDF de ses esquisses ou un export PDF de ses plans.";
 export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD R13 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
 
 /** Where the browser asks for a piece of the dossier: the piece itself (`preview`), or the DXF the server converts a DWG into (`drawing`). */
@@ -61,7 +65,9 @@ export function affaireIntakeFileUrl(projectId: string, documentId: string, part
 export function affaireIntakeCadNotice(fileName: string): string | null {
   if (!isAffaireIntakeCadDocument(fileName)) return null;
   const extension = getAffaireIntakeFileExtension(fileName);
-  return extension === "dxf" ? AFFAIRE_INTAKE_DXF_NOTICE : extension === "dwg" ? AFFAIRE_INTAKE_DWG_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
+  if (extension === "dxf") return AFFAIRE_INTAKE_DXF_NOTICE;
+  if (extension === "dwg") return AFFAIRE_INTAKE_DWG_NOTICE;
+  return extension === "fcstd" ? AFFAIRE_INTAKE_FCSTD_NOTICE : AFFAIRE_INTAKE_CAD_NOTICE;
 }
 
 export function getAffaireIntakeAllowedMimeTypes(fileName: string): readonly string[] {
@@ -395,6 +401,7 @@ const DIRECT_EXTENSION_MIME_TYPES: Record<string, string> = {
   dwg: "application/octet-stream",
   dxf: "application/octet-stream",
   rvt: "application/octet-stream",
+  fcstd: "application/octet-stream",
 };
 
 export function isAffaireIntakePrimaryEligibleKind(
