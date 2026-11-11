@@ -106,8 +106,92 @@ Deux garanties, décidées le 6 novembre 2026 (D11, D12).
   des deux lectures, ou corriger l'unité d'un comptage mal écrit. Une ligne seulement
   ignorée dans le plan d'application compte encore comme incluse.
 - La protection vaut par métré : deux métrés de la même page appliqués au même
-  devis ne sont pas comparés. Elle lit la page que chaque ligne porte, que le
-  relecteur peut corriger.
+  devis ne sont pas comparés par ce refus. Elle lit la page que chaque ligne porte,
+  que le relecteur peut corriger. Depuis le lot D, un second métré de la page est
+  signalé (section suivante), sans encore être refusé.
+
+## Une page n'entre qu'une fois au devis — TI-682 (lot D)
+
+Règle de métier : une page de plan entre une fois au devis ; une nouvelle mesure
+remplace l'ancienne. Une révision du plan (même « Référence du plan ») est la même
+page. Avant ce lot, rien ne comparait deux métrés d'une même page : relancer un plan
+et l'appliquer avec « Ajouter » doublait ses quantités sans un mot.
+
+**Première étape : prévenir (PR 1).** Rien n'est encore refusé ni remplacé ; rien de
+ce qu'une application écrit ne change.
+
+- **Même page.** Deux lignes de métré lisent la même page quand elles lisent le même
+  document et la même page, ou que la page manque sur l'une des deux (faute de
+  preuve, c'est la même page). Même document, si l'une de ces conditions est vraie :
+  - même fichier de la bibliothèque de plans ;
+  - même empreinte du contenu, notée par la préparation (deux dépôts du même PDF) ;
+  - même « Référence du plan », non vide (une révision remplace la précédente) ;
+  - ou, quand l'une des deux n'a ni fichier de la bibliothèque ni empreinte, même nom
+    de fichier (minuscules, blancs réduits).
+
+  Deux fichiers de même nom, chacun identifié, sans référence commune, restent deux
+  documents. L'avertissement donne une ligne par document et par page : deux fichiers
+  de même nom y sont deux lignes, chacune avec ses propres lignes de métré ; deux
+  révisions d'une même référence n'en sont qu'une.
+- **Ce qui est déjà au devis** se lit dans les lignes du devis, remontées jusqu'aux
+  lignes de métré figées dont elles viennent :
+  - moteur 3 : la ligne de métré de la ligne, toutes celles d'une longueur regroupée
+    puis arrondie, toutes celles d'une ligne DPGF alimentée ; le fichier et la page
+    d'une ligne DPGF sont ceux du DPGF et ne comptent pas ;
+  - moteurs 1 et 2 : le métré, le fichier et la page de la ligne.
+
+  Une ligne supprimée ne compte plus ; une version copiée garde sa provenance, donc
+  ses pages. Une ligne collée ou saisie à la main n'a pas de provenance : elle n'est
+  pas vue. Le devis lu est celui de la version revue : un métré repris dans une
+  version copiée se compare aux lignes de la copie (celles qu'on y a ajoutées ou
+  retirées), non à la version où il a été lancé.
+- **Lignes non comparées.** Une ligne du nouveau métré sans plan ni page (métré à
+  plusieurs fichiers sans préparation, page hors du jeu) n'est comparée à rien : elle
+  est comptée et affichée comme telle.
+- **Où l'avertissement apparaît**, en français et sans décision à prendre :
+  - au lancement, à l'étape « Vérifier et lancer » de la préparation : les pages des
+    plans choisis que la version cible porte déjà ; le lancement reste possible.
+    L'empreinte d'un plan de la bibliothèque n'est calculée qu'à la confirmation :
+    au lancement, ce plan se compare par son identifiant, sa référence ou son nom ;
+    les revues, qui lisent l'empreinte du métré, le comparent aussi par elle ;
+  - en tête de la revue ciblée et de la revue complète : par page, le métré antérieur
+    (sa date et son fichier, avec « Ouvrir le métré ») et le nombre de lignes qu'il a
+    apportées au devis. Une page dont toutes les lignes sont exclues n'est plus
+    signalée. Un doublon entre zones dont la ligne partenaire est une ligne que le
+    métré antérieur a lue sur cette page compare deux lectures de la même page : le
+    bandeau dit de ne pas retirer la ligne pour le régler. Le métré antérieur seul ne
+    suffit pas (il a pu lire aussi une autre zone) ; faute de pouvoir placer la ligne
+    partenaire sur la page (ligne de devis sans ligne source, moteurs 1 et 2), il ne
+    dit rien ;
+  - dans l'assistant d'application, à la confirmation : la notice « Pages déjà au
+    devis » (pages, métré antérieur, nombre de lignes). Les lignes que le plan
+    d'application ignore ou range dans un ouvrage n'y comptent pas, et le texte dit ce
+    que la stratégie choisie fait de la mesure précédente (« Fusionner » ne remplace
+    que les lignes de même désignation et unité, « Remplacer » ne vide que la section
+    cible) ;
+  - une fois le métré appliqué, seules restent signalées les pages où ses propres
+    lignes sont encore au devis : là, la page y est deux fois. Ses lignes sans page
+    sont sur la page signalée, par la même règle. Appliqué depuis la revue, le
+    bandeau relit le devis ; il le relit aussi quand la revue complète enregistre la
+    page source corrigée d'une ligne. L'exclusion d'une ligne ne demande pas de
+    relecture : le bandeau filtre les pages sur les lignes affichées.
+- **Provenance périmée.** Une clé d'arrondi ou de ligne DPGF écrite par un autre métré
+  que le dernier de la ligne (une fusion ultérieure l'a gardée) ne compte pas.
+- **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
+  version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
+  `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
+  session de l'utilisateur : le tenant actif, la lecture de la version et de ses
+  métrés, et la RLS des lignes du devis, des lignes de métré et des métrés la bornent. La définition est écrite une
+  fois en TypeScript
+  ([`page-contributions.ts`](../../src/lib/takeoff/page-contributions.ts)), sur la table
+  de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts),
+  que la jumelle SQL de l'étape suivante lira.
+- **Ce qui ne relève pas d'une règle fixe** : c'est une décision par page, prise à
+  l'application, pas une erreur de quantité d'une ligne ; les règles fixes ne lisent
+  ni le devis ni une version copiée.
+- **Étape suivante (PR 2)** : remplacer la mesure antérieure ligne à ligne, ou garder
+  les deux avec un motif, et le refus en base d'une page appliquée deux fois sans
+  décision.
 
 ## Entrées
 
