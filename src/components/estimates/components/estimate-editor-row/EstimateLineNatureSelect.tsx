@@ -2,10 +2,12 @@
 
 import {
   ESTIMATE_LINE_NATURE_LABELS,
-  ESTIMATE_LINE_NATURES,
+  POSE_ONLY_MENTION,
   resolveEstimateLineNature,
+  selectableEstimateLineNatures,
   type EstimateLineNature,
 } from "@/lib/estimates/line-nature";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import type {
   EstimateItem,
   ItemPatch,
@@ -26,6 +28,7 @@ const COMPACT_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures",
   supply_and_labor: "Fournitures + MO",
   labor_only: "Main-d’œuvre",
+  pose_only: POSE_ONLY_MENTION,
 };
 
 export function EstimateLineNatureSelect({
@@ -35,6 +38,7 @@ export function EstimateLineNatureSelect({
   onPatchItem,
 }: EstimateLineNatureSelectProps) {
   const selectedNature = resolveEstimateLineNature(item);
+  const printsPoseOnly = useEstimateV3Grid() !== null;
   const descriptionId = `estimate-line-nature-description-${item.id}`;
   const fullLabel = ESTIMATE_LINE_NATURE_LABELS[selectedNature];
   const compactLabel = COMPACT_LINE_NATURE_LABELS[selectedNature];
@@ -90,7 +94,7 @@ export function EstimateLineNatureSelect({
           )
         }
       >
-        {ESTIMATE_LINE_NATURES.map((nature) => (
+        {selectableEstimateLineNatures({ printsPoseOnly, current: selectedNature }).map((nature) => (
           <option key={nature} value={nature}>
             {ESTIMATE_LINE_NATURE_LABELS[nature]}
           </option>

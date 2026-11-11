@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
+import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
 import { estimateOfferChoiceSchema } from "@/lib/estimates/offer-choice";
 import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 
@@ -90,7 +91,7 @@ export const estimateEditorItemSchema = z.object({
   selected_supplier_details: z.object({
     price_id: uuid, name: z.string().nullable(), reference: z.string().nullable(),
   }).nullable().optional(),
-  line_nature: z.enum(["supply_only", "supply_and_labor", "labor_only"]).nullable(),
+  line_nature: z.enum(ESTIMATE_LINE_NATURES).nullable(),
   fo_price_origin: foPriceOriginSchema.nullable().default(null),
   fo_provision: number.nullable(), aid: z.string().nullable(),
   unit_code: z.string().nullable(), pricing_status: z.enum(ESTIMATE_LINE_PRICING_STATUSES),

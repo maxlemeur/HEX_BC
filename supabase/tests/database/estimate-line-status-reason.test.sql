@@ -583,6 +583,38 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
+-- TI-539 et TI-682 redéfinissent les mêmes fonctions (lot canonique, duplication) depuis le même corps : la seconde
+-- migration doit garder l'apport de la première. Un seul lot écrit la nature « POSE SEULE » et un motif sur la même
+-- ligne, et la copie de version garde les deux.
+-- ---------------------------------------------------------------------------
+select is(
+  private.canonical_estimate_batch_operations(pg_temp.sr_update(1,
+    '{"line_nature":"pose_only","status_reason":{"code":"client_supplied","note":" Fourni par le client "}}')) #>> '{0,data}',
+  '{"line_nature": "pose_only", "status_reason": {"code": "client_supplied", "note": "Fourni par le client"}}',
+  'the canonical batch keeps a POSE SEULE nature and a reason carried by the same operation'
+);
+select is(
+  pg_temp.sr_probe(
+    array[
+      format('select pg_temp.sr_batch(%L, pg_temp.sr_update(1, %L))', '68200000-0000-4000-8000-000000000110',
+        '{"line_nature":"pose_only","status_reason":{"code":"client_supplied","note":null}}'),
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', '68200000-0000-4000-8000-000000000001', true)$s$,
+      $s$select set_config('sr_test.duplicate_id',
+         public.duplicate_estimate_version('68200000-0000-4000-8000-000000000110', false)::text, true)$s$,
+      'reset role'
+    ],
+    $a$select string_agg(concat_ws(':', item.line_nature, item.pricing_status, item.was_not_priced::text,
+           item.status_reason->>'code'), '|' order by (item.version_id = '68200000-0000-4000-8000-000000000110') desc)
+       from public.estimate_items item
+       where item.title = 'L1' and item.version_id in ('68200000-0000-4000-8000-000000000110',
+         current_setting('sr_test.duplicate_id')::uuid)$a$
+  ),
+  'ok:pose_only:out_of_scope:true:client_supplied|pose_only:out_of_scope:true:client_supplied',
+  'one batch writes POSE SEULE and a reason on a line, and a duplicated version keeps both on its copy'
+);
+
+-- ---------------------------------------------------------------------------
 -- RLS : une autre entreprise ne lit ni la ligne ni son motif.
 -- ---------------------------------------------------------------------------
 select is(
