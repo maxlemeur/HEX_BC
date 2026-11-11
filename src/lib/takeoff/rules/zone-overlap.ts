@@ -42,7 +42,9 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // 2 (TI-684): copies whose readings contradict each other are compared. The version is part of every failure key
 // (failure-keys.ts): the next recomputation of a version reopens the verified lines of its completed, non-applied jobs
 // that fail this rule. Applied jobs stay frozen with their results.
-export const ZONE_OVERLAP_VERSION = 2;
+// 3 (TI-684, enlarged plans of D14): a line of an overview whose copies are all on plans at a finer scale yields to
+// them. It carries the correction of what they draw of it and joins no group.
+export const ZONE_OVERLAP_VERSION = 3;
 
 export const ZONE_OVERLAP = {
   /**
@@ -64,7 +66,21 @@ export const ZONE_OVERLAP = {
    * settles within this much per line reduced.
    */
   settle_m: 0.01,
+  /**
+   * A plan is an enlarged plan of another when its scale is at least this many times finer (1/50 beside 1/100: 2).
+   * The usual steps of a plan set are 1/50, 1/100 and 1/200; a measured scale a few percent off never makes two
+   * plans of one scale a detail and its overview.
+   */
+  enlargedRatio: 1.5,
 } as const;
+
+/**
+ * Whether a page is an enlarged plan of another (D14, TI-684): both scales are read and the first is finer by
+ * ZONE_OVERLAP.enlargedRatio. A scale that is not read makes no plan the detail of another.
+ */
+export function isEnlargedPlan(detail: number | null | undefined, overview: number | null | undefined) {
+  return typeof detail === "number" && typeof overview === "number" && detail > 0 && overview >= detail * ZONE_OVERLAP.enlargedRatio;
+}
 
 export type Centreline = [number, number, number, number];
 

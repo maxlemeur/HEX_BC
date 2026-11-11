@@ -148,7 +148,7 @@ export function AffaireEmptyDossierStep({
           Ajoutez le dossier de consultation
         </h2>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-          CCTP, DPGF, plans et courriers : chaque pièce est classée automatiquement pour préparer le brief.
+          Aucune pièce n’est obligatoire. Démarrez sur une page blanche ou ajoutez les documents disponibles pour préparer le brief.
         </p>
 
         <ol aria-label="Étapes de l'affaire" className="mt-5 grid grid-cols-7 gap-1.5 sm:grid-cols-6">
@@ -242,7 +242,7 @@ export function AffaireEmptyDossierStep({
 
       <div className="mt-5 flex flex-col gap-3 border-t border-dashed border-border-strong px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <p className="text-sm text-muted-foreground">
-          Pas de DPGF ? Ouvrez le devis et complétez la structure plus tard.
+          Sans documents ? Ouvrez un devis vierge et complétez-le à votre rythme.
         </p>
         <Link
           href={manualEstimateHref}

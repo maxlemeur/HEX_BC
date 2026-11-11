@@ -154,9 +154,10 @@ export function EditableCell<TCommitValue = string>({
       const nextValue = event.currentTarget.value;
       if (isValidInput && !isValidInput(nextValue)) {
         event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
-        event.currentTarget.reportValidity();
+        // Leave the invalid draft visible without stealing focus from the next control.
         return;
       }
+      event.currentTarget.setCustomValidity("");
       setLocalEditingValue(null);
       if (parseOnCommit) {
         onCommit(parseOnCommit(nextValue));

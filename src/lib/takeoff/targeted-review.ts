@@ -1,3 +1,4 @@
+import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import {
   checkApplyGuard,
   getTakeoffVerificationReadiness,
@@ -54,7 +55,8 @@ export function targetedReviewLines<T extends ReviewItem>(items: readonly T[], t
   for (const item of items) {
     if (listed.has(item.id)) continue;
     const undecided = isUndecidedHypothesis(item);
-    if (item.is_excluded && !undecided) continue;
+    const alternative = isUnselectedVectorReading(item) && (item.rule_results ?? []).some(entry => entry.status === "fail" && entry.code === "ZONE_OVERLAP_DUPLICATE");
+    if (item.is_excluded && !undecided && !alternative) continue;
     const warnings = (item.rule_results ?? []).filter((entry) => entry.status === "fail" && isQuantityWarning(entry.code));
     const comparison = quantitySourceComparison("metadata" in item ? item.metadata : null);
     if (!undecided && ((warnings.length === 0 && !important.has(item.id) && !comparison?.delta) || item.is_verified)) continue;
@@ -77,6 +79,7 @@ const UNDECIDED_HYPOTHESIS_REASON = "Hypothèse non présélectionnée : V ne l�
 
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ReviewItem, level: string | null): Acceptance {
+  if (isUnselectedVectorReading(item)) return { enabled: false, reason: "Lecture vectorielle non retenue : comparez les tracés, puis incluez la ligne si elle doit rejoindre le devis." };
   if (isUndecidedHypothesis(item)) return { enabled: false, reason: UNDECIDED_HYPOTHESIS_REASON };
   if (item.is_verified) return { enabled: false, reason: "Ligne déjà acceptée." };
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
@@ -108,7 +111,7 @@ function thousandths(value: number) {
 const SETTLE_M = 0.01;
 
 export type ZoneOverlapGuidance = {
-  kind: "pair" | "group" | "unregistered" | "resolved";
+  kind: "pair" | "group" | "unregistered" | "resolved" | "candidate";
   /** The results are to compute again: shown, never acted on. */
   stale: boolean;
   /** A pair: the length still counted twice. A group: what the other lines draw of this line. */
@@ -134,6 +137,7 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
   if (result.code === "ZONE_OVERLAP_UNREGISTERED") return { kind: "unregistered", ...base };
   if (result.code !== "ZONE_OVERLAP_DUPLICATE") return null;
   const overlap = result.details?.overlap_m ?? 0;
+  if (isUnselectedVectorReading(item)) return { ...base, kind: "candidate", overlap_m: overlap };
   const groupSize = result.details?.group_size ?? null;
   // The line as measured: the rules read a reduction against it (evaluate.ts), never against a quantity raised above.
   const measured = readRuleInputs(item.metadata)?.model_quantity ?? item.quantity;
@@ -142,6 +146,9 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
     const own = Math.max(0, thousandths(measured - overlap));
     return { ...base, kind: "group", overlap_m: overlap, group_size: groupSize, remove_line: !stale && own <= SETTLE_M, own_m: own };
   }
+  // Enlarged plans (TI-684, D14): a line whose open copies are all on an overview that yields to it prevails. The
+  // length is the overview's line to remove: nothing is offered on this one.
+  if (partners.length > 0 && partners.every((partner) => partner.plan === "overview")) return { ...base, kind: "pair", overlap_m: overlap };
   const reduced = thousandths(Math.min(item.quantity, measured) - overlap);
   const entire = reduced <= SETTLE_M;
   return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire || stale ? null : reduced, remove_line: entire && !stale };
@@ -154,8 +161,10 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
 export function duplicateExclusionReason(guidance: ZoneOverlapGuidance) {
   const others = guidance.partners.map((partner) => `« ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}${
     partner.differs ? `, lu autrement (${partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")})` : ""}`);
+  // An overview's line that yields to enlarged plans (TI-684, D14): the reason names the plan that prevails.
+  const by = `${guidance.partners.length > 0 && guidance.partners.every((partner) => partner.plan === "enlarged") ? "le plan agrandi, " : ""}${others.join(", ")}`;
   if (guidance.partners.some((partner) => partner.differs)) {
-    return `Tronçon déjà compté par ${others.join(", ")} : la lecture de cette ligne est écartée.`.slice(0, 500);
+    return `Tronçon déjà compté par ${by} : la lecture de cette ligne est écartée.`.slice(0, 500);
   }
-  return `Entièrement en double : tronçon déjà compté par ${others.join(", ") || "une autre zone"}.`.slice(0, 500);
+  return `Entièrement en double : tronçon déjà compté par ${by || "une autre zone"}.`.slice(0, 500);
 }

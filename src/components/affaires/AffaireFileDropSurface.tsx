@@ -7,7 +7,7 @@ import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
 } from "@/lib/affaires/intake";
-import { CircleIcon, UploadIcon } from "lucide-react";
+import { LoaderCircleIcon, UploadIcon } from "lucide-react";
 
 const ACCEPT = AFFAIRE_INTAKE_ALLOWED_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -34,6 +34,7 @@ export function AffaireFileDropSurface({
 }: Readonly<AffaireFileDropSurfaceProps>) {
   const [dragActive, setDragActive] = useState(false);
   const isUploading = typeof uploadingFileCount === "number";
+  const isSurfaceHidden = hiddenSurface && !isUploading;
 
   return (
     <>
@@ -56,12 +57,14 @@ export function AffaireFileDropSurface({
 
       <div
         data-intake-dropzone-trigger={triggerId}
-        className={`${hiddenSurface ? "sr-only" : `rounded-xl border-2 border-dashed transition-colors ${
-          dragActive
+        className={`${isSurfaceHidden ? "sr-only" : `rounded-xl border-2 border-dashed transition-colors ${
+          isUploading
+            ? "border-primary/40 bg-primary/5"
+            : dragActive
             ? "border-primary bg-primary/5"
             : "border-border-strong bg-surface-subtle hover:border-border-strong"
         } ${compact ? "p-4" : "p-6"} ${
-          disabled || isUploading ? "pointer-events-none opacity-60" : "cursor-pointer"
+          isUploading ? "pointer-events-none cursor-wait" : disabled ? "pointer-events-none opacity-60" : "cursor-pointer"
         }`}`}
         role={hiddenSurface ? undefined : "button"}
         tabIndex={hiddenSurface || disabled || isUploading ? -1 : 0}
@@ -71,7 +74,7 @@ export function AffaireFileDropSurface({
             : "Zone de dépôt multi-documents. Glissez des fichiers ou appuyez pour sélectionner."
         }
         aria-disabled={disabled || isUploading}
-        aria-hidden={hiddenSurface}
+        aria-hidden={isSurfaceHidden}
         onClick={() => {
           if (!disabled && !isUploading) {
             inputRef.current?.click();
@@ -109,9 +112,9 @@ export function AffaireFileDropSurface({
       >
         {isUploading ? (
           <div className="flex items-center justify-center gap-2">
-            <CircleIcon className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+            <LoaderCircleIcon className="h-5 w-5 shrink-0 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
             <span className="text-sm font-medium text-foreground-secondary">
-              Upload de {uploadingFileCount} fichier
+              Chargement de {uploadingFileCount} fichier
               {uploadingFileCount && uploadingFileCount > 1 ? "s" : ""}…
             </span>
           </div>

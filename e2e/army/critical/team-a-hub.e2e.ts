@@ -1,6 +1,8 @@
+import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 
-import { apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence } from "./fixtures";
+import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave } from "./fixtures";
+import { nativeTest, loginWithUi, localClient } from "../takeoff/native-ui";
 
 armyTest("HUB02 a fresh affaire keeps its manual path without requiring a DPGF", {
   session: "army", trace: "off", tags: ["critical", "hub-manual"], timeout: 120_000,
@@ -27,7 +29,7 @@ armyTest("HUB02 a fresh affaire keeps its manual path without requiring a DPGF",
   const manualLink = screen.getByRole("link", "Continuer en manuel", { exact: true });
   const editorPath = `/dashboard/estimates/${estimate.versionId}/edit?entry=manual`;
   await expect(manualLink).toHaveAttribute("href", editorPath);
-  await expect(screen.getByText("Pas de DPGF ? Ouvrez le devis et complétez la structure plus tard.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Sans documents ? Ouvrez un devis vierge et complétez-le à votre rythme.", { exact: true })).toBeVisible();
   await manualLink.click();
   await expect(browser).toHaveURL(editorPath);
   await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -142,4 +144,127 @@ armyTest("HUB11 the affaire hub hydrates its streamed panel once when the reveal
   await expect(screen.getByText(UPLOAD_CARD_TEXT, { exact: true })).toBeVisible();
   await expect(screen.getByRole("link", "Continuer en manuel", { exact: true })).toHaveAttribute("href", editorPath);
   await expect(screen.getByRole("menubar", "Espaces de travail", { exact: true })).toBeVisible();
+});
+
+// Blank and sparse dossiers must both allow manual work; document absence alone
+// must never create a critical submission blocker. A user can still require a piece.
+nativeTest("optional dossier documents allow a blank or sparse manual estimate", {
+  session: "army", trace: "off", tags: ["critical", "local"], timeout: 180_000,
+}, async ({ ui: page }) => {
+  await loginWithUi(page);
+  const response = await page.request.post("/api/estimates", { data: {
+    project: { name: `${page.army.runPrefix}-Blank-dossier` }, version: { title: "Devis sans pièces" },
+  } });
+  expect(response.status()).toBe(201);
+  const payload = await response.json() as { data: { project: { id: string }; version: { id: string } } };
+  const projectId = payload.data.project.id;
+  const versionId = payload.data.version.id;
+  const { client } = await localClient();
+  const activeGaps = async () => {
+    const result = await client.from("affaire_register_entries").select("id,code,severity,metadata")
+      .eq("project_id", projectId).eq("kind", "missing_piece").eq("is_active", true);
+    expect(result.error).toBeNull();
+    return result.data!;
+  };
+  await page.app.open(`/dashboard/affaires/${projectId}`);
+  await expect(page.getByText("Aucune pièce n’est obligatoire. Démarrez sur une page blanche ou ajoutez les documents disponibles pour préparer le brief.", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Continuer en manuel", exact: true }).click();
+  await expect(page.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit`));
+  expect((await readEstimate(page.browser, versionId)).items).toEqual([]);
+  expect(await activeGaps()).toEqual([]);
+
+  // A single correspondence document must not turn absent DPGF/plans into blockers.
+  const upload = await page.request.post(`/api/affaires/${projectId}/intake/files`, { multipart: {
+    files: { name: "courrier-client.txt", mimeType: "text/plain", buffer: Buffer.from("Courrier : devis manuel pour une intervention fictive.") },
+  } });
+  expect(upload.status()).toBe(201);
+  await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_dpgf");
+  await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_plans");
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
+  await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+  await expect(page.getByText("À arbitrer avant remise", { exact: true })).toHaveCount(0);
+
+  // A second intake must synchronize the existing gaps without recreating critical defaults.
+  const originalDpgf = (await activeGaps()).find((entry) => entry.code === "missing_dpgf")!;
+  const importCorrespondence = async (name: string) => {
+    const response = await page.request.post(`/api/affaires/${projectId}/intake/files`, { multipart: {
+      files: { name, mimeType: "text/plain", buffer: Buffer.from("Courrier complémentaire fictif pour le devis manuel.") },
+    } });
+    expect(response.status()).toBe(201);
+    await expect.poll(async () => {
+      const docs = await client.from("affaire_intake_documents").select("classification_status")
+        .eq("project_id", projectId).eq("file_name", name);
+      expect(docs.error).toBeNull();
+      return docs.data?.length === 1 && !["queued", "processing"].includes(docs.data[0].classification_status);
+    }, { timeout: 60_000 }).toBe(true);
+    // The upload becomes terminal only after its register synchronization has finished.
+    await expect.poll(async () => {
+      const uploads = await client.from("affaire_intake_uploads").select("status").eq("project_id", projectId);
+      expect(uploads.error).toBeNull();
+      return uploads.data?.every((upload) => !["queued", "processing"].includes(upload.status));
+    }, { timeout: 60_000 }).toBe(true);
+  };
+  await importCorrespondence("courrier-complementaire.txt");
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
+  expect((await activeGaps()).find((entry) => entry.code === "missing_dpgf")?.id).toBe(originalDpgf.id);
+
+  // The main flow must also offer manual work before a line or brief exists.
+  await page.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+  await page.getByRole("button", { name: /Étude.*Structure, métrés et prix/ }).click();
+  await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
+  await expect(page.getByRole("link", { name: "Démarrer sur une page blanche", exact: true })).toBeVisible();
+  await expect(page.getByText("Le dossier reste incomplet. Ajoutez les pièces manquantes avant de poursuivre le chiffrage.", { exact: true })).toHaveCount(0);
+  await page.getByRole("link", { name: "Démarrer sur une page blanche", exact: true }).click();
+  // Seed one real line, then edit through the editor and prove the saved value.
+  const title = "Prestation saisie sans DPGF";
+  await createLineViaApi(page.browser, versionId, title);
+  await page.reload();
+  const quantity = page.getByLabel(`Quantité pour ${title}`, { exact: true });
+  await quantity.fill("3");
+  await quantity.press("Tab");
+  await saveLineEditsWithShortcut(page, versionId, title, page.army);
+  await waitForAutoSave(page, versionId, (estimate) => estimate.items.some((item) => item.title === title && item.quantity === 3));
+  await page.reload();
+  await expect(quantity).toHaveValue("3");
+
+  // Preserve a deliberate requirement through the real audited product action.
+  await page.app.open(`/dashboard/affaires/${projectId}#register`);
+  await page.getByRole("button", { name: /Ajouter un point$/ }).click();
+  await page.getByLabel("Type", { exact: true }).selectOption({ value: "missing_piece" });
+  await page.getByLabel("Sévérité", { exact: true }).selectOption({ value: "critical" });
+  await page.getByLabel("Texte", { exact: true }).fill("Accord écrit explicitement requis par le chargé d’étude");
+  await page.getByRole("button", { name: "Ajouter au registre", exact: true }).click();
+  await expect.poll(async () => (await activeGaps()).filter((entry) => entry.severity === "critical").length).toBe(1);
+  await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+  await expect(page.getByText("À arbitrer avant remise", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Dossier de l'affaire", exact: true }).getByText("Accord écrit explicitement requis par le chargé d’étude", { exact: true })).toBeVisible();
+
+  // Seed an existing explicit override on the synchronized DPGF itself. The register
+  // currently exposes severity editing through its server action, without a UI control.
+  const requiredDpgf = (await activeGaps()).find((entry) => entry.code === "missing_dpgf")!;
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  if (backend.protocol !== "http:" || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
+      !["127.0.0.1", "localhost"].includes(backend.hostname) || !backend.port ||
+      ["45585", "33485"].includes(backend.port)) throw new Error("Overrides require the owned local stack.");
+  const owner = await client.auth.getUser();
+  const ownedProject = await client.from("estimate_projects").select("name,user_id").eq("id", projectId).single();
+  expect(ownedProject.error).toBeNull();
+  expect(ownedProject.data?.name).toBe(`${page.army.runPrefix}-Blank-dossier`);
+  expect(ownedProject.data?.user_id).toBe(owner.data.user!.id);
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("Owned prerequisite key is missing.");
+  const seed = createClient(backend.href, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const override = await seed.from("affaire_register_entries").update({
+    severity: "critical",
+    metadata: { ...requiredDpgf.metadata as Record<string, never>, severityDecision: {
+      mode: "manual", canonicalSeverity: "critical", overriddenSeverity: "critical",
+      updatedAt: new Date().toISOString(), updatedByUserId: owner.data.user!.id,
+    } },
+  }).eq("id", requiredDpgf.id).eq("project_id", projectId);
+  expect(override.error).toBeNull();
+  await importCorrespondence("courrier-apres-exigence.txt");
+  expect((await activeGaps()).find((entry) => entry.id === requiredDpgf.id)).toMatchObject({
+    severity: "critical", metadata: { severityDecision: { mode: "manual", canonicalSeverity: "warning" } },
+  });
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toHaveLength(2);
 });

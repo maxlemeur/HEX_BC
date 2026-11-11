@@ -9,6 +9,7 @@ import {
   GroupTruthFileSchema,
   ManifestDocumentSchema,
   ManifestSchema,
+  MeasuredTruthFileSchema,
   NoiseFileSchema,
   PageTruthFileSchema,
   TruthFileSchema,
@@ -16,10 +17,12 @@ import {
   type ManifestDocument,
   type PageTruthFile,
   type RowBasis,
+  measuredKey,
   type TruthFile,
   type TruthLine,
   type TruthSource,
 } from "@/lib/takeoff/bench/schemas";
+import { buildScoreScopes, scopeLengthKeys, type ScoreTruthFile } from "@/lib/takeoff/bench/score";
 import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
 import { TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES } from "@/lib/takeoff/page-triage";
 import { isVectorClass } from "@/lib/takeoff/vectors/classify";
@@ -30,7 +33,7 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 // truth file validates, refers to manifest documents of its own lot and uses known
 // keys; every workbook row is numbered by a basis its download supports, one per
 // document; no devis cell is split between plans or counted twice; truth/noise.json
-// records the noise result. It reports every error with its file and JSON path,
+// records the noise result; a hand measurement (truth/measured) names lengths its plan's truth scores. It reports every error with its file and JSON path,
 // and never writes to the dataset. A truth plan whose download failed keeps its
 // devis truth: it is listed in summary.truthWithoutBinary, and the bench skips it.
 
@@ -44,6 +47,7 @@ export type BenchCheckSummary = {
   noise: "measured" | "not_measured" | "absent";
   pageFiles: number;
   groupFiles: number;
+  measuredFiles: number;
   lots: Partial<Record<TruthLot, BenchLotSummary>>;
   /** Truth or reserve plans without a verified binary, whose truth comes from a devis. */
   truthWithoutBinary: string[];
@@ -89,7 +93,7 @@ function errnoCode(error: unknown) {
 class DatasetCheck {
   readonly errors: BenchIssue[] = [];
   readonly summary: BenchCheckSummary = {
-    documents: 0, verifiedBinaries: 0, truthFiles: 0, truthLines: 0, noise: "absent", pageFiles: 0, groupFiles: 0, lots: {},
+    documents: 0, verifiedBinaries: 0, truthFiles: 0, truthLines: 0, noise: "absent", pageFiles: 0, groupFiles: 0, measuredFiles: 0, lots: {},
     truthWithoutBinary: [],
   };
   /** Every id the manifest lists, even on an entry that fails its schema. */
@@ -104,6 +108,8 @@ class DatasetCheck {
   readonly truthWithoutBinary = new Set<string>();
   /** PDF pages a quantity truth line cites as its source: a page truth keeps them. */
   readonly citedPages = new Map<string, Set<number>>();
+  /** The quantity truths in schema: a hand measurement is checked against the keys the scorer builds from them. */
+  readonly truths: ScoreTruthFile[] = [];
   coverageComplete = true;
 
   constructor(readonly root: string) {}
@@ -472,6 +478,7 @@ async function checkTruthFile(check: DatasetCheck, file: string) {
     check.zodErrors(file, parsed.error);
     return;
   }
+  check.truths.push({ file, truth: parsed.data });
   const covered = checkTruthDocuments(check, file, parsed.data);
   checkTruthLines(check, file, parsed.data, covered);
 }
@@ -724,6 +731,71 @@ async function checkAnnotations(check: DatasetCheck, kind: "pages" | "groups") {
   }
 }
 
+/**
+ * truth/measured (TI-662): a file per measured plan, named after it. The plan is one the bench reads (a binary PDF)
+ * and its truth is the truth of that plan alone; the lines are the lengths the scorer scores on it, each of them
+ * once: a key the scorer leaves out of score, or does not have, would never be judged, and a scored length left
+ * out would make the judgment one of the keys someone chose to measure.
+ */
+async function checkMeasured(check: DatasetCheck) {
+  const entries = (await check.listDirectory("truth/measured")) ?? [];
+  if (entries.length === 0) return;
+  // Scopes as the scorer builds them, from the truths whose documents the manifest holds.
+  const scopes = buildScoreScopes(check.truths.filter(({ truth }) => truth.documents.every((id) => check.documents.has(id))),
+    [...check.documents.values()].map(({ document }) => document));
+  for (const entry of entries) {
+    const file = `truth/measured/${entry.name}`;
+    if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
+      check.error(file, [], "unexpected entry: measurement files are <document id>.json");
+      continue;
+    }
+    check.summary.measuredFiles += 1;
+    const json = await check.readJson(file);
+    if (!json) continue;
+    const parsed = MeasuredTruthFileSchema.safeParse(json.value);
+    if (!parsed.success) {
+      check.zodErrors(file, parsed.error);
+      continue;
+    }
+    const id = parsed.data.document;
+    const document = check.reference(file, ["document"], id);
+    if (!document) continue;
+    if (path.posix.basename(file, ".json") !== id) check.error(file, ["document"], "a measurement is named truth/measured/<document id>.json");
+    const scope = scopes.find((entry) => entry.documents.some((covered) => covered.id === id));
+    if (!scope) {
+      // A truth that names the plan but is out of schema has its own errors: the measurement adds none.
+      if (!check.coverage.has(id)) check.error(file, ["document"], `no quantity truth covers ${id}: nothing to compare its measurement with`);
+      continue;
+    }
+    if (document.raw_status !== "binary" || document.file_type !== "pdf") {
+      check.error(file, ["document"], `${id} has no verified binary PDF: the bench never reads it, so its measurement would judge nothing`);
+      continue;
+    }
+    if (scope.documents.length > 1) {
+      check.error(file, ["document"], `the truth of ${id} covers several plans (${scope.documents.map((covered) => covered.id).join(", ")}): `
+        + "a measurement is judged on the truth of one plan only");
+      continue;
+    }
+    const lengths = new Map(scopeLengthKeys(scope).map((key) => [measuredKey(key.label), key]));
+    const given = new Set<string>();
+    for (const [index, line] of parsed.data.lines.entries()) {
+      const key = lengths.get(measuredKey(line));
+      given.add(measuredKey(line));
+      if (!key) {
+        check.error(file, ["lines", index], `not a length of the truth of ${id}: zone, level, network, material and dn are those of a truth line in ml`);
+      } else if (key.out_of_score !== null) {
+        check.error(file, ["lines", index], `out of score (${key.out_of_score}) in the truth of ${id}: the bench never judges this length`);
+      }
+    }
+    for (const [identity, key] of lengths) {
+      if (key.out_of_score !== null || given.has(identity)) continue;
+      const { zone, level, network, material, dn } = key.label;
+      check.error(file, ["lines"], `no line for the scored length ${[zone, level, network, material, dn].filter((part) => part !== null).join(" / ")}: `
+        + "one line per scored length of the plan, with length_m null when it cannot be followed on the plan");
+    }
+  }
+}
+
 async function checkTruthDirectory(check: DatasetCheck) {
   const entries = await check.listDirectory("truth");
   if (!entries) {
@@ -733,7 +805,7 @@ async function checkTruthDirectory(check: DatasetCheck) {
   }
   for (const entry of entries) {
     const file = `truth/${entry.name}`;
-    if (entry.isDirectory() && (entry.name === "pages" || entry.name === "groups")) continue;
+    if (entry.isDirectory() && (entry.name === "pages" || entry.name === "groups" || entry.name === "measured")) continue;
     if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
       check.error(file, [], "unexpected entry: truth files are <lowercase anonymous name>.json");
       continue;
@@ -747,6 +819,7 @@ async function checkTruthDirectory(check: DatasetCheck) {
   }
   await checkAnnotations(check, "pages");
   await checkAnnotations(check, "groups");
+  await checkMeasured(check);
 }
 
 export async function checkTakeoffBenchDataset(datasetRoot: string): Promise<BenchCheckResult> {

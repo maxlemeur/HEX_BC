@@ -400,6 +400,12 @@ function getCategoryStoryIcon(category: string) {
 }
 
 function getStateWhyContent(card: PanelResultCard) {
+  if (card.kind === "structure" && card.action.key === "manual-estimate") {
+    return {
+      title: "Le devis peut démarrer ou continuer en manuel, sans pièce ni brief obligatoire. Les documents disponibles restent utilisables pour un import ou un métré.",
+      hints: ["Pièces facultatives", "Documents disponibles conservés"],
+    };
+  }
   const isStructureResumeCard =
     card.kind === "structure" && isStructureResumeAction(card.action);
   const isPreliminaryStructureCard =
@@ -463,6 +469,7 @@ function getStateWhyContent(card: PanelResultCard) {
 }
 
 function getStateHeroBadgeLabel(card: PanelResultCard) {
+  if (card.kind === "structure" && card.action.key === "manual-estimate") return "Chiffrage manuel";
   if (card.kind === "primary") return "Référence principale à définir";
   if (card.kind === "missing") return "Pièces critiques manquantes";
   if (card.kind === "brief") {
@@ -634,7 +641,9 @@ function ResultCard({
     card.kind !== "review" &&
     card.kind !== "missing" &&
     card.kind !== "primary" &&
-    (evidence.length > 0 ||
+    // The document cards also carry import controls, even if the hero lists every file.
+    ((card.kind === "structure" && card.action.key === "manual-estimate" && sortedCategories.length > 0) ||
+      evidence.length > 0 ||
       classifiedCount > visibleValidatedCount ||
       reviewCount > 0 ||
       processingCount > 0);

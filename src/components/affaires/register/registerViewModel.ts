@@ -38,7 +38,7 @@ export const SEVERITY_TONE: Record<AffaireRegisterEntrySeverity, string> = {
 };
 
 export function getRegisterBlockingCount(summary: AffaireRegisterSummary) {
-  return summary.criticalOpenCount + (summary.criticalClarifyWithClientCount ?? 0) +
+  return summary.criticalOpenCount + summary.clarifyWithClientCount +
     (summary.revalidationRequiredCount ?? 0);
 }
 
@@ -53,7 +53,7 @@ export function getRegisterEntryImpact(entry: AffaireRegisterEntry) {
     return { label: "Bloquant", blocking: true, rank: 1 };
   }
   if (entry.status === "clarify_with_client") {
-    return { label: "Retour client", blocking: false, rank: 2 };
+    return { label: "Retour client", blocking: true, rank: 2 };
   }
   return { label: entry.kind === "assumption" ? "À confirmer" : "À suivre", blocking: false, rank: 3 };
 }

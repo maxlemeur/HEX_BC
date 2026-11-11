@@ -40,6 +40,19 @@ const partner = (overrides: Record<string, unknown> = {}) => ({ item_id: "111111
   job_id: "22222222-2222-4222-8222-222222222222", zone: "Z2", designation: "EF Inox 316L DN 22", overlap_m: 1, resolved: false, ...overrides });
 
 describe("targetedReviewLines", () => {
+  it("lists automatic vector overlaps while respecting a reviewer dismissal", () => {
+    const candidate = line({ is_excluded: true, metadata: { vector: { kind: "network" } },
+      exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.",
+      rule_results: [duplicate({ overlap_m: 1, partner_count: 1, partners: [partner()] })] });
+    const dismissed = { ...candidate, id: "00000000-0000-4000-8000-000000000999", exclusion_reason: "Hors périmètre vérifié." };
+    const review = targetedReviewLines([candidate, dismissed], 0.5, "C");
+    expect(review.lines.map(entry => entry.item.id)).toEqual([candidate.id]);
+    expect(review.guard.passed).toBe(true);
+    expect(candidate.is_excluded).toBe(true);
+    expect(acceptanceOf(candidate, "C").enabled).toBe(false);
+    expect(zoneOverlapGuidance(candidate)).toMatchObject({ kind: "candidate", overlap_m: 1, reduce_to: null });
+  });
+
   // TI-682 D11: an hypothesis arrives excluded; it stays in the list until someone decides it. Ways it fails: the
   // weld to enter leaves the list with its exclusion and nobody enters it; V is offered on a line still excluded; a
   // line its reviewer excluded, or a vector measure left out, comes back in the list.
@@ -205,5 +218,30 @@ describe("zoneOverlapGuidance", () => {
       .toBe("Tronçon déjà compté par « EF Inox 316L DN 28 » (Z2), lu autrement (diamètre) : la lecture de cette ligne est écartée.");
     expect(duplicateExclusionReason(entire([partner({ designation: "ECS Inox 316L DN 28", differs: ["network", "dn"] })])))
       .toMatch(/lu autrement \(réseau, diamètre\)/);
+  });
+
+  // TI-684, enlarged plans (written before the code): an overview's line that yields to two enlarged plans is no group.
+  it("offers an overview's line the reduction by what the enlarged plans draw of it, or its removal, and says why", () => {
+    const zones = [partner({ item_id: "z1", zone: "Z1", overlap_m: 30, plan: "enlarged" }), partner({ item_id: "z2", zone: "Z2", overlap_m: 30, plan: "enlarged" })];
+    const yielding = (quantity: number, overlap_m: number) => zoneOverlapGuidance(line({ quantity,
+      rule_results: [duplicate({ overlap_m, partners: zones })] })) as NonNullable<ReturnType<typeof zoneOverlapGuidance>>;
+    expect(yielding(70, 60)).toMatchObject({ kind: "pair", overlap_m: 60, reduce_to: 10, remove_line: false, group_size: null });
+    const entire = yielding(60, 60);
+    expect(entire).toMatchObject({ kind: "pair", reduce_to: null, remove_line: true });
+    expect(duplicateExclusionReason(entire))
+      .toBe("Entièrement en double : tronçon déjà compté par le plan agrandi, « EF Inox 316L DN 22 » (Z1), « EF Inox 316L DN 22 » (Z2).");
+    expect(duplicateExclusionReason({ ...entire, partners: [partner({ designation: "EF Inox 316L DN 28", differs: ["dn"], plan: "enlarged" })] }))
+      .toBe("Tronçon déjà compté par le plan agrandi, « EF Inox 316L DN 28 » (Z2), lu autrement (diamètre) : la lecture de cette ligne est écartée.");
+  });
+
+  it("offers the enlarged plan's line no correction of its own while only the overview's copy is open", () => {
+    const overviewCopy = [partner({ overlap_m: 3, plan: "overview" })];
+    expect(zoneOverlapGuidance(line({ quantity: 5, rule_results: [duplicate({ overlap_m: 3, partners: overviewCopy })] })))
+      .toMatchObject({ kind: "pair", overlap_m: 3, reduce_to: null, remove_line: false });
+    expect(zoneOverlapGuidance(line({ quantity: 3, rule_results: [duplicate({ overlap_m: 3, partners: overviewCopy })] })))
+      .toMatchObject({ kind: "pair", reduce_to: null, remove_line: false });
+    // With a peer still open, the pair with the peer is the line's to settle as before.
+    expect(zoneOverlapGuidance(line({ quantity: 5, rule_results: [duplicate({ overlap_m: 1, partners: [partner({ overlap_m: 1 }), ...overviewCopy] })] })))
+      .toMatchObject({ kind: "pair", overlap_m: 1, reduce_to: 4, remove_line: false });
   });
 });

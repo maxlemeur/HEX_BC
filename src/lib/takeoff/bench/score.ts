@@ -317,6 +317,12 @@ function truthKeysOf(lines: readonly ScopeLine[]): TruthKey[] {
     .sort((left, right) => byText(left.id, right.id));
 }
 
+/** The length keys of a scope (network lines in ml), pooled as the scorer pools them, each with the reason it is out of score (null: scored). */
+export function scopeLengthKeys(scope: Pick<ScoreScope, "lines">): Array<{ label: KeyLabel; out_of_score: KeyScore["reason"] }> {
+  return truthKeysOf(scope.lines).filter((key) => key.label.kind === "network" && key.label.unit === "ml")
+    .map((key) => ({ label: key.label, out_of_score: key.outOfScore }));
+}
+
 type LocatedKey = BenchItemKey & { zone: string | null; level: string | null };
 
 function entryId(entry: DiameterEntry) {

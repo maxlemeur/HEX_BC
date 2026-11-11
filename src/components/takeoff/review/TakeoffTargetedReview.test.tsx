@@ -295,6 +295,57 @@ describe("TakeoffTargetedReview", () => {
     expect(screen.queryByText(/Lu autrement/)).toBeNull();
   });
 
+  // TI-684, enlarged plans (written before the code): nothing said that the enlarged plan prevails and whose line to correct.
+  it("says that the enlarged plan prevails on an overview's line, and leaves it the correction", async () => {
+    const yielding: TakeoffRuleResult = { ...duplicate(ids.z2, "Z2"),
+      details: { overlap_m: 1, partner_count: 1, partners: [{ ...partner(ids.z2, "Z2"), plan: "enlarged" }] } };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], item(ids.z1, "EF Z1", 5, [yielding]), ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Doublon entre zones" });
+    expect(within(section).getByText(/le plan agrandi fait foi/)).toBeInTheDocument();
+    expect(within(within(section).getByRole("list", { name: "Lignes des autres zones" })).getByText("Plan agrandi")).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: /^Retirer 1,00 m/ })).toBeInTheDocument();
+    choose(list, "EF Z2");
+    expect(screen.queryByText(/le plan agrandi fait foi/)).toBeNull();
+  });
+
+  it("offers no reduction on the enlarged plan's line and sends to the overview's line", async () => {
+    const prevailing: TakeoffRuleResult = { ...duplicate(ids.z2, "Z2"),
+      details: { overlap_m: 1, partner_count: 1, partners: [{ ...partner(ids.z2, "Z2"), plan: "overview" }] } };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], item(ids.z1, "EF Z1", 5, [prevailing]), ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Doublon entre zones" });
+    expect(within(section).getByText(/la correction revient à la ligne du plan d’ensemble/)).toBeInTheDocument();
+    expect(within(within(section).getByRole("list", { name: "Lignes des autres zones" })).getByText("Plan d’ensemble")).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: /^Retirer/ })).toBeNull();
+  });
+
+  it("names the plan a vector reading not retained faces, without asking a correction of an excluded line", async () => {
+    const facing: TakeoffRuleResult = { ...duplicate(ids.z2, "Z2"),
+      details: { overlap_m: 1, partner_count: 1, partners: [{ ...partner(ids.z2, "Z2"), plan: "enlarged" }] } };
+    const candidate = { ...item(ids.z1, "EF Z1", 5, [facing]), is_excluded: true, metadata: { vector: { kind: "network" } },
+      exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut." };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], candidate, ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Doublon entre zones" });
+    expect(within(section).getByText(/Longueur commune à comparer/)).toHaveTextContent("1,00 m");
+    expect(within(within(section).getByRole("list", { name: "Lignes des autres zones" })).getByText("Plan agrandi")).toBeInTheDocument();
+    expect(within(section).queryByText(/se retire de cette ligne/)).toBeNull();
+    expect(within(section).queryByRole("button", { name: /^Retirer/ })).toBeNull();
+  });
+
   it("reads the partner of a settled pair back with the saved line", async () => {
     const settledZ1 = { ...ITEMS[1], quantity: 4, rule_results: [resolved(ids.z2, "Z2")], updated_at: "2026-11-04T10:01:00.000Z" };
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.z1, success: true, item: settledZ1 }], succeeded: 1, failed: 0,

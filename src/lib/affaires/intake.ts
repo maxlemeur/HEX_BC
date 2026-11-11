@@ -783,7 +783,7 @@ export function buildAffaireIntakeMissingPieces(
     missingPieces.push({
       code: "missing_dpgf",
       label: "DPGF manquant",
-      severity: "critical",
+      severity: "warning",
     });
   }
 
@@ -791,7 +791,7 @@ export function buildAffaireIntakeMissingPieces(
     missingPieces.push({
       code: "missing_plans",
       label: "Plans manquants",
-      severity: "critical",
+      severity: "warning",
     });
   }
 

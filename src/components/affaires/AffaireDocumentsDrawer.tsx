@@ -4,9 +4,10 @@ import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { RefObject } from "react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
+import type { IntakeUploadFeedbackState } from "./IntakeUploadFeedback";
 import "./AffaireDocumentsDrawer.css";
 
-export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectName, workspace, canManage, onImportDpgf, onOverview, documentScope, returnFocus, initialAddFiles = false }: {
+export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectName, workspace, canManage, onImportDpgf, onOverview, documentScope, returnFocus, initialAddFiles = false, uploadFeedback, uploadRequestId }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
@@ -18,6 +19,8 @@ export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectN
   documentScope: string;
   returnFocus: RefObject<HTMLElement | null>;
   initialAddFiles?: boolean;
+  uploadFeedback: IntakeUploadFeedbackState;
+  uploadRequestId: number;
 }) {
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent side="right" keepMounted finalFocus={returnFocus} className="affaire-documents-drawer">
@@ -25,7 +28,7 @@ export function AffaireDocumentsDrawer({ open, onOpenChange, projectId, projectN
         <SheetTitle>Documents du dossier</SheetTitle>
         <SheetDescription>{projectName}</SheetDescription>
       </SheetHeader>
-      <AffaireDocumentDesk key={documentScope} projectId={projectId} projectName={projectName} workspace={workspace} canManage={canManage} onImportDpgf={onImportDpgf} onOverview={onOverview} initialAddFiles={initialAddFiles} />
+      <AffaireDocumentDesk key={documentScope} projectId={projectId} projectName={projectName} workspace={workspace} canManage={canManage} onImportDpgf={onImportDpgf} onOverview={onOverview} initialAddFiles={initialAddFiles} uploadFeedback={uploadFeedback} uploadRequestId={uploadRequestId} />
     </SheetContent>
   </Sheet>;
 }

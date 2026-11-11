@@ -139,6 +139,18 @@ test("AI confidence stays distinct from human validation in dossier and drawer",
   const received = page.getByRole("table", { name: "Documents reçus", exact: true });
   await expect(received.getByRole("row", { name: /Confidence-IA.txt/ }).getByText("99 %", { exact: true })).toBeVisible();
   await expect(received.getByRole("row", { name: /Confidence-format.txt/ }).getByText("99 %", { exact: true })).toHaveCount(0);
+  const inlineAiRow = received.getByRole("row", { name: /Confidence-IA.txt/ });
+  const inlineAiCategory = inlineAiRow.getByRole("combobox", { name: `Catégorie de ${documents[0].name}`, exact: true });
+  await expect(inlineAiCategory).toHaveValue("dpgf");
+  await inlineAiCategory.selectOption({ value: "cctp" });
+  await expect(inlineAiRow.getByText("99 %", { exact: true })).toHaveCount(0);
+  const unchanged = await client.from("affaire_intake_documents").select("document_kind,classification_source")
+    .eq("id", documents[0].id).single();
+  expect(unchanged.data).toEqual({ document_kind: "dpgf", classification_source: "ai" });
+  await inlineAiCategory.selectOption({ value: "a_classer" });
+  await expect(inlineAiRow.getByRole("button", { name: `Valider la classification de ${documents[0].name}`, exact: true })).toBeDisabled();
+  await inlineAiCategory.selectOption({ value: "dpgf" });
+  await expect(inlineAiRow.getByText("99 %", { exact: true })).toBeVisible();
   await page.app.screenshot("confidence-dossier-desktop");
   await page.browser.setViewport({ width: 390, height: 844 });
   await expect(received.getByRole("row", { name: /Confidence-IA.txt/ }).getByText("99 %", { exact: true })).toBeVisible();
@@ -164,15 +176,43 @@ test("AI confidence stays distinct from human validation in dossier and drawer",
   await expect(drawer.getByRole("button", { name: documents[0].name, exact: true })).toHaveCount(0);
   await expect(drawer.getByRole("button", { name: documents[2].name, exact: true })).toBeVisible();
   await drawer.getByRole("button", { name: /^À vérifier/ }).click();
+  await aiCategory.selectOption({ value: "cctp" });
   await expect(aiRow.getByRole("button", { name: "Valider", exact: true })).toBeVisible();
   await aiRow.getByRole("button", { name: "Valider", exact: true }).click();
   await expect(drawer.getByText("1 document enregistré.", { exact: true })).toBeVisible();
-  const stored = await client.from("affaire_intake_documents").select("classification_source,classified_by,confidence")
+  const stored = await client.from("affaire_intake_documents").select("document_kind,classification_source,classified_by,confidence")
     .eq("id", documents[0].id).single();
-  expect(stored.data).toEqual({ classification_source: "manual", classified_by: userId, confidence: 1 });
-  await page.reload();
+  expect(stored.data).toEqual({ document_kind: "cctp", classification_source: "manual", classified_by: userId, confidence: 1 });
   await drawer.getByRole("button", { name: /^Validés/ }).click();
   await expect(aiRow.getByText("Validé", { exact: true })).toBeVisible();
   await expect(aiRow.getByText("99 %", { exact: true })).toHaveCount(0);
   await expect(drawer.getByRole("button", { name: /^Validés/ })).toContainText("2");
+  await drawer.getByRole("button", { name: "Fermer", exact: true }).click();
+  await expect(inlineAiCategory).toHaveValue("cctp");
+  await page.goto(`/dashboard/affaires/${projectId}?view=dossier`);
+  const inlineRow = received.getByRole("row", { name: /Confidence-format.txt/ });
+  const inlineCategory = inlineRow.getByRole("combobox", { name: `Catégorie de ${documents[1].name}`, exact: true });
+  const original = await client.from("affaire_intake_documents").select("storage_path,file_name,size_bytes,extracted_metadata")
+    .eq("id", documents[1].id).single();
+  expect(original.error).toBeNull();
+  await inlineCategory.selectOption({ value: "annexes" });
+  const beforeConfirmation = await client.from("affaire_intake_documents").select("document_kind,classification_source")
+    .eq("id", documents[1].id).single();
+  expect(beforeConfirmation.data).toEqual({ document_kind: "cctp", classification_source: "heuristic" });
+  await inlineRow.getByRole("button", { name: `Valider la classification de ${documents[1].name}`, exact: true }).click();
+  await expect(inlineRow.getByText("Validé", { exact: true })).toBeVisible();
+  await expect(inlineCategory).toHaveValue("annexes");
+  const savedInline = await client.from("affaire_intake_documents")
+    .select("document_kind,classification_source,classified_by,confidence,storage_path,file_name,size_bytes,extracted_metadata")
+    .eq("id", documents[1].id).single();
+  expect(savedInline.data).toEqual({ ...original.data, document_kind: "annexes", classification_source: "manual", classified_by: userId, confidence: 1 });
+  await page.reload();
+  await expect(inlineCategory).toHaveValue("annexes");
+  await expect(inlineRow.getByText("Validé", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Documents du dossier", exact: true })).not.toBeVisible();
+  await page.app.screenshot("inline-classification-saved-desktop");
+  await page.browser.setViewport({ width: 390, height: 844 });
+  await expect(inlineCategory).toBeVisible();
+  expect(await page.browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.app.screenshot("inline-classification-saved-mobile");
 });
