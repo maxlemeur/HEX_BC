@@ -8,7 +8,9 @@ import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 
 import { LAB_DATASET_LAYOUT } from "@/lib/takeoff/lab/contracts";
-import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
+import {
+  compileChatGptRoutes, createLocalChatGptOwner, prepareChatGptServerWorkspace, type TAKEOFF_JOURNEY_WAVES,
+} from "./chatgpt-server-support";
 import { buildLabVectorPlanPdf } from "./lab-vector-plan-fixture";
 
 // The development server of the ChatGPT local journeys, shared by chatgpt-local-takeoff.e2e.ts and
@@ -86,11 +88,13 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
 /**
  * One journey file's development server: `start` in its beforeAll, `stop` in its afterAll. Call it once per journey
  * module: the state lives in the returned object, so a module the runner imports again starts from nothing.
- * `workflow` names the journey file, whose routes the readiness compiles (warmChatGptServer).
+ * `compileTakeoffRoutes` takes one more beforeAll per wave of TAKEOFF_JOURNEY_WAVES, after `start`: every hook has
+ * its own time limit, and one hook cannot hold them all (compileChatGptRoutes).
  */
-export function chatGptLocalServer(workflow: "decisions" | "takeoff") {
+export function chatGptLocalServer() {
   let localServer: ChildProcess | undefined;
   let localOrigin: string | undefined;
+  let ownerEmail: string | undefined;
   let transportLog: string | undefined;
   let serverWorkspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
   const diagnostics: string[] = [];
@@ -113,7 +117,7 @@ export function chatGptLocalServer(workflow: "decisions" | "takeoff") {
     const port = address.port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     const origin = localOrigin = `http://127.0.0.1:${port}`;
-    const email = (await createLocalChatGptOwner()).email;
+    const email = ownerEmail = (await createLocalChatGptOwner()).email;
     const workspace = serverWorkspace = await prepareChatGptServerWorkspace();
     const artifacts = path.resolve(".e2e/army/critical/artifacts", workspace.id);
     const log = transportLog = path.join(artifacts, "chatgpt-transport.jsonl");
@@ -150,8 +154,14 @@ export function chatGptLocalServer(workflow: "decisions" | "takeoff") {
       return fetch(`${origin}/favicon.ico`).then((response) => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
-    await warmChatGptServer(origin, email, workflow);
+    await compileChatGptRoutes(origin, email, "journeys");
     return { origin, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
+  }
+
+  /** Compiles one wave of the pages and API routes the takeoff journeys use, on the started server. */
+  async function compileTakeoffRoutes(wave: (typeof TAKEOFF_JOURNEY_WAVES)[number]) {
+    if (!localOrigin || !ownerEmail) throw new Error("Start the ChatGPT local server before compiling its routes.");
+    await compileChatGptRoutes(localOrigin, ownerEmail, wave);
   }
 
   /** Stops the server, then removes the temporary ChatGPT profile a test left, if any, and keeps the server's timings. */
@@ -173,5 +183,5 @@ export function chatGptLocalServer(workflow: "decisions" | "takeoff") {
     await serverWorkspace?.cleanup();
   }
 
-  return { start, stop };
+  return { start, compileTakeoffRoutes, stop };
 }

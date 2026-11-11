@@ -16,6 +16,7 @@ import {
   chatGptLocalServer, isAbsorbedClientAbort, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
+import { TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
@@ -25,7 +26,7 @@ import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the uploaded takeoff leaves the profile that the PDF takeoff, the
 // private business witness and V3C08 reuse, which V3C08 removes.
-const server = chatGptLocalServer("takeoff");
+const server = chatGptLocalServer();
 let localOrigin: string;
 let diagnostics: readonly string[] = [];
 let fixtureStore: string | undefined;
@@ -48,6 +49,8 @@ async function preparePlanFixture(unsetPreferences = false) {
 beforeAll(async () => {
   ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, workspace: serverWorkspace, diagnostics } = await server.start());
 });
+// One hook per wave: each has its own time limit, and the start with every compile does not fit in one.
+for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
 
 afterAll(() => server.stop(fixtureStore));
 
