@@ -34,6 +34,8 @@ import {
   type EstimateStatusReason,
 } from "@/lib/estimates/status-reason";
 import { V3StatusReasonDialog } from "@/components/estimates/v3/V3StatusReasonDialog";
+import { V3OfferReserveDialog } from "@/components/estimates/v3/V3OfferReserveDialog";
+import { readOfferReserve, type EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
 /**
@@ -49,6 +51,14 @@ export type EstimateV3GridModel = {
   /** Lignes calculées par le moteur pur pour l'aperçu courant (vide si l'aperçu est refusé). */
   lines: EstimateV3LineIndex;
   allowedTaxRatesBp: readonly number[];
+  /**
+   * TI-682, lot C, PR 4: the written reserve of a « Non chiffrée » line. `canDeclare`: a tenant administrator who may
+   * write this draft; `save` writes it through the administration route (null withdraws it). Absent: read only.
+   */
+  offerReserve?: {
+    canDeclare: boolean;
+    save: (itemId: string, choice: EstimateOfferChoiceInput | null) => Promise<void>;
+  };
 };
 
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);
@@ -68,10 +78,17 @@ type StatusReasonRequest = {
 };
 const StatusReasonRequestContext = createContext<((request: StatusReasonRequest) => void) | null>(null);
 
+/** TI-682, lot C, PR 4 : la réserve écrite d'une ligne, ouverte au niveau de la grille pour la même raison. */
+type OfferReserveRequest = { itemId: string; title: string; choice: unknown; canDeclare: boolean };
+const OfferReserveRequestContext = createContext<((request: OfferReserveRequest) => void) | null>(null);
+
 export function EstimateV3GridProvider({ value, children }: { value: EstimateV3GridModel | null; children: ReactNode }) {
   const [statusReasonRequest, setStatusReasonRequest] = useState<StatusReasonRequest | null>(null);
+  const [offerReserveRequest, setOfferReserveRequest] = useState<OfferReserveRequest | null>(null);
+  const saveOfferReserve = value?.offerReserve?.save;
   return (
     <EstimateV3GridContext.Provider value={value}>
+      <OfferReserveRequestContext.Provider value={setOfferReserveRequest}>
       <StatusReasonRequestContext.Provider value={setStatusReasonRequest}>
         {children}
         {value ? (
@@ -90,9 +107,20 @@ export function EstimateV3GridProvider({ value, children }: { value: EstimateV3G
                 setStatusReasonRequest(null);
               }}
             />
+            <V3OfferReserveDialog
+              line={offerReserveRequest}
+              canDeclare={Boolean(offerReserveRequest?.canDeclare && saveOfferReserve)}
+              onClose={() => setOfferReserveRequest(null)}
+              onSave={async (choice) => {
+                if (!offerReserveRequest || !saveOfferReserve) return;
+                await saveOfferReserve(offerReserveRequest.itemId, choice);
+                setOfferReserveRequest(null);
+              }}
+            />
           </>
         ) : null}
       </StatusReasonRequestContext.Provider>
+      </OfferReserveRequestContext.Provider>
     </EstimateV3GridContext.Provider>
   );
 }
@@ -373,6 +401,11 @@ export function V3LineStateControls({
   });
   const showsReason = isExcludedAfterNotPriced(item);
   const missingReason = requiresStatusReason(item);
+  // TI-682, lot C, PR 4 : réserve écrite d'une ligne « Non chiffrée » (déclarée par un administrateur, lue par tous).
+  const requestOfferReserve = useContext(OfferReserveRequestContext);
+  const canDeclareReserve = Boolean(useEstimateV3Grid()?.offerReserve?.canDeclare) && !isReadOnly;
+  const reserve = readOfferReserve(item);
+  const showsReserve = status === "not_priced" && (reserve !== null || canDeclareReserve);
   return (
     <span className="inline-flex shrink-0 items-center gap-1" data-testid="estimate-v3-line-state">
       <select
@@ -403,6 +436,22 @@ export function V3LineStateControls({
           onClick={() => openReason(status)}
         >
           {missingReason ? "Motif à saisir" : "Motif"}
+        </button>
+      ) : null}
+      {showsReserve ? (
+        <button
+          type="button"
+          className={reserve
+            ? "shrink-0 whitespace-nowrap rounded border border-info-border bg-info-subtle px-1.5 text-xs text-info"
+            : "shrink-0 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground hover:text-foreground"}
+          aria-label={`${reserve ? "Réserve déclarée" : "Déclarer une réserve"} pour ${lineLabel(item)}`}
+          title={reserve
+            ? "Réserve écrite dans l'offre : la ligne part « Non chiffrée », les précisions le disent"
+            : "Déclarer une réserve écrite : la ligne part « Non chiffrée » et l'offre le dit (administrateur)"}
+          onClick={() => requestOfferReserve?.({ itemId: item.id, title: lineLabel(item), choice: item.offer_choice ?? null,
+            canDeclare: canDeclareReserve })}
+        >
+          {reserve ? "Réservée" : "Réserve"}
         </button>
       ) : null}
       <select

@@ -70,7 +70,11 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //         entrées de l'application) elle imprime la mise en page par défaut, et avec des paramètres (« Mise en page /
 //         imprimer ») un autre niveau de détail, mode de prix, numérotation, sous-total ou densité que le PDF stocké et
 //         le portail, sous le badge du sceau valide.
-// V3M01, V3M03, V3M04, V3M05 et V3M06 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
+// Ajouté par TI-682, lot C, PR 4 (réserve écrite dans l'offre) :
+//  V3M-19 Une ligne « Non chiffrée » part sans réserve, ou avec une réserve aux précisions vides (même forcée par un
+//         administrateur) ; la base, le motif ou la précision d'une réserve atteignent le PDF reçu ou le portail ;
+//         l'événement d'envoi ne l'enregistre pas ; une duplication la recopie.
+// V3M01, V3M03, V3M04, V3M05, V3M06 et V3M07 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
 // exact par fichier.
@@ -819,6 +823,169 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         actual: layouts });
       expect(plain.gross).toMatch(/\d €$/u);
       expect(layouts).toEqual(expectedLayouts);
+    });
+
+  // TI-682, lot C, PR 4 (D10, D25, D28) — V3M-19 : une ligne « Non chiffrée » part comme réserve écrite, ou ne part pas.
+  // Défaillances observables : la ligne non classée laisse partir l'offre ; un administrateur force l'envoi d'une
+  // réserve aux précisions vides ; le PDF reçu ou le portail montrent la base, le motif ou la précision de la réserve,
+  // ou ne montrent ni « Non chiffrée » ni le paragraphe des précisions ; l'événement d'envoi n'enregistre pas la
+  // réserve ; une duplication recopie la réserve au lieu de ramener la ligne à classer.
+  offerTest("V3M07 a « Non chiffrée » line leaves only as a written reserve an administrator declared, the limits written: the send is refused without override until then; the PDF received and the portal show « Non chiffrée » and the limits, never the basis or the reason; the sent event records the reserve; a duplicate brings the line back to classify",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
+      const { app, screen, browser, army } = ui;
+      const fixture = emissionFixture();
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m07-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const ids = await createV3(browser, army, record, "V3M07");
+      const pricedTitle = `${army.runPrefix} V3M07 tube`;
+      const reservedTitle = `${army.runPrefix} V3M07 réseau enterré`;
+      // Internal words a client must never read (the reserve's basis, reason and note).
+      const NOTE = "Relevé de tranchée à faire, note interne V3M07";
+      const INTERNAL = [NOTE, "Devis privé", "hors marché public", "À chiffrer après relevé", "Réserve écrite"];
+      const PARAGRAPH = "Les prestations suivantes ne sont pas chiffrées dans la présente offre :";
+
+      // Une ligne chiffrée (1 u, PR FO 10,00 €) et une ligne « Non chiffrée », par le lot.
+      expect((await apiRequest(browser, "POST", `/api/estimates/${ids.versionId}/lock`)).status).toBe(201);
+      const empty = await readEstimate(browser, ids.versionId);
+      const section = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", `/api/estimates/${ids.versionId}/items`,
+        { item_type: "section", position: 1, title: `${army.runPrefix} V3M07 lot` }, { "if-match": empty.version.updated_at });
+      expect([section.status, section.body.ok]).toEqual([201, true]);
+      const line = (position: number, title: string, pricingStatus: "priced" | "not_priced") => ({ op: "create", data: {
+        item_type: "line", parent_id: section.body.data.item.id, position, line_nature: "supply_only", title, description: null,
+        unit_code: "u", pricing_status: pricingStatus, quantity: 1, unit_price_ht_cents: 1000, tax_rate_bp: 2000, k_fo: 1,
+        h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, labor_role_id: null, source_provider: "manual" } });
+      const beforeBatch = await readEstimate(browser, ids.versionId);
+      const batch = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${ids.versionId}/batch`,
+        { operation_key: randomUUID(), operations: [line(1, pricedTitle, "priced"), line(2, reservedTitle, "not_priced")] },
+        { "if-match": beforeBatch.version.updated_at });
+      expect([batch.status, batch.body.ok, batch.body.data?.committed]).toEqual([200, true, true]);
+      const seeded = await readEstimate(browser, ids.versionId);
+      const reservedId = seeded.items.find((item) => item.title === reservedTitle)?.id ?? "";
+      await generatePdf(browser, record, "draft", ids.versionId);
+      type Gate = { canSend: boolean; blockingFlags: Array<{ key: string; itemIds?: string[]; item_ids?: string[] }>;
+        warningFlags: Array<{ key: string; itemIds?: string[]; item_ids?: string[] }> };
+      const gateOf = async (versionId: string) => {
+        const read = await apiRequest<Envelope<{ gating: Gate }>>(browser, "GET", `/api/estimates/${versionId}/gating`);
+        expect(read.status).toBe(200);
+        const flags = (list: Gate["blockingFlags"]) => Object.fromEntries(list.map((flag) => [flag.key, flag.itemIds ?? flag.item_ids ?? []]));
+        return { canSend: read.body.data.gating.canSend, blocking: flags(read.body.data.gating.blockingFlags),
+          warning: flags(read.body.data.gating.warningFlags) };
+      };
+      const unclassified = await gateOf(ids.versionId);
+      await record("gate-unclassified", { versionId: ids.versionId, reservedId, actual: unclassified });
+      expect(unclassified).toEqual({ canSend: false, blocking: { not_priced_unclassified: [reservedId] }, warning: {} });
+      expect((await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
+
+      // L'administrateur (propriétaire du tenant dédié) déclare la réserve depuis la ligne, avertissement affiché.
+      const editorReady = async () => {
+        await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+        await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+        await waitForDraftLease({ app, screen, browser });
+      };
+      await editorReady();
+      await screen.getByRole("button", `Déclarer une réserve pour ${reservedTitle}`, { exact: true }).click();
+      const reserveDialog = screen.getByRole("dialog", "Réserve écrite dans l'offre", { exact: true });
+      await expect(reserveDialog).toBeVisible({ timeout: 30_000 });
+      const warned = normalizeQuotes(await reserveDialog.textContent()).includes("une réserve peut rendre l'offre irrégulière");
+      await new Promise((resolve) => setTimeout(resolve, 500)); // the dialog's opening transition, for a readable capture
+      const dialogScreenshot = await app.screenshot("v3m07-reserve-dialog");
+      await reserveDialog.getByRole("radio", "Devis privé (hors marché public)", { exact: true }).click();
+      await reserveDialog.getByRole("combobox", "Motif", { exact: true }).selectOption({ value: "pending_survey" });
+      await reserveDialog.getByRole("textbox", /Précision/).fill(NOTE);
+      await reserveDialog.getByRole("button", "Déclarer la réserve", { exact: true }).click();
+      await expect(reserveDialog).toBeHidden({ timeout: 30_000 });
+      await expect(screen.getByRole("button", `Réserve déclarée pour ${reservedTitle}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+      const declared = await readEstimate(browser, ids.versionId);
+      const choice = declared.items.find((item) => item.id === reservedId)?.offer_choice as Record<string, unknown> | null | undefined;
+      const declaredView = { warned, status: declared.items.find((item) => item.id === reservedId)?.pricing_status,
+        choice: choice ? { kind: choice.kind, basis: choice.basis, code: choice.code, note: choice.note, by: choice.decided_by } : null };
+      await record("declared", { versionId: ids.versionId, actual: declaredView, screenshots: [dialogScreenshot] });
+      expect(declaredView).toEqual({ warned: true, status: "not_priced", choice: { kind: "reserve", basis: "private_estimate",
+        code: "pending_survey", note: NOTE, by: fixture.owner.userId } });
+
+      // La fenêtre d'envoi : la réserve sort des lignes à classer, mais les précisions vides bloquent, sans forçage.
+      const send = screen.getByTestId("estimate-page-toolbar-send-button");
+      await expect(send).toBeEnabled({ timeout: 30_000 });
+      await send.click();
+      const sendWindow = screen.getByRole("dialog", "Vérification avant envoi", { exact: true });
+      await expect(sendWindow).toBeVisible({ timeout: 30_000 });
+      await expect(sendWindow.getByText("Précisions et limites de prestation à rédiger", { exact: true })).toBeVisible({ timeout: 30_000 });
+      const windowText = normalizeQuotes(await sendWindow.textContent());
+      const blockedView = {
+        reserveListed: windowText.includes(reservedTitle) && windowText.includes(`Devis privé (hors marché public) — À chiffrer après relevé : ${NOTE}`),
+        override: await sendWindow.getByRole("button", "Forcer l'envoi", { exact: true }).count(),
+        confirm: await sendWindow.getByRole("button", "Envoyer", { exact: true }).isEnabled(),
+      };
+      const blockedScreenshot = await app.screenshot("v3m07-send-window-limits-required");
+      const blockedGate = await gateOf(ids.versionId);
+      await record("send-window-blocked", { versionId: ids.versionId, gate: blockedGate, actual: blockedView, screenshots: [blockedScreenshot] });
+      expect(blockedView).toEqual({ reserveListed: true, override: 0, confirm: false });
+      expect(blockedGate).toEqual({ canSend: false, blocking: { offer_limits_required: [reservedId] },
+        warning: { offer_reserve_declared: [reservedId] } });
+
+      // Ni l'administrateur par la route d'émission forcée : refus nommé, la version reste un brouillon.
+      await sendWindow.getByRole("button", "Annuler", { exact: true }).click();
+      await expect(sendWindow).toBeHidden({ timeout: 30_000 });
+      const beforeForce = await readEstimate(browser, ids.versionId);
+      const forced = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${ids.versionId}/status`,
+        { status: "sent", force: true }, { "if-match": beforeForce.version.updated_at });
+      const afterForce = await readEstimate(browser, ids.versionId);
+      const forceView = { status: forced.status, code: forced.body.error?.code ?? null, version: afterForce.version.status };
+      await record("forced-send-refused", { versionId: ids.versionId, actual: forceView });
+      expect(forceView).toEqual({ status: 400, code: "ESTIMATE_GATING_NOT_FORCEABLE", version: "draft" });
+
+      // Le paragraphe des réserves s'insère dans les précisions depuis la fenêtre d'envoi, éditable, puis s'enregistre.
+      await editorReady();
+      await screen.getByTestId("estimate-page-toolbar-send-button").click();
+      await expect(sendWindow).toBeVisible({ timeout: 30_000 });
+      await sendWindow.getByRole("button", "Rédiger les précisions", { exact: true }).click();
+      await expect(sendWindow).toBeHidden({ timeout: 30_000 });
+      await screen.getByRole("button", "Insérer les réserves dans les précisions", { exact: true }).click();
+      const limits = screen.getByRole("textbox", "Précisions et exclusions particulières", { exact: true });
+      await expect(limits).toHaveValue(`${PARAGRAPH}\n- ${reservedTitle}`);
+      await screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).click();
+      await expect.poll(async () => (await readEstimate(browser, ids.versionId)).version.exclusions ?? null, { timeout: 60_000 })
+        .toBe(`${PARAGRAPH}\n- ${reservedTitle}`);
+      const written = await gateOf(ids.versionId);
+      await record("gate-limits-written", { versionId: ids.versionId, actual: written });
+      expect(written).toEqual({ canSend: true, blocking: {}, warning: { offer_reserve_declared: [reservedId] } });
+
+      // Émission par l'email (collecteur sentinelle) : le PDF reçu et le portail disent « Non chiffrée » et les précisions.
+      const delivered = await sendOffer(ui, record, "v3m07", ids.versionId);
+      const sent = await readEstimate(browser, ids.versionId);
+      const pdf = normalizeQuotes((await pdfText(delivered.pdf)).text);
+      const clientView = (text: string) => ({ line: text.includes(reservedTitle), status: text.includes("Non chiffrée"),
+        limitsTitle: text.includes("Précisions et limites de prestation"), paragraph: text.includes(normalizeQuotes(PARAGRAPH)),
+        internal: INTERNAL.filter((word) => text.includes(normalizeQuotes(word))) });
+      const pdfView = clientView(pdf);
+      const portal = clientView(normalizeQuotes(await openCollectedPortal(ui, delivered.portalUrl)));
+      const portalScreenshot = await app.screenshot("v3m07-portal");
+      await record("client-copies", { versionId: ids.versionId, status: sent.version.status, pdf: pdfView, portal,
+        screenshots: [portalScreenshot] });
+      const expectedClient = { line: true, status: true, limitsTitle: true, paragraph: true, internal: [] };
+      expect({ status: sent.version.status, pdf: pdfView, portal }).toEqual({ status: "sent", pdf: expectedClient, portal: expectedClient });
+
+      // L'événement d'envoi enregistre la réserve ; une duplication ramène la ligne « Non chiffrée » à classer.
+      await accountLogin(ui);
+      const events = await apiRequest<Envelope<{ events: Array<{ event_type: string; metadata: Record<string, unknown> }> }>>(
+        browser, "GET", `/api/estimates/${ids.versionId}/events`);
+      const sentEvents = (events.body.data?.events ?? []).filter((event) => event.event_type === "sent");
+      const recorded = sentEvents.map((event) => ((event.metadata.offer_choices ?? []) as Array<Record<string, unknown>>)
+        .map((entry) => ({ item: entry.item_id, kind: entry.kind, basis: entry.basis, code: entry.code, note: entry.note, by: entry.decided_by })));
+      await record("sent-event", { versionId: ids.versionId, status: events.status, actual: recorded });
+      expect(recorded).toEqual([[{ item: reservedId, kind: "reserve", basis: "private_estimate", code: "pending_survey", note: NOTE,
+        by: fixture.owner.userId }]]);
+      const duplicated = await apiRequest<Envelope<{ version_id: string }>>(browser, "POST", `/api/estimates/${ids.versionId}/duplicate`);
+      expect(duplicated.status).toBe(201);
+      const copy = await readEstimate(browser, duplicated.body.data.version_id);
+      const copied = copy.items.find((item) => item.title === reservedTitle);
+      const copyGate = await gateOf(duplicated.body.data.version_id);
+      const copyView = { status: copied?.pricing_status ?? null, choice: copied?.offer_choice ?? null,
+        toClassify: copyGate.blocking.not_priced_unclassified?.includes(copied?.id ?? "") ?? false,
+        reserve: copyGate.warning.offer_reserve_declared ?? [] };
+      await record("duplicate", { sourceVersionId: ids.versionId, versionId: duplicated.body.data.version_id, gate: copyGate, actual: copyView });
+      expect(copyView).toEqual({ status: "not_priced", choice: null, toClassify: true, reserve: [] });
     });
 }
 

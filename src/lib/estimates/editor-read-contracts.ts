@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
+import { estimateOfferChoiceSchema } from "@/lib/estimates/offer-choice";
 import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 
 import { ESTIMATE_STATUS_VALUES } from "@/lib/estimates/status";
@@ -95,6 +96,9 @@ export const estimateEditorItemSchema = z.object({
   unit_code: z.string().nullable(), pricing_status: z.enum(ESTIMATE_LINE_PRICING_STATUSES),
   // TI-682, lot C: internal; the editor and the send window read them, the client never does.
   status_reason: estimateStatusReasonSchema.nullable().default(null), was_not_priced: z.boolean().default(false),
+  // TI-682, lot C, PR 4: the written reserve of a « Non chiffrée » line, internal (its basis never reaches the client).
+  // Unreadable (another kind, a later application): no reserve shown, never a refused read.
+  offer_choice: estimateOfferChoiceSchema.nullable().default(null).catch(null),
   line_total_ht_cents: integer.nullable(), line_tax_cents: integer.nullable(), line_total_ttc_cents: integer.nullable(),
   snapshot_pu_ht_cents: integer.nullable(), snapshot_gross_ht_cents: integer.nullable(),
   snapshot_gross_fo_ht_cents: integer.nullable(), snapshot_fo_ht_cents: integer.nullable(),

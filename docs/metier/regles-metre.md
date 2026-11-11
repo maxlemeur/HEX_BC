@@ -670,8 +670,9 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
     métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient
     (`takeoff-provision-exports.test.ts`, `dpgf-export.test.ts`, TKF02).
-  - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
-    `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+  - Le marqueur ne porte aucun choix. La réserve écrite dans l'offre (TI-682, lot C) est une colonne de la ligne,
+    `estimate_items.offer_choice`, déclarée par un administrateur sur une ligne « Non chiffrée » (voir
+    [cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)) ; une ligne marquée reste une provision interne.
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
   `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
   règle, sur les jobs appliqués de la période (section « Forçages par règle ») :

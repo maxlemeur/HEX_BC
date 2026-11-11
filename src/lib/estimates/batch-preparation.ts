@@ -324,7 +324,7 @@ export async function prepareEstimateBatch(input: {
           source_file_name: data.source_file_name ?? null, source_page: data.source_page ?? null,
           source_metadata: {}, snapshot_pu_ht_cents: null, snapshot_fo_ht_cents: null,
           snapshot_mo_ht_cents: null, snapshot_mo_atelier_ht_cents: null, snapshot_mo_chantier_ht_cents: null,
-          status_reason: null, was_not_priced: false,
+          status_reason: null, was_not_priced: false, offer_choice: null,
         };
         if (data.item_type === "line") Object.assign(item, {
           ...data, id: item.id, parent_id: parentId, position, title: item.title,

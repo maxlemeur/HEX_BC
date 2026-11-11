@@ -9,6 +9,7 @@ import {
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { reconcileCreatedItemWithLocalDraft } from "@/lib/estimates/editor-optimistic";
+import { applyOfferChoiceRules } from "@/lib/estimates/offer-choice";
 import type { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
 import { mergeReloadedEditorSettings } from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
@@ -688,7 +689,8 @@ export class EstimateEditorDocument {
     const updatesById = new Map(entries.map(({ id, updates }) => [id, updates]));
     const apply = (items: EditorEstimateItem[]) => items.map((item) => {
       const updates = updatesById.get(item.id);
-      return updates ? { ...item, ...updates } as EditorEstimateItem : item;
+      // TI-682, lot C, PR 4: a saved status that no longer fits the written reserve cleared it in the database.
+      return updates ? applyOfferChoiceRules(item, { ...item, ...updates } as EditorEstimateItem) : item;
     });
     this.snapshot = { ...this.snapshot, confirmedItems: apply(this.snapshot.confirmedItems) };
     this.projectedItems = apply(this.projectedItems);

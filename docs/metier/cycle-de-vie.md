@@ -80,8 +80,38 @@ On la chiffre, ou on lui donne le statut que le client lira : « Inclus »,
 l'envoi est refusé ; aucun réglage du tenant ne rétrograde ce blocage, et un
 administrateur ne peut pas le forcer. Une ligne « chiffrée » sans prix ni
 heures, qui partirait à 0 €, bloque aussi l'envoi par défaut : pour offrir une
-prestation, on lui donne le statut « Inclus ». La réserve écrite dans l'offre,
-rattachée à une ligne, reste à construire.
+prestation, on lui donne le statut « Inclus ».
+
+Réserve écrite dans l'offre (TI-682, lot C) : une ligne qu'on ne peut pas
+chiffrer aujourd'hui part « Non chiffrée » si l'offre le dit par écrit. Un
+administrateur du tenant déclare la réserve sur la ligne (bouton « Réserve »),
+avec ce qui la fonde : devis privé, ou quantités indicatives selon le règlement
+de la consultation (la précision donne alors la référence de l'article), et un
+motif d'une liste provisoire (quantité impossible à établir sur les pièces, à
+chiffrer après relevé, question posée à l'acheteur, autre). L'outil enregistre
+cette base, il ne la vérifie pas : aucun type de marché n'existe dans l'outil, et
+un avertissement le rappelle au moment du choix (en marché public à prix global
+et forfaitaire, une réserve peut rendre l'offre irrégulière). La ligne réservée
+sort de « Lignes non chiffrées à classer » et passe dans « Réserves écrites dans
+l'offre », un avertissement qui liste chaque réserve et sa base. Dès qu'une
+réserve existe, le texte « Précisions et limites de prestation » ne peut pas
+être vide (blancs et caractères invisibles ne comptent pas) :
+`offer_limits_required` bloque, aucun réglage du tenant ne le rétrograde, aucun
+administrateur ne le force, pour l'émission manuelle comme pour l'email. Un
+bouton insère dans ce texte un paragraphe éditable qui liste les lignes
+réservées ; l'envoi vérifie que le texte n'est pas vide, pas qu'il les nomme. Le
+client lit « Non chiffrée » sur la ligne et ce texte, déjà portés par la copie
+client et scellés : la base, le motif et la précision n'entrent ni dans le
+contrat client, ni dans le sceau, ni dans le PDF, le portail, les classeurs
+standard, DPGF et BDC ; seul le CSV de la v3 les montre (colonne « Réserve dans
+l'offre »). La réserve s'écrit par une route d'administration
+(`set_estimate_line_offer_choice`), jamais par le lot ni l'API de données ;
+elle s'efface quand la ligne quitte « Non chiffrée » (revenir à « Non
+chiffrée » ne la rétablit pas) ; une version envoyée la fige ; l'événement
+« sent » de la version enregistre les réserves (base, motif, auteur, heure) ;
+une duplication de version ne la recopie pas : chaque offre déclare les
+siennes. Source : [offer-choice.ts](../../src/lib/estimates/offer-choice.ts),
+migration `20261111180947_estimate_line_offer_choice.sql`.
 
 Motif interne d'une exclusion (TI-682, lot C) : une ligne qui a été « Non
 chiffrée » dans la version (`was_not_priced`, posé par la base et collant,

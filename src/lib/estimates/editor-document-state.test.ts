@@ -656,3 +656,44 @@ describe("operation-owned optimistic changes", () => {
     expect(document.getSnapshot().version?.updated_at).toBe(newer.updated_at);
   });
 });
+
+// TI-682, lot C, PR 4: the database clears the written reserve of a line whose status leaves « Non chiffrée »; the
+// editor never sends that column, so it clears its own copy when the save of such a status is acknowledged.
+describe("the written reserve follows the saved status", () => {
+  const RESERVE = { kind: "reserve" as const, basis: "private_estimate" as const, code: "pending_survey" as const, note: null,
+    decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T18:02:23.123456+00:00" };
+  function reserved() {
+    const fixture = createEstimateEditorResponseFixture();
+    const response = { ...fixture, version: { ...fixture.version, calc_engine_version: 3 },
+      items: fixture.items.map((item) => item.item_type === "line"
+        ? { ...item, pricing_status: "not_priced", was_not_priced: true, offer_choice: RESERVE } : item) };
+    const read = prepareEstimateEditorRead(parseEstimateEditorData(response, response.version.id), false);
+    const document = new EstimateEditorDocument({ actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      tenantId: read.confirmed.version.tenant_id, versionId: read.confirmed.version.id });
+    document.acceptRead(read);
+    return { document, id: read.confirmed.items.find((item) => item.item_type === "line")!.id };
+  }
+  const line = (items: readonly { id: string; offer_choice?: unknown }[], id: string) => items.find((item) => item.id === id)!;
+
+  it("clears the reserve once a status leaving « Non chiffrée » is saved, and keeps it through any other save", () => {
+    const { document, id } = reserved();
+    document.enqueueItem(id, { title: "Renommée" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toEqual(RESERVE);
+    document.enqueueItem(id, { pricing_status: "priced" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toBeNull();
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+    document.enqueueItem(id, { pricing_status: "not_priced" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+  });
+
+  it("takes the reserve an administrator declared, acknowledged by its route", () => {
+    const { document, id } = reserved();
+    document.acknowledgeItems([{ id, updates: { offer_choice: null } }]);
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+    document.acknowledgeItems([{ id, updates: { offer_choice: RESERVE } }]);
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toEqual(RESERVE);
+  });
+});

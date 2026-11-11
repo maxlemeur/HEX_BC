@@ -136,7 +136,7 @@ function createItem(
     unit_price_ht_cents: 1000,
     tax_rate_bp: 2000,
     k_fo: 1,
-    fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false,
+    fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false, offer_choice: null,
     h_mo: 0,
     h_mo_majoration: 1,
     k_mo: 1,

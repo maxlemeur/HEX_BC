@@ -1412,12 +1412,12 @@ armyTest("V3E23 a « Non chiffrée » v3 line classified « Hors lot » asks its
     const header = (rows[0] ?? []).map(cell => String(cell));
     const reasonOf = (lineTitle: string) =>
       rows.find(row => row[header.indexOf("Désignation")] === lineTitle)?.[header.indexOf("Motif interne")] ?? null;
-    const csvView = { status: csv.status, last: header.slice(-2), reasons: [reasonOf(title("P")), reasonOf(title("N"))] };
+    const csvView = { status: csv.status, last: header.slice(-3), reasons: [reasonOf(title("P")), reasonOf(title("N"))] };
     const printed = await printText(app, screen, browser, draft.versionId);
     const printView = { line: printed.includes(title("N")), status: printed.includes("Hors lot"), note: printed.includes(note),
       label: printed.includes("Autre lot ou corps d'état") };
     await record("v3e23-outputs", { versionId: draft.versionId, csv: csvView, print: printView, nativeDialogs: dialogs });
-    expect(csvView).toEqual({ status: 200, last: ["Provision métré", "Motif interne"],
+    expect(csvView).toEqual({ status: 200, last: ["Provision métré", "Motif interne", "Réserve dans l'offre"],
       reasons: ["", `Autre lot ou corps d'état : ${note}`] });
     expect(printView, "the client's print shows the line and its status, never its internal reason")
       .toEqual({ line: true, status: true, note: false, label: false });

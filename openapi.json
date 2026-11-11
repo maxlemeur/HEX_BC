@@ -5395,6 +5395,253 @@
         }
       }
     },
+    "/api/estimates/{versionId}/items/{itemId}/offer-choice": {
+      "put": {
+        "tags": [
+          "Estimate Items"
+        ],
+        "summary": "Déclarer la réserve écrite d'une ligne",
+        "description": "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Identifiant UUID d'une ligne de la version.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateItemIdPathParameter"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence obligatoire (updated_at).",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchRequiredHeaderParameter"
+            }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Réserve écrite dans l'offre d'une ligne « Non chiffrée » (TI-682) : base, motif et précision internes.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateLineOfferChoiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Réserve enregistrée : la ligne et le nouveau jeton de version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEstimateLineOfferChoiceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Réserve invalide, version d'un autre moteur que le 3, ou jeton manquant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ESTIMATE_OFFER_CHOICE_FORBIDDEN (pas administrateur) ou READ_ONLY (version envoyée).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Version ou ligne introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "VERSION_CONFLICT, LOCK_REQUIRED, ou ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (la ligne n'est pas « Non chiffrée »).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Estimate Items"
+        ],
+        "summary": "Retirer la réserve écrite d'une ligne",
+        "description": "TI-682 : un administrateur du tenant retire la réserve d'une ligne d'une v3 brouillon ; la ligne redevient « Non chiffrée » à classer. Mêmes contrôles que la déclaration.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Identifiant UUID d'une ligne de la version.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateItemIdPathParameter"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "description": "Jeton de concurrence obligatoire (updated_at).",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/IfMatchRequiredHeaderParameter"
+            }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Réserve retirée : la ligne et le nouveau jeton de version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEstimateLineOfferChoiceWithdrawnResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ESTIMATE_OFFER_CHOICE_FORBIDDEN ou READ_ONLY.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "VERSION_CONFLICT ou LOCK_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/estimates/{versionId}/items/bulk": {
       "post": {
         "tags": [
@@ -27887,6 +28134,62 @@
                       "default": false,
                       "type": "boolean"
                     },
+                    "offer_choice": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "reserve"
+                            },
+                            "basis": {
+                              "type": "string",
+                              "enum": [
+                                "private_estimate",
+                                "indicative_quantities"
+                              ]
+                            },
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "quantity_not_determinable",
+                                "pending_survey",
+                                "pending_buyer_answer",
+                                "other"
+                              ]
+                            },
+                            "note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decided_by": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                            },
+                            "decided_at": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "basis",
+                            "code",
+                            "note",
+                            "decided_by",
+                            "decided_at"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "line_total_ht_cents": {
                       "anyOf": [
                         {
@@ -28229,6 +28532,7 @@
                     "pricing_status",
                     "status_reason",
                     "was_not_priced",
+                    "offer_choice",
                     "line_total_ht_cents",
                     "line_tax_cents",
                     "line_total_ttc_cents",
@@ -29739,6 +30043,62 @@
                       "default": false,
                       "type": "boolean"
                     },
+                    "offer_choice": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "reserve"
+                            },
+                            "basis": {
+                              "type": "string",
+                              "enum": [
+                                "private_estimate",
+                                "indicative_quantities"
+                              ]
+                            },
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "quantity_not_determinable",
+                                "pending_survey",
+                                "pending_buyer_answer",
+                                "other"
+                              ]
+                            },
+                            "note": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decided_by": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                            },
+                            "decided_at": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "basis",
+                            "code",
+                            "note",
+                            "decided_by",
+                            "decided_at"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "line_total_ht_cents": {
                       "anyOf": [
                         {
@@ -30081,6 +30441,7 @@
                     "pricing_status",
                     "status_reason",
                     "was_not_priced",
+                    "offer_choice",
                     "line_total_ht_cents",
                     "line_tax_cents",
                     "line_total_ttc_cents",
@@ -30775,6 +31136,9 @@
                             "was_not_priced": {
                               "not": {}
                             },
+                            "offer_choice": {
+                              "not": {}
+                            },
                             "labor_role_id": {
                               "anyOf": [
                                 {
@@ -31193,6 +31557,9 @@
                           ]
                         },
                         "was_not_priced": {
+                          "not": {}
+                        },
+                        "offer_choice": {
                           "not": {}
                         },
                         "pu_ht_cents": {
@@ -31854,6 +32221,9 @@
                                         "was_not_priced": {
                                           "not": {}
                                         },
+                                        "offer_choice": {
+                                          "not": {}
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -32219,6 +32589,9 @@
                                       ]
                                     },
                                     "was_not_priced": {
+                                      "not": {}
+                                    },
+                                    "offer_choice": {
                                       "not": {}
                                     },
                                     "pu_ht_cents": {
@@ -33076,6 +33449,9 @@
                                         "was_not_priced": {
                                           "not": {}
                                         },
+                                        "offer_choice": {
+                                          "not": {}
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -33441,6 +33817,9 @@
                                       ]
                                     },
                                     "was_not_priced": {
+                                      "not": {}
+                                    },
+                                    "offer_choice": {
                                       "not": {}
                                     },
                                     "pu_ht_cents": {
@@ -35870,6 +36249,9 @@
               "was_not_priced": {
                 "not": {}
               },
+              "offer_choice": {
+                "not": {}
+              },
               "labor_role_id": {
                 "anyOf": [
                   {
@@ -36448,6 +36830,62 @@
                     "default": false,
                     "type": "boolean"
                   },
+                  "offer_choice": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "reserve"
+                          },
+                          "basis": {
+                            "type": "string",
+                            "enum": [
+                              "private_estimate",
+                              "indicative_quantities"
+                            ]
+                          },
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "quantity_not_determinable",
+                              "pending_survey",
+                              "pending_buyer_answer",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decided_by": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "decided_at": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "basis",
+                          "code",
+                          "note",
+                          "decided_by",
+                          "decided_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "line_total_ht_cents": {
                     "anyOf": [
                       {
@@ -36790,6 +37228,7 @@
                   "pricing_status",
                   "status_reason",
                   "was_not_priced",
+                  "offer_choice",
                   "line_total_ht_cents",
                   "line_tax_cents",
                   "line_total_ttc_cents",
@@ -37104,6 +37543,9 @@
             ]
           },
           "was_not_priced": {
+            "not": {}
+          },
+          "offer_choice": {
             "not": {}
           },
           "pu_ht_cents": {
@@ -37673,6 +38115,62 @@
                     "default": false,
                     "type": "boolean"
                   },
+                  "offer_choice": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "reserve"
+                          },
+                          "basis": {
+                            "type": "string",
+                            "enum": [
+                              "private_estimate",
+                              "indicative_quantities"
+                            ]
+                          },
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "quantity_not_determinable",
+                              "pending_survey",
+                              "pending_buyer_answer",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decided_by": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "decided_at": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "basis",
+                          "code",
+                          "note",
+                          "decided_by",
+                          "decided_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "line_total_ht_cents": {
                     "anyOf": [
                       {
@@ -38015,6 +38513,7 @@
                   "pricing_status",
                   "status_reason",
                   "was_not_priced",
+                  "offer_choice",
                   "line_total_ht_cents",
                   "line_tax_cents",
                   "line_total_ttc_cents",
@@ -38141,6 +38640,334 @@
             "required": [
               "deleted_id",
               "deleted_ids",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "EstimateItemIdPathParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "EstimateLineOfferChoiceRequest": {
+        "description": "Réserve écrite dans l'offre (TI-682) : une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, le texte « Précisions et limites de prestation » le dit. Base, code et note restent internes.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "reserve"
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "private_estimate",
+                  "indicative_quantities"
+                ],
+                "description": "Ce qui fonde la réserve, déclaré par l'administrateur (l'outil ne le vérifie pas)."
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "quantity_not_determinable",
+                  "pending_survey",
+                  "pending_buyer_answer",
+                  "other"
+                ]
+              },
+              "note": {
+                "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée ; obligatoire pour le code other et pour la base indicative_quantities (référence de l'article du règlement de la consultation).",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "basis",
+              "code"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ApiEstimateLineOfferChoiceResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "pricing_status": {
+                    "type": "string",
+                    "enum": [
+                      "priced",
+                      "included",
+                      "for_memory",
+                      "not_priced",
+                      "out_of_scope",
+                      "not_applicable"
+                    ]
+                  },
+                  "offer_choice": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "reserve"
+                          },
+                          "basis": {
+                            "type": "string",
+                            "enum": [
+                              "private_estimate",
+                              "indicative_quantities"
+                            ]
+                          },
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "quantity_not_determinable",
+                              "pending_survey",
+                              "pending_buyer_answer",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decided_by": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "decided_at": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "basis",
+                          "code",
+                          "note",
+                          "decided_by",
+                          "decided_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "version_id",
+                  "pricing_status",
+                  "offer_choice"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at",
+                  "content_revision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "item",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiEstimateLineOfferChoiceWithdrawnResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "pricing_status": {
+                    "type": "string",
+                    "enum": [
+                      "priced",
+                      "included",
+                      "for_memory",
+                      "not_priced",
+                      "out_of_scope",
+                      "not_applicable"
+                    ]
+                  },
+                  "offer_choice": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "reserve"
+                          },
+                          "basis": {
+                            "type": "string",
+                            "enum": [
+                              "private_estimate",
+                              "indicative_quantities"
+                            ]
+                          },
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "quantity_not_determinable",
+                              "pending_survey",
+                              "pending_buyer_answer",
+                              "other"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decided_by": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "decided_at": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "basis",
+                          "code",
+                          "note",
+                          "decided_by",
+                          "decided_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "version_id",
+                  "pricing_status",
+                  "offer_choice"
+                ],
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "updated_at",
+                  "content_revision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "item",
               "version"
             ],
             "additionalProperties": false
@@ -38413,6 +39240,9 @@
                   ]
                 },
                 "was_not_priced": {
+                  "not": {}
+                },
+                "offer_choice": {
                   "not": {}
                 },
                 "pu_ht_cents": {

@@ -19,6 +19,11 @@ import type { BatchOperationInput } from "@/lib/estimates/schemas";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import { getEstimateEditorMutationIdentity, hasEstimateEditorMutationSession, runEstimateEditorMutation, isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
+import {
+  estimateOfferChoiceReceiptSchema,
+  type EstimateOfferChoiceInput,
+  type EstimateOfferChoiceReceipt,
+} from "@/lib/estimates/offer-choice";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import type { Database } from "@/types/database";
 import { type EstimateApprovalDecisionFilter, type EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
@@ -2638,6 +2643,35 @@ export async function createEstimateItem(
   }
 
   return payload.item;
+}
+
+/**
+ * TI-682, lot C, PR 4: an administrator declares (or withdraws, null) the written reserve of a « Non chiffrée » line.
+ * Queued with the editor's writes (version token, draft lock); the answer carries the line's choice and the new token.
+ */
+export async function setEstimateLineOfferChoice(
+  versionId: string,
+  itemId: string,
+  choice: EstimateOfferChoiceInput | null,
+  versionToken: string,
+): Promise<EstimateOfferChoiceReceipt> {
+  return requestJson(
+    `/api/estimates/${versionId}/items/${itemId}/offer-choice`,
+    {
+      method: choice ? "PUT" : "DELETE",
+      headers: { "Content-Type": "application/json", "If-Match": versionToken },
+      ...(choice ? { body: JSON.stringify(choice) } : {}),
+    },
+    "Impossible d'enregistrer la réserve.",
+    (value) => {
+      const receipt = estimateOfferChoiceReceiptSchema.parse(value);
+      if (receipt.item.id !== itemId || receipt.version.id.toLowerCase() !== versionId.toLowerCase()) {
+        throw new Error("La confirmation appartient à une autre ligne.");
+      }
+      return receipt;
+    },
+    { mutation: { versionId, structural: false } }
+  );
 }
 
 export async function updateEstimateItem(
