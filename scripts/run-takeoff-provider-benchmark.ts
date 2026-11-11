@@ -61,7 +61,7 @@ import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
 import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
 import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
-import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LABEL_CUT_MIN_PT, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
+import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LABEL_CUT_MIN_PT, LABEL_FAMILY, LABEL_VOTES, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
 import { RASTER_COVERAGE, VECTOR_READING_VERSION } from "@/lib/takeoff/vectors/pipeline";
 import { COTE_RELATIVE_TOLERANCE, FORMAT_TOLERANCE, SCALE_RULE_VERSION } from "@/lib/takeoff/vectors/scale";
 import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
@@ -277,7 +277,7 @@ function vectorRules() {
     scale: { version: SCALE_RULE_VERSION, cote_relative_tolerance: COTE_RELATIVE_TOLERANCE, format_tolerance: FORMAT_TOLERANCE },
     legend: { version: LEGEND_RULE_VERSION, tint_tolerance: TINT_TOLERANCE },
     measure: { version: MEASURE_RULE_VERSION, band_gap_pt: BAND_GAP_PT, band_max_pt: BAND_MAX_PT, run_gap_pt: RUN_GAP_PT, join_pt: JOIN_PT,
-      leader_reach_pt: LEADER_REACH_PT, label_cut_min_pt: LABEL_CUT_MIN_PT },
+      leader_reach_pt: LEADER_REACH_PT, label_cut_min_pt: LABEL_CUT_MIN_PT, label_votes: LABEL_VOTES, label_family: LABEL_FAMILY },
     surfaces: { version: SURFACE_RULE_VERSION, ring_closure_pt: RING_CLOSURE_PT, fill: { cell_m: FILL_CELL_M, max_cells: FILL_MAX_CELLS,
       max_cell_m: FILL_MAX_CELL_M, sanity_ratio: FILL_SANITY_RATIO, hole_max_m2: FILL_HOLE_MAX_M2, seed_reach_heights: FILL_SEED_REACH_HEIGHTS,
       frame_share: FILL_FRAME_SHARE, door_arc: DOOR_ARC, door_hinge: DOOR_HINGE, island_circle: ISLAND_CIRCLE } },

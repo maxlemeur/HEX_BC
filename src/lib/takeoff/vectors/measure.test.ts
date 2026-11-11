@@ -1266,3 +1266,162 @@ describe("one pipe drawn in a parent's and a member's colours (TI-662 L3d)", () 
     expect(metres(reading, "HW")).toBeCloseTo(0, 2);
   });
 });
+
+// Label votes of a tint family (TI-662, gain on development plans). Failure seen: the outline colour of a return
+// pipe gets 3 votes for the return and 1 for the supply drawn beside it (75 %, under the 80 % agreement) and stays
+// « à revoir », while the tint that fills its band is the return by dozens of votes: the pipe is then measured
+// from the tint's fragments only. Failure modes of the rule that fixes it:
+// - the 80 % agreement lowered for every group (a colour beside two networks would take one of them);
+// - a family whose votes disagree (pipes of another network drawn in a related colour) classified as a whole,
+//   or a colour of the family that is another network by its own votes outvoted by a heavily labelled one;
+// - a weakly voted tint (under 5 votes for the network) used as the proof for its whole family;
+// - a group without votes of its own, with a single one, or split evenly, classified by its family alone;
+// - the network of the family given to a group whose own votes name another one;
+// - a near-white stroke made a network because a darker colour of its hue is one.
+describe("label votes of a tint family", () => {
+  const MAGENTA_TINT = "#ff80ff"; // 50 % tint of MAGENTA
+  const MAGENTA_PALE = "#ff4dff"; // 30 % tint of MAGENTA
+  const GREEN = "#40e040"; // never in a legend, no tint of MAGENTA, not dark
+  const FIFTEEN_M = 3 * FIVE_M;
+
+  /** A pipe 15 m long along y: outlines 2 pt apart on its whole length, the tint of its band on its first `tinted` points. */
+  function outlined(y: number, outline: string, tint: string, tinted = FIVE_M, style: { outline?: number; tint?: number } = {}): Part {
+    return { strokes: [
+      line(outline, 100, y - 1, 100 + FIFTEEN_M, y - 1, { width: style.outline ?? 0.5 }),
+      line(outline, 100, y + 1, 100 + FIFTEEN_M, y + 1, { width: style.outline ?? 0.5 }),
+      line(tint, 100, y, 100 + tinted, y, { width: style.tint ?? 1.5 }),
+    ] };
+  }
+
+  /**
+   * `count` labels in columns 75 pt apart from column `from`, above the pipe (or below), their leaders ending at
+   * height tipY. A leader from below ends 20 pt further along: two leaders ending on one point would read as one bent leader.
+   */
+  function voters(count: number, str: string, tipY: number, from = 0, below = false): Part[] {
+    return Array.from({ length: count }, (_, index) => {
+      const x = 100 + 75 * (from + index);
+      return leaderLabel(str, x, below ? tipY + 44 : tipY - 38, { x: x + (below ? 30 : 10), y: tipY });
+    });
+  }
+
+  function groupClass(reading: VectorPageReading, color: string, width = 0.5) {
+    const group = reading.groups.find((entry) => entry.layer === null && entry.colors.includes(color) && entry.width === width);
+    return group ? { class: group.class, source: group.source } : null;
+  }
+
+  const RETURN = "HW-R - acier DN 50", SUPPLY = "HW-S - acier DN 50";
+  /** `count` votes for the return on the tint (y 300), within its first 5 m: 4 from above, the others from below. */
+  const tintVotes = (count: number) => [...voters(Math.min(count, 4), RETURN, 300), ...voters(Math.max(0, count - 4), RETURN, 300, 0, true)];
+  /** 3 votes for the return and 1 for the supply on the upper outline (y 299), beyond the tint. */
+  const outlineVotes = [...voters(3, RETURN, 299, 5), ...voters(1, SUPPLY, 299, 8)];
+
+  it("gives an outline whose own votes fall under 80 % the network of its tint, classified by 5 votes", () => {
+    const reading = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5), ...outlineVotes]));
+    expect(groupClass(reading, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(reading, MAGENTA)).toEqual({ class: "HW-R", source: "label" });
+    // The pipe is measured on its whole length, once: the tint covers its first 5 m only.
+    expect(totals(reading)).toEqual([{ network: "HW-R", material: "acier", dn: 50, runs: 1, length_m: expect.closeTo(15, 2) }]);
+  });
+
+  it("keeps the 80 % agreement: the outline stays « à revoir » when its tint has 4 votes for the network, or none", () => {
+    const weak = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(4), ...outlineVotes]));
+    expect(groupClass(weak, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(weak, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(weak, "HW-R")).toBeCloseTo(5, 2);
+
+    // 5 votes on the tint, 4 of them for the return (80 %): it is the return, with 4 votes only as a proof. With the
+    // single vote of a paler tint drawn elsewhere, 8 votes of 10 are for the return: only the proof is missing.
+    const pale: Part = { strokes: [line(MAGENTA_PALE, 100, 450, 100 + FIFTEEN_M, 450)] };
+    const four = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(4), ...voters(1, SUPPLY, 300, 0, true), ...outlineVotes,
+      pale, ...voters(1, RETURN, 450)]));
+    expect(groupClass(four, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(four, MAGENTA_PALE)).toEqual({ class: null, source: null });
+    expect(groupClass(four, MAGENTA)).toEqual({ class: null, source: null });
+
+    const alone = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...outlineVotes]));
+    expect(groupClass(alone, MAGENTA)).toEqual({ class: null, source: null });
+    expect(totals(alone)).toEqual([]);
+  });
+
+  it("keeps the outline « à revoir » when the votes of its family, together, fall under 80 %", () => {
+    // A third colour of the family, drawn elsewhere, is the supply by 3 votes: 8 votes of 12 for the return.
+    const other: Part = { strokes: [line(MAGENTA_PALE, 100, 600, 100 + FIFTEEN_M, 600)] };
+    const reading = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5), ...outlineVotes, other, ...voters(3, SUPPLY, 600)]));
+    expect(groupClass(reading, MAGENTA_PALE)).toEqual({ class: "HW-S", source: "label" });
+    expect(groupClass(reading, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(reading, "HW-R")).toBeCloseTo(5, 2);
+  });
+
+  it("gives a tint the network of its outline, and an outline that of the colour it is a shade of", () => {
+    // The tint is the weakly voted colour (3 for the return, 1 for the supply), its outline the proof (5 votes).
+    const tint = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...voters(3, RETURN, 300), ...voters(1, SUPPLY, 300, 3), ...voters(5, RETURN, 299, 5)]));
+    expect(groupClass(tint, MAGENTA)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(tint, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(totals(tint)).toEqual([{ network: "HW-R", material: "acier", dn: 50, runs: 1, length_m: expect.closeTo(15, 2) }]);
+
+    const MAUVE = "#cc66cc"; // a 20 % shade of MAGENTA_TINT, neither a tint nor a shade of MAGENTA
+    const shade = read(page([...LEGEND, outlined(300, MAUVE, MAGENTA_TINT), ...tintVotes(5), ...outlineVotes]));
+    expect(groupClass(shade, MAUVE)).toEqual({ class: "HW-R", source: "label" });
+    expect(metres(shade, "HW-R")).toBeCloseTo(15, 2);
+  });
+
+  it("keeps the outline « à revoir » when a colour of its family is another network by its own votes, however few", () => {
+    // The tint has 22 votes for the return, a paler tint drawn elsewhere 2 for the supply, the outline 3 and 1 on a
+    // second pipe: 25 votes of 28 for the return, yet one outline colour then borders pipes of both networks.
+    const tinted = outlined(300, MAGENTA, MAGENTA_TINT, FIFTEEN_M);
+    const pale: Part = { strokes: [line(MAGENTA_PALE, 100, 450, 100 + FIFTEEN_M, 450)] };
+    const second: Part = { strokes: [line(MAGENTA, 100, 599, 100 + FIFTEEN_M, 599), line(MAGENTA, 100, 601, 100 + FIFTEEN_M, 601)] };
+    const reading = read(page([...LEGEND, tinted, ...voters(11, RETURN, 300), ...voters(11, RETURN, 300, 0, true),
+      pale, ...voters(2, SUPPLY, 450), second, ...voters(3, RETURN, 599), ...voters(1, SUPPLY, 599, 3)]));
+    expect(groupClass(reading, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(reading, MAGENTA_PALE)).toEqual({ class: "HW-S", source: "label" });
+    expect(groupClass(reading, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(reading, "HW-R")).toBeCloseTo(15, 2);
+  });
+
+  it("never gives an outline the network of its tint when its own votes name another one, or split evenly", () => {
+    // 3 votes for the supply and 1 for the return on the outline, 11 for the return on the tint: 12 votes of 15
+    // (80 %) are for the return, which the outline's own votes do not name.
+    const tinted = outlined(300, MAGENTA, MAGENTA_TINT, FIFTEEN_M);
+    const other = read(page([...LEGEND, tinted, ...voters(11, RETURN, 300), ...voters(3, SUPPLY, 299, 5, true), ...voters(1, RETURN, 299, 8, true)]));
+    expect(groupClass(other, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(other, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(other, "HW-S")).toBe(0);
+
+    // 2 votes each on the outline, 8 for the return on the tint: 10 votes of 12 for the return, no majority of its own.
+    const even = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(8), ...voters(2, RETURN, 299, 5), ...voters(2, SUPPLY, 299, 7)]));
+    expect(groupClass(even, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(even, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(even, "HW-R")).toBeCloseTo(5, 2);
+  });
+
+  it("never classifies by its family a group with a single vote, or none", () => {
+    const single = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5), ...voters(1, RETURN, 299, 5)]));
+    expect(groupClass(single, MAGENTA)).toEqual({ class: null, source: null });
+    const none = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5)]));
+    expect(groupClass(none, MAGENTA)).toEqual({ class: null, source: null });
+    expect(metres(none, "HW-R")).toBeCloseTo(5, 2);
+  });
+
+  it("takes neither another width of the same colour nor an unrelated colour for a tint", () => {
+    // The band's fill is drawn in the outline's own colour, thicker: it votes for itself, not for the outline.
+    const sameColour = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA, FIVE_M, { tint: 1.5 }), ...tintVotes(5), ...outlineVotes]));
+    expect(groupClass(sameColour, MAGENTA, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(sameColour, MAGENTA)).toEqual({ class: null, source: null });
+
+    const unrelated = read(page([...LEGEND, outlined(300, MAGENTA, GREEN), ...tintVotes(5), ...outlineVotes]));
+    expect(groupClass(unrelated, GREEN, 1.5)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(unrelated, MAGENTA)).toEqual({ class: null, source: null });
+  });
+
+  it("never makes a near-white tint a network, whatever its family", () => {
+    const ROSE = "#c0a0a0", ROSE_NEAR_WHITE = "#f2ecec"; // an 80 % tint of ROSE, near-white
+    expect(isNearWhite(ROSE_NEAR_WHITE) && !isNearWhite(ROSE) && !isGrey(ROSE)).toBe(true);
+    const pale: Part = { strokes: [line(ROSE_NEAR_WHITE, 100, 600, 100 + FIFTEEN_M, 600)] };
+    const reading = read(page([...LEGEND, { strokes: [line(ROSE, 100, 300, 100 + FIFTEEN_M, 300)] }, ...voters(5, RETURN, 300),
+      pale, ...voters(3, RETURN, 600), ...voters(1, SUPPLY, 600, 4)]));
+    expect(groupClass(reading, ROSE)).toEqual({ class: "HW-R", source: "label" });
+    expect(groupClass(reading, ROSE_NEAR_WHITE)).toEqual({ class: null, source: null });
+    expect(metres(reading, "HW-R")).toBeCloseTo(15, 2);
+  });
+});
