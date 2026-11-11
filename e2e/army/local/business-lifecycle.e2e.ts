@@ -30,7 +30,7 @@ const journey = test.extend<{ business: Context }>({
     expect(isOwnedLoopback(fixture.apiUrl)).toBe(true);
     const context: Context = { fixture, ownedOrders: new Set(), calls: [] };
     const origin = new URL(app.baseUrl!).origin;
-    const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+    const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
     const actions = new Map(Object.entries(manifest.node).map(([id, value]) => [id, value.exportedName]));
     const ownedVersions = [fixture.approval.versionId, fixture.access.versionId];
     await browser.route("**/*", async (route) => {

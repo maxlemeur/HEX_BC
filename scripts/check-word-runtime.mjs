@@ -7,7 +7,7 @@ import { zipSync, strToU8 } from "fflate";
 
 // Only the packages actually traced by Next are available to each probe.
 const root = process.cwd();
-const dist = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".e2e/army/next" : ".next");
+const dist = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".build/tester-army/next" : ".next");
 const routes = ["api/affaires/[projectId]/intake/files/route.js.nft.json", "dashboard/affaires/[projectId]/page.js.nft.json"];
 const temporary = await mkdtemp(path.join(os.tmpdir(), "mergeone-word-runtime-"));
 const sample = zipSync({

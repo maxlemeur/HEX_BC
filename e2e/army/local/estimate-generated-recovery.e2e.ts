@@ -375,7 +375,7 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
     for (const key of ["subdetails", "applications", "snapshots", "assemblies"]) expect(rows[key]).toHaveLength(0);
     return value;
   };
-  const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+  const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
   const names = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName]));
   const editorUrl = new URL(`/dashboard/estimates/${g.versionId}/edit`, ui.app.baseUrl!).href;
   const ids: Record<string, string> = {};

@@ -163,7 +163,7 @@ try {
       same(await sha(await owned(path.join(root, entry.path))), entry.sha256, `current-input-${entry.path}`);
     }
   }
-  same(manifest.productionBuild.inputs.map((entry) => entry.path).sort(), [".e2e/army/next/BUILD_ID", ".e2e/army/next/build-manifest.json", ".e2e/army/next/required-server-files.json"].sort(), "complete-build-runtime-inputs");
+  same(manifest.productionBuild.inputs.map((entry) => entry.path).sort(), [".build/tester-army/next/BUILD_ID", ".build/tester-army/next/build-manifest.json", ".build/tester-army/next/required-server-files.json"].sort(), "complete-build-runtime-inputs");
   const currentPilot = ["e2e.config.ts", "scripts/run-tester-army.mjs", "package-lock.json", "package.json", "next.config.ts", "tsconfig.json",
     ...await inputPaths(path.join(root, "e2e", "army")), ...await inputPaths(path.join(root, "scripts", "tester-army")),
     ...git(["ls-files", "--others", "--exclude-standard", "-z", "--", "supabase/migrations"]).toString().split("\0").filter(Boolean)];

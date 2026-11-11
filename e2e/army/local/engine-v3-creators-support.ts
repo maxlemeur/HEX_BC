@@ -339,8 +339,8 @@ export async function instantiateTemplate(ui: Ui, army: ArmyState, templateId: s
 
 /* ---------- Actions serveur ---------- */
 
-/** Built id of a server action by its exported name, in the build the runner serves (`.e2e/army/next`). */
-export async function serverActionId(name: string, manifest = ".e2e/army/next/server/server-reference-manifest.json") {
+/** Built id of a server action by its exported name, in the build the runner serves (`.build/tester-army/next`). */
+export async function serverActionId(name: string, manifest = ".build/tester-army/next/server/server-reference-manifest.json") {
   const reference = JSON.parse(await readFile(manifest, "utf8")) as
     { node: Record<string, { exportedName?: string }> };
   const found = Object.entries(reference.node).filter(([, entry]) => entry.exportedName === name);

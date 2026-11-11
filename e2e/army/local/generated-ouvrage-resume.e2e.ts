@@ -27,7 +27,7 @@ const generatedTest = test.extend<{ generated: Context }>({
     const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
     expect(fixture.status).toBe("ready");
     expect(fixture.apiUrl).toBe(isolatedLocalBackend());
-    const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+    const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
     const actionNames = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName ?? "unknown"]));
     const context: Context = { fixture, calls: [], actionNames };
     const origin = new URL(app.baseUrl!).origin;

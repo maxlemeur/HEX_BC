@@ -305,7 +305,7 @@ export function decideRebuild(input: {
 }
 
 export function readBuildId(root: string) {
-  try { return fs.readFileSync(path.join(root, ".e2e/army/next/BUILD_ID"), "utf8").trim() || null; }
+  try { return fs.readFileSync(path.join(root, ".build/tester-army/next/BUILD_ID"), "utf8").trim() || null; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
 

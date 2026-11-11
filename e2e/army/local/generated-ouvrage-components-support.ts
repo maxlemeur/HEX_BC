@@ -60,7 +60,7 @@ export async function prepareComponents(ui: Ui, label: string) {
     const result = await client.from("estimate_versions").select("*").eq("tenant_id", fixture.owner.tenantId).eq("id", versionId).single();
     if (result.error || !result.data) throw new Error("Ordinary version footer observation failed."); return result.data as Json;
   };
-  const reference = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+  const reference = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
   const names = new Map(Object.entries(reference.node).map(([id, entry]) => [id, entry.exportedName]));
   const ids: Record<string, string> = {};
   for (const name of ["insertGeneratedOuvrages", "updateGeneratedOuvrageSubdetailDraft", "fetchGeneratedOuvrageSubdetailDraft"]) {

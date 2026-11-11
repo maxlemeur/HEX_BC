@@ -9,7 +9,7 @@ import path from "node:path";
 // dependencies. Reconstruct only the PDF route's traced packages, outside the
 // checkout, and render a real PDF there. No auth, database or providers are used.
 const root = process.cwd();
-const distDir = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".e2e/army/next" : ".next");
+const distDir = process.env.PERFORMANCE_BUILD_DIR?.trim() || (process.env.E2E_ARMY === "1" ? ".build/tester-army/next" : ".next");
 const trace = path.resolve(root, process.argv[2] ?? path.join(distDir, "server/app/api/estimates/[versionId]/pdf/route.js.nft.json"));
 const reportPath = process.argv[3] ? path.resolve(process.argv[3]) : null;
 const rawTrace = await readFile(trace);

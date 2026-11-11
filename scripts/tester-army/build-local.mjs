@@ -11,7 +11,7 @@ import { assertRecipeHost, buildCommands, buildSourceEvidence, loopbackOrigin, n
 
 /** Immutable production output; dev, cache and compiler diagnostics are not runtime inputs. */
 export async function buildOutputEvidence() {
-  const directory = path.join(root, ".e2e/army/next");
+  const directory = path.join(root, ".build/tester-army/next");
   requireValue(path.relative(directory, await realpath(directory)) === "", "Production build directory must not be redirected.");
   const ignored = new Set(["cache", "dev", "diagnostics", "types", "trace", "trace-build"]);
   const inputs = [];
@@ -32,10 +32,10 @@ export async function buildOutputEvidence() {
   await visit(directory);
   inputs.sort((left, right) => left.path.localeCompare(right.path, "en"));
   requireValue(["BUILD_ID", "required-server-files.json", "build-manifest.json"].every((name) =>
-    inputs.some((input) => input.path === `.e2e/army/next/${name}`)) &&
-    ["server/", "static/"].every((prefix) => inputs.some((input) => input.path.startsWith(`.e2e/army/next/${prefix}`))),
+    inputs.some((input) => input.path === `.build/tester-army/next/${name}`)) &&
+    ["server/", "static/"].every((prefix) => inputs.some((input) => input.path.startsWith(`.build/tester-army/next/${prefix}`))),
   "Complete production server/static output is required.");
-  return { distDir: ".e2e/army/next", inputs, digest: sha256(JSON.stringify(inputs)) };
+  return { distDir: ".build/tester-army/next", inputs, digest: sha256(JSON.stringify(inputs)) };
 }
 
 /** Offer startup configuration is additional to the shared application build closure. */
@@ -69,7 +69,7 @@ async function main() {
     node: process.version, platform: process.platform, steps: [] };
   // buildCommands stays the recorded contract. Its heap argument sizes the next
   // process only: Next's TypeScript CLI child (tsc) gets a limit from NODE_OPTIONS.
-  const env = withNextBuildHeap({ ...process.env, E2E_ARMY: "1", PERFORMANCE_BUILD_DIR: ".e2e/army/next", NEXT_TELEMETRY_DISABLED: "1" });
+  const env = withNextBuildHeap({ ...process.env, E2E_ARMY: "1", PERFORMANCE_BUILD_DIR: ".build/tester-army/next", NEXT_TELEMETRY_DISABLED: "1" });
   manifest.nodeOptions = redactOutput(env.NODE_OPTIONS, env);
   let log = "", exitCode = 0;
   for (const commandArgs of buildCommands) {
@@ -87,7 +87,7 @@ async function main() {
     !isDeepStrictEqual(offerProfileInputs, manifest.offerProfileInputsAfter);
   manifest.logSha256 = sha256(log);
   if (exitCode === 0) {
-    manifest.buildId = (await readFile(path.join(root, ".e2e/army/next/BUILD_ID"), "utf8")).trim();
+    manifest.buildId = (await readFile(path.join(root, ".build/tester-army/next/BUILD_ID"), "utf8")).trim();
     manifest.compiledOutput = await buildOutputEvidence();
   }
   await writeFile(path.join(directory, "build.log"), log, { flag: "wx" });

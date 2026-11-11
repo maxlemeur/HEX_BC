@@ -167,7 +167,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     expect(initialActions.settled.map(response => response.status)).toEqual([200, 200]);
     await recordEvidence(army, "profile-initial-action", { actions: initialActions.settled,
       loginStatus: loginResponse.status, sessionCookiePresent: true,
-      runtime: { E2E_ARMY: "1", developmentOutput: `.e2e/army/next-${workspace.id}/dev`, productionSmokeOutput: ".next" } });
+      runtime: { E2E_ARMY: "1", developmentOutput: `.build/tester-army/next-${workspace.id}/dev`, productionSmokeOutput: ".next" } });
     await expect(browser).toHaveURL(/\/dashboard\/profile$/);
     await expect(screen.getByRole("heading", "Mon profil", { exact: true })).toBeVisible();
     const model = screen.getByRole("combobox", "Modèle ChatGPT", { exact: true });

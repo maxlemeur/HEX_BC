@@ -329,7 +329,7 @@ try {
     }
   }
   if ((performance || coverage || process.env.E2E_ARMY_SERVER_MODE === "production") && !live && !discoveryOnly) {
-    const buildDirectory = path.join(root, ".e2e", "army", "next");
+    const buildDirectory = path.join(root, ".build", "tester-army", "next");
     const buildIdPath = path.join(buildDirectory, "BUILD_ID");
     manifest.productionBuild = {
       directory: relative(buildDirectory),

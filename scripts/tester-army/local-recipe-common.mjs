@@ -18,8 +18,8 @@ export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-o
  * production build every TesterArmy run starts with.
  */
 export async function prepareArmyTypeScriptConfig(root = repositoryRoot) {
-  await mkdir(path.join(root, ".e2e/army"), { recursive: true });
-  await writeFile(path.join(root, ".e2e/army/tsconfig.json"), `${JSON.stringify({
+  await mkdir(path.join(root, ".build/tester-army"), { recursive: true });
+  await writeFile(path.join(root, ".build/tester-army/tsconfig.json"), `${JSON.stringify({
     extends: "../../tsconfig.json",
     compilerOptions: { paths: { "@/*": ["../../src/*"] } },
     include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", "next/types/**/*.ts", "next/dev/types/**/*.ts"],

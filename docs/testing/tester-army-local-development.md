@@ -21,6 +21,14 @@ même après la saisie d'un secret. Les champs sécurisés sont masqués, mais u
 valeur affichée en clair peut apparaître : réserver les parcours avec modèle à
 des données et comptes de test autorisés.
 
+Les builds Next et leurs fichiers TypeScript générés sont dans le dossier ignoré
+`.build/tester-army/` du checkout : un build de production réutilisable dans
+`next/`, et un `next-<identifiant>/` pour chaque serveur de développement isolé.
+Ces derniers sont retirés par leur lanceur après arrêt. `.e2e/army/` conserve
+les rapports, logs, captures et manifestes qui référencent et identifient le
+build ; il ne contient plus le compilateur ni ses caches. Les anciens résultats
+ne sont ni déplacés ni réécrits par ce changement.
+
 ## Exécuter et développer
 
 ```sh

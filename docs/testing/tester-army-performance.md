@@ -33,7 +33,7 @@ sources et des preuves.
 
 ```sh
 npm run e2e:army:performance:list
-E2E_ARMY=1 PERFORMANCE_BUILD_DIR=.e2e/army/next npm run build
+E2E_ARMY=1 PERFORMANCE_BUILD_DIR=.build/tester-army/next npm run build
 npm run e2e:army:performance
 ```
 

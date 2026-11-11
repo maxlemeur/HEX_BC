@@ -744,9 +744,9 @@ async function main() {
   try {
     manifest.toolchain = assertInstalledDependencies(root);
     createLocalCiEnvironment(process.env);
-    // An open (or stale) loop shares .e2e/army/next and .e2e/army/critical with every run of this checkout.
+    // An open (or stale) loop shares .build/tester-army/next and .e2e/army/critical with every run of this checkout.
     if (suite !== "dev-loop" && fs.existsSync(path.join(root, DEV_LOOP_STATE_FILE))) {
-      throw new Error(`A dev loop is open in this checkout (${DEV_LOOP_STATE_FILE}) and shares its .e2e/army build and journey output: stop it first with \`npm run e2e:army:dev-loop -- stop\`.`);
+      throw new Error(`A dev loop is open in this checkout (${DEV_LOOP_STATE_FILE}) and shares its .build/tester-army build and .e2e/army journey output: stop it first with \`npm run e2e:army:dev-loop -- stop\`.`);
     }
     if (fs.readdirSync(root).some((name) => /^\.env(?:\.(?:local|production|development|test)(?:\.local)?)?$/.test(name))) {
       throw new Error("CI refuses ambient .env files; use a clean checkout without shared backend credentials.");

@@ -139,7 +139,7 @@ test("GR07 access refuses list and resume after real archive then owner role dow
   expect(fixture.apiUrl).toBe(isolatedLocalBackend());
   expect(fixture.owner.tenantId).toBe(fixture.observer.tenantId);
   expect(fixture.owner.userId === fixture.observer.userId).toBe(false);
-  const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
+  const manifest = JSON.parse(await readFile(".build/tester-army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
   const names = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName ?? "unknown"]));
   const calls: ActionCall[] = [];
   const origin = new URL(app.baseUrl!).origin;
