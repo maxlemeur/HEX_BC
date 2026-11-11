@@ -35,6 +35,8 @@ export type AffaireFlowHierarchyPanelProps = {
   preparationIsNextStep?: boolean;
   hidePreparationAction?: boolean;
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
+  /** TI-670 : ouvre l'import structuré sur les DPGF classées du dossier. Absent en lecture seule. */
+  onImportDpgf?: () => void;
 };
 
 export type AffaireFlowPanelAction =
@@ -254,6 +256,14 @@ function isContinueHybridSuggestion(suggestion: CockpitSuggestion | null) {
   }
 
   return suggestion.intent === "continue_hybrid" || suggestion.label.toLowerCase().includes("hybride");
+}
+
+/**
+ * TI-670 : une DPGF n'est « Importée » que si un import de l'affaire est terminé. Une pièce classée DPGF
+ * sans import, ou dont l'import a échoué, garde son action d'import.
+ */
+export function isDpgfSourceImported(dpgfSource: AffaireFlowHierarchyPanelProps["dpgfSource"]) {
+  return dpgfSource?.importStatus === "completed";
 }
 
 function isReadyLinkedDpgfSource(dpgfSource: AffaireFlowHierarchyPanelProps["dpgfSource"]) {
