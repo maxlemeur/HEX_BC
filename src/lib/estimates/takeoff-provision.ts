@@ -55,3 +55,22 @@ export function readTakeoffProvision(sourceMetadata: unknown): TakeoffProvision 
     || source.forced_reason === "priced_hypothesis");
   return { kind: hypothesis ? "hypothesis" : "internal_provision", treatment: "internal_provision", readable: true, sources };
 }
+
+/** TI-682 lot C: header of the internal CSV column that names the takeoff provision of each line (H12 lifted). */
+export const TAKEOFF_PROVISION_EXPORT_HEADER = "Provision métré";
+
+const TAKEOFF_PROVISION_EXPORT_LABELS: Readonly<Record<TakeoffProvision["kind"], string>> = {
+  internal_provision: "Provision interne",
+  hypothesis: "Hypothèse",
+};
+
+/**
+ * The cell of an estimate line in the « Provision métré » column: empty without a marker, « Provision interne » for a
+ * forced source or an unreadable marker, « Hypothèse » for a source resting on one. Only the internal CSV exports (the
+ * v3 server CSV and the v1/v2 editor CSV) write it; the DPGF, standard and BDC workbooks can reach a client or a
+ * supplier and never do.
+ */
+export function takeoffProvisionExportLabel(sourceMetadata: unknown): string {
+  const provision = readTakeoffProvision(sourceMetadata);
+  return provision ? TAKEOFF_PROVISION_EXPORT_LABELS[provision.kind] : "";
+}
