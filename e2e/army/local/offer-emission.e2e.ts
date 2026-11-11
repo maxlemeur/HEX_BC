@@ -6,6 +6,7 @@ import { expect, secrets, type App, type Screen } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, type ArmyItem, type ArmyState } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { allowOfferLaborRoleUpdate, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./offer-emission-fixtures";
 
 // Failure modes precede this harness in docs/testing/offer-emission-business-cases.md.
@@ -15,6 +16,17 @@ type Receipt = { id: string; pdf: { sha256: string; bytes: number }; delivery: s
 type Packet = { id: string; payload: { html: string; text: string; attachments: { filename: string; content: string }[] } };
 const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const totals = (version: Record<string, unknown>) => [version.total_ht_cents, version.total_tax_cents, version.total_ttc_cents];
+
+/**
+ * Opens a page of the application and waits until React handles its controls. `app.open` returns on the `load`
+ * event, when the server HTML is on screen: a press sent then reaches a button React does not handle yet and is
+ * lost (OF01, run 42942966412: « Préparer le PDF » pressed within 157 ms of the page opening took the focus and
+ * no dialog opened in 20 s).
+ */
+async function openPage(ui: OfferUi, pathname: string) {
+  await ui.app.open(pathname);
+  await waitForHydration(ui.browser);
+}
 
 async function expectEstimateSummaryStatus(ui: OfferUi, label: string) {
   await expect.poll(async () => ui.browser.evaluate(() => {
@@ -251,11 +263,11 @@ async function prepare(ui: OfferUi, caseId: string) {
   await recordOfferEvidence(ui.army, `${caseId}-prepared`, { ids, originalName,
     versionStatus: baseline.version.status, totals: totals(baseline.version),
     lineId: line.data.item.id, lineTitle: title, quantity: 1, unit: persistedUnit(baseline) });
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}`);
+  await openPage(ui, `/dashboard/estimates/${ids.versionId}`);
   await expect(ui.screen.getByRole("button", "Envoyer par email", { exact: true })).toBeVisible();
   if (caseId !== "OF0L" && !caseId.startsWith("PDFL")) {
     // The workbench shows one domain at a time: the PDF and its email are prepared in « Remise ».
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=submission`);
+    await openPage(ui, `/dashboard/affaires/${ids.projectId}?view=submission`);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const layout = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     await expect(layout).toBeVisible();
@@ -299,7 +311,7 @@ async function prepare(ui: OfferUi, caseId: string) {
     await recordOfferEvidence(ui.army, `${caseId}-pdf-prerequisite`, { versionId: ids.versionId, generationStatus: generation.status, ready: true,
       source: "actual affaire PDF preparation UI", originalTerms, requestedPdfLayout });
     await expect(layout).not.toBeVisible();
-    await ui.app.open(`/dashboard/estimates/${ids.versionId}`);
+    await openPage(ui, `/dashboard/estimates/${ids.versionId}`);
     await expect(ui.screen.getByRole("button", "Envoyer par email", { exact: true })).toBeVisible();
   }
   return { ids, originalName, baseline, originalTerms, requestedPdfLayout };
@@ -637,6 +649,8 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
     // Observe any page-mount acquisition as well as click-time acquisition.
     // Installing the witness after prepare must not miss a legitimate UI lease.
     await ui.browser.reload();
+    // Each reload of this journey is followed by a lifecycle press: React must handle the page first, as in openPage.
+    await waitForHydration(ui.browser);
     await expect(ui.screen.getByRole("button", "Marquer envoyé", { exact: true })).toBeEnabled();
     const [response] = await Promise.all([
       ui.browser.waitForResponse(statusEndpoint, { timeout: 120000 }),
@@ -673,6 +687,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
     expect(collectorCallsAfter).toBe(collectorCallsBefore);
     expect(await receiptNames()).toEqual(receiptsBefore);
     await ui.browser.reload();
+    await waitForHydration(ui.browser);
     await expect(ui.browser.locator('[data-seal-state="valid"]')).toHaveCount(1);
     await expectEstimateSummaryStatus(ui, "Envoyé");
     const reloaded = await readEstimate(ui.browser, p.ids.versionId);
@@ -728,6 +743,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
       expect(lifecycleNetwork.filter((entry) => entry.role === "collector").length).toBe(collectorCallsBefore);
       expect(await receiptNames()).toEqual(receiptsBefore);
       await ui.browser.reload();
+      await waitForHydration(ui.browser);
       await expect(ui.browser.locator('[data-seal-state="valid"]')).toHaveCount(1);
       await expectEstimateSummaryStatus(ui, transition.badge);
       lifecycleState = await readEstimate(ui.browser, p.ids.versionId);
@@ -894,7 +910,7 @@ offerTest("OF03 public HTML and RSC preserve sales presentation without private 
 offerTest("OF02 resend retains the original commercial identity and PDF", options, async (ui) => {
   const p = await prepare(ui, "OF02");
   const first = await send(ui, "OF02", p.ids.versionId);
-  await ui.app.open(`/dashboard/affaires/${p.ids.projectId}`);
+  await openPage(ui, `/dashboard/affaires/${p.ids.projectId}`);
   await ui.screen.getByRole("button", "Modifier la fiche", { exact: true }).click();
   const newName = `${ui.army.runPrefix}-OF02-MODIFIE`;
   await ui.screen.getByLabel(/Nom du projet/).fill(newName);
@@ -908,7 +924,7 @@ offerTest("OF02 resend retains the original commercial identity and PDF", option
   const current = await readEstimate(ui.browser, p.ids.versionId);
   expect(current.project.name).toBe(newName);
   await recordOfferEvidence(ui.army, "OF02-current-project", { projectId: p.ids.projectId, originalName: p.originalName, currentName: current.project.name });
-  await ui.app.open(`/dashboard/estimates/${p.ids.versionId}`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}`);
   const second = await send(ui, "OF02", p.ids.versionId, true);
   const comparison = { samePdf: first.receipt.pdf.sha256 === second.receipt.pdf.sha256,
     originalNameInHtml: second.packet.payload.html.includes(p.originalName), currentNameInHtml: second.packet.payload.html.includes(newName),
@@ -949,7 +965,7 @@ offerTest("PDFL1 Affaire prepares PDF using its own page lease", options, async 
   const p = await prepare(ui, "PDFL1");
   const witness = await observePdfLease(ui, p.ids.versionId);
   try {
-    await ui.app.open(`/dashboard/affaires/${p.ids.projectId}`);
+    await openPage(ui, `/dashboard/affaires/${p.ids.projectId}`);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const modal = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     const confirm = modal.getByRole("button", "Générer et télécharger", { exact: true });
@@ -979,7 +995,7 @@ offerTest("PDFL2 another page identity blocks PDF without forced takeover", opti
   const witness = await observePdfLease(ui, p.ids.versionId);
   const receiptsBefore = (await receiptNames()).length;
   try {
-    await ui.app.open(`/dashboard/affaires/${p.ids.projectId}`);
+    await openPage(ui, `/dashboard/affaires/${p.ids.projectId}`);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const modal = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     await expect(modal.getByRole("alert")).toContainText(/autre|déjà ouvert|disponible/i);
@@ -1011,7 +1027,7 @@ offerTest("PDFL3 PDF lease renews while an actual status read is held", options,
     await route.fallback();
   });
   try {
-    await ui.app.open(`/dashboard/affaires/${p.ids.projectId}`);
+    await openPage(ui, `/dashboard/affaires/${p.ids.projectId}`);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const modal = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     const confirm = modal.getByRole("button", "Générer et télécharger", { exact: true });
@@ -1044,7 +1060,7 @@ offerTest("PDFL4 read-only print layout never acquires a draft lease", options, 
   expect(lease.status).toBe(201);
   const witness = await observePdfLease(ui, p.ids.versionId);
   try {
-    await ui.app.open(`/dashboard/estimates/${p.ids.versionId}/print`);
+    await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/print`);
     await ui.screen.getByRole("button", "Mise en page / imprimer", { exact: true }).click();
     const modal = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     const confirm = modal.getByRole("button", "Appliquer et imprimer", { exact: true });
@@ -1067,7 +1083,7 @@ offerTest("PDFL4 read-only print layout never acquires a draft lease", options, 
 
 offerTest("PDFL5 closing PDF preserves the parent editor lease", options, async (ui) => {
   const p = await prepare(ui, "PDFL5");
-  await ui.app.open(`/dashboard/estimates/${p.ids.versionId}/edit`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
   const witness = await observePdfLease(ui, p.ids.versionId);
   try {
@@ -1094,7 +1110,7 @@ offerTest("PDFL5 closing PDF preserves the parent editor lease", options, async 
 
 offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots before the next save", options, async (ui) => {
   const p = await prepare(ui, "PDFL6");
-  await ui.app.open(`/dashboard/estimates/${p.ids.versionId}/edit`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
   const before = await readEstimate(ui.browser, p.ids.versionId);
   await recordOfferEvidence(ui.army, "PDFL6-before", { ids: p.ids, calcEngineVersion: before.version.calc_engine_version,
@@ -1158,7 +1174,7 @@ offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots bef
 // Append to the existing local suite after GO, before the read-recovery fix.
 offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers pending edits without a new PDF POST", options, async (ui) => {
   const p = await prepare(ui, "PDFL7");
-  await ui.app.open(`/dashboard/estimates/${p.ids.versionId}/edit`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
   const before = await readEstimate(ui.browser, p.ids.versionId);
   if (before.version.calc_engine_version !== 2) throw new Error("PDFL7 missing prerequisite: actual engine2 draft required.");
@@ -1300,7 +1316,7 @@ offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers p
 
 offerTest("PDFL8 interrupted PDF read blocks catalogue edits of a newly created ARMY labor role", options, async (ui) => {
   const p = await prepare(ui, "PDFL8");
-  await ui.app.open(`/dashboard/estimates/${p.ids.versionId}/edit`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
   const before = await readEstimate(ui.browser, p.ids.versionId);
   if (before.version.calc_engine_version !== 2 || typeof before.version.tenant_id !== "string") throw new Error("PDFL8 missing prerequisite: owned engine2/tenant draft required.");
@@ -2468,7 +2484,7 @@ offerTest("NF03 first Affaire opening after editor PDF sends its original projec
     expect(pdfRequests.filter((request) => request.method === "POST").length).toBe(1); expect(pdfRequests.find((request) => request.method === "POST")?.sessionPresent).toBe(true);
     expect(receiptsBefore.length).toBe(0);
     pagePhase = "first-affaire"; explicitAffaireOpenCount++;
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await openPage(ui, `/dashboard/affaires/${ids.projectId}`);
     const open = ui.screen.getByTestId("affaire-finish-line-email").getByRole("button", "Préparer l'envoi", { exact: true });
     await expect(open).toBeVisible();
     const afterAffaire = await readEstimate(ui.browser, ids.versionId), afterGating = await nf03Gating(ui, ids.versionId);
