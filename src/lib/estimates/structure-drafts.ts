@@ -37,6 +37,7 @@ import {
   generateEstimateStructureDraftSchema,
 } from "./schemas";
 import { assertCanWriteEstimateWorkflows } from "./write-access";
+import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -3255,6 +3256,8 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
       source_file_name:
         toNullableText(item.source_file_name) ?? ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
       source_metadata: {
+        // TI-682: a takeoff apply can mark this line later; its marker stays readable after this projection.
+        ...keepTakeoffProvision(item.source_metadata),
         kind: ESTIMATE_STRUCTURE_PROVIDER,
         application_count: enrichedApplications.length,
         applications: enrichedApplications,

@@ -631,7 +631,8 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     (ventilation atelier/chantier comprise). Elle vaut « Provision interne » pour une source forcée, « Hypothèse » pour
     une source saisie en hypothèse ou forcée en « Hypothèse chiffrée », et reste vide sans marqueur ; un marqueur
     illisible s'y lit « Provision interne », jamais vide. Une hypothèse incluse sans saisie n'a pas de marqueur et
-    reste vide tant que l'application ne la marque pas.
+    reste vide tant que l'application ne la marque pas. La lecture des lignes par l'éditeur garde le marqueur d'une
+    ligne issue d'une structure IA ou d'un ouvrage généré, que leur provenance réécrit.
   - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
     page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
     une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne

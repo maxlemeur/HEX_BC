@@ -9,6 +9,7 @@ import {
 } from "@/lib/estimates/generated-ouvrage-evidence";
 import type { Database, Json } from "@/types/database";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
+import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -339,6 +340,8 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
       source_page: item.source_page ?? sources[0]?.source_page_from ?? null,
       source_extracted_at: draft?.created_at ?? item.source_extracted_at ?? null,
       source_metadata: toJson({
+        // TI-682: a takeoff apply can mark this line later; its marker stays readable after this projection.
+        ...keepTakeoffProvision(item.source_metadata),
         kind: "generated_ouvrage",
         draft_id: application.draft_id,
         candidate_id: application.candidate_id,
