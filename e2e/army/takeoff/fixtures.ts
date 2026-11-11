@@ -14,6 +14,8 @@ export type TakeoffSeedItem = {
   is_excluded?: boolean;
   is_verified?: boolean;
   source_page?: number;
+  /** What the worker wrote beside the measure, such as quantity_nature « estimated » (TI-682); empty by default. */
+  metadata?: Record<string, JsonValue>;
 };
 
 // Fixture preparation stays outside the browser and uses the account's RLS.
@@ -56,7 +58,7 @@ export async function localTakeoffFixture(army: ArmyState, ids: OwnedEstimate, e
       const result = await worker.from("takeoff_results").insert({ id: resultId, tenant_id: tenantId, job_id: jobId, extracted_json: {}, warnings: [], tables: [] });
       if (result.error) throw new Error(`Owned takeoff result seed failed: ${result.error.code}`);
       const rows = items.map((item, index) => ({ id: itemIds[index], tenant_id: tenantId, job_id: jobId, result_id: resultId,
-        ...item, evidence: `ARMY localized fixture: ${item.designation}`, source_file_name: source, source_page: item.source_page ?? 1, metadata: {},
+        ...item, evidence: `ARMY localized fixture: ${item.designation}`, source_file_name: source, source_page: item.source_page ?? 1, metadata: item.metadata ?? {},
         is_excluded: item.is_excluded ?? false, exclusion_reason: item.is_excluded ? "ARMY excluded fixture" : null,
         is_verified: item.is_verified ?? false, verified_at: item.is_verified ? now : null, verified_by: item.is_verified ? login.data.user!.id : null }));
       const inserted = await worker.from("takeoff_items").insert(rows);

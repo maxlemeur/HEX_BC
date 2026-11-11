@@ -8,7 +8,8 @@ import {
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 
 export type DossierDocument = AffaireIntakeWorkspace["documents"][number];
-export function dossierDocumentState(
+// Eligibility for document tools does not require a human validation.
+export function dossierDocumentClassificationState(
   document: DossierDocument,
 ): "review" | "valid" | "processing" | "unavailable" {
   if (document.isBeingDeleted || document.uploadStatus !== "uploaded")
@@ -21,6 +22,24 @@ export function dossierDocumentState(
   )
     return "review";
   return "valid";
+}
+export function dossierDocumentState(document: DossierDocument) {
+  const state = dossierDocumentClassificationState(document);
+  return state === "valid" && document.classificationSource !== "manual" && !document.manuallyOverriddenAt
+    ? "review"
+    : state;
+}
+export function dossierDocumentAiConfidence(document: DossierDocument): number | null {
+  if (
+    document.classificationSource !== "ai" ||
+    document.manuallyOverriddenAt ||
+    document.classificationStatus !== "classified" ||
+    dossierDocumentClassificationState(document) !== "valid" ||
+    !Number.isFinite(document.confidence) ||
+    document.confidence < 0 ||
+    document.confidence > 1
+  ) return null;
+  return Math.round(document.confidence * 100);
 }
 export function canClassifyDossierDocument(document: DossierDocument) {
   const state = dossierDocumentState(document);
