@@ -40,6 +40,7 @@ import {
   type WizardStep,
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
+import { TakeoffPagesAlreadyInEstimateNotice, useTakeoffJobPageContributions } from "./review/TakeoffPagesAlreadyInEstimate";
 import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forced-drafts";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -109,6 +110,8 @@ export function TakeoffApplyWizard({
   // TI-686 D10: each blocked line's coded reason and justification, written in the guard panel.
   const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  // TI-682 lot D: read when the wizard opens, shown before the last click. A notice only: nothing to decide yet.
+  const pagesInEstimate = useTakeoffJobPageContributions(open ? jobId : null, versionId);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
@@ -236,6 +239,12 @@ export function TakeoffApplyWizard({
     return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });
   }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, step, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
+  // The lines the mapping plan skips or folds into an assembly bring no page to the estimate, as for the guard.
+  const noticeItems = useMemo(() => {
+    if (!externalItems || !hasPreviewReady || !previewData) return externalItems;
+    const leftOut = new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
+    return externalItems.map((item) => (leftOut.has(item.id) ? { ...item, is_excluded: true } : item));
+  }, [externalItems, hasPreviewReady, previewData]);
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
   const canGoBack = isPreset ? step === 4 : step > 1;
   const canConfirm =
@@ -421,6 +430,8 @@ export function TakeoffApplyWizard({
                   onOverrideParamChange={handleOverrideParamChange}
                 />
               )}
+
+              {step === 4 && <TakeoffPagesAlreadyInEstimateNotice read={pagesInEstimate} items={noticeItems} strategy={strategy} />}
 
               {step === 4 && (
                 <TakeoffApplyWizardConfirmationStep

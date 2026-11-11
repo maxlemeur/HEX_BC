@@ -14,7 +14,7 @@ async function openTeamADevHubScenario(ui: NativeUi, input: { projectId: string;
  await expect(ui.getByRole("heading", { name: "Pilotage de l'affaire" })).toBeVisible();
 }
 function getTeamARegisterSection(ui: NativeUi) {
- return ui.locator("section").filter({ has: ui.getByRole("heading", { name: "Registre hypothèses & pièces manquantes" }) });
+ return ui.locator("section").filter({ has: ui.getByRole("heading", { name: "Points à traiter" }) });
 }
 // Since f63d9cd6 the study panel (status, hero and dominant action) is folded in the current Étude stage.
 async function openTeamAStudyPanel(ui: NativeUi) {
@@ -29,7 +29,7 @@ async function openTeamAStudyPanel(ui: NativeUi) {
 async function openTeamARegisterSection(ui: NativeUi) {
  await ui.getByRole("navigation", { name: "Navigation de l'affaire", exact: true })
   .getByRole("button", { name: /^Points à traiter/ }).click();
- await expect(ui.getByRole("heading", { name: "Registre hypothèses & pièces manquantes" })).toBeVisible();
+ await expect(ui.getByRole("heading", { name: "Points à traiter" })).toBeVisible();
  return getTeamARegisterSection(ui);
 }
 
@@ -73,6 +73,10 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
     ).toBeVisible();
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);
     await expect(page.getByText("Affaire test")).toHaveCount(0);
+    await registerSection.getByRole("button", { name: "Bloquants 0", exact: true }).click();
+    await expect(registerSection.getByText("Aucun point ne correspond à ces filtres.", { exact: true })).toBeVisible();
+    await registerSection.getByRole("button", { name: "Tous", exact: true }).click();
+    await expect(registerSection.getByText("Prix fournisseurs à confirmer après la première passe de chiffrage.", { exact: true }).first()).toBeVisible();
   });
 
   test("prioritises the clarification CTA and removes competing plan launch actions", async ({ ui: page }) => {
@@ -127,6 +131,8 @@ describe("Team A hub synthetic dev scenarios", { session: "army", tags: ["critic
         { exact: true },
       ).first(),
     ).toBeVisible();
+    await registerSection.getByRole("button", { name: "Bloquants 1", exact: true }).click();
+    await expect(registerSection.getByText("1 point bloque la remise", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Préparer le métré" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Démarrer l'analyse" })).toHaveCount(0);
     await expect(page.getByText("Nadia Martin")).toHaveCount(0);

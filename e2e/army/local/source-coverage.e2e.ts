@@ -107,6 +107,8 @@ armyTest("SC05 register validation and reopening invalidate only linked provisio
   const transition = async (text: string, action: "validate" | "reopen") => {
     await c.app.open(`/dashboard/affaires/${c.scenario.projectId}?versionId=${c.scenario.versionId}#register`);
     const card = c.screen.getByRole("article").filter({ hasText: text });
+    // The compact register reveals the existing workflow actions on demand.
+    await card.getByRole("button", "Traiter " + text, { exact: true }).click();
     await card.getByRole("button", action === "validate" ? "Marquer comme traité Le point est considéré comme levé ou accepté." : "Rouvrir le point Le point redevient actif dans le registre.", { exact: true }).tap();
     const dialog = c.screen.getByRole("dialog", action === "validate" ? "Marquer ce point comme traité" : "Rouvrir cette entrée", { exact: true });
     await dialog.getByRole("textbox").fill("Recette DOS-CAL-01 : transition réelle du registre.");

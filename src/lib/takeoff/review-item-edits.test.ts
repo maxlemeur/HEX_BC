@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
+import { afterReviewSave, editReviewItem, reviewPatch, sourcePageSaved, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 
 const signed = { id: "weld", designation: "Soudure", unit: "u", quantity: 2, source_page: 1,
   is_verified: true, verified_by: "A", verified_at: "signed-at", is_excluded: false, exclusion_reason: null,
@@ -43,5 +43,24 @@ describe("decisions while an earlier patch is in flight", () => {
       code: "DN_NETWORK_DN_MISSING", reason: "DN manquant", acceptable: true, version: 1 }] }, sent, checked);
     expect(result.is_verified).toBe(false);
     expect(reviewPatch(result)).toEqual({});
+  });
+});
+
+describe("a saved change of a line's source page (TI-682 lot D: the pages already in the estimate are read again)", () => {
+  it("is one when the save stores the corrected page", () => {
+    const sent = editReviewItem(signed, { source_page: 2 });
+    expect(sourcePageSaved({ ...signed, source_page: 2 }, sent)).toBe(true);
+  });
+
+  it("is one when the save clears the page", () => {
+    const sent = editReviewItem(signed, { source_page: null });
+    expect(sourcePageSaved({ ...signed, source_page: null }, sent)).toBe(true);
+  });
+
+  it("is none for a save of another field, a page edited back before the save, or a line not sent", () => {
+    expect(sourcePageSaved({ ...signed, quantity: 3 }, editReviewItem(signed, { quantity: 3 }))).toBe(false);
+    const restored = editReviewItem(editReviewItem(signed, { source_page: 2 }), { source_page: 1 });
+    expect(sourcePageSaved(signed, restored)).toBe(false);
+    expect(sourcePageSaved({ ...signed, source_page: 2 }, undefined)).toBe(false);
   });
 });

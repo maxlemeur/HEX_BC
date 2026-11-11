@@ -14,6 +14,7 @@ import type {
   AffaireRegisterSummary,
   AffaireRegisterTimelineEvent,
 } from "@/lib/affaires/register";
+import { deriveAffaireRegisterBusinessImpact } from "@/lib/affaires/register";
 import type {
   AffaireHubFinishLineSummaryResult,
   AffaireHubPlansSummaryResult,
@@ -342,6 +343,10 @@ function applyScenarioRegisterFilters(input: {
       return false;
     }
 
+    if (input.filters.blockingOnly && !deriveAffaireRegisterBusinessImpact(entry).includes("blocks_submission")) {
+      return false;
+    }
+
     if (
       input.filters.revalidationRequired &&
       entry.revalidationRequest?.status !== "required"
@@ -361,6 +366,7 @@ export function buildAffaireHubDevScenarioRegisterPage(
     severity: input.filters?.severity ?? null,
     kind: input.filters?.kind ?? null,
     revalidationRequired: input.filters?.revalidationRequired ?? false,
+    blockingOnly: input.filters?.blockingOnly ?? false,
     cursor: null,
     focusEntryId: input.filters?.focusEntryId ?? null,
   };
@@ -1305,8 +1311,8 @@ export function applyAffaireHubDevScenario(
       briefDraft: createBriefDraft("confirme"),
     };
     const registerSummary = createRegisterSummary({
-      openQuestionsCount: 1,
-      criticalOpenCount: 1,
+      openQuestionsCount: 0,
+      criticalOpenCount: 0,
       revalidationRequired: true,
       revalidationRequiredCount: 1,
       criticalRevalidationRequiredCount: 1,
