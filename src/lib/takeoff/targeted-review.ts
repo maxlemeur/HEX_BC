@@ -9,6 +9,7 @@ import {
 import { blockingRules, failedRules } from "@/lib/takeoff/rules/blocking";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
+import { ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/types";
 import { isQuantityWarning, quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
@@ -146,8 +147,15 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
   return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire || stale ? null : reduced, remove_line: entire && !stale };
 }
 
-/** The exclusion reason a guided « Retirer la ligne » proposes: the lines that draw it too, the user may edit it. */
+/**
+ * The exclusion reason a guided « Retirer la ligne » proposes: the lines that draw it too, the user may edit it. A copy
+ * read differently (TI-684) is no plain duplicate: the reason says which reading the exclusion sets aside.
+ */
 export function duplicateExclusionReason(guidance: ZoneOverlapGuidance) {
-  const others = guidance.partners.map((partner) => `« ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}`);
+  const others = guidance.partners.map((partner) => `« ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}${
+    partner.differs ? `, lu autrement (${partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")})` : ""}`);
+  if (guidance.partners.some((partner) => partner.differs)) {
+    return `Tronçon déjà compté par ${others.join(", ")} : la lecture de cette ligne est écartée.`.slice(0, 500);
+  }
   return `Entièrement en double : tronçon déjà compté par ${others.join(", ") || "une autre zone"}.`.slice(0, 500);
 }

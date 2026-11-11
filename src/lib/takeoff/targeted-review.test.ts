@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
-import { acceptanceOf, targetedReviewLines, zoneOverlapGuidance } from "@/lib/takeoff/targeted-review";
+import { acceptanceOf, duplicateExclusionReason, targetedReviewLines, zoneOverlapGuidance } from "@/lib/takeoff/targeted-review";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 // TI-664 L5c, what the targeted review offers on a line. Ways it fails, written before the code:
@@ -193,5 +193,17 @@ describe("zoneOverlapGuidance", () => {
     expect(zoneOverlapGuidance(line({ rule_results: [rule({ rule: "zone_overlap", code: "ZONE_OVERLAP_UNREGISTERED", details: { level: "R+1" } })] })))
       .toMatchObject({ kind: "unregistered", reduce_to: null, remove_line: false });
     expect(zoneOverlapGuidance(line({ rule_results: [rule({})] }))).toBeNull();
+  });
+
+  // TI-684: the reason is stored with the exclusion. « Entièrement en double » is false of a copy read differently: the
+  // rule cannot tell which of the two readings is the wrong one.
+  it("proposes an exclusion reason that never calls a copy read differently a plain duplicate", () => {
+    const entire = (partners: Array<ReturnType<typeof partner>>) => zoneOverlapGuidance(line({ quantity: 1,
+      rule_results: [duplicate({ overlap_m: 1, partners })] })) as NonNullable<ReturnType<typeof zoneOverlapGuidance>>;
+    expect(duplicateExclusionReason(entire([partner()]))).toBe("Entièrement en double : tronçon déjà compté par « EF Inox 316L DN 22 » (Z2).");
+    expect(duplicateExclusionReason(entire([partner({ designation: "EF Inox 316L DN 28", differs: ["dn"] })])))
+      .toBe("Tronçon déjà compté par « EF Inox 316L DN 28 » (Z2), lu autrement (diamètre) : la lecture de cette ligne est écartée.");
+    expect(duplicateExclusionReason(entire([partner({ designation: "ECS Inox 316L DN 28", differs: ["network", "dn"] })])))
+      .toMatch(/lu autrement \(réseau, diamètre\)/);
   });
 });

@@ -8,6 +8,21 @@ import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import { resolveEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { CreateEstimateItemInput } from "@/lib/estimates/schemas";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
+import { badRequest } from "@/lib/estimates/errors";
+
+/**
+ * TI-682, lot C : le motif interne d'une exclusion s'écrit par le lot (commit_estimate_batch), jamais par la création
+ * d'un élément seul (atomic_create_estimate_item ne le connaît pas) : refus nommé plutôt qu'une erreur générique.
+ */
+function withoutStatusReason<T extends { status_reason?: unknown }>(fields: T): Omit<T, "status_reason"> {
+  if (fields.status_reason != null) {
+    throw badRequest("Le motif interne d'une exclusion s'enregistre avec la ligne dans le chiffrage (enregistrement par lot).",
+      undefined, "ESTIMATE_STATUS_REASON_BATCH_ONLY");
+  }
+  const rest: Partial<T> = { ...fields };
+  delete rest.status_reason;
+  return rest as Omit<T, "status_reason">;
+}
 
 /** Prepare a new item without reading references or committing a draft. */
 export function prepareEstimateItemCreation({ input, id, parentId, position, aid,
@@ -115,7 +130,8 @@ export function prepareEstimateItemCreation({ input, id, parentId, position, aid
     ...(productId ? { product_id: productId } : {}),
     selected_supplier_price_id: selectedSupplierPriceId,
     // Lot 2, sous-lot 2.5 : colonnes v3 transmises telles quelles (refusées hors v3 par l'écrivain).
-    ...pickV3ItemInputFields(input),
+    // TI-682, lot C : sauf le motif interne, que seul le lot écrit (refusé plus haut par son nom).
+    ...withoutStatusReason(pickV3ItemInputFields(input)),
     source_provider: sourceProvider,
     source_job_id: sourceJobId,
     source_file_name: sourceFileName,

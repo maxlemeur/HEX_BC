@@ -85,17 +85,33 @@ insert into retire_race_queries values
 select is(extensions.dblink_exec('retire_project','begin'),'BEGIN','application transaction started');
 select is((select count(*)::integer from extensions.dblink('retire_project',
  'select id from public.estimate_projects where id=''7a000000-0000-4000-8000-000000000020'' for update') as x(id uuid)),1,'application holds project row');
+-- Autovacuum held off the NOWAIT tables (see the first maintenance transaction
+-- below): the refusal must come from the held project row, not from a worker.
+select is(extensions.dblink_exec('retire_a','begin'),'BEGIN','maintenance transaction against held project started');
+select is(extensions.dblink_exec('retire_a', $$lock table public.estimate_versions, private.estimate_purchase_receipts,
+  private.estimate_purchase_transfers, private.estimate_source_coverage_events, storage.objects in share update exclusive mode$$),
+  'LOCK TABLE','maintenance transaction against held project holds autovacuum off the tables it locks');
 select is(extensions.dblink_send_query('retire_a',(select query from retire_race_queries where label='b')),1,'maintenance starts against held project');
 select is((select count(*)::integer from extensions.dblink_get_result('retire_a',false) as x(result jsonb)),0,'maintenance does not delete while project is held');
-select ok(extensions.dblink_error_message('retire_a') like '%could not obtain lock%','maintenance fails immediately on occupied project');
+select ok(extensions.dblink_error_message('retire_a') like '%could not obtain lock on row in relation "estimate_projects"%','maintenance fails immediately on occupied project');
+-- Read the end of the async result, then end the maintenance transaction
+-- before the application writes.
+select count(*) from extensions.dblink_get_result('retire_a',false) as x(result jsonb);
+select is(extensions.dblink_exec('retire_a','rollback'),'ROLLBACK','maintenance transaction against held project rolled back');
 select is(extensions.dblink_exec('retire_project','update public.estimate_versions set updated_at=updated_at where false',false),'UPDATE 0','application transaction can continue to its versions write');
 select is(extensions.dblink_exec('retire_project','rollback'),'ROLLBACK','application transaction closes without being aborted');
-select count(*) from extensions.dblink_get_result('retire_a',false) as x(result jsonb);
 
 create temp table retire_race_time(started_at timestamptz,ended_at timestamptz);
 insert into retire_race_time values(clock_timestamp(),null);
 select is(extensions.dblink_exec('retire_a','begin'),'BEGIN','first maintenance transaction started');
 select is(extensions.dblink_exec('retire_a', $$set local statement_timeout = '10s'$$),'SET','maintenance statement timeout configured');
+-- The function locks these tables NOWAIT: an autovacuum worker on one of them
+-- (SHARE UPDATE EXCLUSIVE) would fail this call with 55P03 instead of being
+-- cancelled. Held in this transaction, that mode keeps autovacuum off them and
+-- blocks neither the writers below (ROW EXCLUSIVE) nor the advisory lock wait.
+select is(extensions.dblink_exec('retire_a', $$lock table public.estimate_versions, private.estimate_purchase_receipts,
+  private.estimate_purchase_transfers, private.estimate_source_coverage_events, storage.objects in share update exclusive mode$$),
+  'LOCK TABLE','maintenance transaction holds autovacuum off the tables it locks');
 select ok((select (x.result->>'guard_restored')::boolean from extensions.dblink('retire_a',
   (select query from retire_race_queries where label='a')) as x(result jsonb)),
   'first target removed while transaction remains uncommitted');
@@ -128,7 +144,13 @@ select is(extensions.dblink_exec('retire_setup',$cleanup_before$
 delete from public.audit_logs where table_name='estimate_version_maintenance'
   and record_id='7a000000-0000-4000-8000-000000000011';
 $cleanup_before$),'DELETE 1','synthetic one-shot marker removed for fixture cleanup');
+-- This call takes the same NOWAIT table locks: autovacuum is held off them here too.
+select is(extensions.dblink_exec('retire_setup','begin'),'BEGIN','cleanup maintenance transaction started');
+select is(extensions.dblink_exec('retire_setup', $$lock table public.estimate_versions, private.estimate_purchase_receipts,
+  private.estimate_purchase_transfers, private.estimate_source_coverage_events, storage.objects in share update exclusive mode$$),
+  'LOCK TABLE','cleanup maintenance transaction holds autovacuum off the tables it locks');
 select ok((select (x.result->>'guard_restored')::boolean from extensions.dblink('retire_setup',(select query from retire_race_queries where label='b')) as x(result jsonb)),'second synthetic target removed for cleanup');
+select is(extensions.dblink_exec('retire_setup','commit'),'COMMIT','cleanup maintenance transaction committed');
 select is(extensions.dblink_exec('retire_setup',$cleanup$
 begin;
 delete from public.plan_files where id in ('7a000000-0000-4000-8000-000000000013','7a000000-0000-4000-8000-000000000023');
