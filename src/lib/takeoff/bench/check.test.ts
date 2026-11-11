@@ -83,6 +83,17 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   denominator;
 // - a groups file not named after its document, which the bench would load
 //   for another document than the reviewer meant.
+// Ways truth/measured (lengths measured by hand along the drawn line, TI-662) could judge a reading on a wrong
+// length, written before the code:
+// - a valid measurement refused, or not counted in summary.measuredFiles;
+// - a measured key the scorer does not score as a length of its plan (a typo in a diameter, a count, an insulation
+//   in m2, a key the plan cannot give, gives in part, or that is ambiguous): no report would ever compare it and
+//   nobody would miss it;
+// - a scored length of the plan left out of the file: the judgment would be on the keys someone chose to measure;
+// - a plan of a truth of several plans (a level, a lot) measured: its keys have no length per plan;
+// - a plan without binary measured: the bench never reads it;
+// - a file not named after its plan, a plan absent from the manifest or without quantity truth;
+// - anything else than a file of that name left in the folder.
 
 let dataset: FixtureDataset;
 
@@ -864,6 +875,116 @@ describe("takeoff bench dataset check", () => {
     expect(result.ok).toBe(true);
     // The fixture's page truths (TI-663) are unchanged; the group truth is counted apart.
     expect(result.summary).toMatchObject({ pageFiles: 5, groupFiles: 1 });
+  });
+
+  function measuredTruth(document: string, lines: Array<Record<string, unknown>>) {
+    return { schema_version: 1, document, method: "Fictional method: along the axis of the drawn pipe.", measured_by: "Fictional estimator",
+      measured_on: "2026-11-12", lines };
+  }
+  const COPPER = { zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: "DN 22" };
+  const STEEL = { zone: null, level: "R+1", network: "CHW-S", material: "inox-316l", dn: "DN 100" };
+
+  it("accepts a hand measurement of the lengths the scorer scores on its plan, and counts it", async () => {
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    // Lot C: the workshop and site lines of one pipe are one key for the scorer, so one measured line.
+    await dataset.writeJson("truth/measured/c-plan-01.json", measuredTruth("c-plan-01", [{ ...STEEL, length_m: 13.1 }, { ...STEEL, network: "CHW-R", dn: "DN 150", length_m: null }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expect(result.errors).toEqual([]);
+    expect(result.summary).toMatchObject({ pageFiles: 5, groupFiles: 0, measuredFiles: 2 });
+  });
+
+  it("refuses a measured key the scorer does not score as a length of its plan", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => {
+      const lines = truth.lines as Array<Record<string, unknown>>;
+      // An insulation priced in m2 around the copper pipe: a network line, never a length.
+      lines.push({ ...lines[0], material: "calorifuge", unit: "m2", quantity: 3.5,
+        source: { document: "a-devis-01", sheet: "Lot", row: 9, row_basis: "workbook", text: "Fictional insulation in m2" } });
+    });
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [
+      { ...COPPER, length_m: 11.2 },
+      { ...COPPER, dn: "DN 28", length_m: 4 },
+      // Priced by the devis, but a riser the plan cannot give: the scorer leaves it out of score.
+      { zone: "Z1", level: "R+1", network: "EV", material: "pvc", dn: "DN 100", length_m: 6 },
+      // The reserve plan's key, not this plan's.
+      { zone: "Z2", level: "R+1", network: "ECS", material: "inox-316l", dn: "DN 22", length_m: null },
+      // The fields of the valve count and of the insulation in m2.
+      { zone: "Z1", level: "R+1", network: "EF", material: null, dn: "DN 20", length_m: 3 },
+      { ...COPPER, material: "calorifuge", length_m: 3.5 },
+    ]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    for (const index of [1, 3, 4, 5]) expectIssue(result, "truth/measured/a-plan-01.json", `lines[${index}]`, /not a length of the truth of a-plan-01/);
+    expectIssue(result, "truth/measured/a-plan-01.json", "lines[2]", /out of score \(not_observable\)/);
+    expect(result.errors).toHaveLength(5);
+  });
+
+  it("refuses a measured key the plan gives in part or that is ambiguous, as the scorer leaves it out of score", async () => {
+    await dataset.mutateJson("truth/c-plan-01.json", (truth) => {
+      const lines = truth.lines as Array<Record<string, unknown>>;
+      // The site run is not drawn: the pooled key of the pipe is partly observable.
+      Object.assign(lines[1], { observable_on_plan: false, plan_cause: "not_drawn" });
+      Object.assign(lines[3], { ambiguous: true, ambiguity_reason: "Fictional: two readings of the header." });
+    });
+    await dataset.writeJson("truth/measured/c-plan-01.json", measuredTruth("c-plan-01", [{ ...STEEL, length_m: 13.1 }, { ...STEEL, network: "CHW-R", dn: "DN 150", length_m: 28 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/measured/c-plan-01.json", "lines[0]", /out of score \(partly_observable\)/);
+    expectIssue(result, "truth/measured/c-plan-01.json", "lines[1]", /out of score \(ambiguous\)/);
+    expect(result.errors.filter((issue) => issue.file.startsWith("truth/measured/"))).toHaveLength(2);
+  });
+
+  it("refuses a measurement that leaves out a scored length of its plan", async () => {
+    await dataset.writeJson("truth/measured/c-plan-01.json", measuredTruth("c-plan-01", [{ ...STEEL, length_m: 13.1 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/measured/c-plan-01.json", "lines", /no line for the scored length .*CHW-R.*DN 150.*length_m null/);
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it("refuses the measurement of a plan whose truth covers several plans", async () => {
+    // The truth of the second plan becomes a truth of both: with the first plan's own truth, one scope of two plans.
+    await dataset.mutateJson("truth/a-plan-02.json", (truth) => { Object.assign(truth, { scope: "level", documents: ["a-plan-01", "a-plan-02"] }); });
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/a-plan-01.json", "document",
+      /covers several plans \(a-plan-01, a-plan-02\)/);
+  });
+
+  it("refuses the measurement of a plan without binary", async () => {
+    await dataset.writeJson("truth/measured/b-plan-01.json", measuredTruth("b-plan-01", [
+      { zone: "Z1", level: "R+1", network: "HW-S", material: "acier-noir", dn: "DN 50", length_m: 6.4 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/measured/b-plan-01.json", "document", /no verified binary/);
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it("leaves a measurement to the error of its plan's truth when that truth is out of schema", async () => {
+    await dataset.mutateJson("truth/a-plan-01.json", (truth) => { truth.lot = "z"; });
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/a-plan-01.json", "lot", /./);
+    expect(result.errors.filter((issue) => issue.file.startsWith("truth/measured/"))).toEqual([]);
+  });
+
+  it("ignores a hidden file of the folder, as the bench does", async () => {
+    await dataset.writeJson("truth/measured/.a-plan-01.json", { anything: true });
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expect(result.errors).toEqual([]);
+    expect(result.summary.measuredFiles).toBe(0);
+  });
+
+  it("refuses a measurement not named after its plan, of an unknown plan or of a plan without quantity truth", async () => {
+    await dataset.writeJson("truth/measured/a-plan-02.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/a-plan-02.json", "document", /named truth\/measured\/<document id>\.json/);
+    await dataset.writeJson("truth/measured/a-plan-02.json", measuredTruth("a-plan-09", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/a-plan-02.json", "document", /not in the manifest/);
+    await rm(path.join(dataset.root, "truth", "measured"), { recursive: true });
+    await dataset.writeJson("truth/measured/load-plan-01.json", measuredTruth("load-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/load-plan-01.json", "document", /no quantity truth covers load-plan-01/);
+  });
+
+  it("reports a measurement out of schema and an unexpected entry of the folder", async () => {
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 0 }]));
+    await dataset.writeJson("truth/measured/Notes.json", {});
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/measured/a-plan-01.json", "lines[0].length_m", /./);
+    expectIssue(result, "truth/measured/Notes.json", "", /unexpected entry/);
   });
 
   it("refuses a group class that is neither a network code nor a known class", async () => {
