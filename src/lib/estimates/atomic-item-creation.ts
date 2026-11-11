@@ -6,7 +6,7 @@ import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { badRequest, conflict, internalError, mapSupabaseError } from "@/lib/estimates/errors";
-import { deriveFoProvision, loadSupplyTypeFoProvisions } from "@/lib/estimates/fo-provision";
+import { projectUnifiedKfo, loadSupplyTypeFoProvisions } from "@/lib/estimates/fo-provision";
 import {
   assertHistoricalItemHasNoV3Columns,
   normalizeV3ItemWrite,
@@ -187,13 +187,12 @@ async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomi
   if (item.item_type === "line") {
     const pricedItem = await createFoPriceResolver(supabase, tenantId)(item);
     // TI-534 : provision FO que le déclencheur donne à la ligne neuve (jamais envoyée : p_item reste inchangé).
-    const { provisions, error: provisionError } = await loadSupplyTypeFoProvisions(supabase, tenantId, [pricedItem.supply_type_id]);
+    const { provisions, error: provisionError } = await loadSupplyTypeFoProvisions(supabase, tenantId, [pricedItem.supply_type_id], input.projectUserId);
     if (provisionError) {
       throw mapSupabaseError(provisionError, "Impossible de lire le type de fourniture.");
     }
     lines.push({
-      ...pricedItem,
-      fo_provision: deriveFoProvision(pricedItem.supply_type_id, provisions, pricedItem.fo_price_origin),
+      ...projectUnifiedKfo(pricedItem, provisions),
       parent_id: item.parent_id ?? null,
       description: item.description ?? null,
       labor_role_id: item.labor_role_id ?? null,
@@ -201,7 +200,7 @@ async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomi
       quantity: item.quantity ?? 1,
       unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
       tax_rate_bp: item.tax_rate_bp ?? version.tax_rate_bp,
-      k_fo: item.k_fo ?? 1,
+
       h_mo: null,
       k_mo: item.k_mo ?? 1,
       pu_ht_cents: null,

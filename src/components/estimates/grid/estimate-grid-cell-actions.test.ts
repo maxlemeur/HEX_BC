@@ -290,6 +290,17 @@ describe("planEstimateGridPaste", () => {
 });
 
 describe("planEstimateGridFillDown", () => {
+  it("copies automatic tube K FO as a manual coefficient onto another family and omits v3 provenance for legacy rows", () => {
+    const { rows, getItem } = grid([
+      line("a", { k_fo: 1.13, fo_provision: 1, k_fo_manual: false, supply_type_id: "tube" }),
+      line("b", { k_fo: 1.02, k_fo_manual: false, supply_type_id: "raccord" }),
+    ]);
+    expect(planEstimateGridFillDown(single("b", "k_fo"), rows, getItem, context).writes[0].patch)
+      .toEqual({ k_fo: 1.13, k_fo_manual: true });
+    const legacy = grid([line("a", { k_fo: 1.09, k_fo_manual: null }), line("b")]);
+    expect(planEstimateGridFillDown(single("b", "k_fo"), legacy.rows, legacy.getItem, { ...context, isV3: false }).writes[0].patch)
+      .toEqual({ k_fo: 1.09 });
+  });
   it("copies the first row of each column down the range", () => {
     const { rows, getItem } = grid([
       line("a", { k_fo: 1.09, labor_role_id: "role-chef" }),
@@ -298,7 +309,8 @@ describe("planEstimateGridFillDown", () => {
     ]);
     const plan = planEstimateGridFillDown(range(["a", "b", "c"], ["k_fo", "labor_role"]), rows, getItem, context);
     expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([
-      ["b", { k_fo: 1.09 }],
+      ["b", { k_fo: 1.09, k_fo_manual: true }],
+      ["c", { k_fo_manual: true }],
       ["b", { labor_role_id: "role-chef" }],
       ["c", { labor_role_id: "role-chef" }],
     ]);
@@ -307,7 +319,7 @@ describe("planEstimateGridFillDown", () => {
   it("copies the nearest line above into a single cell, past a section", () => {
     const { rows, getItem } = grid([line("a", { k_fo: 1.04 }), section("s", "Lot"), line("b", { k_fo: 1.2 })]);
     const plan = planEstimateGridFillDown(single("b", "k_fo"), rows, getItem, context);
-    expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([["b", { k_fo: 1.04 }]]);
+    expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([["b", { k_fo: 1.04, k_fo_manual: true }]]);
     expect(planEstimateGridFillDown(single("a", "k_fo"), rows, getItem, context).writes).toEqual([]);
   });
 
@@ -355,8 +367,8 @@ describe("planEstimateGridClear", () => {
     const plan = planEstimateGridClear(range(["a", "b"], ["unit_price", "k_fo", "pu_ht"]), getItem, context);
     expect(plan.writes.map((write) => [write.itemId, write.patch])).toEqual([
       ["a", { unit_price_ht_cents: 0 }],
-      ["a", { k_fo: 1 }],
-      ["b", { k_fo: 1 }],
+      ["a", { k_fo: 1, k_fo_manual: true }],
+      ["b", { k_fo: 1, k_fo_manual: true }],
     ]);
     expect(plan.readOnlyCount).toBe(2);
   });

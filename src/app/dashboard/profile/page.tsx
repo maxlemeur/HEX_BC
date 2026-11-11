@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FoCoefficientSettings } from "@/components/estimates/FoCoefficientSettings";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, SaveIcon, UsersIcon } from "lucide-react";
 
@@ -164,6 +165,7 @@ export default function ProfilePage() {
         }
       />
 
+      <FoCoefficientSettings />
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <PageSection
           title="Informations professionnelles"

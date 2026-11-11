@@ -311,9 +311,10 @@ describe("executeEstimateBatch", () => {
       gross_ht_cents: 1000, discount_applied_cents: 0, commercial_rounding_cents: 0,
     });
     db.rows.estimate_items = [section(), {
-      ...line(), h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: "priced", fo_provision: 1,
+      ...line(), h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: "priced", fo_provision: 1, k_fo_manual: false,
     }];
-    db.rows.supply_types = [{ id: TUBE_ID, tenant_id: TENANT_ID, code: "tube", name: "Tube", default_fo_provision: 1.03 }];
+    db.rows.estimate_fo_preferences = [];
+    db.rows.supply_types = [{ id: TUBE_ID, tenant_id: TENANT_ID, code: "tube", name: "Tube", default_fo_provision: 1.13 }];
     db.commit.mockResolvedValue({ data: null, error: { code: "40001", message: "ESTIMATE_BATCH_STALE" } });
     const operations: BatchOperationInput[] = [
       { op: "update", id: ITEM_ID, data: { supply_type_id: TUBE_ID } },
@@ -325,10 +326,10 @@ describe("executeEstimateBatch", () => {
       p_version_patch: Record<string, unknown>;
     };
     const createdId = sent.p_created_ids[0].id;
-    // Tube: 1 × 1 000 × 1,030 = 1 030 ; new line without type: 2 × (500 × 1,010) = 2 × 505 = 1 010.
+    // TI-534 current contract: one K FO, 1.13 for Tube and 1.02 without a family.
     expect(Object.fromEntries(sent.p_item_updates.map((update) => [update.id, [update.pu_ht_cents, update.line_total_ht_cents]])))
-      .toEqual({ [ITEM_ID]: [1030, 1030], [createdId]: [505, 1010] });
-    expect(sent.p_version_patch).toMatchObject({ gross_ht_cents: 2040, total_ht_cents: 2040 });
+      .toEqual({ [ITEM_ID]: [1130, 1130], [createdId]: [510, 1020] });
+    expect(sent.p_version_patch).toMatchObject({ gross_ht_cents: 2150, total_ht_cents: 2150 });
     // The provision is the database's: the operations replayed by an idempotent retry stay those of the client.
     expect(JSON.stringify(sent.p_operations)).not.toContain("fo_provision");
   });

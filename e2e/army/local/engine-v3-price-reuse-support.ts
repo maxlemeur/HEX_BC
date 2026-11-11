@@ -182,8 +182,8 @@ export async function verifyPriceReuseArbitration(ui: Ui, army: ArmyState, owner
   await expect(rowCheckbox(dialog, T3.title)).toBeChecked();
   await dialog.getByRole("button", "Appliquer 3 reprises", { exact: true }).tap();
   await expect(dialog).toBeHidden({ timeout: 60_000 });
-  // R6 « papillon » : PU ⌈3 600 × 1,01 × 1,30 + 0,9 × 4 000 × 1,20⌋ = 9 047, × 4 = 36 188.
-  await verifyAppliedPrices(ui, army, fixture, "prx02", referenceBefore, { prFo: 3600, hPerUnit: 0.9, pu: 9047, net: 36188 });
+  // R6 « papillon » : PU ⌈3 600 × 1,02 × 1,30 + 0,9 × 4 000 × 1,20⌋ = 9 094, × 4 = 36 376.
+  await verifyAppliedPrices(ui, army, fixture, "prx02", referenceBefore, { prFo: 3600, hPerUnit: 0.9, pu: 9094, net: 36376 });
 }
 
 const priceView = (view: LineView) => ({ title: view.title, unit: view.unit, quantity: view.quantity, prFo: view.prFo,
@@ -192,11 +192,11 @@ const priceView = (view: LineView) => ({ title: view.title, unit: view.unit, qua
 /**
  * After « Appliquer 3 reprises » (T1, T2 identiques, T3 confirmée) : prix de référence repris, quantités et désignations
  * du métré conservées, T6 (déjà chiffrée à la main) inchangée, T4/T5 intactes ; la référence n'est jamais écrite.
- * PU v3 = ⌈PR × 1,01 × 1,30 + h/u × 40 € × 1,20⌋ : T1 3 321, T2 6 928, T3 8 743, T6 5 683.
+ * PU v3 = ⌈PR × 1,02 × 1,30 + h/u × 40 € × 1,20⌋ : T1 3 338, T2 6 965, T3 8 797, T6 5 715.
  */
 export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: PriceReuseFixture, label: string,
   referenceBefore: Awaited<ReturnType<typeof readEstimate>>,
-  t3 = { prFo: 4100, hPerUnit: 0.7, pu: 8743, net: 34972 }) {
+  t3 = { prFo: 4100, hPerUnit: 0.7, pu: 8797, net: 35188 }) {
   const summary = ui.screen.getByTestId("estimate-editor-alert-import-summary");
   await expect(summary).toBeVisible({ timeout: 60_000 });
   const { T1, T2, T3, T4, T5, T6, T7, T8 } = fixture.lines;
@@ -204,7 +204,7 @@ export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: Pric
   expect(message).toContain("3 prix repris depuis le devis de référence.");
   if (label === "prx01") {
     expect(message).toContain("PU de vente différent de la référence");
-    for (const [line, targetPu, sourcePu] of [[T1, 3321, 2943], [T2, 6928, 6049], [T3, 8743, 7501]] as const) {
+    for (const [line, targetPu, sourcePu] of [[T1, 3338, 2955], [T2, 6965, 6078], [T3, 8797, 7542]] as const) {
       expect(message).toContain(`« ${line.title} » ${eur(targetPu)} au lieu de ${eur(sourcePu)}`);
     }
   } else {
@@ -216,12 +216,12 @@ export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: Pric
   const actual = { T1: view(T1), T2: view(T2), T3: view(T3), T4: view(T4), T5: view(T5), T6: view(T6) };
   await recordEvidence(army, `${label}-applied`, { versionId: fixture.target.versionId, actual });
   expect(actual).toEqual({
-    T1: { title: T1.title, unit: "ml", quantity: 40, prFo: 1250, hPerUnit: 0.35, roleId: role, pu: 3321, net: 132840 },
-    T2: { title: T2.title, unit: "u", quantity: 6, prFo: 2900, hPerUnit: 0.65, roleId: role, pu: 6928, net: 41568 },
+    T1: { title: T1.title, unit: "ml", quantity: 40, prFo: 1250, hPerUnit: 0.35, roleId: role, pu: 3338, net: 133520 },
+    T2: { title: T2.title, unit: "u", quantity: 6, prFo: 2900, hPerUnit: 0.65, roleId: role, pu: 6965, net: 41790 },
     T3: { title: T3.title, unit: "u", quantity: 4, roleId: role, ...t3 },
     T4: { title: T4.title, unit: "u", quantity: 2, prFo: 0, hPerUnit: 0, roleId: null, pu: 0, net: 0 },
     T5: { title: T5.title, unit: "ml", quantity: 12, prFo: 0, hPerUnit: 0, roleId: null, pu: 0, net: 0 },
-    T6: { title: T6.title, unit: "u", quantity: 2, prFo: 2500, hPerUnit: 0.5, roleId: role, pu: 5683, net: 11366 },
+    T6: { title: T6.title, unit: "u", quantity: 2, prFo: 2500, hPerUnit: 0.5, roleId: role, pu: 5715, net: 11430 },
   });
   for (const [line, quantity] of [[T7, 8], [T8, 9]] as const) {
     expect(view(line)).toMatchObject({ quantity, prFo: 0, pu: 0, net: 0 });
@@ -229,10 +229,10 @@ export async function verifyAppliedPrices(ui: Ui, army: ArmyState, fixture: Pric
   const referenceAfter = await readEstimate(ui.browser, fixture.reference.versionId);
   expect({ token: referenceAfter.version.updated_at, lines: referenceAfter.items.map((item) => [item.id, item.unit_price_ht_cents]) })
     .toEqual({ token: referenceBefore.version.updated_at, lines: referenceBefore.items.map((item) => [item.id, item.unit_price_ht_cents]) });
-  const totalHt = 132840 + 41568 + t3.net + 11366;
+  const totalHt = 133520 + 41790 + t3.net + 11430;
   const tax = Math.round(totalHt * 0.2);
   await checkpoint(ui, army, `${label}-final`, fixture.target.versionId, {
-    api: { version: { totals: [totalHt, tax, totalHt + tax] }, lines: { [T1.id]: { net: 132840 }, [T3.id]: { net: t3.net } } },
+    api: { version: { totals: [totalHt, tax, totalHt + tax] }, lines: { [T1.id]: { net: 133520 }, [T3.id]: { net: t3.net } } },
     screen: { chips: [`Total HT : ${eur(totalHt)}`] },
   });
 }

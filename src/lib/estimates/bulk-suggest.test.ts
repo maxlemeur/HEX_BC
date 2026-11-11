@@ -4,6 +4,7 @@ import {
   applyBulkSuggestions,
   computeBulkSuggestions,
   findSuggestibleLines,
+  buildBulkSuggestPreview,
 } from "@/lib/estimates/bulk-suggest";
 import type { Database } from "@/types/database";
 
@@ -345,4 +346,13 @@ describe("bulk-suggest", () => {
     expect(nextLine?.k_mo).toBe(1.25);
     expect(nextLine?.description).toBe("u");
   });
+});
+
+it("offers a rule for an automatic K FO and preserves a manual neutral coefficient", () => {
+  const items = [createLine({ id: "automatic", title: "Tube cuivre", k_fo: 1.13, k_fo_manual: false }), createLine({ id: "manual", title: "Tube cuivre", k_fo: 1, k_fo_manual: true })];
+  const rules = [createRule({ id: "tube-rule", match_value: "tube", k_fo: 1.2 })];
+  expect(findSuggestibleLines({ items, rules }).map(entry => entry.line.id)).toEqual(["automatic"]);
+  const preview = buildBulkSuggestPreview({ items, suggestionRules: rules, categories: [] });
+  expect(preview).toHaveLength(1);
+  expect(preview[0].patch).toMatchObject({ k_fo: 1.2 });
 });

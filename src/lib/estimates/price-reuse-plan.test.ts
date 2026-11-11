@@ -54,13 +54,19 @@ const refusal = (run: () => unknown) => {
 };
 
 describe("price reuse write plan", () => {
+  it("folds a historical provision into a manual unified coefficient without compounding a new reference", () => {
+    const old = plan({ references: [{ ...referenceLine, k_fo: 1, fo_provision: 1.03 }] });
+    expect(old.operations[0].data).toMatchObject({ k_fo: 1.03, k_fo_manual: true });
+    const current = plan({ references: [{ ...referenceLine, k_fo: 1.0735, fo_provision: 1 }] });
+    expect(current.operations[0].data).toMatchObject({ k_fo: 1.0735, k_fo_manual: true });
+  });
   it("copies every price input of the reference and nothing of the métré", () => {
     expect(plan()).toEqual({
       unchanged: [],
       operations: [{ op: "update", id: "target", data: {
         line_nature: "supply_and_labor", pricing_status: "priced", unit_price_ht_cents: 1250, supply_type_id: SUPPLY_TUBE,
         fo_price_origin: null,
-        k_fo: 1.1, h_mo_per_unit: 0.35, h_mo_atelier_per_unit: 0.1, h_mo_chantier_per_unit: 0.25, h_mo_majoration: 1.05,
+        k_fo: 1.1, k_fo_manual: true, h_mo_per_unit: 0.35, h_mo_atelier_per_unit: 0.1, h_mo_chantier_per_unit: 0.25, h_mo_majoration: 1.05,
         k_mo: 1.2, k_mo_atelier: 1.3, k_mo_chantier: 1.4,
         labor_role_id: ROLE_TARGET, labor_role_atelier_id: ROLE_TARGET_CAL, labor_role_chantier_id: ROLE_TARGET,
       } }],

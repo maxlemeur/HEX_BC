@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_FO_PROVISION,
+  projectUnifiedKfo,
+  unifiedKfoValue,
   deriveFoProvision,
   foProvisionsBySupplyType,
   supplyTypeChanged,
@@ -97,4 +99,44 @@ describe("TI-534 FO provision mirror", () => {
     expect(foProvisionsBySupplyType([{ id: TUBE.toUpperCase(), default_fo_provision: "1.030" }]))
       .toEqual(new Map([[TUBE, 1.03]]));
   });
+});
+
+describe("unified K FO and changed preferences", () => {
+  const current = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13, user_fo_coefficient: 1.15 }]);
+  it("preserves a stored automatic coefficient on quantity-only edits until explicit refresh", () => {
+    const before = { supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false, fo_provision: 1, quantity: 2 };
+    expect(projectUnifiedKfo({ ...before, quantity: 3 }, current, before)).toMatchObject({ k_fo: 1.13, quantity: 3 });
+    expect(projectUnifiedKfo({ ...before, k_fo: 1.15 }, current, before)).toMatchObject({ k_fo: 1.15, k_fo_manual: false });
+  });
+  it("preserves unknown legacy neutrality and folds legacy provision only on a pricing edit", () => {
+    const before = { supply_type_id: TUBE, k_fo: 1, k_fo_manual: null, fo_provision: 1.03, unit_price_ht_cents: 100 };
+    expect(projectUnifiedKfo({ ...before }, current, before)).toMatchObject({ k_fo: 1, k_fo_manual: null, fo_provision: 1.03 });
+    expect(projectUnifiedKfo({ ...before, unit_price_ht_cents: 200 }, current, before)).toMatchObject({ k_fo: 1.03, k_fo_manual: true, fo_provision: 1 });
+    expect(projectUnifiedKfo({ ...before, k_fo: 1, k_fo_manual: true }, current, before)).toMatchObject({ k_fo: 1, k_fo_manual: true, fo_provision: 1 });
+  });
+});
+
+it("reconciles an automatic server K FO without overwriting a pending manual input", () => {
+  const automatic = { id: "line", item_type: "line", supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false, fo_provision: 1 };
+  const result = [{ op: "update", index: 0, status: "ok", data: { item: { ...automatic, k_fo: 1.15 } } }] as Parameters<typeof withServerFoProvisions>[1];
+  expect(withServerFoProvisions([automatic], result)[0].k_fo).toBe(1.15);
+  const pending = { ...automatic, k_fo: 1.0735, k_fo_manual: true };
+  expect(withServerFoProvisions([pending], result)[0]).toMatchObject({ k_fo: 1.0735, k_fo_manual: true });
+});
+
+it("keeps custom and personal unified coefficients authoritative for included transport", () => {
+  const included = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "reference", source_id: TUBE, transport_mode: "included" };
+  const map = new Map([[TUBE, { value: 1.0735, transportSensitive: true, unified: true, tube: true }]]);
+  expect(unifiedKfoValue(TUBE, map, included)).toBe(1.0735);
+  expect(unifiedKfoValue(null, map, included)).toBe(1.02);
+  map.set(TUBE, { value: 0.95, transportSensitive: true, unified: true, tube: true });
+  expect(unifiedKfoValue(TUBE, map, included)).toBe(0.95);
+  expect(unifiedKfoValue(TUBE, new Map([[TUBE, { value: 1.13, transportSensitive: true, unified: true, tube: true, user: 0 }]]), included)).toBe(0);
+});
+
+it("reconciles an automatic K FO from a compact neutral-provision receipt", () => {
+  const item = { id: "line-1", item_type: "line", supply_type_id: TUBE, k_fo: 1.1, k_fo_manual: false, fo_provision: 1 };
+  const results = [{ index: 0, op: "update" as const, status: "ok" as const,
+    data: { item: { id: item.id, supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false } } }];
+  expect(withServerFoProvisions([item], results, true)[0]).toMatchObject({ k_fo: 1.13, fo_provision: 1 });
 });

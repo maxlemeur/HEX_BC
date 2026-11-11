@@ -115,7 +115,7 @@ function oracleLines(runPrefix: string, scenario: Scenario, laborRoleId: string,
     item_type: "line", parent_id: parentId, position: index + 1,
     line_nature: line.hPerUnit > 0 ? "supply_and_labor" : "supply_only", title: `${runPrefix} ${line.ref}`, description: line.unit,
     unit_code: line.unit, pricing_status: "priced", quantity: line.quantity, unit_price_ht_cents: line.prFo,
-    tax_rate_bp: scenario.rates[index], k_fo: 1, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1,
+    tax_rate_bp: scenario.rates[index], k_fo: 1.01, k_fo_manual: true, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1,
     labor_role_id: line.hPerUnit > 0 ? laborRoleId : null, source_provider: "manual",
   }));
 }

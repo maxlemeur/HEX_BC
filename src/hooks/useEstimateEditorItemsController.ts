@@ -40,7 +40,7 @@ import {
   type EstimateVersionRow,
   type LaborSplitItemFields,
 } from "@/lib/estimates/editor-items";
-import { DEFAULT_FO_PROVISION, supplyTypeChanged } from "@/lib/estimates/fo-provision";
+import { supplyTypeChanged } from "@/lib/estimates/fo-provision";
 import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import {
   markTempItemsRemoved,
@@ -66,6 +66,7 @@ export type EstimateEditorItemPatch = Partial<
     | "unit_price_ht_cents"
     | "tax_rate_bp"
     | "k_fo"
+  | "k_fo_manual"
     | "h_mo"
     | "h_mo_majoration"
     | "k_mo"
@@ -595,9 +596,10 @@ export function useEstimateEditorItemsController({
         lineTaxCents: lineValues.taxLineCents,
         lineTotalTtcCents: lineValues.ttcLineCents,
         isLaborSplitEnabled,
-        // TI-534 : une ligne v3 sans type FO reçoit 1,010 du serveur.
-        foProvision: v3Writer ? DEFAULT_FO_PROVISION : 1,
+        // New v3 rows carry the adjustment in K FO, with no second provision.
+        foProvision: 1,
       });
+      if (v3Writer) Object.assign(optimisticLine, { k_fo: 1.02, k_fo_manual: false });
       setItems((previous) => [...previous, optimisticLine]);
 
       const createPayload: EstimateItemInsertPayload = {
@@ -676,7 +678,7 @@ export function useEstimateEditorItemsController({
           ) as EditorEstimateItem;
           // Keep the provision derived from the FO type edited during creation.
           return v3Writer && supplyTypeChanged(created.supply_type_id, reconciled.supply_type_id)
-            ? { ...reconciled, fo_provision: item.fo_provision }
+            ? { ...reconciled, fo_provision: item.fo_provision, k_fo: item.k_fo, k_fo_manual: item.k_fo_manual }
             : reconciled;
         };
         if (document) {
@@ -964,6 +966,9 @@ export function useEstimateEditorItemsController({
       const current = snapshot.find((item) => item.id === itemId);
       if (!current) return;
       const previousItem = current;
+      if (v3Writer && "k_fo" in patch && patch.k_fo !== current.k_fo && !("k_fo_manual" in patch)) {
+        patch = { ...patch, k_fo_manual: true };
+      }
       let updated: EditorEstimateItem = { ...current, ...patch };
       if (updated.item_type === "line") {
         updated.line_nature = resolvePromotedEstimateLineNature(current, patch);

@@ -1,3 +1,4 @@
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 import type { EstimateDocumentPreparedData, EstimateItem } from "@/components/estimate-document/prepare-estimate-document-data";
 import { parseClientContractSnapshot, type ClientContract1, type CommercialRow1 } from "@/lib/estimates/offer-contract";
 
@@ -6,7 +7,7 @@ export type CaptureInput = {
   project: ClientContract1["project"];
   issuer: ClientContract1["issuer"];
   company: ClientContract1["company"];
-  sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "description" | "quantity">[];
+  sourceRows: readonly (Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "description" | "quantity"> & { source_metadata?: unknown })[];
   prepared: Pick<EstimateDocumentPreparedData, "layout" | "numberingById" | "sectionTotalsById" | "lineSplitsById" | "lineUnitPriceHtById">;
   /** IDs in the actual resolved breakdown, before preparer's zero placeholders. */
   sourceLineIds: ReadonlySet<string>;
@@ -53,7 +54,7 @@ export function captureOfferClientContract(input: CaptureInput): ClientContract1
       if (entry.item_type === "section") {
         if (!Object.hasOwn(input.prepared.sectionTotalsById, entry.id) || !Object.hasOwn(input.prepared.numberingById, entry.id)) incomplete();
         const sale = input.prepared.sectionTotalsById[entry.id];
-        rows.push({ kind: "section", ...common, number: input.prepared.numberingById[entry.id], saleHtCents: sale.totalHtCents,
+        rows.push({ kind: "section", ...common, number: input.prepared.numberingById[entry.id], ...(isKitSection(entry) ? { kitMetier: true as const } : {}), saleHtCents: sale.totalHtCents,
           ...(showPortions ? { foSaleHtCents: sale.foTotalCents, moSaleHtCents: sale.moTotalCents } : {}) });
         walk(entry.id, depth + 1);
       } else {

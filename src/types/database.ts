@@ -116,12 +116,16 @@ type RefineRpc<Rpc, NullableNames> = Rpc extends { Args: infer Args; Returns: in
   ? Omit<Rpc, "Args" | "Returns"> & { Args: NullableRpcArgs<Args, NullableNames>; Returns: JsonReadResult<Result> }
   : Rpc;
 
+// Older editor buffers and historical fixtures have no manual-provenance field.
+// Absence is deliberately distinct from a known automatic coefficient.
+type CompatibleRow<K, Row> = K extends "estimate_items" ? Omit<Row, "k_fo_manual"> & { k_fo_manual?: boolean | null } : K extends "estimate_template_items" ? Omit<Row, "k_fo_manual" | "kit_metier"> & { k_fo_manual?: boolean | null; kit_metier?: boolean } : Row;
+
 export type Database = Omit<GeneratedDatabase, "public"> & {
   public: Omit<PublicSchema, "Tables" | "Functions"> & {
     Tables: {
       [K in keyof GeneratedTables]: K extends keyof CheckedColumns
         ? Omit<GeneratedTables[K], "Row" | "Insert" | "Update"> & {
-          Row: JsonReadColumns<RefineColumns<GeneratedTables[K]["Row"], CheckedColumns[K]>>;
+          Row: CompatibleRow<K, JsonReadColumns<RefineColumns<GeneratedTables[K]["Row"], CheckedColumns[K]>>>;
           Insert: RefineColumns<GeneratedTables[K]["Insert"], CheckedColumns[K]>;
           Update: RefineColumns<GeneratedTables[K]["Update"], CheckedColumns[K]>;
         }

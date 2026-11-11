@@ -27571,6 +27571,12 @@
                         }
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "k_fo": {
                       "type": [
                         "number",
@@ -27820,6 +27826,7 @@
                       ]
                     },
                     "fo_provision": {
+                      "default": 1,
                       "type": [
                         "number",
                         "null"
@@ -29382,6 +29389,12 @@
                         }
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "k_fo": {
                       "type": [
                         "number",
@@ -29631,6 +29644,7 @@
                       ]
                     },
                     "fo_provision": {
+                      "default": 1,
                       "type": [
                         "number",
                         "null"
@@ -30512,6 +30526,9 @@
                               "type": "number",
                               "minimum": 0
                             },
+                            "k_fo_manual": {
+                              "type": "boolean"
+                            },
                             "h_mo": {
                               "type": "number",
                               "minimum": 0
@@ -30888,6 +30905,9 @@
                         "k_fo": {
                           "type": "number",
                           "minimum": 0
+                        },
+                        "k_fo_manual": {
+                          "type": "boolean"
                         },
                         "h_mo": {
                           "type": "number",
@@ -31535,6 +31555,9 @@
                                           "type": "number",
                                           "minimum": 0
                                         },
+                                        "k_fo_manual": {
+                                          "type": "boolean"
+                                        },
                                         "h_mo": {
                                           "type": "number",
                                           "minimum": 0
@@ -31888,6 +31911,9 @@
                                     "k_fo": {
                                       "type": "number",
                                       "minimum": 0
+                                    },
+                                    "k_fo_manual": {
+                                      "type": "boolean"
                                     },
                                     "h_mo": {
                                       "type": "number",
@@ -32731,6 +32757,9 @@
                                           "type": "number",
                                           "minimum": 0
                                         },
+                                        "k_fo_manual": {
+                                          "type": "boolean"
+                                        },
                                         "h_mo": {
                                           "type": "number",
                                           "minimum": 0
@@ -33084,6 +33113,9 @@
                                     "k_fo": {
                                       "type": "number",
                                       "minimum": 0
+                                    },
+                                    "k_fo_manual": {
+                                      "type": "boolean"
                                     },
                                     "h_mo": {
                                       "type": "number",
@@ -35043,6 +35075,12 @@
                         "null"
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "h_mo": {
                       "type": [
                         "number",
@@ -35469,6 +35507,9 @@
                 "type": "number",
                 "minimum": 0
               },
+              "k_fo_manual": {
+                "type": "boolean"
+              },
               "h_mo": {
                 "type": "number",
                 "minimum": 0
@@ -35869,6 +35910,12 @@
                       }
                     ]
                   },
+                  "k_fo_manual": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "k_fo": {
                     "type": [
                       "number",
@@ -36118,6 +36165,7 @@
                     ]
                   },
                   "fo_provision": {
+                    "default": 1,
                     "type": [
                       "number",
                       "null"
@@ -36621,6 +36669,9 @@
             "type": "number",
             "minimum": 0
           },
+          "k_fo_manual": {
+            "type": "boolean"
+          },
           "h_mo": {
             "type": "number",
             "minimum": 0
@@ -37010,6 +37061,12 @@
                       }
                     ]
                   },
+                  "k_fo_manual": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "k_fo": {
                     "type": [
                       "number",
@@ -37259,6 +37316,7 @@
                     ]
                   },
                   "fo_provision": {
+                    "default": 1,
                     "type": [
                       "number",
                       "null"
@@ -37845,6 +37903,9 @@
                 "k_fo": {
                   "type": "number",
                   "minimum": 0
+                },
+                "k_fo_manual": {
+                  "type": "boolean"
                 },
                 "h_mo": {
                   "type": "number",
@@ -56254,6 +56315,9 @@
                   "type": "number",
                   "minimum": 0
                 },
+                "k_fo_manual": {
+                  "type": "boolean"
+                },
                 "k_mo": {
                   "type": "number",
                   "minimum": 0
@@ -56805,6 +56869,9 @@
                   "type": "number",
                   "minimum": 0
                 },
+                "k_fo_manual": {
+                  "type": "boolean"
+                },
                 "k_mo": {
                   "type": "number",
                   "minimum": 0
@@ -57103,6 +57170,12 @@
                     "k_fo": {
                       "type": [
                         "number",
+                        "null"
+                      ]
+                    },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
                         "null"
                       ]
                     },
@@ -57965,6 +58038,15 @@
                             "number",
                             "null"
                           ]
+                        },
+                        "k_fo_manual": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "kit_metier": {
+                          "type": "boolean"
                         },
                         "h_mo": {
                           "type": [

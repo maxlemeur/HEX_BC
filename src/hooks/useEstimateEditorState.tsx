@@ -492,7 +492,8 @@ export function useEstimateEditorState({
           const before = editorDocument.getSnapshot().confirmedItems;
           const after = withServerFoProvisions(before, results, true);
           editorDocument.acknowledgeItems(after.flatMap((item, index) => item !== before[index]
-            ? [{ id: item.id, updates: { fo_provision: item.fo_provision, fo_price_origin: item.fo_price_origin, supply_type_id: item.supply_type_id } }] : []));
+            ? [{ id: item.id, updates: { fo_provision: item.fo_provision, fo_price_origin: item.fo_price_origin, supply_type_id: item.supply_type_id,
+              ...(item.k_fo !== before[index].k_fo ? { k_fo: item.k_fo } : {}) } }] : []));
         }
       });
     },

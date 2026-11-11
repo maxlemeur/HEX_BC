@@ -391,11 +391,11 @@ export function ImportLinesPreview({
               {`Aucun écart supérieur à ${formatDecimal(unitPriceChecks.toleranceCents)} c avec « Prix Unitaire »`}
             </p>
           ) : null}
-          {/* TI-534 : le contrôle lit le classeur à provision 1 ; les lignes créées, sans type FO, reçoivent 1,01. */}
+          {/* TI-534 : le contrôle compare les colonnes du classeur ; le coefficient courant est appliqué à la création. */}
           {isV3 ? (
             <p className="mt-1 text-muted-foreground">
-              Provision FO 1,01 ajoutée à la création (lignes sans type FO) : chaque prix unitaire créé dépasse
-              « Prix Unitaire » de 1 % de sa part fourniture.
+              Le K FO paramétré est appliqué à la création. Sans type FO, sa base est 1,02 :
+              le prix créé inclut alors 2 % sur la part fourniture.
             </p>
           ) : null}
           {unitPriceChecks.outOfTolerance.length > 0 ? (

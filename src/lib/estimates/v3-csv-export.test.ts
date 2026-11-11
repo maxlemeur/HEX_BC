@@ -97,7 +97,7 @@ describe("v3 estimate CSV takeoff provision column (TI-682)", () => {
   it("appends the column after every existing one and leaves the footer cells of the column empty", () => {
     // The columns as they were before TI-682, in their order: a consumer reading them by position keeps working.
     const base = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
-      "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO",
+      "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO",
       "PU HT (EUR)", "Total HT (EUR)", "TVA (%)", "Transport FO"];
     const split = ["h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier", "K MO chantier"];
     for (const laborSplit of [false, true]) {

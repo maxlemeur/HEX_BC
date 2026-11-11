@@ -34,7 +34,7 @@ export function EstimateColumnOrderControls({ order, isLaborSplitEnabled, onMove
         La désignation reste fixe. Les groupes de calcul restent réunis.
       </p>
       {applicableGroups.map((group) => {
-        const columns = order.filter((id) => group.includes(id) && (isV3 || !ESTIMATE_V3_ONLY_COLUMN_IDS.has(id)));
+        const columns = order.filter((id) => group.includes(id) && id !== "fo_provision" && (isV3 || !ESTIMATE_V3_ONLY_COLUMN_IDS.has(id)));
         return (
           <div key={group[0]} className="border-t border-border py-1">
             {columns.map((id, index) => (

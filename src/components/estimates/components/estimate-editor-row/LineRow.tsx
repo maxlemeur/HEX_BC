@@ -1,4 +1,6 @@
 "use client";
+import { KFO_HELP } from "@/lib/estimates/unified-kfo";
+import { parseKfoDraft } from "@/lib/estimates/editor-values";
 
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 
@@ -48,7 +50,6 @@ import {
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
-import { FoProvisionCell } from "@/components/estimates/components/estimate-editor-row/FoProvisionCell";
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
@@ -968,7 +969,6 @@ export function LineRow({
           />
         </div>
       ) : null}
-      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} origin={item.fo_price_origin} /> : null}
       {isFoColumnVisible("k_fo") ? (
         <div
           {...kFoCellProps}
@@ -985,16 +985,17 @@ export function LineRow({
             className="estimate-input estimate-input--compact-number"
             ref={kFoEditorProps.ref}
             tabIndex={kFoEditorProps.tabIndex}
-            value={kFoValue}
+            value={v3Grid ? Number((kFoValue * Number(item.fo_provision ?? 1)).toFixed(6)) : kFoValue}
             emptyValue={1}
-            parseValue={parseCoefficientDraft}
+            commitOnUnchangedBlur={!v3Grid}
+            parseValue={v3Grid ? parseKfoDraft : parseCoefficientDraft}
             aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
-            title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
+            title={KFO_HELP}
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
-            onValueChange={(value) => onPatchItem(item.id, { k_fo: value }, { persist: false })}
+            onValueChange={(value) => onPatchItem(item.id, { k_fo: value, ...(v3Grid ? { k_fo_manual: true } : {}) }, { persist: false })}
             onBlur={kFoEditorProps.onBlur}
-            onValueCommit={(value) => onPatchItem(item.id, { k_fo: value }, { persist: true })}
+            onValueCommit={(value) => onPatchItem(item.id, { k_fo: value, ...(v3Grid ? { k_fo_manual: true } : {}) }, { persist: true })}
             placeholder="1.00"
             disabled={isReadOnly}
           />

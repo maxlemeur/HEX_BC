@@ -206,7 +206,7 @@ function normalizeLine(raw: Bag, path: string, id: string, mode: DecimalReadMode
     quantity: optionalDecimal(raw, "quantity", path, QUANTITY_BOUNDS, mode) ?? DECIMAL_ZERO,
     unitPriceCents: optionalDecimal(raw, "unit_price_ht_cents", path, INTEGER_BOUNDS, mode) ?? DECIMAL_ZERO,
     foProvision: optionalDecimal(raw, "fo_provision", path, FO_PROVISION_BOUNDS, mode) ?? DECIMAL_ONE,
-    kFo: optionalDecimal(raw, "k_fo", path, COST_COEFFICIENT_BOUNDS, mode) ?? DECIMAL_ONE,
+    kFo: optionalDecimal(raw, "k_fo", path, columnBounds(15, 6), mode) ?? DECIMAL_ONE,
     hoursPerUnit: optionalDecimal(raw, "h_mo_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
     hoursAtelierPerUnit: optionalDecimal(raw, "h_mo_atelier_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
     hoursChantierPerUnit: optionalDecimal(raw, "h_mo_chantier_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),

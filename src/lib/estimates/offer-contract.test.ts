@@ -463,3 +463,12 @@ describe("Client1/Proof1/Seal5 contracts", () => {
     });
   });
 });
+
+// New kit presentation is optional; old sealed commercial contracts keep their bytes.
+it("retains a true-only kit marker on contract 1 sections", () => {
+  const contract = snapshot();
+  Object.assign(contract.rows[0], { kitMetier: true });
+  expect(api.parseClientContractSnapshot(contract).rows[0]).toMatchObject({ kitMetier: true });
+  Object.assign(contract.rows[0], { kitMetier: false });
+  expectInvalid(() => api.parseClientContractSnapshot(contract), "OFFER_CLIENT_CONTRACT_INVALID");
+});

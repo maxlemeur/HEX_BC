@@ -3,6 +3,7 @@
 import {
   forwardRef,
   useState,
+  useRef,
   type FocusEventHandler,
   type InputHTMLAttributes,
 } from "react";
@@ -32,6 +33,8 @@ type DecimalDraftInputProps = Omit<
    * (vide -> 0) est conservé pour les autres cellules (heures, etc.).
    */
   emptyValue?: number;
+  /** Only a deliberate edit may switch an automatic coefficient to manual. */
+  commitOnUnchangedBlur?: boolean;
   /**
    * Lecture d'un brouillon non vide ; par défaut la grammaire décimale commune. Une grandeur y
    * applique sa précision, ses bornes ou son unité (parseurs de `@/lib/numeric-input/parsers`,
@@ -52,11 +55,13 @@ export const DecimalDraftInput = forwardRef<
     onFocus,
     onBlur,
     emptyValue,
+    commitOnUnchangedBlur = true,
     parseValue = parseDecimalDraft,
     ...inputProps
   },
   ref,
 ) {
+  const edited = useRef(false);
   const [draftValue, setDraftValue] = useState<string | null>(null);
 
   const resolve = (raw: string): number | null => {
@@ -74,10 +79,12 @@ export const DecimalDraftInput = forwardRef<
       aria-invalid={invalid || inputProps["aria-invalid"]}
       title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
       onFocus={(event) => {
+        edited.current = false;
         setDraftValue(event.currentTarget.value);
         onFocus?.(event);
       }}
       onChange={(event) => {
+        edited.current = true;
         const nextValue = event.currentTarget.value;
         setDraftValue(nextValue);
         const parsed = resolve(nextValue);
@@ -86,6 +93,10 @@ export const DecimalDraftInput = forwardRef<
       onBlur={(event) => {
         const nextValue = event.currentTarget.value;
         onBlur?.(event);
+        if (!commitOnUnchangedBlur && !edited.current) {
+          setDraftValue(null);
+          return;
+        }
         const parsed = resolve(nextValue);
         if (parsed === null) {
           event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);

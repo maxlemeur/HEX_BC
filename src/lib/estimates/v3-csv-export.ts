@@ -54,7 +54,7 @@ const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO a
 
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
-    "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
+    "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
     `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : []),
     TAKEOFF_PROVISION_EXPORT_HEADER];
 }
@@ -105,8 +105,7 @@ export function buildEstimateV3CsvRows(input: {
       supplier1,
       supplier2,
       supplier3,
-      Number(item.fo_provision ?? 1),
-      item.k_fo ?? 1,
+      Number(((item.k_fo ?? 1) * Number(item.fo_provision ?? 1)).toFixed(6)),
       split ? "" : hours(item.h_mo_per_unit),
       priced ? majorationCoefficientToPercent(item.h_mo_majoration ?? 1) : "",
       split ? "" : role(item.labor_role_id),

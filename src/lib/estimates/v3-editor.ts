@@ -1,3 +1,4 @@
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 /**
  * Lot 2, sous-lot 2.6 - éditeur v3 côté client (conception D4, D5, D7 à D9, D11, §4 ;
  * docs/testing/estimate-engine-v3-2.6.md §1.4 et §9.4).
@@ -47,6 +48,7 @@ const V3_DERIVED_ITEM_KEYS = [
 
 /** Colonnes de saisie d'une ligne v3 (même liste que `V3_ITEM_INPUT_KEYS`, 2.5). */
 const V3_INPUT_ITEM_KEYS = [
+  "k_fo_manual",
   "unit_code",
   "fo_price_origin",
   "pricing_status",
@@ -144,6 +146,7 @@ function withoutDerivedKeys(payload: EstimateItemUpdatePayload): EstimateItemUpd
 function pickV3InputFields(item: EstimateItem): Partial<EstimateItemUpdatePayload> {
   const picked: Record<string, unknown> = {};
   for (const key of V3_INPUT_ITEM_KEYS) {
+    if (key === "k_fo_manual" && readRecord(item, key) == null) continue;
     if (key in item) picked[key] = readRecord(item, key) ?? null;
   }
   if (picked.pricing_status === null) delete picked.pricing_status;
@@ -191,6 +194,10 @@ export function buildEstimateV3ItemInsertPayload(
   const payload = buildEstimateItemInsertPayload(versionId, item, overrides);
   if (item.item_type !== "line") return payload;
   const next: Record<string, unknown> = { ...payload, ...pickV3InputFields(item) };
+  if (item.k_fo_manual == null) {
+    next.k_fo = multiplyToStoredEstimateNumeric(item.k_fo ?? 1, item.fo_provision ?? 1, 6);
+    next.k_fo_manual = true;
+  }
   for (const key of V3_DERIVED_ITEM_KEYS) delete next[key];
   return next as EstimateItemInsertPayload;
 }
