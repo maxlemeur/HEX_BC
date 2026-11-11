@@ -465,14 +465,15 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "plans" });
     await details.getByRole("button", "Valider", { exact: true }).click();
     await expect.poll(async () => (await documents())[0]).toMatchObject({ document_kind: "plans", classification_source: "manual" });
+    // The document desk keeps the dialog busy while its server answers the reclassification (the form stays open
+    // until then) and refreshes the page. Wait for that work first, with its budget; the button comes back with it.
+    await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
     await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
     const before = (await documents())[0];
     const sets = await readPlanSets(browser, ids.projectId);
     expect(sets).toHaveLength(1);
     const copiesBefore = await readPlanFiles(browser, sets[0].id);
     expect(copiesBefore).toHaveLength(1);
-    // The document desk keeps the dialog open while the reclassification is pending.
-    await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
     await details.getByRole("button", "Fermer", { exact: true }).click();
     await expect(details).not.toBeVisible();
     const retry = screen.getByRole("button", "Relancer l’analyse (1)", { exact: true });
@@ -559,8 +560,9 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
       await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: category });
       await details.getByRole("button", "Valider", { exact: true }).click();
       await expect.poll(async () => (await documents()).find(doc => doc.id === row.id)).toMatchObject({ document_kind: category, classification_source: "manual" });
-      await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
+      // As in INTRETRY01: the server's work first, with its budget, then the button it gives back.
       await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
+      await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
       await details.getByRole("button", "Fermer", { exact: true }).click();
       await expect(details).not.toBeVisible();
     }
