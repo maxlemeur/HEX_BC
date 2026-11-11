@@ -86,9 +86,16 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
   const reclassified = await client.from("affaire_intake_documents").update({
     document_kind: "dpgf", classification_status: "classified", confidence: 0.99,
     issues: [], classification_source: "manual", classified_at: nowIso, manually_overridden_at: nowIso,
-  }).eq("id", documentId).eq("project_id", input.projectId).select("id, document_kind, classification_status").single();
+  }).eq("id", documentId).eq("project_id", input.projectId).select("id, document_kind, classification_status, storage_path").single();
   if (reclassified.error) throw new Error(`Owned intake classification failed: ${reclassified.error.code}`);
   expect(reclassified.data).toMatchObject({ id: documentId, document_kind: "dpgf", classification_status: "classified" });
+  // « Importer cette DPGF » makes the import step read this copy: it asks the application for the piece, then
+  // fetches the signed URL it receives. The journey replaces it with a local file, which cancels that read only
+  // when the file is chosen before the application answers. Declare the copy before the dossier is opened, so
+  // the campaign guard knows this exact path whichever comes first.
+  const storagePath = reclassified.data.storage_path;
+  if (!storagePath) throw new Error("The owned DPGF has no storage path.");
+  (page.army.ownedIntakeCopies ??= []).push({ projectId: input.projectId, storagePath });
   return documentId as string;
 }
 
