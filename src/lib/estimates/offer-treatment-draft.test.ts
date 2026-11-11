@@ -64,7 +64,12 @@ describe("buildOfferTreatmentRows", () => {
     expect(basis).toBe("indicative_quantities");
     expect(values[ID(1)]).toEqual({ reasonCode: "", note: "", reserveText: "à définir" });
     expect(values[ID(2)]).toEqual({ reasonCode: "other", note: "Voir CCTP 3.2", reserveText: "" });
-    expect(rows.every((row) => !row.staleReserve && !row.unreadable && !row.reserveNotWritten)).toBe(true);
+    expect(rows.every((row) => !row.staleReserve && !row.unreadable && !row.reserveToRewrite)).toBe(true);
+  });
+
+  it("marks a reserve whose sentence names a former title of its line", () => {
+    const renamed = item(1, "Isolation réseaux", "not_priced", { source_metadata: reserve("Calorifuge", "à définir") });
+    expect(draft([renamed]).rows[0]).toMatchObject({ reserveToRewrite: true, stored: { text: "à définir" } });
   });
 
   it("marks a reserve whose sentence has left the offer text", () => {
@@ -73,8 +78,8 @@ describe("buildOfferTreatmentRows", () => {
       item(2, "Réseau EV", "priced", { source_metadata: reserve("Réseau EV", "quantité provisoire") }),
     ];
     const { rows } = draft(items, `Hors peinture.\n${buildOfferReserveSentence("Réseau EV", "quantité provisoire")}`);
-    expect(rows.map((row) => row.reserveNotWritten)).toEqual([true, false]);
-    expect(draft(items, null).rows.map((row) => row.reserveNotWritten)).toEqual([true, true]);
+    expect(rows.map((row) => row.reserveToRewrite)).toEqual([true, false]);
+    expect(draft(items, null).rows.map((row) => row.reserveToRewrite)).toEqual([true, true]);
   });
 
   it("marks a reserve kept from an earlier status and a decision that cannot be read", () => {
@@ -94,7 +99,7 @@ describe("buildOfferTreatmentDecisions", () => {
       item(1, "Calorifuge", "not_priced", { source_metadata: reserve("Calorifuge", "à définir") }),
       item(2, "Percements", "out_of_scope"),
     ]);
-    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, decisions: [] });
+    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, remaining: 0, decisions: [] });
   });
 
   it("sends the changed lines only: a new reserve, a new reason, a withdrawal", () => {
@@ -107,7 +112,7 @@ describe("buildOfferTreatmentDecisions", () => {
     state.values[ID(1)] = { reasonCode: "", note: "", reserveText: "  non chiffré,\n à définir " };
     state.values[ID(2)] = { reasonCode: "client_supplied", note: " ", reserveText: "" };
     state.values[ID(3)] = { reasonCode: "", note: "", reserveText: "" };
-    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, decisions: [
+    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, remaining: 0, decisions: [
       { item_id: ID(1), decision: { kind: "offer_reserve", basis: "private_estimate", text: "non chiffré, à définir" } },
       { item_id: ID(2), decision: { kind: "internal_exclusion", reason_code: "client_supplied", note: null } },
       { item_id: ID(3), decision: null },
@@ -131,7 +136,7 @@ describe("buildOfferTreatmentDecisions", () => {
       item(1, "Calorifuge", "not_priced", { source_metadata: reserve("Calorifuge", "à définir") }),
       item(2, "Réseau EV", "priced", { source_metadata: reserve("Réseau EV", "quantité provisoire") }),
     ], buildOfferReserveSentence("Réseau EV", "quantité provisoire"));
-    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, decisions: [
+    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, remaining: 0, decisions: [
       { item_id: ID(1), decision: { kind: "offer_reserve", basis: "private_estimate", text: "à définir" } },
     ] });
   });
@@ -152,16 +157,31 @@ describe("buildOfferTreatmentDecisions", () => {
       item(3, "Essais", "not_applicable", { source_metadata: reserve("Essais", "à définir") }),
     ]);
     state.values[ID(3)] = { reasonCode: "not_applicable", note: "", reserveText: "" };
-    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, decisions: [
+    expect(buildOfferTreatmentDecisions(state)).toEqual({ ok: true, remaining: 0, decisions: [
       { item_id: ID(1), decision: null },
       { item_id: ID(2), decision: null },
       { item_id: ID(3), decision: { kind: "internal_exclusion", reason_code: "not_applicable", note: null } },
     ] });
   });
 
-  it("refuses more than 500 changed lines in one save", () => {
-    const state = draft(Array.from({ length: 501 }, (_, index) => item(index + 1, `Ligne ${index + 1}`, "out_of_scope")));
-    for (const row of state.rows) state.values[row.id] = { reasonCode: "other_lot", note: "", reserveText: "" };
-    expect(buildOfferTreatmentDecisions(state)).toMatchObject({ ok: false, field: "count" });
+  it("sends 500 changed lines per save, the reserves first, and counts what is left for the next save", () => {
+    const state = draft([
+      ...Array.from({ length: 600 }, (_, index) => item(index + 1, `Ligne ${index + 1}`, "out_of_scope")),
+      item(700, "Calorifuge", "not_priced"),
+      item(701, "Réseau EV", "priced", { source_metadata: reserve("Réseau EV", "quantité provisoire") }),
+    ]);
+    for (const row of state.rows.slice(0, 600)) state.values[row.id] = { reasonCode: "other_lot", note: "", reserveText: "" };
+    state.values[ID(700)] = { reasonCode: "", note: "", reserveText: "à définir" };
+    state.values[ID(701)] = { reasonCode: "", note: "", reserveText: "" };
+    const built = buildOfferTreatmentDecisions(state);
+    if (!built.ok) throw new Error(built.message);
+    expect(built.remaining).toBe(102);
+    expect(built.decisions).toHaveLength(500);
+    // A reserve written or withdrawn changes the offer text: it never waits behind 500 reasons.
+    expect(built.decisions.slice(0, 3)).toEqual([
+      { item_id: ID(700), decision: { kind: "offer_reserve", basis: "private_estimate", text: "à définir" } },
+      { item_id: ID(701), decision: null },
+      { item_id: ID(1), decision: { kind: "internal_exclusion", reason_code: "other_lot", note: null } },
+    ]);
   });
 });

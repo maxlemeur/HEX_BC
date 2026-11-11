@@ -130,6 +130,16 @@ describe("rewriteOfferLimitsText", () => {
     expect(rewriteOfferLimitsText(first, { remove: [first], add: [] })).toBeNull();
   });
 
+  it("writes a sentence back in its exact form when the text holds it with other spaces", () => {
+    const pasted = first.replace(" » : ", "\u00a0»\u00a0:  ");
+    expect(isOfferReserveWritten(`Texte.\n${pasted}`, first)).toBe(true);
+    expect(rewriteOfferLimitsText(`Texte.\n${pasted}\n${second}`, { remove: [], add: [first] }))
+      .toBe(`Texte.\n${first}\n${second}`);
+    // A sentence the save does not write again is left as the estimator pasted it.
+    expect(rewriteOfferLimitsText(`Texte.\n${pasted}`, { remove: [], add: [second] }))
+      .toBe(`Texte.\n${pasted}\n${second}`);
+  });
+
   it("does not remove a sentence the estimator moved inside a paragraph", () => {
     const edited = `Nota : ${first} Voir CCTP.`;
     expect(rewriteOfferLimitsText(edited, { remove: [first], add: [] })).toBe(edited);
@@ -152,7 +162,7 @@ describe("reviewOfferTreatments", () => {
       [line("a", "not_priced", reserve("Calorifuge", "non chiffré, à définir sur relevé.")), line("b", "not_priced")],
       `Hors percements.\n\n${written}`);
     expect(review).toEqual({ reservedNotPricedIds: ["a"], exclusionWithoutReasonIds: [], reserveToRewriteIds: [],
-      reserveBasisConflictIds: [] });
+      reserveBasisConflictIds: [], orphanReserveSentences: [] });
   });
 
   it("does not classify it once the sentence has left the offer text", () => {
@@ -163,7 +173,7 @@ describe("reviewOfferTreatments", () => {
   });
 
   it("names a priced line whose provisional quantity is no longer written", () => {
-    const review = reviewOfferTreatments([line("p", "priced", reserve("Réseau EU", "quantité provisionnelle."))], null);
+    const review = reviewOfferTreatments([line("p", "priced", reserve("Réseau EU", "quantité provisionnelle."), "Réseau EU")], null);
     expect(review.reserveToRewriteIds).toEqual(["p"]);
     expect(review.reservedNotPricedIds).toEqual([]);
   });
@@ -172,7 +182,7 @@ describe("reviewOfferTreatments", () => {
     const other = buildOfferReserveSentence("Réseau EU", "quantité provisionnelle.");
     const review = reviewOfferTreatments([
       line("a", "not_priced", reserve("Calorifuge", "non chiffré, à définir sur relevé.")),
-      line("p", "priced", reserve("Réseau EU", "quantité provisionnelle.", { basis: "indicative_quantities" })),
+      line("p", "priced", reserve("Réseau EU", "quantité provisionnelle.", { basis: "indicative_quantities" }), "Réseau EU"),
     ], `${written}\n${other}`);
     expect(review.reserveBasisConflictIds).toEqual(["a", "p"]);
     expect(review.reservedNotPricedIds).toEqual([]);
@@ -187,6 +197,24 @@ describe("reviewOfferTreatments", () => {
       line("h3", "out_of_scope", reserve("Calorifuge", "non chiffré.")),
     ], null);
     expect(review.exclusionWithoutReasonIds).toEqual(["h", "s", "h3"]);
+    expect(review.reserveToRewriteIds).toEqual([]);
+  });
+
+  it("does not classify a renamed line by the sentence that names its former title", () => {
+    const review = reviewOfferTreatments(
+      [line("a", "not_priced", reserve("Calorifuge", "non chiffré, à définir sur relevé."), "Isolation réseaux")], written);
+    expect(review.reservedNotPricedIds).toEqual([]);
+    expect(review.reserveToRewriteIds).toEqual(["a"]);
+    expect(review.orphanReserveSentences).toEqual([]);
+  });
+
+  it("lists the reserve sentences of the offer text that no line carries", () => {
+    const orphan = buildOfferReserveSentence("Ligne supprimée", "à définir.");
+    const review = reviewOfferTreatments(
+      [line("a", "not_priced", reserve("Calorifuge", "non chiffré, à définir sur relevé."))],
+      `Hors percements.\nRéserves générales : voir CCTP.\n${written}\n  ${orphan}  \n${orphan}`);
+    expect(review.orphanReserveSentences).toEqual([orphan]);
+    expect(review.reservedNotPricedIds).toEqual(["a"]);
     expect(review.reserveToRewriteIds).toEqual([]);
   });
 

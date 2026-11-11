@@ -35,7 +35,8 @@ function fakeSupabase(input: { lines: Line[]; exclusions: string | null; rpc: Re
       select: () => query,
       eq: () => query,
       not: () => { rows = rows.filter((line) => (line.source_metadata as { offer_treatment?: unknown } | null)?.offer_treatment != null); return query; },
-      limit: () => query,
+      order: () => query,
+      range: (from: number, to: number) => { rows = rows.slice(from, to + 1); return query; },
       in: (_column: string, ids: string[]) => { rows = rows.filter((line) => ids.includes(line.id)); return query; },
       then: (resolve: (value: { data: Line[]; error: null }) => unknown) => Promise.resolve({ data: rows, error: null }).then(resolve),
     };
@@ -65,6 +66,8 @@ function arrange(options: { engine?: number; status?: string; revision?: number;
   return { rpc, supabase };
 }
 
+const SESSION = "d6820000-0000-4000-8000-0000000000aa";
+
 const reserve = (basis = "private_estimate") => ({ expected_content_revision: 7,
   decisions: [{ item_id: NC, decision: { kind: "offer_reserve" as const, basis: basis as "private_estimate", text: "à définir" } }] });
 
@@ -72,6 +75,7 @@ beforeEach(() => {
   vi.mocked(getAuthenticatedContext).mockReset();
   vi.mocked(getVersionAccessOrThrow).mockReset();
   vi.mocked(assertDraftLockOwnedByCurrentUser).mockReset();
+  vi.mocked(assertDraftLockOwnedByCurrentUser).mockResolvedValue({ session_id: SESSION } as never);
 });
 
 describe("setEstimateLineOfferTreatments", () => {
@@ -80,7 +84,7 @@ describe("setEstimateLineOfferTreatments", () => {
     const result = await setEstimateLineOfferTreatments(VERSION_ID, reserve());
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("set_estimate_line_offer_treatments", {
-      p_version_id: VERSION_ID, p_expected_content_revision: 7,
+      p_version_id: VERSION_ID, p_expected_content_revision: 7, p_draft_lock_session_id: SESSION,
       p_treatments: [{ item_id: NC, treatment: { kind: "offer_reserve", basis: "private_estimate", text: "à définir",
         sentence: "Réserve — « Calorifuge » : à définir" } }],
       p_exclusions: "Hors peinture.\n\nRéserve — « Calorifuge » : à définir",
@@ -109,6 +113,39 @@ describe("setEstimateLineOfferTreatments", () => {
     const locked = new Error("locked elsewhere");
     vi.mocked(assertDraftLockOwnedByCurrentUser).mockRejectedValue(locked);
     await expect(setEstimateLineOfferTreatments(VERSION_ID, reserve())).rejects.toBe(locked);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("does not write under a lock without a session, and answers a lock the writer refuses as a lock to take", async () => {
+    const { rpc } = arrange();
+    vi.mocked(assertDraftLockOwnedByCurrentUser).mockResolvedValue({ session_id: null } as never);
+    await expect(setEstimateLineOfferTreatments(VERSION_ID, reserve())).rejects.toMatchObject({ status: 409, code: "LOCK_REQUIRED" });
+    expect(rpc).not.toHaveBeenCalled();
+    vi.mocked(assertDraftLockOwnedByCurrentUser).mockResolvedValue({ session_id: SESSION } as never);
+    arrange({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "55000", message: "ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED" } }) });
+    await expect(setEstimateLineOfferTreatments(VERSION_ID, reserve())).rejects.toMatchObject({ status: 409, code: "LOCK_REQUIRED" });
+  });
+
+  it("answers every line of a large save, and checks the basis against decided lines beyond the first page", async () => {
+    const id = (n: number) => `d6820000-0000-4000-8002-${String(n).padStart(12, "0")}`;
+    const reasons: Line[] = Array.from({ length: 150 }, (_, index) => ({ id: id(index), item_type: "line",
+      title: `Ligne ${index}`, pricing_status: "out_of_scope", source_metadata: null }));
+    arrange({ lines: reasons });
+    const saved = await setEstimateLineOfferTreatments(VERSION_ID, { expected_content_revision: 7,
+      decisions: reasons.map((line) => ({ item_id: line.id, decision: { kind: "internal_exclusion" as const, reason_code: "other_lot" as const, note: null } })) });
+    expect(saved.items).toHaveLength(150);
+
+    // 1 000 decided lines fill the first page; the reserve on the other basis is the 1 001st.
+    const decided: Line[] = Array.from({ length: 1000 }, (_, index) => ({ id: id(index), item_type: "line",
+      title: `Ligne ${index}`, pricing_status: "out_of_scope",
+      source_metadata: { offer_treatment: { version: 1, kind: "internal_exclusion", reason_code: "other_lot", note: null,
+        decided_by: USER, decided_at: "2026-11-11T10:00:00.000Z" } } }));
+    const { rpc } = arrange({ lines: [
+      ...decided,
+      { id: id(5000), item_type: "line", title: "Réseau EU", pricing_status: "priced", source_metadata: stored("Réseau EU", "tracé à confirmer", "indicative_quantities") },
+      { id: NC, item_type: "line", title: "Calorifuge", pricing_status: "not_priced", source_metadata: null },
+    ], exclusions: "Réserve — « Réseau EU » : tracé à confirmer" });
+    await expect(setEstimateLineOfferTreatments(VERSION_ID, reserve())).rejects.toMatchObject({ code: "OFFER_RESERVE_BASIS_CONFLICT" });
     expect(rpc).not.toHaveBeenCalled();
   });
 

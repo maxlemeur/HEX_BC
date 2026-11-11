@@ -46,8 +46,8 @@ export type OfferTreatmentDraftRow = {
   stored: OfferTreatment | null;
   /** A reserve written when the line was priced or unpriced: its sentence may still be in the offer text. */
   staleReserve: boolean;
-  /** The reserve holds, but its sentence has left the offer text: saving writes it again. */
-  reserveNotWritten: boolean;
+  /** The reserve holds, but the offer text lost its sentence or names a former title of the line: saving writes it again. */
+  reserveToRewrite: boolean;
   unreadable: boolean;
 };
 
@@ -87,7 +87,8 @@ export function buildOfferTreatmentRows(
       hasTakeoffProvision,
       stored,
       staleReserve: group === "exclusion" && read.state === "read" && read.treatment.kind === "offer_reserve",
-      reserveNotWritten: stored?.kind === "offer_reserve" && !isOfferReserveWritten(limitsText, stored.sentence),
+      reserveToRewrite: stored?.kind === "offer_reserve" && (!isOfferReserveWritten(limitsText, stored.sentence)
+        || stored.sentence !== buildOfferReserveSentence(entry.title, stored.text)),
       unreadable,
     });
   }
@@ -109,8 +110,9 @@ export function initialOfferReserveBasis(rows: readonly OfferTreatmentDraftRow[]
 }
 
 export type OfferTreatmentDraftDecisions =
-  | { ok: true; decisions: SetOfferTreatmentsInput["decisions"] }
-  | { ok: false; message: string; field: "basis" | "note" | "text" | "count"; itemId?: string };
+  /** `decisions` holds what one save sends, 500 lines at most; `remaining` counts the changed lines left for the next. */
+  | { ok: true; decisions: SetOfferTreatmentsInput["decisions"]; remaining: number }
+  | { ok: false; message: string; field: "basis" | "note" | "text"; itemId?: string };
 
 export function buildOfferTreatmentDecisions(input: {
   rows: readonly OfferTreatmentDraftRow[];
@@ -118,12 +120,15 @@ export function buildOfferTreatmentDecisions(input: {
   basis: OfferReserveBasis | "";
 }): OfferTreatmentDraftDecisions {
   const decisions: SetOfferTreatmentsInput["decisions"] = [];
+  /** Lines whose save changes the offer text: a reserve written, reworded or withdrawn. */
+  const offerTextIds = new Set<string>();
   for (const row of input.rows) {
     const value = input.values[row.id];
     if (!value) continue;
     // A decision the window cannot show (unreadable, or a reserve kept from an earlier status) is replaced or
     // withdrawn; a reserve the offer text lost is written again even when its words did not change.
-    const mustRewrite = row.unreadable || row.staleReserve || row.reserveNotWritten;
+    const mustRewrite = row.unreadable || row.staleReserve || row.reserveToRewrite;
+    if (row.group !== "exclusion" || row.staleReserve) offerTextIds.add(row.id);
     if (row.group === "exclusion") {
       const note = normalizeOfferTreatmentText(value.note) || null;
       if (value.reasonCode === "") {
@@ -160,9 +165,10 @@ export function buildOfferTreatmentDecisions(input: {
       decisions.push({ item_id: row.id, decision: { kind: "offer_reserve", basis: input.basis, text } });
     }
   }
-  if (decisions.length > OFFER_TREATMENT_MAX_DECISIONS) {
-    return { ok: false, field: "count",
-      message: `${decisions.length} lignes changent : enregistrez-en 500 au plus à la fois.` };
-  }
-  return { ok: true, decisions };
+  if (decisions.length <= OFFER_TREATMENT_MAX_DECISIONS) return { ok: true, decisions, remaining: 0 };
+  // Beyond one save's worth, the reserves leave first: they share one basis and one offer text, so they stay together.
+  const ordered = [...decisions.filter((entry) => offerTextIds.has(entry.item_id)),
+    ...decisions.filter((entry) => !offerTextIds.has(entry.item_id))];
+  return { ok: true, decisions: ordered.slice(0, OFFER_TREATMENT_MAX_DECISIONS),
+    remaining: ordered.length - OFFER_TREATMENT_MAX_DECISIONS };
 }

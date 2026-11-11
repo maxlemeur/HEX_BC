@@ -109,14 +109,19 @@ bases dans un même devis le bloquent aussi (`offer_reserve_basis_conflict`). Un
 décision gardée d'un ancien statut ne vaut plus : un motif ne classe pas une
 ligne redevenue chiffrée, ni une réserve une ligne passée « Hors lot ». Tant que
 le texte de l'offre garde la phrase d'une telle réserve, l'envoi est bloqué par
-le même indicateur. Dans les deux cas, « Motifs et réserves » signale la ligne et
-son enregistrement remet le texte en accord : la phrase disparue est réécrite, la
-phrase périmée retirée.
+le même indicateur ; il l'est aussi quand la phrase nomme l'ancien titre d'une
+ligne renommée depuis. Dans ces cas, « Motifs et réserves » signale la ligne et
+son enregistrement remet le texte en accord : la phrase disparue ou périmée est
+réécrite ou retirée. Une phrase « Réserve — … » qu'aucune ligne ne porte, celle
+d'une ligne supprimée par exemple, est signalée avant l'envoi sans le bloquer
+(`offer_reserve_without_line`) : elle se retire à la main dans le texte.
 
 L'écriture passe par une seule fonction, `set_estimate_line_offer_treatments` :
-brouillon du moteur 3, révision lue par l'éditeur, auteur et instant posés par la
-base, décisions et texte de l'offre dans la même transaction, aucun montant
-modifié. Limites connues : les classeurs (standard, DPGF, BDC) ne portent pas la
+brouillon du moteur 3, révision lue par l'éditeur, verrou du brouillon tenu par
+la session vérifié dans la transaction, auteur et instant posés par la base,
+décisions et texte de l'offre dans la même transaction, aucun montant modifié.
+Un enregistrement porte 500 lignes au plus : au-delà, la fenêtre reste ouverte et
+enregistre la suite au clic suivant, les réserves d'abord. Limites connues : les classeurs (standard, DPGF, BDC) ne portent pas la
 réserve, qui est dans le texte de l'offre ; une copie garde les décisions de ses
 lignes, et une réserve copiée dans un devis dont le texte n'a pas sa phrase est
 signalée comme absente ; la ligne est nommée par son titre, pas par un numéro.

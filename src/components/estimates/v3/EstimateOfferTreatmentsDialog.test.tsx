@@ -74,12 +74,43 @@ describe("EstimateOfferTreatmentsDialog", () => {
       sentence: "Réserve — « Calorifuge » : à définir", decided_by: "11111111-1111-4111-8111-111111111111",
       decided_at: "2026-11-11T10:00:00.000Z" } } }];
     const { onSave } = renderDialog({ items, limitsText: "Hors peinture." });
-    expect(screen.getByText(/n’est plus dans le texte de l’offre/u)).toBeInTheDocument();
+    expect(screen.getByText(/n’est plus à jour dans le texte de l’offre/u)).toBeInTheDocument();
     fireEvent.click(saveButton());
     await waitFor(() => expect(onSave).toHaveBeenCalledWith([
       { item_id: "nc", decision: { kind: "offer_reserve", basis: "private_estimate", text: "à définir" } },
     ]));
   });
+
+  it("saves 500 lines at a time and stays open for the rest", async () => {
+    const lines: OfferTreatmentDraftItem[] = Array.from({ length: 501 }, (_, index) => ({ id: `l${index}`, parent_id: "s",
+      item_type: "line", title: `Ligne ${index}`, pricing_status: "out_of_scope", source_metadata: null }));
+    const onSave = vi.fn<(decisions: unknown) => Promise<void>>(() => Promise.resolve());
+    const onClose = vi.fn();
+    const dialog = (items: OfferTreatmentDraftItem[]) => (
+      <EstimateOfferTreatmentsDialog isOpen items={items} limitsText={null} isReadOnly={false} projectId={null}
+        onClose={onClose} onSave={onSave} />
+    );
+    const view = render(dialog([ITEMS[0], ...lines]));
+    fireEvent.change(screen.getByLabelText("Même motif pour les exclusions sans motif"), { target: { value: "other_lot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Appliquer aux lignes sans motif" }));
+    expect(screen.getByText("500 lignes à enregistrer maintenant, 1 ensuite.")).toBeInTheDocument();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByTestId("offer-treatments-notice"))
+      .toHaveTextContent("500 lignes enregistrées. Il en reste 1 : enregistrez de nouveau."));
+    expect(onSave.mock.calls[0][0]).toHaveLength(500);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The editor rereads the estimate: the saved lines carry their reason, the last one is still to send.
+    const saved = { offer_treatment: { version: 1, kind: "internal_exclusion", reason_code: "other_lot", note: null,
+      decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T10:00:00.000Z" } };
+    view.rerender(dialog([ITEMS[0], ...lines.map((line, index) => index < 500 ? { ...line, source_metadata: saved } : line)]));
+    expect(screen.getByText("1 ligne à enregistrer.")).toBeInTheDocument();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[1][0]).toEqual([
+      { item_id: "l500", decision: { kind: "internal_exclusion", reason_code: "other_lot", note: null } },
+    ]);
+  }, 30_000);
 
   it("shows a read-only version without a way to save", () => {
     renderDialog({ isReadOnly: true });

@@ -2,7 +2,8 @@
 -- reserve written in the offer, stored on the line under source_metadata.offer_treatment by one writer.
 -- Isolation justified: the writer is granted to authenticated and reachable through the Data API, whatever the
 -- server route checks first; its refusals (a reserve the offer text does not hold, a decision that does not fit the
--- status, a stale read, an author named by the caller, another tenant) are the database's own guarantees.
+-- status, a stale read, a draft lock not held by this session, an author named by the caller, a colleague who may
+-- not write the estimate, another tenant, a version already sent) are the database's own guarantees.
 -- Written before the migration (red on 613e850: the function does not exist). All values are fictional.
 begin;
 
@@ -22,6 +23,12 @@ values
     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'd6820000-0000-4000-8000-000000000002', 'authenticated',
     'authenticated', 'offer-treatment-stranger@example.test', crypt('test-password', gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000', 'd6820000-0000-4000-8000-000000000003', 'authenticated',
+    'authenticated', 'offer-treatment-viewer@example.test', crypt('test-password', gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000', 'd6820000-0000-4000-8000-000000000004', 'authenticated',
+    'authenticated', 'offer-treatment-colleague@example.test', crypt('test-password', gen_salt('bf')), now(),
     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
 
 update public.tenant_memberships
@@ -33,6 +40,16 @@ select membership.tenant_id
 from public.tenant_memberships membership
 where membership.user_id = 'd6820000-0000-4000-8000-000000000001';
 grant select on ot_fx to authenticated, service_role;
+
+-- Two colleagues of the owner's tenant: a viewer, and an engineer who does not own the affaire.
+update public.tenant_memberships set is_default = false
+where user_id in ('d6820000-0000-4000-8000-000000000003', 'd6820000-0000-4000-8000-000000000004');
+insert into public.tenant_memberships (id, tenant_id, user_id, role, is_default)
+select fixture.id, ot_fx.tenant_id, fixture.user_id, fixture.role, true
+from ot_fx, (values
+  ('d6820000-0000-4000-8000-000000000033'::uuid, 'd6820000-0000-4000-8000-000000000003'::uuid, 'viewer'::public.tenant_role),
+  ('d6820000-0000-4000-8000-000000000034'::uuid, 'd6820000-0000-4000-8000-000000000004'::uuid, 'engineer'::public.tenant_role)
+) as fixture(id, user_id, role);
 
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 select 'd6820000-0000-4000-8000-000000000010', tenant_id, 'd6820000-0000-4000-8000-000000000001',
@@ -72,9 +89,17 @@ update public.estimate_items set source_metadata = '{"takeoff_provision":{"versi
 where id = 'd6820000-0000-4000-8001-000000000102';
 set local miaouffrage.estimate_v3_writer = '';
 
+-- The owner edits the draft in one session of the editor: its draft lock.
+insert into public.draft_locks (id, version_id, user_id, tenant_id, locked_at, expires_at, session_id)
+select 'd6820000-0000-4000-8000-0000000000a0', 'd6820000-0000-4000-8000-000000000100',
+  'd6820000-0000-4000-8000-000000000001', tenant_id, statement_timestamp(),
+  statement_timestamp() + interval '30 minutes', 'd6820000-0000-4000-8000-0000000000a1'
+from ot_fx;
+
 -- Calls the writer as the current role and answers 'ok' or the refusal; a refused call leaves nothing behind.
 create function pg_temp.ot_set(p_treatments jsonb, p_exclusions text, p_revision bigint default null,
-  p_version_id uuid default 'd6820000-0000-4000-8000-000000000100')
+  p_version_id uuid default 'd6820000-0000-4000-8000-000000000100',
+  p_session uuid default 'd6820000-0000-4000-8000-0000000000a1')
 returns text
 language plpgsql
 as $probe$
@@ -85,7 +110,7 @@ begin
     select version.content_revision into revision from public.estimate_versions version where version.id = p_version_id;
   end if;
   begin
-    perform public.set_estimate_line_offer_treatments(p_version_id, coalesce(revision, 1), p_treatments, p_exclusions);
+    perform public.set_estimate_line_offer_treatments(p_version_id, coalesce(revision, 1), p_session, p_treatments, p_exclusions);
     return 'ok';
   exception when others then
     return sqlstate || ' ' || sqlerrm;
@@ -113,9 +138,9 @@ select version.content_revision, version.total_ht_cents, version.gross_ht_cents,
 from public.estimate_versions version where version.id = 'd6820000-0000-4000-8000-000000000100';
 grant select on ot_before to authenticated;
 
-select is(has_function_privilege('anon', 'public.set_estimate_line_offer_treatments(uuid, bigint, jsonb, text)', 'execute'),
+select is(has_function_privilege('anon', 'public.set_estimate_line_offer_treatments(uuid, bigint, uuid, jsonb, text)', 'execute'),
   false, 'anon cannot call the writer');
-select is(has_function_privilege('authenticated', 'public.set_estimate_line_offer_treatments(uuid, bigint, jsonb, text)', 'execute'),
+select is(has_function_privilege('authenticated', 'public.set_estimate_line_offer_treatments(uuid, bigint, uuid, jsonb, text)', 'execute'),
   true, 'authenticated can call the writer, under its row-level policies');
 
 select set_config('request.jwt.claim.sub', 'd6820000-0000-4000-8000-000000000001', true);
@@ -173,6 +198,12 @@ select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000
   'a caller that read an earlier revision is refused');
 select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), 'Hors peinture.',
   1, 'd6820000-0000-4000-8000-0000000009ff'), 'P0002 ESTIMATE_OFFER_TREATMENT_NOT_FOUND', 'an unknown version is not found');
+select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), 'Hors peinture.',
+  null, 'd6820000-0000-4000-8000-000000000100', 'd6820000-0000-4000-8000-0000000000a2'),
+  '55000 ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED', 'another session of the owner does not write under this session''s lock');
+select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), 'Hors peinture.',
+  null, 'd6820000-0000-4000-8000-000000000100', null),
+  '55000 ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED', 'a call that names no lock session is refused');
 
 select is((select version.content_revision from public.estimate_versions version
   where version.id = 'd6820000-0000-4000-8000-000000000100'), (select content_revision from ot_before),
@@ -236,7 +267,32 @@ select is(pg_temp.ot_set(jsonb_build_array(jsonb_build_object('item_id', 'd68200
 select is((select version.exclusions from public.estimate_versions version
   where version.id = 'd6820000-0000-4000-8000-000000000100'), null, 'an empty offer text is stored as null');
 
--- Another tenant ----------------------------------------------------------------------------------------------
+-- An expired lock, colleagues who may not write, another tenant, a version already sent ------------------------
+
+reset role;
+update public.draft_locks set expires_at = statement_timestamp() - interval '1 second'
+where id = 'd6820000-0000-4000-8000-0000000000a0';
+set local role authenticated;
+select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), null),
+  '55000 ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED', 'an expired draft lock does not allow the write');
+reset role;
+update public.draft_locks set expires_at = statement_timestamp() + interval '30 minutes'
+where id = 'd6820000-0000-4000-8000-0000000000a0';
+
+select set_config('request.jwt.claim.sub', 'd6820000-0000-4000-8000-000000000003', true);
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', 'd6820000-0000-4000-8000-000000000003', 'role', 'authenticated')::text, true);
+set local role authenticated;
+-- The row-level policies answer for them: the version is not theirs to lock for a write.
+select matches(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), null),
+  '^(P0002 ESTIMATE_OFFER_TREATMENT_NOT_FOUND|42501 ESTIMATE_OFFER_TREATMENT_FORBIDDEN)$', 'a viewer of the tenant cannot write a decision');
+reset role;
+select set_config('request.jwt.claim.sub', 'd6820000-0000-4000-8000-000000000004', true);
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', 'd6820000-0000-4000-8000-000000000004', 'role', 'authenticated')::text, true);
+set local role authenticated;
+select matches(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), null),
+  '^(P0002 ESTIMATE_OFFER_TREATMENT_NOT_FOUND|42501 ESTIMATE_OFFER_TREATMENT_FORBIDDEN)$', 'an engineer who does not own the affaire cannot write a decision either');
 
 reset role;
 select set_config('request.jwt.claim.sub', 'd6820000-0000-4000-8000-000000000002', true);
@@ -249,6 +305,30 @@ reset role;
 
 select is((select item.source_metadata #>> '{offer_treatment,reason_code}' from public.estimate_items item
   where item.id = 'd6820000-0000-4000-8001-000000000103'), 'other', 'and the line keeps the reason its owner wrote');
+
+-- A version on engine 2, then a sent version (engine and status set past their guards).
+set local session_replication_role = replica;
+update public.estimate_versions set calc_engine_version = 2, sale_coefficient_fo = null, sale_coefficient_mo = null,
+  gross_ht_cents = null, discount_applied_cents = null, commercial_rounding_cents = null
+where id = 'd6820000-0000-4000-8000-000000000100';
+set local session_replication_role = origin;
+select set_config('request.jwt.claim.sub', 'd6820000-0000-4000-8000-000000000001', true);
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', 'd6820000-0000-4000-8000-000000000001', 'role', 'authenticated')::text, true);
+set local role authenticated;
+select is(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), null),
+  '0A000 ESTIMATE_OFFER_TREATMENT_ENGINE_NOT_SUPPORTED', 'the owner writes no decision on an engine 2 version');
+reset role;
+set local session_replication_role = replica;
+update public.estimate_versions set calc_engine_version = 3, sale_coefficient_fo = 1.30, sale_coefficient_mo = 1.20,
+  gross_ht_cents = 1313, discount_applied_cents = 0, commercial_rounding_cents = 0, status = 'sent'
+where id = 'd6820000-0000-4000-8000-000000000100';
+set local session_replication_role = origin;
+set local role authenticated;
+select matches(pg_temp.ot_set(pg_temp.ot_exclusion('d6820000-0000-4000-8001-000000000103', 'other_lot'), null),
+  '^(55000 ESTIMATE_OFFER_TREATMENT_READ_ONLY|P0002 ESTIMATE_OFFER_TREATMENT_NOT_FOUND)$',
+  'the owner no longer writes a decision on a sent version');
+reset role;
 
 select * from finish();
 rollback;

@@ -22,6 +22,8 @@ import type { Json } from "@/types/database";
  */
 const LINE_COLUMNS = "id, item_type, title, pricing_status, source_metadata";
 const IN_FILTER_CHUNK = 100;
+/** The Data API answers 1 000 rows at most per request. */
+const PAGE_SIZE = 1000;
 
 const STALE_MESSAGE = "Le devis a changé depuis son ouverture. Rechargez-le avant d’enregistrer motifs et réserves.";
 
@@ -37,6 +39,8 @@ const RPC_ERRORS: Record<string, () => ApiError> = {
   ESTIMATE_OFFER_TREATMENT_ENGINE_NOT_SUPPORTED: () => badRequest(
     "Motifs et réserves ne valent que pour un devis du moteur 3.", undefined, "OFFER_TREATMENT_ENGINE_NOT_SUPPORTED"),
   ESTIMATE_OFFER_TREATMENT_FORBIDDEN: () => forbidden("Cette modification du devis n’est pas autorisée."),
+  ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED: () => conflict(
+    "Un verrou actif de cette page est requis pour modifier le devis.", { lock: null }, "LOCK_REQUIRED"),
   ESTIMATE_VERSION_READ_ONLY: () => forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY"),
 };
 
@@ -57,7 +61,8 @@ export async function setEstimateLineOfferTreatments(
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
   assertDraftStatus(version.status);
   if (!usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw RPC_ERRORS.ESTIMATE_OFFER_TREATMENT_ENGINE_NOT_SUPPORTED();
-  await assertDraftLockOwnedByCurrentUser({ supabase, tenantId, versionId, userId });
+  const lock = await assertDraftLockOwnedByCurrentUser({ supabase, tenantId, versionId, userId });
+  if (!lock.session_id) throw RPC_ERRORS.ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED();
   if (version.content_revision !== input.expected_content_revision) throw conflict(STALE_MESSAGE, undefined, "VERSION_CONFLICT");
 
   // The lines the request names, and every other line already carrying a decision: the reserves of a version rest
@@ -65,17 +70,33 @@ export async function setEstimateLineOfferTreatments(
   const requestedIds = input.decisions.map((entry) => entry.item_id);
   const lines = new Map<string, OfferTreatmentPlanLine>();
   const scoped = () => supabase.from("estimate_items").select(LINE_COLUMNS).eq("tenant_id", tenantId).eq("version_id", versionId);
-  const reads = [scoped().not(`source_metadata->${OFFER_TREATMENT_KEY}`, "is", null).limit(5000)];
-  for (let start = 0; start < requestedIds.length; start += IN_FILTER_CHUNK) {
-    reads.push(scoped().in("id", requestedIds.slice(start, start + IN_FILTER_CHUNK)));
-  }
-  const [limits, ...pages] = await Promise.all([
+  const readNamed = (ids: readonly string[]) => {
+    const reads = [];
+    for (let start = 0; start < ids.length; start += IN_FILTER_CHUNK) {
+      reads.push(scoped().in("id", ids.slice(start, start + IN_FILTER_CHUNK)));
+    }
+    return Promise.all(reads);
+  };
+  // Every decided line is read, page after page: a partial read would hide a second basis or a sentence still in use.
+  const readDecided = async () => {
+    const decided: OfferTreatmentPlanLine[] = [];
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const page = await scoped().not(`source_metadata->${OFFER_TREATMENT_KEY}`, "is", null)
+        .order("id").range(offset, offset + PAGE_SIZE - 1);
+      if (page.error) throw mapSupabaseError(page.error, "Impossible de lire les lignes du devis.");
+      decided.push(...(page.data ?? []));
+      if ((page.data?.length ?? 0) < PAGE_SIZE) return decided;
+    }
+  };
+  const [limits, decided, named] = await Promise.all([
     supabase.from("estimate_versions").select("exclusions").eq("tenant_id", tenantId).eq("id", versionId).maybeSingle(),
-    ...reads,
+    readDecided(),
+    readNamed(requestedIds),
   ]);
   if (limits.error) throw mapSupabaseError(limits.error, "Impossible de lire le texte de l’offre de cette version.");
   if (!limits.data) throw RPC_ERRORS.ESTIMATE_OFFER_TREATMENT_NOT_FOUND();
-  for (const page of pages) {
+  for (const line of decided) lines.set(line.id, line);
+  for (const page of named) {
     if (page.error) throw mapSupabaseError(page.error, "Impossible de lire les lignes du devis.");
     for (const line of page.data ?? []) lines.set(line.id, line);
   }
@@ -93,6 +114,7 @@ export async function setEstimateLineOfferTreatments(
   const { data, error } = await supabase.rpc("set_estimate_line_offer_treatments", {
     p_version_id: versionId,
     p_expected_content_revision: input.expected_content_revision,
+    p_draft_lock_session_id: lock.session_id,
     p_treatments: plan.treatments as Json,
     // The generated argument type is non-null; the writer stores an empty offer text as null.
     p_exclusions: plan.exclusions ?? "",
@@ -104,16 +126,17 @@ export async function setEstimateLineOfferTreatments(
     throw internalError("Motifs et réserves enregistrés, mais leur confirmation est illisible. Rechargez le devis.");
   }
 
-  const after = await scoped().in("id", requestedIds.slice(0, IN_FILTER_CHUNK));
+  // The write is done: a line that cannot be read back is left out of the answer, and the editor rereads the estimate.
   const stored = new Map<string, OfferTreatment | null>();
-  for (const line of after.data ?? []) {
-    const read = readOfferTreatment(line.source_metadata);
-    stored.set(line.id, read.state === "read" ? read.treatment : null);
+  for (const page of await readNamed(requestedIds)) {
+    for (const line of page.data ?? []) {
+      const read = readOfferTreatment(line.source_metadata);
+      stored.set(line.id, read.state === "read" ? read.treatment : null);
+    }
   }
   return {
     version: { id: versionId, content_revision: written.content_revision, updated_at: written.updated_at,
       exclusions: written.exclusions as string | null },
-    // Beyond the first hundred lines the editor reloads the estimate: the answer names what it read back.
     items: requestedIds.filter((id) => stored.has(id)).map((id) => ({ id, offer_treatment: stored.get(id) ?? null })),
   };
 }

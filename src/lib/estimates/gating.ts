@@ -34,7 +34,7 @@ import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-eng
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { mapSupabaseError, notFound } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
-import { readOfferTreatment, reviewOfferTreatments } from "./offer-treatment";
+import { reviewOfferTreatments } from "./offer-treatment";
 import { readAllEstimateItems } from "./read-all-items-server";
 import {
   evaluateRules,
@@ -224,21 +224,15 @@ function hasLineAmountInput(item: Awaited<ReturnType<typeof readAllEstimateItems
 }
 
 /**
- * The « Précisions et limites de prestation » text of the version, which holds the sentences of its reserves. Read
- * only when a line carries a reserve and the caller's version row does not have the column.
+ * The « Précisions et limites de prestation » text of an engine 3 version, which holds the sentences of its
+ * reserves. Read when the caller's version row does not have the column.
  */
 async function readOfferLimitsText(input: {
   supabase: Supabase;
   tenantId: string;
   version: EstimateGatingVersion;
-  items: Awaited<ReturnType<typeof readAllEstimateItems>>;
 }): Promise<string | null> {
   if (input.version.exclusions !== undefined) return input.version.exclusions;
-  const hasReserve = input.items.some((item) => {
-    const read = readOfferTreatment(item.source_metadata);
-    return read.state === "read" && read.treatment.kind === "offer_reserve";
-  });
-  if (!hasReserve) return null;
   const { data, error } = await input.supabase.from("estimate_versions").select("exclusions")
     .eq("tenant_id", input.tenantId).eq("id", input.version.id).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de lire le texte de l’offre de cette version.");
@@ -403,12 +397,13 @@ export async function evaluateEstimateSendGating(
   // TI-682 (D12): the internal reason of an exclusion and the reserve written in the offer. A reserve classifies a
   // « Non chiffrée » line only while the offer text holds its sentence and every reserve rests on one basis.
   const offerTreatments = isEngine3
-    ? reviewOfferTreatments(items, await readOfferLimitsText({ supabase, tenantId, version, items }))
+    ? reviewOfferTreatments(items, await readOfferLimitsText({ supabase, tenantId, version }))
     : null;
   const reservedNotPricedIds = new Set(offerTreatments?.reservedNotPricedIds ?? []);
   offerTreatments?.exclusionWithoutReasonIds.forEach((id) => itemIdsByFlag.exclusion_without_reason.add(id));
   offerTreatments?.reserveToRewriteIds.forEach((id) => itemIdsByFlag.offer_reserve_not_written.add(id));
   offerTreatments?.reserveBasisConflictIds.forEach((id) => itemIdsByFlag.offer_reserve_basis_conflict.add(id));
+  if ((offerTreatments?.orphanReserveSentences.length ?? 0) > 0) itemIdsByFlag.offer_reserve_without_line.add(version.id);
   for (const item of items) {
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";

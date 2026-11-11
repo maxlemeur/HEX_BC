@@ -116,10 +116,10 @@ function createSupabaseGatingMock(input: {
           select: vi.fn(() => supplierPricesBuilder),
         };
       }
-      if (table === "estimate_versions" && input.versionExclusions !== undefined) {
+      if (table === "estimate_versions") {
         const versionBuilder = {
           eq: vi.fn(),
-          maybeSingle: vi.fn().mockResolvedValue({ data: { exclusions: input.versionExclusions }, error: null }),
+          maybeSingle: vi.fn().mockResolvedValue({ data: { exclusions: input.versionExclusions ?? null }, error: null }),
         };
         versionBuilder.eq.mockReturnValue(versionBuilder);
         return { select: vi.fn(() => versionBuilder) };
@@ -739,9 +739,9 @@ describe("estimate send gating", () => {
       offer_treatment: { version: 1, kind: "offer_reserve", basis, text,
         sentence: buildOfferReserveSentence(title, text), ...DECIDED },
     });
-    const statusLine = (id: string, pricingStatus: string, sourceMetadata: unknown = {}) => ({
+    const statusLine = (id: string, pricingStatus: string, sourceMetadata: unknown = {}, title = "Calorifuge") => ({
       ...createLineItem({ id, quantity: 0, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
-      pricing_status: pricingStatus, title: id, source_metadata: sourceMetadata,
+      pricing_status: pricingStatus, title, source_metadata: sourceMetadata,
     });
     const evaluate = (items: unknown[], versionExclusions: string | null | undefined, version: Record<string, unknown> = {}) =>
       evaluateEstimateSendGating({
@@ -783,7 +783,7 @@ describe("estimate send gating", () => {
       const conflict = await evaluate([
         statusLine("a-reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé.")),
         { ...createLineItem({ id: "b-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced",
-          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.", "indicative_quantities") },
+          title: "Réseau EU", source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.", "indicative_quantities") },
       ], `${sentence}\n${other}`);
       expect(conflict.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
         ["not_priced_unclassified", ["a-reserved"]],
@@ -796,6 +796,24 @@ describe("estimate send gating", () => {
       ], null);
       expect(unwritten.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
         ["offer_reserve_not_written", ["b-priced"]],
+      ]);
+    });
+
+    it("blocks a renamed line under the sentence of its former title, and warns about a sentence no line carries", async () => {
+      const renamed = await evaluate(
+        [statusLine("reserved", "not_priced", reserveOf("Calorifuge", "non chiffré, à définir sur relevé."), "Isolation réseaux")],
+        sentence);
+      expect(renamed.blockingFlags.map((flag) => [flag.key, flag.item_ids])).toEqual([
+        ["not_priced_unclassified", ["reserved"]],
+        ["offer_reserve_not_written", ["reserved"]],
+      ]);
+      expect(renamed.warningFlags).toEqual([]);
+
+      // The reserve of a deleted line stays in the offer text: no line carries a decision any more.
+      const orphan = await evaluate([statusLine("inclus", "included")], `Hors percements.\n${sentence}`);
+      expect(orphan.canSend).toBe(true);
+      expect(orphan.warningFlags.map((flag) => [flag.key, flag.label, flag.item_ids])).toEqual([
+        ["offer_reserve_without_line", "Réserve écrite sans ligne", [VERSION_ID]],
       ]);
     });
 
@@ -819,13 +837,19 @@ describe("estimate send gating", () => {
       expect(strict.blockingFlags.map((flag) => flag.key)).toEqual(["exclusion_without_reason"]);
     });
 
-    it("reads no decision on engines 1 and 2", async () => {
-      const result = await evaluate(
-        [{ ...createLineItem({ id: "line", quantity: 2, unitPriceHtCents: 1500 }),
-          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.") }],
-        undefined, { calc_engine_version: 2 });
+    it("reads no decision and no offer text on engines 1 and 2", async () => {
+      const supabase = createSupabaseGatingMock({ marginTiers: [], documents: [{ id: "doc-1" }], versionExclusions: sentence,
+        items: [{ ...createLineItem({ id: "line", quantity: 2, unitPriceHtCents: 1500 }),
+          source_metadata: reserveOf("Réseau EU", "quantité provisionnelle.") }] });
+      const result = await evaluateEstimateSendGating({
+        supabase: supabase as never, tenantId: TENANT_ID,
+        version: { id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 0,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: 2 },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
       expect(result.blockingFlags).toEqual([]);
       expect(result.warningFlags).toEqual([]);
+      expect(supabase.from.mock.calls.map(([table]) => table)).not.toContain("estimate_versions");
     });
   });
 

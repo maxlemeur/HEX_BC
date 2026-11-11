@@ -15,7 +15,8 @@
 -- decide who writes (the owner engineer or an administrator of the tenant, on a draft). It writes the decisions and
 -- the offer text in one transaction, under the v3 writer contract of the version (a v3 line's source_metadata is
 -- not writable through the Data API), and touches no amount. It guarantees that:
--- - the caller read the version it changes (content revision);
+-- - the caller read the version it changes (content revision) and holds its draft lock in this session, checked in
+--   the transaction like the other writers of a draft do;
 -- - a decision fits the status of its line: a reason on a line left out of the price, a reserve on a priced or
 --   « Non chiffrée » line;
 -- - a reserve states its basis, and its sentence stands alone on a line of the offer text it is saved with;
@@ -27,6 +28,7 @@ begin;
 create function public.set_estimate_line_offer_treatments(
   p_version_id uuid,
   p_expected_content_revision bigint,
+  p_draft_lock_session_id uuid,
   p_treatments jsonb,
   p_exclusions text
 )
@@ -38,6 +40,7 @@ as $$
 declare
   actor uuid := (select auth.uid());
   target public.estimate_versions;
+  lock_row public.draft_locks;
   entry jsonb;
   treatment jsonb;
   note_value text;
@@ -76,6 +79,17 @@ begin
   end if;
   if target.content_revision is distinct from p_expected_content_revision then
     raise exception using errcode = '40001', message = 'ESTIMATE_OFFER_TREATMENT_STALE';
+  end if;
+  select draft_lock.* into lock_row
+  from public.draft_locks as draft_lock
+  where draft_lock.version_id = target.id
+    and draft_lock.tenant_id = target.tenant_id
+  for update nowait;
+  if not found or lock_row.user_id is distinct from actor
+    or p_draft_lock_session_id is null or lock_row.session_id is distinct from p_draft_lock_session_id
+    or lock_row.expires_at is null or lock_row.expires_at <= pg_catalog.clock_timestamp()
+  then
+    raise exception using errcode = '55000', message = 'ESTIMATE_OFFER_TREATMENT_LOCK_REQUIRED';
   end if;
 
   for entry in select value from pg_catalog.jsonb_array_elements(p_treatments) loop
@@ -213,10 +227,10 @@ begin
 end;
 $$;
 
-comment on function public.set_estimate_line_offer_treatments(uuid, bigint, jsonb, text) is
-  'TI-682 D12: writes or removes source_metadata.offer_treatment (internal exclusion reason, or reserve written in the offer with its basis) on lines of an engine 3 draft, and the offer text holding the reserve sentences, in one transaction. Security invoker: the caller''s row-level policies decide who writes. The author and instant are the database''s; no amount changes.';
+comment on function public.set_estimate_line_offer_treatments(uuid, bigint, uuid, jsonb, text) is
+  'TI-682 D12: writes or removes source_metadata.offer_treatment (internal exclusion reason, or reserve written in the offer with its basis) on lines of an engine 3 draft, and the offer text holding the reserve sentences, in one transaction. Security invoker: the caller''s row-level policies decide who writes, under the draft lock of its session. The author and instant are the database''s; no amount changes.';
 
-revoke all on function public.set_estimate_line_offer_treatments(uuid, bigint, jsonb, text) from public, anon;
-grant execute on function public.set_estimate_line_offer_treatments(uuid, bigint, jsonb, text) to authenticated, service_role;
+revoke all on function public.set_estimate_line_offer_treatments(uuid, bigint, uuid, jsonb, text) from public, anon;
+grant execute on function public.set_estimate_line_offer_treatments(uuid, bigint, uuid, jsonb, text) to authenticated, service_role;
 
 commit;

@@ -43,9 +43,9 @@ import type { SetOfferTreatmentsInput } from "@/lib/estimates/offer-treatment-pl
 
 type EstimateOfferTreatmentsDialogProps = {
   isOpen: boolean;
-  /** Sections and lines of the estimate as the editor holds them when the window opens. */
+  /** Sections and lines of the estimate as the editor holds them: reread after each save. */
   items: readonly OfferTreatmentDraftItem[];
-  /** « Précisions et limites de prestation » of the estimate when the window opens. */
+  /** « Précisions et limites de prestation » of the estimate as the editor holds it. */
   limitsText: string | null;
   isReadOnly: boolean;
   projectId: string | null;
@@ -74,7 +74,8 @@ function RowHeading({ row, children }: Readonly<{ row: OfferTreatmentDraftRow; c
 /**
  * TI-682 (D12) : « Motifs et réserves » d'un devis du moteur 3. Le motif d'une ligne laissée hors du prix reste
  * interne ; la réserve d'une ligne chiffrée ou non chiffrée est écrite dans « Précisions et limites de prestation »,
- * telle que le client la lira. Rien n'est enregistré avant « Enregistrer » ; seules les lignes changées partent.
+ * telle que le client la lira. Rien n'est enregistré avant « Enregistrer » ; seules les lignes changées partent,
+ * 500 au plus par enregistrement : au-delà, la fenêtre reste ouverte et enregistre la suite au clic suivant.
  */
 export function EstimateOfferTreatmentsDialog({
   isOpen,
@@ -85,14 +86,15 @@ export function EstimateOfferTreatmentsDialog({
   onClose,
   onSave,
 }: Readonly<EstimateOfferTreatmentsDialogProps>) {
-  // The rows are read once: the window is mounted when it opens and the grid behind it does not change meanwhile.
-  const [rows] = useState(() => buildOfferTreatmentRows(items, limitsText));
+  // The rows follow the estimate, reread after a save; what the estimator typed is kept by line.
+  const rows = useMemo(() => buildOfferTreatmentRows(items, limitsText), [items, limitsText]);
   const [values, setValues] = useState(() => initialOfferTreatmentValues(rows));
   const [basis, setBasis] = useState<OfferReserveBasis | "">(() => initialOfferReserveBasis(rows));
   const [addedIds, setAddedIds] = useState<readonly string[]>([]);
   const [bulkReserveText, setBulkReserveText] = useState("");
   const [bulkReason, setBulkReason] = useState<OfferExclusionReasonCode | "">("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const disabled = isReadOnly || isSaving;
 
@@ -109,6 +111,7 @@ export function EstimateOfferTreatmentsDialog({
   );
   const built = useMemo(() => buildOfferTreatmentDecisions({ rows, values, basis }), [basis, rows, values]);
   const changeCount = built.ok ? built.decisions.length : null;
+  const remainingCount = built.ok ? built.remaining : 0;
   const unclassifiedCount = notPricedRows
     .filter((row) => normalizeOfferTreatmentText(values[row.id]?.reserveText ?? "") === "").length;
   const missingReasonCount = expectedRows.filter((row) => (values[row.id]?.reasonCode ?? "") === "").length;
@@ -153,10 +156,12 @@ export function EstimateOfferTreatmentsDialog({
     }
     if (built.decisions.length === 0) return;
     setError(null);
+    setNotice(null);
     setIsSaving(true);
     try {
       await onSave(built.decisions);
-      onClose();
+      if (built.remaining === 0) onClose();
+      else setNotice(`${built.decisions.length} lignes enregistrées. Il en reste ${built.remaining} : enregistrez de nouveau.`);
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : "Impossible d’enregistrer motifs et réserves.");
     } finally {
@@ -175,9 +180,9 @@ export function EstimateOfferTreatmentsDialog({
             La décision enregistrée sur cette ligne est illisible : elle sera remplacée à l’enregistrement.
           </p>
         ) : null}
-        {row.reserveNotWritten ? (
+        {row.reserveToRewrite ? (
           <p className="mt-1 text-xs text-warning">
-            La phrase de cette réserve n’est plus dans le texte de l’offre : elle y sera réécrite à l’enregistrement.
+            La phrase de cette réserve n’est plus à jour dans le texte de l’offre : elle y sera réécrite à l’enregistrement.
           </p>
         ) : null}
         <Textarea
@@ -412,6 +417,11 @@ export function EstimateOfferTreatmentsDialog({
             ) : null}
           </section>
 
+          {notice ? (
+            <Alert variant="info" hideIcon role="status" data-testid="offer-treatments-notice">
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          ) : null}
           {error ? (
             <Alert variant="danger" role="alert" data-testid="offer-treatments-error">
               <AlertDescription>{error}</AlertDescription>
@@ -422,7 +432,9 @@ export function EstimateOfferTreatmentsDialog({
         <DialogFooter>
           {!isReadOnly && changeCount !== null ? (
             <span className="mr-auto text-xs text-muted-foreground" aria-live="polite">
-              {changeCount === 0 ? "Aucun changement à enregistrer." : `${changeCount} ligne${changeCount > 1 ? "s" : ""} à enregistrer.`}
+              {changeCount === 0 ? "Aucun changement à enregistrer."
+                : remainingCount > 0 ? `${changeCount} lignes à enregistrer maintenant, ${remainingCount} ensuite.`
+                : `${changeCount} ligne${changeCount > 1 ? "s" : ""} à enregistrer.`}
             </span>
           ) : null}
           <Button type="button" variant="outline" size="lg" onClick={onClose} disabled={isSaving}>

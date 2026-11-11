@@ -22,6 +22,7 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "exclusion_without_reason",
   "offer_reserve_not_written",
   "offer_reserve_basis_conflict",
+  "offer_reserve_without_line",
 ] as const;
 
 /**
@@ -118,12 +119,17 @@ export const ESTIMATE_GATING_FLAG_META: Record<
   offer_reserve_not_written: {
     label: "Réserves à réécrire dans l’offre",
     description:
-      "Le texte « Précisions et limites de prestation » ne correspond plus aux réserves des lignes : la phrase d’une réserve en a disparu, et le client ne la lirait pas, ou il garde la phrase d’une ligne dont le statut a changé. Ouvrez « Motifs et réserves » et enregistrez : le texte de l’offre est remis en accord.",
+      "Le texte « Précisions et limites de prestation » ne correspond plus aux réserves des lignes : la phrase d’une réserve en a disparu, elle nomme l’ancien titre d’une ligne renommée, ou elle reste écrite pour une ligne dont le statut a changé. Ouvrez « Motifs et réserves » et enregistrez : le texte de l’offre est remis en accord.",
   },
   offer_reserve_basis_conflict: {
     label: "Réserves sur deux bases différentes",
     description:
       "Les réserves d’un même devis reposent sur une seule base : devis privé, ou quantités déclarées indicatives par le règlement de consultation. Alignez-les dans « Motifs et réserves ».",
+  },
+  offer_reserve_without_line: {
+    label: "Réserve écrite sans ligne",
+    description:
+      "« Précisions et limites de prestation » garde une phrase « Réserve — … » qu’aucune ligne du devis ne porte, par exemple celle d’une ligne supprimée. Retirez-la du texte dans les paramètres du devis, ou gardez-la si elle est voulue.",
   },
 };
 
@@ -157,6 +163,8 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   exclusion_without_reason: "warning",
   offer_reserve_not_written: "blocking",
   offer_reserve_basis_conflict: "blocking",
+  // The estimator may have written that sentence by hand: it is shown, never blocking by default.
+  offer_reserve_without_line: "warning",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

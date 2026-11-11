@@ -15,7 +15,7 @@ import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "
  * (takeoff-provision.ts, H18). A reserve is written in the offer as one sentence of the version's « Précisions et
  * limites de prestation » text, which the frozen client contract, the seal, the PDF and the portal already carry:
  * the sentence the client reads is kept with the reserve, and the send control checks that the text still holds it.
- * Pure module: the SQL twin of the shape is public.estimate_offer_treatment_valid.
+ * Pure module: public.set_estimate_line_offer_treatments checks the same shape when it writes.
  */
 export const OFFER_TREATMENT_KEY = "offer_treatment";
 
@@ -165,7 +165,10 @@ export function rewriteOfferLimitsText(
   changes: { remove: readonly string[]; add: readonly string[] },
 ): string | null {
   const removed = new Set(changes.remove);
-  const kept = limitsLines(limitsText).filter((line) => !removed.has(normalizeOfferTreatmentText(line)));
+  const added = new Set(changes.add);
+  // A written sentence takes its exact form: the writer compares it to the line, spaces included.
+  const kept = limitsLines(limitsText).filter((line) => !removed.has(normalizeOfferTreatmentText(line)))
+    .map((line) => added.has(normalizeOfferTreatmentText(line)) ? normalizeOfferTreatmentText(line) : line);
   while (kept.length > 0 && kept[kept.length - 1].trim() === "") kept.pop();
   const present = new Set(kept.map(normalizeOfferTreatmentText));
   for (const sentence of changes.add) {
@@ -193,12 +196,15 @@ export type OfferTreatmentReview = {
   /** « Hors lot » and « Sans objet » lines without an internal reason. */
   exclusionWithoutReasonIds: string[];
   /**
-   * Lines to save again in « Motifs et réserves »: a reserve the offer text no longer holds, a stored decision that
-   * cannot be read, or a reserve kept from an earlier status whose sentence the client would still read.
+   * Lines to save again in « Motifs et réserves »: a reserve the offer text no longer holds, a reserve whose sentence
+   * names a former title of its line, a stored decision that cannot be read, or a reserve kept from an earlier
+   * status whose sentence the client would still read.
    */
   reserveToRewriteIds: string[];
   /** Every line under a reserve, when the reserves of the version do not rest on one basis; empty otherwise. */
   reserveBasisConflictIds: string[];
+  /** Reserve sentences of the offer text that no line carries, such as the reserve of a deleted line. */
+  orphanReserveSentences: string[];
 };
 
 /**
@@ -212,7 +218,9 @@ export function reviewOfferTreatments(
 ): OfferTreatmentReview {
   const review: OfferTreatmentReview = {
     reservedNotPricedIds: [], exclusionWithoutReasonIds: [], reserveToRewriteIds: [], reserveBasisConflictIds: [],
+    orphanReserveSentences: [],
   };
+  const knownSentences = new Set<string>();
   const reserved: { id: string; basis: OfferReserveBasis; written: boolean; notPriced: boolean }[] = [];
   const reservedSentences = new Set<string>();
   const stale: { id: string; sentence: string }[] = [];
@@ -221,6 +229,7 @@ export function reviewOfferTreatments(
     const status = statusOf(line.pricing_status);
     const read = readOfferTreatment(line.source_metadata);
     const treatment = effectiveOfferTreatment(line.source_metadata, status);
+    if (read.state === "read" && read.treatment.kind === "offer_reserve") knownSentences.add(read.treatment.sentence);
     if (REASON_EXPECTED_STATUSES.has(status) && treatment?.kind !== "internal_exclusion") {
       review.exclusionWithoutReasonIds.push(line.id);
     }
@@ -232,7 +241,9 @@ export function reviewOfferTreatments(
       continue;
     }
     reservedSentences.add(treatment.sentence);
-    const written = isOfferReserveWritten(limitsText, treatment.sentence);
+    // The client reads the reserve of this line when the sentence names it as it is titled now.
+    const named = line.title === undefined || buildOfferReserveSentence(line.title, treatment.text) === treatment.sentence;
+    const written = named && isOfferReserveWritten(limitsText, treatment.sentence);
     if (!written) review.reserveToRewriteIds.push(line.id);
     reserved.push({ id: line.id, basis: treatment.basis, written, notPriced: status === "not_priced" });
   }
@@ -241,6 +252,8 @@ export function reviewOfferTreatments(
       review.reserveToRewriteIds.push(entry.id);
     }
   }
+  review.orphanReserveSentences = [...new Set(limitsLines(limitsText).map(normalizeOfferTreatmentText)
+    .filter((text) => text.startsWith(RESERVE_SENTENCE_PREFIX) && !knownSentences.has(text)))];
   const oneBasis = new Set(reserved.map((entry) => entry.basis)).size <= 1;
   if (!oneBasis) review.reserveBasisConflictIds = reserved.map((entry) => entry.id);
   review.reservedNotPricedIds = reserved
