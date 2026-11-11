@@ -1,5 +1,10 @@
 version: 2
 
+# Each Dependabot pull request starts the same checks as any other one (about
+# 27 jobs), and merging one makes Dependabot rebase the others, which starts
+# them again. Minor and patch updates therefore arrive as one pull request per
+# ecosystem. A major update keeps its own pull request: it is the one likely to
+# break (Supabase CLI 3 on 09/11/2026) and has to be read on its own.
 updates:
   - package-ecosystem: "npm"
     directory: "/"
@@ -8,11 +13,18 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Paris"
+    # A dependency joins the first group whose patterns match it.
     groups:
       vitest:
         patterns:
           - "vitest"
           - "@vitest/*"
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"
@@ -22,4 +34,8 @@ updates:
       day: "monday"
       time: "06:30"
       timezone: "Europe/Paris"
+    groups:
+      actions:
+        patterns:
+          - "*"
     open-pull-requests-limit: 5
