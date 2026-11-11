@@ -153,6 +153,8 @@ jobs:
           path: .e2e/army/ci/full-plan.json
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # One owned stack per shard; a red shard never cancels the others.
   army-full-shard:
@@ -270,6 +272,8 @@ jobs:
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # The development phase alone (next dev, no production build) on its own
   # owned stack, beside the shards of the full phase.
@@ -364,6 +368,8 @@ jobs:
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # The check of the full suite: green only when the plan, every shard and the
   # development job succeeded and their verified evidence ran the whole plan
@@ -474,3 +480,5 @@ jobs:
           path: ${{ steps.aggregate.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true

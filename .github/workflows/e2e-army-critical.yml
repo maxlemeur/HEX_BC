@@ -167,6 +167,8 @@ jobs:
           path: .e2e/army/ci/selection.json
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # One owned stack per shard; a red shard never cancels the others.
   army-critical-shard:
@@ -319,6 +321,8 @@ jobs:
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # Takeoff journeys (army-impact-map.json "fullOnly"): only the e2e.config.ts
   # full selection runs them, so without these jobs a pull request reaching them
@@ -448,6 +452,8 @@ jobs:
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # The check of the critical journeys: green only when the selection job and
   # every planned shard succeeded and their evidence, verified against each
@@ -561,6 +567,8 @@ jobs:
           path: ${{ steps.aggregate.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # The check of the takeoff journeys, as army-critical is for the critical
   # ones: green only when the selection job and every planned takeoff shard
@@ -672,3 +680,5 @@ jobs:
           path: ${{ steps.aggregate.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true

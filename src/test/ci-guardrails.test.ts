@@ -440,6 +440,19 @@ describe("CI and local quality guardrails", () => {
     expect(guards.size).toBe(1);
   });
 
+  // A rerun uploads its evidence under the name the attempt before it used, and
+  // the job that aggregates downloads one of the two by name. On 11/11/2026
+  // (run 42942966412) a calc-v3 group passed on its rerun and the check stayed
+  // red: it had downloaded the failed attempt's evidence. `overwrite` deletes
+  // the earlier artifact first, so a name designates one artifact.
+  it("replaces the artifact of an earlier attempt when a job is rerun", () => {
+    for (const { file } of ARMY_WORKFLOWS) {
+      const uploads = workflowSteps(read(file)).filter((step) => step.includes("actions/upload-artifact@"));
+      expect(uploads.length, file).toBeGreaterThan(0);
+      for (const step of uploads) expect(step, file).toMatch(/^\s+overwrite: true$/mu);
+    }
+  });
+
   it("starts every job of an Army business workflow with the same target guard", () => {
     const guards = new Set<string>();
     let jobs = 0;
