@@ -202,6 +202,12 @@ est une constante nommée et versionnée dans le code.
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
+   - La taille garde la notation que le libellé imprime (TI-683, D7) : « Ø 110 » et
+     « DN 110 » sont deux tailles. Un diamètre extérieur garde sa décimale (« Ø 42,4 »),
+     et « ⌀ » ou « ∅ » se lisent comme « Ø ». La notation suit la taille quand elle est propagée,
+     sépare les totaux (« DN 100 » et « Ø 100 » d'un même réseau ne s'additionnent pas)
+     et s'écrit dans la désignation de la ligne et de son calorifuge. Un tronçon dont
+     deux libellés ne diffèrent que par la notation est coupé entre eux comme pour deux DN.
    - Un tronçon dont deux libellés diffèrent (DN, matériau ou calorifuge, à une
      réduction) est coupé entre eux : à la fin de trait la plus proche du milieu des
      deux libellés, ou à ce milieu si aucun trait ne finit entre eux. Un tuyau exporté

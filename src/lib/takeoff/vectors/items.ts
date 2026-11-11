@@ -2,6 +2,7 @@ import { NETWORKS } from "@/lib/takeoff/bench/keys";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 import type { TakeoffItem } from "@/lib/takeoff/types";
+import { printedSize } from "@/lib/takeoff/vectors/vocabulary";
 import { surfaceBasis } from "@/lib/takeoff/quantity-policy";
 
 // Takeoff items of a vector reading (TI-662): one item per network, material
@@ -30,12 +31,13 @@ const MATERIAL_LABELS: Record<string, string> = {
 };
 
 /**
- * The designation of a network line as vectorItems prints it (« EF cuivre DN 22 »): the network's code, its material
- * and « DN n ». Shared with the bench's vision pass (TI-664), which rewrites a line it corrected.
+ * The designation of a network line as vectorItems prints it (« EF cuivre DN 22 », « EU fonte SMU Ø 110 »): the
+ * network's code, its material and its size as the plan prints it (printedSize, TI-683). Shared with the bench's
+ * vision pass (TI-664), which rewrites a line it corrected.
  */
-export function vectorNetworkDesignation(network: keyof typeof NETWORKS, material: string | null, dn: string | number | null) {
+export function vectorNetworkDesignation(network: keyof typeof NETWORKS, material: string | null, size: string | null) {
   const label = material ? MATERIAL_LABELS[material] ?? material : null;
-  return [NETWORKS[network].aliases[0], label, dn === null ? null : `DN ${dn}`].filter(Boolean).join(" ");
+  return [NETWORKS[network].aliases[0], label, size].filter(Boolean).join(" ");
 }
 
 function round(value: number, digits: number) {
@@ -49,7 +51,8 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
     const code = NETWORKS[total.network].aliases[0];
-    const designation = vectorNetworkDesignation(total.network, total.material, total.dn);
+    const size = total.dn === null ? null : printedSize(total.dn, total.notation);
+    const designation = vectorNetworkDesignation(total.network, total.material, size);
     items.push({
       designation, quantity: round(total.length_m, 2), unit: "ml", category: "réseau (lecture vectorielle)", source_page: reading.page,
       source_file: sourceFile,
@@ -58,7 +61,7 @@ export function vectorItems(reading: VectorPageReading, sourceFile: string): Tak
     });
     if (total.insulated_m !== null && total.insulated_m >= 0.01 && total.dn !== null) {
       items.push({
-        designation: `${code} calorifuge DN ${total.dn}`, quantity: round(total.insulated_m, 2), unit: "ml", category: "calorifuge (lecture vectorielle)",
+        designation: `${code} calorifuge ${size}`, quantity: round(total.insulated_m, 2), unit: "ml", category: "calorifuge (lecture vectorielle)",
         source_page: reading.page, source_file: sourceFile, confidence: VECTOR_ITEM_CONFIDENCE.labelled,
         evidence: `Lecture vectorielle : tronçons dont le libellé indique un calorifuge, échelle ${scale}.`,
       });

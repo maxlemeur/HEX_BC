@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Download, Ellipsis } from "lucide-react";
 
 import { fetchAffaireRegisterReviewExportAction } from "@/app/dashboard/affaires/_actions/register";
 import { useToast } from "@/components/feedback/toast-provider";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 function downloadBlob(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });
@@ -78,13 +78,20 @@ export function RegisterExportActions({
   }
 
   return (
-    <button
-      type="button"
-      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-      disabled={isExporting}
-      onClick={handleExport}
-    >
-      {isExporting ? "Export…" : "Exporter revue"}
-    </button>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="register-icon-button"
+        aria-label={isExporting ? "Export de la revue en cours" : "Actions du registre"}
+        disabled={isExporting}
+      >
+        <Ellipsis size={20} aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56 bg-surface text-foreground">
+        <DropdownMenuItem onClick={handleExport} disabled={isExporting} className="min-h-11 px-3">
+          <Download size={16} aria-hidden="true" />
+          Exporter la revue
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

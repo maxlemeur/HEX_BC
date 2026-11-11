@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
+
 import { RegisterEntryForm } from "./register/RegisterEntryForm";
 import { RegisterEntryList } from "./register/RegisterEntryList";
 import { RegisterExportActions } from "./register/RegisterExportActions";
@@ -9,8 +11,10 @@ import { RegisterSubmissionBlockers } from "./register/RegisterSubmissionBlocker
 import { RegisterSummaryCards } from "./register/RegisterSummaryCards";
 import { RegisterTimeline } from "./register/RegisterTimeline";
 import { RegisterTransitionDialog } from "./register/RegisterTransitionDialog";
+import { getRegisterBlockingCount } from "./register/registerViewModel";
 import type { AffaireRegisterCardProps } from "./register/registerTypes";
 import { useAffaireRegisterCardController } from "./register/useAffaireRegisterCardController";
+import "./register/RegisterList.css";
 
 export type { AffaireRegisterCardProps } from "./register/registerTypes";
 
@@ -33,103 +37,53 @@ export function AffaireRegisterCard({
 
   if (errorMessage) {
     return (
-      <section className="rounded-lg border border-border bg-surface shadow-card p-5">
-        <h2 className="text-sm font-semibold text-foreground">
-          Registre hypothèses & pièces manquantes
-        </h2>
-        <div className="mt-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
-          {errorMessage}
-        </div>
+      <section className="affaire-register">
+        <h2 className="register-heading">Points à traiter</h2>
+        <p className="mt-4 text-sm text-muted-foreground">{errorMessage}</p>
       </section>
     );
   }
 
   return (
-    <section
-      className="rounded-lg border border-border bg-surface shadow-card p-5"
-      aria-busy={controller.isFilterPending || controller.isMutationPending}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="affaire-register" aria-label="Points à traiter"
+      aria-busy={controller.isFilterPending || controller.isMutationPending}>
+      <header className="register-header">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            Registre hypothèses & pièces manquantes
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Hypothèses & pièces manquantes du dossier.
-          </p>
+          <h2 className="register-heading">Points à traiter</h2>
+          <RegisterSummaryCards summary={controller.effectiveSummary} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <RegisterExportActions
-            projectId={props.projectId}
-            versionId={versionId}
-          />
-          {controller.hasActiveFilters ? (
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
-              Vue filtrée
-              {controller.activeFiltersLabel ? ` · ${controller.activeFiltersLabel}` : ""}
-            </div>
-          ) : null}
-          {controller.isFilterPending ? (
-            <div
-              className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground"
-              aria-live="polite"
-            >
-              Mise à jour des filtres…
-            </div>
-          ) : null}
-          {isReadOnly ? (
-            <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              Consultation uniquement
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <RegisterSummaryCards
-        itemCount={controller.items.length}
-        summary={controller.effectiveSummary}
+        <RegisterExportActions projectId={props.projectId} versionId={versionId} />
+      </header>
+      <RegisterSubmissionBlockers summary={controller.effectiveSummary} />
+      {isReadOnly ? <p className="register-readonly">Consultation uniquement</p> : null}
+      <RegisterFiltersBar
+        filterStatus={controller.filterStatus}
+        filterSeverity={controller.filterSeverity}
+        filterKind={controller.filterKind}
+        filterRevalidationRequired={controller.filterRevalidationRequired}
+        filterBlockingOnly={controller.filterBlockingOnly}
+        blockingCount={getRegisterBlockingCount(controller.effectiveSummary)}
+        hasActiveFilters={controller.hasActiveFilters}
         onApplyFilters={controller.applyFilters}
+        onResetFilters={controller.resetFilters}
       />
-
-      <RegisterSubmissionBlockers
-        items={controller.items}
-        summary={controller.effectiveSummary}
-        onApplyFilters={controller.applyFilters}
-      />
-
-      <div className="mt-3 flex items-center justify-end">
-        <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-          {controller.items.length} résultat{controller.items.length > 1 ? "s" : ""}
-        </div>
+      <div className="sr-only" aria-live="polite">
+        {controller.isFilterPending ? "Mise à jour des filtres…" : controller.items.length + " résultats"}
       </div>
-
       {controller.isLoading ? (
-        <div
-          className="mt-4 rounded-2xl border border-dashed border-border bg-surface-subtle/80 px-4 py-8 text-center"
-          aria-live="polite"
-        >
-          <p className="text-sm font-medium text-foreground-secondary">
-            Chargement du registre…
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Récupération des points ouverts, avec historique récent et filtres disponibles.
-          </p>
-        </div>
-      ) : null}
-
-      {(controller.effectiveSummary.openQuestionsCount > 0 ||
-        controller.items.length > 0 ||
-        controller.hasActiveFilters) && (
-        <RegisterFiltersBar
-          filterStatus={controller.filterStatus}
-          filterSeverity={controller.filterSeverity}
-          filterKind={controller.filterKind}
+        <p className="register-empty" aria-live="polite">Chargement du registre…</p>
+      ) : (
+        <RegisterEntryList
+          key={controller.registerPage?.filters.focusEntryId ?? "register"}
+          items={controller.items}
           hasActiveFilters={controller.hasActiveFilters}
-          onApplyFilters={controller.applyFilters}
-          onResetFilters={controller.resetFilters}
+          isReadOnly={isReadOnly}
+          isMutationPending={controller.isMutationPending}
+          pendingEntryId={controller.pendingEntryId}
+          focusedEntryId={controller.registerPage?.filters.focusEntryId}
+          onOpenTransitionDialog={controller.openTransitionDialog}
         />
       )}
-
       {!isReadOnly ? (
         <RegisterEntryForm
           form={controller.form}
@@ -147,38 +101,23 @@ export function AffaireRegisterCard({
           onCreateEntry={() => void controller.handleCreateEntry()}
         />
       ) : null}
-
       {controller.inlineFeedback ? (
-        <div
-          className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
-            controller.inlineFeedback.tone === "success"
-              ? "border-success/20 bg-success/5 text-foreground-secondary"
-              : "border-primary/20 bg-primary/5 text-foreground-secondary"
-          }`}
-          aria-live="polite"
-        >
-          {controller.inlineFeedback.message}
-        </div>
+        <p className="register-feedback" role="status">{controller.inlineFeedback.message}</p>
       ) : null}
-
-      <RegisterEntryList
-        items={controller.items}
-        hasActiveFilters={controller.hasActiveFilters}
-        isReadOnly={isReadOnly}
-        isMutationPending={controller.isMutationPending}
-        pendingEntryId={controller.pendingEntryId}
-        onOpenTransitionDialog={controller.openTransitionDialog}
-      />
-
-      <RegisterTimeline timelineEvents={timelineEvents} />
-
-      <RegisterPagination
-        cursor={controller.registerPage?.filters.cursor ?? null}
-        nextCursor={controller.registerPage?.nextCursor ?? null}
-        isFilterPending={controller.isFilterPending}
-        onApplyCursor={(cursor) => controller.applyFilters({ cursor })}
-      />
-
+      {controller.registerPage?.filters.cursor || controller.registerPage?.nextCursor ? (
+        <RegisterPagination
+          cursor={controller.registerPage.filters.cursor}
+          nextCursor={controller.registerPage.nextCursor}
+          isFilterPending={controller.isFilterPending}
+          onApplyCursor={(cursor) => controller.applyFilters({ cursor })}
+        />
+      ) : null}
+      {timelineEvents.length > 0 ? (
+        <details className="register-history">
+          <summary><ChevronRight size={16} aria-hidden="true" />Historique récent du registre</summary>
+          <RegisterTimeline timelineEvents={timelineEvents} />
+        </details>
+      ) : null}
       <RegisterTransitionDialog
         pendingTransition={controller.pendingTransition}
         transitionComment={controller.transitionComment}
