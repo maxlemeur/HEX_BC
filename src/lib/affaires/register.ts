@@ -211,6 +211,7 @@ export const AFFAIRE_REGISTER_SEVERITY_QUERY_PARAM = "registerSeverity";
 export const AFFAIRE_REGISTER_KIND_QUERY_PARAM = "registerKind";
 export const AFFAIRE_REGISTER_CURSOR_QUERY_PARAM = "registerCursor";
 export const AFFAIRE_REGISTER_FOCUS_QUERY_PARAM = "registerFocus";
+export const AFFAIRE_REGISTER_BLOCKING_QUERY_PARAM = "registerBlocking";
 export const AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM = "registerRevalidation";
 
 const affaireRegisterCursorSchema = z.object({
@@ -301,6 +302,7 @@ export type AffaireRegisterPageResult = {
     severity: AffaireRegisterEntrySeverity | null;
     kind: AffaireRegisterEntryKind | null;
     revalidationRequired: boolean;
+    blockingOnly?: boolean;
     cursor: string | null;
     focusEntryId: string | null;
   };
@@ -912,6 +914,7 @@ export function buildAffaireRegisterSearchHref(input: {
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
   revalidationRequired?: boolean;
+  blockingOnly?: boolean;
   cursor?: string | null;
   focusEntryId?: string | null;
 }) {
@@ -939,6 +942,12 @@ export function buildAffaireRegisterSearchHref(input: {
     params.set(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM, "required");
   } else {
     params.delete(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM);
+  }
+
+  if (input.blockingOnly) {
+    params.set(AFFAIRE_REGISTER_BLOCKING_QUERY_PARAM, "1");
+  } else {
+    params.delete(AFFAIRE_REGISTER_BLOCKING_QUERY_PARAM);
   }
 
   if (input.cursor) {

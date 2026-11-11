@@ -24,6 +24,15 @@ export type AffaireRegisterCardProps = {
 
 export type RegisterScopeType = "project" | "lot" | "line" | "exception";
 
+export type RegisterFilters = {
+  status?: AffaireRegisterEntryStatus | null;
+  severity?: AffaireRegisterEntrySeverity | null;
+  kind?: AffaireRegisterEntryKind | null;
+  revalidationRequired?: boolean;
+  blockingOnly?: boolean;
+  cursor?: string | null;
+};
+
 export type RegisterEntryFormState = {
   kind: AffaireRegisterEntryKind;
   severity: AffaireRegisterEntrySeverity;
