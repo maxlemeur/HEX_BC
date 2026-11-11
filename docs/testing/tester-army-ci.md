@@ -29,7 +29,9 @@ parcours atteints. Un changement partagé, inconnu ou une erreur de sélection
 élargit à la suite entière. Une modification limitée aux chemins documentaires
 reconnus n'exécute aucun parcours.
 
-Un push `main` lance la suite critical entière sauf documentation seule.
+Un push `main` lance la suite critical entière sauf documentation seule, une
+suite à la fois : [la plus récente attend et remplace une plus ancienne en
+attente](#campagnes-de-main-après-un-push).
 Le déclenchement manuel ou le label `army-full` force la sélection complète.
 Les parcours `fullOnly` de métré sont sélectionnés sur PR ; ils ne se rajoutent
 pas au run Critical d'un push `main`, et restent couverts par la campagne Full
@@ -99,6 +101,16 @@ fois et une journée chargée compte plus de vingt push.
   push.
 - Un push de documentation seule (`docs/**`, `**/*.md`, les chemins `docs` de la
   carte d'impact) ne démarre aucune campagne et n'en remplace aucune.
+
+Le run Critical d'un push suit la même file depuis le 11/11/2026, à sa largeur
+habituelle (ses shards tournent ensemble) : un run tourne, le plus récent attend
+et remplace un plus ancien en attente, et un push de documentation seule n'en
+démarre aucun. Chaque run joue la suite critical entière, donc celui qui reste
+couvre les commits de ceux qu'il remplace. Avant, chaque push gardait le sien :
+le soir du 11/11/2026, après quinze fusions en deux heures, dix runs Critical
+de `main` étaient ouverts en même temps à 23 h 25 UTC, celui du push de 22 h 04
+n'avait pas fini 81 minutes plus tard, et les contrôles des pull requests
+attendaient derrière eux.
 
 Le résultat d'un commit se lit donc sur la première campagne terminée qui le
 contient : environ 45 minutes après le push (première campagne mesurée, le
