@@ -76,6 +76,12 @@ remplacera par sa mesure. Une campagne rouge ouvre le
 
 ## Avant un push direct sur main
 
+Depuis le 11/11/2026, `main` est protégée : un push direct est refusé et tout
+changement passe par une PR dont les checks requis sont verts. Cette section
+s'applique donc avant d'ouvrir la PR, pour ce que ses checks n'exécutent pas :
+la phase development et les parcours extended. Les parcours du métré et les
+phases calc-v3 atteints tournent dans la PR.
+
 Les campagnes qui suivent un push rendent leur verdict après coup, sur `main`.
 Un changement poussé directement prouve donc sur le poste, avant le push, les
 parcours hors Critical qu'il atteint.
