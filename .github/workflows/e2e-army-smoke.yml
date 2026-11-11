@@ -33,6 +33,8 @@ jobs:
           cache: npm
       - run: npm ci
       # Browsers for the playwright-core version @e2e-dev/web pins, not the root playwright package.
+      - name: Use official Ubuntu HTTPS mirrors
+        run: sudo bash scripts/tester-army/use-public-ubuntu-mirrors.sh
       - run: npx @e2e-dev/web install chromium --with-deps
       - run: npm run e2e
       - name: Retain anonymous evidence
