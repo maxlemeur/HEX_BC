@@ -431,7 +431,11 @@ describe("CI and local quality guardrails", () => {
       expect(steps[0], file).toContain("NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321");
       guards.add(runScript(steps[0]));
       expect(stepNamed(workflow, runStep), file).toContain(command);
-      expect(workflow, file).toContain("npx @e2e-dev/web install chromium --with-deps");
+      // The browser comes from the pinned package alone. --with-deps adds an apt
+      // run that only brought font packages to the hosted image: on 2026-11-11
+      // its mirror stopped resolving and every Army job failed before a journey.
+      expect(workflow, file).toContain("npx @e2e-dev/web install chromium");
+      expect(workflow, file).not.toMatch(/install chromium[^\n]*--with-deps/u);
       expect(workflow, file).toContain("steps.journeys.outputs.evidence");
       expect(workflow, file).toContain("if-no-files-found: error");
       expect(workflow, file).not.toContain("continue-on-error");

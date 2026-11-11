@@ -253,16 +253,19 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      # In the background: Chromium and its system libraries install while the
-      # stack, the database checks and the build run (about 20 s off the job).
-      # The runner waits for the exit-code file before the journeys and fails
-      # with install.log when the install failed (ARMY_BROWSER_INSTALL_DIR).
+      # In the background: Chromium installs while the stack, the database
+      # checks and the build run (about 20 s off the job). The runner waits for
+      # the exit-code file before the journeys and fails with install.log when
+      # the install failed (ARMY_BROWSER_INSTALL_DIR).
+      # No --with-deps: the ubuntu-24.04 image already holds every library
+      # Chromium needs, and that option only added nine font packages through
+      # apt, which made each job depend on the Ubuntu mirror answering.
       - name: Install TesterArmy Chromium
         run: |
           set -euo pipefail
           directory="$RUNNER_TEMP/army-browser-install"
           mkdir -p "$directory"
-          nohup bash -c 'npx @e2e-dev/web install chromium --with-deps > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
+          nohup bash -c 'npx @e2e-dev/web install chromium > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
       # Next's webpack cache of the Army build (.build/tester-army/next/cache, outside
       # the build fingerprint of build-local.mjs). Every shard restores the
       # latest one main saved; only shard 1 of a push to main saves its own.
@@ -419,7 +422,7 @@ jobs:
           set -euo pipefail
           directory="$RUNNER_TEMP/army-browser-install"
           mkdir -p "$directory"
-          nohup bash -c 'npx @e2e-dev/web install chromium --with-deps > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
+          nohup bash -c 'npx @e2e-dev/web install chromium > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
       # Restore only: shard 1 of army-critical saves both caches on a push to main.
       - name: Restore the Army Next build cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
