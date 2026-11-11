@@ -265,6 +265,29 @@ describe("TakeoffTargetedReview", () => {
     expect(patchTakeoffItems).not.toHaveBeenCalled();
   });
 
+  // TI-684, written before the code: a copy read with another DN showed like any duplicate, « counted twice » for sure.
+  it("says what a copy drawn at the same place reads differently, and that it may be another pipe", async () => {
+    const contradicting: TakeoffRuleResult = { ...duplicate(ids.z2, "Z2"),
+      details: { overlap_m: 1, partner_count: 1, partners: [{ ...partner(ids.z2, "Z2"), differs: ["network", "dn"] }] } };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], item(ids.z1, "EF Z1", 5, [contradicting]), ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Doublon entre zones" });
+    expect(within(section).getByText(/Longueur dessinée au même endroit/)).toHaveTextContent("1,00 m");
+    expect(within(section).queryByText(/Longueur comptée deux fois/)).toBeNull();
+    expect(within(within(section).getByRole("list", { name: "Lignes des autres zones" })).getByText("Lu autrement : réseau, diamètre")).toBeInTheDocument();
+    expect(within(section).getByText(/même tronçon mal lu.*ou deux tuyaux distincts/)).toBeInTheDocument();
+    // The same correction settles it when it is one run.
+    expect(within(section).getByRole("button", { name: /^Retirer 1,00 m/ })).toBeInTheDocument();
+    // A copy of the same reading keeps the plain wording.
+    choose(list, "EF Z2");
+    expect(screen.getByText(/Longueur comptée deux fois/)).toHaveTextContent("1,00 m");
+    expect(screen.queryByText(/Lu autrement/)).toBeNull();
+  });
+
   it("reads the partner of a settled pair back with the saved line", async () => {
     const settledZ1 = { ...ITEMS[1], quantity: 4, rule_results: [resolved(ids.z2, "Z2")], updated_at: "2026-11-04T10:01:00.000Z" };
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.z1, success: true, item: settledZ1 }], succeeded: 1, failed: 0,

@@ -64211,6 +64211,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -65926,6 +65939,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66255,6 +66281,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66580,6 +66619,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -66887,6 +66939,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -67284,6 +67349,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -67591,6 +67669,19 @@
                                         },
                                         "resolved": {
                                           "type": "boolean"
+                                        },
+                                        "differs": {
+                                          "minItems": 1,
+                                          "maxItems": 3,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "network",
+                                              "material",
+                                              "dn"
+                                            ]
+                                          }
                                         }
                                       },
                                       "required": [
@@ -69174,6 +69265,19 @@
                                             },
                                             "resolved": {
                                               "type": "boolean"
+                                            },
+                                            "differs": {
+                                              "minItems": 1,
+                                              "maxItems": 3,
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "network",
+                                                  "material",
+                                                  "dn"
+                                                ]
+                                              }
                                             }
                                           },
                                           "required": [
@@ -69537,6 +69641,19 @@
                                     },
                                     "resolved": {
                                       "type": "boolean"
+                                    },
+                                    "differs": {
+                                      "minItems": 1,
+                                      "maxItems": 3,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "network",
+                                          "material",
+                                          "dn"
+                                        ]
+                                      }
                                     }
                                   },
                                   "required": [

@@ -126,6 +126,9 @@ import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 // ending in half a millimetre and a stretch just over the minimum at 1/150 changed
 // with the page taken as frame or were dropped; two pairs whose ids join alike
 // shared a cached coverage; a model quantity stored to the thousandth read as typed.
+// TI-684 (D14, written before the fix): two copies of one run whose network, material
+// or DN contradict each other were never compared, and the run was counted twice
+// without a word; side by side on both plans, two pipes must stay two isolated pairs.
 // Fifth Codex round (written before its fix): « EF cuivre DN 22 / Ø 23 » passed the
 // DN rule, the reader keeping DN 22 and skipping the unknown Ø 23 beside it.
 // Sixth Codex round (written before their fix): « ép. 2,20 mm » gave a 20 mm pipe
@@ -549,19 +552,22 @@ describe("duplicate runs between zones", () => {
   it("measures each pair of a group at its own scale, and settles a pair of two 1/50 pages beside a 1/200 page", () => {
     // A (1/50) holds 0.4 m drawn again on B (1/50) and 5 m drawn again on C (1/200, minimum 49 cm): 0.4 m is a duplicate
     // of its own pair, under C's minimum. Three lines: corrections never settle them.
-    const specs = (quantityA: number, dnC = "DN 22"): Spec[] => [
+    const specs = (quantityA: number, dnC = "DN 22", yC = 1): Spec[] => [
       { id: "A", segments: [[0, 1, 0.4, 1], [2, 1, 7, 1]], quantity: quantityA },
       { id: "B", segments: [[0, 1, 0.4, 1]], quantity: 0.4 },
-      { id: "C", segments: [[2, 1, 7, 1]], quantity: 5, dn: dnC },
+      { id: "C", segments: [[2, yC, 7, yC]], quantity: 5, dn: dnC },
     ];
     for (const quantity of [5.4, 0.01]) {
       expect(inEveryOrder(specs(quantity), [50, 50, 200]))
         .toEqual(["A:ZONE_OVERLAP_DUPLICATE:5.4:3 lignes", "B:ZONE_OVERLAP_DUPLICATE:0.4:3 lignes", "C:ZONE_OVERLAP_DUPLICATE:5:3 lignes"]);
     }
-    // C of another DN: A and B are a pair of 0.4 m at 1/50, settled by A's 0.4 m reduction.
+    // C read with another DN at the same place is still a copy of A's 5 m (TI-684): the same group of three lines.
     expect(inEveryOrder(specs(5.4, "DN 28"), [50, 50, 200]))
+      .toEqual(["A:ZONE_OVERLAP_DUPLICATE:5.4:3 lignes", "B:ZONE_OVERLAP_DUPLICATE:0.4:3 lignes", "C:ZONE_OVERLAP_DUPLICATE:5:3 lignes"]);
+    // C drawn 6 cm aside is another pipe: A and B are a pair of 0.4 m at 1/50, settled by A's 0.4 m reduction.
+    expect(inEveryOrder(specs(5.4, "DN 22", 1.06), [50, 50, 200]))
       .toEqual(["A:ZONE_OVERLAP_DUPLICATE:0.4", "B:ZONE_OVERLAP_DUPLICATE:0.4", "C:ZONE_OVERLAP_NONE:-"]);
-    expect(inEveryOrder(specs(5, "DN 28"), [50, 50, 200])).toEqual(["A:ZONE_OVERLAP_RESOLVED:-", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_NONE:-"]);
+    expect(inEveryOrder(specs(5, "DN 28", 1.06), [50, 50, 200])).toEqual(["A:ZONE_OVERLAP_RESOLVED:-", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_NONE:-"]);
   });
 
   it("never settles a chain of four pages by corrections (Codex round 4), only once the lines entirely duplicated are excluded", () => {
@@ -695,39 +701,47 @@ describe("duplicate runs between zones", () => {
     expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
   });
 
+  /** What a line's partners read differently: « - » for one reading (one run), the differences of a copy read otherwise (TI-684). */
+  const readings = (results: Map<string, TakeoffRuleResult[]>, id: string) =>
+    (rule(results, id, "zone_overlap")?.details?.partners ?? []).map((partner) => (partner.differs ?? []).join("+") || "-");
+
   // TI-684, written before the fix: stainless drainage was read through the pressure series here, unlike the DN rule.
-  it("compares one stainless drainage pipe labelled « DN 100 » and « Ø 110 » through NF EN 1124, never with « Ø 108 »", () => {
+  // Two sizes that are not one are no longer left uncompared (TI-684, D14): drawn at one place, they are copies whose
+  // DN contradict each other, and the partner says so.
+  it("compares one stainless drainage pipe labelled « DN 100 » and « Ø 110 » through NF EN 1124, never as one size with « Ø 108 »", () => {
     const stainless = (network: "EU" | "EF", dn: string) => inputs({ network, material: "inox", dn });
     const drainage = zones({ z1: { inputs: stainless("EU", "DN 100") }, z2: { inputs: stainless("EU", "Ø 110") } });
     expect(rule(drainage.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
     expect(rule(drainage.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(readings(drainage.results, "z1")).toEqual(["-"]);
     const press = zones({ z1: { inputs: stainless("EU", "DN 100") }, z2: { inputs: stainless("EU", "Ø 108") } });
-    expect(rule(press.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(readings(press.results, "z1")).toEqual(["dn"]);
     // Outside drainage, stainless keeps its pressure series: Ø 108 is the DN 100 press-fit tube.
     const coldWater = zones({ z1: { inputs: stainless("EF", "DN 100") }, z2: { inputs: stainless("EF", "Ø 108") } });
     expect(rule(coldWater.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
-    expect(rule(zones({ z1: { inputs: stainless("EF", "DN 100") }, z2: { inputs: stainless("EF", "Ø 110") } }).results, "z1", "zone_overlap"))
-      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(readings(coldWater.results, "z1")).toEqual(["-"]);
+    expect(readings(zones({ z1: { inputs: stainless("EF", "DN 100") }, z2: { inputs: stainless("EF", "Ø 110") } }).results, "z1")).toEqual(["dn"]);
   });
 
   // TI-684 pinning test, passing when written: a vector size is stored as « DN n » whatever the plan printed, so the
   // « Ø 110 » of the test above reaches the rule as « DN 110 ». Pins that stored form through NF EN 1124.
-  it("compares the stored vector form of a stainless drainage pipe, « DN 100 » and « DN 110 », never « DN 108 »", () => {
+  it("compares the stored vector form of a stainless drainage pipe, « DN 100 » and « DN 110 », never as one size with « DN 108 »", () => {
     const stainless = (dn: number) => inputs({ source: "vector", network: "EU", material: "inox", dn: `DN ${dn}` });
     const drainage = zones({ z1: { inputs: stainless(100) }, z2: { inputs: stainless(110) } });
     expect(rule(drainage.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
     expect(rule(drainage.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect([readings(drainage.results, "z1"), readings(drainage.results, "z2")]).toEqual([["-"], ["-"]]);
     const press = zones({ z1: { inputs: stainless(100) }, z2: { inputs: stainless(108) } });
-    expect(rule(press.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
-    expect(rule(press.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect([readings(press.results, "z1"), readings(press.results, "z2")]).toEqual([["dn"], ["dn"]]);
   });
 
-  it("never takes two insulations of different sizes for one run", () => {
+  it("never takes two insulations of different sizes for one run: at one place, their sizes contradict each other", () => {
     const insulation = (dn: number) => inputs({ kind: "insulation", material: "calorifuge", dn: `DN ${dn}` });
     const result = zones({ z1: { inputs: insulation(15) }, z2: { inputs: insulation(20) } });
-    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
-    expect(rule(zones({ z1: { inputs: insulation(20) }, z2: { inputs: insulation(20) } }).results, "z1", "zone_overlap"))
-      .toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(readings(result.results, "z1")).toEqual(["dn"]);
+    const same = zones({ z1: { inputs: insulation(20) }, z2: { inputs: insulation(20) } });
+    expect(rule(same.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(readings(same.results, "z1")).toEqual(["-"]);
   });
 
   it("applies the minimum common length to each continuous stretch, never to touches added up", () => {
@@ -800,8 +814,10 @@ describe("duplicate runs between zones", () => {
 
   it("never compares two lines of one page, even beside another registered page", () => {
     const twin = line("z1b", { geometry: { segments_m: [[4, 1, 7, 1]], polygon_m: null, length_m: 3, area_m2: null } });
-    const result = zones({ lines: [twin], z2: { inputs: inputs({ dn: "DN 28" }) } });
+    // Z2's run lies 6 cm aside: another pipe, so that only the two lines of Z1's page share a place.
+    const result = zones({ lines: [twin], z2: { geometry: { segments_m: [[-36, 1.06, -33, 1.06]], polygon_m: null, length_m: 3, area_m2: null } } });
     expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(result.results, "z1b", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
   });
 
   it("spends no reduction on an excluded partner", () => {
@@ -816,10 +832,11 @@ describe("duplicate runs between zones", () => {
     expect(rule(result.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { group_size: 3 } });
   });
 
-  it("ignores an excluded partner, another DN or network, lines of one page and pages of two levels", () => {
+  // Another DN or network at the same place was ignored too, until TI-684: see the tests of copies read differently below.
+  it("ignores an excluded partner, lines of one page and pages of two levels, whatever their readings", () => {
     expect(rule(zones({ z2: { is_excluded: true } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
-    expect(rule(zones({ z2: { inputs: inputs({ dn: "DN 28" }) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
-    expect(rule(zones({ z2: { inputs: inputs({ network: "ECS" }) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z2: { is_excluded: true, inputs: inputs({ network: "ECS" }) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z2Level: "R+2", z2: { inputs: inputs({ dn: "DN 28" }) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
     expect(rule(zones({ z2: { page_key: "job-z1#1", geometry: { segments_m: [[4, 1, 7, 1]], polygon_m: null, length_m: 3, area_m2: null } } })
       .results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
     expect(rule(zones({ z2Level: "R+2" }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
@@ -832,6 +849,143 @@ describe("duplicate runs between zones", () => {
     expect(unregistered.transforms.get("job-z2#1")).toBeNull();
     expect(rule(zones({ z2Anchors: null, z2: { inputs: inputs({ network: "EU", material: "pvc", dn: "DN 100" }) } }).results, "z1", "zone_overlap"))
       .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
+  // TI-684 (D14, « trou connu »), written before the fix: the detection only paired lines of one network and one
+  // size, so two copies of one run whose readings contradict each other (network, material or DN) were never
+  // compared and the version counted the run twice without a word.
+  const differs = (results: Map<string, TakeoffRuleResult[]>, id: string) =>
+    (rule(results, id, "zone_overlap")?.details?.partners ?? []).map((partner) => `${partner.item_id}:${(partner.differs ?? []).join("+") || "-"}`);
+
+  it("fails two copies of one run read with another DN, network or material, naming what differs (TI-684)", () => {
+    const dn = zones({ z2: { designation: "EF Inox 316L DN 28", inputs: inputs({ dn: "DN 28", model_quantity: 3 }) } });
+    expect(rule(dn.results, "z1", "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE", acceptable: true,
+      details: { overlap_m: 1, partner_count: 1, partners: [{ item_id: "z2", zone: "Z2", overlap_m: 1, resolved: false, differs: ["dn"] }] } });
+    expect(rule(dn.results, "z2", "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE",
+      details: { overlap_m: 1, partners: [{ item_id: "z1", differs: ["dn"] }] } });
+    // The reason says the readings contradict each other, and what to do in either case.
+    expect(rule(dn.results, "z1", "zone_overlap")?.reason).toMatch(/lu autrement \(diamètre\)/);
+    expect(rule(dn.results, "z1", "zone_overlap")?.reason).toMatch(/deux tuyaux distincts/);
+    expect(differs(zones({ z2: { inputs: inputs({ network: "ECS", model_quantity: 3 }) } }).results, "z1")).toEqual(["z2:network"]);
+    expect(differs(zones({ z2: { inputs: inputs({ material: "cuivre", model_quantity: 3 }) } }).results, "z1")).toEqual(["z2:material"]);
+    expect(differs(zones({ z2: { inputs: inputs({ network: "EU", material: "pvc", dn: "DN 100", model_quantity: 3 }) } }).results, "z1"))
+      .toEqual(["z2:network+material+dn"]);
+    // A copy whose DN was not read contradicts the one that carries it.
+    expect(differs(zones({ z2: { inputs: inputs({ dn: null, model_quantity: 3 }) } }).results, "z1")).toEqual(["z2:dn"]);
+    // Two readings of one identity carry no difference.
+    expect(differs(zones().results, "z1")).toEqual(["z2:-"]);
+  });
+
+  it("settles a contradicting pair like any pair: a reduction by the common length, or the exclusion of a copy (TI-684)", () => {
+    const other = { inputs: inputs({ dn: "DN 28", model_quantity: 3 }) };
+    expect(rule(zones({ z1: { quantity: 4 }, z2: other }).results, "z1", "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_RESOLVED" });
+    expect(rule(zones({ z1: { quantity: 4 }, z2: other }).results, "z2", "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_RESOLVED" });
+    expect(rule(zones({ z1: { quantity: 4.5 }, z2: other }).results, "z2", "zone_overlap")).toMatchObject({ status: "fail", details: { overlap_m: 0.5 } });
+    const excluded = zones({ z2: { ...other, is_excluded: true } });
+    expect(rule(excluded.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(excluded.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { partners: [{ item_id: "z1", differs: ["dn"] }] } });
+    // An applied copy is never asked to change: the reason leaves the correction to the current line.
+    expect(rule(zones({ z2: { ...other, frozen: true } }).results, "z1", "zone_overlap")?.reason).toMatch(/job appliqué/);
+  });
+
+  it("never takes a pipe and its insulation, a touch or a pipe beyond the distance for contradicting copies (TI-684)", () => {
+    const insulation = zones({ z2: { inputs: inputs({ kind: "insulation", material: "calorifuge", model_quantity: 3 }) } });
+    expect(rule(insulation.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(insulation.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    const geometry = (segments: Seg[]) => ({ segments_m: segments, polygon_m: null, length_m: 3, area_m2: null });
+    const other = inputs({ network: "ECS", model_quantity: 3 });
+    // 10 cm in common at the zone limit, then 6 cm aside: neither is a copy.
+    expect(rule(zones({ z2: { inputs: other, geometry: geometry([[-35.1, 1, -32.1, 1]]) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z2: { inputs: other, geometry: geometry([[-36, 1.06, -33, 1.06]]) } }).results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    // The band of a 1/200 drawing is the smallest copy there too.
+    expect(rule(zones({ z2: { inputs: other, geometry: geometry([[-35.4, 1, -32.4, 1]]) }, denominator: 200 }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(differs(zones({ z2: { inputs: other, geometry: geometry([[-35.4, 1, -32.4, 1]]) } }).results, "z1")).toEqual(["z2:network"]);
+  });
+
+  it("keeps two pipes drawn 4 cm apart on both plans as two pairs, each settled by its own reduction (TI-684)", () => {
+    // Cold and hot water side by side, both drawn on Z1 (0–5 m) and Z2 (4–7 m). Each run has its copy of the same
+    // reading on the other plan: the neighbour 4 cm away is another pipe, never a contradicting copy, and the two
+    // pairs stay isolated (a group of four lines could not be settled by a correction).
+    const hot = (overrides: Partial<TakeoffRuleInputs> = {}) => inputs({ network: "ECS", ...overrides });
+    const side = (z1: Partial<RuleLine> = {}, z2: Partial<RuleLine> = {}, ef2: Partial<RuleLine> = {}) => zones({ z2: ef2, lines: [
+      line("h1", { designation: "ECS Inox 316L DN 22", inputs: hot(), geometry: { segments_m: [[0, 1.04, 5, 1.04]], polygon_m: null, length_m: 5, area_m2: null }, ...z1 }),
+      line("h2", { job_id: "job-z2", page_key: "job-z2#1", designation: "ECS Inox 316L DN 22", quantity: 3, inputs: hot({ model_quantity: 3 }),
+        geometry: { segments_m: [[-36, 1.04, -33, 1.04]], polygon_m: null, length_m: 3, area_m2: null }, ...z2 }),
+    ] });
+    const both = side();
+    expect(differs(both.results, "z1")).toEqual(["z2:-"]);
+    expect(differs(both.results, "h1")).toEqual(["h2:-"]);
+    expect(rule(both.results, "z2", "zone_overlap")?.details?.group_size).toBeUndefined();
+    const reduced = side({ quantity: 4 });
+    expect(rule(reduced.results, "h1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED" });
+    expect(rule(reduced.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+    // A copy excluded to settle its pair still shows where its run is drawn: the neighbour stays another pipe.
+    const excluded = side({}, {}, { is_excluded: true });
+    expect(rule(excluded.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(differs(excluded.results, "h1")).toEqual(["h2:-"]);
+  });
+
+  it("leaves a run alone when the plan beside draws only its neighbour, which has its own copy (TI-684)", () => {
+    // Z1 draws cold and hot water 4 cm apart, Z2 only hot water: the cold run is on one plan, counted once.
+    const hot = (overrides: Partial<TakeoffRuleInputs> = {}) => inputs({ network: "ECS", ...overrides });
+    const result = zones({ z2: { designation: "ECS Inox 316L DN 22", inputs: hot({ model_quantity: 3 }) }, lines: [
+      line("h1", { designation: "ECS Inox 316L DN 22", inputs: hot(), geometry: { segments_m: [[0, 1.04, 5, 1.04]], polygon_m: null, length_m: 5, area_m2: null } }),
+    ] });
+    expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(differs(result.results, "h1")).toEqual(["z2:-"]);
+    expect(differs(result.results, "z2")).toEqual(["h1:-"]);
+  });
+
+  it("counts of a contradicting copy only what no copy of the same reading explains, in every page order (TI-684)", () => {
+    // A 0–10 m ; on the other plan, B (same reading) 4–6 m and C (another DN) 4–9 m at the same place: 4–6 m is B's,
+    // C contradicts A on 6–9 m only. Three lines joined by pairs: a group, each line excluded or accepted.
+    const runs: Spec[] = [
+      { id: "A", segments: [[0, 1, 10, 1]], quantity: 10 },
+      { id: "B", segments: [[4, 1, 6, 1]], quantity: 2 },
+      { id: "C", segments: [[4, 1, 9, 1]], quantity: 5, dn: "DN 28" },
+    ];
+    const pages = [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 50 }),
+      page("job-1#1", { order: 10_000, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 })];
+    const build = (reverse: boolean) => {
+      const lines = runs.map((spec, index) => line(spec.id, { job_id: index === 0 ? "job-0" : "job-1", page_key: index === 0 ? "job-0#1" : "job-1#1",
+        quantity: spec.quantity, designation: `EF Inox 316L ${spec.dn ?? "DN 22"} (${spec.id})`, ...(spec.dn ? { inputs: inputs({ dn: spec.dn }) } : {}),
+        geometry: { segments_m: spec.segments.map(([x0, y0, x1, y1]): Seg => [x0 - (index === 0 ? 0 : 40), y0, x1 - (index === 0 ? 0 : 40), y1]),
+          polygon_m: null, length_m: spec.quantity, area_m2: null } }));
+      return evaluateTakeoffRules({ pages: reverse ? [...pages].reverse().map((entry, index) => ({ ...entry, order: index })) : pages,
+        lines: reverse ? lines.reverse() : lines });
+    };
+    for (const reverse of [false, true]) {
+      const { results } = build(reverse);
+      expect(codes(results, ["A", "B", "C"]), String(reverse)).toEqual(["A:ZONE_OVERLAP_DUPLICATE:5:3 lignes", "B:ZONE_OVERLAP_DUPLICATE:2:3 lignes",
+        "C:ZONE_OVERLAP_DUPLICATE:3:3 lignes"]);
+      expect(rule(results, "A", "zone_overlap")?.details?.partners?.map((partner) => `${partner.item_id}=${partner.overlap_m}:${(partner.differs ?? []).join("+") || "-"}`))
+        .toEqual(["C=3:dn", "B=2:-"]);
+      expect(rule(results, "A", "zone_overlap")?.reason).toMatch(/lu autrement \(diamètre\)/);
+    }
+  });
+
+  it("gives contradicting copies the same outcome in every page order, pairs and groups (TI-684)", () => {
+    // Three plans of one run, the middle one read with another DN: a group of three lines.
+    expect(inEveryOrder([
+      { id: "Z1", segments: [[0, 1, 6, 1]], quantity: 6 },
+      { id: "Z2", segments: [[4, 1, 10, 1]], quantity: 6, dn: "DN 28" },
+      { id: "Z3", segments: [[5, 1, 12, 1]], quantity: 7 },
+    ])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:2:3 lignes", "Z2:ZONE_OVERLAP_DUPLICATE:6:3 lignes", "Z3:ZONE_OVERLAP_DUPLICATE:5:3 lignes"]);
+    expect(inEveryOrder([{ id: "Z1", segments: [[0, 1, 6, 1]], quantity: 6 }, { id: "Z2", segments: [[4, 1, 10, 1]], quantity: 4, dn: "DN 28" }]))
+      .toEqual(["Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_RESOLVED:-"]);
+  });
+
+  it("compares 600 lines of two plans, every one of another reading, without measuring pairs far apart (TI-684)", () => {
+    // 300 runs a plan, 40 cm apart, each of 400 dashes: only the runs drawn at one place are measured.
+    const dashes = (y: number, shift: number) => Array.from({ length: 400 }, (_, index): Seg => [index * 0.25 + shift, y, index * 0.25 + 0.2 + shift, y]);
+    const pages = [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 50 }),
+      page("job-1#1", { order: 10_000, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 })];
+    const lines = [0, 1].flatMap((slot) => Array.from({ length: 300 }, (_, index) => line(`p${slot}-${index}`, { job_id: `job-${slot}`,
+      page_key: `job-${slot}#1`, quantity: 80, inputs: inputs({ dn: slot === 0 ? "DN 22" : "DN 28", model_quantity: 80 }),
+      geometry: { segments_m: dashes(1 + index * 0.4 + slot * 0.2, -40 * slot), polygon_m: null, length_m: 80, area_m2: null } })));
+    const { results } = evaluateTakeoffRules({ pages, lines });
+    expect(lines.every((entry) => rule(results, entry.id, "zone_overlap")?.code === "ZONE_OVERLAP_NONE")).toBe(true);
   });
 });
 
@@ -1035,7 +1189,7 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
   it("gives the oracle's outcome on random pairs: geometry, scales, applied, excluded, reductions, page and list orders", () => {
     const random = generator(664);
     const mismatches: string[] = [];
-    const seen = { none: 0, settled: 0, open: 0, coarse: 0, frozen: 0, excluded: 0, dashed: 0, tolerance: 0 };
+    const seen = { none: 0, settled: 0, open: 0, coarse: 0, frozen: 0, excluded: 0, dashed: 0, tolerance: 0, contradicting: 0 };
     for (let index = 0; index < 2000; index += 1) {
       const a = runsOf(random);
       const b = runsOf(random, a);
@@ -1056,11 +1210,13 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       const excluded = [random.next() < 0.1, random.next() < 0.1];
       const offset = random.int(-4, 4) / 100;
       const noise = random.next() < 0.3;
+      // b read with another DN (TI-684): a copy of a all the same, with the pair's outcome, and it says what differs.
+      const contradicting = random.next() < 0.3;
       const specs = [
-        { id: "a", runs: a, y: 1, reduction: ra, frozen: frozen[0], excluded: excluded[0], dn: "DN 22" },
-        { id: "b", runs: b, y: 1 + offset, reduction: rb, frozen: frozen[1], excluded: excluded[1], dn: "DN 22" },
-        // Another DN drawn over b on a third page: never a partner, whatever it shares.
-        ...(noise ? [{ id: "n", runs: b, y: 1, reduction: 0, frozen: false, excluded: false, dn: "DN 28" }] : []),
+        { id: "a", runs: a, y: 1, reduction: ra, frozen: frozen[0], excluded: excluded[0], dn: "DN 22", kind: "network" as const },
+        { id: "b", runs: b, y: 1 + offset, reduction: rb, frozen: frozen[1], excluded: excluded[1], dn: contradicting ? "DN 28" : "DN 22", kind: "network" as const },
+        // An insulation drawn over b on a third page: never a partner of a pipe, whatever it shares.
+        ...(noise ? [{ id: "n", runs: b, y: 1, reduction: 0, frozen: false, excluded: false, dn: "DN 22", kind: "insulation" as const }] : []),
       ];
       const order = random.pick(permutations(specs.map((_, slot) => slot)));
       const pages = specs.map((_, slot) => page(`job-${slot}#1`, { order: order[slot] * 10_000, zone: `Z${slot + 1}`,
@@ -1068,7 +1224,7 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       const lines = specs.map((spec, slot) => {
         const length = lengthMm(spec.runs) / 1000;
         return line(spec.id, { job_id: `job-${slot}`, page_key: `job-${slot}#1`, quantity: length - spec.reduction / 1000, frozen: spec.frozen,
-          is_excluded: spec.excluded, inputs: inputs({ dn: spec.dn, model_quantity: length }),
+          is_excluded: spec.excluded, inputs: inputs({ dn: spec.dn, kind: spec.kind, model_quantity: length }),
           geometry: { segments_m: spec.runs.map(([start, end]): [number, number, number, number] => [start / 100 - 40 * slot, spec.y, end / 100 - 40 * slot, spec.y]),
             polygon_m: null, length_m: length, area_m2: null } });
       });
@@ -1082,14 +1238,14 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       const deficit = Math.max(0, commonMm - useful(ra) - useful(rb));
       const settled = deficit <= 10 * Math.max(1, [ra, rb].filter((reduction) => reduction > 0).length);
       const expected = (side: number) => {
-        const other = side === 0 ? "b" : "a";
+        const other = `${side === 0 ? "b" : "a"}=${commonMm / 1000}${contradicting ? "≠dn" : ""}`;
         if (!paired || excluded[1 - side]) return "ZONE_OVERLAP_NONE";
-        return settled ? `ZONE_OVERLAP_RESOLVED [${other}=${commonMm / 1000}]` : `ZONE_OVERLAP_DUPLICATE ${deficit / 1000} [${other}=${commonMm / 1000}]`;
+        return settled ? `ZONE_OVERLAP_RESOLVED [${other}]` : `ZONE_OVERLAP_DUPLICATE ${deficit / 1000} [${other}]`;
       };
       const actual = (id: string) => {
         const entry = rule(results, id, "zone_overlap");
         const details = entry?.details;
-        return `${entry?.code}${details?.overlap_m !== undefined ? ` ${details.overlap_m}` : ""}${details?.partners ? ` [${details.partners.map((partner) => `${partner.item_id}=${partner.overlap_m}`).join(",")}]` : ""}${details?.group_size ? ` ${details.group_size} lignes` : ""}`;
+        return `${entry?.code}${details?.overlap_m !== undefined ? ` ${details.overlap_m}` : ""}${details?.partners ? ` [${details.partners.map((partner) => `${partner.item_id}=${partner.overlap_m}${partner.differs ? `≠${partner.differs.join("+")}` : ""}`).join(",")}]` : ""}${details?.group_size ? ` ${details.group_size} lignes` : ""}`;
       };
       for (const [side, id] of [[0, "a"], [1, "b"]] as const) {
         if (actual(id) !== expected(side)) mismatches.push(`#${index} ${id}: ${actual(id)} ≠ ${expected(side)} (a ${JSON.stringify(a)} b ${JSON.stringify(b)} 1/${denominators.join(", 1/")} r ${ra}, ${rb} frozen ${frozen} excluded ${excluded})`);
@@ -1103,6 +1259,7 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       if (paired && excluded.some(Boolean)) seen.excluded += 1;
       if (paired && [a, b].some((runs) => runs.length > 3)) seen.dashed += 1;
       if (paired && deficit > 0 && settled) seen.tolerance += 1;
+      if (paired && contradicting) seen.contradicting += 1;
     }
     expect(mismatches).toEqual([]);
     // The cases cover every branch of the oracle.
