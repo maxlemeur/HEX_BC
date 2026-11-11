@@ -11,6 +11,7 @@ import { useTakeoffPreparation } from "@/components/takeoff/useTakeoffPreparatio
 import { TakeoffPreparationProfiles } from "@/components/takeoff/TakeoffPreparationProfiles";
 import { TakeoffPreparationAssistance } from "@/components/takeoff/TakeoffPreparationAssistance";
 import { TakeoffPageTriage } from "@/components/takeoff/TakeoffPageTriage";
+import { TakeoffLaunchPagesNotice } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
 import { evaluateTakeoffPreparation, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { TAKEOFF_LEVEL_BUSINESS_LABELS } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
@@ -175,6 +176,8 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {step === 3 && !processingCompatible && <Alert variant="warning"><AlertDescription>Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.</AlertDescription></Alert>}
       {step === 3 && processingControls && <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées</summary><div className="mt-3 space-y-4">{processingControls}</div></details>}
     </fieldset>
+    {/* TI-682 lot D: the chosen plan pages the target version already holds from an earlier takeoff (a notice, the launch stays open). */}
+    {step === 3 && <TakeoffLaunchPagesNotice versionId={draft.destination.estimate_version_id ?? estimateVersionId} sources={draft.sources} />}
     {step === 3 && readiness && <div className="space-y-3" aria-live="polite">
       {readiness.blockers.length > 0 ? <Alert variant="warning"><AlertDescription><p className="font-medium">{readiness.blockers.length} point{readiness.blockers.length > 1 ? "s" : ""} à préciser avant le lancement</p><ul className="mt-2 list-disc space-y-1 pl-4 text-sm">{readiness.blockers.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></AlertDescription></Alert> : <Alert variant={readiness.reservations.length ? "warning" : "success"}><AlertDescription>{readiness.reservations.length ? "Préparation complète avec réserves conservées." : "Préparation complète. Les résultats resteront à vérifier."}</AlertDescription></Alert>}
       {record?.confirmedAt && <div className="space-y-1 rounded-lg border border-border p-3"><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={locked || saveState === "saving"} onClick={() => void prepareNewAnalysis()}>Préparer une nouvelle analyse</button><p className="text-xs text-muted-foreground">Conserve vos réponses et ouvre une nouvelle préparation.</p></div>}

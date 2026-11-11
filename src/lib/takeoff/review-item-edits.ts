@@ -46,6 +46,14 @@ export function editReviewItem(item: ReviewItem, changes: Partial<Pick<TakeoffJo
     _verification: verification, _dirty: dirty, _error: null };
 }
 
+/**
+ * TI-682 lot D: the save of this line changed its stored source page (the page the warning « Pages déjà au devis »
+ * compares). Read against the stored value the edit started from, not the edit: a refused or unchanged save is not one.
+ */
+export function sourcePageSaved(saved: TakeoffJobItem, submitted: ReviewItem | undefined): boolean {
+  return submitted !== undefined && (submitted._original ?? submitted).source_page !== saved.source_page;
+}
+
 /** An edit made during an earlier save is still pending, based on the server's new revision. */
 export function afterReviewSave(saved: TakeoffJobItem, submitted: ReviewItem | undefined, current: ReviewItem): ReviewItem {
   const clean = { ...saved, _dirty: false, _saving: false, _error: null };

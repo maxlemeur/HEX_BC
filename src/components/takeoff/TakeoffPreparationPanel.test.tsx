@@ -41,6 +41,12 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
   proposeTakeoffPageTriageAction: actions.triage,
 }));
 
+const pageContributions = vi.hoisted(() => ({ job: vi.fn(), launch: vi.fn() }));
+vi.mock("@/lib/takeoff/page-contributions-client", () => ({
+  fetchTakeoffJobPageContributions: pageContributions.job,
+  fetchLaunchPageContributions: pageContributions.launch,
+}));
+
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const PLAN_SET_ID = "33333333-3333-4333-8333-333333333333";
@@ -64,7 +70,8 @@ function state() {
 
 beforeEach(() => {
   // Reset rather than clear: a `*Once` queue left by a test that failed early must not answer this one.
-  for (const mock of [loadChatGptConnectionMock, ...Object.values(actions)]) mock.mockReset();
+  for (const mock of [loadChatGptConnectionMock, ...Object.values(actions), ...Object.values(pageContributions)]) mock.mockReset();
+  pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [], unidentified_item_ids: [], other_takeoff_line_count: 0 });
   stored = completePreparation();
   storedRevision = 5;
   storedConfirmedAt = null;
@@ -99,6 +106,20 @@ function processingControls({ processing, onProcessingChange, isConfirmed }: Pre
 }
 
 describe("TakeoffPreparationPanel", () => {
+  // TI-682 lot D, PR 1: at the launch, the plan pages the target version already holds from an earlier takeoff are
+  // named; the launch stays possible. Written before the notice existed.
+  it("names the pages of the chosen plans the target version already holds, and keeps the launch open", async () => {
+    pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, other_takeoff_line_count: 4, unidentified_item_ids: [],
+      jobs: [{ id: "66666666-6666-4666-8666-666666666666", estimate_version_id: VERSION_ID, created_at: "2026-11-10T09:30:00.000Z", source_file_name: SOURCE.document_name }],
+      pages: [{ file_name: SOURCE.document_name, page: 1, item_ids: [], earlier: [{ job_id: "66666666-6666-4666-8666-666666666666", line_count: 4, takeoff_item_ids: [] }], own_line_count: 0 }] });
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    const notice = await screen.findByRole("region", { name: "Pages déjà au devis" });
+    expect(notice).toHaveTextContent("Plan plomberie R+1.pdf, page 1 : déjà au devis par le métré du 10/11/2026");
+    expect(pageContributions.launch).toHaveBeenCalledWith({ estimate_version_id: VERSION_ID, documents: [
+      { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: SOURCE.document_name, pages: [1] }] }, expect.anything());
+    expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeEnabled();
+  });
+
   it("keeps the source revision and objective when an initial load arrives late", async () => {
     const original = state();
     const pending: Array<(value: ReturnType<typeof success<typeof original>>) => void> = [];
