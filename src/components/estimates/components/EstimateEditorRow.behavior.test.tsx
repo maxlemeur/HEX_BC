@@ -281,6 +281,25 @@ describe("EstimateEditorRow behavior", () => {
     ).not.toBeNull();
   });
 
+  // TI-539 : un coût de fourniture nul voulu (POSE SEULE) n'est pas présenté comme une saisie manquante.
+  it("does not mark the zero supply cost of a POSE SEULE line as a missing entry", () => {
+    const priceCell = (title: string, lineNature: "pose_only" | "supply_and_labor") => {
+      const { container } = renderRow(createItem({ id: `line-${lineNature}`, title, line_nature: lineNature, unit_price_ht_cents: 0, h_mo: 2 }));
+      return container.querySelector(`[data-cell-id="line-${lineNature}::unit_price"]`);
+    };
+
+    expect(priceCell("Radiateur fourni posé", "supply_and_labor")).toHaveClass("estimate-cell--required-empty");
+    expect(priceCell("Pose radiateur client", "pose_only")).not.toHaveClass("estimate-cell--required-empty");
+  });
+
+  // TI-539 : hors moteur 3, le devis émis n'imprime pas la mention ; la nature n'y est donc pas proposée.
+  it("does not offer POSE SEULE on a quote whose issued document could not print it", () => {
+    renderRow(createItem({ id: "line-v2", title: "Ligne moteur 2", line_nature: "labor_only", unit_price_ht_cents: 0, h_mo: 2 }));
+    const options = [...screen.getByRole("combobox", { name: /nature de ligne pour Ligne moteur 2$/ }).querySelectorAll("option")];
+
+    expect(options.map((option) => option.value)).toEqual(["supply_only", "supply_and_labor", "labor_only"]);
+  });
+
   it("commits FO by UUID after explicit selection and preserves it on an unknown prefix", () => {
     const type = {
       id: "type-tube", code: "TUB", name: "Tube", default_fo_provision: 1.03, tenant_id: "tenant-1", created_at: "", updated_at: "",

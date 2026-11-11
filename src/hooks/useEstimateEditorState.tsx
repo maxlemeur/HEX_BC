@@ -2396,7 +2396,8 @@ export function useEstimateEditorState({
   );
 
   const v3Grid = useMemo<EstimateV3GridModel | null>(
-    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp }),
+    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
+      saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null }),
     [v3Breakdown, allowedTaxRatesBp]
   );
 
@@ -2561,9 +2562,10 @@ export function useEstimateEditorState({
             isExpert,
             onOpenSettings: handleOpenSettingsDrawer,
             v3Summary: v3Breakdown === undefined ? undefined : buildEstimateV3SummaryView(v3Breakdown),
+            missingSupplyCostCount: qualityCounts.byFlag.missing_price,
           }
         : null,
-    [handleOpenSettingsDrawer, isExpert, settings, totals, v3Breakdown]
+    [handleOpenSettingsDrawer, isExpert, qualityCounts.byFlag.missing_price, settings, totals, v3Breakdown]
   );
 
   const snapshotContext = version?.calc_snapshot_context;
