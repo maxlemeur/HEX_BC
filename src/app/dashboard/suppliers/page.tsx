@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { canEditCatalogueRecord, type CatalogueAccess } from "@/lib/catalogue/access";
 
 type Supplier = {
   id: string;
@@ -41,6 +42,12 @@ type Supplier = {
   vat_number: string | null;
   payment_terms: string | null;
   is_active: boolean;
+  created_by?: string | null;
+};
+
+type SuppliersResponse = {
+  items: Supplier[];
+  access?: { user_id: string; can_add: boolean; can_edit_shared: boolean };
 };
 
 // Sort options
@@ -80,6 +87,9 @@ const EMPTY_FORM: SupplierFormState = {
 
 const TABLE_COLUMNS = 6;
 
+/** TI-689: shown instead of the buttons on a supplier the member may not change. */
+const SHARED_BASE_NOTE = "Base commune";
+
 export default function SuppliersPage() {
   const confirm = useConfirm();
   // Form state
@@ -91,11 +101,20 @@ export default function SuppliersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
+  const [access, setAccess] = useState<CatalogueAccess | null>(null);
+  const canAdd = access?.canAdd === true;
+
   // Filtered suppliers state
   const [displayedSuppliers, setDisplayedSuppliers] = useState<Supplier[]>([]);
 
   const fetchSuppliers = useCallback(async () => {
-    const data = await fetchApi<{ items: Supplier[] }>("/api/suppliers");
+    const data = await fetchApi<SuppliersResponse>("/api/suppliers");
+    // TI-689: the buttons follow the member's rights; the database decides.
+    setAccess(
+      data.access
+        ? { userId: data.access.user_id, canAdd: data.access.can_add, canEditShared: data.access.can_edit_shared }
+        : null
+    );
     return data.items;
   }, []);
 
@@ -237,11 +256,13 @@ export default function SuppliersPage() {
   const emptyTitle = suppliers.length === 0 ? "Aucun fournisseur" : "Aucun résultat";
   const emptyDescription =
     suppliers.length === 0
-      ? "Ajoutez un fournisseur pour démarrer."
+      ? canAdd
+        ? "Ajoutez un fournisseur pour démarrer."
+        : "Un administrateur ou un ingénieur peut en ajouter."
       : "Modifiez vos filtres pour voir plus de résultats.";
   const emptyIcon = suppliers.length === 0 ? <BriefcaseIcon /> : <SearchIcon />;
   const emptyAction =
-    suppliers.length === 0 ? (
+    suppliers.length === 0 && canAdd ? (
       <Button leftIcon={<PlusIcon aria-hidden="true" />} onClick={openCreateForm}>
         Ajouter un fournisseur
       </Button>
@@ -257,14 +278,16 @@ export default function SuppliersPage() {
         title="Fournisseurs"
         description="Gérez la liste de vos fournisseurs et leurs coordonnées."
         actions={
-          <Button
-            size="lg"
-            className="w-full sm:w-auto"
-            leftIcon={<PlusIcon aria-hidden="true" />}
-            onClick={openCreateForm}
-          >
-            Ajouter un fournisseur
-          </Button>
+          canAdd ? (
+            <Button
+              size="lg"
+              className="w-full sm:w-auto"
+              leftIcon={<PlusIcon aria-hidden="true" />}
+              onClick={openCreateForm}
+            >
+              Ajouter un fournisseur
+            </Button>
+          ) : null
         }
       />
 
@@ -513,24 +536,30 @@ export default function SuppliersPage() {
                     )}
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
-                    <Button
-                      variant="outline"
-                      size="md"
-                      aria-label={`Modifier ${supplier.name}`}
-                      onClick={() => openEditForm(supplier)}
-                    >
-                      Modifier
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="md"
-                      aria-label={`Supprimer ${supplier.name}`}
-                      onClick={() => void onDelete(supplier)}
-                    >
-                      Supprimer
-                    </Button>
-                  </div>
+                  {canEditCatalogueRecord(access, supplier.created_by) ? (
+                    <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
+                      <Button
+                        variant="outline"
+                        size="md"
+                        aria-label={`Modifier ${supplier.name}`}
+                        onClick={() => openEditForm(supplier)}
+                      >
+                        Modifier
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="md"
+                        aria-label={`Supprimer ${supplier.name}`}
+                        onClick={() => void onDelete(supplier)}
+                      >
+                        Supprimer
+                      </Button>
+                    </div>
+                  ) : access ? (
+                    <p className="mt-4 border-t border-border-subtle pt-3 text-xs text-muted-foreground">
+                      {SHARED_BASE_NOTE}
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -591,26 +620,30 @@ export default function SuppliersPage() {
                     </td>
                     <td>{supplier.phone ?? "-"}</td>
                     <td className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          aria-label={`Modifier ${supplier.name}`}
-                          leftIcon={<PencilIcon aria-hidden="true" />}
-                          onClick={() => openEditForm(supplier)}
-                        >
-                          Modifier
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          aria-label={`Supprimer ${supplier.name}`}
-                          leftIcon={<TrashIcon aria-hidden="true" />}
-                          onClick={() => void onDelete(supplier)}
-                        >
-                          Supprimer
-                        </Button>
-                      </div>
+                      {canEditCatalogueRecord(access, supplier.created_by) ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Modifier ${supplier.name}`}
+                            leftIcon={<PencilIcon aria-hidden="true" />}
+                            onClick={() => openEditForm(supplier)}
+                          >
+                            Modifier
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            aria-label={`Supprimer ${supplier.name}`}
+                            leftIcon={<TrashIcon aria-hidden="true" />}
+                            onClick={() => void onDelete(supplier)}
+                          >
+                            Supprimer
+                          </Button>
+                        </div>
+                      ) : access ? (
+                        <span className="text-xs text-muted-foreground">{SHARED_BASE_NOTE}</span>
+                      ) : null}
                     </td>
                   </tr>
                 ))

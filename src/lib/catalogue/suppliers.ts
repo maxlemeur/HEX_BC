@@ -7,6 +7,7 @@ import {
 } from "@/lib/estimates/errors";
 import type { Database } from "@/types/database";
 
+import { getCatalogueWriterClient, readCatalogueAccess } from "./access-server";
 import type {
   CreateSupplierInput,
   UpdateSupplierInput,
@@ -29,18 +30,31 @@ async function getAuthenticatedClient() {
   return { supabase, userId };
 }
 
+const SUPPLIER_WRITE_REFUSAL =
+  "L'ajout et la modification de fournisseurs sont réservés aux administrateurs et aux ingénieurs.";
+const SHARED_SUPPLIER_REFUSAL =
+  "Ce fournisseur fait partie de la base commune : vous modifiez seulement les fournisseurs que vous avez ajoutés. Un administrateur peut ouvrir la base commune aux ingénieurs.";
+
 /**
- * Supplier writes are admin-only (RLS: "Admins can insert/update/delete suppliers").
- * Checking the role here turns a silent zero-row RLS update into an explicit 403.
+ * TI-689: admins write every supplier; engineers add some and change the ones they added, or all of them when
+ * their admin opened the shared base (RLS: "Catalogue editors can insert/update/delete suppliers").
  */
-async function getAdminClient() {
-  const { supabase, userId, isTenantAdmin } = await getAuthenticatedTenantContext();
-  if (!isTenantAdmin) {
-    throw forbidden(
-      "La gestion des fournisseurs est réservée aux administrateurs."
-    );
+function getWriterClient() {
+  return getCatalogueWriterClient(SUPPLIER_WRITE_REFUSAL);
+}
+
+type WriterClient = Awaited<ReturnType<typeof getWriterClient>>;
+
+/**
+ * A write filtered by RLS affects zero rows without raising. For an engineer, a supplier that still reads is one
+ * they may not change: say so instead of « introuvable ».
+ */
+async function supplierWriteRefusal(writer: WriterClient, supplierId: string) {
+  if (!writer.isTenantAdmin) {
+    const { data } = await writer.supabase.from("suppliers").select("id").eq("id", supplierId).maybeSingle();
+    if (data) return forbidden(SHARED_SUPPLIER_REFUSAL);
   }
-  return { supabase, userId };
+  return notFound("Fournisseur introuvable.");
 }
 
 export async function listSuppliers() {
@@ -55,7 +69,13 @@ export async function listSuppliers() {
     throw mapSupabaseError(error, "Impossible de charger les fournisseurs.");
   }
 
-  return { items: data ?? [] };
+  // TI-689: the page shows its write buttons from this, the database decides.
+  const access = await readCatalogueAccess();
+
+  return {
+    items: data ?? [],
+    access: { user_id: access.userId, can_add: access.canAdd, can_edit_shared: access.canEditShared },
+  };
 }
 
 export async function getSupplierUsage(supplierId: string) {
@@ -76,7 +96,7 @@ export async function getSupplierUsage(supplierId: string) {
 }
 
 export async function createSupplier(input: CreateSupplierInput) {
-  const { supabase } = await getAdminClient();
+  const { supabase } = await getWriterClient();
   const payload = compactRecord<SupplierInsert>({
     name: input.name,
     address: input.address,
@@ -106,7 +126,8 @@ export async function createSupplier(input: CreateSupplierInput) {
 }
 
 export async function updateSupplier(input: UpdateSupplierInput) {
-  const { supabase } = await getAdminClient();
+  const writer = await getWriterClient();
+  const { supabase } = writer;
   const payload = compactRecord<SupplierUpdate>({ ...input.item });
 
   if (Object.keys(payload).length === 0) {
@@ -125,16 +146,14 @@ export async function updateSupplier(input: UpdateSupplierInput) {
   }
 
   if (!data) {
-    throw notFound("Fournisseur introuvable.");
+    throw await supplierWriteRefusal(writer, input.id);
   }
 
   return { item: data };
 }
 
-async function archiveSupplier(
-  supabase: Awaited<ReturnType<typeof getAuthenticatedClient>>["supabase"],
-  supplierId: string
-) {
+async function archiveSupplier(writer: WriterClient, supplierId: string) {
+  const { supabase } = writer;
   const { data, error } = await supabase
     .from("suppliers")
     .update({ is_active: false })
@@ -147,18 +166,19 @@ async function archiveSupplier(
 
   // A RLS-filtered update affects zero rows without raising: do not report success.
   if (!data || data.length === 0) {
-    throw notFound("Fournisseur introuvable.");
+    throw await supplierWriteRefusal(writer, supplierId);
   }
 
   return { id: supplierId, mode: "archived" as const };
 }
 
 export async function deleteSupplier(supplierId: string) {
-  const { supabase } = await getAdminClient();
+  const writer = await getWriterClient();
+  const { supabase } = writer;
   const { linked_orders_count } = await getSupplierUsage(supplierId);
 
   if (linked_orders_count > 0) {
-    return archiveSupplier(supabase, supplierId);
+    return archiveSupplier(writer, supplierId);
   }
 
   const { data, error } = await supabase
@@ -168,7 +188,7 @@ export async function deleteSupplier(supplierId: string) {
     .select("id");
 
   if (error?.code === "23503") {
-    return archiveSupplier(supabase, supplierId);
+    return archiveSupplier(writer, supplierId);
   }
 
   if (error) {
@@ -176,7 +196,7 @@ export async function deleteSupplier(supplierId: string) {
   }
 
   if (!data || data.length === 0) {
-    throw notFound("Fournisseur introuvable.");
+    throw await supplierWriteRefusal(writer, supplierId);
   }
 
   return { id: supplierId, mode: "deleted" as const };

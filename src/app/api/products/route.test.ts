@@ -60,6 +60,8 @@ function createProductsSupabase(options: {
   role?: "admin" | "engineer" | "viewer";
   insertResult?: QueryResult;
   updateResult?: QueryResult;
+  /** Row read back after an update that affected nothing (TI-689); null = not readable. */
+  readableRow?: { id: string } | null;
 } = {}) {
   const inserted: unknown[] = [];
   const updated: Array<{ id: string; payload: unknown }> = [];
@@ -91,6 +93,11 @@ function createProductsSupabase(options: {
       }
 
       return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn(async () => ({ data: options.readableRow ?? null, error: null })),
+          })),
+        })),
         insert: vi.fn((payload: unknown) => {
           inserted.push(payload);
           return {
@@ -127,6 +134,58 @@ function postRequest(body: unknown) {
 describe("POST /api/products", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("catalogue rights (TI-689)", () => {
+    it("lets an engineer add an item", async () => {
+      const { supabase, inserted } = createProductsSupabase({ role: "engineer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "create", item: VALID_PRODUCT }));
+
+      expect(response.status).toBe(201);
+      expect(inserted).toHaveLength(1);
+    });
+
+    it("refuses a viewer before any write", async () => {
+      const { supabase, inserted, updated } = createProductsSupabase({ role: "viewer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const responses = await Promise.all([
+        POST(postRequest({ action: "create", item: VALID_PRODUCT })),
+        POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } })),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([403, 403]);
+      expect([inserted, updated]).toEqual([[], []]);
+    });
+
+    it("tells an engineer that an item of the shared base is not theirs to change", async () => {
+      const { supabase } = createProductsSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: { id: PRODUCT_ID },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } }));
+
+      expect(response.status).toBe(403);
+      expect(JSON.stringify(await response.json())).toContain("base commune");
+    });
+
+    it("keeps « introuvable » for an item nobody reads", async () => {
+      const { supabase } = createProductsSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: null,
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } }));
+
+      expect(response.status).toBe(404);
+    });
   });
 
   it("archives a product with a partial update", async () => {

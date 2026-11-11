@@ -2907,7 +2907,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/products/reference-suggestion",
     summary: "Proposer une référence interne d’article",
-    description: "Suggestion provisoire réservée aux administrateurs du catalogue. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
     tags: ["Catalogue"],
     responses: {
       "200": jsonResponse("Référence proposée.", schemaDefinition(
@@ -2915,7 +2915,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         successEnvelopeSchema(z.object({ reference: z.string().min(1) })), "output"
       )),
       "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
-      "403": jsonResponse("Administrateur du catalogue requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("Administrateur ou ingénieur requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "500": jsonResponse("Suggestion indisponible.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
