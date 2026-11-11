@@ -238,11 +238,11 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     const purge = applied.find((item) => item.title === "Vanne de purge")!;
     const measuredRun = Math.ceil(network.length_m);
     expect([Number(run.quantity), Number(valve.quantity), Number(purge.quantity)]).toEqual([measuredRun, 4, 3]);
-    const before = await readEstimate(ui.browser, ids.versionId);
+    const priced = await readEstimate(ui.browser, ids.versionId);
     const edited = await apiRequest<Envelope<{ committed: boolean }>>(ui.browser, "POST", `/api/estimates/${ids.versionId}/batch`,
       { operation_key: randomUUID(), operations: [
         { op: "update", id: run.id, data: { title: "Réseau EF chiffré", unit_price_ht_cents: 2500 } },
-        { op: "update", id: valve.id, data: { unit_price_ht_cents: 1500 } }] }, { "if-match": before.version.updated_at });
+        { op: "update", id: valve.id, data: { unit_price_ht_cents: 1500 } }] }, { "if-match": priced.version.updated_at });
     expect([edited.status, edited.body.ok]).toEqual([200, true]);
 
     // The plan measured again: the count changed, the purge valve is gone, a WC is new.
@@ -250,6 +250,14 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
       reading("Robinet d'arrêt", 5, "u"), reading("WC suspendu", 2, "u")]);
     expect(retained.map((item) => [item.designation, item.quantity]).sort())
       .toEqual([[network.designation, network.length_m], ["Robinet d'arrêt", 5], ["WC suspendu", 2]].sort());
+
+    // The page read again names the earlier takeoff's three lines (the run and the two counts).
+    const before = await readPages(ui, second, ids.versionId);
+    const lines = await client.from("takeoff_items").select("id,job_id,designation,source_page,source_file_name,metadata->source_document")
+      .in("job_id", [first, second]);
+    await recordEvidence(ui.army, "TKD02-relaunch-read", { ids, first, second, before, lines: lines.data });
+    expect(before.pages.map((entry) => [entry.page, entry.earlier.map((earlier) => [earlier.job_id, earlier.line_count])]))
+      .toEqual([[1, [[first, 3]]]]);
 
     // Applied without a decision (a direct call, as a second tab or a script would): refused, the page named.
     const refused = await applyOwnedTakeoff(ui.browser, ids.versionId, second, { strategy: "append", target_section_id: target.parent_id });
