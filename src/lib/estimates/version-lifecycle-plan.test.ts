@@ -131,4 +131,29 @@ describe("manual estimate lifecycle decisions", () => {
       })
     );
   });
+  // TI-682, lot C, PR 4 (D10, D28): a reserve with empty limits is a text to write, never an anomaly to accept.
+  it("refuses to force a send whose reserved lines have no limits text, by name", () => {
+    const blocked = gating(true);
+    const result: EstimateSendGatingResult = {
+      ...blocked,
+      blockingFlags: [{
+        key: "offer_limits_required",
+        severity: "blocking",
+        count: 1,
+        item_ids: ["line-1"],
+        label: "Précisions et limites de prestation à rédiger",
+        description: "À rédiger",
+      }],
+    };
+    expect(() => resolveEstimateSendOverride(result, true)).toThrowError(
+      expect.objectContaining({
+        status: 400,
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: { gating: result, not_forceable: ["offer_limits_required"] },
+        message: expect.stringContaining("« Précisions et limites de prestation » est vide"),
+      })
+    );
+    expect(() => resolveEstimateSendOverride(result, false)).toThrowError(
+      expect.objectContaining({ code: "ESTIMATE_GATING_BLOCKED" }));
+  });
 });

@@ -56,6 +56,8 @@ type EstimateEditorDrawerProps = {
   recovery?: EstimateMutationRecovery;
   isFrozen?: boolean;
   storedMarginMultiplier?: number;
+  /** TI-682, lot C, PR 4 : titres des lignes réservées dans l'offre (insertion dans les précisions). */
+  reservedLineTitles?: readonly string[];
   onChangeSettings: EstimateSettingsPanelProps["onChange"];
   onSaveSettings: EstimateSettingsPanelProps["onSave"];
   /** Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`), nuls en v1/v2. */
@@ -107,6 +109,7 @@ export function EstimateEditorDrawer({
   recovery,
   isFrozen = false,
   storedMarginMultiplier,
+  reservedLineTitles,
   onChangeSettings,
   onSaveSettings,
   v3Settings = null,
@@ -255,6 +258,7 @@ export function EstimateEditorDrawer({
             isReadOnly={isSaveBlocked || isSavingSettings}
             isFrozen={isFrozen}
             storedMarginMultiplier={storedMarginMultiplier}
+            reservedLineTitles={reservedLineTitles}
             error={null}
             onChange={onChangeSettings}
             onSave={onSaveSettings}

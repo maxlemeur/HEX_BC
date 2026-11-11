@@ -89,7 +89,7 @@ function row(overrides: Partial<EstimateItem>): EstimateItem {
     id: fixtureLineId(1), created_at: "2026-10-17T08:00:00.000Z", updated_at: "2026-10-17T08:00:00.000Z",
     tenant_id: TENANT_ID, version_id: VERSION_ID, parent_id: null, item_type: "line", line_nature: "supply_and_labor",
     position: 0, title: "Ligne", description: null, quantity: null, unit_price_ht_cents: null, tax_rate_bp: 2000,
-    k_fo: 1, fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false, h_mo: null, h_mo_majoration: 1, k_mo: 1, h_mo_atelier: null, k_mo_atelier: null,
+    k_fo: 1, fo_price_origin: null, fo_provision: 1, status_reason: null, was_not_priced: false, offer_choice: null, h_mo: null, h_mo_majoration: 1, k_mo: 1, h_mo_atelier: null, k_mo_atelier: null,
     labor_role_atelier_id: null,
     h_mo_chantier: null, k_mo_chantier: null, labor_role_chantier_id: null, pu_ht_cents: null, labor_role_id: null,
     category_id: null, supply_type_id: null, selected_supplier_price_id: null, source_provider: null, source_job_id: null,
@@ -103,9 +103,10 @@ function row(overrides: Partial<EstimateItem>): EstimateItem {
 }
 
 /** Une v3 figée par le moteur pur (§5.1, §5.2), avec une ligne « pour mémoire » à 5,5 %. */
-function frozen(params: Partial<EstimateV3Params>, taxRateBpByRef: Parameters<typeof oracleItems>[0] = {}, reverseCharge = false) {
+function frozen(params: Partial<EstimateV3Params>, taxRateBpByRef: Parameters<typeof oracleItems>[0] = {}, reverseCharge = false,
+  eighthStatus: "for_memory" | "not_priced" = "for_memory") {
   const oracle = oracleItems(taxRateBpByRef).map((item, index) => ({ ...item, unit_code: UNIT_CODES[index] }));
-  const forMemory = v3Line(8, { unit_price_ht_cents: 50_000, pricing_status: "for_memory", tax_rate_bp: 550 });
+  const forMemory = v3Line(8, { unit_price_ht_cents: 50_000, pricing_status: eighthStatus, tax_rate_bp: 550 });
   const resolvedParams = v3Params({ sale_coefficient_fo: "1.30", sale_coefficient_mo: "1.20", reverse_charge: reverseCharge, ...params });
   const breakdown = computeEstimateV3Breakdown({ params: resolvedParams, items: [...oracle, forMemory] });
   const projection = projectEstimateV3Snapshot(breakdown);
@@ -370,5 +371,43 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
     expect(internal).toEqual(ordinary);
     expect(JSON.stringify(internal.contract.rows)).toContain("for_memory");
     expect(JSON.stringify(internal)).not.toMatch(/MOTIF CONFIDENTIEL|status_reason|was_not_priced|client_supplied|Fourni ou réalisé/);
+  });
+  // TI-682, lot C, PR 4 (D28, Z-a): the written reserve stays internal. A reserved « Non chiffrée » line prints, and is
+  // sealed in the client contract 2, exactly as the same « Non chiffrée » line without a reserve: the client reads its
+  // status and the limits text, never the basis, the code or the note.
+  it("TI-682 imprime une ligne « Non chiffrée » réservée comme la même ligne non réservée (document et contrat client 2)", () => {
+    const { input } = frozen({ discount_amount_cents: 101 }, {}, false, "not_priced");
+    const withReserve = (reserved: boolean): PrepareV3Input => ({ ...input, items: input.items.map((item) =>
+      item.item_type !== "line" || item.pricing_status !== "not_priced" ? item : {
+        ...item, was_not_priced: true,
+        offer_choice: reserved ? { kind: "reserve", basis: "indicative_quantities", code: "pending_survey",
+          note: "RÉSERVE CONFIDENTIELLE selon RC", decided_by: "11111111-1111-4111-8111-111111111111",
+          decided_at: "2026-11-11T18:02:23.123456+00:00" } : null,
+      } as typeof item) });
+    const printed = (source: PrepareV3Input) => {
+      const prepared = prepareV3(source);
+      return {
+        document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
+          sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
+        contract: buildClientContract2({
+          version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
+            contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
+            contractorRole: "principal", taxRateBp: 2000 },
+          project: { name: "ARMY v3 project", reference: null, estimateReference: null, clientName: null, siteAddress: null },
+          issuer: { userId: "11111111-1111-4111-8111-111111111111", displayName: "ARMY actor", displayRole: null, phone: null,
+            email: null },
+          company: COMPANY_INFO, sourceRows: source.items, prepared,
+          exclusions: "Les prestations suivantes ne sont pas chiffrées dans la présente offre :\n- ARMY pour mémoire",
+        }),
+      };
+    };
+    const reserved = withReserve(true);
+    expect(reserved.items.filter((item) => item.item_type === "line" && item.offer_choice !== null)).toHaveLength(1);
+    const ordinary = printed(withReserve(false));
+    const internal = printed(reserved);
+    expect(internal).toEqual(ordinary);
+    expect(internal.contract.rows.filter((row) => row.kind === "line" && row.pricingStatus === "not_priced")).toHaveLength(1);
+    expect(JSON.stringify(internal)).not.toMatch(
+      /RÉSERVE CONFIDENTIELLE|offer_choice|indicative_quantities|pending_survey|Quantités indicatives|décid|decided/);
   });
 });

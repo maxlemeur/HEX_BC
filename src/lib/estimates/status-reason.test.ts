@@ -91,6 +91,31 @@ describe("the internal reason of an exclusion (TI-682)", () => {
     expect(applyStatusReasonRules(unchanged, unchanged)).toBe(unchanged);
   });
 
+  it("tracks « was not priced » from the last saved line, as the merged write leaves it in the database (review of #222)", () => {
+    // Priced, then « Non chiffrée », then « Hors lot » inside the autosave delay: one merged write, priced → out_of_scope.
+    const saved = { pricing_status: "priced", was_not_priced: false, status_reason: null };
+    const unpriced = applyStatusReasonRules(saved, { ...saved, pricing_status: "not_priced" }, saved);
+    expect(unpriced.was_not_priced).toBe(true);
+    const excluded = applyStatusReasonRules(unpriced, { ...unpriced, pricing_status: "out_of_scope" }, saved);
+    expect(excluded.was_not_priced).toBe(false);
+    expect(requiresStatusReason({ item_type: "line", ...excluded })).toBe(false);
+    // Saved « Non chiffrée »: the database sees not_priced → out_of_scope, whatever was shown between.
+    const savedUnpriced = { pricing_status: "not_priced", was_not_priced: true, status_reason: null };
+    const priced = applyStatusReasonRules(savedUnpriced, { ...savedUnpriced, pricing_status: "priced" }, savedUnpriced);
+    expect(applyStatusReasonRules(priced, { ...priced, pricing_status: "out_of_scope" }, savedUnpriced).was_not_priced).toBe(true);
+    // Back to the saved status: the database sees no change and keeps its flag.
+    expect(applyStatusReasonRules(unpriced, { ...unpriced, pricing_status: "priced" }, saved).was_not_priced).toBe(false);
+    // A line not saved yet: its creation carries only its status.
+    const fresh = { pricing_status: "not_priced", was_not_priced: true, status_reason: null };
+    expect(applyStatusReasonRules(fresh, { ...fresh, pricing_status: "for_memory" }, null).was_not_priced).toBe(false);
+    expect(applyStatusReasonRules({ pricing_status: "priced" }, { pricing_status: "not_priced", was_not_priced: false }, null)
+      .was_not_priced).toBe(true);
+    // The reason still leaves against the line as shown: a pending reason is cleared, not written with a priced status.
+    const reason = { code: "other_trade", note: null };
+    const pending = { pricing_status: "out_of_scope", was_not_priced: true, status_reason: reason };
+    expect(applyStatusReasonRules(pending, { ...pending, pricing_status: "priced" }, savedUnpriced).status_reason).toBeNull();
+  });
+
   it("formats the reason for the internal CSV", () => {
     expect(formatStatusReason({ code: "client_supplied", note: null })).toBe("Fourni ou réalisé par le maître d'ouvrage ou le client");
     expect(formatStatusReason({ code: "other", note: TEN })).toBe(`Autre motif (à préciser) : ${TEN}`);

@@ -9,6 +9,8 @@ import {
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { reconcileCreatedItemWithLocalDraft } from "@/lib/estimates/editor-optimistic";
+import { applyOfferChoiceRules } from "@/lib/estimates/offer-choice";
+import { applyStatusReasonRules } from "@/lib/estimates/status-reason";
 import type { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
 import { mergeReloadedEditorSettings } from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
@@ -245,6 +247,20 @@ export class EstimateEditorDocument {
     return true;
   };
 
+  /**
+   * TI-682, lot C: the line as the database stores it after `updates`. The columns its triggers derive from a status
+   * change are never sent (« was not priced », a reason left on a status that cannot carry it, a reserve whose status
+   * changed), so the document applies the same rules: the confirmed and expected lines then say what the database holds.
+   */
+  private storedAfter<T extends Partial<EditorEstimateItem>>(item: T, updates: Partial<EditorEstimateItem>): T {
+    const merged = { ...item, ...updates } as T;
+    if (!("pricing_status" in updates)) return merged;
+    return applyOfferChoiceRules(item, applyStatusReasonRules(item, merged, item));
+  }
+
+  /** The line the next write is compared with: confirmed, then every save in flight, as the database will hold it. */
+  getExpectedItem = (itemId: string): Partial<EditorEstimateItem> | undefined => this.expectedItem(itemId);
+
   private expectedItems() {
     const items = this.snapshot.confirmedItems;
     const captures = Array.from(this.inFlight.values());
@@ -253,7 +269,7 @@ export class EstimateEditorDocument {
         cached.captures.every((capture, index) => capture === captures[index])) return cached.byId;
     const byId = new Map<string, Partial<EditorEstimateItem>>(items.map((item) => [item.id, item]));
     for (const capture of captures) {
-      capture.entries.forEach(({ id, updates }) => byId.set(id, { ...byId.get(id), ...updates }));
+      capture.entries.forEach(({ id, updates }) => byId.set(id, this.storedAfter(byId.get(id) ?? {}, updates)));
     }
     this.expectedIndex = { items, captures, byId };
     return byId;
@@ -688,7 +704,8 @@ export class EstimateEditorDocument {
     const updatesById = new Map(entries.map(({ id, updates }) => [id, updates]));
     const apply = (items: EditorEstimateItem[]) => items.map((item) => {
       const updates = updatesById.get(item.id);
-      return updates ? { ...item, ...updates } as EditorEstimateItem : item;
+      // TI-682, lot C: the columns the database derived from a saved status.
+      return updates ? this.storedAfter(item, updates) : item;
     });
     this.snapshot = { ...this.snapshot, confirmedItems: apply(this.snapshot.confirmedItems) };
     this.projectedItems = apply(this.projectedItems);

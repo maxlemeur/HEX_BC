@@ -85,6 +85,9 @@ export function resolveEstimateSendOverride(
       ...(notForceable.includes("excluded_without_reason")
         ? ["des lignes exclues après « Non chiffrée » attendent leur motif interne"]
         : []),
+      ...(notForceable.includes("offer_limits_required")
+        ? ["l'offre réserve des lignes et son texte « Précisions et limites de prestation » est vide"]
+        : []),
     ];
     throw badRequest(
       `Envoi bloqué : ${reasons.join(" ; ")}. Un administrateur ne peut pas forcer cet envoi.`,

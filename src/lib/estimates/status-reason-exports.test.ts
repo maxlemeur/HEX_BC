@@ -21,18 +21,20 @@ import { getEstimateSupplierComparisons, getEstimateVersionDetails, listEstimate
 import { loadEstimateV3ExportDocument } from "@/lib/estimates/v3-export";
 import { frozenV3ExportDocument, type FixtureExportLine } from "@/lib/estimates/v3-export-document.fixtures";
 
-// TI-682 lot C, PR 3 (D25): the internal reason of an exclusion stays internal. Only the internal CSV names it
+// TI-682 lot C, PR 3 (D25): the internal reason of an exclusion stays internal. PR 4: so does the written reserve of a
+// « Non chiffrée » line (its basis, code and note): the client reads the status and the limits text only. Only the internal CSV names it
 // (v3-csv-export.test.ts). The standard, DPGF and BDC workbooks are, or can be, sent to a client or a supplier: a line
 // excluded after « Non chiffrée » with a reason exports exactly as the same line without one. The reason exists on engine
 // 3 only (its statuses do), so the v3 workbooks are the ones to guard.
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const INTERNAL_WORDING = /MOTIF CONFIDENTIEL|Motif interne|status_reason|was_not_priced|client_supplied|Fourni ou réalisé/;
+const INTERNAL_WORDING = /MOTIF CONFIDENTIEL|Motif interne|status_reason|was_not_priced|client_supplied|Fourni ou réalisé|RÉSERVE CONFIDENTIELLE|Réserve dans l'offre|offer_choice|private_estimate|indicative_quantities|pending_survey|Devis privé|Quantités indicatives|relevé/;
 const LINES: ReadonlyArray<Omit<FixtureExportLine, "metadata">> = [
   { title: "ARMY tube chiffré" },
   { title: "ARMY calorifuge hors lot", pricing_status: "out_of_scope" },
   { title: "ARMY robinet inclus", pricing_status: "included" },
   { title: "ARMY essais pour mémoire", pricing_status: "for_memory" },
+  { title: "ARMY réseau non chiffré", pricing_status: "not_priced" },
 ];
 
 type Captured = { name: string; columns: string[]; rows: unknown[] };
@@ -81,8 +83,13 @@ const project = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", user_id: null, nam
 function mockV3(reasoned: boolean) {
   const document = frozenV3ExportDocument(LINES.map((line) => ({
     ...line, metadata: {},
-    ...(line.pricing_status && reasoned
+    ...(line.pricing_status && line.pricing_status !== "not_priced" && reasoned
       ? { was_not_priced: true, status_reason: { code: "client_supplied", note: "MOTIF CONFIDENTIEL fourni par le client" } }
+      : {}),
+    ...(line.pricing_status === "not_priced" && reasoned
+      ? { was_not_priced: true, offer_choice: { kind: "reserve", basis: "indicative_quantities", code: "pending_survey",
+        note: "RÉSERVE CONFIDENTIELLE selon RC", decided_by: "11111111-1111-4111-8111-111111111111",
+        decided_at: "2026-11-11T18:02:23.123456+00:00" } }
       : {}),
   })));
   vi.mocked(getEstimateVersionDetails).mockResolvedValue({
@@ -94,13 +101,13 @@ function mockV3(reasoned: boolean) {
   vi.mocked(loadEstimateV3ExportDocument).mockResolvedValue(document);
 }
 
-describe("client and supplier workbooks never carry the internal reason of an exclusion (TI-682)", () => {
+describe("client and supplier workbooks never carry the internal reason of an exclusion nor a written reserve (TI-682)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({ comparisons: [] } as never);
   });
 
-  it.each(EXPORTERS)("the %s workbook exports an excluded line with a reason as the same line without one", async (_name, exporter) => {
+  it.each(EXPORTERS)("the %s workbook exports an excluded line with a reason, and a reserved line, as the same lines without them", async (_name, exporter) => {
     mockV3(false);
     const ordinary = await run(exporter);
     mockV3(true);
