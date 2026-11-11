@@ -1,0 +1,627 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-11",
+  "status": "completed",
+  "sourceCommit": "ddb100d045341d68b4e4c67347d5433073e109bb",
+  "receiptBaseCommit": "753c1786c61a592abcbb0b86568b2a7c56ddb331",
+  "sourceScope": "The authorized SQL is the immutable blob at ddb100d (PR #231). Preflight origin/main was 23a4f1d3c91946bfe33073019b522aba0642e8b1; the receipt branch was rebased to receiptBaseCommit before committing. Both revisions have exactly the same 324 migration files as ddb100d.",
+  "target": {
+    "projectName": "bon_de_commande",
+    "environment": "MergeOne / HEX_BC shared Supabase, also production",
+    "identityVerifiedWithConnector": true,
+    "projectReferenceOmitted": true
+  },
+  "authorization": "The task explicitly authorized exactly 20261111193950_estimate_line_offer_choice.sql, relaying Thanh's agreement. No other migration or deployment was authorized or performed in this invocation.",
+  "migrations": [
+    {
+      "path": "supabase/migrations/20261111144803_estimate_line_status_reason.sql",
+      "bytes": 69958,
+      "sha256": "30d7f4d6b86cc1fa71cad270735516d4908ae01d3649566cd36947886544d8ed",
+      "repositoryVersion": "20261111144803",
+      "sourcePullRequest": {
+        "number": 222,
+        "url": "https://github.com/maxlemeur/HEX_BC/pull/222",
+        "mergeCommit": "a25006a7c11d46412837094e3c9b6f6b98259387",
+        "mergedAt": "2026-11-11T17:38:03Z"
+      },
+      "verificationMode": "retrospective_history_and_current_catalog_verification_only",
+      "applied": {
+        "name": "20261111144803_estimate_line_status_reason",
+        "bytes": 69958,
+        "sha256": "30d7f4d6b86cc1fa71cad270735516d4908ae01d3649566cd36947886544d8ed",
+        "version": "20261111200426",
+        "statement_count": 1
+      },
+      "storedStatementEqualsFullFile": true
+    },
+    {
+      "path": "supabase/migrations/20261111155627_estimate_line_nature_pose_only.sql",
+      "bytes": 39114,
+      "sha256": "1af827341cae5a391a87be88c23e9bfbaf9db5d41c69b4dfa7c1fd6eff00c296",
+      "repositoryVersion": "20261111155627",
+      "sourcePullRequest": {
+        "number": 223,
+        "url": "https://github.com/maxlemeur/HEX_BC/pull/223",
+        "mergeCommit": "7456ae74d56dc9baae0eff30797ff3254c5c8276",
+        "mergedAt": "2026-11-11T18:54:50Z"
+      },
+      "verificationMode": "retrospective_history_and_current_catalog_verification_only",
+      "applied": {
+        "name": "20261111155627_estimate_line_nature_pose_only",
+        "bytes": 39114,
+        "sha256": "1af827341cae5a391a87be88c23e9bfbaf9db5d41c69b4dfa7c1fd6eff00c296",
+        "version": "20261111200515",
+        "statement_count": 1
+      },
+      "storedStatementEqualsFullFile": true
+    },
+    {
+      "path": "supabase/migrations/20261111181152_estimate_site_cost_origin.sql",
+      "bytes": 12029,
+      "sha256": "44f20db82a1ba37b4cca6d4956ee383cfdc21499dbc8f30b436f01beeb4f38e6",
+      "repositoryVersion": "20261111181152",
+      "sourcePullRequest": {
+        "number": 229,
+        "url": "https://github.com/maxlemeur/HEX_BC/pull/229",
+        "mergeCommit": "0a5f58e50eee39e0df409badeebd6b3c3a68965e",
+        "mergedAt": "2026-11-11T19:35:33Z"
+      },
+      "verificationMode": "retrospective_history_and_current_catalog_verification_only",
+      "applied": {
+        "name": "20261111181152_estimate_site_cost_origin",
+        "bytes": 12029,
+        "sha256": "44f20db82a1ba37b4cca6d4956ee383cfdc21499dbc8f30b436f01beeb4f38e6",
+        "version": "20261111200530",
+        "statement_count": 1
+      },
+      "storedStatementEqualsFullFile": true
+    },
+    {
+      "path": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+      "bytes": 58864,
+      "sha256": "4818a1ef1a14812305e2bc91310f1cb9717fab297178b6fd722113cda4c560f3",
+      "repositoryVersion": "20261111193950",
+      "sourcePullRequest": {
+        "number": 231,
+        "url": "https://github.com/maxlemeur/HEX_BC/pull/231",
+        "mergeCommit": "ddb100d045341d68b4e4c67347d5433073e109bb",
+        "mergedAt": "2026-11-11T22:00:17Z"
+      },
+      "verificationMode": "applied_once_and_verified_in_this_invocation",
+      "applied": {
+        "name": "20261111193950_estimate_line_offer_choice",
+        "bytes": 58864,
+        "sha256": "4818a1ef1a14812305e2bc91310f1cb9717fab297178b6fd722113cda4c560f3",
+        "version": "20261111225859",
+        "statement_count": 1
+      },
+      "storedStatementEqualsFullFile": true
+    }
+  ],
+  "preflight": {
+    "observedAt": "2026-11-11 22:48:56.97863+00",
+    "historyRows": 378,
+    "latestMigration": {
+      "version": "20261111200530",
+      "name": "20261111181152_estimate_site_cost_origin"
+    },
+    "repositoryMigrationsCompared": 324,
+    "comparisonMethod": "Match repository version, full canonical filename stem or timestamp-stripped historical name; require every documented remote part for the two historical splits.",
+    "directMatches": 321,
+    "legacySplitRepresentations": [
+      {
+        "path": "supabase/migrations/20261012030743_atomic_estimate_batch.sql",
+        "remote": [
+          {
+            "version": "20261015222147",
+            "name": "atomic_estimate_batch_part_1"
+          },
+          {
+            "version": "20261015222301",
+            "name": "atomic_estimate_batch_part_2"
+          }
+        ]
+      },
+      {
+        "path": "supabase/migrations/20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql",
+        "remote": [
+          {
+            "version": "20261015222315",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_1"
+          },
+          {
+            "version": "20261015222318",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_2"
+          },
+          {
+            "version": "20261015222322",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_3"
+          },
+          {
+            "version": "20261015222326",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_4"
+          },
+          {
+            "version": "20261015222337",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_5"
+          },
+          {
+            "version": "20261015222341",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_6"
+          },
+          {
+            "version": "20261015222348",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_7"
+          },
+          {
+            "version": "20261015222352",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_8"
+          },
+          {
+            "version": "20261015233534",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_9"
+          }
+        ]
+      }
+    ],
+    "legacySplitReference": "docs/testing/shared-supabase-ti682-lot-b-2026-11-11.json",
+    "pendingRepositoryVersions": [
+      "20261111193950"
+    ],
+    "offerChoiceColumnAbsent": true,
+    "newConstraintAndTriggersAbsent": true,
+    "newFunctionsAbsent": true,
+    "historyRowsSha256": "486800c7eae2780828c80915f994ebeef758a508b0cfe5c27cffac2b041bfce4",
+    "catalog": {
+      "checked_at": "2026-11-11 22:48:56.97863+00",
+      "history_count": 378,
+      "columns": [
+        {
+          "type": "USER-DEFINED",
+          "column": "line_nature",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "USER-DEFINED",
+          "column": "pricing_status",
+          "default": "'priced'::estimate_line_pricing_status",
+          "nullable": "NO"
+        },
+        {
+          "type": "jsonb",
+          "column": "fo_price_origin",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "jsonb",
+          "column": "status_reason",
+          "default": null,
+          "nullable": "YES"
+        }
+      ],
+      "constraints": null,
+      "triggers": null,
+      "functions": [
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "commit_estimate_batch",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "identity": "commit_estimate_batch(uuid,uuid,timestamp with time zone,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)",
+          "body_sha256": "8129fa1178105d700a2ae1fcf0d3ccb985bfcee2584198535fd6762bbc73b3c5",
+          "security_definer": true
+        }
+      ]
+    }
+  },
+  "application": {
+    "tool": "Supabase MCP apply_migration",
+    "name": "20261111193950_estimate_line_offer_choice",
+    "sqlSource": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+    "sqlRewritten": false,
+    "sqlSplit": false,
+    "successfulApplications": 1,
+    "attempts": [
+      {
+        "startedAt": "2026-11-11T22:50:18.457Z",
+        "finishedAt": "2026-11-11T22:56:37.140Z",
+        "result": "confirmation_expired",
+        "databaseStateAfterError": {
+          "checked_at": "2026-11-11 22:57:00.312678+00",
+          "history_count": 378,
+          "latest_version": "20261111200530",
+          "offer_choice_history_rows": 0,
+          "offer_choice_columns": 0,
+          "history_rows_sha256": "486800c7eae2780828c80915f994ebeef758a508b0cfe5c27cffac2b041bfce4"
+        },
+        "retryReason": "History names and full-row fingerprint unchanged; 378 rows, no offer-choice entry and no offer_choice column."
+      },
+      {
+        "startedAt": "2026-11-11T22:57:06.925Z",
+        "finishedAt": "2026-11-11T22:59:00.453Z",
+        "result": "success",
+        "remoteVersion": "20261111225859"
+      }
+    ]
+  },
+  "postflight": {
+    "observedAt": "2026-11-11 22:59:30.340627+00",
+    "historyRows": 379,
+    "latestMigration": {
+      "version": "20261111225859",
+      "name": "20261111193950_estimate_line_offer_choice"
+    },
+    "addedMigrations": [
+      {
+        "version": "20261111225859",
+        "name": "20261111193950_estimate_line_offer_choice"
+      }
+    ],
+    "previous378RowsUnchanged": true,
+    "previousHistoryRowsSha256": "486800c7eae2780828c80915f994ebeef758a508b0cfe5c27cffac2b041bfce4",
+    "repositoryMigrationsCompared": 324,
+    "pendingRepositoryVersions": [],
+    "allFiveTargetFunctionBodiesMatchExactSource": true,
+    "commitEstimateBatchAclUnchanged": true,
+    "catalog": {
+      "checked_at": "2026-11-11 22:59:35.322945+00",
+      "columns": [
+        {
+          "type": "jsonb",
+          "column": "offer_choice",
+          "default": null,
+          "nullable": "YES"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "estimate_items_offer_choice_check",
+          "validated": true,
+          "definition": "CHECK (((offer_choice IS NULL) OR estimate_offer_choice_valid(offer_choice, pricing_status)))"
+        }
+      ],
+      "triggers": [
+        {
+          "name": "af_clear_estimate_item_offer_choice",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER af_clear_estimate_item_offer_choice BEFORE INSERT OR UPDATE OF pricing_status ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.clear_estimate_item_offer_choice()"
+        },
+        {
+          "name": "record_estimate_offer_choices_on_sent",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER record_estimate_offer_choices_on_sent BEFORE INSERT ON public.estimate_version_events FOR EACH ROW WHEN ((new.event_type = 'sent'::text)) EXECUTE FUNCTION private.record_estimate_offer_choices_on_sent()"
+        }
+      ],
+      "functions": [
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "clear_estimate_item_offer_choice",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "identity": "private.clear_estimate_item_offer_choice()",
+          "body_sha256": "c9221467fa97c17dd07481b2e56ea39fb3485aafb313c9c326f9ff21b89de947",
+          "anon_execute": false,
+          "security_definer": false,
+          "service_role_execute": false,
+          "authenticated_execute": false
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+          "name": "commit_estimate_batch",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "identity": "commit_estimate_batch(uuid,uuid,timestamp with time zone,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)",
+          "body_sha256": "0f4c65d0734aca2c4e1d98a970e5f73898d156c6b1227c8b0e4ea1453d799944",
+          "anon_execute": false,
+          "security_definer": true,
+          "service_role_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+          "name": "estimate_offer_choice_valid",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "identity": "estimate_offer_choice_valid(jsonb,estimate_line_pricing_status)",
+          "body_sha256": "9fd86db0784932905067cd0c965e3bd4a14ac54bc2d5769940ccc9bb70596806",
+          "anon_execute": false,
+          "security_definer": false,
+          "service_role_execute": true,
+          "authenticated_execute": true
+        },
+        {
+          "acl": "{postgres=X/postgres}",
+          "name": "record_estimate_offer_choices_on_sent",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "private",
+          "identity": "private.record_estimate_offer_choices_on_sent()",
+          "body_sha256": "c4193f8a5473f2fbfa50ec8693d5eaaa740664829cffe551f3adff6b3f55d4af",
+          "anon_execute": false,
+          "security_definer": true,
+          "service_role_execute": false,
+          "authenticated_execute": false
+        },
+        {
+          "acl": "{postgres=X/postgres,service_role=X/postgres}",
+          "name": "set_estimate_line_offer_choice",
+          "config": [
+            "search_path=\"\""
+          ],
+          "schema": "public",
+          "identity": "set_estimate_line_offer_choice(uuid,uuid,uuid,uuid,jsonb,timestamp with time zone,uuid)",
+          "body_sha256": "4b2b0dcc25fe037dc59861f0f738d47530efaf09d1f4e53158e013f97879d8e7",
+          "anon_execute": false,
+          "security_definer": false,
+          "service_role_execute": true,
+          "authenticated_execute": false
+        }
+      ]
+    },
+    "pureValidation": {
+      "checked_at": "2026-11-11 23:00:51.158336+00",
+      "valid_reserve_on_not_priced": true,
+      "rejects_reserve_on_priced": true,
+      "rejects_unknown_basis": true,
+      "rejects_other_without_note": true
+    }
+  },
+  "retrospectiveReceipts": {
+    "reportedEarlierBatch": "The task referred to the earlier applications as the 20:04 UTC batch. The actual recorded versions are 20:04:26, 20:05:15 and 20:05:30 UTC.",
+    "remoteVersionTimesUtc": [
+      "2026-11-11T20:04:26Z",
+      "2026-11-11T20:05:15Z",
+      "2026-11-11T20:05:30Z"
+    ],
+    "timeMeaning": "Timestamps decoded from Supabase migration versions, not independently recovered call audit timestamps.",
+    "notReapplied": true,
+    "allThreeStoredStatementsMatchFullFiles": true,
+    "latestOwningFunctionBodies": [
+      {
+        "name": "public.estimate_status_reason_valid",
+        "ownerFile": "supabase/migrations/20261111144803_estimate_line_status_reason.sql",
+        "body_sha256": "fc7136ad354951fe591574abd436bad9a35e26a40404e6afb3071c48228127a6"
+      },
+      {
+        "name": "private.track_estimate_item_status_reason",
+        "ownerFile": "supabase/migrations/20261111144803_estimate_line_status_reason.sql",
+        "body_sha256": "13b8ed4eca92e6aed5b5e6b606844a07f9397f7e954ae3319c397698fe35c9b0"
+      },
+      {
+        "name": "private.canonical_estimate_batch_operations",
+        "ownerFile": "supabase/migrations/20261111155627_estimate_line_nature_pose_only.sql",
+        "body_sha256": "b40b50fc5f1ca7fe72c3be4cf64e7a074612bf66c01d262f213cd9e17e3c746b"
+      },
+      {
+        "name": "public.commit_estimate_batch",
+        "ownerFile": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+        "body_sha256": "0f4c65d0734aca2c4e1d98a970e5f73898d156c6b1227c8b0e4ea1453d799944"
+      },
+      {
+        "name": "public.duplicate_estimate_version_without_product_id",
+        "ownerFile": "supabase/migrations/20261111155627_estimate_line_nature_pose_only.sql",
+        "body_sha256": "64c9ae25f76de7a19dd0de0b35e85427096502821b1edef9084589855cbcd88a"
+      },
+      {
+        "name": "public.estimate_offer_client_valid_v2",
+        "ownerFile": "supabase/migrations/20261111155627_estimate_line_nature_pose_only.sql",
+        "body_sha256": "491afe808db44a7a6f87bc946ae35cf8241bdd32b2b9008078b41cca394a4b00"
+      },
+      {
+        "name": "public.estimate_offer_client_items_match_v2",
+        "ownerFile": "supabase/migrations/20261111155627_estimate_line_nature_pose_only.sql",
+        "body_sha256": "fd9078c7d6e5bff9caa064cf1b1333dc15936c2cb1750ac0fa89dd290d6be297"
+      },
+      {
+        "name": "private.derive_estimate_item_fo_provision",
+        "ownerFile": "supabase/migrations/20261111181152_estimate_site_cost_origin.sql",
+        "body_sha256": "1878691404cd25ba101394c49e61c0eb439beb15102968a379609550bfaadfee"
+      },
+      {
+        "name": "public.estimate_offer_choice_valid",
+        "ownerFile": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+        "body_sha256": "9fd86db0784932905067cd0c965e3bd4a14ac54bc2d5769940ccc9bb70596806"
+      },
+      {
+        "name": "private.clear_estimate_item_offer_choice",
+        "ownerFile": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+        "body_sha256": "c9221467fa97c17dd07481b2e56ea39fb3485aafb313c9c326f9ff21b89de947"
+      },
+      {
+        "name": "public.set_estimate_line_offer_choice",
+        "ownerFile": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+        "body_sha256": "4b2b0dcc25fe037dc59861f0f738d47530efaf09d1f4e53158e013f97879d8e7"
+      },
+      {
+        "name": "private.record_estimate_offer_choices_on_sent",
+        "ownerFile": "supabase/migrations/20261111193950_estimate_line_offer_choice.sql",
+        "body_sha256": "c4193f8a5473f2fbfa50ec8693d5eaaa740664829cffe551f3adff6b3f55d4af"
+      }
+    ],
+    "allTwelveCurrentBodiesMatchLatestOwningSource": true,
+    "catalog": {
+      "checked_at": "2026-11-11 23:00:53.963085+00",
+      "functions": [
+        {
+          "name": "canonical_estimate_batch_operations",
+          "schema": "private",
+          "identity": "private.canonical_estimate_batch_operations(jsonb)",
+          "body_sha256": "b40b50fc5f1ca7fe72c3be4cf64e7a074612bf66c01d262f213cd9e17e3c746b"
+        },
+        {
+          "name": "clear_estimate_item_offer_choice",
+          "schema": "private",
+          "identity": "private.clear_estimate_item_offer_choice()",
+          "body_sha256": "c9221467fa97c17dd07481b2e56ea39fb3485aafb313c9c326f9ff21b89de947"
+        },
+        {
+          "name": "derive_estimate_item_fo_provision",
+          "schema": "private",
+          "identity": "private.derive_estimate_item_fo_provision()",
+          "body_sha256": "1878691404cd25ba101394c49e61c0eb439beb15102968a379609550bfaadfee"
+        },
+        {
+          "name": "record_estimate_offer_choices_on_sent",
+          "schema": "private",
+          "identity": "private.record_estimate_offer_choices_on_sent()",
+          "body_sha256": "c4193f8a5473f2fbfa50ec8693d5eaaa740664829cffe551f3adff6b3f55d4af"
+        },
+        {
+          "name": "track_estimate_item_status_reason",
+          "schema": "private",
+          "identity": "private.track_estimate_item_status_reason()",
+          "body_sha256": "13b8ed4eca92e6aed5b5e6b606844a07f9397f7e954ae3319c397698fe35c9b0"
+        },
+        {
+          "name": "commit_estimate_batch",
+          "schema": "public",
+          "identity": "commit_estimate_batch(uuid,uuid,timestamp with time zone,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)",
+          "body_sha256": "0f4c65d0734aca2c4e1d98a970e5f73898d156c6b1227c8b0e4ea1453d799944"
+        },
+        {
+          "name": "duplicate_estimate_version_without_product_id",
+          "schema": "public",
+          "identity": "duplicate_estimate_version_without_product_id(uuid,boolean)",
+          "body_sha256": "64c9ae25f76de7a19dd0de0b35e85427096502821b1edef9084589855cbcd88a"
+        },
+        {
+          "name": "estimate_offer_choice_valid",
+          "schema": "public",
+          "identity": "estimate_offer_choice_valid(jsonb,estimate_line_pricing_status)",
+          "body_sha256": "9fd86db0784932905067cd0c965e3bd4a14ac54bc2d5769940ccc9bb70596806"
+        },
+        {
+          "name": "estimate_offer_client_items_match_v2",
+          "schema": "public",
+          "identity": "estimate_offer_client_items_match_v2(jsonb,estimate_versions)",
+          "body_sha256": "fd9078c7d6e5bff9caa064cf1b1333dc15936c2cb1750ac0fa89dd290d6be297"
+        },
+        {
+          "name": "estimate_offer_client_valid_v2",
+          "schema": "public",
+          "identity": "estimate_offer_client_valid_v2(jsonb,jsonb)",
+          "body_sha256": "491afe808db44a7a6f87bc946ae35cf8241bdd32b2b9008078b41cca394a4b00"
+        },
+        {
+          "name": "estimate_status_reason_valid",
+          "schema": "public",
+          "identity": "estimate_status_reason_valid(jsonb)",
+          "body_sha256": "fc7136ad354951fe591574abd436bad9a35e26a40404e6afb3071c48228127a6"
+        },
+        {
+          "name": "set_estimate_line_offer_choice",
+          "schema": "public",
+          "identity": "set_estimate_line_offer_choice(uuid,uuid,uuid,uuid,jsonb,timestamp with time zone,uuid)",
+          "body_sha256": "4b2b0dcc25fe037dc59861f0f738d47530efaf09d1f4e53158e013f97879d8e7"
+        }
+      ],
+      "columns": [
+        {
+          "type": "jsonb",
+          "column": "status_reason",
+          "default": null,
+          "nullable": "YES"
+        },
+        {
+          "type": "boolean",
+          "column": "was_not_priced",
+          "default": "false",
+          "nullable": "NO"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "estimate_items_fo_price_origin_check",
+          "validated": true,
+          "definition": "CHECK (((fo_price_origin IS NULL) OR COALESCE(((jsonb_typeof(fo_price_origin) = 'object'::text) AND (fo_price_origin ?& ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) AND ((fo_price_origin ->> 'selection_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND ((fo_price_origin ->> 'source_id'::text) ~ '^[0-9a-fA-F-]{36}$'::text) AND (((fo_price_origin -> 'transport_mode'::text) = 'null'::jsonb) OR ((fo_price_origin ->> 'transport_mode'::text) = ANY (ARRAY['included'::text, 'excluded'::text]))) AND ((((fo_price_origin ->> 'kind'::text) = ANY (ARRAY['supplier'::text, 'reference'::text])) AND ((fo_price_origin - ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text]) = '{}'::jsonb)) OR (((fo_price_origin ->> 'kind'::text) = 'site'::text) AND ((fo_price_origin - ARRAY['selection_id'::text, 'kind'::text, 'source_id'::text, 'transport_mode'::text, 'site'::text]) = '{}'::jsonb) AND ((fo_price_origin ->> 'source_id'::text) = (fo_price_origin ->> 'selection_id'::text)) AND (jsonb_typeof((fo_price_origin -> 'selection_id'::text)) = 'string'::text) AND ((fo_price_origin ->> 'selection_id'::text) ~ '^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$'::text) AND (jsonb_typeof((fo_price_origin -> 'site'::text)) = 'object'::text) AND ((fo_price_origin -> 'site'::text) ?& ARRAY['supplier'::text, 'offer_reference'::text, 'offer_date'::text, 'document'::text]) AND (((fo_price_origin -> 'site'::text) - ARRAY['supplier'::text, 'offer_reference'::text, 'offer_date'::text, 'document'::text]) = '{}'::jsonb) AND (jsonb_typeof((fo_price_origin #> '{site,supplier}'::text[])) = 'string'::text) AND ((fo_price_origin #>> '{site,supplier}'::text[]) ~ '^[^\\x01-\\x1f ]([^\\x01-\\x1f]{0,118}[^\\x01-\\x1f ])?$'::text) AND (((fo_price_origin #> '{site,offer_reference}'::text[]) = 'null'::jsonb) OR ((jsonb_typeof((fo_price_origin #> '{site,offer_reference}'::text[])) = 'string'::text) AND ((fo_price_origin #>> '{site,offer_reference}'::text[]) ~ '^[^\\x01-\\x1f ]([^\\x01-\\x1f]{0,118}[^\\x01-\\x1f ])?$'::text))) AND (jsonb_typeof((fo_price_origin #> '{site,offer_date}'::text[])) = 'string'::text) AND ((fo_price_origin #>> '{site,offer_date}'::text[]) ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'::text) AND (((fo_price_origin #> '{site,document}'::text[]) = 'null'::jsonb) OR ((jsonb_typeof((fo_price_origin #> '{site,document}'::text[])) = 'string'::text) AND ((fo_price_origin #>> '{site,document}'::text[]) ~ '^[^\\x01-\\x1f ]([^\\x01-\\x1f]{0,198}[^\\x01-\\x1f ])?$'::text)))))), false)))"
+        },
+        {
+          "name": "estimate_items_status_reason_check",
+          "validated": true,
+          "definition": "CHECK (((status_reason IS NULL) OR ((pricing_status = ANY (ARRAY['included'::estimate_line_pricing_status, 'for_memory'::estimate_line_pricing_status, 'out_of_scope'::estimate_line_pricing_status, 'not_applicable'::estimate_line_pricing_status])) AND estimate_status_reason_valid(status_reason))))"
+        }
+      ],
+      "triggers": [
+        {
+          "name": "ad_derive_estimate_item_fo_provision",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER ad_derive_estimate_item_fo_provision BEFORE INSERT OR UPDATE ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.derive_estimate_item_fo_provision()"
+        },
+        {
+          "name": "ae_track_estimate_item_status_reason",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER ae_track_estimate_item_status_reason BEFORE INSERT OR UPDATE ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.track_estimate_item_status_reason()"
+        }
+      ],
+      "line_natures": [
+        "supply_only",
+        "supply_and_labor",
+        "labor_only",
+        "pose_only"
+      ]
+    },
+    "historicalLimits": "The original preflight, security-advisor snapshots and any pre-application row counts for these three earlier calls are not recovered or claimed here. Current catalog/history verification does not recreate those historical checks."
+  },
+  "securityAdvisors": {
+    "beforeObservedAt": "2026-11-11T22:48:06.134Z",
+    "afterObservedAt": "2026-11-11T22:59:35.688Z",
+    "groups": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "before": 24,
+        "after": 24,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "before": 70,
+        "after": 70,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "before": 1,
+        "after": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+      }
+    ],
+    "findingsBefore": 95,
+    "findingsAfter": 95,
+    "added": 0,
+    "removed": 0,
+    "comparisonMethod": "Sorted (rule name, level, finding metadata, detail); observation timestamps excluded. All 95 finding identities match exactly.",
+    "unresolvedPreexistingFindings": true
+  },
+  "queries": {
+    "historyAfter": "select now() as checked_at, count(*) as history_count, max(version) as latest_version, encode(sha256(convert_to(string_agg(to_jsonb(m)::text, E'\\n' order by version) filter (where name <> '20261111193950_estimate_line_offer_choice'),'UTF8')),'hex') as previous_history_rows_sha256, (select jsonb_agg(jsonb_build_object('version',version,'name',name,'statement_count',cardinality(statements),'bytes',octet_length(statements[1]),'sha256',encode(sha256(convert_to(statements[1],'UTF8')),'hex')) order by version) from supabase_migrations.schema_migrations where name = '20261111193950_estimate_line_offer_choice') as applied from supabase_migrations.schema_migrations m;",
+    "targetCatalogAfter": "select now() as checked_at, (select jsonb_agg(jsonb_build_object('column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default)) from information_schema.columns where table_schema='public' and table_name='estimate_items' and column_name='offer_choice') as columns, (select jsonb_agg(jsonb_build_object('name',conname,'definition',pg_get_constraintdef(oid),'validated',convalidated)) from pg_constraint where conrelid='public.estimate_items'::regclass and conname='estimate_items_offer_choice_check') as constraints, (select jsonb_agg(jsonb_build_object('name',tgname,'definition',pg_get_triggerdef(oid),'enabled',tgenabled)) from pg_trigger where (tgrelid='public.estimate_items'::regclass and tgname='af_clear_estimate_item_offer_choice') or (tgrelid='public.estimate_version_events'::regclass and tgname='record_estimate_offer_choices_on_sent')) as triggers, (select jsonb_agg(jsonb_build_object('schema',n.nspname,'name',p.proname,'identity',p.oid::regprocedure::text,'body_sha256',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex'),'security_definer',p.prosecdef,'config',p.proconfig,'acl',p.proacl::text,'anon_execute',has_function_privilege('anon',p.oid,'execute'),'authenticated_execute',has_function_privilege('authenticated',p.oid,'execute'),'service_role_execute',has_function_privilege('service_role',p.oid,'execute'))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.proname in ('estimate_offer_choice_valid','clear_estimate_item_offer_choice','set_estimate_line_offer_choice','record_estimate_offer_choices_on_sent','commit_estimate_batch')) as functions;",
+    "previousApplicationsCatalog": "select now() as checked_at, (select jsonb_agg(jsonb_build_object('schema',n.nspname,'name',p.proname,'identity',p.oid::regprocedure::text,'body_sha256',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')) order by n.nspname,p.proname) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.proname in ('estimate_status_reason_valid','track_estimate_item_status_reason','canonical_estimate_batch_operations','commit_estimate_batch','duplicate_estimate_version_without_product_id','estimate_offer_client_valid_v2','estimate_offer_client_items_match_v2','derive_estimate_item_fo_provision','estimate_offer_choice_valid','clear_estimate_item_offer_choice','set_estimate_line_offer_choice','record_estimate_offer_choices_on_sent')) as functions, (select jsonb_agg(jsonb_build_object('column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default)) from information_schema.columns where table_schema='public' and table_name='estimate_items' and column_name in ('status_reason','was_not_priced')) as columns, (select jsonb_agg(jsonb_build_object('name',conname,'validated',convalidated,'definition',pg_get_constraintdef(oid))) from pg_constraint where conrelid='public.estimate_items'::regclass and conname in ('estimate_items_status_reason_check','estimate_items_fo_price_origin_check')) as constraints, (select jsonb_agg(jsonb_build_object('name',tgname,'enabled',tgenabled,'definition',pg_get_triggerdef(oid))) from pg_trigger where tgrelid='public.estimate_items'::regclass and (tgname='ae_track_estimate_item_status_reason' or tgfoid='private.derive_estimate_item_fo_provision()'::regprocedure)) as triggers, (select jsonb_agg(e.enumlabel order by e.enumsortorder) from pg_enum e where e.enumtypid='public.estimate_line_nature'::regtype) as line_natures;",
+    "pureValidation": "with fixture(choice) as (values ('{\"kind\":\"reserve\",\"basis\":\"private_estimate\",\"code\":\"pending_survey\",\"note\":null,\"decided_by\":\"00000000-0000-4000-8000-000000000001\",\"decided_at\":\"2026-11-11T22:00:00Z\"}'::jsonb)) select now() as checked_at, public.estimate_offer_choice_valid(choice,'not_priced') as valid_reserve_on_not_priced, not public.estimate_offer_choice_valid(choice,'priced') as rejects_reserve_on_priced, not public.estimate_offer_choice_valid(choice || '{\"basis\":\"unknown\"}'::jsonb,'not_priced') as rejects_unknown_basis, not public.estimate_offer_choice_valid(choice || '{\"code\":\"other\"}'::jsonb,'not_priced') as rejects_other_without_note from fixture;"
+  },
+  "boundaries": {
+    "onlyAuthorizedMigrationApplied": true,
+    "otherMigrationsApplied": false,
+    "deployment": false,
+    "environmentOrAccessChanges": false,
+    "productionBusinessDmlForVerification": false,
+    "browserOrAuthenticatedE2eRun": false,
+    "applicationSuitesRun": false
+  },
+  "recovery": "No rollback performed. Removing this migration's objects or draft reserves requires a separately authorized forward migration. A receipt-only Git revert does not roll back database state.",
+  "localEvidence": "outputs/shared-supabase-offer-choice-20261111 (canonical clone; raw schema/advisor results only, not committed)",
+  "initialReceiptBaseCommit": "23a4f1d3c91946bfe33073019b522aba0642e8b1"
+}
