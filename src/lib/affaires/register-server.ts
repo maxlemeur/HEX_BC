@@ -185,6 +185,7 @@ type ListAffaireRegisterPageInput = {
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
   revalidationRequired?: boolean;
+  blockingOnly?: boolean;
   cursor?: {
     id: string;
     updatedAt: string;
@@ -1683,6 +1684,16 @@ export async function fetchAffaireRegisterPage(
     }
   }
 
+  if (input.blockingOnly) {
+    // Filter before the page limit: a blocker must remain reachable even when
+    // the newest page contains only nonblocking or already resolved entries.
+    const blockingFilter = "severity.eq.critical,metadata->revalidationRequest->>status.eq.required";
+    query = query.in("status", ["open", "clarify_with_client"]).or(blockingFilter);
+    if (focusedQuery) {
+      focusedQuery = focusedQuery.in("status", ["open", "clarify_with_client"]).or(blockingFilter);
+    }
+  }
+
   const [
     { data, error },
     focusedResult,
@@ -1761,6 +1772,7 @@ export async function fetchAffaireRegisterPage(
       severity: input.severity ?? null,
       kind: input.kind ?? null,
       revalidationRequired: input.revalidationRequired ?? false,
+      blockingOnly: input.blockingOnly ?? false,
       cursor: input.cursor ? encodeAffaireRegisterCursor(input.cursor) : null,
       focusEntryId: input.focusEntryId ?? null,
     },

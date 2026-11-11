@@ -17,6 +17,7 @@ import {
 import type { LabelBlock } from "@/lib/takeoff/vectors/labels";
 import { commonNetwork, isTintOrShade, PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
+import type { SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
 
 // Network lengths of a page (TI-662 step 4). A pipe is drawn as a band: two
 // outlines and up to three tints, so the stroke length of a network is 2 to 4
@@ -52,7 +53,8 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 //   inline (the nearest run parallel to the label within 10°, 2.5 label heights away);
 //   a label without network attaches to none (« à revoir »), a label without
 //   DN only decides the network of a shared colour;
-// - a run whose labels disagree on DN, material or insulation (sections of one
+// - a run whose labels disagree on DN, its notation (« DN 100 » and « Ø 100 »
+//   are two sizes: TI-683), material or insulation (sections of one
 //   network touching end to end at a reducer) is cut between each two
 //   disagreeing labels: at the stroke end nearest their middle, or at that
 //   middle when no stroke ends between them. Labels within LABEL_CUT_MIN_PT of
@@ -80,8 +82,11 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // measured, nor a network for the frames and leaders.
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
+// A size keeps the notation its label prints (TI-683): a total is one
+// network, material, size and notation.
 
-export const MEASURE_RULE_VERSION = 9;
+// 10 (TI-683): the notation of a size is kept, « DN n » and « Ø n » of one number are two sizes.
+export const MEASURE_RULE_VERSION = 10;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -101,6 +106,8 @@ export type NetworkRun = {
   length_pt: number;
   width_pt: number;
   dn: number | null;
+  /** The notation its label prints the size in (TI-683); absent from a reading of before, whose sizes print « DN n ». */
+  notation?: SizeNotation | null;
   material: MaterialCode | null;
   insulated: boolean;
   label: string | null;
@@ -112,6 +119,8 @@ export type MeasuredNetwork = {
   network: NetworkCode;
   material: MaterialCode | null;
   dn: number | null;
+  /** The notation of its size, as its runs' labels print it: « DN 100 » and « Ø 100 » are two totals (TI-683). */
+  notation?: SizeNotation | null;
   /** Length of the runs the labels say are insulated (part of length_pt). */
   insulated_pt: number;
   insulated_m: number | null;
@@ -581,9 +590,10 @@ function places(values: readonly number[]) {
   return groups.map((group) => group.reduce((sum, value) => sum + value, 0) / group.length);
 }
 
-const valueOf = (block: LabelBlock) => (block.label.dn === null ? null : JSON.stringify([block.label.dn, block.label.material, block.label.insulated]));
+const valueOf = (block: LabelBlock) => (block.label.dn === null ? null
+  : JSON.stringify([block.label.dn, block.label.notation, block.label.material, block.label.insulated]));
 
-/** Whether the DN-bearing labels of a piece disagree (DN, material or insulation). */
+/** Whether the DN-bearing labels of a piece disagree (DN, its notation, material or insulation). */
 function disagree(labels: readonly Attachment[]) {
   return new Set(labels.map((entry) => valueOf(entry.block)).filter((value) => value !== null)).size > 1;
 }
@@ -682,7 +692,7 @@ export function measureNetworks(input: {
   const runIndex = new SegmentIndex(segments, width);
   const result: NetworkRun[] = runs.map((run, id) => ({
     network: run.network, candidates: [...run.candidates].sort(), segment: segments[id], length_pt: run.b - run.a, width_pt: run.width,
-    dn: null, material: null, insulated: false, label: null, attached: pieces[id].conflict ? "conflict" : null,
+    dn: null, notation: null, material: null, insulated: false, label: null, attached: pieces[id].conflict ? "conflict" : null,
   }));
   const attachedLabels = attached.count;
   const incomplete = input.labels.filter((block) => block.label.dn === null || block.label.network === null).length;
@@ -748,7 +758,8 @@ export function measureNetworks(input: {
   // (breadth first, one join at a time; of the DN reaching a run at once, one of the run's own network first).
   // Each network carried goes its own way: a run another network's DN reached first still lets this one pass on.
   // A conflict run keeps DN null but lets the DN pass on to the runs beyond it.
-  type Carried = { network: NetworkCode | null; dn: number; material: MaterialCode | null; insulated: boolean; label: string };
+  type Carried = { network: NetworkCode | null; dn: number; notation: SizeNotation | null; material: MaterialCode | null; insulated: boolean;
+    label: string };
   const passed = new Set<string>();
   const pass = (id: number, network: NetworkCode | null) => `${id}|${network ?? ""}`;
   let frontier: Array<{ id: number; carried: Carried }> = [];
@@ -756,13 +767,15 @@ export function measureNetworks(input: {
     const run = result[id];
     if (block.label.dn === null || run.attached === "conflict") continue;
     run.dn = block.label.dn;
+    run.notation = block.label.notation;
     run.material = block.label.material;
     run.insulated = block.label.insulated;
     run.label = block.text;
     run.attached = "label";
     const network = commonNetwork(networks) ?? run.network;
     passed.add(pass(id, network));
-    frontier.push({ id, carried: { network, dn: run.dn, material: run.material, insulated: run.insulated, label: block.text } });
+    frontier.push({ id, carried: { network, dn: run.dn, notation: run.notation ?? null, material: run.material, insulated: run.insulated,
+      label: block.text } });
   }
   while (frontier.length > 0) {
     // Of each network carried to a run at once, the first; the run's DN: of its own network first.
@@ -788,6 +801,7 @@ export function measureNetworks(input: {
       if (run.attached !== null) continue;
       const carried = carriedBy.get(run.network) ?? (carriedBy.values().next().value as Carried);
       run.dn = carried.dn;
+      run.notation = carried.notation;
       run.material = carried.material;
       run.insulated = carried.insulated;
       run.label = carried.label;
@@ -797,9 +811,9 @@ export function measureNetworks(input: {
   const totals = new Map<string, MeasuredNetwork>();
   for (const run of result) {
     if (run.network === null) continue;
-    const key = JSON.stringify([run.network, run.material, run.dn]);
-    const total = totals.get(key) ?? { network: run.network, material: run.material, dn: run.dn, runs: 0, length_pt: 0, length_m: null,
-      insulated_pt: 0, insulated_m: null };
+    const key = JSON.stringify([run.network, run.material, run.dn, run.notation ?? null]);
+    const total = totals.get(key) ?? { network: run.network, material: run.material, dn: run.dn, notation: run.notation ?? null, runs: 0,
+      length_pt: 0, length_m: null, insulated_pt: 0, insulated_m: null };
     total.runs += 1;
     total.length_pt += run.length_pt;
     if (run.insulated) total.insulated_pt += run.length_pt;

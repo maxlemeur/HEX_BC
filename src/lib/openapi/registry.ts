@@ -1,6 +1,8 @@
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
+import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from "@/lib/estimates/offer-choice";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
+import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1910,6 +1912,15 @@ const apiTakeoffReviewContextSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffReviewContextResponse",
   takeoffReviewContextResponseSchema
 );
+const apiTakeoffPageContributionsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPageContributionsResponse",
+  takeoffPageContributionsResponseSchema
+);
+const takeoffLaunchPageContributionsBody = jsonBody({
+  name: "TakeoffLaunchPageContributionsRequest",
+  description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
+  schema: takeoffLaunchPageContributionsRequestSchema,
+});
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
   takeoffVectorReadingResponseSchema
@@ -2057,6 +2068,12 @@ const estimateLineIdPathParameter = pathParameter({
   name: "lineId",
   description: "Identifiant UUID de la ligne du devis.",
   schemaName: "EstimateLineIdPathParameter",
+  schema: uuidSchema,
+});
+const estimateItemIdPathParameter = pathParameter({
+  name: "itemId",
+  description: "Identifiant UUID d'une ligne de la version.",
+  schemaName: "EstimateItemIdPathParameter",
   schema: uuidSchema,
 });
 const takeoffRuleIdPathParameter = pathParameter({
@@ -2235,6 +2252,13 @@ const takeoffDpgfCompareVersionIdQueryParameter = queryParameter({
   name: "version_id",
   description: "Version de chiffrage cible pour comparer les lignes DPGF au job takeoff.",
   schemaName: "TakeoffDpgfCompareVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: true,
+});
+const takeoffPageContributionsVersionIdQueryParameter = queryParameter({
+  name: "version_id",
+  description: "Version de chiffrage revue : celle du metre, ou une copie dans laquelle il a ete repris. 404 si elle est illisible ou si le metre n'en fait pas partie.",
+  schemaName: "TakeoffPageContributionsVersionIdQueryParameter",
   schema: uuidSchema,
   required: true,
 });
@@ -2560,6 +2584,12 @@ const createEstimateItemBody = jsonBody({
   name: "CreateEstimateItemRequest",
   description: "Creation d'un item (section ou ligne).",
   schema: createEstimateItemSchema,
+});
+
+const estimateOfferChoiceBody = jsonBody({
+  name: "EstimateLineOfferChoiceRequest",
+  description: "Réserve écrite dans l'offre d'une ligne « Non chiffrée » (TI-682) : base, motif et précision internes.",
+  schema: estimateOfferChoiceInputSchema,
 });
 
 const updateEstimateItemBody = jsonBody({
@@ -3144,6 +3174,32 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [takeoffJobIdPathParameter],
     responses: {
       "200": jsonResponse("Contexte du controle cible.", apiTakeoffReviewContextSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/page-contributions",
+    summary: "Pages du metre deja au devis par un autre metre",
+    description:
+      "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que la version de devis revue porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter, takeoffPageContributionsVersionIdQueryParameter],
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/page-contributions",
+    summary: "Pages des plans d'un lancement deja au devis",
+    description:
+      "Lecture seule (TI-682), avant un lancement : les pages des plans choisis que la version cible porte deja par un metre, avec ce metre et son nombre de lignes. N'ecrit rien.",
+    tags: ["Takeoff"],
+    requestBody: takeoffLaunchPageContributionsBody,
+    responses: {
+      "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },
@@ -3843,6 +3899,37 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: deleteEstimateItemBody,
     responses: {
       "200": jsonResponse("Item supprime.", apiEstimateItemDeletedSchemaDefinition),
+    },
+  },
+  {
+    method: "put",
+    path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
+    summary: "Déclarer la réserve écrite d'une ligne",
+    description: "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
+    requestBody: estimateOfferChoiceBody,
+    responses: {
+      "200": jsonResponse("Réserve enregistrée : la ligne et le nouveau jeton de version.",
+        successResponseSchemaDefinition("ApiEstimateLineOfferChoiceResponse", estimateOfferChoiceReceiptSchema)),
+      "400": jsonResponse("Réserve invalide, version d'un autre moteur que le 3, ou jeton manquant.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("ESTIMATE_OFFER_CHOICE_FORBIDDEN (pas administrateur) ou READ_ONLY (version envoyée).", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Version ou ligne introuvable.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED, ou ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (la ligne n'est pas « Non chiffrée »).", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
+    summary: "Retirer la réserve écrite d'une ligne",
+    description: "TI-682 : un administrateur du tenant retire la réserve d'une ligne d'une v3 brouillon ; la ligne redevient « Non chiffrée » à classer. Mêmes contrôles que la déclaration.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
+    responses: {
+      "200": jsonResponse("Réserve retirée : la ligne et le nouveau jeton de version.",
+        successResponseSchemaDefinition("ApiEstimateLineOfferChoiceWithdrawnResponse", estimateOfferChoiceReceiptSchema)),
+      "403": jsonResponse("ESTIMATE_OFFER_CHOICE_FORBIDDEN ou READ_ONLY.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("VERSION_CONFLICT ou LOCK_REQUIRED.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {

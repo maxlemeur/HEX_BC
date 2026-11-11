@@ -19,6 +19,7 @@ import type {
 } from "@/lib/estimate-calculations";
 import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
+import { appendOfferReserveParagraph } from "@/lib/estimates/offer-choice";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -72,6 +73,11 @@ type EstimateSettingsPanelProps = {
    * (v1/v2), le panneau est inchangé.
    */
   v3?: EstimateV3SettingsController | null;
+  /**
+   * TI-682, lot C, PR 4 : titres des lignes réservées dans l'offre ; présents, un bouton insère dans les précisions
+   * le paragraphe qui les liste, éditable.
+   */
+  reservedLineTitles?: readonly string[];
 };
 
 /** Champs communs à tous les moteurs (identité, validité, devise, régime de TVA). */
@@ -136,6 +142,7 @@ export function EstimateSettingsPanel({
   onChange,
   onSave,
   v3 = null,
+  reservedLineTitles = [],
 }: EstimateSettingsPanelProps) {
   const [glossaryDismissed, setGlossaryDismissed] = useState(false);
   // v3 : les champs communs sont ceux du brouillon v3, seule source de sa charge ; v1/v2 : inchangés.
@@ -345,6 +352,24 @@ export function EstimateSettingsPanel({
           placeholder="Ex. : cordiste, DOE, équilibrage, calorifuge des robinetteries…"
           onChange={(event) => changeCommon({ exclusions: event.target.value })}
         />
+        {reservedLineTitles.length > 0 && !commonDisabled ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => changeCommon({
+                exclusions: appendOfferReserveParagraph(commonSettings.exclusions, reservedLineTitles),
+              })}
+            >
+              Insérer les réserves dans les précisions
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {reservedLineTitles.length} ligne{reservedLineTitles.length > 1 ? "s" : ""} réservée
+              {reservedLineTitles.length > 1 ? "s" : ""} : l&apos;offre doit le dire ici.
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {v3 ? (

@@ -109,6 +109,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     search.registerRevalidation
   );
   const registerCursor = parseAffaireRegisterCursorSearchParam(search.registerCursor);
+  const registerBlockingOnly = search.registerBlocking === "1";
   const registerFocusEntryId = parseAffaireRegisterFocusSearchParam(
     search.registerFocus
   );
@@ -136,7 +137,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
         : Promise.resolve({ latestJobId: null, alerts: [] }),
       fetchAffaireRegisterPage({
         projectId, versionId, status: registerStatus, severity: registerSeverity,
-        kind: registerKind, revalidationRequired: registerRevalidationRequired,
+        kind: registerKind, revalidationRequired: registerRevalidationRequired, blockingOnly: registerBlockingOnly,
         cursor: registerCursor, focusEntryId: registerFocusEntryId,
       }),
       fetchAffaireRegisterScopeOptions({ projectId, versionId }),
@@ -347,6 +348,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
         severity: registerSeverity,
         kind: registerKind,
         revalidationRequired: registerRevalidationRequired,
+        blockingOnly: registerBlockingOnly,
         focusEntryId: registerFocusEntryId,
       },
     });

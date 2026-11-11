@@ -498,6 +498,8 @@ const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Qu
 const V3_CSV_PROVISION_HEADER = "Provision métré";
 // TI-682 lot C, PR 3 : puis le motif interne d'une exclusion, dernière colonne (vide sans motif).
 const V3_CSV_REASON_HEADER = "Motif interne";
+// TI-682 lot C, PR 4 : puis la réserve écrite d'une ligne « Non chiffrée », dernière colonne (vide sans réserve).
+const V3_CSV_RESERVE_HEADER = "Réserve dans l'offre";
 // En-tête BDC V1.1 (bdc-export.ts) : inchangé et dans cet ordre pour toute version ; une v3 ajoute ses colonnes à la fin.
 const BDC_V11_HEADER = ["Type", "Position", "AID", "Désignation", "Unité", "Quantité", "Type FO", "PU FO HT EUR", "PR FO HT EUR", "K FO",
   "h MO", "K MO", "Taux horaire MO EUR", "Rôle MO", "Catégorie", "Total FO HT EUR", "Total MO HT EUR", "Total HT EUR",
@@ -590,9 +592,9 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         const label = STATUS_LABELS[line.status];
         return [draft.sectionTitle, posteOf(title(line.ref)), line.ref === "P1" ? "'=1+1" : title(line.ref), line.unit, String(line.quantity), label,
           priced ? String(line.prFo / 100) : label, "", "", "", "", "1.01", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
-          line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20", "", "", ""];
+          line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20", "", "", "", ""];
       };
-      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, "", "", "", ""];
+      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, "", "", "", "", ""];
       const actual = {
         status: csv.status, filename: /\.csv$/i.test(csv.filename), bom: csv.bytes.subarray(0, 3).toString("hex"),
         header: rows[0] ?? null,
@@ -600,7 +602,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         footer: rows.slice(1 + ROUND_TRIP.length).map((row) => row.map((cell) => normalized(cell))),
       };
       const expected = {
-        status: 200, filename: true, bom: "efbbbf", header: [...V3_CSV_HEADER, V3_CSV_PROVISION_HEADER, V3_CSV_REASON_HEADER],
+        status: 200, filename: true, bom: "efbbbf", header: [...V3_CSV_HEADER, V3_CSV_PROVISION_HEADER, V3_CSV_REASON_HEADER, V3_CSV_RESERVE_HEADER],
         lines: ROUND_TRIP.map(lineRow),
         footer: [footerRow("Moteur de calcul", "3"), footerRow("Montants", "Aperçu du brouillon (non figé)"),
           ...footer.map(([label, amount]) => footerRow(label, String(amount)))],
@@ -826,11 +828,11 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const csv = await fetchExport(browser, draft.versionId, "format=csv");
       const rows = csv.status === 200 ? readCsv(csv.bytes) : [];
       const header = [...V3_CSV_HEADER, "h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier",
-        "K MO chantier", V3_CSV_PROVISION_HEADER, V3_CSV_REASON_HEADER];
+        "K MO chantier", V3_CSV_PROVISION_HEADER, V3_CSV_REASON_HEADER, V3_CSV_RESERVE_HEADER];
       // Ligne ventilée : h/u, rôle et K MO de la ligne vides (le moteur ne les lit pas), colonnes atelier/chantier remplies.
       const csvLine = (ref: string, unit: string, quantity: number, pr: number, legacy: [string, string, string], pu: number, gross: number,
         split: string[]) => [draft.sectionTitle, posteOf(title(ref)), title(ref), unit, String(quantity), "Chiffrée", String(pr), "", "", "", "",
-        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", "", ...split, "", ""];
+        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", "", ...split, "", "", ""];
       const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 18 ? value : ""));
       const csvActual = { status: csv.status, error: csv.error, header: rows[0] ?? null,
         lines: rows.slice(1, 4).map((row) => row.map((cell) => normalized(cell))),
