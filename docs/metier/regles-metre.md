@@ -70,7 +70,9 @@ Deux garanties, décidées le 6 novembre 2026 (D11, D12).
   sélection apparie à une mesure vectorielle devient la lecture alternative écartée,
   comme toute autre ligne appariée. Sinon :
   - saisir sa quantité avec ce qui la fonde l'inclut ;
-  - « Inclure » (touche I) inclut une quantité estimée ;
+  - « Inclure » (touche I) inclut une quantité estimée ; incluse sans saisie, elle
+    entre au devis comme hypothèse, marquée à l'application (voir « Provision
+    interne », TI-682 lot C) ;
   - l'exclure avec un motif la retire de la liste.
 
   « Accepter » (V) ne l'inclut jamais.
@@ -615,28 +617,39 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
   localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
   bloqué. Une confiance faible ne bloque plus depuis TI-681 : elle ne force rien et ne fait pas de provision. Une
-  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse.
+  quantité saisie avec la catégorie « Hypothèse » y entre aussi, sans forçage, comme hypothèse. Depuis TI-682 lot C
+  (migration `…_takeoff_hypothesis_provision_marker.sql`), toute hypothèse au sens de
+  `public.takeoff_item_hypothesis_cause` y entre de même : une quantité estimée ou qu'un plan ne montre pas, que son
+  relecteur a incluse sans la saisir (touche I de la revue ciblée, inclusion de la revue complète).
   - L'application écrit `source_metadata.takeoff_provision` sur la ligne du devis, dans sa propre transaction et par
     ses deux variantes (sans DPGF et avec l'autorisation DPGF) : `{ version: 1, job_id, sources: [{ takeoff_item_id,
-    forced, forced_reason, entry_category }] }`. Les sources sont les lignes de métré forcées (celles de l'audit
-    consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
-    `20261110094504_takeoff_apply_force_reasons.sql`) ou saisies en hypothèse ; une ligne DPGF rapprochée ne nomme que celles-là. Une ligne de
+    forced, forced_reason, entry_category, hypothesis_cause }] }`. Les sources sont les lignes de métré forcées (celles
+    de l'audit consommé pour ce job, avec leur motif codé dans `forced_reason` depuis la migration
+    `20261110094504_takeoff_apply_force_reasons.sql`) ou qui sont des hypothèses ; une ligne DPGF rapprochée ne nomme
+    que celles-là. `hypothesis_cause` dit pourquoi une source est une hypothèse (`entered_hypothesis` saisie comme
+    telle, `estimated`, `non_observable`), ou vaut `null` ; le marqueur reste en version 1 et un marqueur écrit avant,
+    sans cette clé, se lit comme avant. Les estimations déjà appliquées ne sont pas reprises. Une ligne de
     longueur dont les tronçons sont regroupés et arrondis une seule fois (TI-681) nomme les sources provisionnées de
     tous ses tronçons. Les lignes d'un ouvrage créé depuis une hypothèse gardent le marqueur.
   - Le marqueur décrit des faits : la dernière application l'emporte (il est retiré d'une ligne fusionnée sans source
     provisionnée), il suit les copies et survit à une modification manuelle. Ce n'est pas une garde : seul le devis
-    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne).
+    interne l'affiche, « Provision interne » ou « Hypothèse » (vérité de ligne, explication de ligne). Une source dont
+    `hypothesis_cause` n'est pas nul se lit « Hypothèse », et le détail dit pourquoi : quantité saisie sur hypothèse,
+    quantité estimée sans mesure sur un plan, ou quantité qu'un plan ne montre pas, comptées sans saisie.
   - Les exports CSV internes le portent (TI-682, lot C ; H12 levé pour le CSV) : le CSV d'une v3, écrit par le serveur,
     et le CSV d'une v1/v2, écrit par l'éditeur, ont une dernière colonne « Provision métré », après toutes les autres
     (ventilation atelier/chantier comprise). Elle vaut « Provision interne » pour une source forcée, « Hypothèse » pour
-    une source saisie en hypothèse ou forcée en « Hypothèse chiffrée », et reste vide sans marqueur ; un marqueur
-    illisible s'y lit « Provision interne », jamais vide. Une hypothèse incluse sans saisie n'a pas de marqueur et
-    reste vide tant que l'application ne la marque pas. La lecture des lignes par l'éditeur garde le marqueur d'une
+    une source qui est une hypothèse (saisie, estimée, non observable) ou forcée en « Hypothèse chiffrée », et reste
+    vide sans marqueur ; un marqueur illisible s'y lit « Provision interne », jamais vide. La lecture des lignes par
+    l'éditeur garde le marqueur d'une
     ligne issue d'une structure IA ou d'un ouvrage généré, que leur provenance réécrit.
   - Le détail interne d'une ligne forcée donne son motif codé et nomme ce qu'un forçage lève (preuve localisée ou
     page source manquante, règles à recalculer, règle bloquante en échec) : depuis TI-681, une ligne forcée n'est pas
     une quantité non vérifiée en soi, et le marqueur ne dit pas laquelle de ces protections la bloquait. Une ligne
-    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie.
+    forcée en « Hypothèse chiffrée » s'affiche comme hypothèse, forcée et non saisie. Quand une source est elle-même
+    une hypothèse (TI-682 lot C), le détail dit d'abord pourquoi, dans cet ordre : quantité saisie sur hypothèse,
+    estimée, puis qu'un plan ne montre pas ; une ligne aussi forcée s'affiche alors comme cette hypothèse, sans son
+    motif de forçage.
   - Le client voit une ligne chiffrée ordinaire : son montant est la provision. Aucune sortie client ou fournisseur
     (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
     métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient

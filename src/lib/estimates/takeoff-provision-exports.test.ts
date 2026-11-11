@@ -27,14 +27,18 @@ import { frozenV3ExportDocument, takeoffProvisionMetadata } from "@/lib/estimate
 // DPGF; this guards the v3 standard, DPGF and BDC workbooks and the v1/v2 standard and BDC workbooks.
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const INTERNAL_WORDING = /Provision métré|Provision interne|Hypothèse|takeoff_provision|forced_reason|entry_category/;
+const INTERNAL_WORDING = /Provision métré|Provision interne|Hypothèse|takeoff_provision|forced_reason|entry_category|hypothesis_cause/;
 const MARKERS = [
   takeoffProvisionMetadata({ forced: true, forced_reason: "additional_evidence" }),
   takeoffProvisionMetadata({ entry_category: "hypothesis" }),
   takeoffProvisionMetadata({ forced: true, forced_reason: "priced_hypothesis" }),
   { takeoff_provision: { version: 2 } },
+  // TI-682 lot C: an hypothesis included without entry, marked with its cause.
+  takeoffProvisionMetadata({ hypothesis_cause: "estimated" }),
+  takeoffProvisionMetadata({ hypothesis_cause: "non_observable" }),
 ];
-const TITLES = ["ARMY tube forcé", "ARMY tube hypothèse saisie", "ARMY tube hypothèse chiffrée", "ARMY tube marqueur illisible"];
+const TITLES = ["ARMY tube forcé", "ARMY tube hypothèse saisie", "ARMY tube hypothèse chiffrée", "ARMY tube marqueur illisible",
+  "ARMY support estimé", "ARMY soudure non observable"];
 
 type Captured = { name: string; columns: string[]; rows: unknown[] };
 

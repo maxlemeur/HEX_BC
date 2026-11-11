@@ -94,12 +94,29 @@ export function calcV3Impact(map: ImpactMap, graph: SourceGraph, runner: Set<str
   return { phases: CALC_V3_PHASES.filter((phase) => phases.has(phase)) };
 }
 
-export function selectCalcV3(root: string, paths: string[]): CalcSelection {
+/** What a selection reads from the working tree: the impact map, its source graph and the closure of the calc-v3 runner. */
+export type CalcV3Repository = { map: ImpactMap; graph: SourceGraph; runner: Set<string> };
+
+/**
+ * Reads the working tree once: git ls-files, then every source file for its imports and API literals (about
+ * 0.15 s on 3,200 files, 18 cores, idle). A caller deciding for several diffs of one tree builds it once and
+ * hands it to selectCalcV3FromRepository.
+ */
+export function loadCalcV3Repository(root: string, map = loadImpactMap(root).map, files = listRepositoryFiles(root)): CalcV3Repository {
+  const graph = buildSourceGraph(root, map, files);
+  return { map, graph, runner: calcV3RunnerClosure(graph) };
+}
+
+const documentationOnly = (map: ImpactMap, paths: string[]) => paths.every((file) => matchesAny(file, map.docs));
+const docsSelection = (paths: string[]): CalcSelection => ({ phases: [], reason: "Documentation only; no journey execution claimed.", changedPaths: paths });
+const failedSelection = (error: unknown, paths: string[]) => all(`Selection failed: ${error instanceof Error ? error.message : String(error)}`, paths);
+
+/** The phases a diff reaches in an already read working tree; selectCalcV3 without reading the tree again. */
+export function selectCalcV3FromRepository({ map, graph, runner }: CalcV3Repository, paths: string[]): CalcSelection {
   if (!paths.length) return all("Empty or unavailable diff: all phases.");
   try {
-    const { map } = loadImpactMap(root), repository = listRepositoryFiles(root);
-    if (paths.every((file) => matchesAny(file, map.docs))) return { phases: [], reason: "Documentation only; no journey execution claimed.", changedPaths: paths };
-    const graph = buildSourceGraph(root, map, repository), runner = calcV3RunnerClosure(graph), selected = new Set<CalcV3Phase>();
+    if (documentationOnly(map, paths)) return docsSelection(paths);
+    const selected = new Set<CalcV3Phase>();
     for (const file of paths) {
       if (matchesAny(file, map.docs)) continue;
       const impact = calcV3Impact(map, graph, runner, file);
@@ -109,7 +126,17 @@ export function selectCalcV3(root: string, paths: string[]): CalcSelection {
     return selected.size
       ? { phases: CALC_V3_PHASES.filter((phase) => selected.has(phase)), reason: "Affected phases from imports, API references and domain rules.", changedPaths: paths }
       : { phases: [], reason: "No phase loads the change: unit tests, tooling or journeys of other suites only.", changedPaths: paths };
-  } catch (error) { return all(`Selection failed: ${error instanceof Error ? error.message : String(error)}`, paths); }
+  } catch (error) { return failedSelection(error, paths); }
+}
+
+export function selectCalcV3(root: string, paths: string[]): CalcSelection {
+  if (!paths.length) return all("Empty or unavailable diff: all phases.");
+  try {
+    const { map } = loadImpactMap(root), files = listRepositoryFiles(root);
+    // A documentation-only diff needs no source graph.
+    if (documentationOnly(map, paths)) return docsSelection(paths);
+    return selectCalcV3FromRepository(loadCalcV3Repository(root, map, files), paths);
+  } catch (error) { return failedSelection(error, paths); }
 }
 
 export function planCalcV3(root: string, environment: NodeJS.ProcessEnv): CalcSelection {
