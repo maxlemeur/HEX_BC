@@ -84,6 +84,8 @@ export const V3_ITEM_INPUT_KEYS = [
   "h_mo_per_unit",
   "h_mo_atelier_per_unit",
   "h_mo_chantier_per_unit",
+  // TI-682, lot C : motif interne d'une exclusion (statuts Inclus, Pour mémoire, Hors lot, Sans objet).
+  "status_reason",
 ] as const;
 
 /** Totaux d'heures de ligne : dérivés en v3, jamais écrits par un client (D4). */

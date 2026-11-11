@@ -32,6 +32,7 @@ import {
 
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
+import { requiresStatusReason } from "@/lib/estimates/status-reason";
 import { mapSupabaseError } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
 import { readAllEstimateItems } from "./read-all-items-server";
@@ -382,6 +383,8 @@ export async function evaluateEstimateSendGating(
       itemIdsByFlag.not_priced_unclassified.add(item.id);
       continue;
     }
+    // TI-682, lot C (D11): a necessary service left unpriced, then excluded, says why before it leaves (internally).
+    if (isEngine3 && requiresStatusReason(item)) itemIdsByFlag.excluded_without_reason.add(item.id);
     if (!isEngine3 || pricingStatus !== "priced") continue;
     const flags = qualityFlagsByItemId[item.id] ?? [];
     // A line that already misses its price or its quantity says so under its own flag.

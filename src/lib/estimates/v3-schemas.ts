@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { estimateStatusReasonInputSchema } from "@/lib/estimates/status-reason";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
 
 /**
@@ -48,6 +49,10 @@ export const v3LineItemFields = {
   h_mo_per_unit: z.union([hoursPerUnitSchema, z.null()]).optional(),
   h_mo_atelier_per_unit: z.union([hoursPerUnitSchema, z.null()]).optional(),
   h_mo_chantier_per_unit: z.union([hoursPerUnitSchema, z.null()]).optional(),
+  // TI-682, lot C: the internal reason of an exclusion, written with the status; null clears it.
+  status_reason: estimateStatusReasonInputSchema.nullable().optional(),
+  // Set by the database alone (a line that has been « Non chiffrée »): refused as an input, never silently dropped.
+  was_not_priced: z.never({ error: "« was_not_priced » est posé par la base : ce n'est pas une saisie." }).optional(),
 } as const;
 
 /**
