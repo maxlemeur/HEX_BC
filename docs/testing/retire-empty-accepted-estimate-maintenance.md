@@ -40,7 +40,11 @@ La fonction prend sans attente un verrou `SHARE ROW EXCLUSIVE` sur
 `private.estimate_purchase_transfers`, `private.estimate_source_coverage_events`
 et `storage.objects`, ainsi que des verrous de ligne sur l’affaire, le devis,
 le jeu de plans, les fichiers, les événements et les audits concernés. Si une
-ressource est déjà occupée, l’opération échoue sans attendre. Une fois acquis,
+ressource est déjà occupée, l’opération échoue sans attendre. Un autovacuum ou
+un `ANALYZE` en cours sur l’une de ces cinq tables suffit : l’appel échoue alors
+avec `55P03 could not obtain lock on relation`, avant toute écriture. Après le
+rollback et la vérification, le relancer une fois ce traitement terminé
+(`pg_stat_progress_vacuum`, `pg_stat_progress_analyze`). Une fois acquis,
 ces verrous bloquent les écritures concurrentes sur ces tables, tous tenants
 confondus, jusqu’au commit : mesurer la durée en environnement local et prévoir
 une courte fenêtre de maintenance avant l’appel réel.
