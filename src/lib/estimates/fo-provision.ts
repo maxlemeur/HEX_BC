@@ -49,7 +49,10 @@ export function unifiedKfoValue(
   supplyTypeId: string | null | undefined,
   provisions: FoProvisionBySupplyTypeId,
   origin?: unknown,
+  lineNature?: string | null,
 ): number {
+  // POSE SEULE may carry small supplies, but its automatic base stays neutral.
+  if (lineNature === "pose_only") return 1;
   const setting = supplyTypeId
     ? provisions.get(supplyTypeId.toLowerCase())
     : undefined;
@@ -65,16 +68,17 @@ export function unifiedKfoValue(
 
 /** Explicit refresh only touches rows whose automatic mode is known. */
 export function automaticKfoRefreshPatches(
-  items: readonly { id: string; item_type: string; k_fo_manual?: boolean | null; supply_type_id?: string | null; fo_price_origin?: unknown }[],
+  items: readonly { id: string; item_type: string; line_nature?: string | null; k_fo_manual?: boolean | null; supply_type_id?: string | null; fo_price_origin?: unknown }[],
   provisions: FoProvisionBySupplyTypeId,
 ) {
   return items.filter(item => item.item_type === "line" && item.k_fo_manual === false)
-    .map(item => ({ id: item.id, patch: { k_fo: unifiedKfoValue(item.supply_type_id, provisions, item.fo_price_origin), k_fo_manual: false } }));
+    .map(item => ({ id: item.id, patch: { k_fo: unifiedKfoValue(item.supply_type_id, provisions, item.fo_price_origin, item.line_nature), k_fo_manual: false } }));
 }
 
 export function projectUnifiedKfo<
   T extends {
     supply_type_id?: string | null;
+    line_nature?: string | null;
     k_fo?: number | null;
     k_fo_manual?: boolean | null;
     fo_price_origin?: unknown;
@@ -84,6 +88,7 @@ export function projectUnifiedKfo<
   provisions: FoProvisionBySupplyTypeId,
   previous?: FoPriceLine & {
     supply_type_id?: string | null;
+    line_nature?: string | null;
     k_fo?: number | null;
     k_fo_manual?: boolean | null;
     fo_provision?: number | null;
@@ -93,6 +98,7 @@ export function projectUnifiedKfo<
     previous &&
     item.k_fo === previous.k_fo &&
     item.k_fo_manual === previous.k_fo_manual &&
+    (item.line_nature === "pose_only") === (previous.line_nature === "pose_only") &&
     !supplyTypeChanged(previous.supply_type_id, item.supply_type_id) &&
     sameFoPriceOrigin(previous.fo_price_origin, item.fo_price_origin) &&
     (item as FoPriceLine).unit_price_ht_cents ===
@@ -127,7 +133,7 @@ export function projectUnifiedKfo<
     fo_provision: 1,
     k_fo: manual
       ? (item.k_fo ?? 1)
-      : unifiedKfoValue(item.supply_type_id, provisions, item.fo_price_origin),
+      : unifiedKfoValue(item.supply_type_id, provisions, item.fo_price_origin, item.line_nature),
   };
 }
 

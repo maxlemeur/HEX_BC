@@ -77,12 +77,25 @@ déboursé_ligne = arrondi(Q × (FO_unitaire + MO_unitaire))
 Le **K FO unique** (TI-534) intègre les pertes, le transport et l’ajustement de
 volume ; l’utilisateur peut y intégrer d’autres éléments prévus pour son
 chiffrage. Les nouvelles lignes v3 portent `fo_provision = 1` : aucun second
-coefficient visible ne double ces frais. La base entreprise est 1,13 pour les
+coefficient visible ne double ces frais. Les bases entreprise initiales, paramétrables par type de fourniture, sont 1,13 pour les
 tubes (10 % de pertes + 3 % de transport), 1,02 pour les autres familles et
 les lignes sans type. Les pertes des tubes ne se reportent pas aux raccords,
 supports ou calorifuges. La préférence du propriétaire de l’affaire remplace
 la base entreprise ; une saisie manuelle sur la ligne est prioritaire, même
 si elle vaut 1. La provenance est persistée dans `k_fo_manual`.
+
+**POSE SEULE** (`line_nature = 'pose_only'`, TI-539/TI-541) : le K FO
+initial automatique vaut **1**, sans pertes ni transport, y compris avec une
+petite fourniture de supportage. Ce défaut neutre prime sur la base de famille
+et la préférence utilisateur ; un choix manuel sur la ligne reste prioritaire.
+Le nom reste **K FO**. La transition vers/depuis POSE SEULE et l’actualisation
+des lignes automatiques doivent respecter cette règle.
+
+Exemples de fourniture validés par Maxime le 11/11/2026, avant marge et
+arrondis au centime : tube fonte Ø100 **142,43 × 1,13 = 160,95 €** ;
+robinet DN 25 **58,43 × 1,02 = 59,60 €** ; pose seule WC
+**175,50 × 1 = 175,50 €**. Le 1,13 est une base configurée, pas un
+coefficient imposé au calcul quand le réglage du type de fourniture change.
 
 Le volume est intégré dans ce coefficient : 1,13 × 0,90 = 1,017 et
 1,13 × 0,95 = 1,0735. K FO conserve jusqu’à six décimales. Les pertes portent

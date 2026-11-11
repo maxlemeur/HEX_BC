@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_FO_PROVISION,
+  automaticKfoRefreshPatches,
   projectUnifiedKfo,
   unifiedKfoValue,
   deriveFoProvision,
@@ -11,6 +12,9 @@ import {
   withRederivedFoProvision,
   withServerFoProvisions,
 } from "@/lib/estimates/fo-provision";
+
+import { computeEstimateV3Breakdown } from "@/lib/estimates/engine-v3";
+import { supplyLineInput } from "@/lib/estimates/engine-v3/oracle.fixtures";
 
 const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
 const RACCORD = "8f9a1b2c-0000-4000-8000-000000000042";
@@ -139,4 +143,47 @@ it("reconciles an automatic K FO from a compact neutral-provision receipt", () =
   const results = [{ index: 0, op: "update" as const, status: "ok" as const,
     data: { item: { id: item.id, supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false } } }];
   expect(withServerFoProvisions([item], results, true)[0]).toMatchObject({ k_fo: 1.13, fo_provision: 1 });
+});
+
+// POSE SEULE storage/UI is supplied by TI-539/TI-541. Exercise its pricing
+// projection now without inventing that missing enum in the current database.
+describe("Maxime 11/11 — configurable K FO and POSE SEULE", () => {
+  const bases = foProvisionsBySupplyType([
+    { id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13 },
+    { id: RACCORD, code: "robinet", name: "Robinet", default_fo_provision: 1.02 },
+  ]);
+  it.each([
+    ["Tube fonte Ø100", TUBE, "supply_and_labor", 14243, 1.13, 16095],
+    ["Robinet DN 25", RACCORD, "supply_only", 5843, 1.02, 5960],
+    ["Pose seule WC avec supportage", TUBE, "pose_only", 17550, 1, 17550],
+  ] as const)("applies the validated pre-margin amount for %s", (_label, typeId, nature, purchase, coefficient, expected) => {
+    const projected = projectUnifiedKfo({ supply_type_id: typeId, line_nature: nature, k_fo: 1, k_fo_manual: false }, bases);
+    expect(projected.k_fo).toBe(coefficient);
+    const input = supplyLineInput(1, purchase, 1);
+    Object.assign(input.items[0], { k_fo: projected.k_fo, fo_provision: projected.fo_provision });
+    expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(expected);
+  });
+  it("uses a changed tube setting while POSE SEULE remains neutral despite its supply family", () => {
+    const settings = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.2, user_fo_coefficient: 1.25 }]);
+    const automatic = { id: "tube", item_type: "line", supply_type_id: TUBE, line_nature: "supply_and_labor", k_fo: 1.13, k_fo_manual: false, fo_provision: 1 };
+    const pose = { ...automatic, id: "pose", line_nature: "pose_only" };
+    expect(automaticKfoRefreshPatches([automatic, pose, { ...pose, id: "manual", k_fo: 1.05, k_fo_manual: true }], settings))
+      .toEqual([{ id: "tube", patch: { k_fo: 1.25, k_fo_manual: false } }, { id: "pose", patch: { k_fo: 1, k_fo_manual: false } }]);
+    const changed = projectUnifiedKfo(pose, settings, automatic);
+    expect(changed).toMatchObject({ k_fo: 1, k_fo_manual: false });
+    expect(projectUnifiedKfo({ ...changed, line_nature: "supply_and_labor" }, settings, changed)).toMatchObject({ k_fo: 1.25 });
+    expect(projectUnifiedKfo({ ...pose, k_fo: 1.05, k_fo_manual: true }, settings)).toMatchObject({ k_fo: 1.05 });
+    const company = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.2 }]);
+    expect(unifiedKfoValue(TUBE, company)).toBe(1.2);
+  });
+});
+
+it("leaves WC labour unchanged when its small supply coefficient is overridden", () => {
+  const settings = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13 }]);
+  const row = { supply_type_id: TUBE, line_nature: "pose_only", k_fo: 1, k_fo_manual: false };
+  const input = supplyLineInput(1, 350, 1, { sale_coefficient_mo: 1 });
+  Object.assign(input.items[0], projectUnifiedKfo(row, settings), { h_mo_per_unit: 1, labor_rate_cents: 17200 });
+  expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(17550);
+  Object.assign(input.items[0], projectUnifiedKfo({ ...row, k_fo: 1.1, k_fo_manual: true }, settings));
+  expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(17585);
 });

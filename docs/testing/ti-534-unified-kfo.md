@@ -71,6 +71,29 @@ Le cas rare d’un prix fournisseur incluant le transport conserve sa provenance
 Sur les bases standard connues, le transport déjà inclus est retiré de la base.
 Les coefficients personnalisés restent ceux choisis par l’utilisateur.
 
+## 5. POSE SEULE et exemples de Maxime (après intégration TI-539/TI-541)
+
+Le nom **K FO** reste inchangé. Dans le profil, modifier la base Tube de
+1,13 à 1,20 : une ligne Tube automatique actualisée doit prendre 1,20.
+Le calcul ne doit pas imposer 1,13 après ce changement.
+
+Sur une ligne `pose_only`, même associée à la famille Tube ou comportant du
+supportage, vérifier **K FO = 1** par défaut. Une actualisation automatique
+la garde à 1. Choisir manuellement 1,05 : enregistrer, rouvrir et actualiser ;
+ce choix doit rester 1,05. Seule la fourniture est ajustée, pas la MO.
+
+Avec les bases initiales, vérifier ces montants **avant marge** :
+
+| Exemple | Base | K FO | Montant attendu |
+| --- | ---: | ---: | ---: |
+| Tube fonte Ø100 | 142,43 € | 1,13 | 160,95 € |
+| Robinet DN 25 | 58,43 € | 1,02 | 59,60 € |
+| Pose seule WC | 175,50 € | 1 | 175,50 € |
+
+La nature POSE SEULE et l’origine `site` doivent être fournies par TI-539/TI-541
+sur `main` avant la recette SQL et navigateur de cette section. Les tests de
+projection/calcul isolés ne qualifient pas leur persistance ni leur interface.
+
 ## Qualification automatisée
 
 Les parcours FO53401/02 protègent les sélections de prix et leur provenance.
