@@ -1217,7 +1217,9 @@ async function upsertSyncedEntries(input: {
       });
       if (
         existing.is_active &&
-        buildExistingComparableProjection(existing) === nextProjection
+        buildExistingComparableProjection(existing) === nextProjection &&
+        JSON.stringify(extractAffaireRegisterSeverityDecision(existing.metadata)) ===
+          JSON.stringify(extractAffaireRegisterSeverityDecision(row.metadata))
       ) {
         continue;
       }
@@ -1338,7 +1340,10 @@ export async function syncAffaireRegisterMissingPieces(input: {
     kind: "missing_piece" as const,
     code: piece.code,
     text: piece.label,
-    severity: piece.severity,
+    // A previous import may still carry the old required-document defaults.
+    // Explicit user decisions are applied from existing metadata by upsertSyncedEntries.
+    severity: (["missing_dpgf", "missing_plans", "missing_cctp", "missing_bpu_dqe"].includes(piece.code)
+      ? "warning" : piece.severity) as AffaireRegisterEntrySeverity,
     scopeType: "project" as const,
     scopeLabel: input.project.name,
     syncKey: toSyncKey("missing_piece", piece.code),

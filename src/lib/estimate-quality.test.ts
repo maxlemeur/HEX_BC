@@ -134,4 +134,96 @@ describe("estimate quality flags", () => {
 
     expect(flags).toContain("line_nature_mismatch");
   });
+  // TI-539 : POSE SEULE autorise un coût de fourniture nul et garde la main-d'œuvre attendue.
+  it("does not require a supply price for a POSE SEULE line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "pose-only",
+        quantity: 1,
+        unitPriceHtCents: 0,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "pose_only",
+      }),
+    );
+
+    expect(flags).toEqual([]);
+  });
+
+  it("still expects the labor of a POSE SEULE line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "pose-only-without-labor",
+        quantity: 1,
+        unitPriceHtCents: 0,
+        laborHours: 0,
+        laborRoleId: null,
+        lineNature: "pose_only",
+      }),
+    );
+
+    expect(flags).toContain("missing_labor_time");
+    expect(flags).not.toContain("missing_price");
+  });
+
+  // Réponse de Maxime du 11/11/2026 : une POSE SEULE peut porter une petite fourniture nécessaire à la pose
+  // (supportage). Un coût saisi ne contredit donc plus la nature et ne bloque pas l'envoi.
+  it("accepts a small supply on a POSE SEULE line", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "pose-only-with-supply",
+        quantity: 1,
+        unitPriceHtCents: 2500,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "pose_only",
+      }),
+    );
+
+    expect(flags).toEqual([]);
+  });
+
+  // L'article d'origine (type de fourniture, offre) porte les temps de pose : il ne contredit pas POSE SEULE
+  // tant qu'aucun coût de fourniture n'est saisi. « Main-d'œuvre seule » garde sa règle d'origine.
+  it("keeps the catalogue origin of a POSE SEULE line without a supply cost", () => {
+    const origin = { supply_type_id: "type-1", selected_supplier_price_id: "offer-1" };
+    const line = (lineNature: EstimateItem["line_nature"]) => ({
+      ...createLine({ id: "from-article", quantity: 1, unitPriceHtCents: 0, laborHours: 2, laborRoleId: "role-1", lineNature }),
+      ...origin,
+    }) as EstimateItem;
+
+    expect(computeEstimateQualityFlagsForItem(line("pose_only"))).toEqual([]);
+    expect(computeEstimateQualityFlagsForItem(line("labor_only"))).toContain("line_nature_mismatch");
+  });
+
+  // Un article du catalogue sans prix, posé sur une ligne qui a des heures, est déduit « Main-d'œuvre seule » à
+  // la création : sa fourniture ne doit pas devenir gratuite en silence. Le coût manque jusqu'à sa saisie ou
+  // jusqu'au choix explicite POSE SEULE ; une prestation sans article (étude, essai) n'attend aucune fourniture.
+  it("keeps the missing cost of a catalogue article visible on an inferred labor-only line", () => {
+    const line = (lineNature: EstimateItem["line_nature"], productId: string | null, unitPriceHtCents = 0) => ({
+      ...createLine({ id: "article", quantity: 1, unitPriceHtCents, laborHours: 2, laborRoleId: "role-1", lineNature }),
+      product_id: productId,
+    }) as EstimateItem;
+
+    expect(computeEstimateQualityFlagsForItem(line("labor_only", "product-1"))).toContain("missing_price");
+    expect(computeEstimateQualityFlagsForItem(line("labor_only", null))).toEqual([]);
+    expect(computeEstimateQualityFlagsForItem(line("pose_only", "product-1"))).toEqual([]);
+    expect(computeEstimateQualityFlagsForItem(line("supply_and_labor", "product-1", 1200))).toEqual([]);
+  });
+
+  // Un coût manquant n'est pas un coût nul volontaire : sans POSE SEULE, la ligne reste incomplète.
+  it("keeps a missing supply price blocking when the line is not POSE SEULE", () => {
+    const flags = computeEstimateQualityFlagsForItem(
+      createLine({
+        id: "missing-price",
+        quantity: 1,
+        unitPriceHtCents: 0,
+        laborHours: 2,
+        laborRoleId: "role-1",
+        lineNature: "supply_and_labor",
+      }),
+    );
+
+    expect(flags).toContain("missing_price");
+  });
 });

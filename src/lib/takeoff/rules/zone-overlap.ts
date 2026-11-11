@@ -29,8 +29,20 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // - Two runs abutting at the zone limit overlap by at most one band of the
 //   drawing (BAND_MAX_PT on the sheet): the minimum common length is the larger
 //   of ZONE_OVERLAP.minLength_m and that band at the coarser page scale.
+// - Copies read differently (TI-684, D14): two lines of one kind drawn at one
+//   place on two pages, whose network, material or DN contradict each other,
+//   are compared too, by the same distance and minimum. Either they are one run
+//   counted twice with a wrong reading, or two pipes drawn over each other: the
+//   rule cannot tell, it fails both lines and says what differs. Two pipes side
+//   by side on both pages are not such copies: each line is first left with what
+//   no line of its own reading draws on the other page (restOf), and only these
+//   rests are compared (restCoverage), every line of a page against the other
+//   page's in one pass.
 
-export const ZONE_OVERLAP_VERSION = 1;
+// 2 (TI-684): copies whose readings contradict each other are compared. The version is part of every failure key
+// (failure-keys.ts): the next recomputation of a version reopens the verified lines of its completed, non-applied jobs
+// that fail this rule. Applied jobs stay frozen with their results.
+export const ZONE_OVERLAP_VERSION = 2;
 
 export const ZONE_OVERLAP = {
   /**
@@ -168,7 +180,7 @@ function continues(a: Centreline, b: Centreline, gap: number) {
 }
 
 /** A covered stretch: on centreline `segment` of the line, from `lo` to `hi` metres along it, and its ends. */
-type Stretch = { segment: number; lo: number; hi: number; at: Centreline };
+export type Stretch = { segment: number; lo: number; hi: number; at: Centreline };
 
 /**
  * The covered stretches that belong to a continuous stretch at least `minimum` long: covered stretches that continue
@@ -229,15 +241,24 @@ function unionLength(stretches: readonly Stretch[]) {
 
 /** Stretches of `line` covered by `other` (one direction), both already in one frame. */
 function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stretch[] {
+  return coveredStretchesByOwner(line, other).get(0) ?? [];
+}
+
+/**
+ * Stretches of `line` covered by the centrelines of `other`, apart for each owner (`owners`: the line each centreline
+ * of the grid belongs to; none: one owner, 0): two centrelines of one owner over one stretch count it once, each
+ * owner's stretches in the order of the line's centrelines.
+ */
+function coveredStretchesByOwner(line: readonly Centreline[], other: SegmentGrid, owners?: readonly number[]): Map<number, Stretch[]> {
   const { distance_m: distance, angle_deg: angle } = ZONE_OVERLAP;
   const sinMax = Math.sin((angle * Math.PI) / 180);
-  const stretches: Stretch[] = [];
+  const stretches = new Map<number, Stretch[]>();
   for (const [index, segment] of line.entries()) {
     const [x0, y0, x1, y1] = segment;
     const length = Math.hypot(x1 - x0, y1 - y0);
     if (length === 0) continue;
     const ux = (x1 - x0) / length, uy = (y1 - y0) / length;
-    const intervals: Array<[number, number]> = [];
+    const byOwner = new Map<number, Array<[number, number]>>();
     for (const id of other.near(segment, distance)) {
       const [ox0, oy0, ox1, oy1] = other.segments[id];
       const otherLength = Math.hypot(ox1 - ox0, oy1 - oy0);
@@ -253,10 +274,15 @@ function coveredStretches(line: readonly Centreline[], other: SegmentGrid): Stre
       // The other's distance to this line at both ends of the common stretch (linear along it), the distance included.
       const at = (t: number) => (t1 === t0 ? d0 : d0 + ((t - t0) / (t1 - t0)) * (d1 - d0));
       if (Math.abs(at(lo)) > distance + EPSILON_M || Math.abs(at(hi)) > distance + EPSILON_M) continue;
-      intervals.push([lo, hi]);
+      const owner = owners ? owners[id] : 0;
+      const intervals = byOwner.get(owner);
+      if (intervals) intervals.push([lo, hi]);
+      else byOwner.set(owner, [[lo, hi]]);
     }
-    for (const [lo, hi] of union(intervals)) {
-      stretches.push({ segment: index, lo, hi, at: [x0 + ux * lo, y0 + uy * lo, x0 + ux * hi, y0 + uy * hi] });
+    for (const [owner, intervals] of byOwner) {
+      const list = stretches.get(owner) ?? [];
+      for (const [lo, hi] of union(intervals)) list.push({ segment: index, lo, hi, at: [x0 + ux * lo, y0 + uy * lo, x0 + ux * hi, y0 + uy * hi] });
+      stretches.set(owner, list);
     }
   }
   return stretches;
@@ -295,6 +321,75 @@ export class CoverageCache {
   }
 }
 
+/** What is left of a line: pieces of its centrelines in page metres, each starting `lo` metres along centreline `segment`. */
+export type RestLine = OverlapLine & { origin: ReadonlyArray<{ segment: number; lo: number }> };
+
+/**
+ * A line less the stretches `explained` (CoverageCache.of: what lines of its own reading draw of it on another page),
+ * centreline by centreline. Frames are translations (registration.ts): a stretch measured in a common frame is the
+ * same stretch along the page's own centreline. Beside a copy, a piece no longer than ZONE_OVERLAP.distance_m is no
+ * rest: two plans registered within that distance leave such a sliver at the end of every dash of a copy, and slivers
+ * chained from dash to dash would make a neighbour 4 cm aside a copy read differently. A centreline no copy draws is
+ * kept whole, however short (the chords of a curved run).
+ */
+export function restOf(line: OverlapLine, explained: readonly Stretch[]): RestLine {
+  const removed = new Map<number, Array<[number, number]>>();
+  for (const { segment, lo, hi } of explained) removed.set(segment, [...(removed.get(segment) ?? []), [lo, hi]]);
+  const segments: Centreline[] = [];
+  const origin: Array<{ segment: number; lo: number }> = [];
+  for (const [index, [x0, y0, x1, y1]] of line.segments.entries()) {
+    const length = Math.hypot(x1 - x0, y1 - y0);
+    if (!(length > 0)) continue;
+    const copies = union(removed.get(index) ?? []);
+    const least = copies.length > 0 ? ZONE_OVERLAP.distance_m + EPSILON_M : EPSILON_M;
+    let from = 0;
+    for (const [lo, hi] of [...copies, [length, length] as [number, number]]) {
+      if (lo - from > least) {
+        segments.push([x0 + ((x1 - x0) * from) / length, y0 + ((y1 - y0) * from) / length, x0 + ((x1 - x0) * lo) / length, y0 + ((y1 - y0) * lo) / length]);
+        origin.push({ segment: index, lo: from });
+      }
+      from = Math.max(from, Math.min(length, hi));
+    }
+  }
+  return { id: line.id, segments, origin };
+}
+
+/**
+ * What the rests of `others` cover of the rests of `lines` (restOf: each less what lines of its own reading draw on the
+ * other's page), one direction: for each line and other line `compared` (their indices), the line's continuous
+ * stretches of at least `minimum`, as stretches of the whole line. Every line is measured against all others in one
+ * pass (one grid holds the others' centrelines), so that a page of many readings costs its centrelines once.
+ */
+export function restCoverage(lines: readonly RestLine[], transform: TakeoffFrameTransform, others: readonly RestLine[],
+  otherTransform: TakeoffFrameTransform, minimum: number, compared: (line: number, other: number) => boolean) {
+  const covered = new Map<number, Map<number, Stretch[]>>();
+  const segments: Centreline[] = [];
+  const owners: number[] = [];
+  for (const [index, other] of others.entries()) {
+    for (const segment of transformed(other.segments, otherTransform)) {
+      segments.push(segment);
+      owners.push(index);
+    }
+  }
+  if (segments.length === 0) return covered;
+  const grid = new SegmentGrid(segments, 1);
+  for (const [index, line] of lines.entries()) {
+    if (line.segments.length === 0) continue;
+    for (const [other, stretches] of coveredStretchesByOwner(transformed(line.segments, transform), grid, owners)) {
+      if (!compared(index, other)) continue;
+      const kept = continuous(stretches, minimum).map((stretch): Stretch => ({ ...stretch, segment: line.origin[stretch.segment].segment,
+        lo: line.origin[stretch.segment].lo + stretch.lo, hi: line.origin[stretch.segment].lo + stretch.hi }));
+      if (kept.length > 0) covered.set(index, (covered.get(index) ?? new Map<number, Stretch[]>()).set(other, kept));
+    }
+  }
+  return covered;
+}
+
+/** Length of stretches of one line, two covering one place counted once, rounded like a common length. */
+export function stretchLength(stretches: readonly Stretch[]) {
+  return millimetres(unionLength(stretches));
+}
+
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
 /**
@@ -303,10 +398,12 @@ export type DuplicatePair = { left: string; right: string; overlap_m: number };
  * of their two pages), then their union along the line. A coarser partner never raises the minimum of another pair.
  */
 export function coveredBy(line: OverlapLine, others: ReadonlyArray<{ line: OverlapLine;
-  frames: readonly [TakeoffFrameTransform, TakeoffFrameTransform]; minimum?: number }>, cache?: CoverageCache): number {
+  frames: readonly [TakeoffFrameTransform, TakeoffFrameTransform]; minimum?: number }>, cache?: CoverageCache,
+  also: readonly Stretch[] = []): number {
   const coverage = cache ?? new CoverageCache();
   const kept = others.flatMap((other) => coverage.of(line, other.frames[0], other.line, other.frames[1], other.minimum ?? 0));
-  return millimetres(unionLength(kept));
+  // `also`: stretches of the line already measured another way (copies read differently, restCoverage).
+  return millimetres(unionLength([...kept, ...also]));
 }
 
 /**

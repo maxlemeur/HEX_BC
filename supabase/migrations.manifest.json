@@ -321,6 +321,9 @@
     "20261110094505_takeoff_override_consumptions_admin_read.sql": "5c2e53f3741e3de8ca6c6869fad2f5d0e8a31bd598d63d41c436f98cbcd45075",
     "20261111035718_takeoff_hypothesis_preselection.sql": "a96e818834e86d78c53664f84ec259a747a24fb94219400967420d2420e4db93",
     "20261111124022_takeoff_hypothesis_provision_marker.sql": "68f852010a64c62542ec95d64844cefad4bab1d9a637800da452ddb5e4923f3d",
-    "20261111130710_optional_dossier_documents.sql": "7e22ac6904f34cf79b4c9ace9a72edf77d4b22060199f442d404b4c16f9faa54"
+    "20261111144803_estimate_line_status_reason.sql": "30d7f4d6b86cc1fa71cad270735516d4908ae01d3649566cd36947886544d8ed",
+    "20261111155627_estimate_line_nature_pose_only.sql": "1af827341cae5a391a87be88c23e9bfbaf9db5d41c69b4dfa7c1fd6eff00c296",
+    "20261111181152_estimate_site_cost_origin.sql": "44f20db82a1ba37b4cca6d4956ee383cfdc21499dbc8f30b436f01beeb4f38e6",
+    "20261111195141_optional_dossier_documents_policy.sql": "d564ce476d4f2ee4daef3cae09bf351690f2a72297c37704ab6220b429476de6"
   }
 }

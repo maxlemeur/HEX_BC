@@ -806,4 +806,83 @@ describe("estimate send gating", () => {
       });
       expect([...result.blockingFlags, ...result.warningFlags].map((flag) => flag.key)).not.toContain("priced_line_without_amount");
     });
+  // TI-682, lot C (D11, D25): a necessary service left unpriced and then excluded says why, internally, before it leaves.
+  describe("excluded_without_reason", () => {
+    const excluded = (id: string, pricingStatus: string, extra: Record<string, unknown> = {}) => ({
+      ...createLineItem({ id, quantity: 0, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
+      pricing_status: pricingStatus, was_not_priced: false, status_reason: null, ...extra,
+    });
+    const items = [
+      { ...createLineItem({ id: "line-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced" },
+      excluded("line-b-out", "out_of_scope", { was_not_priced: true }),
+      excluded("line-a-memory", "for_memory", { was_not_priced: true }),
+      excluded("line-included", "included", { was_not_priced: true }),
+      excluded("line-not-applicable", "not_applicable", { was_not_priced: true }),
+      excluded("line-with-reason", "out_of_scope", { was_not_priced: true, status_reason: { code: "other_trade", note: null } }),
+      excluded("line-unreadable-reason", "included", { was_not_priced: true, status_reason: { code: "other", note: null } }),
+      // Created or imported directly with its status (V3E16, V3E20): no reason is asked.
+      excluded("line-dpgf-memory", "for_memory"),
+      excluded("line-dpgf-out", "out_of_scope"),
+      // Priced again after « Non chiffrée »: nothing to say to anyone.
+      { ...createLineItem({ id: "line-repriced", quantity: 1, unitPriceHtCents: 500 }), pricing_status: "priced", was_not_priced: true },
+    ];
+    const evaluate = (engine: number | undefined) => evaluateEstimateSendGating({
+      supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 3000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+        ...(engine === undefined ? {} : { calc_engine_version: engine }),
+      },
+      project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+    });
+
+    it("blocks an engine 3 line excluded after « Non chiffrée » without a readable reason, and only those", async () => {
+      const result = await evaluate(3);
+      expect(result.canSend).toBe(false);
+      expect(result.blockingFlags).toEqual([
+        expect.objectContaining({
+          key: "excluded_without_reason",
+          severity: "blocking",
+          category: "estimate_quality",
+          count: 5,
+          item_ids: ["line-a-memory", "line-b-out", "line-included", "line-not-applicable", "line-unreadable-reason"],
+          label: "Motif interne d'exclusion à saisir",
+        }),
+      ]);
+      expect(result.warningFlags.map((flag) => flag.key)).not.toContain("excluded_without_reason");
+    });
+
+    it("lets no tenant setting downgrade it", async () => {
+      vi.mocked(getFeatureFlagValueForTenant)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("excluded_without_reason");
+      const result = await evaluate(3);
+      expect(result.blockingFlags.map((flag) => flag.key)).toEqual(["excluded_without_reason"]);
+      expect(result.warningFlags.map((flag) => flag.key)).not.toContain("excluded_without_reason");
+    });
+
+    it("never raises it on engines 1 and 2, nor on a version read without its engine", async () => {
+      for (const engine of [1, 2, undefined]) {
+        const result = await evaluate(engine);
+        expect([...result.blockingFlags, ...result.warningFlags].map((flag) => flag.key)).not.toContain("excluded_without_reason");
+      }
+    });
+
+    it("is satisfied once every such line carries a readable reason", async () => {
+      const result = await evaluateEstimateSendGating({
+        supabase: createSupabaseGatingMock({
+          items: [excluded("line-out", "out_of_scope", { was_not_priced: true, status_reason: { code: "client_supplied", note: null } })],
+          marginTiers: [], documents: [{ id: "doc-1" }],
+        }) as never,
+        tenantId: TENANT_ID,
+        version: {
+          id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 0,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: 3,
+        },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
+      expect([...result.blockingFlags, ...result.warningFlags].map((flag) => flag.key)).not.toContain("excluded_without_reason");
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 
 import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave } from "./fixtures";
@@ -183,6 +184,30 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
   await expect(page.getByText("À arbitrer avant remise", { exact: true })).toHaveCount(0);
 
+  // A second intake must synchronize the existing gaps without recreating critical defaults.
+  const originalDpgf = (await activeGaps()).find((entry) => entry.code === "missing_dpgf")!;
+  const importCorrespondence = async (name: string) => {
+    const response = await page.request.post(`/api/affaires/${projectId}/intake/files`, { multipart: {
+      files: { name, mimeType: "text/plain", buffer: Buffer.from("Courrier complémentaire fictif pour le devis manuel.") },
+    } });
+    expect(response.status()).toBe(201);
+    await expect.poll(async () => {
+      const docs = await client.from("affaire_intake_documents").select("classification_status")
+        .eq("project_id", projectId).eq("file_name", name);
+      expect(docs.error).toBeNull();
+      return docs.data?.length === 1 && !["queued", "processing"].includes(docs.data[0].classification_status);
+    }, { timeout: 60_000 }).toBe(true);
+    // The upload becomes terminal only after its register synchronization has finished.
+    await expect.poll(async () => {
+      const uploads = await client.from("affaire_intake_uploads").select("status").eq("project_id", projectId);
+      expect(uploads.error).toBeNull();
+      return uploads.data?.every((upload) => !["queued", "processing"].includes(upload.status));
+    }, { timeout: 60_000 }).toBe(true);
+  };
+  await importCorrespondence("courrier-complementaire.txt");
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
+  expect((await activeGaps()).find((entry) => entry.code === "missing_dpgf")?.id).toBe(originalDpgf.id);
+
   // The main flow must also offer manual work before a line or brief exists.
   await page.app.open(`/dashboard/affaires/${projectId}?view=overview`);
   await page.getByRole("button", { name: /Étude.*Structure, métrés et prix/ }).click();
@@ -213,4 +238,33 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
   await expect(page.getByText("À arbitrer avant remise", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Dossier de l'affaire", exact: true }).getByText("Accord écrit explicitement requis par le chargé d’étude", { exact: true })).toBeVisible();
+
+  // Seed an existing explicit override on the synchronized DPGF itself. The register
+  // currently exposes severity editing through its server action, without a UI control.
+  const requiredDpgf = (await activeGaps()).find((entry) => entry.code === "missing_dpgf")!;
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  if (backend.protocol !== "http:" || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
+      !["127.0.0.1", "localhost"].includes(backend.hostname) || !backend.port ||
+      ["45585", "33485"].includes(backend.port)) throw new Error("Overrides require the owned local stack.");
+  const owner = await client.auth.getUser();
+  const ownedProject = await client.from("estimate_projects").select("name,user_id").eq("id", projectId).single();
+  expect(ownedProject.error).toBeNull();
+  expect(ownedProject.data?.name).toBe(`${page.army.runPrefix}-Blank-dossier`);
+  expect(ownedProject.data?.user_id).toBe(owner.data.user!.id);
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("Owned prerequisite key is missing.");
+  const seed = createClient(backend.href, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const override = await seed.from("affaire_register_entries").update({
+    severity: "critical",
+    metadata: { ...requiredDpgf.metadata as Record<string, never>, severityDecision: {
+      mode: "manual", canonicalSeverity: "critical", overriddenSeverity: "critical",
+      updatedAt: new Date().toISOString(), updatedByUserId: owner.data.user!.id,
+    } },
+  }).eq("id", requiredDpgf.id).eq("project_id", projectId);
+  expect(override.error).toBeNull();
+  await importCorrespondence("courrier-apres-exigence.txt");
+  expect((await activeGaps()).find((entry) => entry.id === requiredDpgf.id)).toMatchObject({
+    severity: "critical", metadata: { severityDecision: { mode: "manual", canonicalSeverity: "warning" } },
+  });
+  expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toHaveLength(2);
 });

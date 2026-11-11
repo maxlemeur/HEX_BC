@@ -18,7 +18,7 @@ values
 -- Replay against populated legacy rows without a service JWT, as real migrations
 -- run as the DB owner. This catches authorization failures an empty replay cannot.
 select set_config('request.jwt.claims','{}',true);
-\ir ../../migrations/20261111130710_optional_dossier_documents.sql
+\ir ../../migrations/20261111195141_optional_dossier_documents_policy.sql
 select is(auth.jwt(), '{}'::jsonb, 'migration restores its caller claims');
 select is((select severity from public.affaire_register_entries where project_id='6d000000-0000-4000-8000-000000000002' and code='missing_dpgf'),'warning','existing automatic DPGF gap becomes advisory');
 select is((select status from public.affaire_register_entries where project_id='6d000000-0000-4000-8000-000000000002' and code='missing_dpgf'),'open','the advisory trace stays open');
@@ -29,5 +29,7 @@ select is((select severity from public.affaire_register_entries where project_id
 select is((select status from public.affaire_register_entries where project_id='6d000000-0000-4000-8000-000000000002' and code='missing_cctp'),'validated','backfill preserves the reviewed status');
 select is((select metadata #>> '{revalidationRequest,status}' from public.affaire_register_entries where project_id='6d000000-0000-4000-8000-000000000002' and code='missing_cctp'),'required','an explicit revalidation is preserved');
 select is((select count(*) from public.affaire_register_events where project_id='6d000000-0000-4000-8000-000000000002' and reason='intake.optional_documents'),3::bigint,'each system-policy change is audited');
+\ir ../../migrations/20261111195141_optional_dossier_documents_policy.sql
+select is((select count(*) from public.affaire_register_events where project_id='6d000000-0000-4000-8000-000000000002' and reason='intake.optional_documents'),3::bigint,'replaying the forward policy does not duplicate audit events');
 select * from finish();
 rollback;

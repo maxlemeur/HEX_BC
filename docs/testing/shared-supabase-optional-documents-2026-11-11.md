@@ -23,3 +23,11 @@ Le corps installé de `reconcile_affaire_plan_gap(uuid, uuid)` correspond exacte
 Cette preuve porte sur la migration partagée et les entrées existantes. Elle ne prouve ni fusion de la PR applicative, ni déploiement applicatif. L’ancien code d’intake peut encore recréer un manque DPGF critique lors d’un nouvel import jusqu’à l’activation du code compatible de la PR #210.
 
 Un checkpoint privé des seules valeurs modifiées et les vérifications avant/après sont conservés dans `outputs/optional-documents-shared-apply-20261111/`, hors Git. Il ne faut pas rétablir des valeurs sur des entrées modifiées ensuite par un utilisateur. Les événements d’audit conservent aussi les sévérités précédentes. Aucun document, montant, ligne de devis ou compte n’a été supprimé par la migration.
+
+## Consolidation forward et application compatible
+
+Après de nouvelles migrations sur `main`, le payload appliqué est conservé octet pour octet dans [`supabase/applied/20261111130710_optional_dossier_documents.sql`](../../supabase/applied/20261111130710_optional_dossier_documents.sql), avec le nom et le SHA-256 ci-dessus. L’identité distante `20261111190106` est inchangée ; ce fichier historique ne doit pas être rejoué par le runner de création d’une base neuve.
+
+La migration distincte [`20261111195141_optional_dossier_documents_policy.sql`](../../supabase/migrations/20261111195141_optional_dossier_documents_policy.sql) consolide cette politique dans l’historique ordonné actuel. Elle préserve les mêmes exigences manuelles et ne ré-audite pas les entrées déjà alignées. Elle n’a pas été appliquée au partagé par cette préparation. Aucun garde de migration n’est modifié ou contourné.
+
+L’application compatible normalise également les anciens défauts critiques au point de synchronisation des manques automatiques connus, avant d’appliquer les décisions manuelles. Les régressions couvrent un nouvel import puis la conservation d’une exigence critique sur la même entrée DPGF. L’activation locale seule ne constitue pas un déploiement de production.

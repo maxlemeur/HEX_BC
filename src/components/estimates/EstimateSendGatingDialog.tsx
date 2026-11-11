@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useId, useRef, useState } from "react";
 import { Loader2Icon, XIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -21,9 +21,20 @@ import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import {
+  ESTIMATE_STATUS_REASON_CODE_VALUES,
+  ESTIMATE_STATUS_REASON_CODES,
+  normalizeStatusReason,
+  statusReasonError,
+  type EstimateStatusReason,
+  type EstimateStatusReasonCode,
+} from "@/lib/estimates/status-reason";
+import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
   resolveEstimateReadinessCategoryFromGatingFlagKey,
 } from "@/lib/estimates/readiness";
+
+/** A line the send window names by its title and status (TI-682 lot C: lines excluded without a reason). */
+export type EstimateSendGatingLine = { id: string; title: string; statusLabel: string };
 
 type EstimateSendGatingDialogProps = {
   isOpen: boolean;
@@ -33,6 +44,10 @@ type EstimateSendGatingDialogProps = {
   warningFlags: EstimateSendGatingFlag[];
   canForce: boolean;
   projectId?: string | null;
+  /** The lines of `excluded_without_reason`, by title and status. */
+  statusReasonLines?: readonly EstimateSendGatingLine[];
+  /** Saves the internal reason of a line, then checks the send again; absent for a reader who cannot write the line. */
+  onSaveStatusReason?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
   onClose: () => void;
   onConfirm: () => void;
   onForceConfirm: () => void;
@@ -251,7 +266,7 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
       });
     }
   }
-  if (flag.itemIds.length > 0) {
+  if (flag.itemIds.length > 0 && flag.key !== "excluded_without_reason") {
     const preview = flag.itemIds.slice(0, 5).join(", ");
     detailsLines.push({
       key: "item-ids",
@@ -284,7 +299,127 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   );
 }
 
-function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null) {
+/**
+ * TI-682, lot C (D11, D25): one line excluded after « Non chiffrée » without its internal reason, entered on the spot.
+ * The checks are the database's (statusReasonError); the reason never reaches the client.
+ */
+function StatusReasonEntry({
+  line,
+  disabled,
+  onSave,
+}: {
+  line: EstimateSendGatingLine;
+  disabled: boolean;
+  onSave?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
+}) {
+  const id = useId();
+  const [code, setCode] = useState<EstimateStatusReasonCode | "">("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const save = async () => {
+    if (!onSave) return;
+    if (!code) {
+      setError("Choisissez un motif.");
+      return;
+    }
+    const message = statusReasonError({ code, note });
+    if (message) {
+      setError(message);
+      return;
+    }
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(line.id, normalizeStatusReason({ code, note }));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return (
+    <li className="rounded-lg bg-surface px-2.5 py-2" data-testid="estimate-send-gating-status-reason-line">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-xs font-medium text-foreground">{line.title}</span>
+        <Badge variant="outline" size="sm">{line.statusLabel}</Badge>
+      </div>
+      {onSave ? (
+        <div className="mt-2 grid gap-2">
+          <select
+            id={`${id}-code`}
+            className="estimate-input h-8 w-full text-xs"
+            aria-label={`Motif interne pour ${line.title}`}
+            value={code}
+            disabled={disabled || isSaving}
+            onChange={(event) => setCode(event.target.value as EstimateStatusReasonCode | "")}
+          >
+            <option value="">Choisir un motif</option>
+            {ESTIMATE_STATUS_REASON_CODE_VALUES.map((value) => (
+              <option key={value} value={value}>{ESTIMATE_STATUS_REASON_CODES[value]}</option>
+            ))}
+          </select>
+          <textarea
+            className="estimate-input min-h-14 w-full text-xs"
+            aria-label={`Précision du motif pour ${line.title}`}
+            placeholder={code === "other" ? "Précision obligatoire (10 à 500 caractères)" : "Précision facultative (10 à 500 caractères)"}
+            value={note}
+            maxLength={2000}
+            disabled={disabled || isSaving}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          {error ? <p role="alert" className="text-xs text-danger">{error}</p> : null}
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={`Enregistrer le motif de ${line.title}`}
+              disabled={disabled || isSaving}
+              onClick={() => void save()}
+            >
+              Enregistrer le motif
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function renderStatusReasonEntries(
+  flag: EstimateSendGatingFlag,
+  lines: readonly EstimateSendGatingLine[],
+  disabled: boolean,
+  onSave?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void,
+) {
+  if (flag.key !== "excluded_without_reason") return null;
+  const byId = new Map(lines.map((line) => [line.id, line]));
+  return (
+    <div className="mt-2">
+      <p className="mb-2 text-xs text-muted-foreground">
+        Ce motif est interne : il n&apos;est jamais transmis au client.
+      </p>
+      <ul className="space-y-2">
+        {flag.itemIds.map((itemId) => (
+          <StatusReasonEntry
+            key={itemId}
+            line={byId.get(itemId) ?? { id: itemId, title: "Ligne sans titre", statusLabel: "" }}
+            disabled={disabled}
+            onSave={onSave}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function renderFlags(
+  flags: EstimateSendGatingFlag[],
+  projectId?: string | null,
+  statusReason?: {
+    lines: readonly EstimateSendGatingLine[];
+    disabled: boolean;
+    onSave?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
+  },
+) {
   return (
     <ul className="space-y-2 text-sm">
       {flags.map((flag, index) => (
@@ -319,6 +454,9 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
                 {flag.description}
               </p>
               {renderFlagDetails(flag)}
+              {statusReason
+                ? renderStatusReasonEntries(flag, statusReason.lines, statusReason.disabled, statusReason.onSave)
+                : null}
               {registerAction ? (
                 <div className="mt-2 rounded-lg bg-surface px-2.5 py-2">
                   <p className="text-xs font-medium text-primary">
@@ -350,6 +488,8 @@ export function EstimateSendGatingDialog({
   warningFlags,
   canForce,
   projectId,
+  statusReasonLines = [],
+  onSaveStatusReason,
   onClose,
   onConfirm,
   onForceConfirm,
@@ -359,9 +499,12 @@ export function EstimateSendGatingDialog({
   const hasBlocking = blockingFlags.length > 0;
   const hasWarnings = warningFlags.length > 0;
   const canConfirmWithoutForce = !hasBlocking;
-  // TI-682 (D25): a « Non chiffrée » line is classified before sending; the server refuses any override meanwhile.
+  // TI-682 (D25): a « Non chiffrée » line is classified before sending, and a line excluded after it says why
+  // (lot C); the server refuses any override meanwhile.
   const hasNotForceable = blockingFlags.some((flag) =>
     (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(flag.key));
+  const hasNotPricedToClassify = blockingFlags.some((flag) => flag.key === "not_priced_unclassified");
+  const hasExcludedWithoutReason = blockingFlags.some((flag) => flag.key === "excluded_without_reason");
 
   return (
     <Dialog
@@ -408,10 +551,19 @@ export function EstimateSendGatingDialog({
               <p className="mb-2 text-xs text-muted-foreground">
                 Tant qu&apos;un point bloquant subsiste, l&apos;envoi au client reste en attente.
               </p>
-              {renderFlags(blockingFlags, projectId)}
-              {hasNotForceable && canForce ? (
+              {renderFlags(blockingFlags, projectId, {
+                lines: statusReasonLines,
+                disabled: isSubmitting,
+                onSave: onSaveStatusReason,
+              })}
+              {hasNotPricedToClassify && canForce ? (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Les lignes non chiffrées se classent avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;il en reste.
+                </p>
+              ) : null}
+              {hasExcludedWithoutReason && canForce ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Les lignes exclues après « Non chiffrée » se justifient avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;un motif manque.
                 </p>
               ) : null}
             </section>

@@ -18,6 +18,7 @@ import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
 
 import {
   buildAffaireFlowPanelModel,
+  isDpgfSourceImported,
   type AffaireFlowHierarchyPanelProps,
   type AffaireFlowPanelAction as PanelAction,
   type AffaireFlowPanelModel as PanelModel,
@@ -494,6 +495,9 @@ function ResultCard({
   projectId,
   card,
   intakeWorkspace,
+  dpgfImported,
+  plansSynced,
+  onImportDpgf,
   onOpenIntakeUpload,
   onExecuteSuggestion,
   hidePrimaryAction = false,
@@ -501,6 +505,10 @@ function ResultCard({
   projectId: string;
   card: PanelResultCard;
   intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"];
+  /** TI-670 : état réel du dossier, jamais supposé. */
+  dpgfImported: boolean;
+  plansSynced: boolean;
+  onImportDpgf?: () => void;
   onOpenIntakeUpload: () => void;
   hidePrimaryAction?: boolean;
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
@@ -1164,8 +1172,9 @@ function ResultCard({
                             documents={docsByCategory.get(category) ?? []}
                             projectId={projectId}
                             onReclassified={() => undefined}
-                            dpgfAlreadyImported={category === "dpgf" ? true : undefined}
-                            plansSynced={category === "plans" ? true : undefined}
+                            dpgfAlreadyImported={category === "dpgf" ? dpgfImported : undefined}
+                            onBridgeDpgfImport={category === "dpgf" ? onImportDpgf : undefined}
+                            plansSynced={category === "plans" ? plansSynced : undefined}
                           />
                         ))}
                       </div>
@@ -1191,8 +1200,9 @@ function ResultCard({
                             documents={docsByCategory.get(category) ?? []}
                             projectId={projectId}
                             onReclassified={() => undefined}
-                            dpgfAlreadyImported={category === "dpgf" ? true : undefined}
-                            plansSynced={category === "plans" ? true : undefined}
+                            dpgfAlreadyImported={category === "dpgf" ? dpgfImported : undefined}
+                            onBridgeDpgfImport={category === "dpgf" ? onImportDpgf : undefined}
+                            plansSynced={category === "plans" ? plansSynced : undefined}
                           />
                         ))}
                       </div>
@@ -1218,7 +1228,8 @@ function ResultCard({
                             documents={docsByCategory.get(category) ?? []}
                             projectId={projectId}
                             onReclassified={() => undefined}
-                            dpgfAlreadyImported={category === "dpgf" ? true : undefined}
+                            dpgfAlreadyImported={category === "dpgf" ? dpgfImported : undefined}
+                            onBridgeDpgfImport={category === "dpgf" ? onImportDpgf : undefined}
                           />
                         ))}
                     </div>
@@ -1243,8 +1254,9 @@ function ResultCard({
                             documents={docsByCategory.get(category) ?? []}
                             projectId={projectId}
                             onReclassified={() => undefined}
-                            dpgfAlreadyImported={category === "dpgf" ? true : undefined}
-                            plansSynced={category === "plans" ? true : undefined}
+                            dpgfAlreadyImported={category === "dpgf" ? dpgfImported : undefined}
+                            onBridgeDpgfImport={category === "dpgf" ? onImportDpgf : undefined}
+                            plansSynced={category === "plans" ? plansSynced : undefined}
                           />
                         ))}
                       </div>
@@ -1455,6 +1467,9 @@ export function AffaireFlowHierarchyPanel(
           card={model.resultCard}
           hidePrimaryAction={props.hidePreparationAction && isPreparationCard}
           intakeWorkspace={props.intakeWorkspace}
+          dpgfImported={isDpgfSourceImported(props.dpgfSource)}
+          plansSynced={(props.plansSummary?.planSetCount ?? 0) > 0}
+          onImportDpgf={props.onImportDpgf}
           onOpenIntakeUpload={handleOpenIntakeUpload}
           onExecuteSuggestion={props.onExecuteSuggestion}
         />

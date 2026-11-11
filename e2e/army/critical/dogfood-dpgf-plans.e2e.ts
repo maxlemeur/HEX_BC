@@ -307,3 +307,82 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
   expect((await client.storage.from("plan-files").download(saved.data!.file_path)).data).toBeNull();
   await recordEvidence(ui.army, "DOG04-intake-plan-copy", { ids, documentId: copy.documentId, setId: set.id, fileId: plan.id, sha256, directDeletionRefused: true, sourceDeletionSucceeded: true });
 });
+
+// TI-670: the study panel of the hub used to mark every classified DPGF « Importée » without any import, and the
+// only « Lancer l'import structuré » button was rendered in a state that has no document. The journey follows the
+// path a user sees, with no deep link: the affaire, its documents, « Vue d’ensemble », the Étude stage and its tools.
+armyTest("DOG05 study panel offers the import of a classified DPGF and marks it imported only afterwards", {
+  session: "army", trace: "off", tags: ["critical", "dpgf", "local"], timeout: 240_000,
+}, async (ui) => {
+  const { army, app, screen } = ui;
+  const { client, userId } = await requireOwnedApplication(ui);
+  const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DOG05`, title: "Dossier fictif" }, army);
+  const project = await client.from("estimate_projects").select("id,tenant_id").eq("id", ids.projectId).single();
+  expect(project.error).toBeNull();
+  const bytes = await readFile(path.resolve("public/exemple-dpgf.xlsx"));
+  const file = new File([bytes], "exemple-dpgf.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const copy = await seedStoredIntakeCopy(client, { tenantId: project.data!.tenant_id, projectId: ids.projectId, userId, file, bytes,
+    classification: { classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.4 } });
+  (army.ownedIntakeCopies ??= []).push({ projectId: ids.projectId, storagePath: copy.storagePath });
+
+  const navigation = screen.getByRole("navigation", "Navigation de l'affaire", { exact: true });
+  const openStudyTools = async () => {
+    await navigation.getByRole("button", /^Vue d’ensemble/).click();
+    const stage = screen.getByRole("button", /Étude/);
+    if (await stage.getAttribute("aria-expanded") !== "true") await stage.click();
+    const tools = screen.getByText("Choisir la base du devis et les métrés", { exact: true });
+    await tools.click();
+    await expect(screen.getByText("Prochaine étape", { exact: true })).toBeVisible();
+  };
+  const dpgfCard = () => screen.getByRole("button", /^DPGF/);
+
+  // The user classifies the piece as a DPGF from the documents of the dossier.
+  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await navigation.getByRole("button", /^Vue d’ensemble/).click();
+  await screen.getByRole("button", "Ouvrir les documents", { exact: true }).click();
+  await screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
+  const details = screen.getByRole("dialog", "Document et détails", { exact: true });
+  await details.getByRole("button", "Reclasser", { exact: true }).click();
+  await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "dpgf" });
+  await details.getByRole("button", "Valider", { exact: true }).click();
+  await expect(details.getByRole("button", "Supprimer la copie", { exact: true })).toBeEnabled();
+  await details.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(details).toBeHidden();
+  await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).click();
+
+  // Classified, never imported: no « Importée » badge, and the import is offered on the card.
+  expect((await client.from("dpgf_imports").select("id").eq("project_id", ids.projectId)).data).toEqual([]);
+  await openStudyTools();
+  await expect(dpgfCard()).toBeVisible();
+  await expect(dpgfCard().getByText("Importée", { exact: true })).toHaveCount(0);
+  const beforeScreenshot = await app.screenshot("DOG05-dpgf-not-imported");
+  await screen.getByRole("button", "Lancer l'import structuré", { exact: true }).click();
+  await expect(screen.getByRole("button", "Lancer l'import", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(screen.getByText(/DPGF du dossier.*exemple-dpgf\.xlsx/)).toBeVisible();
+  await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
+  const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
+  const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
+  await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), { timeout: 30_000 }).toBe(true);
+  const imports = await client.from("dpgf_imports").select("id,status,row_count").eq("project_id", ids.projectId);
+  expect(imports.error).toBeNull();
+  expect(imports.data).toHaveLength(1);
+  expect(imports.data![0]).toMatchObject({ status: "completed", row_count: 8 });
+  const raw = await client.from("dpgf_rows_raw").select("payload").eq("import_id", imports.data![0].id).order("row_index").limit(1);
+  expect(raw.data![0].payload).toMatchObject({ _timax_provenance: { source_document_id: copy.documentId } });
+
+  if (await editMapping.isVisible()) await editMapping.click();
+  await nextMapping.click();
+  await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
+  await screen.getByRole("button", "Créer le chiffrage", { exact: true }).click();
+  await expect(screen.getByRole("heading", "Devis créé", { exact: true })).toBeVisible({ timeout: 45_000 });
+
+  // Once an import of the affaire is completed, the card says so and stops offering it.
+  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await openStudyTools();
+  await expect(dpgfCard().getByText("Importée", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("button", "Lancer l'import structuré", { exact: true })).toHaveCount(0);
+  const afterScreenshot = await app.screenshot("DOG05-dpgf-imported");
+  await recordEvidence(army, "DOG05-study-panel-dpgf-import", { ids, documentId: copy.documentId, importId: imports.data![0].id,
+    screenshots: [beforeScreenshot, afterScreenshot],
+    scope: "Fictional stored dossier copy in the owned native stack; no Google OAuth or AI provider call." });
+});

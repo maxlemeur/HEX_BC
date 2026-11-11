@@ -29,7 +29,7 @@ import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guar
 import { quantityEntryLabel } from "@/lib/takeoff/quantity-entry";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
-import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
+import { TAKEOFF_RULE_LABELS, ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import {
   acceptanceOf,
@@ -757,16 +757,29 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
               <p className="text-xs text-foreground-secondary">Les plans du niveau ne se superposent pas : aucun tronçon commun n’a pu être mesuré. Acceptez la ligne (V) une fois vérifiée, ou excluez-la.</p>
             ) : (
               <p className="text-foreground-secondary">
-                {guidance.kind === "pair" ? "Longueur comptée deux fois" : "Longueur dessinée par les autres lignes"} :{" "}
+                {guidance.kind !== "pair" ? "Longueur dessinée par les autres lignes"
+                  : guidance.partners.some((partner) => partner.differs) ? "Longueur dessinée au même endroit" : "Longueur comptée deux fois"} :{" "}
                 <span className="font-mono font-semibold tabular-nums text-foreground">{metres(guidance.overlap_m ?? 0)}</span>
               </p>
             )}
+            {guidance.kind !== "unregistered" && guidance.partners.some((partner) => partner.differs) ? (
+              <p className="text-xs text-foreground-secondary">
+                Une autre page dessine ce tronçon au même endroit avec une autre lecture : même tronçon mal lu sur l’une des pages
+                (il est alors compté deux fois), ou deux tuyaux distincts. Corrigez ou excluez la ligne mal lue ; si ce sont deux tuyaux,
+                acceptez (V) une fois vérifié.
+              </p>
+            ) : null}
             {guidance.partners.length > 0 ? (
               <ul aria-label="Lignes des autres zones" className="space-y-1">
                 {guidance.partners.map((partner) => (
                   <li key={partner.item_id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-xs">
                     <Badge size="sm" variant="outline">{partner.zone ?? "Autre page"}</Badge>
                     <span className="min-w-0 flex-1 truncate" title={partner.designation}>{partner.designation}</span>
+                    {partner.differs ? (
+                      <Badge size="sm" variant="warning">
+                        Lu autrement : {partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")}
+                      </Badge>
+                    ) : null}
                     <span className="shrink-0 font-mono tabular-nums">{metres(partner.overlap_m)}</span>
                     {partner.job_id === jobId ? (
                       partnerListed(partner.item_id)

@@ -1,4 +1,5 @@
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
+import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
@@ -97,7 +98,8 @@ async function readItemPages(input: ItemsScope, filter?: { column: "id" | "paren
           throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");
         }
         ids.add(item.id);
-        items.push({ ...item, fo_price_origin: foPriceOriginSchema.nullable().default(null).parse(item.fo_price_origin) });
+        items.push({ ...item, fo_price_origin: foPriceOriginSchema.nullable().default(null).parse(item.fo_price_origin),
+          status_reason: estimateStatusReasonSchema.nullable().default(null).parse(item.status_reason) });
       }
       if (items.length > count || batch.length > pageSize) {
         throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");

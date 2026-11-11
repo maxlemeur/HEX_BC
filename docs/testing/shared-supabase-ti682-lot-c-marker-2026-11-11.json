@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-11",
+  "status": "completed",
+  "previousReceipt": "docs/testing/shared-supabase-ti682-lot-b-2026-11-11.json",
+  "sourceCommit": "dca48980f17b04efd2ecb790dc48920d61545edc",
+  "sourcePullRequest": {
+    "url": "https://github.com/maxlemeur/HEX_BC/pull/211",
+    "state": "MERGED",
+    "mergeCommit": "dca48980f17b04efd2ecb790dc48920d61545edc",
+    "mergedAt": "2026-11-11T14:03:42Z"
+  },
+  "target": {
+    "projectName": "bon_de_commande",
+    "environment": "MergeOne / HEX_BC shared Supabase, also production",
+    "identityVerifiedWithConnector": true,
+    "projectReferenceOmitted": true
+  },
+  "authorization": "Thanh explicitly authorized this exact migration and its verification by sending the task message on 2026-11-11. No other migration, deployment or business-data change was authorized.",
+  "migrations": [
+    {
+      "name": "takeoff_hypothesis_provision_marker",
+      "repositoryVersion": "20261111124022",
+      "path": "supabase/migrations/20261111124022_takeoff_hypothesis_provision_marker.sql",
+      "bytes": 7780,
+      "sha256": "68f852010a64c62542ec95d64844cefad4bab1d9a637800da452ddb5e4923f3d",
+      "manifestMatches": true,
+      "applicationTool": "Supabase MCP apply_migration",
+      "applicationResult": {
+        "success": true
+      },
+      "applied": {
+        "observed_at": "2026-11-11 16:15:02.812132+00",
+        "version": "20261111161439",
+        "name": "takeoff_hypothesis_provision_marker",
+        "statements": 1,
+        "bytes": 7780,
+        "sha256": "68f852010a64c62542ec95d64844cefad4bab1d9a637800da452ddb5e4923f3d",
+        "stored_statement_equals_full_file": true
+      },
+      "storedStatementEqualsFullFile": true
+    }
+  ],
+  "preflight": {
+    "observed_at": "2026-11-11 16:12:41.529211+00",
+    "historyRows": 373,
+    "latestMigration": {
+      "name": "takeoff_hypothesis_preselection",
+      "version": "20261111101306"
+    },
+    "repositoryMigrationsCompared": 320,
+    "comparisonMethod": "Match repository version, full canonical filename stem or timestamp-stripped historical name. Require every documented remote part for the two established historical split migrations.",
+    "legacySplitReference": "docs/testing/shared-supabase-ti682-lot-b-2026-11-11.json",
+    "onlyMissingMigration": "supabase/migrations/20261111124022_takeoff_hypothesis_provision_marker.sql",
+    "hypothesisCauseFunction": "takeoff_item_hypothesis_cause(jsonb,text)",
+    "markerHasHypothesisCause": false,
+    "functions": [
+      {
+        "observed_at": "2026-11-11 16:14:09.493041+00",
+        "schema": "private",
+        "proname": "takeoff_mark_provisions",
+        "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_version_id uuid, p_item_links jsonb, p_created_ids uuid[]",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "b4414fc1176013fa8f7519ad1359eaf4236560a12df79041363eb8ab3e8f4fa0",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": false
+      },
+      {
+        "observed_at": "2026-11-11 16:14:09.493071+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "bf211daa116cafa19f264e4c43851d016e63a564be979f1a01e56d194250abf5",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:09.493077+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_guarded_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "fb2975b908cf2f79f21698df96786a3ae13391743b18ca9742ed6dabb0e65b4f",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": true,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:09.493081+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_guarded_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "905c3da36a6accac7bedaf54c843aacf37db558730ec095f703de22818dadc0c",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": true,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:09.493085+00",
+        "schema": "public",
+        "proname": "takeoff_item_hypothesis_cause",
+        "identity_arguments": "p_metadata jsonb, p_quantity_entry_category text",
+        "security_definer": false,
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "owner": "postgres",
+        "volatility": "i",
+        "body_sha256": "e4de81df21d6872172afee60534e4f61b77828cb3453c52057c0f3cd15bb2998",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": true
+      }
+    ]
+  },
+  "history": {
+    "before": 373,
+    "after": 374,
+    "added": [
+      {
+        "name": "takeoff_hypothesis_provision_marker",
+        "version": "20261111161439"
+      }
+    ],
+    "removed": [],
+    "observedAfterAt": "2026-11-11 16:14:59.011413+00",
+    "latestMigration": {
+      "name": "takeoff_hypothesis_provision_marker",
+      "version": "20261111161439"
+    }
+  },
+  "postChecks": {
+    "markerHasHypothesisCause": true,
+    "expectedMarkerBodySha256": "58daeef7217e408c2b4fd393c3ae3e441039352d558e805e129ebb6a985d67cf",
+    "markerBodyMatchesSource": true,
+    "markerOwnerSecurityAndPermissionsUnchanged": true,
+    "otherObservedFunctionsUnchanged": true,
+    "functions": [
+      {
+        "observed_at": "2026-11-11 16:14:56.712078+00",
+        "schema": "private",
+        "proname": "takeoff_mark_provisions",
+        "identity_arguments": "p_job_id uuid, p_tenant_id uuid, p_version_id uuid, p_item_links jsonb, p_created_ids uuid[]",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "58daeef7217e408c2b4fd393c3ae3e441039352d558e805e129ebb6a985d67cf",
+        "has_hypothesis_cause": true,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": false
+      },
+      {
+        "observed_at": "2026-11-11 16:14:56.71274+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "bf211daa116cafa19f264e4c43851d016e63a564be979f1a01e56d194250abf5",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:56.712751+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_guarded_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "fb2975b908cf2f79f21698df96786a3ae13391743b18ca9742ed6dabb0e65b4f",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": true,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:56.712756+00",
+        "schema": "public",
+        "proname": "apply_takeoff_job_guarded_atomic",
+        "identity_arguments": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+        "security_definer": true,
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "volatility": "v",
+        "body_sha256": "905c3da36a6accac7bedaf54c843aacf37db558730ec095f703de22818dadc0c",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": true,
+        "execute_service_role": true
+      },
+      {
+        "observed_at": "2026-11-11 16:14:56.71276+00",
+        "schema": "public",
+        "proname": "takeoff_item_hypothesis_cause",
+        "identity_arguments": "p_metadata jsonb, p_quantity_entry_category text",
+        "security_definer": false,
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "owner": "postgres",
+        "volatility": "i",
+        "body_sha256": "e4de81df21d6872172afee60534e4f61b77828cb3453c52057c0f3cd15bb2998",
+        "has_hypothesis_cause": false,
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": true
+      }
+    ]
+  },
+  "securityAdvisors": {
+    "comparison": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "before": 24,
+        "after": 24,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "before": 70,
+        "after": 70,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "before": 1,
+        "after": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+      }
+    ],
+    "identitiesBefore": 95,
+    "identitiesAfter": 95,
+    "addedFindings": [],
+    "removedFindings": [],
+    "comparisonMethod": "Expand grouped findings and compare name, level, detail and metadata with sorted object keys; ignore observed_at only."
+  },
+  "evidence": {
+    "runDirectory": "outputs/shared-supabase-ti682-lot-c-marker-20261111",
+    "localSummary": "outputs/shared-supabase-ti682-lot-c-marker-20261111/verification-summary.json",
+    "procedure": "supabase/README.md#appliquer-sur-une-base-partagée",
+    "queries": {
+      "history": "select clock_timestamp() as observed_at, (select count(*) from supabase_migrations.schema_migrations) as history_rows, (select jsonb_agg(jsonb_build_object('version',version,'name',name) order by version) from supabase_migrations.schema_migrations) as migrations, to_regprocedure('public.takeoff_item_hypothesis_cause(jsonb,text)')::text as hypothesis_cause_function, to_regprocedure('private.takeoff_mark_provisions(uuid,uuid,uuid,jsonb,uuid[])')::text as marker_function, (select strpos(prosrc,'hypothesis_cause') > 0 from pg_proc where oid=to_regprocedure('private.takeoff_mark_provisions(uuid,uuid,uuid,jsonb,uuid[])')) as marker_has_hypothesis_cause;",
+      "functions": "select clock_timestamp() as observed_at, n.nspname as schema, p.proname, pg_get_function_identity_arguments(p.oid) as identity_arguments, p.prosecdef as security_definer, p.proconfig as config, pg_get_userbyid(p.proowner) as owner, p.provolatile as volatility, encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex') as body_sha256, strpos(p.prosrc,'hypothesis_cause') > 0 as has_hypothesis_cause, exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE') as execute_public, has_function_privilege('anon',p.oid,'EXECUTE') as execute_anon, has_function_privilege('authenticated',p.oid,'EXECUTE') as execute_authenticated, has_function_privilege('service_role',p.oid,'EXECUTE') as execute_service_role from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname,p.proname) in (('private','takeoff_mark_provisions'),('public','takeoff_item_hypothesis_cause'),('public','apply_takeoff_job_guarded_atomic'),('public','apply_takeoff_job_atomic'),('public','finalize_takeoff_lengths')) order by n.nspname,p.proname,pg_get_function_identity_arguments(p.oid);",
+      "storedStatementVerification": {
+        "queryTemplate": "select clock_timestamp() as observed_at, version, name, cardinality(statements) as statements, octet_length(array_to_string(statements, '')) as bytes, encode(sha256(convert_to(array_to_string(statements, ''), 'UTF8')), 'hex') as sha256, cardinality(statements)=1 and statements[1]=$ti682_exact$<EXACT_SOURCE_FILE_CONTENT>$ti682_exact$ as stored_statement_equals_full_file from supabase_migrations.schema_migrations where name='takeoff_hypothesis_provision_marker';",
+        "substitution": "<EXACT_SOURCE_FILE_CONTENT> was replaced with the full sourceCommit:path blob including its final newline.",
+        "path": "supabase/migrations/20261111124022_takeoff_hypothesis_provision_marker.sql",
+        "sha256": "68f852010a64c62542ec95d64844cefad4bab1d9a637800da452ddb5e4923f3d"
+      }
+    }
+  },
+  "limitations": [
+    "Read-only catalogue and exact migration-application evidence; no authenticated business journey or release qualification.",
+    "The migration only replaces a function, its comment and existing revocations; its UPDATE belongs to the function body and was not executed by this task. No function invocation, backfill or business-data write probe was run.",
+    "No application suites or local database campaign: the repository change is a documentation-only receipt; migration SQL and application sources are unchanged.",
+    "Pre-existing security advice remains open; no finding was added or removed."
+  ],
+  "deployment": false,
+  "vercelTouched": false,
+  "environmentVariablesChanged": false,
+  "otherMigrationsApplied": [],
+  "rollbackExecuted": false,
+  "businessRowsWrittenByMigration": false,
+  "businessRowsWrittenByChecks": false,
+  "canonicalWorkingDirectoryModified": false
+}

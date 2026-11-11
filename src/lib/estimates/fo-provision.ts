@@ -21,11 +21,20 @@ export const DEFAULT_FO_PROVISION = 1.01;
 export type FoProvisionValue = number | { value: number; transportSensitive: boolean };
 export type FoProvisionBySupplyTypeId = ReadonlyMap<string, FoProvisionValue>;
 
+/** Nature d'une ligne, lue pour la seule règle POSE SEULE. */
+type FoProvisionNature = { line_nature?: string | null };
+
+/**
+ * Une ligne POSE SEULE ne prend ni pertes ni transport, même quand elle porte une petite fourniture nécessaire à la
+ * pose (réponse de Maxime du 11/11/2026) : sa provision vaut 1 tant qu'elle garde cette nature.
+ */
 export function deriveFoProvision(
   supplyTypeId: string | null | undefined,
   provisions: FoProvisionBySupplyTypeId,
-  origin?: unknown
+  origin?: unknown,
+  lineNature?: string | null
 ): number {
+  if (lineNature === "pose_only") return 1;
   const setting = supplyTypeId ? provisions.get(supplyTypeId.toLowerCase()) : undefined;
   if (typeof setting === "object") return setting.transportSensitive && readFoPriceOrigin(origin)?.transport_mode === "included" ? 1.01 : setting.value;
   return setting ?? DEFAULT_FO_PROVISION;
@@ -36,21 +45,27 @@ export function supplyTypeChanged(previous: string | null | undefined, next: str
   return (previous ?? null)?.toLowerCase() !== (next ?? null)?.toLowerCase();
 }
 
+/** Une ligne qui devient POSE SEULE ou qui cesse de l'être : sa provision se redérive, comme dans le déclencheur. */
+export function poseOnlyChanged(previous: string | null | undefined, next: string | null | undefined): boolean {
+  return (previous === "pose_only") !== (next === "pose_only");
+}
+
 /**
  * Miroir local du déclencheur pour une ligne v3 de l'éditeur : un correctif qui change le type FO redérive la
  * provision depuis le type, tout autre correctif garde la provision de la ligne en place (une ligne antérieure garde
  * 1,000), même quand il rétablit un état antérieur (annuler, rétablir) qui portait une autre provision.
  */
-export function withRederivedFoProvision<T extends FoPriceLine & { supply_type_id: string | null; fo_provision?: number | null }>(
-  previous: (FoPriceLine & Pick<T, "supply_type_id" | "fo_provision">) | undefined,
+export function withRederivedFoProvision<T extends FoPriceLine & FoProvisionNature & { supply_type_id: string | null; fo_provision?: number | null }>(
+  previous: (FoPriceLine & FoProvisionNature & Pick<T, "supply_type_id" | "fo_provision">) | undefined,
   next: T,
   provisions: FoProvisionBySupplyTypeId
 ): T {
   if (!previous) return next;
   next = clearStaleFoPriceOrigin(previous, next);
   if (supplyTypeChanged(previous.supply_type_id, next.supply_type_id) ||
-      !sameFoPriceOrigin(previous.fo_price_origin, next.fo_price_origin)) {
-    return { ...next, fo_provision: deriveFoProvision(next.supply_type_id, provisions, next.fo_price_origin) };
+      !sameFoPriceOrigin(previous.fo_price_origin, next.fo_price_origin) ||
+      poseOnlyChanged(previous.line_nature, next.line_nature)) {
+    return { ...next, fo_provision: deriveFoProvision(next.supply_type_id, provisions, next.fo_price_origin, next.line_nature) };
   }
   return previous.fo_provision === undefined || previous.fo_provision === next.fo_provision
     ? next
@@ -62,7 +77,7 @@ export function withRederivedFoProvision<T extends FoPriceLine & { supply_type_i
  * le type FO reprend la provision de ce type, comme l'écriture la redérivera ; toute autre ligne reste telle quelle.
  */
 export function withBufferedFoProvision<
-  T extends FoPriceLine & { item_type: string; supply_type_id: string | null; fo_provision?: number | null },
+  T extends FoPriceLine & FoProvisionNature & { item_type: string; supply_type_id: string | null; fo_provision?: number | null },
 >(source: T, merged: T, provisions: FoProvisionBySupplyTypeId, isV3: boolean): T {
   return isV3 && merged.item_type === "line" ? withRederivedFoProvision(source, merged, provisions) : merged;
 }

@@ -5,6 +5,7 @@ import type { MeasuredNetwork, NetworkRun } from "@/lib/takeoff/vectors/measure"
 import {
   budgetVectorItems, VECTOR_GEOMETRY_LIMITS, VECTOR_PAGE_LIMITS, vectorItemRecords, vectorPageRecord, VectorPageRecordSchema, type VectorItemRecord,
   type VectorPageDecisions,
+  locationFromFileName,
 } from "@/lib/takeoff/vectors/persistence";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
@@ -74,6 +75,26 @@ function runs(count: number, insulated = 0): NetworkRun[] {
 const location = { zone: "Z1", level: "R+1", source: "file_name" as const };
 const drawn = (segments: ReadonlyArray<readonly [number, number, number, number]>) =>
   segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0);
+
+describe("locationFromFileName, free printed levels of the scope (TI-687)", () => {
+  it("keeps the known tokens it read before, with or without declared labels", () => {
+    expect(locationFromFileName("Plan R+4 Z2.pdf")).toEqual({ zone: "Z2", level: "R+4", source: "file_name" });
+    expect(locationFromFileName("Plan R+4 L00 Z2.pdf", ["L00"])).toEqual({ zone: "Z2", level: "R+4", source: "file_name" });
+    expect(locationFromFileName("Plan.pdf", ["L00"])).toEqual({ zone: null, level: null, source: null });
+  });
+
+  it("reads one declared label as written, and none without a declaration", () => {
+    expect(locationFromFileName("DC_L00_PLB_Z1.pdf", ["L00", "L01", "GANTRY"])).toEqual({ zone: "Z1", level: "L00", source: "file_name" });
+    expect(locationFromFileName("DC GANTRY CHW.pdf", ["L00", "L01", "GANTRY"])).toEqual({ zone: null, level: "GANTRY", source: "file_name" });
+    expect(locationFromFileName("DC_L00_PLB.pdf")).toEqual({ zone: null, level: null, source: null });
+  });
+
+  it("leaves the level empty when the label is in another case, inside a longer token, or when two labels fit", () => {
+    expect(locationFromFileName("dc gantry.pdf", ["GANTRY"]).level).toBeNull();
+    expect(locationFromFileName("DC_XL001_L00A.pdf", ["L00"]).level).toBeNull();
+    expect(locationFromFileName("DC_L00_L01.pdf", ["L00", "L01"]).level).toBeNull();
+  });
+});
 
 describe("vectorItemRecords over the segment limit of a geometry", () => {
   it("keeps a total up to the segment limit as one record of all its centrelines", () => {

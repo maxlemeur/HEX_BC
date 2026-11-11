@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { takeoffTextPrintsLevel } from "@/lib/takeoff/page-triage";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
 import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
 import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
@@ -126,10 +127,15 @@ export type VectorItemGeometry = z.infer<typeof VectorItemGeometrySchema>;
 const LEVEL = /(?:^|[^A-Z0-9])(RDC|R\+\d{1,2}|R-\d{1,2}|SS\d{1,2}|N\d{1,2})(?![A-Z0-9])/i;
 const ZONE = /(?:^|[^A-Z0-9])(Z\d{1,2})(?![A-Z0-9])/i;
 
-/** Zone and level read in a file name (« Plan R+4 Z2.pdf »), the fallback before TI-663's page triage. */
-export function locationFromFileName(fileName: string) {
+/**
+ * Zone and level read in a file name (« Plan R+4 Z2.pdf »), the fallback before TI-663's page triage. Without a known
+ * level, the one free level of the preparation scope the name prints as written (« DC_L00_PLB.pdf », TI-687); two
+ * labels in one name leave the level empty, and a page without level is compared with no other.
+ */
+export function locationFromFileName(fileName: string, freeLevels: readonly string[] = []) {
   const name = fileName.normalize("NFC").replace(/\.pdf$/i, "");
-  const level = LEVEL.exec(name)?.[1]?.toUpperCase() ?? null;
+  const printed = freeLevels.filter((label) => takeoffTextPrintsLevel(name, label));
+  const level = LEVEL.exec(name)?.[1]?.toUpperCase() ?? (printed.length === 1 ? printed[0] : null);
   const zone = ZONE.exec(name)?.[1]?.toUpperCase() ?? null;
   return { zone, level, source: level || zone ? ("file_name" as const) : null };
 }

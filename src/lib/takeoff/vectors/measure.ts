@@ -15,7 +15,7 @@ import {
   type Segment,
 } from "@/lib/takeoff/vectors/geometry";
 import type { LabelBlock } from "@/lib/takeoff/vectors/labels";
-import { commonNetwork, PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
+import { commonNetwork, isTintOrShade, PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 
 // Network lengths of a page (TI-662 step 4). A pipe is drawn as a band: two
@@ -81,7 +81,7 @@ import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.
 
-export const MEASURE_RULE_VERSION = 8;
+export const MEASURE_RULE_VERSION = 9;
 export const BAND_GAP_PT = 2.5;
 export const BAND_MAX_PT = 7;
 export const RUN_GAP_PT = 1;
@@ -441,6 +441,15 @@ export function leaderTips(block: LabelBlock, leaders: SegmentIndex): Point[] {
 
 /** Votes needed, and agreement among them, for a label vote to classify a colour group. */
 export const LABEL_VOTES = { minimum: 2, agreement: 0.8 } as const;
+/** Votes for its network a colour needs, classified by its own votes, to stand as the proof of its tint family. */
+export const LABEL_FAMILY = { provenVotes: 5 } as const;
+
+/** The leading network of a tally, its votes and all the votes. */
+function leadingVote(tally: ReadonlyMap<NetworkCode, number>) {
+  const total = [...tally.values()].reduce((sum, count) => sum + count, 0);
+  const [network, count] = [...tally.entries()].sort((left, right) => right[1] - left[1])[0];
+  return { network, count, total };
+}
 
 /**
  * Label votes (keywords printed on the plan, TI-662 step 3): a colour group
@@ -448,6 +457,17 @@ export const LABEL_VOTES = { minimum: 2, agreement: 0.8 } as const;
  * lie at the end of the leaders of at least LABEL_VOTES.minimum labels naming
  * one network (80 % of its votes) takes that network. Plans whose legend omits
  * a network (chilled water « EG-A / EG-R » beside an air legend) are read this way.
+ * A pipe is drawn as a band, its outline in one colour and its fill in a tint of it, and a leader may end on
+ * the pipe drawn beside it: a group whose own votes fall under that agreement still takes the network more than
+ * half of them name (3 votes at least, then: 2 agreeing votes classify it by themselves) when
+ * - a colour of its tint family (a tint or a shade of its colour, or the colour it is a tint or a shade of;
+ *   another width of its own colour is no tint) has that network by its own votes, at least
+ *   LABEL_FAMILY.provenVotes of them for that network,
+ * - no colour of the family has another network by its own votes (one outline colour would border pipes of
+ *   two networks: it stays « à revoir », however many votes the first one has), and
+ * - the votes of the group and of its whole family, counted together, reach the agreement for that network.
+ * A group with a single vote of its own, or none, is never classified by its family; near-white, grey and dark
+ * groups get no vote, so they never are either.
  */
 export function classifyByLabels(model: PageModel, classes: readonly GroupClass[], labels: readonly LabelBlock[]): GroupClass[] {
   const width = Math.max(model.extraction.width, 1);
@@ -475,13 +495,35 @@ export function classifyByLabels(model: PageModel, classes: readonly GroupClass[
     tally.set(network, (tally.get(network) ?? 0) + 1);
     votes.set(best.group, tally);
   }
+  const voted = new Map<number, NetworkCode>();
+  for (const [group, tally] of votes) {
+    const { network, count, total } = leadingVote(tally);
+    if (total >= LABEL_VOTES.minimum && count / total >= LABEL_VOTES.agreement) voted.set(group, network);
+  }
+  // Tint families: the groups voted on whose colour is a tint or a shade of the group's, or the other way round.
+  const colorOf = (group: number) => model.groups[group].key.color;
+  const familyOf = (group: number) => [...votes.keys()].filter((other) => other !== group
+    && (isTintOrShade(colorOf(other), colorOf(group)) || isTintOrShade(colorOf(group), colorOf(other))));
+  const byFamily = new Map<number, NetworkCode>();
+  for (const [group, tally] of votes) {
+    if (voted.has(group)) continue;
+    const own = leadingVote(tally);
+    if (own.total < LABEL_VOTES.minimum || 2 * own.count <= own.total) continue;
+    const family = familyOf(group);
+    if (!family.some((other) => voted.get(other) === own.network && leadingVote(votes.get(other) as Map<NetworkCode, number>).count >= LABEL_FAMILY.provenVotes)) continue;
+    if (family.some((other) => voted.has(other) && voted.get(other) !== own.network)) continue;
+    let total = 0, agreeing = 0;
+    for (const member of [group, ...family]) {
+      for (const [network, count] of votes.get(member) as Map<NetworkCode, number>) {
+        total += count;
+        if (network === own.network) agreeing += count;
+      }
+    }
+    if (agreeing / total >= LABEL_VOTES.agreement) byFamily.set(group, own.network);
+  }
   return classes.map((entry, group) => {
-    const tally = votes.get(group);
-    if (!tally) return entry;
-    const total = [...tally.values()].reduce((sum, count) => sum + count, 0);
-    const [network, count] = [...tally.entries()].sort((left, right) => right[1] - left[1])[0];
-    if (total < LABEL_VOTES.minimum || count / total < LABEL_VOTES.agreement) return entry;
-    return { class: network, source: "label", confidence: null, candidates: [] };
+    const network = voted.get(group) ?? byFamily.get(group);
+    return network === undefined ? entry : { class: network, source: "label", confidence: null, candidates: [] };
   });
 }
 
