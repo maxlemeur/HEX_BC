@@ -138,7 +138,10 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
                           value={category}
                           disabled={pending}
                           onChange={(event) => {
-                            setDrafts((prior) => ({ ...prior, [document.documentId]: event.target.value as AffaireIntakeDocumentKind }));
+                            const value = event.target.value as AffaireIntakeDocumentKind;
+                            setDrafts((prior) => value === document.detectedCategory
+                              ? Object.fromEntries(Object.entries(prior).filter(([id]) => id !== document.documentId))
+                              : { ...prior, [document.documentId]: value });
                             setError(null);
                             setMessage("");
                           }}

@@ -176,18 +176,19 @@ test("AI confidence stays distinct from human validation in dossier and drawer",
   await expect(drawer.getByRole("button", { name: documents[0].name, exact: true })).toHaveCount(0);
   await expect(drawer.getByRole("button", { name: documents[2].name, exact: true })).toBeVisible();
   await drawer.getByRole("button", { name: /^À vérifier/ }).click();
+  await aiCategory.selectOption({ value: "cctp" });
   await expect(aiRow.getByRole("button", { name: "Valider", exact: true })).toBeVisible();
   await aiRow.getByRole("button", { name: "Valider", exact: true }).click();
   await expect(drawer.getByText("1 document enregistré.", { exact: true })).toBeVisible();
-  const stored = await client.from("affaire_intake_documents").select("classification_source,classified_by,confidence")
+  const stored = await client.from("affaire_intake_documents").select("document_kind,classification_source,classified_by,confidence")
     .eq("id", documents[0].id).single();
-  expect(stored.data).toEqual({ classification_source: "manual", classified_by: userId, confidence: 1 });
-  await page.reload();
+  expect(stored.data).toEqual({ document_kind: "cctp", classification_source: "manual", classified_by: userId, confidence: 1 });
   await drawer.getByRole("button", { name: /^Validés/ }).click();
   await expect(aiRow.getByText("Validé", { exact: true })).toBeVisible();
   await expect(aiRow.getByText("99 %", { exact: true })).toHaveCount(0);
   await expect(drawer.getByRole("button", { name: /^Validés/ })).toContainText("2");
   await drawer.getByRole("button", { name: "Fermer", exact: true }).click();
+  await expect(inlineAiCategory).toHaveValue("cctp");
   await page.goto(`/dashboard/affaires/${projectId}?view=dossier`);
   const inlineRow = received.getByRole("row", { name: /Confidence-format.txt/ });
   const inlineCategory = inlineRow.getByRole("combobox", { name: `Catégorie de ${documents[1].name}`, exact: true });
