@@ -579,9 +579,11 @@ export function AffaireDocumentDesk({
               <tbody>
                 {rows.map((document) => {
                   const state = dossierDocumentState(document);
-                  const aiConfidence = dossierDocumentAiConfidence(document);
                   const category =
                     drafts[document.documentId] ?? document.detectedCategory;
+                  const aiConfidence = category === document.detectedCategory
+                    ? dossierDocumentAiConfidence(document)
+                    : null;
                   const eligible =
                     canManage && canClassifyDossierDocument(document);
                   return (

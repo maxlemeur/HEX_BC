@@ -148,6 +148,11 @@ test("AI confidence stays distinct from human validation in dossier and drawer",
   const drawer = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
   const aiRow = drawer.getByRole("row", { name: /Confidence-IA.txt/ });
   await expect(aiRow.getByText("99 %", { exact: true })).toBeVisible();
+  const aiCategory = aiRow.getByRole("combobox", { name: `Catégorie de ${documents[0].name}`, exact: true });
+  await aiCategory.selectOption({ value: "cctp" });
+  await expect(aiRow.getByText("99 %", { exact: true })).toHaveCount(0);
+  await aiCategory.selectOption({ value: "dpgf" });
+  await expect(aiRow.getByText("99 %", { exact: true })).toBeVisible();
   await expect(aiRow.getByText("Validé", { exact: true })).toHaveCount(0);
   await expect(drawer.getByRole("button", { name: "Importer cette DPGF", exact: true })).toBeVisible();
   await expect(drawer.getByRole("row", { name: /Confidence-format.txt/ })).toContainText("À vérifier");
