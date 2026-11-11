@@ -255,7 +255,10 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     const before = await readPages(ui, second, ids.versionId);
     const lines = await client.from("takeoff_items").select("id,job_id,designation,source_page,source_file_name,metadata->source_document")
       .in("job_id", [first, second]);
-    await recordEvidence(ui.army, "TKD02-relaunch-read", { ids, first, second, before, lines: lines.data });
+    const provenance = (await readEstimate(ui.browser, ids.versionId)).items.map((item) => ({ id: item.id, title: item.title,
+      item_type: item.item_type, source_provider: item.source_provider, source_job_id: item.source_job_id, source_page: item.source_page,
+      source_file_name: item.source_file_name, source_metadata: item.source_metadata }));
+    await recordEvidence(ui.army, "TKD02-relaunch-read", { ids, first, second, before, lines: lines.data, provenance });
     expect(before.pages.map((entry) => [entry.page, entry.earlier.map((earlier) => [earlier.job_id, earlier.line_count])]))
       .toEqual([[1, [[first, 3]]]]);
 
