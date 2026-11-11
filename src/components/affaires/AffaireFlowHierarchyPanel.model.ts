@@ -541,6 +541,14 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
       href: manualEstimateHref,
       variant: "primary",
     });
+    resultCard = {
+      kind: "structure",
+      title,
+      message: summary,
+      readinessStatus: readinessLevel,
+      action: primaryAction,
+      facts: hasLines ? ["Mode manuel actif"] : [],
+    };
   } else if (criticalMissingPieces.length > 0 || missingPieces.length > 0) {
     const count = criticalMissingPieces.length > 0 ? criticalMissingPieces.length : missingPieces.length;
     const missingPiecesAllowContinuation = allowsCanonicalContinuation && canonicalReadinessStatus !== "not_ready";
