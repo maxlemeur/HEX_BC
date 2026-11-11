@@ -146,6 +146,9 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
         `/api/affaires/${absentPlanSet}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
         "/api/takeoff/jobs", `/api/takeoff/jobs/${absentPlanSet}`,
         ...["retry", "resubmit", "reconcile"].map(command => `/api/takeoff/jobs/${absentPlanSet}/${command}`),
+        // TI-682 lot D: the launch notice (« Vérifier et lancer ») and the review banner read the pages already in
+        // the estimate. V3C08 opens the first just before its first item write: both compiles in one action timed out.
+        "/api/takeoff/page-contributions", `/api/takeoff/jobs/${absentPlanSet}/page-contributions`,
         "/api/internal/takeoff/process-job", "/api/google-drive/connection"];
       await settle([
         // A session would be redirected to the dashboard before the login page compiles.
