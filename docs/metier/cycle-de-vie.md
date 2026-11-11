@@ -111,7 +111,7 @@ chiffrée » ne la rétablit pas) ; une version envoyée la fige ; l'événement
 « sent » de la version enregistre les réserves (base, motif, auteur, heure) ;
 une duplication de version ne la recopie pas : chaque offre déclare les
 siennes. Source : [offer-choice.ts](../../src/lib/estimates/offer-choice.ts),
-migration `20261111180947_estimate_line_offer_choice.sql`.
+migration `20261111193950_estimate_line_offer_choice.sql`.
 
 Motif interne d'une exclusion (TI-682, lot C) : une ligne qui a été « Non
 chiffrée » dans la version (`was_not_priced`, posé par la base et collant,
