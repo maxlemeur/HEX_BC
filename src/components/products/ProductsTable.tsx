@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   ArchiveIcon,
+  CircleCheckIcon,
   DownloadIcon,
   EllipsisIcon,
   FileSpreadsheetIcon,
@@ -94,6 +95,8 @@ type ProductsTableProps = {
   onEdit: (product: ProductRecord) => void;
   onReviewPrice: (product: ProductRecord) => void;
   onToggleArchive: (product: ProductRecord) => void;
+  /** Draft -> validated; the server refuses a draft that lacks a required field. */
+  onValidate: (product: ProductRecord) => void;
 };
 
 export function ProductsTable({
@@ -107,6 +110,7 @@ export function ProductsTable({
   onEdit,
   onReviewPrice,
   onToggleArchive,
+  onValidate,
 }: ProductsTableProps) {
   return (
     <div className="relative overflow-x-auto" role="region" aria-label="Produits" tabIndex={0}>
@@ -182,6 +186,7 @@ export function ProductsTable({
               const hasReferencePrice =
                 product.unit_price_cents !== 0 || Boolean(product.reference_price_validation_id);
               const isUpdating = updatingStatusId === product.id;
+              const isDraft = product.catalogue_status === "draft";
 
               return (
                 <tr key={product.id} className={product.is_active ? undefined : "opacity-60"}>
@@ -197,10 +202,15 @@ export function ProductsTable({
                     <div className="mt-1 break-all font-mono text-micro text-muted-foreground lg:hidden">
                       {product.reference || "Sans référence"}
                     </div>
-                    {!product.is_active ? (
-                      <Badge size="sm" className="mt-1">
-                        Archivé
-                      </Badge>
+                    {isDraft || !product.is_active ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {isDraft ? (
+                          <Badge variant="warning" size="sm">
+                            Brouillon
+                          </Badge>
+                        ) : null}
+                        {!product.is_active ? <Badge size="sm">Archivé</Badge> : null}
+                      </div>
                     ) : null}
                   </td>
                   <td className="hidden min-[700px]:table-cell">
@@ -212,6 +222,11 @@ export function ProductsTable({
                         .filter(Boolean)
                         .join(" · ") || "Sans caractéristique"}
                     </div>
+                    {product._supplyTypeName ? (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Fourniture : {product._supplyTypeName}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="text-right">
                     <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground sm:text-sm">
@@ -277,6 +292,16 @@ export function ProductsTable({
                           <TagsIcon aria-hidden="true" />
                           Voir les tarifs
                         </DropdownMenuItem>
+                        {isDraft ? (
+                          <DropdownMenuItem
+                            className="min-h-10 px-2"
+                            disabled={isUpdating}
+                            onClick={() => onValidate(product)}
+                          >
+                            <CircleCheckIcon aria-hidden="true" />
+                            Valider
+                          </DropdownMenuItem>
+                        ) : null}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="min-h-10 px-2"

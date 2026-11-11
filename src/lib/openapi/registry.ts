@@ -490,6 +490,7 @@ const suggestedCataloguePriceSchema = z.object({
   product_grade: z.string().nullable(),
   product_dimensions: z.string().nullable(),
   product_standard: z.string().nullable(),
+  product_catalogue_status: z.enum(["draft", "validated"]).optional(),
   supplier_id: uuidSchema.nullable(),
   supplier_name: z.string().nullable(),
   supplier_reference: z.string().nullable(),
@@ -2376,6 +2377,15 @@ const suggestPricesQueryParameter = queryParameter({
   required: true,
 });
 
+const suggestPricesIncludeDraftsQueryParameter = queryParameter({
+  name: "include_drafts",
+  description:
+    "Recherche volontaire : inclut les articles brouillons, signales par product_catalogue_status. Absent, seuls les articles valides sont suggeres.",
+  schemaName: "SuggestPricesIncludeDraftsQueryParameter",
+  schema: z.enum(["1", "true", "0", "false"]),
+  required: false,
+});
+
 const changelogCompareQueryParameter = queryParameter({
   name: "compare",
   description: "UUID de la version a comparer.",
@@ -4174,7 +4184,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Suggérer des prix",
     description: "Interroge le catalogue pour suggerer des prix par recherche.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter, suggestPricesQueryParameter],
+    parameters: [
+      versionIdPathParameter,
+      suggestPricesQueryParameter,
+      suggestPricesIncludeDraftsQueryParameter,
+    ],
     responses: {
       "200": jsonResponse(
         "Suggestions de prix retournees.",
