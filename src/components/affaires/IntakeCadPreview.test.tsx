@@ -303,6 +303,15 @@ describe("IntakeCadPreview", () => {
     expect(screen.getByText("Aucun objet ayant une forme")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
     expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says, where there is no large view to say it, that a model names more objects than were read", async () => {
+    // Nothing has a shape among the objects that were read: those that follow were not looked at, and may have one.
+    await opened({ kind: "summary", summary: fcstdSummary({ objects: [], total: 0, sketches: 0, truncated: true, left: { objects: true, sketches: false, unread: false, dimensions: false } }) }, FCSTD);
+    expect(screen.getByText("Aucun objet ayant une forme parmi ceux qui ont été lus")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Cette maquette nomme plus d’objets que MergeOne n’en lit : les suivants, avec leurs formes et leurs esquisses, n’ont pas été lus.");
+    expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
   });
 
   it("draws the sketches of a FreeCAD model, and says in the large view what they are and what the model holds", async () => {

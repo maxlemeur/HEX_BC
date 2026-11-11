@@ -96,6 +96,8 @@ function CadSummaryView({
       {figure}
       <strong>{release}</strong>
       {summary.model && <span>{cadModelSummary(summary.model)}</span>}
+      {/* The large view says what a model left out; this one may be all there is to say it. */}
+      {summary.model?.left.objects && <p role="alert">Cette maquette nomme plus d’objets que MergeOne n’en lit : les suivants, avec leurs formes et leurs esquisses, n’ont pas été lus.</p>}
       <p>{notice ?? SUMMARY_GUIDANCE[summary.format]}</p>
       {onRetry && (
         <button type="button" className="document-desk-button" onClick={onRetry}>
