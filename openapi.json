@@ -73218,6 +73218,15 @@
                           "dpgf_target": {
                             "type": "boolean"
                           },
+                          "fed_again": {
+                            "type": "boolean"
+                          },
+                          "assembly": {
+                            "type": "boolean"
+                          },
+                          "other_pages": {
+                            "type": "boolean"
+                          },
                           "item_ids": {
                             "type": "array",
                             "items": {
@@ -73265,6 +73274,9 @@
                           "unit_price_ht_cents",
                           "job_id",
                           "dpgf_target",
+                          "fed_again",
+                          "assembly",
+                          "other_pages",
                           "item_ids",
                           "sources",
                           "length_factor"
