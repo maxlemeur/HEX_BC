@@ -193,7 +193,7 @@ async function persistAtomicEstimateV3Item(input: Parameters<typeof persistAtomi
     }
     lines.push({
       ...pricedItem,
-      fo_provision: deriveFoProvision(pricedItem.supply_type_id, provisions, pricedItem.fo_price_origin),
+      fo_provision: deriveFoProvision(pricedItem.supply_type_id, provisions, pricedItem.fo_price_origin, pricedItem.line_nature),
       parent_id: item.parent_id ?? null,
       description: item.description ?? null,
       labor_role_id: item.labor_role_id ?? null,
