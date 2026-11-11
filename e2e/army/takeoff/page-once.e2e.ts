@@ -285,6 +285,16 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     await expect(confirm).toBeDisabled();
     await page.getByRole("button", "Retirer les 1 ligne", { exact: true }).click();
     await expect(page.getByLabel("Choix pour Vanne de purge", { exact: true })).toHaveValue("remove");
+    // On an engine 1/2 version, a count line names no source line: whether its quantity was changed by hand cannot be
+    // seen, so the estimator chooses (engine 3 knows its sources and asks nothing here).
+    const versionRow = await client.from("estimate_versions").select("calc_engine_version").eq("id", ids.versionId).single();
+    expect(versionRow.error).toBeNull();
+    const engine = Number((versionRow.data as { calc_engine_version: number }).calc_engine_version);
+    if (engine !== 3) {
+      await expect(confirm).toBeDisabled();
+      await page.getByRole("radiogroup", "Quantité de Robinet d'arrêt", { exact: true })
+        .getByRole("radio", "Prendre la nouvelle mesure", { exact: true }).check();
+    }
     const screenshot = await ui.app.screenshot("ti682-apply-wizard-replace-page");
     const [applyResponse] = await Promise.all([
       ui.browser.waitForResponse(`**/api/takeoff/jobs/${second}/apply`),
@@ -296,7 +306,7 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     // In the estimate: each quantity of the page counted once, each earlier line with its identity, title and price.
     const after = (await readEstimate(ui.browser, ids.versionId)).items.filter((item) => item.item_type === "line");
     const observed = after.map((item) => [item.title, Number(item.quantity), item.unit_price_ht_cents]).sort();
-    await recordEvidence(ui.army, "TKD02-replaced", { ids, first, second, screenshot, observed, refusal: refusal.error });
+    await recordEvidence(ui.army, "TKD02-replaced", { ids, first, second, engine, screenshot, observed, refusal: refusal.error });
     expect(observed).toEqual([[`${ui.army.runPrefix} target`, 1, 1000], ["Réseau EF chiffré", measuredRun, 2500], ["Robinet d'arrêt", 5, 1500],
       ["WC suspendu", 2, 0]].sort());
     expect(after.find((item) => item.title === "Réseau EF chiffré")?.id).toBe(run.id);
