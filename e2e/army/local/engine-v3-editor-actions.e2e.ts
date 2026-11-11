@@ -54,7 +54,8 @@ import { insertProjectMarginRule } from "./engine-v3-persistence-support";
 // TI-682, lot C (PR 3) :
 //  V3E23 — une ligne « Non chiffrée » passée « Hors lot » sans motif : la grille demande le motif sans refuser le
 //          statut ; l'envoi liste la ligne, sans forçage ; le motif saisi dans la fenêtre d'envoi la libère ; le CSV
-//          interne le montre, l'impression client ne le montre pas.
+//          interne le montre, l'impression client ne le montre pas ; supprimer la ligne puis annuler la suppression
+//          la recrée sans motif ni « a été Non chiffrée », sans échec (revue de #222, PR 4).
 // Le refus générique du moteur 3 (bandeau de 2.1) n'est jamais une issue admise d'une action de la grille v3.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
@@ -1420,6 +1421,29 @@ armyTest("V3E23 a « Non chiffrée » v3 line classified « Hors lot » asks its
       reasons: ["", `Autre lot ou corps d'état : ${note}`] });
     expect(printView, "the client's print shows the line and its status, never its internal reason")
       .toEqual({ line: true, status: true, note: false, label: false });
+
+    // Review of #222: deleting that line, then undoing the deletion, recreates it by the single-item creation, whose body
+    // never carries the reason (the route would refuse it, ESTIMATE_STATUS_REASON_BATCH_ONLY). The undo succeeds, and the
+    // line comes back as a new one, without its reason nor « was not priced »: the documented limit (cycle-de-vie.md).
+    await openV3Editor(ui, army, draft, "v3e23-undo");
+    await waitForDraftLease(ui);
+    await screen.getByRole("button", `Plus d'actions pour ${title("N")}`, { exact: true }).tap();
+    await screen.getByRole("menuitem", "Supprimer", { exact: true }).tap();
+    await confirmDeletion(ui);
+    const removed = await waitState(ui, draft.versionId, state => !state.items.some(row => row.title === title("N")));
+    await undo(ui);
+    const restored = await waitState(ui, draft.versionId, state => state.items.some(row => row.title === title("N")));
+    const recreated = restored.items.find(row => row.title === title("N"));
+    await expect.poll(() => autoSaveStatus(ui), { timeout: 30_000 }).toBe("À jour");
+    const undoView = { removed: !removed.items.some(row => row.title === title("N")), recreated: recreated
+      ? { status: recreated.pricing_status, wasNotPriced: recreated.was_not_priced, reason: recreated.status_reason ?? null }
+      : null, refusal: await genericRefusalShown(ui), saved: await autoSaveStatus(ui) };
+    const undoGating = await readGating(ui, draft.versionId);
+    await record("v3e23-delete-undo", { versionId: draft.versionId, lineId: lineN.id, recreatedId: recreated?.id ?? null,
+      actual: undoView, gating: undoGating, nativeDialogs: dialogs });
+    expect({ ...undoView, canSend: undoGating.canSend }, "the undo recreates the line without its internal columns, and never fails")
+      .toEqual({ removed: true, recreated: { status: "out_of_scope", wasNotPriced: false, reason: null }, refusal: false, saved: "À jour",
+        canSend: true });
   });
 
 /**

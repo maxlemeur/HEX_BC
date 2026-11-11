@@ -143,13 +143,25 @@ export function sameStatusReason(left: unknown, right: unknown): boolean {
  * The line the editor keeps after a status change, as the database leaves it
  * (private.track_estimate_item_status_reason): « was not priced » never goes back to false once the line has been
  * « Non chiffrée »; a reason leaves with the excluded statuses.
+ * « Was not priced » follows the last saved line (`saved`): the autosave merges the changes made within its delay into
+ * one write, and the database compares that write with the stored line, not with the statuses shown in between (priced,
+ * then « Non chiffrée », then « Hors lot » before the save is priced → out_of_scope there). `null`: a line not saved yet,
+ * whose creation carries only its status. The reason leaves against the line as shown (`shown`), so a pending reason is
+ * never written with a status that cannot carry it.
  */
-export function applyStatusReasonRules<T extends StatusReasonLine>(previous: StatusReasonLine, next: T): T {
-  const statusChanged = (next.pricing_status ?? "priced") !== (previous.pricing_status ?? "priced");
-  const wasNotPriced = previous.was_not_priced === true
-    || (statusChanged && (previous.pricing_status === "not_priced" || next.pricing_status === "not_priced"));
-  const leaves = statusChanged && !isEstimateExcludedPricingStatus(next.pricing_status)
-    && sameStatusReason(next.status_reason, previous.status_reason);
+export function applyStatusReasonRules<T extends StatusReasonLine>(
+  shown: StatusReasonLine,
+  next: T,
+  saved: StatusReasonLine | null = shown,
+): T {
+  const nextStatus = next.pricing_status ?? "priced";
+  const wasNotPriced = saved === null
+    ? nextStatus === "not_priced"
+    : saved.was_not_priced === true
+      || (nextStatus !== (saved.pricing_status ?? "priced")
+        && (saved.pricing_status === "not_priced" || nextStatus === "not_priced"));
+  const leaves = nextStatus !== (shown.pricing_status ?? "priced") && !isEstimateExcludedPricingStatus(next.pricing_status)
+    && sameStatusReason(next.status_reason, shown.status_reason);
   if (wasNotPriced === (next.was_not_priced === true) && !(leaves && next.status_reason != null)) return next;
   return { ...next, was_not_priced: wasNotPriced, ...(leaves ? { status_reason: null } : {}) };
 }

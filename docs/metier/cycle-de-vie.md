@@ -106,7 +106,13 @@ ou un modèle n'en recopient aucun. Limite connue, comme la suppression d'une
 ligne « Non chiffrée » et sa recréation directe avec un statut : supprimer une
 telle ligne puis annuler la suppression la recrée comme une ligne neuve, sans
 `was_not_priced` ni motif ; le motif ne s'écrit que par le lot, la création
-d'un élément seul le refuse (`ESTIMATE_STATUS_REASON_BATCH_ONLY`). Source :
+d'un élément seul le refuse (`ESTIMATE_STATUS_REASON_BATCH_ONLY`) et l'éditeur
+ne l'y envoie jamais, si bien que l'annulation réussit. La base fait foi :
+l'enregistrement automatique réunit en une écriture les changements faits
+pendant son délai, et l'éditeur calcule `was_not_priced` depuis le dernier
+statut enregistré, comme la base, si bien que « Chiffrée » → « Non chiffrée »
+→ « Hors lot » avant l'enregistrement vaut « Chiffrée » → « Hors lot », sans
+motif exigé. Source :
 [status-reason.ts](../../src/lib/estimates/status-reason.ts), migration
 `20261111144803_estimate_line_status_reason.sql`.
 

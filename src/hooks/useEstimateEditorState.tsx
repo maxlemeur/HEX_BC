@@ -1515,8 +1515,10 @@ export function useEstimateEditorState({
         // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
         const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
         // TI-682, lot C : la ligne reste celle que la base garde (« a été Non chiffrée » collant, motif effacé quand
-        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet).
-        const tracked = current ? applyStatusReasonRules(current, item) : item;
+        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet). L'indicateur suit la dernière ligne
+        // enregistrée : l'écriture fusionnée du délai d'enregistrement est ce que la base compare.
+        const saved = editorDocument.getSnapshot().confirmedItems.find((candidate) => candidate.id === item.id) ?? null;
+        const tracked = current ? applyStatusReasonRules(current, item, saved) : item;
         return withRederivedFoProvision(current, tracked, foProvisionBySupplyTypeId);
       }
       const taxRate =
@@ -1555,6 +1557,7 @@ export function useEstimateEditorState({
     [
       calcEngineVersion,
       computeLineValuesWithLaborContext,
+      editorDocument,
       foProvisionBySupplyTypeId,
       getItemsSnapshot,
       isLaborSplitEnabled,

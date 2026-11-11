@@ -4,6 +4,7 @@ import {
   bulkUpdateEstimateItems, createEstimateItem, saveEstimateVersion, updateEstimateItem, updateEstimateStatus,
 } from "@/lib/estimates/client";
 import { recoverEstimateEditorRead, registerEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
+import { buildEstimateV3ItemInsertPayload } from "@/lib/estimates/v3-editor";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 const fixture = createEstimateEditorResponseFixture();
@@ -126,5 +127,24 @@ describe("validated receipts before editor publication", () => {
     await expect(createEstimateItem(version.id, createInput, { documentOwnsReceipt: true, onVersionToken })).rejects.toThrow();
     expect(onVersionToken).not.toHaveBeenCalled();
     expect(session.onCommit).not.toHaveBeenCalled();
+  });
+});
+
+// TI-682, lot C (review of #222): undoing the deletion of a line recreates it through the single-item creation
+// (useEstimateEditorItemsController: buildInsertPayload, then createEstimateItem). That route refuses status_reason by
+// name (ESTIMATE_STATUS_REASON_BATCH_ONLY); the body never carries it, so the undo recreates the line without its
+// internal columns instead of failing (the limit documented in docs/metier/cycle-de-vie.md).
+describe("the single-item creation body (undo of a deletion)", () => {
+  it("never carries the internal columns of a deleted v3 line, and keeps its v3 inputs", async () => {
+    const deleted = { ...item, item_type: "line" as const, pricing_status: "out_of_scope" as const, unit_code: "u",
+      h_mo_per_unit: 0.5, was_not_priced: true, status_reason: { code: "other_trade" as const, note: "Lot CVC du marché" } };
+    const payload = buildEstimateV3ItemInsertPayload(version.id, deleted);
+    const fetch = vi.fn().mockResolvedValueOnce(response({ item, version: token }));
+    vi.stubGlobal("fetch", fetch);
+    await createEstimateItem(version.id, payload);
+    const body = JSON.parse(String(fetch.mock.calls[0][1].body)) as Record<string, unknown>;
+    expect(["status_reason", "was_not_priced"].filter((key) => key in body)).toEqual([]);
+    expect({ status: body.pricing_status, unit: body.unit_code, hours: body.h_mo_per_unit })
+      .toEqual({ status: "out_of_scope", unit: "u", hours: 0.5 });
   });
 });
