@@ -89,6 +89,7 @@ import {
 import { XIcon } from "lucide-react";
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
+import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
 import "./AffaireWorkbench.css";
 
 export { DpgfSourceCard, getEstimateMarginSettingsHref } from "./AffaireHubSections";
@@ -472,9 +473,11 @@ export function AffaireHub({
 }: AffaireHubProps) {
   const router = useRouter();
   const documentSearchParams = useSearchParams();
+  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
   const [addingDocuments, setAddingDocuments] = useState(false);
+  const [documentUploadRequest, setDocumentUploadRequest] = useState(0);
   const documentsReturnFocus = useRef<HTMLElement | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AffaireWorkbenchSection>(() => affaireSectionFromLocation(new URLSearchParams(documentSearchParams.toString()), ""));
@@ -1141,6 +1144,7 @@ export function AffaireHub({
         </Alert>
       )}
 
+      <IntakeUploadFeedback feedback={uploadFeedback} />
       <AffaireWorkbench active={activeSection} onSelect={selectSection} criticalCount={registerSummary?.criticalOpenCount ?? 0}>
         {!showImportFlow && ((isFreshStartState && activeSection === "register") || ((isFreshStartState || !summary.currentVersion) && activeSection === "submission")) ? <section className="affaire-workbench-intro" aria-label={activeSection === "register" ? "Suivi du dossier" : "Préparation de la remise"}>
           <h2>{activeSection === "register" ? "Points à traiter" : "Préparer la remise"}</h2>
@@ -1155,7 +1159,7 @@ export function AffaireHub({
             registerEntries={registerPage?.items ?? []}
             isReadOnly={isReadOnlyReview}
             onOpenDocuments={openDocuments}
-            onAddDocuments={() => { openDocuments(); setAddingDocuments(true); }}
+            onAddDocuments={() => { openDocuments(); setAddingDocuments(true); setDocumentUploadRequest((request) => request + 1); }}
             onOpenDocument={openDocument}
             onReviewBrief={reviewBrief}
             onOpenRegister={() => selectSection("register")}
@@ -1290,6 +1294,7 @@ export function AffaireHub({
                     projectId={summary.project.id}
                     workspace={intakeWorkspace}
                     entryMode={isFreshStartState}
+                    onUploadEvent={uploadFeedback.onUploadEvent}
                     hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
                     hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
                     dpgfAlreadyImported={dpgfSource !== null}
@@ -1431,8 +1436,10 @@ export function AffaireHub({
 
       {documentsRequested && intakeWorkspace ? (
         <AffaireDocumentsDrawer
-          documentScope={`${focusedIntakeDocument ?? ""}:${focusedIntakeFilter ?? ""}:${addingDocuments}`}
+          documentScope={`${focusedIntakeDocument ?? ""}:${focusedIntakeFilter ?? ""}`}
+          uploadRequestId={documentUploadRequest}
           initialAddFiles={addingDocuments}
+          uploadFeedback={uploadFeedback}
           returnFocus={documentsReturnFocus}
           open={documentsOpen}
           onOpenChange={(open) => {

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { useToast } from "@/components/feedback/toast-provider";
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
+import { useIntakeUploadFeedback, IntakeUploadFeedback } from "./IntakeUploadFeedback";
 import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 
 const UnifiedImportFlow = dynamic(
@@ -29,6 +30,7 @@ export function AffaireDocumentPage({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
   const [candidates, setCandidates] = useState<IntakeDpgfCandidate[] | null>(
     null,
   );
@@ -54,7 +56,7 @@ export function AffaireDocumentPage({
   }, [router]);
   if (candidates)
     return (
-      <UnifiedImportFlow
+      <><IntakeUploadFeedback feedback={uploadFeedback} /><UnifiedImportFlow
         projectId={projectId}
         intakeDpgfCandidates={candidates}
         takeoffEnabled={takeoffEnabled}
@@ -67,7 +69,7 @@ export function AffaireDocumentPage({
           overview("dpgf");
           router.refresh();
         }}
-      />
+      /></>
     );
   return (
     <AffaireDocumentDesk
@@ -75,6 +77,7 @@ export function AffaireDocumentPage({
       projectName={projectName}
       workspace={workspace}
       canManage={canManage}
+      uploadFeedback={uploadFeedback}
       onOverview={overview}
       onImportDpgf={(documentId) => {
         if (!canManage) return;
