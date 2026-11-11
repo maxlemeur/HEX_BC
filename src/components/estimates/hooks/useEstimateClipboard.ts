@@ -26,6 +26,7 @@ import {
   v3ClipboardUnit,
   V3_CLIPBOARD_FIELD_ORDER,
 } from "@/lib/estimates/v3-paste";
+import { effectiveKfoValue } from "@/lib/estimates/unified-kfo";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -414,7 +415,7 @@ export function useEstimateClipboard({
           item.supply_type_id && supplyTypeById.has(item.supply_type_id)
             ? (supplyTypeById.get(item.supply_type_id)?.name ?? null)
             : null,
-        k_fo: item.k_fo,
+        k_fo: isV3Paste ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo,
         // v3 (2.8) : les heures par unité saisies, que le collage dans une v3 relit ; jamais les heures dérivées.
         ...(isV3Paste ? { h_mo_per_unit: item.h_mo_per_unit } : { h_mo: item.h_mo }),
         k_mo: item.k_mo,

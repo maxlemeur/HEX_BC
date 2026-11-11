@@ -1,3 +1,4 @@
+import { effectiveKfoValue } from "@/lib/estimates/unified-kfo";
 import { parseKfoDraft } from "@/lib/estimates/editor-values";
 import {
   SPREADSHEET_COLUMN_KEYS,
@@ -207,7 +208,7 @@ const COLUMN_DESCRIPTORS: Record<string, ColumnDescriptor> = {
     label: "Type FO",
   }),
   [K.kFo]: {
-    read: (item, context) => formatDecimalInput(context.isV3 ? Number(((item.k_fo ?? 1) * Number(item.fo_provision ?? 1)).toFixed(6)) : item.k_fo ?? 1),
+    read: (item, context) => formatDecimalInput(context.isV3 ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo ?? 1),
     parse: (text, _item, context) => {
       const value = text.trim() === "" ? 1 : context.isV3 ? parseKfoDraft(text) : parseCoefficientDraft(text);
       return value === null ? refuse("K FO : coefficient invalide.") : ok(context.isV3 ? { k_fo: value, k_fo_manual: true } : { k_fo: value });

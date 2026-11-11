@@ -1,5 +1,5 @@
 "use client";
-import { KFO_HELP } from "@/lib/estimates/unified-kfo";
+import { effectiveKfoValue, KFO_HELP } from "@/lib/estimates/unified-kfo";
 import { parseKfoDraft } from "@/lib/estimates/editor-values";
 
 import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
@@ -364,7 +364,7 @@ export function MobileEstimateLineEditor({
                 <Field label="Coefficient K FO">
                   <DecimalDraftInput
                     className={inputClassName}
-                    value={isV3 ? Number(((item.k_fo ?? 1) * Number(item.fo_provision ?? 1)).toFixed(6)) : item.k_fo ?? 1}
+                    value={isV3 ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo ?? 1}
                     emptyValue={1}
                     disabled={isReadOnly}
                     commitOnUnchangedBlur={!isV3}

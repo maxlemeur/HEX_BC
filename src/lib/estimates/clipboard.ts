@@ -1,3 +1,4 @@
+import { parseKfoDraft } from "@/lib/estimates/editor-values";
 import {
   formatMajorationPercent,
   MAJORATION_COEFFICIENT_ERROR,
@@ -285,12 +286,12 @@ type ClipboardNumericField = Exclude<
   "designation" | "unit" | "supply_type"
 >;
 
-// 2.3 review: quantity, h MO, K FO and K MO are numeric(12,3) in v1/v2. A fourth decimal is
-// refused as in the import and the grid, instead of being rounded by PostgreSQL on write.
+// Each pasted value follows its stored scale: TI-534 K FO carries six decimals;
+// quantities, hours and K MO keep three and refuse excess precision rather than rounding.
 const STORED_PRECISION_PARSERS: Partial<Record<ClipboardNumericField, (raw: string) => number | null>> = {
   quantity: parseQuantity,
   h_mo: parseQuantity,
-  k_fo: parseStoredCoefficient,
+  k_fo: parseKfoDraft,
   k_mo: parseStoredCoefficient,
   h_mo_per_unit: parseHoursPerUnit,
 };
@@ -886,7 +887,7 @@ export function buildClipboardPreviewRows(
         }
 
         // Seul le prix unitaire est un montant ; quantites, heures et
-        // coefficients acceptent trois decimales (T16), la precision de leur stockage.
+        // K MO acceptent trois decimales ; K FO en accepte six (TI-534).
         // « Prix Unitaire » (control) may carry more than two decimals: it is a reading, never stored.
         const grammarValue = field === "hourly_rate"
           // A rate is read as money (« 40,00 € ») or, failing that, as a decimal (« 40,1234 »).

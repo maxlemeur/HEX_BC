@@ -13,6 +13,7 @@ import {
 import {
   parseAmountDraft,
   parseCoefficientDraft,
+  parseKfoDraft,
   parseLineHoursDraft,
   parseNullableNumberInput,
   parseNumberInput,
@@ -363,7 +364,6 @@ const QUANTITY_KINDS: Array<{ kind: string; parsers: Record<string, KindParser>;
       [IMPORT_K_FO]: (input) => importedLineValue({ k_fo: input }, "kFo"),
       [IMPORT_K_MO]: (input) => importedLineValue({ k_mo: input }, "kMo"),
       [GRID_COEFFICIENT]: (input) => parseCoefficientDraft(String(input)),
-      [PASTE_K_FO]: (input) => pastedValue("K FO", input, "k_fo"),
       [PASTE_K_MO]: (input) => pastedValue("K MO", input, "k_mo"),
     },
     cases: [
@@ -377,6 +377,22 @@ const QUANTITY_KINDS: Array<{ kind: string; parsers: Record<string, KindParser>;
       // A native spreadsheet number is rounded at the stored precision, never refused.
       { input: 1.2345, expected: 1.235, skip: TEXT_ONLY },
       { input: "", expected: null, skip: [IMPORT_K_FO, IMPORT_K_MO] },
+    ],
+  },
+  {
+    kind: "unified K FO in the grid and clipboard (six decimals, TI-534)",
+    parsers: {
+      "grille (K FO)": input => parseKfoDraft(String(input)),
+      [PASTE_K_FO]: input => pastedValue("K FO", input, "k_fo"),
+    },
+    cases: [
+      { input: "1,2345", expected: 1.2345 },
+      { input: "1,234567", expected: 1.234567 },
+      { input: "1,2345678", expected: null },
+      { input: "1", expected: 1 },
+      { input: "0", expected: 0 },
+      { input: "-1", expected: null },
+      { input: "", expected: null },
     ],
   },
   {

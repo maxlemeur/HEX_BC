@@ -278,7 +278,7 @@ describe("2.3 pasted precision follows the stored scale (D11)", () => {
   it.each([
     ["Quantité", "1,2345", "quantity"],
     ["h MO", "2,1234", "h_mo"],
-    ["K FO", "1,2345", "k_fo"],
+    ["K FO", "1,2345678", "k_fo"],
     ["K MO", "1,2345", "k_mo"],
   ] as const)("%s %j is refused instead of rounded on write", (header, cell, field) => {
     const row = pastedRow(header, cell);
@@ -290,9 +290,9 @@ describe("2.3 pasted precision follows the stored scale (D11)", () => {
   it.each([
     ["Quantité", "1,234", "quantity", 1.234],
     ["h MO", "2,125", "h_mo", 2.125],
-    ["K FO", "1,235", "k_fo", 1.235],
+    ["K FO", "1,234567", "k_fo", 1.234567],
     ["K MO", "0,875", "k_mo", 0.875],
-  ] as const)("%s %j keeps its three decimals", (header, cell, field, value) => {
+  ] as const)("%s %j keeps its stored precision", (header, cell, field, value) => {
     expect(pastedRow(header, cell)).toMatchObject({ status: "valid", values: { [field]: value } });
   });
 });
