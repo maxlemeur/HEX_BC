@@ -976,6 +976,115 @@ describe("duplicate runs between zones", () => {
       .toEqual(["Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_RESOLVED:-"]);
   });
 
+  // Independent review of TI-684, written before their fix.
+  it("keeps two dashed pipes 4 cm apart as two pairs when a plan sits a centimetre along the run (TI-684 review)", () => {
+    // The registration leaves a residual under 2 cm: each dash kept a sliver its copy did not cover, and the slivers,
+    // chained from dash to dash, made the neighbour a contradicting copy: a group of four no reduction settles.
+    const dashes = (y: number, x: number, count: number) => Array.from({ length: count }, (_, index): Seg => [x + index * 0.25, y, x + index * 0.25 + 0.2, y]);
+    const geometry = (segments: Seg[], sheetShift: number) => ({ segments_m: segments.map(([x0, y0, x1, y1]): Seg => [x0 + sheetShift, y0, x1 + sheetShift, y1]),
+      polygon_m: null, length_m: segments.length * 0.2, area_m2: null });
+    for (const [shift, count] of [[0, 60], [0.01, 60], [0.02, 20], [0.005, 80]]) {
+      const { results } = evaluateTakeoffRules({
+        pages: [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 50 }),
+          page("job-1#1", { order: 10_000, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 })],
+        lines: [
+          line("a1", { job_id: "job-0", page_key: "job-0#1", geometry: geometry(dashes(1, 0, count), 0) }),
+          line("b1", { job_id: "job-0", page_key: "job-0#1", inputs: inputs({ dn: "DN 28" }), geometry: geometry(dashes(1.04, 0.05, count), 0) }),
+          line("a2", { job_id: "job-1", page_key: "job-1#1", geometry: geometry(dashes(1, shift, count), -40) }),
+          line("b2", { job_id: "job-1", page_key: "job-1#1", inputs: inputs({ dn: "DN 28" }), geometry: geometry(dashes(1.04, 0.05 + shift, count), -40) }),
+        ],
+      });
+      expect([differs(results, "a1"), differs(results, "b1"), differs(results, "a2"), differs(results, "b2")], `${shift} m`)
+        .toEqual([["a2:-"], ["b2:-"], ["a1:-"], ["b1:-"]]);
+    }
+    // A run drawn as short chords with no copy of its reading keeps every chord: only slivers beside a copy are dropped.
+    const chords = Array.from({ length: 40 }, (_, index): Seg => [index * 0.03, 1, (index + 1) * 0.03, 1]);
+    const curved = evaluateTakeoffRules({
+      pages: [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 50 }),
+        page("job-1#1", { order: 10_000, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 })],
+      lines: [line("c1", { job_id: "job-0", page_key: "job-0#1", quantity: 1.2, geometry: { ...geometry(chords, 0), length_m: 1.2 } }),
+        line("c2", { job_id: "job-1", page_key: "job-1#1", quantity: 1.2, inputs: inputs({ dn: "DN 28" }), geometry: { ...geometry(chords, -40), length_m: 1.2 } })],
+    });
+    expect(differs(curved.results, "c1")).toEqual(["c2:dn"]);
+    expect(rule(curved.results, "c1", "zone_overlap")?.details?.overlap_m).toBe(1.2);
+  });
+
+  it("never names the diameter when two notations print one size on two networks (TI-684 review)", () => {
+    const castIron = (network: "EU" | "EP", dn: string) => inputs({ network, material: "fonte", dn, model_quantity: 3 });
+    expect(differs(zones({ z1: { inputs: castIron("EU", "DN 100") }, z2: { inputs: castIron("EP", "Ø 110") } }).results, "z1")).toEqual(["z2:network"]);
+    expect(differs(zones({ z1: { inputs: castIron("EU", "DN 100") }, z2: { inputs: castIron("EP", "DN 125") } }).results, "z1")).toEqual(["z2:network+dn"]);
+  });
+
+  it("gives mixed readings one outcome in every order, symmetric pairs, and leaves the pairs of one reading as they were (TI-684 review)", () => {
+    // Seeded scenes on two or three plans: runs, dashes and corners 0 to 12 cm apart, read « DN 22 » or « DN 28 », a tenth excluded.
+    let state = 684;
+    const next = () => { state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0; return state / 2 ** 32; };
+    const int = (lo: number, hi: number) => lo + Math.floor(next() * (hi - lo + 1));
+    type Scene = Array<{ id: string; slot: number; segments: Seg[]; dn: string; excluded: boolean }>;
+    const runs = (slot: number, prefix: string): Scene => Array.from({ length: int(1, 3) }, (_, index) => {
+      const segments: Seg[] = [];
+      const y = 1 + int(0, 6) * 0.02;
+      let x = int(0, 300) / 100;
+      for (let piece = int(1, 4); piece > 0; piece -= 1) {
+        const kind = next();
+        if (kind < 0.25) for (let dash = int(2, 12); dash > 0; dash -= 1) { segments.push([x, y, x + 0.2, y]); x += 0.25; }
+        else if (kind < 0.35) segments.push([x, y, x, y + int(10, 200) / 100]);
+        else { const length = int(5, 300) / 100; segments.push(next() < 0.3 ? [x + length, y, x, y] : [x, y, x + length, y]); x += length + (next() < 0.5 ? 0 : int(1, 60) / 100); }
+      }
+      return { id: `${prefix}${index}`, slot, segments, dn: next() < 0.5 ? "DN 22" : "DN 28", excluded: next() < 0.1 };
+    });
+    const evaluate = (scene: Scene, order: number[], reverse: boolean) => {
+      const slots = [...new Set(scene.map((entry) => entry.slot))].sort();
+      const pages = slots.map((slot) => page(`job-${slot}#1`, { order: order[slot] * 10_000, zone: `Z${slot + 1}`, denominator: 50, anchors: sheet(-40 * slot, 0, { titleBlock: 10 }) }));
+      const lines = scene.map((entry) => {
+        const length = entry.segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0);
+        return line(entry.id, { job_id: `job-${entry.slot}`, page_key: `job-${entry.slot}#1`, quantity: length, is_excluded: entry.excluded,
+          inputs: inputs({ dn: entry.dn, model_quantity: length }), geometry: { polygon_m: null, length_m: length, area_m2: null,
+            segments_m: entry.segments.map(([x0, y0, x1, y1]): Seg => [x0 - 40 * entry.slot, y0, x1 - 40 * entry.slot, y1]) } });
+      });
+      return evaluateTakeoffRules({ pages: reverse ? pages.reverse() : pages, lines: reverse ? lines.reverse() : lines }).results;
+    };
+    const partnersOf = (results: Map<string, TakeoffRuleResult[]>, id: string) => rule(results, id, "zone_overlap")?.details?.partners ?? [];
+    const show = (results: Map<string, TakeoffRuleResult[]>, scene: Scene) => scene.map(({ id }) => {
+      const entry = rule(results, id, "zone_overlap");
+      return `${id}:${entry?.code}:${entry?.details?.overlap_m ?? "-"}:${entry?.details?.group_size ?? "-"}:${partnersOf(results, id).map((partner) =>
+        `${partner.item_id}=${partner.overlap_m}${partner.differs ? `≠${partner.differs.join("+")}` : ""}`).join(",")}`;
+    }).join(" | ");
+    const wrong: string[] = [];
+    let contradicting = 0;
+    for (let round = 0; round < 300; round += 1) {
+      const three = next() < 0.3;
+      const scene = [...runs(0, "a"), ...runs(1, "b"), ...(three ? runs(2, "c") : [])];
+      const results = evaluate(scene, [0, 1, 2], false);
+      const outcome = show(results, scene);
+      for (const order of three ? [[2, 1, 0], [1, 2, 0]] : [[1, 0, 2]]) {
+        for (const reverse of [false, true]) if (show(evaluate(scene, order, reverse), scene) !== outcome) wrong.push(`#${round} order ${order} ${reverse}: ${outcome}`);
+      }
+      const byId = new Map(scene.map((entry) => [entry.id, entry]));
+      for (const entry of scene) {
+        for (const partner of partnersOf(results, entry.id)) {
+          if (partner.differs) contradicting += 1;
+          // « differs » exactly on two readings; a pair reads the same length from both lines.
+          if (Boolean(partner.differs) !== (entry.dn !== byId.get(partner.item_id)?.dn)) wrong.push(`#${round} differs ${entry.id} ${partner.item_id}`);
+          const back = partnersOf(results, partner.item_id).find((other) => other.item_id === entry.id);
+          if (!entry.excluded && back?.overlap_m !== partner.overlap_m) wrong.push(`#${round} ${entry.id}→${partner.item_id} ${partner.overlap_m} ≠ ${back?.overlap_m}`);
+        }
+      }
+      // The pairs of one reading are those the lines of that reading have alone.
+      for (const reading of ["DN 22", "DN 28"]) {
+        const only = scene.filter((entry) => entry.dn === reading);
+        if (only.length === 0 || only.length === scene.length) continue;
+        const alone = evaluate(only, [0, 1, 2], false);
+        for (const { id } of only) {
+          const pairs = (list: ReturnType<typeof partnersOf>) => list.filter((partner) => !partner.differs).map((partner) => `${partner.item_id}=${partner.overlap_m}`).sort().join(",");
+          if (rule(alone, id, "zone_overlap") && pairs(partnersOf(alone, id)) !== pairs(partnersOf(results, id))) wrong.push(`#${round} ${id}: ${pairs(partnersOf(alone, id))} alone, ${pairs(partnersOf(results, id))} mixed`);
+        }
+      }
+    }
+    expect(wrong.slice(0, 3)).toEqual([]);
+    expect(contradicting).toBeGreaterThanOrEqual(100);
+  });
+
   it("compares 600 lines of two plans, every one of another reading, without measuring pairs far apart (TI-684)", () => {
     // 300 runs a plan, 40 cm apart, each of 400 dashes: only the runs drawn at one place are measured.
     const dashes = (y: number, shift: number) => Array.from({ length: 400 }, (_, index): Seg => [index * 0.25 + shift, y, index * 0.25 + 0.2 + shift, y]);

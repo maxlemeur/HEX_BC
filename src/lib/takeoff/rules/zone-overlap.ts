@@ -327,7 +327,10 @@ export type RestLine = OverlapLine & { origin: ReadonlyArray<{ segment: number; 
 /**
  * A line less the stretches `explained` (CoverageCache.of: what lines of its own reading draw of it on another page),
  * centreline by centreline. Frames are translations (registration.ts): a stretch measured in a common frame is the
- * same stretch along the page's own centreline.
+ * same stretch along the page's own centreline. Beside a copy, a piece no longer than ZONE_OVERLAP.distance_m is no
+ * rest: two plans registered within that distance leave such a sliver at the end of every dash of a copy, and slivers
+ * chained from dash to dash would make a neighbour 4 cm aside a copy read differently. A centreline no copy draws is
+ * kept whole, however short (the chords of a curved run).
  */
 export function restOf(line: OverlapLine, explained: readonly Stretch[]): RestLine {
   const removed = new Map<number, Array<[number, number]>>();
@@ -337,9 +340,11 @@ export function restOf(line: OverlapLine, explained: readonly Stretch[]): RestLi
   for (const [index, [x0, y0, x1, y1]] of line.segments.entries()) {
     const length = Math.hypot(x1 - x0, y1 - y0);
     if (!(length > 0)) continue;
+    const copies = union(removed.get(index) ?? []);
+    const least = copies.length > 0 ? ZONE_OVERLAP.distance_m + EPSILON_M : EPSILON_M;
     let from = 0;
-    for (const [lo, hi] of [...union(removed.get(index) ?? []), [length, length] as [number, number]]) {
-      if (lo - from > EPSILON_M) {
+    for (const [lo, hi] of [...copies, [length, length] as [number, number]]) {
+      if (lo - from > least) {
         segments.push([x0 + ((x1 - x0) * from) / length, y0 + ((y1 - y0) * from) / length, x0 + ((x1 - x0) * lo) / length, y0 + ((y1 - y0) * lo) / length]);
         origin.push({ segment: index, lo: from });
       }

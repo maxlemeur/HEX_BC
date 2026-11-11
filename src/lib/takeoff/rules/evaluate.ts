@@ -370,15 +370,17 @@ const UNSPECIFIED_GRADES: Partial<Record<string, readonly string[]>> = {
 
 /**
  * What two lines that are not one run (sameRun) read differently (TI-684): the network, the material (both read, and
- * neither the unspecified grade of the other), the size as printed. Never empty: two lines that are not one run differ.
+ * neither the unspecified grade of the other), the size: two printed sizes that name no size in common (« DN 100 » and
+ * « Ø 110 » of cast iron are one size, on two networks too). Never empty: two lines that are not one run differ.
  */
-function readingDifferences(left: TakeoffRuleInputs, right: TakeoffRuleInputs): ZoneOverlapDifference[] {
+function readingDifferences(left: ZoneLine, right: ZoneLine, sizes: ReadonlyMap<string, Set<string>>): ZoneOverlapDifference[] {
   const differs: ZoneOverlapDifference[] = [];
-  if (left.network !== right.network) differs.push("network");
-  const [l, r] = [left.material, right.material];
+  if (left.inputs.network !== right.inputs.network) differs.push("network");
+  const [l, r] = [left.inputs.material, right.inputs.material];
   if (l !== null && r !== null && l !== r && !UNSPECIFIED_GRADES[l]?.includes(r) && !UNSPECIFIED_GRADES[r]?.includes(l)) differs.push("material");
-  if (left.dn !== right.dn) differs.push("dn");
-  return differs.length > 0 ? differs : [left.material !== right.material ? "material" : "dn"];
+  const named = sizes.get(right.id) ?? new Set<string>();
+  if (left.inputs.dn !== right.inputs.dn && ![...(sizes.get(left.id) ?? [])].some((entry) => named.has(entry))) differs.push("dn");
+  return differs.length > 0 ? differs : [l !== r ? "material" : "dn"];
 }
 
 function byText(left: string, right: string) {
@@ -553,6 +555,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     const pairKey = (left: string, right: string) => JSON.stringify([left, right]);
     const linesOf = new Map<string, ZoneLine[]>();
     for (const line of levelLines) linesOf.set(line.page_key, [...(linesOf.get(line.page_key) ?? []), line]);
+    const rank = new Map(levelLines.map((line, index) => [line.id, index]));
     for (const [index, leftPage] of levelPages.entries()) {
       for (const rightPage of levelPages.slice(index + 1)) {
         if (!together(leftPage.key, rightPage.key)) continue;
@@ -561,14 +564,24 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           && !(left.is_excluded && right.is_excluded) && !sameRun(left, right, sizes);
         const frames = framesOf(leftPage.key, rightPage.key);
         const minimum = minimumOf(leftPage.key, rightPage.key);
+        // What a line of its own reading draws of a line on the other page: nothing unless each draws some of the
+        // other, as for a pair. Read in the order of the pairs above (the level's lines), whose coverage is kept: a
+        // twin that draws nothing of the line costs no second measure.
+        const explained = (line: ZoneLine, twin: ZoneLine): Stretch[] => {
+          const [first, second] = (rank.get(line.id) ?? 0) < (rank.get(twin.id) ?? 0) ? [line, twin] : [twin, line];
+          const [firstFrame, secondFrame] = framesOf(first.page_key, second.page_key);
+          const forward = coverage.of(overlapLine(first), firstFrame, overlapLine(second), secondFrame, minimum);
+          if (forward.length === 0) return [];
+          const backward = coverage.of(overlapLine(second), secondFrame, overlapLine(first), firstFrame, minimum);
+          return backward.length === 0 ? [] : line === first ? forward : backward;
+        };
         // A line less what the lines of its own reading draw of it on the other page, excluded or not (an exclusion
         // settles a quantity, the run is still drawn there): what is left has no copy of its reading on that page.
-        const restsOf = (lines: readonly ZoneLine[], others: readonly ZoneLine[], own: TakeoffFrameTransform, other: TakeoffFrameTransform) =>
+        const restsOf = (lines: readonly ZoneLine[], others: readonly ZoneLine[]) =>
           lines.map((line): RestLine => (others.some((candidate) => compared(line, candidate))
-            ? restOf(overlapLine(line), others.filter((twin) => sameRun(line, twin, sizes))
-              .flatMap((twin) => coverage.of(overlapLine(line), own, overlapLine(twin), other, minimum)))
+            ? restOf(overlapLine(line), others.filter((twin) => sameRun(line, twin, sizes)).flatMap((twin) => explained(line, twin)))
             : { id: line.id, segments: [], origin: [] }));
-        const [leftRests, rightRests] = [restsOf(lefts, rights, frames[0], frames[1]), restsOf(rights, lefts, frames[1], frames[0])];
+        const [leftRests, rightRests] = [restsOf(lefts, rights), restsOf(rights, lefts)];
         const forward = restCoverage(leftRests, frames[0], rightRests, frames[1], minimum, (left, right) => compared(lefts[left], rights[right]));
         if (forward.size === 0) continue;
         const backward = restCoverage(rightRests, frames[1], leftRests, frames[0], minimum, (right, left) => compared(lefts[left], rights[right]));
@@ -579,7 +592,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
             if (!(overlap > 0)) continue;
             const [leftLine, rightLine] = [lefts[left], rights[right]];
             pairs.push({ left: leftLine.id, right: rightLine.id, overlap_m: overlap });
-            differences.set(pairKey(leftLine.id, rightLine.id), readingDifferences(leftLine.inputs, rightLine.inputs));
+            differences.set(pairKey(leftLine.id, rightLine.id), readingDifferences(leftLine, rightLine, sizes));
             contradicted.set(leftLine.id, new Map(contradicted.get(leftLine.id) ?? []).set(rightLine.id, stretches));
             contradicted.set(rightLine.id, new Map(contradicted.get(rightLine.id) ?? []).set(leftLine.id, back));
           }
