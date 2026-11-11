@@ -131,6 +131,39 @@ export function normalizeTakeoffZone(value: string): string | null {
   return matchAll(value, [[ZONE_PATTERN, (match) => `Z${Number(match[1])}`]])[0] ?? null;
 }
 
+/** Longest free level label: the length the vector reading stores for a page's level. */
+export const TAKEOFF_LEVEL_LABEL_MAX = 16;
+const FREE_LEVEL_PATTERN = /^[\p{Lu}\p{N}](?:[\p{Lu}\p{N} ._/+-]*[\p{Lu}\p{N}])?$/u;
+
+/**
+ * A level printed outside RDC, R+n, R-n and SSn (`L00`, `L01`, `GANTRY`: a data centre), kept as written (TI-687):
+ * no equivalence is invented, `L00` is not the RDC. Null for a value that holds a known level or a zone (those keep
+ * their one token), for one too long or with other signs, and for one with a lowercase letter: a title-block label
+ * is capitals and digits, and a word of the scope (« Tous », « Tous les niveaux ») is no level. Two pages share a free
+ * level only when it is the same label, character for character.
+ */
+export function freeTakeoffLevelLabel(value: string): string | null {
+  const label = value.normalize("NFC").trim().replace(/\s+/gu, " ");
+  if (!label || label.length > TAKEOFF_LEVEL_LABEL_MAX || !FREE_LEVEL_PATTERN.test(label)) return null;
+  return normalizeTakeoffLevel(label) || normalizeTakeoffZone(label) ? null : label;
+}
+
+/** The free levels the preparation scope declares, unique and in text order. */
+export function takeoffScopeFreeLevels(scope: { levels: string[] }): string[] {
+  const labels = new Set(scope.levels.map(freeTakeoffLevelLabel).filter((value): value is string => value !== null));
+  return [...labels].sort(byCodeUnit);
+}
+
+function byCodeUnit(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** True when the text (a page, a file name) prints the label as written: same case, and no letter or digit glued to it. */
+export function takeoffTextPrintsLevel(text: string, label: string) {
+  const escaped = label.split(" ").map((part) => part.replace(/[.*+?^${}()|[\]\\/]/gu, "\\$&")).join("\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(text);
+}
+
 function levelRank(level: string) {
   if (level.startsWith("SS")) return -1000 - Number(level.slice(2));
   if (level.startsWith("R-")) return -Number(level.slice(2));
@@ -138,12 +171,18 @@ function levelRank(level: string) {
   return Number(level.slice(2));
 }
 
-/** Level and zone candidates from the page text and the preparation scope, without `inconnu`. */
+/**
+ * Level and zone candidates from the page text and the preparation scope, without `inconnu`. The known levels come
+ * first, in building order; a free level of the scope follows them, in text order and never ranked among them, and
+ * only on a page that prints it: a known level is a choice on every page, a free label only where it is read.
+ */
 export function extractTakeoffLevelZoneCandidates(text: string, scope: { levels: string[]; zones: string[] } = { levels: [], zones: [] }) {
   const levels = new Set([...matchAll(text, LEVEL_PATTERNS), ...scope.levels.map(normalizeTakeoffLevel).filter((value): value is string => Boolean(value))]);
   const zones = new Set([...matchAll(text, [[ZONE_PATTERN, (match) => `Z${Number(match[1])}`]]), ...scope.zones.map(normalizeTakeoffZone).filter((value): value is string => Boolean(value))]);
+  const printed = text.normalize("NFC");
+  const free = takeoffScopeFreeLevels(scope).filter((label) => takeoffTextPrintsLevel(printed, label));
   return {
-    levels: [...levels].sort((left, right) => levelRank(left) - levelRank(right)).slice(0, MAX_CANDIDATES),
+    levels: [...[...levels].sort((left, right) => levelRank(left) - levelRank(right)), ...free].slice(0, MAX_CANDIDATES),
     zones: [...zones].sort((left, right) => Number(left.slice(1)) - Number(right.slice(1))).slice(0, MAX_CANDIDATES),
   };
 }

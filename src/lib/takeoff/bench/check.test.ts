@@ -796,6 +796,21 @@ describe("takeoff bench dataset check", () => {
     expectIssue(result, "truth/pages/a-plan-02.json", "pages[0].page", /1 page/);
   });
 
+  it("accepts a free printed level as written and refuses one that respells a known level (TI-687)", async () => {
+    for (const niveau of ["L00", "GANTRY", "L 02"]) {
+      await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+        Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau });
+      });
+      expect((await checkTakeoffBenchDataset(dataset.root)).errors.filter((issue) => issue.path.includes("niveau"))).toEqual([]);
+    }
+    for (const niveau of ["Niveau R+1", " L00", "L00 ", "X".repeat(17), "Z1", "Gantry", ""]) {
+      await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
+        Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau });
+      });
+      expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/pages/a-plan-02.json", "pages[0].niveau", /./);
+    }
+  });
+
   it("refuses an unnormalised level or zone and values outside the contract", async () => {
     await dataset.mutateJson("truth/pages/a-plan-02.json", (truth) => {
       Object.assign((truth.pages as Array<Record<string, unknown>>)[0], { niveau: "R + 1", zone: "Zone 2", type: "plan", statut: "ok", labeled_by: "" });
