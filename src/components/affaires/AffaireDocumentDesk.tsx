@@ -27,6 +27,8 @@ import {
 import {
   canClassifyDossierDocument,
   canRetryDossierDocument,
+  dossierDocumentAiConfidence,
+  dossierDocumentClassificationState,
   dossierDocumentState,
   type DossierDocument,
 } from "@/lib/affaires/document-triage";
@@ -577,6 +579,7 @@ export function AffaireDocumentDesk({
               <tbody>
                 {rows.map((document) => {
                   const state = dossierDocumentState(document);
+                  const aiConfidence = dossierDocumentAiConfidence(document);
                   const category =
                     drafts[document.documentId] ?? document.detectedCategory;
                   const eligible =
@@ -658,10 +661,11 @@ export function AffaireDocumentDesk({
                       </td>
                       <td>
                         <span
-                          className={`document-desk-status document-desk-status-${state}`}
+                          className={`document-desk-status document-desk-status-${aiConfidence !== null ? "ai" : state}`}
+                          title={aiConfidence !== null ? "Confiance de l’IA dans la catégorie proposée" : undefined}
                         >
                           {state === "valid" && <Check size={12} />}
-                          {stateLabels[state]}
+                          {aiConfidence !== null ? <><span className="sr-only">Confiance de l’IA : </span><span>{aiConfidence} %</span></> : stateLabels[state]}
                         </span>
                       </td>
                       <td>
@@ -771,7 +775,7 @@ export function AffaireDocumentDesk({
               {canManage && canClassifyDossierDocument(active) && (
                 <div className="document-desk-preview-actions">
                   {active.detectedCategory === "dpgf" &&
-                    dossierDocumentState(active) === "valid" && (
+                    dossierDocumentClassificationState(active) === "valid" && (
                       <button
                         className="document-desk-button"
                         disabled={busy}
@@ -781,7 +785,7 @@ export function AffaireDocumentDesk({
                         <ChevronRight size={14} />
                       </button>
                     )}
-                  {dossierDocumentState(active) === "valid" && (
+                  {dossierDocumentClassificationState(active) === "valid" && (
                     <button
                       className="document-desk-text"
                       disabled={busy}

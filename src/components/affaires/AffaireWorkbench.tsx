@@ -5,6 +5,7 @@ import { ArrowRight, Calculator, FileText, Folder, House, Info, Plus, Send, Tria
 
 import { Button } from "@/components/ui/button";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS } from "@/lib/affaires/intake";
+import { dossierDocumentAiConfidence } from "@/lib/affaires/document-triage";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireRegisterEntry, AffaireRegisterSummary } from "@/lib/affaires/register";
 
@@ -88,15 +89,21 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
             <>
               <div className="affaire-file-list" role="table" aria-label="Documents reçus">
                 <div className="affaire-file-list-head" role="row"><span role="columnheader">Pièce</span><span role="columnheader">Classification</span></div>
-                {documents.slice(0, 8).map((document) => (
-                  <div role="row" className="affaire-file-list-row" key={document.documentId}>
-                    <div role="cell"><button type="button" onClick={() => onOpenDocument(document.documentId)} disabled={document.isBeingDeleted}>
-                      <FileText className={document.fileName.toLowerCase().endsWith(".pdf") ? "affaire-file-pdf" : "affaire-file-other"} size={24} aria-hidden="true" />
-                      <span>{document.fileName}</span>
-                    </button></div>
-                    <span role="cell">{document.isBeingDeleted ? "Suppression en cours" : AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.detectedCategory]}</span>
-                  </div>
-                ))}
+                {documents.slice(0, 8).map((document) => {
+                  const aiConfidence = dossierDocumentAiConfidence(document);
+                  return (
+                    <div role="row" className="affaire-file-list-row" key={document.documentId}>
+                      <div role="cell"><button type="button" onClick={() => onOpenDocument(document.documentId)} disabled={document.isBeingDeleted}>
+                        <FileText className={document.fileName.toLowerCase().endsWith(".pdf") ? "affaire-file-pdf" : "affaire-file-other"} size={24} aria-hidden="true" />
+                        <span>{document.fileName}</span>
+                      </button></div>
+                      <span role="cell">
+                        {document.isBeingDeleted ? "Suppression en cours" : AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.detectedCategory]}
+                        {aiConfidence !== null ? <span className="affaire-file-confidence" title="Confiance de l’IA dans la catégorie proposée"><span className="sr-only">Confiance de l’IA : </span><span>{aiConfidence} %</span></span> : null}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
               {documents.length > 8 ? <button className="affaire-workbench-text-action" type="button" onClick={onOpenDocuments}>Voir les {documents.length} pièces <ArrowRight size={16} aria-hidden="true" /></button> : null}
               {workspace?.missingPieces.some((piece) => piece.code === "missing_plans") ? <p className="affaire-workbench-note"><Info size={17} aria-hidden="true" />Des pièces sont reçues. Vérifiez leur classement si des plans restent signalés manquants.</p> : null}
