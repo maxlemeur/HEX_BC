@@ -1,7 +1,7 @@
 import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
 import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
-import { toleranceOf, withinTolerance, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
+import { toleranceOf, withinTolerance, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
@@ -23,12 +23,14 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // Vector and raster slices (TI-678, decision Q8 of 5 Nov): added after the v1
 // results were read, beside the global figure, which stays the headline and is
 // computed as before. A plan is in the slice of its pages in the vector run:
-// vector when none is raster, raster when all are; a plan with both, or with a
-// failed page, is in neither and is named. Per slice, lengths and surfaces
-// apart: the coverage (scored keys read over scored keys), the median error
-// on the keys read (nothing when none was read), the keys within tolerance,
-// and the silent errors (keys at high confidence in error, when the run
-// classed its lines). On the raster slice the vector reading abstains: its
+// vector when none is raster, raster when all are; a plan with both, or whose
+// passes disagree, is in neither and is named (a plan with a failed page is
+// not scored, so it is already out of the totals). Per slice, lengths and
+// surfaces apart: the coverage (scored keys read over scored keys), the median
+// error on the keys read (nothing when none was read) and the keys within
+// tolerance; and, for the slice as a whole, the silent errors (keys of any
+// kind at high confidence in error, when the run classed its lines). On the
+// raster slice the vector reading abstains: its
 // page goes to a human, and the lines the run copies there from the baseline
 // are the baseline's reading, never a success of the vectors. The interval is
 // taken over the plans of the slice (lowest and highest plan), each plan the
@@ -38,10 +40,16 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // after the v1 results were read, beside the figures judged on the devis, which
 // stay as they are. On the plans measured along the drawn line (measured.ts),
 // the length each run read on a scored key is compared with the measurement
-// instead of the devis, same tolerance, a missed key 100 %; the keys without
-// measurement are left out, on both sides. The section also gives how far the
-// devis is from the measurement on those keys (median, signed): it is what the
-// judgment on the devis asks of a reading beyond the drawing.
+// instead of the devis, same tolerance rule (10 % of the measurement), a missed
+// key 100 %; the keys without measurement are left out, on both sides, and the
+// section says how many scored lengths the judged plans have. Only the plans
+// of the vector slice are judged: on a raster or mixed plan the vector run
+// holds the lines of the baseline, and judging them would count the baseline's
+// reading as the vectors'. A measured plan that is not judged is named with
+// its reason. The section also gives how far the devis is from the measurement
+// on the judged keys (median, signed): it is what the judgment on the devis
+// asks of a reading beyond the drawing. report.json keeps, per judged plan and
+// key, the devis, the measurement and each run's reading per pass.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -93,25 +101,44 @@ export type VectorComparison = {
   slices: {
     declared: "added_after_v1_results";
     totals: Record<"reserve" | "truth" | "all", Record<"vector" | "raster", SliceComparison>>;
-    /** Plans of the totals in neither slice: vector and raster pages, or a failed page. */
+    /** Plans of the totals in neither slice: vector and raster pages, or passes that disagree. */
     left_out: string[];
   } | null;
   /** Lengths judged on the hand measurement of the plans that have one (TI-662); null when no measurement is given. */
   measured: {
     declared: "added_after_v1_results";
     totals: Record<"reserve" | "truth" | "all", MeasuredJudgment>;
-    /** Scopes measured on some of their plans only: left to their devis. */
-    partial: string[];
+    /** The judged plans, key by key: what the totals stand on. */
+    scopes: MeasuredScope[];
+    /** Measured plans left to their devis, and why. */
+    not_judged: Array<{ scope: string; reason: MeasuredNotJudged }>;
   } | null;
 };
+/**
+ * Why a measured plan is not judged on its measurement: its truth covers several plans; the two runs did not both
+ * score it in every pass; its pages are not all vector in the vector run (or the pages are not given); none of its
+ * scored lengths has a measurement.
+ */
+export type MeasuredNotJudged = "several_plans" | "not_in_totals" | "not_vector" | "no_measured_key";
 export type MeasuredJudgment = {
   plans: string[];
+  /** Scored length keys of the judged plans; `vector.keys` of them have a measurement. */
+  scored_keys: number;
   vector: KindMetrics;
   baseline: KindMetrics;
   /** The acceptance rule on the measured keys: share strictly higher, median error strictly lower. */
   lengths_gain: boolean | null;
   /** Median over the measured keys of (devis − measurement) / measurement. */
   devis_gap: number | null;
+};
+export type MeasuredReading = { actual: number | null; status: "ok" | "out_of_tolerance" | "missed"; relative_deviation: number };
+export type MeasuredScope = {
+  scope: string;
+  documents: string[];
+  role: "truth" | "reserve";
+  scored_keys: number;
+  /** The scored lengths that have a measurement, with each run's reading per pass, judged on the measurement. */
+  keys: Array<{ key: KeyLabel; devis: number | null; measured: number; vector: MeasuredReading[]; baseline: MeasuredReading[] }>;
 };
 
 function median(values: readonly number[]): number | null {
@@ -233,10 +260,14 @@ function sliceSide(passes: ScopeScore[][], plans: readonly string[], abstained: 
   return { abstained, lengths: kind(isLength), surfaces: kind(isSurface), silent_errors: abstained ? null : silent };
 }
 
+function isScoredLength(key: KeyScore) {
+  return isLength(key) && key.status !== "out_of_score";
+}
+
 /** The scored length keys of a scope that have a measurement, judged on it: same reading, the measurement as the expected length. */
 function againstMeasurement(keys: readonly KeyScore[], lengths: ReadonlyMap<string, number> | undefined): KeyScore[] {
   return keys.flatMap((key): KeyScore[] => {
-    const measured = isLength(key) && key.status !== "out_of_score" ? lengths?.get(measuredKey(key.key)) : undefined;
+    const measured = isScoredLength(key) ? lengths?.get(measuredKey(key.key)) : undefined;
     if (measured === undefined) return [];
     const judged = { ...key, expected: measured, tolerance: toleranceOf("ml", measured) };
     if (key.status === "missed" || key.actual === null) return [{ ...judged, status: "missed", relative_deviation: -1 }];
@@ -281,19 +312,36 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     };
   };
   const slicesOf = (role: "reserve" | "truth" | "all") => ({ vector: slice(role, "vector"), raster: slice(role, "raster") });
-  // The measured judgment uses the plans of the totals too, and on each the keys that have a measurement.
+  // The measured judgment uses the plans of the totals too, among them the plans of the vector slice (elsewhere the
+  // vector run holds the baseline's lines), and on each the scored lengths that have a measurement.
+  const lengthsOf = (id: string) => measured?.by_scope.get(id);
+  const judgedKeys = (passes: ScopeScore[][], id: string) => passes.map((scopes) => againstMeasurement(scopes.find((scope) => scope.id === id)?.keys ?? [], lengthsOf(id)));
+  const notJudged = (id: string): MeasuredNotJudged | null => {
+    if (!common.includes(id)) return "not_in_totals";
+    if (slices?.get(id) !== "vector") return "not_vector";
+    return judgedKeys(vectorPasses, id)[0].length === 0 ? "no_measured_key" : null;
+  };
+  const measuredIds = [...(measured?.by_scope.keys() ?? [])].sort();
+  const judgedPlans = measuredIds.filter((id) => notJudged(id) === null);
+  const measuredScope = (id: string): MeasuredScope => {
+    const reference = vectorPasses[0].find((scope) => scope.id === id) as ScopeScore;
+    const readings = (passes: ScopeScore[][], index: number) => judgedKeys(passes, id).map((keys): MeasuredReading => ({
+      actual: keys[index].actual, status: keys[index].status as MeasuredReading["status"], relative_deviation: round(keys[index].relative_deviation) as number }));
+    const devis = reference.keys.filter((key) => againstMeasurement([key], lengthsOf(id)).length > 0);
+    return { scope: id, documents: reference.documents, role: reference.role, scored_keys: reference.keys.filter(isScoredLength).length,
+      keys: judgedKeys(vectorPasses, id)[0].map((key, index) => ({ key: key.key, devis: devis[index].expected, measured: key.expected as number,
+        vector: readings(vectorPasses, index), baseline: readings(baselinePasses, index) })) };
+  };
+  const measuredScopes = judgedPlans.map(measuredScope);
   const judgment = (role: "reserve" | "truth" | "all"): MeasuredJudgment => {
-    const plans = common.filter((id) => measured?.by_scope.has(id) && (role === "all" || roleOf(id) === role));
-    const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id))
-      .flatMap((scope) => againstMeasurement(scope.keys, measured?.by_scope.get(scope.id))));
+    const judged = measuredScopes.filter((scope) => role === "all" || scope.role === role);
+    const plans = judged.map((scope) => scope.scope);
+    const pick = (passes: ScopeScore[][]) => passes.map((_, pass) => plans.flatMap((id) => judgedKeys(passes, id)[pass]));
     const vectorSide = metrics(pick(vectorPasses), isLength), baselineSide = metrics(pick(baselinePasses), isLength);
-    const gaps = (vectorPasses[0] ?? []).filter((scope) => plans.includes(scope.id)).flatMap((scope) => scope.keys.flatMap((key) => {
-      const [judged] = againstMeasurement([key], measured?.by_scope.get(scope.id));
-      return judged && key.expected !== null && judged.expected ? [(key.expected - judged.expected) / judged.expected] : [];
-    }));
+    const gaps = judged.flatMap((scope) => scope.keys.flatMap((key) => (key.devis === null ? [] : [(key.devis - key.measured) / key.measured])));
     const none = { keys: 0, within: null, share: null, median_error: null };
-    return { plans, vector: vectorSide, baseline: baselineSide, devis_gap: round(median(gaps)),
-      lengths_gain: verdicts({ lengths: vectorSide, surfaces: none }, { lengths: baselineSide, surfaces: none }).lengths_gain };
+    return { plans, scored_keys: judged.reduce((sum, scope) => sum + scope.scored_keys, 0), vector: vectorSide, baseline: baselineSide,
+      devis_gap: round(median(gaps)), lengths_gain: verdicts({ lengths: vectorSide, surfaces: none }, { lengths: baselineSide, surfaces: none }).lengths_gain };
   };
   return {
     passes: { vector: vectorPasses.length, baseline: baselinePasses.length },
@@ -305,7 +353,11 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     } : null,
     measured: measured ? {
       declared: "added_after_v1_results", totals: { reserve: judgment("reserve"), truth: judgment("truth"), all: judgment("all") },
-      partial: [...measured.partial],
+      scopes: measuredScopes,
+      not_judged: [
+        ...measured.several_plans.map((scope) => ({ scope, reason: "several_plans" as const })),
+        ...measuredIds.flatMap((scope) => { const reason = notJudged(scope); return reason ? [{ scope, reason }] : []; }),
+      ].sort((left, right) => (left.scope < right.scope ? -1 : left.scope > right.scope ? 1 : 0)),
     } : null,
   };
 }
@@ -424,7 +476,8 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
   const lines = ["### Tranches vecteur et raster (ajoutées après lecture des résultats v1)", "",
     "Le chiffre global ci-dessus reste le chiffre de tête. Couverture : clés notées lues ; l’erreur médiane ne porte que sur les clés lues. "
     + "Une page raster est confiée à un humain : la lecture vectorielle s’y abstient, ce n’est jamais un succès. "
-    + "Erreurs silencieuses : clés à haute confiance en erreur. Intervalle : plan le plus bas et le plus haut de la tranche.", ""];
+    + "Erreurs silencieuses : clés à haute confiance en erreur, tous types de clés confondus. "
+    + "Intervalle : plan le plus bas et le plus haut de la tranche.", ""];
   const silent = (side: SliceSide) => (side.abstained ? "abstention" : side.silent_errors === null ? "–" : String(side.silent_errors));
   const rows = (["reserve", "truth", "all"] as const).flatMap((role) => (["vector", "raster"] as const).map((name) => {
     const entry = slices.totals[role][name];
@@ -436,23 +489,40 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
   }));
   lines.push(...table(["Tranche", "Plans", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline",
     "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
-  if (slices.left_out.length > 0) lines.push(`Hors tranches (pages vecteur et raster mêlées, ou page en échec) : ${slices.left_out.join(", ")}.`, "");
+  if (slices.left_out.length > 0) lines.push(`Hors tranches (pages vecteur et raster mêlées, ou passes qui ne s’accordent pas) : ${slices.left_out.join(", ")}.`, "");
   return lines;
 }
 
+const NOT_JUDGED: Record<MeasuredNotJudged, string> = {
+  several_plans: "vérité de plusieurs plans (une mesure se juge sur la vérité d’un seul plan)",
+  not_in_totals: "non noté par les deux runs à chaque passe",
+  not_vector: "plan raster ou mixte (la lecture vectorielle y reprend les lignes de la baseline)",
+  no_measured_key: "aucune longueur notée n’a de mesure",
+};
+
+function signedPercent(value: number | null) {
+  if (value === null) return "–";
+  const rounded = Math.round(Math.abs(value) * 100);
+  return rounded === 0 ? "0 %" : `${value > 0 ? "+" : "−"}${rounded} %`;
+}
+
 function renderMeasured(measured: NonNullable<VectorComparison["measured"]>) {
-  const lines = ["### Longueurs jugées à la mesure au trait (ajoutée après lecture des résultats v1)", "",
-    "Sur les plans mesurés à la main le long de l’axe du tuyau dessiné, en plan, sans chute ni majoration : la longueur lue est comparée à la mesure "
-    + "au lieu du devis, même tolérance, une clé manquée compte 100 %. Seules les clés mesurées sont comptées, des deux côtés. "
+  const lines = ["### Longueurs jugées à la mesure au trait (jugement ajouté après lecture des résultats v1)", "",
+    "Sur les plans mesurés à la main le long de l’axe du tuyau dessiné, en plan, sans chute ni majoration, et lus en vecteur sur toutes leurs pages : "
+    + "la longueur lue est comparée à la mesure au lieu du devis, à 10 % de la mesure, une clé manquée compte 100 %. "
+    + "Seules les clés mesurées sont comptées, des deux côtés ; « Clés mesurées » les rapporte aux longueurs notées de ces plans. "
     + "Les chiffres jugés au devis ci-dessus ne changent pas. Écart du devis : médiane de (devis − mesure) / mesure sur ces clés.", ""];
-  const gap = (value: number | null) => (value === null ? "–" : `${value >= 0 ? "+" : "−"}${(Math.abs(value) * 100).toFixed(0)} %`);
-  lines.push(...table(["Périmètre", "Plans mesurés", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Écart médian du devis à la mesure"],
+  lines.push(...table(["Périmètre", "Plans jugés", "Clés mesurées / notées", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Écart médian du devis à la mesure"],
     (["reserve", "truth", "all"] as const).map((role) => {
       const entry = measured.totals[role];
-      return [role === "reserve" ? "**Réserve**" : role === "truth" ? "**Hors réserve**" : "**Tous**", entry.plans.length, share(entry.vector),
-        share(entry.baseline), verdict(entry.lengths_gain, "gain", "pas de gain"), gap(entry.devis_gap)];
+      return [role === "reserve" ? "**Réserve**" : role === "truth" ? "**Hors réserve**" : "**Tous**", entry.plans.length,
+        entry.plans.length === 0 ? null : `${entry.vector.keys} / ${entry.scored_keys}`, share(entry.vector), share(entry.baseline),
+        verdict(entry.lengths_gain, "gain", "pas de gain"), signedPercent(entry.devis_gap)];
     })), "");
-  if (measured.partial.length > 0) lines.push(`Mesurés en partie, laissés au devis (un plan du périmètre n’a pas de mesure) : ${measured.partial.join(", ")}.`, "");
+  for (const reason of Object.keys(NOT_JUDGED) as MeasuredNotJudged[]) {
+    const scopes = measured.not_judged.filter((entry) => entry.reason === reason).map((entry) => entry.scope);
+    if (scopes.length > 0) lines.push(`Mesurés mais laissés au devis, ${NOT_JUDGED[reason]} : ${scopes.join(", ")}.`, "");
+  }
   return lines;
 }
 

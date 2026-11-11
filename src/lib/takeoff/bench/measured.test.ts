@@ -5,9 +5,11 @@ import { MeasuredTruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/b
 
 // Lengths measured by hand along the drawn line (TI-662, decision of 11 Nov). Every figure below is invented.
 // Ways a hand measurement could judge a reading wrongly:
-// - a scope of two plans measured on one of them only: its keys would be compared with half their length;
-// - a key one plan of the scope does not list, or lists as not drawn in plan view, judged on the other plans' sum;
-// - a length of 0, or a negative one, read as a measurement (a pipe that is not drawn is said so, never 0);
+// - a truth of several plans (a level, a lot) judged on the measurement of its plans: a key drawn on one plan only,
+//   or carrying the zone of one plan, has no length on the others, so it would be dropped or judged on a part of
+//   its length; such a scope is named and left to its devis, whether one plan or all of them were measured;
+// - a line without length (the measurer could not follow it on the plan) read as a length;
+// - a length of 0, or a negative one, read as a measurement (a pipe that is not measured is said so, never 0);
 // - a misspelt field or an unknown network kept silently, the key then never judged;
 // - two lines of one file for one key, the second replacing or doubling the first.
 
@@ -22,34 +24,27 @@ function file(document: string, lines: Array<Record<string, unknown>>): Measured
 }
 
 describe("hand-measured lengths of the takeoff bench", () => {
-  it("gives a scope the lengths of its plan, by key", () => {
-    const measured = measuredLengthsByScope([file("a-plan-01", [{ ...EF, length_m: 11.2 }, { ...EU, length_m: 20.6 }])],
+  it("gives a scope of one plan the lengths its measurement gives, by key", () => {
+    const measured = measuredLengthsByScope([file("a-plan-01", [{ ...EF, length_m: 11.2 }, { ...EU, length_m: 20.6 }, { ...EU, dn: "DN 50", length_m: null }])],
       [{ id: "truth/a-plan-01.json", documents: ["a-plan-01"] }, { id: "truth/b-plan-01.json", documents: ["b-plan-01"] }]);
     expect([...measured.by_scope.keys()]).toEqual(["truth/a-plan-01.json"]);
+    // The line without length is no measurement: its key is left to the devis.
     expect(Object.fromEntries(measured.by_scope.get("truth/a-plan-01.json")!)).toEqual({ [measuredKey(EF)]: 11.2, [measuredKey(EU)]: 20.6 });
-    // A plan nobody measured is not partial: it is simply judged on its devis.
-    expect(measured.partial).toEqual([]);
+    expect(measured.several_plans).toEqual([]);
     // The key is the truth key of a length: zone, level, network, material and diameter.
     expect(measuredKey(EF)).not.toBe(measuredKey({ ...EF, zone: "Z2" }));
     expect(measuredKey(EF)).not.toBe(measuredKey({ ...EF, dn: "DN 28" }));
   });
 
-  it("adds the plans of a scope, and judges a key only when every plan gives it a length", () => {
-    const scope = { id: "truth/a-level-01.json", documents: ["a-plan-01", "a-plan-02"] };
+  it("does not judge a scope of several plans, measured whole or in part, and names it", () => {
+    const scopes = [{ id: "truth/a-level-01.json", documents: ["a-plan-01", "a-plan-02"] }, { id: "truth/b-level-01.json", documents: ["b-plan-01", "b-plan-02"] },
+      { id: "truth/c-level-01.json", documents: ["c-plan-01", "c-plan-02"] }];
     const measured = measuredLengthsByScope([
-      file("a-plan-01", [{ ...EF, length_m: 11.2 }, { ...EU, length_m: 20.6 }, { ...EU, dn: "DN 50", length_m: 4 }]),
-      // The second plan does not list DN 40, and says DN 50 is not drawn in plan view.
-      file("a-plan-02", [{ ...EF, length_m: 3.3 }, { ...EU, dn: "DN 50", length_m: null, notes: "non dessiné" }]),
-    ], [scope]);
-    expect(Object.fromEntries(measured.by_scope.get(scope.id)!)).toEqual({ [measuredKey(EF)]: 14.5 });
-    expect(measured.partial).toEqual([]);
-  });
-
-  it("does not judge a scope measured on some of its plans only, and names it", () => {
-    const measured = measuredLengthsByScope([file("a-plan-01", [{ ...EF, length_m: 11.2 }])],
-      [{ id: "truth/a-level-01.json", documents: ["a-plan-01", "a-plan-02"] }]);
+      file("b-plan-02", [{ ...EF, length_m: 3.3 }]),
+      file("a-plan-01", [{ ...EF, length_m: 11.2 }]), file("a-plan-02", [{ ...EF, length_m: 3.3 }]),
+    ], scopes);
     expect(measured.by_scope.size).toBe(0);
-    expect(measured.partial).toEqual(["truth/a-level-01.json"]);
+    expect(measured.several_plans).toEqual(["truth/a-level-01.json", "truth/b-level-01.json"]);
   });
 
   it("refuses a length of 0 or below, an unknown key, a misspelt field and a key listed twice", () => {

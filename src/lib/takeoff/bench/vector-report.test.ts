@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { buildBenchReport, type BenchReport, type BenchReportMetadata, type PassReport } from "@/lib/takeoff/bench/report";
-import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
-import { GroupTruthFileSchema } from "@/lib/takeoff/bench/schemas";
-import type { KeyLabel, KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
+import { createFixtureDataset } from "@/lib/takeoff/bench/bench-dataset.test-utils";
+import { loadBenchDataset } from "@/lib/takeoff/bench/dataset";
+import { measuredLengthsByScope, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
+import { GroupTruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
+import { buildScoreScopes, scoreScopes, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
@@ -367,18 +369,23 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
 // - the coverage counts a missed key as read, or a key out of score in its denominator; the median error on the
 //   keys read includes the missed keys (100 %), or is 0 % instead of nothing when no key was read;
 // - the slices move the global totals of v1, or the reserve is mixed with the other plans;
-// - a plan with vector and raster pages, or with a page that failed, is put in a slice;
+// - a plan with vector and raster pages, or with a page that failed, is put in a slice; a page read in raster
+//   mode without baseline items to copy is taken for a vector page;
+// - the verdict of a slice is taken from its coverage and its error on the keys read, instead of the acceptance
+//   rule (share within tolerance, a missed key 100 %); a plan one run lost counts in a slice on the other side;
 // - silent errors (keys at high confidence in error) are summed as 0 for a run that never classed its lines, or
 //   pooled over the passes instead of their median;
 // - the interval is computed over pooled keys instead of per plan, or printed for a single plan;
 // - report.md does not say the slices were added after the v1 results, or prints a quantity.
 
-/** A pass of the vector run: each document's pages, « raster » standing on that many baseline items. */
-function vectorPass(pages: Record<string, ReadonlyArray<"vector" | "failed" | number>>, pass = 1): VectorBenchPass {
+/** A pass of the vector run: each document's pages, a number for a raster page standing on that many baseline items, « raster » for one read in raster mode without any. */
+function vectorPass(pages: Record<string, ReadonlyArray<"vector" | "failed" | "raster" | number>>, pass = 1): VectorBenchPass {
   return { pass, documents: Object.entries(pages).map(([id, modes]) => ({ id, pages: modes.map((mode, index) => ({
     page: index + 1, status: mode === "failed" ? "failed" as const : "ok" as const,
     error: mode === "failed" ? { name: "Fictional", code: null, message: "Fictional failure." } : null,
-    reading: null, raster_items_from_baseline: typeof mode === "number" ? mode : null })) })) };
+    // Only the mode of a reading is read here.
+    reading: mode === "raster" ? { mode: "raster" } as NonNullable<VectorBenchPass["documents"][number]["pages"][number]["reading"]> : null,
+    raster_items_from_baseline: typeof mode === "number" ? mode : null })) })) };
 }
 
 /** Confidence counts of a scope: keys at high confidence, and those in error (the silent errors). */
@@ -394,6 +401,9 @@ describe("takeoff bench vector and raster slices (TI-678)", () => {
     const slices = scopeSlices([vectorPass({ "a-plan-02": ["vector", "vector"], "c-plan-02": [4], "c-plan-03": ["vector", 2], "d-plan-02": ["vector", "failed"] })], scopes);
     expect(Object.fromEntries(slices)).toEqual({ "truth/a-plan-02.json": "vector", "truth/c-plan-02.json": "raster", "truth/c-plan-03.json": "mixed",
       "truth/d-plan-02.json": "mixed" });
+    // A page read in raster mode is raster, with or without baseline items to copy.
+    expect(Object.fromEntries(scopeSlices([vectorPass({ "a-plan-02": ["raster"], "c-plan-03": ["vector", "raster"] })], scopes))).toEqual({
+      "truth/a-plan-02.json": "raster", "truth/c-plan-03.json": "mixed" });
     // A raster page in any pass makes the plan raster in that pass: two passes that disagree are mixed.
     expect(scopeSlices([vectorPass({ "a-plan-02": ["vector"] }, 1), vectorPass({ "a-plan-02": [3] }, 2)], scopes).get("truth/a-plan-02.json")).toBe("mixed");
   });
@@ -470,6 +480,29 @@ describe("takeoff bench vector and raster slices (TI-678)", () => {
     expect(side.lengths.by_plan).toEqual({ plans: 3, coverage: [0.5, 1], median_error_read: [0.03, 0.4] });
   });
 
+  it("applies the acceptance rule to a slice: the share within tolerance, a missed key at 100 %", () => {
+    const gain = (vectorKeys: KeyScore[], baselineKeys: KeyScore[]) => {
+      const vector = report([[scope("a-plan-02", vectorKeys, reserve)]], "vector");
+      const slices = scopeSlices([vectorPass({ "a-plan-02": ["vector"] })], vector.couples[0].passes[0].scopes);
+      return compareVectorWithBaseline(vector, report([[scope("a-plan-02", baselineKeys, reserve)]]), { slices }).slices!.totals.reserve.vector.lengths_gain;
+    };
+    // One key read well and two missed: the median error is 100 % on both sides, though 0 % against 30 % on the keys read.
+    expect(gain(keys("length", [["ok", 0], ["missed"], ["missed"]]), keys("length", [["out_of_tolerance", 0.3], ["missed"], ["missed"]]))).toBe(false);
+    // Every key read on both sides, so the coverage is equal: one within tolerance against none, 16 % against 45 %.
+    expect(gain(keys("length", [["ok", 0.02], ["out_of_tolerance", 0.3]]), keys("length", [["out_of_tolerance", 0.5], ["out_of_tolerance", 0.4]]))).toBe(true);
+  });
+
+  it("keeps a plan one run lost out of the slices, as out of the totals", () => {
+    const scopes = [scope("a-plan-02", keys("length", [["ok", 0.02]]), reserve), scope("b-plan-12", keys("length", [["ok", 0.02]]), reserve)];
+    const vector = report([scopes], "vector");
+    const baseline = report([[scopes[0], { ...scopes[1], status: "read_failed" as const }]]);
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices: scopeSlices([vectorPass({ "a-plan-02": ["vector"], "b-plan-12": ["vector"] })], scopes) });
+    expect(comparison.left_out_of_totals).toEqual(["truth/b-plan-12.json"]);
+    expect(comparison.slices!.totals.reserve.vector.plans).toEqual(["truth/a-plan-02.json"]);
+    expect(comparison.slices!.totals.reserve.vector.vector.lengths.keys).toBe(1);
+    expect(comparison.slices!.left_out).toEqual([]);
+  });
+
   it("leaves a mixed plan out of both slices and names it", () => {
     const scopes = [scope("a-plan-02", keys("length", [["ok", 0.02]]), reserve), scope("c-plan-03", keys("length", [["ok", 0.02]]), reserve)];
     const vector = report([scopes], "vector");
@@ -501,11 +534,18 @@ describe("takeoff bench vector and raster slices (TI-678)", () => {
 // draws, so the lengths of a measured plan are also compared with a measurement along the drawn line. Ways the
 // second judgment could mislead:
 // - the headline figure, judged on the devis, changed by the measurement;
-// - a key without measurement, a key out of score or a surface counted in the measured judgment;
+// - a key without measurement, a key out of score, a surface or an insulation in m2 counted in the measured judgment;
 // - a missed key forgiven because its measurement is short, or a key within tolerance of the devis kept « ok »
-//   when it is far from the measurement;
+//   when it is far from the measurement; the tolerance taken on the devis instead of the measurement;
 // - one side judged on the measurement and the other on the devis;
 // - a plan the two runs did not both score counted on one side only;
+// - a raster or mixed plan judged: the vector run copies there the lines of the baseline, so the baseline's own
+//   reading would count as a reading of the vectors, and could turn « pas de gain » into « gain »;
+// - the reserve mixed with the other plans; a devis below the measurement printed as above it;
+// - a measured plan that is not judged (not vector, lost by a run, no key measured, a truth of several plans)
+//   dropped without a word, or the keys nobody measured hidden: the judgment would look whole;
+// - the judgment not auditable afterwards: report.json keeps, per key, the devis, the measurement and each reading;
+// - the fields of a measured line no longer those of the key the scorer builds from the truth line;
 // - a measured or priced quantity printed in report.md.
 describe("lengths judged on the hand measurement (TI-662)", () => {
   /** A length key with its devis quantity and the quantity a run read (null: missed). The scorer's status and deviation are against the devis. */
@@ -514,48 +554,70 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     const status = actual === null ? "missed" : Math.abs(deviation) <= 0.1 ? "ok" : "out_of_tolerance";
     return { ...key("length", status, deviation, index), expected: devis, actual, tolerance: devis * 0.1 };
   }
-  const id = (index: number) => measuredKey(key("length", "ok", 0, index).key);
-  const measuredOn = (scopeId: string, lengths: Record<number, number>, partial: string[] = []): MeasuredLengths => ({
-    by_scope: new Map([[`truth/${scopeId}.json`, new Map(Object.entries(lengths).map(([index, value]) => [id(Number(index)), value]))]]), partial,
-  });
+  /** The measurement files of some plans, each a scope of one plan: by key index, the length measured (null: no length). */
+  function measuredOn(plans: Record<string, Record<number, number | null>>, severalPlans: string[] = []): MeasuredLengths {
+    const files = Object.entries(plans).map(([document, lengths]): MeasuredTruthFile => ({
+      schema_version: 1, document, method: "Fictional method", measured_by: "Fictional estimator", measured_on: "2026-11-12",
+      lines: Object.entries(lengths).map(([index, length_m]) => ({ zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: `DN ${22 + 6 * Number(index)}`, length_m })),
+    }));
+    return { ...measuredLengthsByScope(files, Object.keys(plans).map((plan) => ({ id: `truth/${plan}.json`, documents: [plan] }))), several_plans: severalPlans };
+  }
+  const vectorSlice = (...plans: string[]) => new Map(plans.map((plan) => [`truth/${plan}.json`, "vector" as const]));
   const reserve = { role: "reserve" as const };
-  // Devis 40, 30, 10 and 15; measured 21, 20 and 8 on the first three keys, the fourth not measured.
+  // Devis 40, 30, 10 and 15; measured 21, 20 and 8 on the first three keys, the fourth without length.
   const DEVIS = [40, 30, 10, 15];
   const vectorKeys = [length(0, DEVIS[0], 20), length(1, DEVIS[1], 12), length(2, DEVIS[2], null), length(3, DEVIS[3], 14)];
-  const baselineKeys = [length(0, DEVIS[0], 35), length(1, DEVIS[1], null), length(2, DEVIS[2], null), length(3, DEVIS[3], 14)];
-  const MEASURED = { 0: 21, 1: 20, 2: 8 };
+  const baselineKeys = [length(0, DEVIS[0], 39), length(1, DEVIS[1], null), length(2, DEVIS[2], null), length(3, DEVIS[3], 14)];
+  const MEASURED = { 0: 21, 1: 20, 2: 8, 3: null };
 
   it("judges both runs on the measured keys only, and leaves the headline as it was", () => {
-    const extra = [...keys("surface", [["ok", 0.01]]), { ...length(4, 50, 50), status: "out_of_score" as const, reason: "ambiguous" as const }];
+    const extra = [...keys("surface", [["ok", 0.01]]), { ...length(4, 50, 50), status: "out_of_score" as const, reason: "ambiguous" as const },
+      // The insulation of the first pipe, priced in m2: same zone, level, network, material and diameter, never a length.
+      { ...length(0, 99, 50), key: { ...vectorKeys[0].key, unit: "m2" } }];
     const vector = report([[scope("a-plan-02", [...vectorKeys, ...extra], reserve)]], "vector");
     const baseline = report([[scope("a-plan-02", [...baselineKeys, ...extra], reserve)]]);
-    const comparison = compareVectorWithBaseline(vector, baseline, { measured: measuredOn("a-plan-02", { ...MEASURED, 4: 49 }) });
-    const without = compareVectorWithBaseline(vector, baseline);
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices: vectorSlice("a-plan-02"), measured: measuredOn({ "a-plan-02": { ...MEASURED, 4: 49 } }) });
+    const without = compareVectorWithBaseline(vector, baseline, { slices: vectorSlice("a-plan-02") });
     expect(without.measured).toBeNull();
     expect(comparison.totals).toEqual(without.totals);
     expect(comparison.scopes).toEqual(without.scopes);
-    // On the devis: 1 of 4 within tolerance on each side (the unmeasured key), so no gain there.
+    // On the devis: 1 of 4 within tolerance for the vectors, 2 of 4 for the baseline, so no gain there.
     expect(comparison.totals.reserve.vector.lengths).toMatchObject({ keys: 4, within: 1 });
+    expect(comparison.totals.reserve.baseline.lengths).toMatchObject({ keys: 4, within: 2 });
     expect(comparison.totals.reserve.lengths_gain).toBe(false);
     const judged = comparison.measured!.totals.reserve;
     expect(comparison.measured!.declared).toBe("added_after_v1_results");
     expect(judged.plans).toEqual(["truth/a-plan-02.json"]);
+    // Three of the four scored lengths of the plan have a measurement.
+    expect(judged.scored_keys).toBe(4);
     // Vectors against the measurement: 20 / 21 within, 12 / 20 at 40 %, the missed key at 100 %.
     expect(judged.vector).toEqual(metrics(3, 1, 0.3333, 0.4));
-    // Baseline: 35 / 21 at 67 %, two missed keys.
+    // Baseline: 39 is within tolerance of the devis (40) and 86 % over the measurement (21); two missed keys.
     expect(judged.baseline).toEqual(metrics(3, 0, 0, 1));
     expect(judged.lengths_gain).toBe(true);
     // The devis prices 90 %, 50 % and 25 % more than is drawn: median 50 %.
     expect(judged.devis_gap).toBe(0.5);
-    expect(comparison.measured!.totals.truth).toMatchObject({ plans: [], vector: NONE, baseline: NONE, lengths_gain: null, devis_gap: null });
+    expect(comparison.measured!.totals.truth).toEqual({ plans: [], scored_keys: 0, vector: NONE, baseline: NONE, lengths_gain: null, devis_gap: null });
     expect(comparison.measured!.totals.all).toEqual(judged);
+    expect(comparison.measured!.not_judged).toEqual([]);
+    // report.json keeps what the judgment stands on: per key, the devis, the measurement and each run's reading per pass.
+    const missed = { actual: null, status: "missed", relative_deviation: -1 };
+    expect(comparison.measured!.scopes).toEqual([{ scope: "truth/a-plan-02.json", documents: ["a-plan-02"], role: "reserve", scored_keys: 4, keys: [
+      { key: vectorKeys[0].key, devis: 40, measured: 21, vector: [{ actual: 20, status: "ok", relative_deviation: -0.0476 }],
+        baseline: [{ actual: 39, status: "out_of_tolerance", relative_deviation: 0.8571 }] },
+      { key: vectorKeys[1].key, devis: 30, measured: 20, vector: [{ actual: 12, status: "out_of_tolerance", relative_deviation: -0.4 }], baseline: [missed] },
+      { key: vectorKeys[2].key, devis: 10, measured: 8, vector: [missed], baseline: [missed] },
+    ] }]);
   });
 
-  it("keeps a missed key at 100 % and turns a key within tolerance of the devis out of tolerance of the measurement", () => {
-    // Read 38 against a devis of 40 (ok) and a measurement of 21 (81 % over); the second key is missed.
-    const vector = report([[scope("a-plan-01", [length(0, 40, 38), length(1, 30, null)])]], "vector");
-    const judged = compareVectorWithBaseline(vector, vector, { measured: measuredOn("a-plan-01", { 0: 21, 1: 0.4 }) }).measured!.totals.truth;
-    expect(judged.vector).toEqual(metrics(2, 0, 0, 0.9048));
+  it("keeps a missed key at 100 %, and judges a reading on 10 % of the measurement, never of the devis", () => {
+    // 38 against a devis of 40 (ok) and a measurement of 21 (81 % over); a missed key; 33.5 against a measurement of
+    // 30 (3.5 over, more than its 3) under a devis of 40 whose tolerance (4) would let it pass; 22.5 against 21 (7 %).
+    const vector = report([[scope("a-plan-01", [length(0, 40, 38), length(1, 30, null), length(2, 40, 33.5), length(3, 40, 22.5)])]], "vector");
+    const judged = compareVectorWithBaseline(vector, vector, { slices: vectorSlice("a-plan-01"), measured: measuredOn({ "a-plan-01": { 0: 21, 1: 0.4, 2: 30, 3: 21 } }) })
+      .measured!.totals.truth;
+    // Errors 81 %, 100 %, 11.7 % and 7.1 %: one key within tolerance, median 46.3 %.
+    expect(judged.vector).toEqual(metrics(4, 1, 0.25, 0.4631));
     // Equal sides: never a gain.
     expect(judged.lengths_gain).toBe(false);
   });
@@ -563,31 +625,112 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
   it("takes the median over the passes, and judges only the plans both runs scored in every pass", () => {
     const passes = [[scope("a-plan-01", [length(0, 40, 20)])], [scope("a-plan-01", [length(0, 40, 26)])], [scope("a-plan-01", [length(0, 40, 22)])]];
     const vector = report(passes, "vector");
-    const measured = measuredOn("a-plan-01", { 0: 21 });
+    const options = { slices: vectorSlice("a-plan-01"), measured: measuredOn({ "a-plan-01": { 0: 21 } }) };
     // Errors per pass against 21: 4.8 %, 23.8 %, 4.8 %; within 1, 0, 1.
-    expect(compareVectorWithBaseline(vector, vector, { measured }).measured!.totals.truth.vector).toEqual(metrics(1, 1, 1, 0.0476));
+    const whole = compareVectorWithBaseline(vector, vector, options).measured!;
+    expect(whole.totals.truth.vector).toEqual(metrics(1, 1, 1, 0.0476));
+    expect(whole.scopes[0].keys[0].vector.map((reading) => reading.status)).toEqual(["ok", "out_of_tolerance", "ok"]);
     const lost = report([passes[0], [{ ...passes[1][0], status: "read_failed" as const }], passes[2]]);
-    const comparison = compareVectorWithBaseline(vector, lost, { measured });
+    const comparison = compareVectorWithBaseline(vector, lost, options);
     expect(comparison.left_out_of_totals).toEqual(["truth/a-plan-01.json"]);
     expect(comparison.measured!.totals.truth).toMatchObject({ plans: [], vector: NONE, baseline: NONE, lengths_gain: null });
+    expect(comparison.measured!.scopes).toEqual([]);
+    expect(comparison.measured!.not_judged).toEqual([{ scope: "truth/a-plan-01.json", reason: "not_in_totals" }]);
   });
 
-  it("prints the judgment as added after the v1 results, names the plans measured in part, and never prints a quantity", () => {
-    // Quantities no share or error equals: devis, vectors, baseline and measurement of three keys.
-    const devis = [41.37, 29.71, 10.61], read = [20.13, 12.07, null], level = [35.19, null, null], measure = { 0: 21.19, 1: 20.11, 2: 8.03 };
-    const vector = report([[scope("a-plan-02", devis.map((quantity, index) => length(index, quantity, read[index])), reserve)]], "vector");
-    const baseline = report([[scope("a-plan-02", devis.map((quantity, index) => length(index, quantity, level[index])), reserve)]]);
-    const passes = [vectorPass({ "a-plan-02": ["vector"] })];
-    const comparison = compareVectorWithBaseline(vector, baseline, { measured: measuredOn("a-plan-02", measure, ["truth/a-level-01.json"]) });
-    expect(comparison.measured!.partial).toEqual(["truth/a-level-01.json"]);
+  it("judges only the plans of the vector slice: on a raster or mixed plan the vector run holds the baseline's lines", () => {
+    // Every key measured at 100. On the vector plan the vectors read 102, 150, 150 and the baseline 130, 150, 150;
+    // on the raster and mixed plans both sides hold the same copied lines, read at 100.
+    const copied = [length(0, 100, 100), length(1, 100, 100)];
+    const vector = report([[scope("a-plan-02", [length(0, 100, 102), length(1, 100, 150), length(2, 100, 150)], reserve), scope("c-plan-02", copied, reserve),
+      scope("c-plan-03", copied, reserve)]], "vector");
+    const baseline = report([[scope("a-plan-02", [length(0, 100, 130), length(1, 100, 150), length(2, 100, 150)], reserve), scope("c-plan-02", copied, reserve),
+      scope("c-plan-03", copied, reserve)]]);
+    const measured = measuredOn({ "a-plan-02": { 0: 100, 1: 100, 2: 100 }, "c-plan-02": { 0: 100, 1: 100 }, "c-plan-03": { 0: 100, 1: 100 } });
+    const slices = scopeSlices([vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [2], "c-plan-03": ["vector", 2] })], vector.couples[0].passes[0].scopes);
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices, measured });
+    const judged = comparison.measured!.totals.reserve;
+    expect(judged.plans).toEqual(["truth/a-plan-02.json"]);
+    // One key within tolerance against none, and the same median error (50 %): not a gain. With the copied lines
+    // it would read 3 of 5 against 2 of 5, median 2 % against 30 %, and be called one.
+    expect(judged.vector).toEqual(metrics(3, 1, 0.3333, 0.5));
+    expect(judged.baseline).toEqual(metrics(3, 0, 0, 0.5));
+    expect(judged.lengths_gain).toBe(false);
+    expect(comparison.measured!.not_judged).toEqual([{ scope: "truth/c-plan-02.json", reason: "not_vector" }, { scope: "truth/c-plan-03.json", reason: "not_vector" }]);
+    expect(comparison.measured!.scopes.map((entry) => entry.scope)).toEqual(["truth/a-plan-02.json"]);
+    // Without the pages of the vector run no plan is known to be vector: none is judged.
+    const blind = compareVectorWithBaseline(vector, baseline, { measured }).measured!;
+    expect(blind.totals.all).toMatchObject({ plans: [], vector: NONE, baseline: NONE, lengths_gain: null });
+    expect(blind.not_judged.map((entry) => entry.reason)).toEqual(["not_vector", "not_vector", "not_vector"]);
+  });
+
+  it("keeps the reserve apart from the other plans", () => {
+    const vector = report([[scope("a-plan-01", [length(0, 40, 21)]), scope("a-plan-02", [length(0, 40, 30)], reserve)]], "vector");
+    const { totals } = compareVectorWithBaseline(vector, vector, { slices: vectorSlice("a-plan-01", "a-plan-02"),
+      measured: measuredOn({ "a-plan-01": { 0: 21 }, "a-plan-02": { 0: 21 } }) }).measured!;
+    expect(totals.truth).toMatchObject({ plans: ["truth/a-plan-01.json"], scored_keys: 1, vector: metrics(1, 1, 1, 0) });
+    expect(totals.reserve).toMatchObject({ plans: ["truth/a-plan-02.json"], scored_keys: 1, vector: metrics(1, 0, 0, 0.4286) });
+    expect(totals.all).toMatchObject({ plans: ["truth/a-plan-01.json", "truth/a-plan-02.json"], scored_keys: 2, vector: metrics(2, 1, 0.5, 0.2143) });
+  });
+
+  it("names a measured plan none of whose scored lengths has a measurement, and the truths of several plans", () => {
+    const vector = report([[scope("a-plan-01", [length(0, 40, 21), length(1, 30, 12)])]], "vector");
+    const comparison = compareVectorWithBaseline(vector, vector, { slices: vectorSlice("a-plan-01"),
+      measured: measuredOn({ "a-plan-01": { 0: null, 1: null } }, ["truth/a-level-01.json"]) });
+    expect(comparison.measured!.totals.all).toEqual({ plans: [], scored_keys: 0, vector: NONE, baseline: NONE, lengths_gain: null, devis_gap: null });
+    expect(comparison.measured!.not_judged).toEqual([{ scope: "truth/a-level-01.json", reason: "several_plans" }, { scope: "truth/a-plan-01.json", reason: "no_measured_key" }]);
+  });
+
+  it("signs the gap of the devis to the measurement", () => {
+    const gapOf = (devis: number, measure: number) => {
+      const vector = report([[scope("a-plan-01", [length(0, devis, measure)])]], "vector");
+      const comparison = compareVectorWithBaseline(vector, vector, { slices: vectorSlice("a-plan-01"), measured: measuredOn({ "a-plan-01": { 0: measure } }) });
+      return { gap: comparison.measured!.totals.truth.devis_gap, markdown: renderVectorSections([vectorPass({ "a-plan-01": ["vector"] })], comparison).join("\n") };
+    };
+    // A devis that prices less than is drawn.
+    const below = gapOf(16, 20);
+    expect(below.gap).toBe(-0.2);
+    expect(below.markdown).toContain("| −20 % |");
+    expect(gapOf(24, 20).markdown).toContain("| +20 % |");
+    // A gap that rounds to nothing has no sign.
+    const close = gapOf(19.92, 20);
+    expect(close.gap).toBe(-0.004);
+    expect(close.markdown).toContain("| 0 % |");
+  });
+
+  it("matches the key the scorer builds from a truth line with the measured line that names its fields", async () => {
+    const dataset = await createFixtureDataset();
+    try {
+      await dataset.writeJson("truth/measured/a-plan-01.json", { schema_version: 1, document: "a-plan-01", method: "Fictional method", measured_by: "Fictional estimator",
+        measured_on: "2026-11-12", lines: [{ zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: "DN 22", length_m: 11.2 }] });
+      const loaded = await loadBenchDataset(dataset.root, ["a-plan-01"]);
+      const scopes = buildScoreScopes(loaded.truthFiles, loaded.manifest.documents).filter((entry) => entry.id === "truth/a-plan-01.json");
+      // The plan ran and gave nothing: the copper pipe of the truth (12.5 m on the devis) is missed, its riser is out of score.
+      const scored = scoreScopes(scopes, new Map([["a-plan-01", []]]));
+      const vector = report([scored], "vector");
+      const comparison = compareVectorWithBaseline(vector, vector, { slices: vectorSlice("a-plan-01"), measured: measuredLengthsByScope(loaded.measured, scored) });
+      expect(comparison.measured!.totals.truth).toMatchObject({ plans: ["truth/a-plan-01.json"], scored_keys: 1, vector: metrics(1, 0, 0, 1), devis_gap: 0.1161 });
+      expect(comparison.measured!.scopes[0].keys).toMatchObject([{ key: { network: "EF", material: "cuivre", dn: "DN 22", unit: "ml" }, devis: 12.5, measured: 11.2 }]);
+    } finally {
+      await dataset.cleanup();
+    }
+  });
+
+  it("prints the judgment as added after the v1 results, the keys measured over the scored ones, the plans not judged, and never a quantity", () => {
+    // Quantities no share or error equals: devis, vectors, baseline and measurement of three keys; a fourth has no length.
+    const devis = [41.37, 29.71, 10.61, 17.33], read = [20.13, 12.07, null, 14.09], level = [35.19, null, null, 14.09], measure = { 0: 21.19, 1: 20.11, 2: 8.03, 3: null };
+    const copied = scope("c-plan-02", [length(0, 31.57, 30.59)], reserve);
+    const vector = report([[scope("a-plan-02", devis.map((quantity, index) => length(index, quantity, read[index])), reserve), copied]], "vector");
+    const baseline = report([[scope("a-plan-02", devis.map((quantity, index) => length(index, quantity, level[index])), reserve), copied]]);
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [1] })];
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices: scopeSlices(passes, vector.couples[0].passes[0].scopes),
+      measured: measuredOn({ "a-plan-02": measure, "c-plan-02": { 0: 30.83 } }, ["truth/a-level-01.json"]) });
     const markdown = renderVectorSections(passes, comparison).join("\n");
-    expect(markdown).toContain("### Longueurs jugées à la mesure au trait (ajoutée après lecture des résultats v1)");
-    expect(markdown).toContain("33 % (1 / 3), erreur médiane 40 %");
-    expect(markdown).toContain("0 % (0 / 3), erreur médiane 100 %");
-    // The devis prices 95 %, 48 % and 32 % more than is drawn.
-    expect(markdown).toContain("+48 %");
-    expect(markdown).toContain("truth/a-level-01.json");
-    for (const quantity of [...devis, ...read, ...level, ...Object.values(measure), ...QUANTITIES.length, ...QUANTITIES.surface]) {
+    expect(markdown).toContain("### Longueurs jugées à la mesure au trait (jugement ajouté après lecture des résultats v1)");
+    expect(markdown).toContain("| **Réserve** | 1 | 3 / 4 | 33 % (1 / 3), erreur médiane 40 % | 0 % (0 / 3), erreur médiane 100 % | gain | +48 % |");
+    expect(markdown).toMatch(/plan raster ou mixte[^\n]*truth\/c-plan-02\.json/);
+    expect(markdown).toMatch(/vérité de plusieurs plans[^\n]*truth\/a-level-01\.json/);
+    for (const quantity of [...devis, ...read, ...level, ...Object.values(measure), 31.57, 30.59, 30.83, ...QUANTITIES.length, ...QUANTITIES.surface]) {
       if (quantity === null) continue;
       expect(markdown).not.toContain(String(quantity));
       expect(markdown).not.toContain(String(quantity).replace(".", ","));

@@ -134,7 +134,7 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
   }
   const measured: MeasuredTruthFile[] = [];
   for (const entry of (await readdir(path.join(root, "truth", "measured"), { withFileTypes: true }).catch(() => [])).sort((left, right) => byText(left.name, right.name))) {
-    if (entry.isFile() && entry.name.endsWith(".json")) measured.push(MeasuredTruthFileSchema.parse(await readJson(root, `truth/measured/${entry.name}`)));
+    if (entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".")) measured.push(MeasuredTruthFileSchema.parse(await readJson(root, `truth/measured/${entry.name}`)));
   }
   const noiseFile = await stat(path.join(root, "truth", "noise.json")).catch(() => null);
   const noise = noiseFile ? NoiseFileSchema.parse(await readJson(root, "truth/noise.json")) : null;

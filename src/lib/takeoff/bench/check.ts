@@ -17,10 +17,12 @@ import {
   type ManifestDocument,
   type PageTruthFile,
   type RowBasis,
+  measuredKey,
   type TruthFile,
   type TruthLine,
   type TruthSource,
 } from "@/lib/takeoff/bench/schemas";
+import { buildScoreScopes, scopeLengthKeys, type ScoreTruthFile } from "@/lib/takeoff/bench/score";
 import { pdfStructureError, xlsxStructureError } from "@/lib/takeoff/bench/structure";
 import { TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES } from "@/lib/takeoff/page-triage";
 import { isVectorClass } from "@/lib/takeoff/vectors/classify";
@@ -106,8 +108,8 @@ class DatasetCheck {
   readonly truthWithoutBinary = new Set<string>();
   /** PDF pages a quantity truth line cites as its source: a page truth keeps them. */
   readonly citedPages = new Map<string, Set<number>>();
-  /** By document, the observable length keys (network lines in ml) of the truths that cover it: a hand measurement names one of them. */
-  readonly lengthKeys = new Map<string, Set<string>>();
+  /** The quantity truths in schema: a hand measurement is checked against the keys the scorer builds from them. */
+  readonly truths: ScoreTruthFile[] = [];
   coverageComplete = true;
 
   constructor(readonly root: string) {}
@@ -450,12 +452,6 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       }
     }
   }
-  for (const line of truth.lines) {
-    if (line.kind !== "network" || line.unit !== "ml" || !line.observable_on_plan) continue;
-    for (const id of truth.documents) {
-      check.lengthKeys.set(id, (check.lengthKeys.get(id) ?? new Set()).add(lengthKey(line)));
-    }
-  }
   const lot = check.summary.lots[truth.lot] ?? { lines: 0, observable: 0 };
   lot.lines += truth.lines.length;
   lot.observable += truth.lines.filter((line) => line.observable_on_plan).length;
@@ -482,6 +478,7 @@ async function checkTruthFile(check: DatasetCheck, file: string) {
     check.zodErrors(file, parsed.error);
     return;
   }
+  check.truths.push({ file, truth: parsed.data });
   const covered = checkTruthDocuments(check, file, parsed.data);
   checkTruthLines(check, file, parsed.data, covered);
 }
@@ -734,13 +731,19 @@ async function checkAnnotations(check: DatasetCheck, kind: "pages" | "groups") {
   }
 }
 
-function lengthKey(line: Pick<TruthLine, "zone" | "level" | "network" | "material" | "dn">) {
-  return JSON.stringify([line.zone, line.level, line.network, line.material, line.dn]);
-}
-
-/** truth/measured: a file per measured plan, named after it, each line an observable length of the truths covering the plan (TI-662). */
+/**
+ * truth/measured (TI-662): a file per measured plan, named after it. The plan is one the bench reads (a binary PDF)
+ * and its truth is the truth of that plan alone; the lines are the lengths the scorer scores on it, each of them
+ * once: a key the scorer leaves out of score, or does not have, would never be judged, and a scored length left
+ * out would make the judgment one of the keys someone chose to measure.
+ */
 async function checkMeasured(check: DatasetCheck) {
-  for (const entry of (await check.listDirectory("truth/measured")) ?? []) {
+  const entries = (await check.listDirectory("truth/measured")) ?? [];
+  if (entries.length === 0) return;
+  // Scopes as the scorer builds them, from the truths whose documents the manifest holds.
+  const scopes = buildScoreScopes(check.truths.filter(({ truth }) => truth.documents.every((id) => check.documents.has(id))),
+    [...check.documents.values()].map(({ document }) => document));
+  for (const entry of entries) {
     const file = `truth/measured/${entry.name}`;
     if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
       check.error(file, [], "unexpected entry: measurement files are <document id>.json");
@@ -755,17 +758,39 @@ async function checkMeasured(check: DatasetCheck) {
       continue;
     }
     const id = parsed.data.document;
-    if (!check.reference(file, ["document"], id)) continue;
+    const document = check.reference(file, ["document"], id);
+    if (!document) continue;
     if (path.posix.basename(file, ".json") !== id) check.error(file, ["document"], "a measurement is named truth/measured/<document id>.json");
-    const keys = check.lengthKeys.get(id);
-    if (!keys) {
-      check.error(file, ["document"], `no quantity truth covers ${id} with an observable length: nothing to compare its measurement with`);
+    const scope = scopes.find((entry) => entry.documents.some((covered) => covered.id === id));
+    if (!scope) {
+      check.error(file, ["document"], `no quantity truth covers ${id}: nothing to compare its measurement with`);
       continue;
     }
+    if (document.raw_status !== "binary" || document.file_type !== "pdf") {
+      check.error(file, ["document"], `${id} has no verified binary PDF: the bench never reads it, so its measurement would judge nothing`);
+      continue;
+    }
+    if (scope.documents.length > 1) {
+      check.error(file, ["document"], `the truth of ${id} covers several plans (${scope.documents.map((covered) => covered.id).join(", ")}): `
+        + "a measurement is judged on the truth of one plan only");
+      continue;
+    }
+    const lengths = new Map(scopeLengthKeys(scope).map((key) => [measuredKey(key.label), key]));
+    const given = new Set<string>();
     for (const [index, line] of parsed.data.lines.entries()) {
-      if (!keys.has(lengthKey(line))) {
-        check.error(file, ["lines", index], `not an observable length of the truth of ${id}: zone, level, network, material and dn are those of a truth line in ml`);
+      const key = lengths.get(measuredKey(line));
+      given.add(measuredKey(line));
+      if (!key) {
+        check.error(file, ["lines", index], `not a length of the truth of ${id}: zone, level, network, material and dn are those of a truth line in ml`);
+      } else if (key.out_of_score !== null) {
+        check.error(file, ["lines", index], `out of score (${key.out_of_score}) in the truth of ${id}: the bench never judges this length`);
       }
+    }
+    for (const [identity, key] of lengths) {
+      if (key.out_of_score !== null || given.has(identity)) continue;
+      const { zone, level, network, material, dn } = key.label;
+      check.error(file, ["lines"], `no line for the scored length ${[zone, level, network, material, dn].filter((part) => part !== null).join(" / ")}: `
+        + "one line per scored length of the plan, with length_m null when it cannot be followed on the plan");
     }
   }
 }

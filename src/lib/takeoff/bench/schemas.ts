@@ -527,12 +527,18 @@ export const GroupTruthFileSchema = z.looseObject({
   })).optional(),
 });
 
+/** The identity of a length key in a measurement: the fields of its truth key that a length has. */
+export function measuredKey(key: { zone: string | null; level: string | null; network: string | null; material: string | null; dn: string | null }) {
+  return JSON.stringify([key.zone, key.level, key.network, key.material, key.dn]);
+}
+
 /**
  * truth/measured/<id>.json (TI-662, decision of 11 Nov): the lengths of one plan measured by hand along the axis of
  * the drawn pipe, plan view only, without drop, allowance or rounding. A devis may price more pipe than the plan
  * draws; the bench then also judges the lengths of a measured plan on this file, beside the devis (measured.ts).
- * One line per length key of the plan's truth (zone, level, network, material, diameter, as on the truth line).
- * `length_m` is null for a line that is not drawn in plan view (a riser, a stack): it is never 0.
+ * One line per length the scorer scores on the plan (zone, level, network, material, diameter, as on the truth
+ * line); takeoff:bench:check refuses any other line and names a scored length left out. `length_m` is null when
+ * the measurer could not follow the line on the plan: the key is then left to the devis. It is never 0.
  */
 export const MeasuredTruthFileSchema = z.strictObject({
   schema_version: z.literal(1),
@@ -554,7 +560,7 @@ export const MeasuredTruthFileSchema = z.strictObject({
 }).superRefine((measured, ctx) => {
   const seen = new Map<string, number>();
   for (const [index, line] of measured.lines.entries()) {
-    const identity = JSON.stringify([line.zone, line.level, line.network, line.material, line.dn]);
+    const identity = measuredKey(line);
     const first = seen.get(identity);
     if (first === undefined) seen.set(identity, index);
     else addIssue(ctx, ["lines", index], `same key as lines[${first}]: one line per key`);

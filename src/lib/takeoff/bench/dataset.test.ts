@@ -110,6 +110,9 @@ describe("takeoff bench dataset", () => {
     });
     const loaded = await loadBenchDataset(dataset.root, ["a-plan-01"]);
     expect(loaded.measured.map((file) => [file.document, file.lines.map((line) => line.length_m)])).toEqual([["a-plan-01", [11.2]]]);
+    // A hidden file is not of the dataset: the check and the dataset SHA skip it, so it is not loaded either.
+    await dataset.writeJson("truth/measured/.a-plan-02.json", { anything: true });
+    expect((await loadBenchDataset(dataset.root, ["a-plan-01"])).measured.map((file) => file.document)).toEqual(["a-plan-01"]);
   });
 
   it("selects for a triage run every binary PDF with its page truth", async () => {

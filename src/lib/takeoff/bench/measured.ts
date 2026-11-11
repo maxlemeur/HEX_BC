@@ -1,47 +1,39 @@
-import type { MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
-import type { KeyLabel, ScopeScore } from "@/lib/takeoff/bench/score";
+import { measuredKey, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
+import type { ScopeScore } from "@/lib/takeoff/bench/score";
 
 // Lengths measured by hand along the drawn line (truth/measured, TI-662, decision of 11 Nov). A devis may price
 // more pipe than the plan draws (drops to the fixtures, allowances, rounding of each section), so a reading that
 // follows the drawing is short of it however well it reads. The lengths of a measured plan are therefore also
 // judged on a measurement along the axis of the drawn pipe, beside the judgment on the devis, which stays the
 // headline (vector-report.ts).
-// - A scope is judged only when every one of its plans has a measurement: a scope measured in part is named and
-//   left to its devis.
-// - A key is judged only when every plan of its scope gives it a length; the lengths are added. A key a plan does
-//   not list, or lists as not drawn in plan view (length_m null), is not judged.
+// - A measurement is the measurement of one plan, and it is judged on the truth of that plan alone. A truth of
+//   several plans (a level, a lot) has keys a single plan draws in part, or not at all: its scope is named and
+//   left to its devis, and takeoff:bench:check refuses the measurement of one of its plans.
+// - A line without length (length_m null: the measurer could not follow it on the plan) gives its key no
+//   measurement; the key is left to the devis and counted among the scored lengths nobody measured.
+
+export { measuredKey };
 
 export type MeasuredLengths = {
-  /** Scope id, then measuredKey of a length key: metres along the drawn line, added over the plans of the scope. */
+  /** Scope id of a scope of one plan, then measuredKey of a length key: metres along the drawn line. */
   by_scope: Map<string, Map<string, number>>;
-  /** Scopes with a measurement that does not cover all their plans. */
-  partial: string[];
+  /** Scopes of several plans one of which has a measurement: never judged on it. */
+  several_plans: string[];
 };
-
-/** The identity of a length key in a measurement: the fields of its truth key that a length has. */
-export function measuredKey(key: Pick<KeyLabel, "zone" | "level" | "network" | "material" | "dn">) {
-  return JSON.stringify([key.zone, key.level, key.network, key.material, key.dn]);
-}
 
 export function measuredLengthsByScope(files: readonly MeasuredTruthFile[], scopes: ReadonlyArray<Pick<ScopeScore, "id" | "documents">>): MeasuredLengths {
   const byDocument = new Map(files.map((file) => [file.document, file]));
-  const measured: MeasuredLengths = { by_scope: new Map(), partial: [] };
+  const measured: MeasuredLengths = { by_scope: new Map(), several_plans: [] };
   for (const scope of scopes) {
-    if (measured.by_scope.has(scope.id) || measured.partial.includes(scope.id)) continue;
-    const plans = scope.documents.map((id) => byDocument.get(id));
-    if (plans.every((plan) => plan === undefined)) continue;
-    if (plans.some((plan) => plan === undefined)) {
-      measured.partial.push(scope.id);
+    if (measured.by_scope.has(scope.id) || measured.several_plans.includes(scope.id)) continue;
+    const plans = scope.documents.flatMap((id) => byDocument.get(id) ?? []);
+    if (plans.length === 0) continue;
+    if (scope.documents.length > 1) {
+      measured.several_plans.push(scope.id);
       continue;
     }
-    const given = (plans as MeasuredTruthFile[]).map((plan) => new Map(plan.lines.map((line) => [measuredKey(line), line.length_m])));
-    const lengths = new Map<string, number>();
-    for (const key of given[0].keys()) {
-      const parts = given.map((plan) => plan.get(key) ?? null);
-      if (parts.every((part): part is number => part !== null)) lengths.set(key, Math.round(parts.reduce((sum, part) => sum + part, 0) * 1e6) / 1e6);
-    }
-    measured.by_scope.set(scope.id, lengths);
+    measured.by_scope.set(scope.id, new Map(plans[0].lines.flatMap((line) => (line.length_m === null ? [] : [[measuredKey(line), line.length_m] as const]))));
   }
-  measured.partial.sort();
+  measured.several_plans.sort();
   return measured;
 }
