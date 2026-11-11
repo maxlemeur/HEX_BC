@@ -1,5 +1,6 @@
 "use client";
 
+import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -302,7 +303,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
 
   // TI-682 D11: an hypothesis arrives excluded; including it is its reviewer's decision.
   const include = useCallback(() => {
-    if (!current || readOnly || busy || !isUndecidedHypothesis(current.item) || hasToEnter(current.item)) return;
+    if (!current || readOnly || busy || (!isUndecidedHypothesis(current.item) && !isUnselectedVectorReading(current.item)) || hasToEnter(current.item)) return;
     void decide(current.item, { is_excluded: false, exclusion_reason: null }, "Ligne incluse");
   }, [busy, current, decide, readOnly]);
 
@@ -669,6 +670,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable") || hasToEnter(item);
   const otherReasons = line.reasons.filter((reason) => reason !== "rule_failed");
   const hypothesis = isUndecidedHypothesis(item);
+  const alternative = isUnselectedVectorReading(item);
   const disabled = busy || readOnly;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -720,7 +722,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
 
         <section aria-label="Raisons" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Raisons</h3>
-          {hypothesis ? (
+          {hypothesis || alternative ? (
             <p className="text-foreground-secondary">{item.exclusion_reason}</p>
           ) : line.tier === "uncertain" ? (
             <p className="text-foreground-secondary">Confiance moyenne : contrôlez la ligne, puis acceptez-la (V) ou corrigez-la.</p>
@@ -736,7 +738,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   <code className="rounded bg-surface px-1 font-mono text-[11px] text-muted-foreground">{failure.code}</code>
                 </p>
                 <p className="mt-0.5 text-xs text-foreground-secondary">{failure.reason}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{failure.acceptable
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{alternative ? "Lecture non retenue au devis." : failure.acceptable
                   ? acceptanceReasonRule(failure) ? "Accepter (V) exige un motif." : "Accepter (V) lève cet échec."
                   : failure.code === "DN_NETWORK_MATERIAL_BLOCKED" ? "Bloqué : V ne lève pas cet échec. Forçage administrateur uniquement."
                     : "À saisir : accepter (V) ne lève pas cet échec."}</p>
@@ -757,18 +759,19 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
               <p className="text-xs text-foreground-secondary">Les plans du niveau ne se superposent pas : aucun tronçon commun n’a pu être mesuré. Acceptez la ligne (V) une fois vérifiée, ou excluez-la.</p>
             ) : (
               <p className="text-foreground-secondary">
-                {guidance.kind !== "pair" ? "Longueur dessinée par les autres lignes"
+                {guidance.kind === "candidate" ? "Longueur commune à comparer" : guidance.kind !== "pair" ? "Longueur dessinée par les autres lignes"
                   : guidance.partners.some((partner) => partner.differs) ? "Longueur dessinée au même endroit" : "Longueur comptée deux fois"} :{" "}
                 <span className="font-mono font-semibold tabular-nums text-foreground">{metres(guidance.overlap_m ?? 0)}</span>
               </p>
             )}
             {guidance.kind !== "unregistered" && guidance.partners.some((partner) => partner.differs) ? (
               <p className="text-xs text-foreground-secondary">
-                Une autre page dessine ce tronçon au même endroit avec une autre lecture : même tronçon mal lu sur l’une des pages
-                (il est alors compté deux fois), ou deux tuyaux distincts. Corrigez ou excluez la ligne mal lue ; si ce sont deux tuyaux,
-                acceptez (V) une fois vérifié.
+                Une autre page dessine ce tronçon au même endroit avec une autre lecture : même tronçon mal lu sur l’une des pages,
+                ou deux tuyaux distincts. {alternative ? "Comparez les tracés avant de retenir cette lecture."
+                  : "Corrigez ou excluez la ligne mal lue ; si ce sont deux tuyaux, acceptez (V) une fois vérifié."}
               </p>
             ) : null}
+            {guidance.kind === "candidate" ? <p className="text-xs text-foreground-secondary">Lecture non retenue : comparez les plans avant d’inclure cette ligne dans le devis.</p> : null}
             {guidance.partners.length > 0 ? (
               <ul aria-label="Lignes des autres zones" className="space-y-1">
                 {guidance.partners.map((partner) => (
@@ -784,7 +787,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                     {partner.job_id === jobId ? (
                       partnerListed(partner.item_id)
                         ? <Button size="xs" variant="link" onClick={() => onSelectPartner(partner.item_id)}>Voir</Button>
-                        : <span className="shrink-0 text-muted-foreground">tranchée</span>
+                        : <span className="shrink-0 text-muted-foreground">Hors de cette liste</span>
                     ) : (
                       <Link href={partnerHref(partner.job_id, partner.item_id)} className="shrink-0 text-primary underline-offset-4 hover:underline">
                         Ouvrir {partner.zone ?? "l’autre zone"}
@@ -829,7 +832,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         <div role="toolbar" aria-label="Décisions" className="flex flex-wrap gap-2">
           <Button size="sm" variant="danger" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Exclure<Kbd>E</Kbd></Button>
           <Button size="sm" variant="outline" disabled={disabled} onClick={onStartEntry} aria-keyshortcuts="F2">{toEnter ? "Saisir" : "Corriger"}<Kbd>F2</Kbd></Button>
-          {hypothesis && !toEnter ? (
+          {(hypothesis || alternative) && !toEnter ? (
             <Button size="sm" variant="secondary" disabled={disabled} onClick={onInclude} aria-keyshortcuts="I">Inclure<Kbd>I</Kbd></Button>
           ) : null}
           <Button size="sm" variant="primary" disabled={disabled || !acceptance?.enabled} onClick={onAccept} aria-keyshortcuts="V">Accepter<Kbd>V</Kbd></Button>

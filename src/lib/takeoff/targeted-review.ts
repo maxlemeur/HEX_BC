@@ -1,3 +1,4 @@
+import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import {
   checkApplyGuard,
   getTakeoffVerificationReadiness,
@@ -54,7 +55,8 @@ export function targetedReviewLines<T extends ReviewItem>(items: readonly T[], t
   for (const item of items) {
     if (listed.has(item.id)) continue;
     const undecided = isUndecidedHypothesis(item);
-    if (item.is_excluded && !undecided) continue;
+    const alternative = isUnselectedVectorReading(item) && (item.rule_results ?? []).some(entry => entry.status === "fail" && entry.code === "ZONE_OVERLAP_DUPLICATE");
+    if (item.is_excluded && !undecided && !alternative) continue;
     const warnings = (item.rule_results ?? []).filter((entry) => entry.status === "fail" && isQuantityWarning(entry.code));
     const comparison = quantitySourceComparison("metadata" in item ? item.metadata : null);
     if (!undecided && ((warnings.length === 0 && !important.has(item.id) && !comparison?.delta) || item.is_verified)) continue;
@@ -77,6 +79,7 @@ const UNDECIDED_HYPOTHESIS_REASON = "Hypothèse non présélectionnée : V ne l�
 
 /** Whether V settles something on this line, and why not. */
 export function acceptanceOf(item: ReviewItem, level: string | null): Acceptance {
+  if (isUnselectedVectorReading(item)) return { enabled: false, reason: "Lecture vectorielle non retenue : comparez les tracés, puis incluez la ligne si elle doit rejoindre le devis." };
   if (isUndecidedHypothesis(item)) return { enabled: false, reason: UNDECIDED_HYPOTHESIS_REASON };
   if (item.is_verified) return { enabled: false, reason: "Ligne déjà acceptée." };
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
@@ -108,7 +111,7 @@ function thousandths(value: number) {
 const SETTLE_M = 0.01;
 
 export type ZoneOverlapGuidance = {
-  kind: "pair" | "group" | "unregistered" | "resolved";
+  kind: "pair" | "group" | "unregistered" | "resolved" | "candidate";
   /** The results are to compute again: shown, never acted on. */
   stale: boolean;
   /** A pair: the length still counted twice. A group: what the other lines draw of this line. */
@@ -134,6 +137,7 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
   if (result.code === "ZONE_OVERLAP_UNREGISTERED") return { kind: "unregistered", ...base };
   if (result.code !== "ZONE_OVERLAP_DUPLICATE") return null;
   const overlap = result.details?.overlap_m ?? 0;
+  if (isUnselectedVectorReading(item)) return { ...base, kind: "candidate", overlap_m: overlap };
   const groupSize = result.details?.group_size ?? null;
   // The line as measured: the rules read a reduction against it (evaluate.ts), never against a quantity raised above.
   const measured = readRuleInputs(item.metadata)?.model_quantity ?? item.quantity;
