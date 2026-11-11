@@ -46,7 +46,7 @@ function fixture(options: { size?: number; failAt?: number; changedAt?: number; 
 describe("complete estimate item transport", () => {
   it("assembles reversed pages in position/id order with at most four requests", async () => {
     const f = fixture();
-    expect(await readAllEstimateItems(f.input)).toEqual(f.rows.map(row => ({ ...row, fo_price_origin: null, status_reason: null })));
+    expect(await readAllEstimateItems(f.input)).toEqual(f.rows.map(row => ({ ...row, fo_price_origin: null, status_reason: null, offer_choice: null })));
     expect(f.peak()).toBe(4);
     expect(f.completed.slice(1, 5)).toEqual([2000, 1500, 1000, 500]);
     expect(f.requests.every(url => url.pathname === "/rest/v1/rpc/read_estimate_version_items"

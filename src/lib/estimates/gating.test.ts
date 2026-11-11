@@ -27,6 +27,7 @@ import {
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -883,6 +884,92 @@ describe("estimate send gating", () => {
         project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
       });
       expect([...result.blockingFlags, ...result.warningFlags].map((flag) => flag.key)).not.toContain("excluded_without_reason");
+    });
+  });
+  // TI-682, lot C, PR 4 (D10, D25, D28): the written reserve. A reserved « Non chiffrée » line leaves unpriced, and the
+  // offer says so in its « Précisions et limites de prestation » text.
+  describe("offer_reserve_declared and offer_limits_required", () => {
+    const reserve = (extra: Record<string, unknown> = {}) => ({ kind: "reserve", basis: "private_estimate", code: "pending_survey",
+      note: null, decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T18:02:23.123456+00:00", ...extra });
+    const unpriced = (id: string, extra: Record<string, unknown> = {}) => ({
+      ...createLineItem({ id, quantity: 1, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
+      pricing_status: "not_priced", was_not_priced: true, status_reason: null, offer_choice: null, ...extra,
+    });
+    const priced = { ...createLineItem({ id: "line-priced", quantity: 2, unitPriceHtCents: 1500 }), pricing_status: "priced" };
+    const evaluate = (items: unknown[], options: { engine?: number; exclusions?: string | null | undefined } = {}) =>
+      evaluateEstimateSendGating({
+        supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+        tenantId: TENANT_ID,
+        version: {
+          id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 3000,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: options.engine ?? 3,
+          ...("exclusions" in options ? { exclusions: options.exclusions } : {}),
+        },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
+    const keys = (result: Awaited<ReturnType<typeof evaluate>>) => ({
+      blocking: result.blockingFlags.map((flag) => flag.key), warning: result.warningFlags.map((flag) => flag.key),
+    });
+
+    it("takes a reserved line out of the lines to classify and lists it as a warning, once the limits say something", async () => {
+      const result = await evaluate([priced, unpriced("line-b-reserved", { offer_choice: reserve() }),
+        unpriced("line-a-reserved", { offer_choice: reserve({ basis: "indicative_quantities", note: "RC article 5.2" }) })],
+      { exclusions: "Réseaux enterrés non chiffrés." });
+      expect(result.canSend).toBe(true);
+      expect(keys(result)).toEqual({ blocking: [], warning: ["offer_reserve_declared"] });
+      expect(result.warningFlags[0]).toMatchObject({
+        key: "offer_reserve_declared", severity: "warning", count: 2, item_ids: ["line-a-reserved", "line-b-reserved"],
+        label: "Réserves écrites dans l'offre",
+      });
+    });
+
+    it("refuses a reserve with empty limits, without override, whatever the tenant flags", async () => {
+      vi.mocked(getFeatureFlagValueForTenant)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("offer_limits_required");
+      const result = await evaluate([priced, unpriced("line-reserved", { offer_choice: reserve() })], { exclusions: null });
+      expect(result.canSend).toBe(false);
+      expect(keys(result)).toEqual({ blocking: ["offer_limits_required"], warning: ["offer_reserve_declared"] });
+      expect(result.blockingFlags[0]).toMatchObject({ severity: "blocking", item_ids: ["line-reserved"],
+        label: "Précisions et limites de prestation à rédiger" });
+      expect(() => resolveEstimateSendOverride(result, true)).toThrow(expect.objectContaining({
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: expect.objectContaining({ not_forceable: ["offer_limits_required"] }),
+      }));
+    });
+
+    it("counts limits made of blanks or invisible characters as empty, and a version read without its limits too", async () => {
+      for (const exclusions of ["", "   \n\t ", "\u00a0\u2003", "\u200b\u200d\ufeff", undefined]) {
+        const result = await evaluate([unpriced("line-reserved", { offer_choice: reserve() })],
+          exclusions === undefined ? {} : { exclusions });
+        expect(keys(result).blocking, JSON.stringify(exclusions)).toEqual(["offer_limits_required"]);
+      }
+      const written = await evaluate([unpriced("line-reserved", { offer_choice: reserve() })], { exclusions: " Néant. " });
+      expect(keys(written).blocking).toEqual([]);
+    });
+
+    it("keeps a line to classify when its reserve is unreadable, and never asks limits without a reserve", async () => {
+      const result = await evaluate([
+        unpriced("line-plain"),
+        unpriced("line-unreadable", { offer_choice: reserve({ code: "other", note: null }) }),
+        unpriced("line-foreign", { offer_choice: { kind: "provisional_quantity" } }),
+      ], { exclusions: null });
+      expect(keys(result)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
+      expect(result.blockingFlags[0].item_ids).toEqual(["line-foreign", "line-plain", "line-unreadable"]);
+    });
+
+    it("blocks the unreserved lines next to the reserved ones", async () => {
+      const result = await evaluate([unpriced("line-plain"), unpriced("line-reserved", { offer_choice: reserve() })],
+        { exclusions: "Limites." });
+      expect(keys(result)).toEqual({ blocking: ["not_priced_unclassified"], warning: ["offer_reserve_declared"] });
+      expect(result.blockingFlags[0].item_ids).toEqual(["line-plain"]);
+    });
+
+    it("reads no reserve on engines 1 and 2 nor on a version read without its engine", async () => {
+      for (const engine of [1, 2]) {
+        const result = await evaluate([unpriced("line-reserved", { offer_choice: reserve() })], { engine, exclusions: "Limites." });
+        expect(keys(result)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
+      }
     });
   });
 });

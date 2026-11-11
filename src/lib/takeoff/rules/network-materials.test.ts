@@ -100,7 +100,9 @@ describe("TI-684 one stainless series per network everywhere", () => {
   it("keeps the pressure series for stainless outside drainage", () => {
     for (const material of ["inox", "inox-304l", "inox-316l"] as const) {
       expect(checkNetworkDiameter("EF", material, "Ø 108").status).toBe("compatible");
-      expect(checkNetworkDiameter("EF", material, "DN 100").status).toBe("compatible");
+      // TI-683: under pressure « DN 100 » names the Ø 108 press-fit tube or the Ø 114,3 welded one, never the Ø 110.
+      expect(checkNetworkDiameter("EF", material, "DN 100")).toMatchObject({ status: "dn_ambiguous",
+        candidates: [{ od_mm: 108 }, { od_mm: 114.3 }] });
     }
     expect(comparable("EF inox DN 100", "EF inox Ø 108")).toEqual([true, true]);
     expect(comparable("EF inox DN 100", "EF inox Ø 110")).toEqual([false, false]);
@@ -138,11 +140,14 @@ describe("TI-684 one stainless series per network everywhere", () => {
       expect(read("EU inox DN 100 / Ø 125")).toEqual({ dn: null, code: "DN_NETWORK_DN_MISSING" });
     });
 
+    // TI-683: « DN 100 » alone names two pressure tubes (three in condensates); printed beside its outer diameter, the
+    // size is kept by the text that names one tube.
     it("keeps the pressure series outside drainage, and reads both in condensates (D18a)", () => {
-      expect(read("EF inox DN 100 / Ø 108")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("EF inox DN 100 / Ø 108")).toEqual({ dn: "Ø 108", code: "DN_NETWORK_COMPATIBLE" });
       expect(read("EF inox DN 100 / Ø 110")).toEqual({ dn: "Ø 110", code: "DN_NETWORK_DN_NOT_IN_SERIES" });
-      expect(read("COND inox DN 100 / Ø 108")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
-      expect(read("COND inox DN 100 / Ø 110")).toEqual({ dn: "DN 100", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("COND inox DN 100 / Ø 108")).toEqual({ dn: "Ø 108", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("COND inox DN 100 / Ø 110")).toEqual({ dn: "Ø 110", code: "DN_NETWORK_COMPATIBLE" });
+      expect(read("EF inox DN 100")).toEqual({ dn: "DN 100", code: "DN_NETWORK_DN_MISSING" });
     });
 
     it("never takes two contradictory stainless drainage sizes for the DPGF quantity of one", () => {

@@ -53,6 +53,10 @@ export const v3LineItemFields = {
   status_reason: estimateStatusReasonInputSchema.nullable().optional(),
   // Set by the database alone (a line that has been « Non chiffrée »): refused as an input, never silently dropped.
   was_not_priced: z.never({ error: "« was_not_priced » est posé par la base : ce n'est pas une saisie." }).optional(),
+  // TI-682, lot C, PR 4: the written reserve is declared by an administrator (…/items/{itemId}/offer-choice), never here.
+  offer_choice: z.never({
+    error: "La réserve écrite dans l'offre se déclare par un administrateur sur la ligne, pas par l'enregistrement du chiffrage.",
+  }).optional(),
 } as const;
 
 /**

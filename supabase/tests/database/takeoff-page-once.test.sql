@@ -387,6 +387,11 @@ begin
   perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(12), '{}'::uuid[]);
   perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(22)::text, true);
   update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(22, 'WC suspendu')).id;
+  -- Lot C (#231): the line left « Non chiffrée » with a written reserve declared in the offer.
+  update public.estimate_items set pricing_status = 'not_priced' where id = (pg_temp.po_line(22, 'WC suspendu')).id;
+  update public.estimate_items set offer_choice = jsonb_build_object('kind', 'reserve', 'basis', 'private_estimate',
+    'code', 'pending_survey', 'note', null, 'decided_by', pg_temp.po_id(1), 'decided_at', '2026-11-11T10:00:00Z')
+  where id = (pg_temp.po_line(22, 'WC suspendu')).id;
   perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(22), '{}'::uuid[]);
   perform set_config('miaouffrage.estimate_v3_writer', '', true);
 end;
@@ -581,6 +586,9 @@ select is(jsonb_build_array((pg_temp.po_line(12, 'WC suspendu')).quantity, (pg_t
     (pg_temp.po_line(12, 'WC suspendu')).source_metadata #>> '{takeoff_page_replacement,take}'),
   '[6, true, "keep_mine"]'::jsonb, '« keep mine »: the hand quantity stays, the provenance is the new takeoff''s');
 select is((pg_temp.po_line(22, 'WC suspendu')).quantity, 5::numeric, '« take new »: the new measure replaces the hand quantity');
+select is(jsonb_build_array((pg_temp.po_line(22, 'WC suspendu')).pricing_status, (pg_temp.po_line(22, 'WC suspendu')).was_not_priced,
+    (pg_temp.po_line(22, 'WC suspendu')).offer_choice ->> 'code'),
+  '["not_priced", true, "pending_survey"]'::jsonb, 'the replaced line keeps its status and the reserve written in the offer (lot C)');
 
 -- Between the decision and the application.
 set local role authenticated;

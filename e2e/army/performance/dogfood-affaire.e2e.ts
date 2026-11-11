@@ -175,7 +175,7 @@ COMMIT;`);
       await expect(screen.getByRole("heading", "Versions", { exact: true })).toBeVisible();
       await expect(browser.locator("#register")).toContainText(assumption);
       await expect(browser.locator("#register")).toContainText(missingPiece);
-      await expect(browser.locator("#register article").filter({ hasText: "Points ouverts" }).getByText("2", { exact: true })).toHaveText("2");
+      await expect(screen.getByTestId("register-open-count")).toHaveText("2 points ouverts");
       await expect.poll(() => browser.evaluate(() => Boolean((window as typeof window & {
         __armyRemainingAffaireProbe?: { paintedAt: number | null } }).__armyRemainingAffaireProbe?.paintedAt))).toBe(true);
       const probe = await browser.evaluate(() => {
@@ -195,13 +195,13 @@ COMMIT;`);
 WHERE id = '${receipt.assumptionId}' AND project_id = '${receipt.projectId}' AND tenant_id = '${receipt.tenantId}';`);
       await app.open(destination);
       await expect(browser.locator("#register")).toContainText(`${assumption} refreshed`);
-      await expect(browser.locator("#register article").filter({ hasText: "Points ouverts" }).getByText("1", { exact: true })).toHaveText("1");
+      await expect(screen.getByTestId("register-open-count")).toHaveText("1 point ouvert");
     } finally {
       await querySql(`UPDATE public.affaire_register_entries SET text = '${assumption}', status = 'open'
 WHERE id = '${receipt.assumptionId}' AND project_id = '${receipt.projectId}' AND tenant_id = '${receipt.tenantId}';`);
     }
     await app.open(destination);
-    await expect(browser.locator("#register article").filter({ hasText: "Points ouverts" }).getByText("2", { exact: true })).toHaveText("2");
+    await expect(screen.getByTestId("register-open-count")).toHaveText("2 points ouverts");
     const after = businessSnapshot(await readEstimate(browser, receipt.versionId));
     expect(after).toEqual(before);
     await recordEvidence(army, "remaining-affaire-values", { before, after, registerFreshness: true,
