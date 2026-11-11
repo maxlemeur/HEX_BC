@@ -766,6 +766,12 @@ describe("estimate explanations service", () => {
     // TI-686 D10: a line forced as a priced hypothesis was not entered.
     ["a line forced as a priced hypothesis", { takeoff_item_id: "c3000000-0000-4000-8000-000000000301", forced: true,
       forced_reason: "priced_hypothesis", entry_category: null }, "Ligne forcée à l’application du métré comme hypothèse chiffrée"],
+    // TI-682 lot C: an hypothesis included without entry, marked at application with why it is one.
+    ["an estimate counted without entry", { takeoff_item_id: "c3000000-0000-4000-8000-000000000306", forced: false,
+      forced_reason: null, entry_category: null, hypothesis_cause: "estimated" }, "Quantité estimée au métré, comptée sans saisie"],
+    ["a quantity a plan cannot show counted without entry", { takeoff_item_id: "c3000000-0000-4000-8000-000000000307",
+      forced: false, forced_reason: null, entry_category: null, hypothesis_cause: "non_observable" },
+      "Quantité qu’un plan ne montre pas, comptée au métré sans saisie"],
   ])("lists %s of the takeoff among the line's hypotheses", async (_name, source, sentence) => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(createSupabaseMock() as never);
     const details = buildVersionDetails();

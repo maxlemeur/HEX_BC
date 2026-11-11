@@ -1,11 +1,14 @@
 import { z } from "zod";
 
+import type { TakeoffHypothesisCause } from "@/lib/takeoff/hypothesis";
 import type { Json } from "@/types/database";
 
 /**
  * TI-686 D10/D12: the marker the takeoff application writes on an estimate line built from a line an administrator
  * forced past the apply guard, or from a quantity entered as a hypothesis (private.takeoff_mark_provisions, migration
- * …_takeoff_apply_provisions.sql). It states facts, never a choice: the line prints to the client as an ordinary
+ * …_takeoff_apply_provisions.sql). TI-682 lot C (migration …_takeoff_hypothesis_provision_marker.sql): also from an
+ * hypothesis its reviewer included without entering its quantity (an estimate, a quantity a plan cannot show), each
+ * source saying why it is an hypothesis. It states facts, never a choice: the line prints to the client as an ordinary
  * priced line whose amount is the provision (H9), and only the internal estimate shows it.
  *
  * H18: TI-682's explicit choice (a reserve in the offer) will be stored outside the marker, under the reserved
@@ -21,6 +24,12 @@ const sourceSchema = z.object({
   forced_reason: z.string().nullable(),
   /** The quantity entry category of the takeoff line (D12), null when its quantity was not entered. */
   entry_category: z.string().nullable(),
+  /**
+   * TI-682 lot C: why the takeoff line is an hypothesis (public.takeoff_item_hypothesis_cause, src/lib/takeoff/
+   * hypothesis.ts: entered_hypothesis, estimated, non_observable), null when it is none. Absent from the markers written
+   * before, which read as they did: the marker stays version 1.
+   */
+  hypothesis_cause: z.string().nullable().optional(),
 });
 
 const markerSchema = z.object({
@@ -54,8 +63,29 @@ export function readTakeoffProvision(sourceMetadata: unknown): TakeoffProvision 
   if (!parsed.success) return { kind: "internal_provision", treatment: "internal_provision", readable: false, sources: [] };
   const { sources } = parsed.data;
   const hypothesis = sources.some((source) => source.entry_category === "hypothesis"
-    || source.forced_reason === "priced_hypothesis");
+    || source.forced_reason === "priced_hypothesis" || (source.hypothesis_cause ?? null) !== null);
   return { kind: hypothesis ? "hypothesis" : "internal_provision", treatment: "internal_provision", readable: true, sources };
+}
+
+/**
+ * What a hypothesis provision rests on, for its internal wording; null for an internal provision. A quantity entered as a
+ * hypothesis first (its author says what it assumes), then an estimate, then a quantity a plan cannot show (TI-682 lot
+ * C: both included without entry, or forced), then a line forced as a priced hypothesis; « other » for a cause this
+ * reader does not know.
+ */
+export type TakeoffProvisionHypothesisBasis = Exclude<TakeoffHypothesisCause, "entered_hypothesis">
+  | "entered" | "forced" | "other";
+
+export function takeoffProvisionHypothesisBasis(provision: TakeoffProvision): TakeoffProvisionHypothesisBasis | null {
+  if (provision.kind !== "hypothesis") return null;
+  const causes = new Set(provision.sources.map((source) => source.hypothesis_cause ?? null));
+  if (causes.has("entered_hypothesis") || provision.sources.some((source) => source.entry_category === "hypothesis")) {
+    return "entered";
+  }
+  if (causes.has("estimated")) return "estimated";
+  if (causes.has("non_observable")) return "non_observable";
+  if (provision.sources.some((source) => source.forced_reason === "priced_hypothesis")) return "forced";
+  return "other";
 }
 
 /**
@@ -78,7 +108,8 @@ const TAKEOFF_PROVISION_EXPORT_LABELS: Readonly<Record<TakeoffProvision["kind"],
 
 /**
  * The cell of an estimate line in the « Provision métré » column: empty without a marker, « Provision interne » for a
- * forced source or an unreadable marker, « Hypothèse » for a source resting on one. Only the internal CSV exports (the
+ * forced source or an unreadable marker, « Hypothèse » for a source resting on one (entered, estimated, not observable
+ * on a plan, or forced as a priced hypothesis). Only the internal CSV exports (the
  * v3 server CSV and the v1/v2 editor CSV) write it; the DPGF, standard and BDC workbooks can reach a client or a
  * supplier and never do.
  */

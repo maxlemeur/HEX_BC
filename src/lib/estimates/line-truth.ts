@@ -1,4 +1,6 @@
-import { readTakeoffProvision, type TakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import {
+  readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvision, type TakeoffProvisionHypothesisBasis,
+} from "@/lib/estimates/takeoff-provision";
 import { forceReasonLabel } from "@/lib/takeoff/force-reason-labels";
 
 type EstimateLineTruthSourceKind =
@@ -282,16 +284,26 @@ function forcedReasonLabels(provision: TakeoffProvision) {
   return [...new Set(labels)];
 }
 
+/**
+ * TI-686 D12, TI-682 lot C: what a hypothesis provision rests on, in the internal detail. An estimate or a quantity a
+ * plan cannot show was counted without its quantity entered (included by its reviewer, or forced).
+ */
+const HYPOTHESIS_BASIS_DETAILS: Readonly<Record<TakeoffProvisionHypothesisBasis, string>> = {
+  entered: "Quantité saisie sur hypothèse au métré",
+  estimated: "Quantité estimée au métré, sans mesure sur un plan, comptée sans saisie",
+  non_observable: "Quantité qu’un plan ne montre pas, comptée au métré sans saisie",
+  forced: "Ligne forcée à l’application du métré comme hypothèse chiffrée",
+  other: "Quantité sur hypothèse au métré",
+};
+
 /** TI-686 D10/D12: a line the takeoff application marked; its amount is a provision, internal only (H9). */
 function provisionQtyStatus(provision: TakeoffProvision): EstimateLineTruth["qtyStatus"] {
-  if (provision.kind === "hypothesis") {
-    const entered = provision.sources.some((source) => source.entry_category === "hypothesis");
+  const basis = takeoffProvisionHypothesisBasis(provision);
+  if (basis) {
     return {
       code: "hypothesis",
       label: "Hypothèse",
-      detail: entered
-        ? `Quantité saisie sur hypothèse au métré : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`
-        : `Ligne forcée à l’application du métré comme hypothèse chiffrée : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
+      detail: `${HYPOTHESIS_BASIS_DETAILS[basis]} : provision à confirmer ; ${CLIENT_SEES_ORDINARY_LINE}`,
     };
   }
   const labels = forcedReasonLabels(provision);
