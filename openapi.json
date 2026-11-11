@@ -28020,47 +28020,134 @@
                       "default": null,
                       "anyOf": [
                         {
-                          "type": "object",
-                          "properties": {
-                            "selection_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "supplier",
-                                "reference"
-                              ]
-                            },
-                            "source_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "transport_mode": {
-                              "anyOf": [
-                                {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "selection_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "kind": {
                                   "type": "string",
                                   "enum": [
-                                    "included",
-                                    "excluded"
+                                    "supplier",
+                                    "reference"
                                   ]
                                 },
-                                {
-                                  "type": "null"
+                                "source_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "transport_mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "excluded"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
-                              ]
+                              },
+                              "required": [
+                                "selection_id",
+                                "kind",
+                                "source_id",
+                                "transport_mode"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "selection_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "const": "site"
+                                },
+                                "source_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "transport_mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "excluded"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "site": {
+                                  "type": "object",
+                                  "properties": {
+                                    "supplier": {
+                                      "type": "string",
+                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                    },
+                                    "offer_reference": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "offer_date": {
+                                      "type": "string",
+                                      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                    },
+                                    "document": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "supplier",
+                                    "offer_reference",
+                                    "offer_date",
+                                    "document"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "selection_id",
+                                "kind",
+                                "source_id",
+                                "transport_mode",
+                                "site"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "selection_id",
-                            "kind",
-                            "source_id",
-                            "transport_mode"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "null"
@@ -29930,47 +30017,134 @@
                       "default": null,
                       "anyOf": [
                         {
-                          "type": "object",
-                          "properties": {
-                            "selection_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "kind": {
-                              "type": "string",
-                              "enum": [
-                                "supplier",
-                                "reference"
-                              ]
-                            },
-                            "source_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "transport_mode": {
-                              "anyOf": [
-                                {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "selection_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "kind": {
                                   "type": "string",
                                   "enum": [
-                                    "included",
-                                    "excluded"
+                                    "supplier",
+                                    "reference"
                                   ]
                                 },
-                                {
-                                  "type": "null"
+                                "source_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "transport_mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "excluded"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
-                              ]
+                              },
+                              "required": [
+                                "selection_id",
+                                "kind",
+                                "source_id",
+                                "transport_mode"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "selection_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "const": "site"
+                                },
+                                "source_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "transport_mode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "excluded"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "site": {
+                                  "type": "object",
+                                  "properties": {
+                                    "supplier": {
+                                      "type": "string",
+                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                    },
+                                    "offer_reference": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "offer_date": {
+                                      "type": "string",
+                                      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                    },
+                                    "document": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "supplier",
+                                    "offer_reference",
+                                    "offer_date",
+                                    "document"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "selection_id",
+                                "kind",
+                                "source_id",
+                                "transport_mode",
+                                "site"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "selection_id",
-                            "kind",
-                            "source_id",
-                            "transport_mode"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "null"
@@ -31205,47 +31379,134 @@
                             "fo_price_origin": {
                               "anyOf": [
                                 {
-                                  "type": "object",
-                                  "properties": {
-                                    "selection_id": {
-                                      "type": "string",
-                                      "format": "uuid",
-                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                    },
-                                    "kind": {
-                                      "type": "string",
-                                      "enum": [
-                                        "supplier",
-                                        "reference"
-                                      ]
-                                    },
-                                    "source_id": {
-                                      "type": "string",
-                                      "format": "uuid",
-                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                    },
-                                    "transport_mode": {
-                                      "anyOf": [
-                                        {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "selection_id": {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        "kind": {
                                           "type": "string",
                                           "enum": [
-                                            "included",
-                                            "excluded"
+                                            "supplier",
+                                            "reference"
                                           ]
                                         },
-                                        {
-                                          "type": "null"
+                                        "source_id": {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        "transport_mode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "included",
+                                                "excluded"
+                                              ]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
                                         }
-                                      ]
+                                      },
+                                      "required": [
+                                        "selection_id",
+                                        "kind",
+                                        "source_id",
+                                        "transport_mode"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "selection_id": {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "site"
+                                        },
+                                        "source_id": {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        "transport_mode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "included",
+                                                "excluded"
+                                              ]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "site": {
+                                          "type": "object",
+                                          "properties": {
+                                            "supplier": {
+                                              "type": "string",
+                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                            },
+                                            "offer_reference": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            },
+                                            "offer_date": {
+                                              "type": "string",
+                                              "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                            },
+                                            "document": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "supplier",
+                                            "offer_reference",
+                                            "offer_date",
+                                            "document"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "required": [
+                                        "selection_id",
+                                        "kind",
+                                        "source_id",
+                                        "transport_mode",
+                                        "site"
+                                      ],
+                                      "additionalProperties": false
                                     }
-                                  },
-                                  "required": [
-                                    "selection_id",
-                                    "kind",
-                                    "source_id",
-                                    "transport_mode"
-                                  ],
-                                  "additionalProperties": false
+                                  ]
                                 },
                                 {
                                   "type": "null"
@@ -31649,47 +31910,134 @@
                         "fo_price_origin": {
                           "anyOf": [
                             {
-                              "type": "object",
-                              "properties": {
-                                "selection_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "supplier",
-                                    "reference"
-                                  ]
-                                },
-                                "source_id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "transport_mode": {
-                                  "anyOf": [
-                                    {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selection_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "kind": {
                                       "type": "string",
                                       "enum": [
-                                        "included",
-                                        "excluded"
+                                        "supplier",
+                                        "reference"
                                       ]
                                     },
-                                    {
-                                      "type": "null"
+                                    "source_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "transport_mode": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "included",
+                                            "excluded"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
                                     }
-                                  ]
+                                  },
+                                  "required": [
+                                    "selection_id",
+                                    "kind",
+                                    "source_id",
+                                    "transport_mode"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selection_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "site"
+                                    },
+                                    "source_id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "transport_mode": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "included",
+                                            "excluded"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "site": {
+                                      "type": "object",
+                                      "properties": {
+                                        "supplier": {
+                                          "type": "string",
+                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                        },
+                                        "offer_reference": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "offer_date": {
+                                          "type": "string",
+                                          "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                        },
+                                        "document": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "supplier",
+                                        "offer_reference",
+                                        "offer_date",
+                                        "document"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "selection_id",
+                                    "kind",
+                                    "source_id",
+                                    "transport_mode",
+                                    "site"
+                                  ],
+                                  "additionalProperties": false
                                 }
-                              },
-                              "required": [
-                                "selection_id",
-                                "kind",
-                                "source_id",
-                                "transport_mode"
-                              ],
-                              "additionalProperties": false
+                              ]
                             },
                             {
                               "type": "null"
@@ -32292,47 +32640,134 @@
                                         "fo_price_origin": {
                                           "anyOf": [
                                             {
-                                              "type": "object",
-                                              "properties": {
-                                                "selection_id": {
-                                                  "type": "string",
-                                                  "format": "uuid",
-                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                                },
-                                                "kind": {
-                                                  "type": "string",
-                                                  "enum": [
-                                                    "supplier",
-                                                    "reference"
-                                                  ]
-                                                },
-                                                "source_id": {
-                                                  "type": "string",
-                                                  "format": "uuid",
-                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                                },
-                                                "transport_mode": {
-                                                  "anyOf": [
-                                                    {
+                                              "oneOf": [
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "selection_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "kind": {
                                                       "type": "string",
                                                       "enum": [
-                                                        "included",
-                                                        "excluded"
+                                                        "supplier",
+                                                        "reference"
                                                       ]
                                                     },
-                                                    {
-                                                      "type": "null"
+                                                    "source_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "transport_mode": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "enum": [
+                                                            "included",
+                                                            "excluded"
+                                                          ]
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
                                                     }
-                                                  ]
+                                                  },
+                                                  "required": [
+                                                    "selection_id",
+                                                    "kind",
+                                                    "source_id",
+                                                    "transport_mode"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "selection_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "kind": {
+                                                      "type": "string",
+                                                      "const": "site"
+                                                    },
+                                                    "source_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "transport_mode": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "enum": [
+                                                            "included",
+                                                            "excluded"
+                                                          ]
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "site": {
+                                                      "type": "object",
+                                                      "properties": {
+                                                        "supplier": {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        "offer_reference": {
+                                                          "anyOf": [
+                                                            {
+                                                              "type": "string",
+                                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                            },
+                                                            {
+                                                              "type": "null"
+                                                            }
+                                                          ]
+                                                        },
+                                                        "offer_date": {
+                                                          "type": "string",
+                                                          "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                                        },
+                                                        "document": {
+                                                          "anyOf": [
+                                                            {
+                                                              "type": "string",
+                                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                            },
+                                                            {
+                                                              "type": "null"
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      "required": [
+                                                        "supplier",
+                                                        "offer_reference",
+                                                        "offer_date",
+                                                        "document"
+                                                      ],
+                                                      "additionalProperties": false
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "selection_id",
+                                                    "kind",
+                                                    "source_id",
+                                                    "transport_mode",
+                                                    "site"
+                                                  ],
+                                                  "additionalProperties": false
                                                 }
-                                              },
-                                              "required": [
-                                                "selection_id",
-                                                "kind",
-                                                "source_id",
-                                                "transport_mode"
-                                              ],
-                                              "additionalProperties": false
+                                              ]
                                             },
                                             {
                                               "type": "null"
@@ -32683,47 +33118,134 @@
                                     "fo_price_origin": {
                                       "anyOf": [
                                         {
-                                          "type": "object",
-                                          "properties": {
-                                            "selection_id": {
-                                              "type": "string",
-                                              "format": "uuid",
-                                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                            },
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": [
-                                                "supplier",
-                                                "reference"
-                                              ]
-                                            },
-                                            "source_id": {
-                                              "type": "string",
-                                              "format": "uuid",
-                                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                            },
-                                            "transport_mode": {
-                                              "anyOf": [
-                                                {
+                                          "oneOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "selection_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "kind": {
                                                   "type": "string",
                                                   "enum": [
-                                                    "included",
-                                                    "excluded"
+                                                    "supplier",
+                                                    "reference"
                                                   ]
                                                 },
-                                                {
-                                                  "type": "null"
+                                                "source_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "transport_mode": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "included",
+                                                        "excluded"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
                                                 }
-                                              ]
+                                              },
+                                              "required": [
+                                                "selection_id",
+                                                "kind",
+                                                "source_id",
+                                                "transport_mode"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "selection_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "kind": {
+                                                  "type": "string",
+                                                  "const": "site"
+                                                },
+                                                "source_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "transport_mode": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "included",
+                                                        "excluded"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "site": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "supplier": {
+                                                      "type": "string",
+                                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                    },
+                                                    "offer_reference": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "offer_date": {
+                                                      "type": "string",
+                                                      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                                    },
+                                                    "document": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "supplier",
+                                                    "offer_reference",
+                                                    "offer_date",
+                                                    "document"
+                                                  ],
+                                                  "additionalProperties": false
+                                                }
+                                              },
+                                              "required": [
+                                                "selection_id",
+                                                "kind",
+                                                "source_id",
+                                                "transport_mode",
+                                                "site"
+                                              ],
+                                              "additionalProperties": false
                                             }
-                                          },
-                                          "required": [
-                                            "selection_id",
-                                            "kind",
-                                            "source_id",
-                                            "transport_mode"
-                                          ],
-                                          "additionalProperties": false
+                                          ]
                                         },
                                         {
                                           "type": "null"
@@ -33522,47 +34044,134 @@
                                         "fo_price_origin": {
                                           "anyOf": [
                                             {
-                                              "type": "object",
-                                              "properties": {
-                                                "selection_id": {
-                                                  "type": "string",
-                                                  "format": "uuid",
-                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                                },
-                                                "kind": {
-                                                  "type": "string",
-                                                  "enum": [
-                                                    "supplier",
-                                                    "reference"
-                                                  ]
-                                                },
-                                                "source_id": {
-                                                  "type": "string",
-                                                  "format": "uuid",
-                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                                },
-                                                "transport_mode": {
-                                                  "anyOf": [
-                                                    {
+                                              "oneOf": [
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "selection_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "kind": {
                                                       "type": "string",
                                                       "enum": [
-                                                        "included",
-                                                        "excluded"
+                                                        "supplier",
+                                                        "reference"
                                                       ]
                                                     },
-                                                    {
-                                                      "type": "null"
+                                                    "source_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "transport_mode": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "enum": [
+                                                            "included",
+                                                            "excluded"
+                                                          ]
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
                                                     }
-                                                  ]
+                                                  },
+                                                  "required": [
+                                                    "selection_id",
+                                                    "kind",
+                                                    "source_id",
+                                                    "transport_mode"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "selection_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "kind": {
+                                                      "type": "string",
+                                                      "const": "site"
+                                                    },
+                                                    "source_id": {
+                                                      "type": "string",
+                                                      "format": "uuid",
+                                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                    },
+                                                    "transport_mode": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "enum": [
+                                                            "included",
+                                                            "excluded"
+                                                          ]
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "site": {
+                                                      "type": "object",
+                                                      "properties": {
+                                                        "supplier": {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        "offer_reference": {
+                                                          "anyOf": [
+                                                            {
+                                                              "type": "string",
+                                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                            },
+                                                            {
+                                                              "type": "null"
+                                                            }
+                                                          ]
+                                                        },
+                                                        "offer_date": {
+                                                          "type": "string",
+                                                          "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                                        },
+                                                        "document": {
+                                                          "anyOf": [
+                                                            {
+                                                              "type": "string",
+                                                              "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                            },
+                                                            {
+                                                              "type": "null"
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      "required": [
+                                                        "supplier",
+                                                        "offer_reference",
+                                                        "offer_date",
+                                                        "document"
+                                                      ],
+                                                      "additionalProperties": false
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "selection_id",
+                                                    "kind",
+                                                    "source_id",
+                                                    "transport_mode",
+                                                    "site"
+                                                  ],
+                                                  "additionalProperties": false
                                                 }
-                                              },
-                                              "required": [
-                                                "selection_id",
-                                                "kind",
-                                                "source_id",
-                                                "transport_mode"
-                                              ],
-                                              "additionalProperties": false
+                                              ]
                                             },
                                             {
                                               "type": "null"
@@ -33913,47 +34522,134 @@
                                     "fo_price_origin": {
                                       "anyOf": [
                                         {
-                                          "type": "object",
-                                          "properties": {
-                                            "selection_id": {
-                                              "type": "string",
-                                              "format": "uuid",
-                                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                            },
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": [
-                                                "supplier",
-                                                "reference"
-                                              ]
-                                            },
-                                            "source_id": {
-                                              "type": "string",
-                                              "format": "uuid",
-                                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                            },
-                                            "transport_mode": {
-                                              "anyOf": [
-                                                {
+                                          "oneOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "selection_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "kind": {
                                                   "type": "string",
                                                   "enum": [
-                                                    "included",
-                                                    "excluded"
+                                                    "supplier",
+                                                    "reference"
                                                   ]
                                                 },
-                                                {
-                                                  "type": "null"
+                                                "source_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "transport_mode": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "included",
+                                                        "excluded"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
                                                 }
-                                              ]
+                                              },
+                                              "required": [
+                                                "selection_id",
+                                                "kind",
+                                                "source_id",
+                                                "transport_mode"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "selection_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "kind": {
+                                                  "type": "string",
+                                                  "const": "site"
+                                                },
+                                                "source_id": {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                "transport_mode": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "included",
+                                                        "excluded"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "site": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "supplier": {
+                                                      "type": "string",
+                                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                    },
+                                                    "offer_reference": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "offer_date": {
+                                                      "type": "string",
+                                                      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                                    },
+                                                    "document": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string",
+                                                          "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "supplier",
+                                                    "offer_reference",
+                                                    "offer_date",
+                                                    "document"
+                                                  ],
+                                                  "additionalProperties": false
+                                                }
+                                              },
+                                              "required": [
+                                                "selection_id",
+                                                "kind",
+                                                "source_id",
+                                                "transport_mode",
+                                                "site"
+                                              ],
+                                              "additionalProperties": false
                                             }
-                                          },
-                                          "required": [
-                                            "selection_id",
-                                            "kind",
-                                            "source_id",
-                                            "transport_mode"
-                                          ],
-                                          "additionalProperties": false
+                                          ]
                                         },
                                         {
                                           "type": "null"
@@ -36324,47 +37020,134 @@
               "fo_price_origin": {
                 "anyOf": [
                   {
-                    "type": "object",
-                    "properties": {
-                      "selection_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "supplier",
-                          "reference"
-                        ]
-                      },
-                      "source_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "transport_mode": {
-                        "anyOf": [
-                          {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "selection_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "kind": {
                             "type": "string",
                             "enum": [
-                              "included",
-                              "excluded"
+                              "supplier",
+                              "reference"
                             ]
                           },
-                          {
-                            "type": "null"
+                          "source_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "transport_mode": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "included",
+                                  "excluded"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
-                        ]
+                        },
+                        "required": [
+                          "selection_id",
+                          "kind",
+                          "source_id",
+                          "transport_mode"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "selection_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "site"
+                          },
+                          "source_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "transport_mode": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "included",
+                                  "excluded"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "site": {
+                            "type": "object",
+                            "properties": {
+                              "supplier": {
+                                "type": "string",
+                                "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                              },
+                              "offer_reference": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "offer_date": {
+                                "type": "string",
+                                "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                              },
+                              "document": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "supplier",
+                              "offer_reference",
+                              "offer_date",
+                              "document"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "selection_id",
+                          "kind",
+                          "source_id",
+                          "transport_mode",
+                          "site"
+                        ],
+                        "additionalProperties": false
                       }
-                    },
-                    "required": [
-                      "selection_id",
-                      "kind",
-                      "source_id",
-                      "transport_mode"
-                    ],
-                    "additionalProperties": false
+                    ]
                   },
                   {
                     "type": "null"
@@ -36725,47 +37508,134 @@
                     "default": null,
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "selection_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "supplier",
-                              "reference"
-                            ]
-                          },
-                          "source_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "transport_mode": {
-                            "anyOf": [
-                              {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "selection_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "kind": {
                                 "type": "string",
                                 "enum": [
-                                  "included",
-                                  "excluded"
+                                  "supplier",
+                                  "reference"
                                 ]
                               },
-                              {
-                                "type": "null"
+                              "source_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "transport_mode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "excluded"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
-                            ]
+                            },
+                            "required": [
+                              "selection_id",
+                              "kind",
+                              "source_id",
+                              "transport_mode"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "selection_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "site"
+                              },
+                              "source_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "transport_mode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "excluded"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "site": {
+                                "type": "object",
+                                "properties": {
+                                  "supplier": {
+                                    "type": "string",
+                                    "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                  },
+                                  "offer_reference": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "offer_date": {
+                                    "type": "string",
+                                    "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                  },
+                                  "document": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "supplier",
+                                  "offer_reference",
+                                  "offer_date",
+                                  "document"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "selection_id",
+                              "kind",
+                              "source_id",
+                              "transport_mode",
+                              "site"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "selection_id",
-                          "kind",
-                          "source_id",
-                          "transport_mode"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -37642,47 +38512,134 @@
           "fo_price_origin": {
             "anyOf": [
               {
-                "type": "object",
-                "properties": {
-                  "selection_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "supplier",
-                      "reference"
-                    ]
-                  },
-                  "source_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "transport_mode": {
-                    "anyOf": [
-                      {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "selection_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "kind": {
                         "type": "string",
                         "enum": [
-                          "included",
-                          "excluded"
+                          "supplier",
+                          "reference"
                         ]
                       },
-                      {
-                        "type": "null"
+                      "source_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "transport_mode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "included",
+                              "excluded"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
-                    ]
+                    },
+                    "required": [
+                      "selection_id",
+                      "kind",
+                      "source_id",
+                      "transport_mode"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "selection_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "site"
+                      },
+                      "source_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "transport_mode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "included",
+                              "excluded"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "site": {
+                        "type": "object",
+                        "properties": {
+                          "supplier": {
+                            "type": "string",
+                            "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                          },
+                          "offer_reference": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "offer_date": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                          },
+                          "document": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "supplier",
+                          "offer_reference",
+                          "offer_date",
+                          "document"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "selection_id",
+                      "kind",
+                      "source_id",
+                      "transport_mode",
+                      "site"
+                    ],
+                    "additionalProperties": false
                   }
-                },
-                "required": [
-                  "selection_id",
-                  "kind",
-                  "source_id",
-                  "transport_mode"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -38012,47 +38969,134 @@
                     "default": null,
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "selection_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "supplier",
-                              "reference"
-                            ]
-                          },
-                          "source_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "transport_mode": {
-                            "anyOf": [
-                              {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "selection_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "kind": {
                                 "type": "string",
                                 "enum": [
-                                  "included",
-                                  "excluded"
+                                  "supplier",
+                                  "reference"
                                 ]
                               },
-                              {
-                                "type": "null"
+                              "source_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "transport_mode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "excluded"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
-                            ]
+                            },
+                            "required": [
+                              "selection_id",
+                              "kind",
+                              "source_id",
+                              "transport_mode"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "selection_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "site"
+                              },
+                              "source_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "transport_mode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "excluded"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "site": {
+                                "type": "object",
+                                "properties": {
+                                  "supplier": {
+                                    "type": "string",
+                                    "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                  },
+                                  "offer_reference": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "offer_date": {
+                                    "type": "string",
+                                    "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                  },
+                                  "document": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "supplier",
+                                  "offer_reference",
+                                  "offer_date",
+                                  "document"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "selection_id",
+                              "kind",
+                              "source_id",
+                              "transport_mode",
+                              "site"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "selection_id",
-                          "kind",
-                          "source_id",
-                          "transport_mode"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -39341,47 +40385,134 @@
                 "fo_price_origin": {
                   "anyOf": [
                     {
-                      "type": "object",
-                      "properties": {
-                        "selection_id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        "kind": {
-                          "type": "string",
-                          "enum": [
-                            "supplier",
-                            "reference"
-                          ]
-                        },
-                        "source_id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        "transport_mode": {
-                          "anyOf": [
-                            {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "selection_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "kind": {
                               "type": "string",
                               "enum": [
-                                "included",
-                                "excluded"
+                                "supplier",
+                                "reference"
                               ]
                             },
-                            {
-                              "type": "null"
+                            "source_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "transport_mode": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "included",
+                                    "excluded"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
-                          ]
+                          },
+                          "required": [
+                            "selection_id",
+                            "kind",
+                            "source_id",
+                            "transport_mode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "selection_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "const": "site"
+                            },
+                            "source_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "transport_mode": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "included",
+                                    "excluded"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "site": {
+                              "type": "object",
+                              "properties": {
+                                "supplier": {
+                                  "type": "string",
+                                  "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                },
+                                "offer_reference": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "offer_date": {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$"
+                                },
+                                "document": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[^\\x00-\\x1f ](?:[^\\x00-\\x1f]*[^\\x00-\\x1f ])?$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "supplier",
+                                "offer_reference",
+                                "offer_date",
+                                "document"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "selection_id",
+                            "kind",
+                            "source_id",
+                            "transport_mode",
+                            "site"
+                          ],
+                          "additionalProperties": false
                         }
-                      },
-                      "required": [
-                        "selection_id",
-                        "kind",
-                        "source_id",
-                        "transport_mode"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "null"

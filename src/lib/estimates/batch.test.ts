@@ -422,4 +422,34 @@ describe("executeEstimateBatch", () => {
       expect(db.commit).not.toHaveBeenCalled();
     });
   });
+
+  // TI-541, réponse de Maxime du 11/11/2026 : une POSE SEULE ne prend ni pertes ni transport. La projection contrôlée
+  // par la base (D12) porte donc une provision de 1 sur une ligne qui devient POSE SEULE ou qui est créée ainsi, et
+  // reprend celle du type quand la ligne quitte cette nature.
+  it("projects a POSE SEULE line without FO provision, and with its type's provision again when it leaves the nature", async () => {
+    const TUBE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const POSE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    Object.assign(db.version, {
+      calc_engine_version: 3, sale_coefficient_fo: 1, sale_coefficient_mo: 1, discount_amount_cents: null,
+      gross_ht_cents: 2030, discount_applied_cents: 0, commercial_rounding_cents: 0,
+    });
+    const v3Line = { h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: "priced", supply_type_id: TUBE_ID };
+    db.rows.estimate_items = [section(),
+      { ...line(), ...v3Line, fo_provision: 1.03, line_nature: "supply_only" },
+      { ...line(), ...v3Line, id: POSE_ID, position: 2, fo_provision: 1, line_nature: "pose_only" }];
+    db.rows.supply_types = [{ id: TUBE_ID, tenant_id: TENANT_ID, code: "tube", name: "Tube", default_fo_provision: 1.03 }];
+    db.commit.mockResolvedValue({ data: null, error: { code: "40001", message: "ESTIMATE_BATCH_STALE" } });
+    const operations: BatchOperationInput[] = [
+      { op: "update", id: ITEM_ID, data: { line_nature: "pose_only" } },
+      { op: "update", id: POSE_ID, data: { line_nature: "supply_only" } },
+      { op: "create", data: { item_type: "line", parent_id: SECTION_ID, title: "Supportage", quantity: 2, unit_price_ht_cents: 500,
+        line_nature: "pose_only" } },
+    ];
+    await expect(executeEstimateBatch(VERSION_ID, operations, OPTIONS)).rejects.toMatchObject({ code: "ESTIMATE_BATCH_STALE" });
+    const sent = db.commit.mock.calls[0][0] as { p_created_ids: Array<{ id: string }>; p_item_updates: Array<Record<string, unknown>> };
+    // Devenue POSE SEULE : 1 × 1 000 × 1 = 1 000. Redevenue fourniture, tube : 1 000 × 1,030 = 1 030.
+    // Créée POSE SEULE : 2 × (500 × 1) = 1 000, sans le 1,010 d'une ligne neuve.
+    expect(Object.fromEntries(sent.p_item_updates.map((update) => [update.id, [update.pu_ht_cents, update.line_total_ht_cents]])))
+      .toEqual({ [ITEM_ID]: [1000, 1000], [POSE_ID]: [1030, 1030], [sent.p_created_ids[0].id]: [500, 1000] });
+  });
 });

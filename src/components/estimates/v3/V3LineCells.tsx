@@ -59,6 +59,8 @@ export type EstimateV3GridModel = {
     canDeclare: boolean;
     save: (itemId: string, choice: EstimateOfferChoiceInput | null) => Promise<void>;
   };
+  /** Coefficient de vente FO de l'aperçu courant, pour le détail du coût de fourniture d'une ligne (TI-541). */
+  saleCoefficientFo?: string | null;
 };
 
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);

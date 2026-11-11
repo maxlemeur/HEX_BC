@@ -14,7 +14,7 @@ import {
 } from "@/lib/estimates/estimate-placement-helpers";
 import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { isTransportSensitiveFoType, sameFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
-import { deriveFoProvision, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
+import { deriveFoProvision, poseOnlyChanged, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
 import { applyStatusReasonRules, isEstimateExcludedPricingStatus, sameStatusReason } from "@/lib/estimates/status-reason";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
@@ -171,8 +171,8 @@ export async function prepareEstimateBatch(input: {
   // private.derive_estimate_item_fo_provision (1.000 on v1/v2 and on sections).
   const supplyTypeProvisions = new Map<string, FoProvisionValue>();
   const resolveFoPrice = createFoPriceResolver(supabase, tenantId);
-  const foProvisionOf = (supplyTypeId: string | null, origin?: unknown) =>
-    perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin) : 1;
+  const foProvisionOf = (supplyTypeId: string | null, origin?: unknown, lineNature?: string | null) =>
+    perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin, lineNature) : 1;
 
   function references(data: Partial<Item>) {
     const checks: Promise<void>[] = [];
@@ -338,7 +338,7 @@ export async function prepareEstimateBatch(input: {
         validateAid(item);
         validatePlacement(item);
         await references(item);
-        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin);
+        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin, item.line_nature);
         if (isLine) item.was_not_priced = item.pricing_status === "not_priced";
         assertStatusReasonMatchesStatus(item, null);
         items.set(item.id, item);
@@ -365,8 +365,9 @@ export async function prepareEstimateBatch(input: {
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
           if (supplyTypeChanged(current.supply_type_id, next.supply_type_id) ||
-              !sameFoPriceOrigin(current.fo_price_origin, next.fo_price_origin)) {
-            next.fo_provision = foProvisionOf(next.supply_type_id, next.fo_price_origin);
+              !sameFoPriceOrigin(current.fo_price_origin, next.fo_price_origin) ||
+              poseOnlyChanged(current.line_nature, next.line_nature)) {
+            next.fo_provision = foProvisionOf(next.supply_type_id, next.fo_price_origin, next.line_nature);
           }
           changedLineIds.add(next.id);
           Object.assign(next, applyStatusReasonRules(current, next));
