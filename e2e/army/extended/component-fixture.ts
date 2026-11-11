@@ -37,8 +37,10 @@ export async function mountComponentFixture(
     } : {}),
   });
   const javascript = bundle.outputFiles[0].text;
+  // Synthetic fixture classes live outside the app's intentionally narrow source scope.
+  const fixtureStylesheet = `${await readFile("src/app/globals.css", "utf8")}\n@source "../../e2e/fixtures/${input.entry}.tsx";\n`;
   const css = input.entry === "ui-polish" || input.entry === "catalogue-offer" || input.entry === "deslop-live-replacements"
-    ? (await postcss([tailwindcss()]).process(await readFile("src/app/globals.css", "utf8"), { from: path.resolve("src/app/globals.css") })).css
+    ? (await postcss([tailwindcss()]).process(fixtureStylesheet, { from: path.resolve("src/app/globals.css") })).css
     : input.entry === "deslop-client-list"
       ? "body{font-family:Arial,sans-serif}table{width:100%;border-collapse:collapse}td,th{padding:8px;text-align:left}.md\\:hidden{display:none}"
       : "";
