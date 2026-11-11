@@ -145,12 +145,24 @@ contract take precedence over historical reports and procedures.
   (`gh pr merge --auto --squash`). It merges by itself once the required checks
   are green. Push once per finished task or review round, not per commit: a new
   push cancels the runs in progress and starts every check again.
-- Read the checks of your pull request. If your change made one red, fix it
-  before other work. If the red does not come from your change, say so in the
-  pull request with the evidence (the same journey red on `main`, or failing
-  without your diff) before rerunning the failed job; see Verification.
-- Merge `origin/main` into the branch only for a conflict, a migration to restamp
-  or a dependency on code that landed on `main`. Do not stack pull requests.
+- Read the checks of your pull request and find the cause of a red one before
+  reacting to it: a new push starts every check again, a rerun only the failed
+  jobs. See the [guide](docs/testing/tester-army-ci.md#check-rouge-sur-une-pull-request).
+  - Your change made it red: fix it before other work.
+  - An infrastructure failure or a flaky journey (red without your diff, green
+    on the same commit elsewhere): say so in the pull request with the evidence,
+    then rerun the failed jobs only (`gh run rerun <run-id> --failed`), without
+    a new commit.
+  - The same journey is red on `main`: a rerun cannot pick up its fix, because
+    it replays the merge commit computed when you pushed. Say so in the pull
+    request with the evidence, wait for the fix to land on `main`, then merge
+    `origin/main` once.
+- Merge `origin/main` into the branch only for a conflict GitHub reports, a
+  migration to restamp or code that landed on `main` and that the branch needs,
+  such as the fix of a red it inherited. Never merge it as a reaction to a red
+  you have not diagnosed, nor to bring the branch up to date: `main` does not
+  require an up-to-date branch, and « Update branch » is that same merge. Do not
+  stack pull requests.
 - The merge is a push to `main`: unless it is documentation-only, it starts a full
   Critical run of about 15 minutes and queues the Full and calc-v3
   [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
