@@ -6,6 +6,7 @@ import { credentials, expect, secrets, type App, type Screen } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, type ArmyItem, type ArmyState } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { admitCollectedReconciliation, admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
 import { expireOwnedCollectedPortal, observeOwnedOffer } from "./offer-emission-state";
 
@@ -97,6 +98,8 @@ async function prepare(ui: OfferUi, caseId: string) {
   if (caseId !== "OF0L" && !caseId.startsWith("PDFL")) {
     // The workbench shows one domain at a time: the PDF and its email are prepared in « Remise ».
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=submission`);
+    // React must handle the page before the press: on the server HTML it only focuses the button (EIR, run 43090527305).
+    await waitForHydration(ui.browser);
     await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).click();
     const layout = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
     await expect(layout).toBeVisible();
