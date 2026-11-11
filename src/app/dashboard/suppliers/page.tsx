@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { BriefcaseIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
@@ -101,34 +101,33 @@ export default function SuppliersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
-  const [access, setAccess] = useState<CatalogueAccess | null>(null);
-  const canAdd = access?.canAdd === true;
-
   // Filtered suppliers state
   const [displayedSuppliers, setDisplayedSuppliers] = useState<Supplier[]>([]);
 
   const fetchSuppliers = useCallback(async () => {
-    const data = await fetchApi<SuppliersResponse>("/api/suppliers");
-    // TI-689: the buttons follow the member's rights; the database decides.
-    setAccess(
-      data.access
-        ? { userId: data.access.user_id, canAdd: data.access.can_add, canEditShared: data.access.can_edit_shared }
-        : null
-    );
-    return data.items;
+    return fetchApi<SuppliersResponse>("/api/suppliers");
   }, []);
 
   const {
-    data: suppliers = [],
+    data: suppliersResponse,
     error: loadError,
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<Supplier[]>("suppliers", fetchSuppliers, {
+  } = useSWR<SuppliersResponse>("suppliers", fetchSuppliers, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
   });
+  const suppliers = useMemo(() => suppliersResponse?.items ?? [], [suppliersResponse]);
+  // TI-689: the buttons follow the member's rights, cached with the list they belong to; the database decides.
+  const access = useMemo<CatalogueAccess | null>(() => {
+    const granted = suppliersResponse?.access;
+    return granted
+      ? { userId: granted.user_id, canAdd: granted.can_add, canEditShared: granted.can_edit_shared }
+      : null;
+  }, [suppliersResponse]);
+  const canAdd = access?.canAdd === true;
 
   const closeForm = useCallback(() => {
     setIsFormOpen(false);
