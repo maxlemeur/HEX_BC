@@ -249,7 +249,8 @@ describe("IntakeCadPreview", () => {
     await opened({ kind: "summary", summary: { format: "rvt", version: null, thumbnail } });
     expect(screen.getByRole("img", { name: "Aperçu enregistré dans le fichier" })).toHaveAttribute("src", "blob:apercu");
     expect(screen.getByText("Version non lue")).toBeInTheDocument();
-    expect(screen.getByText(/Une maquette Revit n’est pas lue/)).toBeInTheDocument();
+    // What is not read says the way that is: the export of the model in IFC.
+    expect(screen.getByText(/Une maquette Revit n’est pas lue dans MergeOne\. Exportez-la en IFC depuis Revit et déposez ce fichier pour la voir en 3D et relever ses quantités/)).toBeInTheDocument();
     cleanup();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:apercu");
   });

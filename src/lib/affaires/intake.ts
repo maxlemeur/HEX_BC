@@ -39,7 +39,7 @@ export const AFFAIRE_INTAKE_ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ] as const;
 
-export const AFFAIRE_INTAKE_CAD_NOTICE = "Original CAO/BIM conservé. Aperçu et métré non disponibles dans ce format : ajoutez un export PDF pour les plans ou un quantitatif pour les quantités.";
+export const AFFAIRE_INTAKE_CAD_NOTICE = "Original CAO/BIM conservé. Aperçu et métré non disponibles dans ce format : pour une maquette Revit, exportez-la en IFC et déposez ce fichier pour la voir en 3D et relever ses quantités ; sinon ajoutez un export PDF pour les plans ou un quantitatif pour les quantités.";
 
 const CAD_MIME_TYPES: Record<string, readonly string[]> = {
   dwg: ["application/octet-stream", "image/vnd.dwg", "application/acad", "application/x-acad", "application/dwg", "application/x-dwg", "image/x-dwg"],

@@ -34,7 +34,7 @@ const MAX_BLOCK_ROWS = 200;
 
 const SUMMARY_GUIDANCE: Record<CadSummary["format"], string> = {
   dwg: "Le dessin de ce DWG n’est pas affiché. Enregistrez ce plan en DXF pour le visualiser et relever ses quantités, ou ajoutez son export PDF pour le métré.",
-  rvt: "Une maquette Revit n’est pas lue dans MergeOne. Ajoutez ses plans exportés en DXF ou en PDF pour les visualiser et les métrer.",
+  rvt: "Une maquette Revit n’est pas lue dans MergeOne. Exportez-la en IFC depuis Revit et déposez ce fichier pour la voir en 3D et relever ses quantités, ou ajoutez ses plans exportés en DXF ou en PDF pour les métrer.",
   fcstd: "Les solides d’une maquette FreeCAD ne sont pas dessinés dans MergeOne, et cette maquette n’a pas d’esquisse que MergeOne sache dessiner. Pour le métré, ajoutez ses plans exportés en DXF ou en PDF.",
 };
 

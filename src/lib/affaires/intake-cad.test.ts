@@ -90,6 +90,8 @@ describe("CAD/BIM dossier originals", () => {
     expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_DWG_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("Aperçu et métré non disponibles");
+    // A Revit model is only kept: its notice tells the way that is read, its export in IFC.
+    expect(AFFAIRE_INTAKE_CAD_NOTICE).toContain("exportez-la en IFC");
   });
 
   it("asks for a piece and for the drawing of a DWG under the same document, whatever its identifier holds", () => {
