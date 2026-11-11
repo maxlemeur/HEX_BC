@@ -3,7 +3,7 @@ import type { Database } from "@/types/database";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
-import { catalogueFoTypeId, clearStaleFoPriceOrigin, readFoPriceOrigin, sameFoPriceSelection, type FoPriceLine } from "./fo-price-origin";
+import { catalogueFoTypeId, clearStaleFoPriceOrigin, readFoPriceOrigin, sameFoPriceOrigin, sameFoPriceSelection, type FoPriceLine } from "./fo-price-origin";
 
 type Line = FoPriceLine & { supply_type_id?: string | null };
 type Offer = { id: string; product_id: string; transport_mode: "included" | "excluded" | null };
@@ -54,6 +54,13 @@ export function createFoPriceResolver(supabase: SupabaseClient<Database>, tenant
   async function resolve<T extends Line>(next: T, previous?: Line): Promise<T> {
     if (!previous && Object.hasOwn(next, "fo_price_origin") && next.fo_price_origin === null) return next;
     const origin = readFoPriceOrigin(next.fo_price_origin);
+    // TI-541: a site cost newly typed for this quote, or copied with its line. It reads nothing from the catalogue,
+    // wins over the article of the line and cannot keep a catalogue offer selected, as in the SQL trigger, which
+    // also reads any change of the saved origin as a new site cost.
+    if (origin?.kind === "site" && (!previous || !sameFoPriceOrigin(previous.fo_price_origin, next.fo_price_origin))) {
+      if (next.selected_supplier_price_id) throw badRequest("Un coût chantier remplace l’offre du catalogue : retirez d’abord l’offre retenue.");
+      return next;
+    }
     const newOffer = Boolean(next.selected_supplier_price_id && next.selected_supplier_price_id !== previous?.selected_supplier_price_id);
     const newProduct = Boolean(next.product_id && next.product_id !== previous?.product_id);
     const selected = !previous || newOffer || newProduct || !sameFoPriceSelection(previous, next) && origin !== null;
