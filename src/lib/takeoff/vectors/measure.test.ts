@@ -1344,10 +1344,12 @@ describe("label votes of a tint family", () => {
   });
 
   it("keeps the outline « à revoir » when the votes of its family, together, fall under 80 %", () => {
-    // A third colour of the family, drawn elsewhere, is the supply by 3 votes: 8 votes of 12 for the return.
+    // A third colour of the family, drawn elsewhere, has 2 votes for the supply and 1 for the return: it has no
+    // class of its own, and 9 votes of 12 (75 %) are for the return.
     const other: Part = { strokes: [line(MAGENTA_PALE, 100, 600, 100 + FIFTEEN_M, 600)] };
-    const reading = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5), ...outlineVotes, other, ...voters(3, SUPPLY, 600)]));
-    expect(groupClass(reading, MAGENTA_PALE)).toEqual({ class: "HW-S", source: "label" });
+    const reading = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(5), ...outlineVotes, other,
+      ...voters(2, SUPPLY, 600), ...voters(1, RETURN, 600, 2)]));
+    expect(groupClass(reading, MAGENTA_PALE)).toEqual({ class: null, source: null });
     expect(groupClass(reading, MAGENTA)).toEqual({ class: null, source: null });
     expect(metres(reading, "HW-R")).toBeCloseTo(5, 2);
   });
@@ -1389,6 +1391,7 @@ describe("label votes of a tint family", () => {
     expect(metres(other, "HW-S")).toBe(0);
 
     // 2 votes each on the outline, 8 for the return on the tint: 10 votes of 12 for the return, no majority of its own.
+    // The return's labels come first, so that it leads the outline's tally: only the majority rule then holds it back.
     const even = read(page([...LEGEND, outlined(300, MAGENTA, MAGENTA_TINT), ...tintVotes(8), ...voters(2, RETURN, 299, 5), ...voters(2, SUPPLY, 299, 7)]));
     expect(groupClass(even, MAGENTA_TINT, 1.5)).toEqual({ class: "HW-R", source: "label" });
     expect(groupClass(even, MAGENTA)).toEqual({ class: null, source: null });
