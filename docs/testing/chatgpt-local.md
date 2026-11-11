@@ -124,13 +124,30 @@ npm run verify:pr
 ```
 
 Les parcours TesterArmy démarrent un serveur local dédié contre la base éphémère
-de la campagne. Le premier vérifie le départ OAuth et injecte un refus de
+de la campagne. Ils sont répartis en deux fichiers, chacun avec son serveur, son
+compte propriétaire, son port et son dossier d'artefacts
+([`chatgpt-local-journey-support.ts`](../../e2e/army/local/chatgpt-local-journey-support.ts)) :
+
+- [`chatgpt-local-takeoff.e2e.ts`](../../e2e/army/local/chatgpt-local-takeoff.e2e.ts) :
+  règles du fournisseur local (LOCAL01 à LOCAL06), les trois parcours
+  « ChatGPT local » et V3C08 ;
+- [`chatgpt-local-decisions.e2e.ts`](../../e2e/army/local/chatgpt-local-decisions.e2e.ts) :
+  assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
+  des prix (PRX02) et réanalyse des pièces (INTRETRY01, INTWORD01).
+
+Un seul fichier exécutait ces tests en série sur son serveur et fixait la durée
+du check Critical. Les deux serveurs ne compilent jamais en même temps sur une
+machine : les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent les
+deux fichiers dans deux shards, et une sélection filtrée qui les contient tous
+les deux est refusée avec plus d'un worker.
+
+Le premier parcours « ChatGPT local » vérifie le départ OAuth et injecte un refus de
 consentement. Le second téléverse un CSV fictif, lance le vrai worker local,
 vérifie le résultat en base (12,5 m), le fournisseur, le modèle, les jetons et
 l’absence d’appel Gemini ou Edge. Par défaut, le transport OpenAI est une fixture
 explicite : cela ne prouve pas l’utilisation d’un abonnement réel.
 
-Le serveur `next dev` de ces parcours garde chaque route compilée jusqu’à la fin
+Le serveur `next dev` de chaque fichier garde chaque route compilée jusqu’à la fin
 du fichier (`onDemandEntries` de `next.config.ts`, réservé aux serveurs ayant un
 `E2E_ARMY_DEV_SERVER_ID`). Avec l’abandon par défaut d’une route inactive depuis
 60 s, un runner lent recompilait connexion, chiffrage et métré d’un test à

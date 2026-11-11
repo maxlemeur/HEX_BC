@@ -146,6 +146,17 @@ coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
 métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
 un seul job. Les durées ne choisissent pas la couverture.
 
+`neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
+soient leurs durées : les deux fichiers des
+[parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
+serveur de développement, et les deux workers d'un shard compileraient les deux
+serveurs à froid en même temps sur un seul runner. Une sélection qui contient
+les deux fichiers compte donc au moins deux shards. Le lanceur applique la même
+règle à une exécution filtrée (`--files`, `--grep`) : avec plus d'un worker, il
+la refuse avant de créer la pile. Sans durées utilisables, le plan n'a qu'un
+shard et la règle ne s'applique pas ; l'exécution de la suite entière dans un
+seul job, repli d'une sélection impossible, ne les sépare pas non plus.
+
 Les phases calc-v3 sélectionnées tournent en groupes : cinq jobs au plus
 (`calcV3.maxGroups` du même fichier), un groupe par phase quand la sélection en
 compte moins. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un

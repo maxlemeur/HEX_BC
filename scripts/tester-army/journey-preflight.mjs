@@ -198,11 +198,14 @@ export function grepAlternativeProblems(grep, tests) {
 /**
  * Problems of a filtered selection listed by `e2e list`: an authenticated
  * business test must run, and so must a test of each --grep alternative and
- * of each requested file.
- * @param {{ pairs: ReadonlyArray<{ file: string, titlePath: readonly string[], kind: string, tags: readonly string[], disposition: string }>, grep?: string, files?: readonly string[] }} selection
+ * of each requested file. A run of several workers must not hold two files of
+ * one `neverTogether` group (scripts/tester-army/army-shards.json): a file
+ * runs on one worker, so two workers would start their two development
+ * servers at once. The shard plans never put them in one shard.
+ * @param {{ pairs: ReadonlyArray<{ file: string, titlePath: readonly string[], kind: string, tags: readonly string[], disposition: string }>, grep?: string, files?: readonly string[], workers?: number, neverTogether?: ReadonlyArray<readonly string[]> }} selection
  * @returns {string[]}
  */
-export function selectionPreflightProblems({ pairs, grep, files = [] }) {
+export function selectionPreflightProblems({ pairs, grep, files = [], workers = 1, neverTogether = [] }) {
   const runnable = pairs.filter((entry) => entry.disposition === "run" && entry.kind === "test");
   const problems = [];
   if (!runnable.some((entry) => entry.tags.includes("critical") && !entry.tags.includes("anonymous"))) {
@@ -212,6 +215,15 @@ export function selectionPreflightProblems({ pairs, grep, files = [] }) {
   // A shard or takeoff job names the login setup among its files: it runs as the setup of the others.
   for (const file of files) {
     if (!pairs.some((entry) => entry.file === file && entry.disposition === "run")) problems.push(`--files ${file} selects no runnable test.`);
+  }
+  if (workers > 1) {
+    for (const group of neverTogether) {
+      const together = group.filter((file) => runnable.some((entry) => entry.file === file));
+      if (together.length > 1) {
+        problems.push(`E2E_ARMY_WORKERS=${workers} would run ${together.join(" and ")} at once, each with its own development server: ` +
+          "run them with one worker or in separate runs.");
+      }
+    }
   }
   return problems;
 }

@@ -32,6 +32,7 @@ import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs
 import { assertLocalAppPortAvailable, describeArmyRunFailure, outputTail, reserveAppPort } from "./tester-army/app-port";
 import { runLocalDevelopmentSession } from "./tester-army/local-development";
 import { EvidenceRetentionError, failedPhase, keepRunError } from "./tester-army/phase-failure";
+import { neverTogetherGroups } from "./tester-army/select-journeys";
 import { assertInstalledDependencies } from "./tester-army/installed-dependencies.mjs";
 
 const suite = process.argv[2];
@@ -764,7 +765,7 @@ async function main() {
       tests: await sqlInventory(path.join(root, "supabase/tests/database")),
     };
     // Fail closed before any stack, the source already recorded (src/test/army-journey-preflight.test.ts):
-    // a local journey no selection collects, or a filter part of which selects nothing.
+    // a local journey no selection collects, a filter part of which selects nothing, or two development servers at once.
     if (suite === "critical" || suite === "full" || suite === "dev-loop") {
       const problems = localJourneyCoverageProblems(root);
       if (problems.length) throw new Error(problems.join(" "));
@@ -772,7 +773,9 @@ async function main() {
     if ((suite === "critical" || suite === "full") && (grep || files.length)) {
       const pairs = await listArmySelection({ root, suite, grep, files,
         env: { ...createLocalCiEnvironment(process.env), ...businessJourneyEnvironment } });
-      const problems = selectionPreflightProblems({ pairs, grep, files });
+      // Two journeys that each start a development server never run at once on this machine (army-shards.json).
+      const problems = selectionPreflightProblems({ pairs, grep, files, workers: workers === "" ? 1 : Number(workers),
+        neverTogether: neverTogetherGroups(root) });
       selectedFixtureFiles = [...new Set(pairs.filter((pair) => pair.disposition === "run" && pair.kind === "test").map((pair) => pair.file))];
       manifest.selectionPreflight = {
         status: problems.length ? "failed" : "passed",

@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
     : {}),
   // A journey's own development server (e2e/army/local/chatgpt-server-support.ts) lives for one journey file and keeps
   // every route it compiled, as a production build would. Next disposes a route idle for 60 s by default: on a slow
-  // runner, the tests of chatgpt-local.e2e.ts outlast that, so the login, estimate and takeoff routes compiled again
+  // runner, the tests of a chatgpt-local journey file outlast that, so the login, estimate and takeoff routes compiled again
   // test after test until the heap passed Next's 80 % restart threshold in the middle of PRX02.
   ...(armyDevServer ? { onDemandEntries: { maxInactiveAge: 24 * 60 * 60 * 1000 } } : {}),
   outputFileTracingIncludes: {

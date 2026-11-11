@@ -81,6 +81,11 @@ export type ShardDurations = {
   note?: string;
   measured?: string[];
   defaultSeconds: number;
+  /**
+   * Groups of journey files that never share a shard, whatever their durations: each file starts its own cold
+   * development server, and the workers of one shard would compile two of them at once on one runner.
+   */
+  neverTogether?: string[][];
   suites: Record<ShardSuite, { maxShards: number; secondsPerShard: number; workers: number }>;
   seconds: Record<string, number>;
 };
@@ -542,7 +547,36 @@ export function validateShardDurations(durations: ShardDurations, journeys?: rea
     if (!positive(seconds)) problems.push(`army-shards.json times ${file} with ${seconds}, not a positive number of seconds.`);
     if (known && !known.has(file)) problems.push(`army-shards.json times ${file}, which no suite runs.`);
   }
+  const groups = durations.neverTogether ?? [];
+  // The critical and full suites run the local journeys: a group they cannot spread over their shards is refused.
+  const spread = Math.min(durations.suites?.critical?.maxShards ?? 1, durations.suites?.full?.maxShards ?? 1);
+  if (!Array.isArray(groups) || groups.some((group) => !Array.isArray(group) || group.some((file) => typeof file !== "string"))) {
+    return [...problems, "army-shards.json neverTogether must be a list of groups of journey files."];
+  }
+  const grouped = new Set<string>();
+  for (const group of groups) {
+    if (group.length < 2 || group.length > spread) {
+      problems.push(`army-shards.json neverTogether needs groups of 2 to ${spread} files, one per shard; received ${group.length}.`);
+    }
+    for (const file of group) {
+      if (grouped.has(file)) problems.push(`army-shards.json neverTogether lists ${file} twice.`);
+      grouped.add(file);
+      if (known && !known.has(file)) problems.push(`army-shards.json neverTogether lists ${file}, which no suite runs.`);
+    }
+  }
   return problems;
+}
+
+/** The neverTogether groups of a usable army-shards.json; none when it cannot be used, as for the shard plans. */
+export function neverTogetherGroups(root: string): string[][] {
+  return usableShardDurations(root).durations?.neverTogether ?? [];
+}
+
+/** The neverTogether group of each file that has one, by its index in the list. */
+function shardGroups(durations: ShardDurations | null): Map<string, number> {
+  const groups = new Map<string, number>();
+  (durations?.neverTogether ?? []).forEach((group, index) => group.forEach((file) => groups.set(file, index)));
+  return groups;
 }
 
 export function loadShardDurations(root: string): { durations: ShardDurations; sha256: string } {
@@ -565,9 +599,13 @@ function usableShardDurations(root: string): { durations: ShardDurations | null;
  * measured file first onto the least loaded shard: authenticated journeys
  * first, so that every shard holds one (the runner refuses a run of anonymous
  * journeys only), anonymous ones after. A file is never cut, so an SDK serial
- * group, which lives in one file, stays whole. One shard when the measured
- * journeys fit it; one shard of the runner's own whole suite (files empty)
- * when the list is the whole suite or cannot be used as runner --files.
+ * group, which lives in one file, stays whole. The files of a neverTogether
+ * group go to different shards: there are at least as many shards as the
+ * selection holds files of one group, and a file skips the shards that hold
+ * another file of its group. One shard when the measured journeys fit it and
+ * no group forbids it; one shard of the runner's own whole suite (files
+ * empty) when the list is the whole suite or cannot be used as runner
+ * --files. Without usable durations there is no group either: one shard.
  */
 export function planShards(input: {
   suite: ShardSuite;
@@ -604,20 +642,33 @@ export function planShards(input: {
   const total = business.reduce((sum, file) => sum + weight(file), 0);
   const anonymous = new Set(input.anonymous);
   const authenticated = business.filter((file) => !anonymous.has(file));
-  const count = Math.min(settings.maxShards, Math.max(1, authenticated.length), Math.max(1, Math.ceil(total / settings.secondsPerShard)));
+  const groups = shardGroups(input.durations);
+  const groupSizes = new Map<number, number>();
+  for (const file of business) {
+    const group = groups.get(file);
+    if (group !== undefined) groupSizes.set(group, (groupSizes.get(group) ?? 0) + 1);
+  }
+  const apart = Math.max(1, ...groupSizes.values());
+  const measuredCount = Math.max(1, Math.ceil(total / settings.secondsPerShard));
+  const count = Math.min(settings.maxShards, Math.max(1, authenticated.length), Math.max(measuredCount, apart));
   if (count === 1) {
     const why = `${total} s of measured journeys fit one shard of ${settings.secondsPerShard} s`;
     return input.wholeSuite ? whole(why) : plan(`one shard: ${why}`, [files], [total]);
   }
   const longestFirst = (list: string[]) => [...list].sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0));
-  const bins = Array.from({ length: count }, () => ({ load: 0, files: [input.setup] }));
+  const bins = Array.from({ length: count }, () => ({ load: 0, files: [input.setup], groups: new Set<number>() }));
   for (const file of [...longestFirst(authenticated), ...longestFirst(business.filter((entry) => anonymous.has(entry)))]) {
-    let target = 0;
-    for (let index = 1; index < count; index += 1) if (bins[index].load < bins[target].load) target = index;
-    bins[target].load += weight(file);
-    bins[target].files.push(file);
+    const group = groups.get(file);
+    // The least loaded shard without a file of this file's group; any shard when every one holds one (validateShardDurations).
+    const free = bins.filter((bin) => group === undefined || !bin.groups.has(group));
+    let target = (free.length ? free : bins)[0];
+    for (const bin of free.length ? free : bins) if (bin.load < target.load) target = bin;
+    target.load += weight(file);
+    target.files.push(file);
+    if (group !== undefined) target.groups.add(group);
   }
-  return plan(`${count} shards: ${total} s of measured journeys, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}`,
+  return plan(`${count} shards: ${total} s of measured journeys, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}` +
+    (count > measuredCount ? `, ${apart} journeys that never share a shard` : ""),
     bins.map((bin) => bin.files), bins.map((bin) => bin.load));
 }
 

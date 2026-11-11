@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "note": "Partition des parcours TesterArmy en jobs parallèles (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-journeys.ts. seconds : durée mesurée de chaque fichier (somme de ses tests), moyenne des runs de measured qui l'ont exécuté (suite critical : 40024057450, 40021949125 et 40012687149, les fichiers absents de ces runs gardant leur valeur précédente ; parcours du métré : leur valeur précédente et 40024057450, à parts égales) ; elle ne sert qu'à équilibrer les shards, jamais à choisir les parcours. Un fichier absent compte defaultSeconds. Un fichier n'est jamais coupé entre deux shards. workers : celui de chaque shard, contrôlé par l'agrégation. takeoff : les parcours du métré qu'une PR atteint (job army-takeoff de e2e-army-critical.yml), exécutés par la suite full à 1 worker, où ils sont qualifiés.",
   "measured": [
+    "42913532135 army-critical shard 1/5 (push main, c6b57c9b, vert, 2 workers, 10/11/2026) : chatgpt-local.e2e.ts y passe 56 s à démarrer et préchauffer son serveur de développement, puis 857 s dans ses 16 tests, exécutés en série : l'étape des parcours de son shard dure 1 140 s, celle des quatre autres 457 à 687 s. Le fichier est coupé en deux, chacun avec son propre serveur : chatgpt-local-takeoff (LOCAL01 à LOCAL06, les trois parcours « ChatGPT local » et V3C08) prend la somme de ses tests dans ce run, 449,4 s arrondies à 450, et chatgpt-local-decisions (DEC01, TRI01, VEC01, PRX02, INTRETRY01, INTWORD01) 407 s, démarrage du serveur non compris. neverTogether : les fichiers d'un même groupe ne partagent jamais un shard, quelles que soient les durées, car les deux workers d'un shard compileraient leurs deux serveurs de développement à froid en même temps sur un seul runner. Les autres durées, la sélection, les workers et les budgets sont inchangés.",
     "42686391381 army-critical shards 1 à 5 (push main, 6d33e58f, vert, Node 26.12.1, 2 workers, 09/11/2026) : les 71 fichiers exécutés prennent cette mesure, dont 11 qui comptaient les 20 s par défaut. chatgpt-local, exécuté en série avec son serveur de développement, y prend 607 s : il fixe à lui seul la durée du shard qui le porte (725 s de parcours mesurés avec l'ancienne répartition, les autres shards entre 327 et 400 s).",
     "TI-661 local run (macOS, Node 26.12.1, 1 worker, 2026-11-03): takeoff-lab 11.2 s for LAB01 to LAB03 once its own development server was ready; the cold webpack server it starts, like chatgpt-local and profile-polish, is not in that sum. Planning estimate 120 s (profile-polish's order of magnitude) until a CI measurement, so the three cold development servers are not packed into one shard. Selection, workers and budgets are unchanged.",
     "40980133039 army-critical shard 2, bc4d78ae (Node 26.12.1, Linux x64, 2 workers): chatgpt-local 372.651 s summed across 11 attempts (10 passed, 1 failed at V3C08; observed planning estimate, not a successful-file qualification); profile-polish 115.150 s, PFL01 passed. Rounded up to 373/116 s; replaces the obsolete 13 s and default 20 s estimates so the two cold development servers are scheduled in different shards. Selection, workers and budgets are unchanged.",
@@ -13,6 +14,9 @@
     "39109681611 army-takeoff (PR #42, tête fef02223, 1 worker)",
     "39110052211 army-full (nuit, 5cfd4a94, 1 worker)",
     "39107160165 army-full (déclenchement, afee61bb, 1 worker)"
+  ],
+  "neverTogether": [
+    ["e2e/army/local/chatgpt-local-decisions.e2e.ts", "e2e/army/local/chatgpt-local-takeoff.e2e.ts"]
   ],
   "defaultSeconds": 20,
   "suites": {
@@ -105,7 +109,8 @@
     "e2e/army/local/bulk-actions-v1-totals.e2e.ts": 24,
     "e2e/army/local/business-lifecycle.e2e.ts": 22,
     "e2e/army/local/catalogue-provenance.e2e.ts": 4,
-    "e2e/army/local/chatgpt-local.e2e.ts": 608,
+    "e2e/army/local/chatgpt-local-decisions.e2e.ts": 407,
+    "e2e/army/local/chatgpt-local-takeoff.e2e.ts": 450,
     "e2e/army/local/engine-v3-creators.e2e.ts": 116,
     "e2e/army/local/engine-v3-default.e2e.ts": 12,
     "e2e/army/local/engine-v3-editor-actions.e2e.ts": 183,

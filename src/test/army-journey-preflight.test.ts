@@ -23,6 +23,10 @@
 //    split anyway (a false gap or a hidden one), or a combinatorial explosion;
 // 6. untracked journey or support files left out of the run manifest's source
 //    identity (its diffSha256 covers tracked changes only).
+// 7. a filtered run at two workers or more that holds two journeys which each
+//    start their own cold development server (army-shards.json neverTogether):
+//    a file runs on one worker, so both servers would compile at once on one
+//    machine, the known cause of slow-runner failures of these journeys.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -136,6 +140,26 @@ describe("selection preflight", () => {
     expect(selectionPreflightProblems({ pairs, grep: "^V3C01 ", files: [] })).toEqual([]);
     // Shard and takeoff jobs name the login setup among their files, as the post-run check accepts.
     expect(selectionPreflightProblems({ pairs, files: [SETUP, "e2e/army/local/engine-v3-creators.e2e.ts"] })).toEqual([]);
+  });
+
+  it("refuses a run of several workers that holds two journeys kept apart, before any stack", () => {
+    const takeoff = "e2e/army/local/chatgpt-local-takeoff.e2e.ts";
+    const decisions = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
+    const neverTogether = [[decisions, takeoff]];
+    const pairs = [setup, pair(takeoff, "LOCAL01 no ChatGPT connection never launches or offers Gemini"),
+      pair(decisions, "DEC01 Decisions classifications are visible for review without changing the preparation")];
+    const refusal = `E2E_ARMY_WORKERS=2 would run ${decisions} and ${takeoff} at once, each with its own development server: ` +
+      "run them with one worker or in separate runs.";
+    expect(selectionPreflightProblems({ pairs, files: [SETUP, takeoff, decisions], workers: 2, neverTogether })).toEqual([refusal]);
+    expect(selectionPreflightProblems({ pairs, grep: "^(LOCAL01|DEC01) ", workers: 2, neverTogether })).toEqual([refusal]);
+    // One worker runs the files one after the other; one of the two files alone starts one server.
+    expect(selectionPreflightProblems({ pairs, files: [SETUP, takeoff, decisions], workers: 1, neverTogether })).toEqual([]);
+    expect(selectionPreflightProblems({ pairs: pairs.slice(0, 2), files: [SETUP, takeoff], workers: 4, neverTogether })).toEqual([]);
+    // A file whose tests are all skipped starts no server.
+    const skipped = [setup, pairs[1], pair(decisions, "DEC01 skipped", { disposition: "skip" })];
+    expect(selectionPreflightProblems({ pairs: skipped, grep: "^LOCAL01 ", workers: 2, neverTogether })).toEqual([]);
+    // No list (unreadable army-shards.json) refuses nothing, as before the list existed.
+    expect(selectionPreflightProblems({ pairs, files: [SETUP, takeoff, decisions], workers: 2 })).toEqual([]);
   });
 
   it("refuses a selection without an authenticated business test", () => {
