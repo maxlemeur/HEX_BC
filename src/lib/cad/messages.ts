@@ -66,6 +66,7 @@ const WARNING_MESSAGES: Record<CadWarningCode, (details: string[]) => string> = 
     : "1 spline est tracée par ses points de passage : sa longueur est approchée."),
   sketch_limit: () => "Les esquisses comptent trop d’éléments pour être toutes dessinées.",
   sketch_unread: () => "Des éléments des esquisses ne sont pas dessinés, comme les ellipses et les splines : ils sont comptés sous « Objets non lus ».",
+  object_limit: () => "La maquette nomme plus d’objets que MergeOne n’en lit : des esquisses peuvent manquer à ce dessin.",
 };
 
 /** One sentence per kind of warning the reading left, in the order they came, the blocks of a kind named together. */
@@ -128,8 +129,10 @@ export function formatCadDimension(dimension: CadModelDimension): string {
 
 /** One line for what a model holds: the objects that have a shape, and its sketches. */
 export function cadModelSummary(model: CadModel): string {
-  if (model.total === 0 && model.sketches === 0) return "Aucun objet ayant une forme";
-  return [plural(model.total, "objet"), ...(model.sketches > 0 ? [plural(model.sketches, "esquisse")] : [])].join(" · ");
+  // Of a document naming more objects than are read, what was counted is a minimum.
+  if (model.total === 0 && model.sketches === 0) return `Aucun objet ayant une forme${model.left.objects ? " parmi ceux qui ont été lus" : ""}`;
+  const line = [plural(model.total, "objet"), ...(model.sketches > 0 ? [plural(model.sketches, "esquisse")] : [])];
+  return model.left.objects ? line.map((part, index) => `${index === 0 ? "Au" : "au"} moins ${part}`).join(" · ") : line.join(" · ");
 }
 
 const MAX_FILE_NAME = 160;

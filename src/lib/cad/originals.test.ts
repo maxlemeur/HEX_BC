@@ -213,6 +213,14 @@ describe("readCadOriginal", () => {
     expect(refusal).toBeInstanceOf(CadPlotError);
     expect((refusal as CadPlotError).reason).toBe("truncated");
 
+    // A document naming more objects than are read may miss a sketch whole: here the second one. The drawing says so, in its own words.
+    const named = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxNames: SKETCHED_ROOM.length - 1 } });
+    if (named.kind !== "drawing") throw new Error("drawing expected");
+    expect(named.drawing.paths.count).toBe(4);
+    expect(named.drawing.truncated).toBe(true);
+    expect(named.drawing.warnings).toEqual([{ code: "object_limit" }]);
+    expect(named.source?.model).toMatchObject({ sketches: 1, truncated: true, left: { objects: true, sketches: false, unread: false } });
+
     // Dimensions left out of the list of objects take nothing from the drawing.
     const listed = await readCadOriginal("chaufferie.fcstd", document, { fcstdLimits: { maxDimensions: 1 } });
     if (listed.kind !== "drawing") throw new Error("drawing expected");

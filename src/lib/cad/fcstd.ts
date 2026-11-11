@@ -36,10 +36,11 @@ export type CadModel = {
   /** The document holds more than is shown: objects past those `objects` lists, or what `left` tells. */
   truncated: boolean;
   /**
+   * `objects`: the document names more objects than are read, so `total` and `sketches` count the first of them only;
    * `sketches`: the sketches hold more elements than are read; `unread`: they hold elements of a kind that is not drawn
    * (ellipses, splines, arcs on the other face); `dimensions`: an object listed has more dimensions than it lists.
    */
-  left: { sketches: boolean; unread: boolean; dimensions: boolean };
+  left: { objects: boolean; sketches: boolean; unread: boolean; dimensions: boolean };
 };
 
 /** `maxNames`: the objects a document may name, listed or not; `maxObjects`: those that are listed. */
@@ -175,11 +176,11 @@ function freecadVersion(program: string | undefined): CadSummary["version"] {
 }
 
 /** `closed`: the document ends as it began; one that does not was cut on its way, or damaged. */
-function readDocument(text: string, limits: FcstdLimits): { version: CadSummary["version"]; found: Found[]; left: number; closed: boolean } | null {
+function readDocument(text: string, limits: FcstdLimits): { version: CadSummary["version"]; found: Found[]; unnamed: number; left: number; closed: boolean } | null {
   const stack: string[] = [];
   const byName = new Map<string, Found>();
-  // `deep`: tags open past the depth that is kept; `left`: the objects and the sketch elements the limits left out.
-  let isDocument = false, closed = false, version: CadSummary["version"] = null, left = 0, kept = 0, deep = 0;
+  // `deep`: tags open past the depth that is kept; `unnamed`: the objects named past those that are kept; `left`: the sketch elements the limit left out.
+  let isDocument = false, closed = false, version: CadSummary["version"] = null, unnamed = 0, left = 0, kept = 0, deep = 0;
   let current: Found | null = null, property: { name: string; type: string } | null = null;
   let enumeration: { chosen: number; seen: number } | null = null;
   let geometry: { construction: boolean; shape: Shape | null } | null = null;
@@ -189,7 +190,7 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
     let entry = byName.get(name);
     if (entry) return entry;
     if (byName.size >= limits.maxNames) {
-      left += 1;
+      unnamed += 1;
       return null;
     }
     byName.set(name, (entry = { name, type: "", label: "", ifc: null, tool: null, shaped: false, dimensions: [], cut: false, geometry: [] }));
@@ -279,7 +280,7 @@ function readDocument(text: string, limits: FcstdLimits): { version: CadSummary[
       } else if (name === "Object" && stack.length === 2) current = null;
     },
   });
-  return isDocument ? { version, found: [...byName.values()], left, closed } : null;
+  return isDocument ? { version, found: [...byName.values()], unnamed, left, closed } : null;
 }
 
 const real = (value: number) => (Number.isFinite(value) ? String(Number(value.toPrecision(15))) : "0");
@@ -380,11 +381,11 @@ export async function readFcstd(bytes: Uint8Array, options: { limits?: Partial<F
   const objects = kept.map((entry) => ({
     name: listed(entry.name), label: listed(entry.label) || listed(entry.name), type: listed(entry.type), kind: listed(kindOf(entry)), dimensions: entry.dimensions,
   }));
-  // What the limits left out of the document may be elements of a sketch, or a sketch whole: the drawing is then not all of it.
-  // Nor is it when a sketch holds an element that is not drawn.
-  const left = { sketches: document.left > 0, unread: unread > 0, dimensions: kept.some((entry) => entry.cut) };
+  // What the limits left out of the document may be a sketch whole, or elements of one: the drawing is then not all of it.
+  // Nor is it when a sketch holds an element that is not drawn. Past the objects that are named, what is counted is a minimum.
+  const left = { objects: document.unnamed > 0, sketches: document.left > 0, unread: unread > 0, dimensions: kept.some((entry) => entry.cut) };
   return {
-    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || left.sketches || left.unread || left.dimensions, left } },
+    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || left.objects || left.sketches || left.unread || left.dimensions, left } },
     sketchesDxf: dxf,
   };
 }

@@ -5,7 +5,7 @@ import { cadDimensionLabel, cadDimensionValue, cadModelCsv, cadModelKinds } from
 
 const object = (label: string, kind: string, dimensions: CadModelObject["dimensions"] = [], type = "Part::FeaturePython"): CadModelObject => ({ name: label, label, type, kind, dimensions });
 const length = (value: number, name = "Length") => ({ name, kind: "length" as const, value });
-const model = (objects: CadModelObject[], more: Partial<CadModel> = {}): CadModel => ({ objects, total: objects.length, sketches: 0, truncated: false, left: { sketches: false, unread: false, dimensions: false }, ...more });
+const model = (objects: CadModelObject[], more: Partial<CadModel> = {}): CadModel => ({ objects, total: objects.length, sketches: 0, truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false }, ...more });
 
 describe("cadModelKinds", () => {
   it("counts the objects of each kind, the most numerous first, then by name", () => {

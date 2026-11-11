@@ -17,7 +17,7 @@ describe("FreeCAD documents", () => {
       total: 4,
       sketches: 0,
       truncated: false,
-      left: { sketches: false, unread: false, dimensions: false },
+      left: { objects: false, sketches: false, unread: false, dimensions: false },
       objects: [
         { name: "Box", label: "Ballon & socle", type: "Part::Box", kind: "Box", dimensions: [{ name: "Length", kind: "length", value: 800 }, { name: "Width", kind: "length", value: 600 }, { name: "Height", kind: "length", value: 1900 }] },
         { name: "Pipe", label: "Départ chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 4250.5 }] },
@@ -157,7 +157,8 @@ describe("FreeCAD documents", () => {
   it("does not keep more names than its limit, nor go deeper than a document does", async () => {
     const many = Array.from({ length: 50 }, (_, index): FcstdEntry => ({ type: "Part::Box", name: `Box${index}`, properties: [label(`Caisse ${index}`), shape("Box")] }));
     const capped = (await readFcstd(fcstd(documentXml(many)), { limits: { maxNames: 20 } })).summary.model;
-    expect(capped).toMatchObject({ total: 20, truncated: true });
+    // Twenty is then what was counted, not what the document holds: the model says that its count is a minimum, and not that a sketch holds too much.
+    expect(capped).toMatchObject({ total: 20, truncated: true, left: { objects: true, sketches: false } });
     expect(capped.objects.map((entry) => entry.name)).toEqual(many.slice(0, 20).map((entry) => entry.name));
 
     // A hundred thousand tags opened one inside the other, then a real document's content: nothing of it is at its place, nothing is listed.
@@ -181,7 +182,7 @@ describe("FreeCAD documents", () => {
     const plain: FcstdEntry[] = [{ type: "Sketcher::SketchObject", name: "Sketch", properties: [label("Local"), shape("Sketch"), geometry("Geometry", [
       segment(0, 0, 4000, 0), segment(0, 0, 4000, 2000, true), element("Point", `<GeomPoint X="1" Y="2" Z="0"/>`),
     ])] }];
-    expect((await readFcstd(fcstd(documentXml(plain)))).summary.model).toMatchObject({ sketches: 1, truncated: false, left: { sketches: false, unread: false, dimensions: false } });
+    expect((await readFcstd(fcstd(documentXml(plain)))).summary.model).toMatchObject({ sketches: 1, truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false } });
   });
 
   it("says when it lists or draws less than the document holds", async () => {
@@ -199,7 +200,7 @@ describe("FreeCAD documents", () => {
   it("says when an object has more dimensions than it lists, and only then", async () => {
     const box = (name: string, shaped = true): FcstdEntry => ({ type: "Part::Box", name, properties: [label(name), float("Length", "Length", 10), float("Width", "Length", 20), float("Height", "Length", 30), ...(shaped ? [shape(name)] : [])] });
     const whole = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 3 } })).summary.model;
-    expect(whole).toMatchObject({ total: 1, truncated: false, left: { sketches: false, unread: false, dimensions: false } });
+    expect(whole).toMatchObject({ total: 1, truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false } });
 
     const cut = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 2 } })).summary.model;
     expect(cut.objects[0].dimensions).toHaveLength(2);

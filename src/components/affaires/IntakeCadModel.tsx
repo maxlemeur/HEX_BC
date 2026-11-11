@@ -22,6 +22,7 @@ export function IntakeCadModel({ model, fileName, open = false }: { model: CadMo
   // What the reader left out, each said once.
   const leftOut = [
     ...(model.total > listed ? [`${listed.toLocaleString("fr-FR")} de ses ${model.total.toLocaleString("fr-FR")} objets sont listés et exportés`] : []),
+    ...(model.left.objects ? ["elle nomme plus d’objets que MergeOne n’en lit, leur nombre est un minimum"] : []),
     ...(model.left.sketches ? ["ses esquisses comptent trop d’éléments pour être toutes dessinées"] : []),
     ...(model.left.unread ? ["des éléments de ses esquisses, comme les ellipses et les splines, ne sont pas dessinés"] : []),
     ...(model.left.dimensions ? ["certains de ses objets ont plus de dimensions qu’il n’en est listé"] : []),

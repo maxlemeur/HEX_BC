@@ -31,10 +31,10 @@ export async function readCadOriginal(fileName: string, bytes: Uint8Array, optio
     if (sketchesDxf === null) return { kind: "summary", summary };
     try {
       const drawing = readDxf(new TextEncoder().encode(sketchesDxf), { limits: options.limits });
-      // Sketches of which elements were left out, by a limit or for being of a kind that is not drawn, make a drawing read in part:
+      // Sketches left out with the objects past those that are named, or of which elements were left out, by a limit or for being of a kind that is not drawn, make a drawing read in part:
       // it says why, its quantities are a minimum, and it is not plotted as a whole plan.
       const { left } = summary.model;
-      const missing: CadWarning[] = [...(left.sketches ? [{ code: "sketch_limit" as const }] : []), ...(left.unread ? [{ code: "sketch_unread" as const }] : [])];
+      const missing: CadWarning[] = [...(left.objects ? [{ code: "object_limit" as const }] : []), ...(left.sketches ? [{ code: "sketch_limit" as const }] : []), ...(left.unread ? [{ code: "sketch_unread" as const }] : [])];
       return { kind: "drawing", drawing: missing.length > 0 ? { ...drawing, truncated: true, warnings: [...drawing.warnings, ...missing] } : drawing, source: summary };
     } catch (error) {
       if (!(error instanceof CadReadError)) throw error;

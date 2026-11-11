@@ -120,9 +120,10 @@ export type CadWarningCode =
   | "block_cycle"
   | "depth_limit"
   | "spline_fit_points"
-  /** Of a drawing made of the sketches of a model: more elements than are read, or elements of a kind that is not drawn. */
+  /** Of a drawing made of the sketches of a model: more elements than are read, elements of a kind that is not drawn, or a model naming more objects than are read. */
   | "sketch_limit"
-  | "sketch_unread";
+  | "sketch_unread"
+  | "object_limit";
 
 export type CadWarning = { code: CadWarningCode; detail?: string };
 

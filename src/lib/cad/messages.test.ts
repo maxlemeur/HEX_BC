@@ -39,7 +39,7 @@ describe("cadPlotMessage", () => {
 describe("cadWarningMessages", () => {
   const codes: CadWarningCode[] = [
     "truncated_file", "limit_entities", "limit_points", "limit_texts", "limit_inserts",
-    "missing_block", "xref_missing", "block_cycle", "depth_limit", "spline_fit_points", "sketch_limit", "sketch_unread",
+    "missing_block", "xref_missing", "block_cycle", "depth_limit", "spline_fit_points", "sketch_limit", "sketch_unread", "object_limit",
   ];
 
   it.each(codes)("has a sentence for %s", (code) => {
@@ -135,11 +135,15 @@ describe("a model's objects", () => {
   });
 
   it("counts the objects and the sketches in French, singular and plural", () => {
-    const model = { objects: [], truncated: false, left: { sketches: false, unread: false, dimensions: false } };
+    const model = { objects: [], truncated: false, left: { objects: false, sketches: false, unread: false, dimensions: false } };
     expect(cadModelSummary({ ...model, total: 4, sketches: 2 })).toBe("4 objets · 2 esquisses");
     expect(cadModelSummary({ ...model, total: 1, sketches: 1 })).toBe("1 objet · 1 esquisse");
     expect(cadModelSummary({ ...model, total: 281, sketches: 0 })).toBe("281 objets");
     expect(cadModelSummary({ ...model, total: 0, sketches: 0 })).toBe("Aucun objet ayant une forme");
+    // A document naming more objects than are read: what was counted is a minimum.
+    const capped = { ...model, truncated: true, left: { ...model.left, objects: true } };
+    expect(cadModelSummary({ ...capped, total: 99_000, sketches: 12 })).toMatch(/^Au moins 99\s000 objets · au moins 12 esquisses$/u);
+    expect(cadModelSummary({ ...capped, total: 0, sketches: 0 })).toBe("Aucun objet ayant une forme parmi ceux qui ont été lus");
   });
 });
 
