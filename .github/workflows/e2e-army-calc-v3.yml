@@ -158,6 +158,8 @@ jobs:
           path: .e2e/army/ci/calc-v3-selection.json
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # One owned stack per group of phases; a red group never cancels the others.
   army-calc-v3-group:
@@ -277,6 +279,8 @@ jobs:
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
 
   # The check of the campaign: green only when the plan and every group job
   # succeeded and the groups' verified evidence together ran exactly the
@@ -386,3 +390,5 @@ jobs:
           path: ${{ steps.aggregate.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
