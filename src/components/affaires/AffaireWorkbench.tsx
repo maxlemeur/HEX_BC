@@ -1,11 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ArrowRight, Calculator, FileText, Folder, House, Info, Plus, Send, TriangleAlert } from "lucide-react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Send, TriangleAlert } from "lucide-react";
 
+import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
 import { Button } from "@/components/ui/button";
-import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS } from "@/lib/affaires/intake";
-import { dossierDocumentAiConfidence } from "@/lib/affaires/document-triage";
+import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
+import { canClassifyDossierDocument, dossierDocumentAiConfidence, dossierDocumentState, type DossierDocument } from "@/lib/affaires/document-triage";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireRegisterEntry, AffaireRegisterSummary } from "@/lib/affaires/register";
 
@@ -68,11 +70,63 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
   estimateHref: string | null;
   versionLabel: string;
 }) {
+  const router = useRouter();
+  const [drafts, setDrafts] = useState<Record<string, AffaireIntakeDocumentKind>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [selection, setSelection] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+  const [progress, setProgress] = useState("");
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const running = useRef(false);
   const documents = workspace?.documents ?? [];
+  const visibleDocuments = documents.slice(0, 8);
+  const canManage = !isReadOnly && Boolean(workspace?.canManageDocuments);
+  const selectableDocuments = canManage ? visibleDocuments.filter(canClassifyDossierDocument) : [];
+  const selectedDocuments = selectableDocuments.filter((document) => selection.includes(document.documentId));
+  const allSelected = selectableDocuments.length > 0 && selectedDocuments.length === selectableDocuments.length;
+  const selectionNeedsCategory = selectedDocuments.some((document) => (drafts[document.documentId] ?? document.detectedCategory) === "a_classer");
   const brief = workspace?.briefDraft;
   const critical = registerEntries.filter((entry) => entry.severity === "critical" && ["open", "clarify_with_client"].includes(entry.status));
   const briefLabel = brief?.status === "confirme" ? "Confirmé" : brief ? "À confirmer" : "À préparer";
   const scope = brief?.lots.length ? brief.lots.join(", ") : brief?.scope[0] || "À préciser à partir des pièces reçues";
+  function classify(items: DossierDocument[]) {
+    if (!workspace || !canManage || pending || running.current || items.length === 0 || items.some((document) =>
+      !canClassifyDossierDocument(document) || (drafts[document.documentId] ?? document.detectedCategory) === "a_classer")) return;
+    running.current = true;
+    setErrors({});
+    setMessage("");
+    startTransition(async () => {
+      const successful: string[] = [];
+      const failures: Record<string, string> = {};
+      try {
+        for (const [index, document] of items.entries()) {
+          setSubmittedId(document.documentId);
+          setProgress(`Validation ${index + 1} sur ${items.length}…`);
+          try {
+            await reclassifyAffaireDocument({
+              projectId: workspace.projectId, documentId: document.documentId,
+              category: drafts[document.documentId] ?? document.detectedCategory,
+            });
+            successful.push(document.documentId);
+          } catch (cause) {
+            failures[document.documentId] = cause instanceof Error ? cause.message : "Enregistrement interrompu. Réessayez.";
+          }
+        }
+        startTransition(() => {
+          setDrafts((prior) => Object.fromEntries(Object.entries(prior).filter(([id]) => !successful.includes(id))));
+          setSelection((prior) => prior.filter((id) => !successful.includes(id)));
+          setErrors(failures);
+          setMessage(successful.length === 1 ? "Classification enregistrée." : successful.length > 1 ? `${successful.length} classifications enregistrées.` : "");
+          if (successful.length > 0) router.refresh();
+        });
+      } finally {
+        running.current = false;
+        setSubmittedId(null);
+        setProgress("");
+      }
+    });
+  }
   return (
     <section aria-label="Dossier de l'affaire" className="affaire-dossier-overview">
       <header className="affaire-workbench-intro">
@@ -87,24 +141,72 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
           </div>
           {documents.length > 0 ? (
             <>
+              {selectedDocuments.length > 0 ? <div className="affaire-file-selection" role="group" aria-label="Actions sur les pièces sélectionnées">
+                <strong>{selectedDocuments.length} pièce{selectedDocuments.length > 1 ? "s" : ""} sélectionnée{selectedDocuments.length > 1 ? "s" : ""}</strong>
+                <Button type="button" size="sm" disabled={pending || selectionNeedsCategory} loading={pending} onClick={() => classify(selectedDocuments)}>
+                  <Check size={16} aria-hidden="true" />Valider la sélection
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => setSelection([])}>Désélectionner</Button>
+                {selectionNeedsCategory ? <p className="affaire-file-selection-hint">Choisissez une catégorie pour chaque pièce sélectionnée avant de valider.</p> : null}
+              </div> : null}
               <div className="affaire-file-list" role="table" aria-label="Documents reçus">
-                <div className="affaire-file-list-head" role="row"><span role="columnheader">Pièce</span><span role="columnheader">Classification</span></div>
-                {documents.slice(0, 8).map((document) => {
-                  const aiConfidence = dossierDocumentAiConfidence(document);
+                <div className="affaire-file-list-head" role="row"><div role="columnheader"><label className="affaire-file-name-cell">
+                  {canManage ? <span className="affaire-file-check"><input type="checkbox" aria-label="Sélectionner les pièces affichées"
+                    checked={allSelected} aria-checked={selectedDocuments.length > 0 && !allSelected ? "mixed" : allSelected}
+                    ref={(input) => { if (input) input.indeterminate = selectedDocuments.length > 0 && !allSelected; }}
+                    disabled={pending || selectableDocuments.length === 0}
+                    onChange={(event) => setSelection(event.target.checked ? selectableDocuments.map((document) => document.documentId) : [])}
+                  /></span> : null}<span>Pièce</span>
+                </label></div><span role="columnheader">Classification</span></div>
+                {visibleDocuments.map((document) => {
+                  const category = drafts[document.documentId] ?? document.detectedCategory;
+                  const changed = category !== document.detectedCategory;
+                  const aiConfidence = changed ? null : dossierDocumentAiConfidence(document);
+                  const validated = !changed && dossierDocumentState(document) === "valid";
+                  const editable = !isReadOnly && workspace?.canManageDocuments && canClassifyDossierDocument(document);
                   return (
-                    <div role="row" className="affaire-file-list-row" key={document.documentId}>
-                      <div role="cell"><button type="button" onClick={() => onOpenDocument(document.documentId)} disabled={document.isBeingDeleted}>
+                    <div role="row" className="affaire-file-list-row" data-selected={editable && selection.includes(document.documentId) || undefined} key={document.documentId}>
+                      <div role="cell" className="affaire-file-name-cell">
+                        {canManage ? <label className="affaire-file-check"><input type="checkbox" aria-label={`Sélectionner ${document.fileName}`}
+                          checked={Boolean(editable && selection.includes(document.documentId))} disabled={pending || !editable}
+                          onChange={(event) => setSelection((prior) => event.target.checked ? [...prior, document.documentId] : prior.filter((id) => id !== document.documentId))}
+                        /></label> : null}
+                        <button type="button" className="affaire-file-open" onClick={() => onOpenDocument(document.documentId)} disabled={document.isBeingDeleted}>
                         <FileText className={document.fileName.toLowerCase().endsWith(".pdf") ? "affaire-file-pdf" : "affaire-file-other"} size={24} aria-hidden="true" />
                         <span>{document.fileName}</span>
                       </button></div>
-                      <span role="cell">
-                        {document.isBeingDeleted ? "Suppression en cours" : AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.detectedCategory]}
+                      <div role="cell" className="affaire-file-classification">
+                        {editable ? <select
+                          aria-label={`Catégorie de ${document.fileName}`}
+                          value={category}
+                          disabled={pending}
+                          onChange={(event) => {
+                            const value = event.target.value as AffaireIntakeDocumentKind;
+                            setDrafts((prior) => value === document.detectedCategory
+                              ? Object.fromEntries(Object.entries(prior).filter(([id]) => id !== document.documentId))
+                              : { ...prior, [document.documentId]: value });
+                            setErrors({});
+                            setMessage("");
+                          }}
+                        >
+                          {Object.entries(AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select> : <span>{document.isBeingDeleted ? "Suppression en cours" : AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.detectedCategory]}</span>}
                         {aiConfidence !== null ? <span className="affaire-file-confidence" title="Confiance de l’IA dans la catégorie proposée"><span className="sr-only">Confiance de l’IA : </span><span>{aiConfidence} %</span></span> : null}
-                      </span>
+                        {validated ? <span className="affaire-file-validated"><Check size={13} aria-hidden="true" />Validé</span> : null}
+                        {editable && !validated ? <Button
+                          type="button" variant="outline" size="sm"
+                          aria-label={`Valider la classification de ${document.fileName}`}
+                          disabled={pending || category === "a_classer"}
+                          loading={pending && submittedId === document.documentId}
+                          onClick={() => classify([document])}
+                        >Valider</Button> : null}
+                        {errors[document.documentId] ? <span className="affaire-file-classification-error" role="alert">{errors[document.documentId]}</span> : null}
+                      </div>
                     </div>
                   );
                 })}
               </div>
+              {pending || message ? <p className="affaire-workbench-note" role="status">{pending ? progress || "Enregistrement de la classification…" : message}</p> : null}
               {documents.length > 8 ? <button className="affaire-workbench-text-action" type="button" onClick={onOpenDocuments}>Voir les {documents.length} pièces <ArrowRight size={16} aria-hidden="true" /></button> : null}
               {workspace?.missingPieces.some((piece) => piece.code === "missing_plans") ? <p className="affaire-workbench-note"><Info size={17} aria-hidden="true" />Des pièces sont reçues. Vérifiez leur classement si des plans restent signalés manquants.</p> : null}
             </>

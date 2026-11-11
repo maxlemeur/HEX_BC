@@ -12,8 +12,12 @@ import {
 
 function ControlledEstimateSettingsPanel({
   initialSettings,
+  reservedLineTitles,
+  isReadOnly = false,
 }: Readonly<{
   initialSettings: EstimateSettingsState;
+  reservedLineTitles?: readonly string[];
+  isReadOnly?: boolean;
 }>) {
   const [settings, setSettings] = useState(initialSettings);
 
@@ -24,12 +28,13 @@ function ControlledEstimateSettingsPanel({
       settings={settings}
       totals={null}
       isSaving={false}
-      isReadOnly={false}
+      isReadOnly={isReadOnly}
       error={null}
       onChange={(patch) =>
         setSettings((currentSettings) => ({ ...currentSettings, ...patch }))
       }
       onSave={() => undefined}
+      reservedLineTitles={reservedLineTitles}
     />
   );
 }
@@ -123,5 +128,27 @@ describe("EstimateSettingsPanel", () => {
     expect(screen.queryByLabelText("Remise (EUR HT)")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Marge par tranche" }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ margin_mode: "tiered" });
+  });
+
+  // TI-682, lot C, PR 4 (D28): an offer that reserves lines says so in its limits text; the paragraph is inserted after
+  // what is already written, and stays editable.
+  it("inserts the paragraph listing the reserved lines into the limits text, editable", async () => {
+    const user = userEvent.setup();
+    render(<ControlledEstimateSettingsPanel initialSettings={{ ...baseSettings, exclusions: "Nettoyage exclu." }}
+      reservedLineTitles={["Réseau enterré", "Calorifuge"]} />);
+    await user.click(screen.getByRole("button", { name: "Insérer les réserves dans les précisions" }));
+    const limits = screen.getByRole("textbox", { name: "Précisions et exclusions particulières" });
+    expect(limits).toHaveValue("Nettoyage exclu.\n\nLes prestations suivantes ne sont pas chiffrées dans la présente offre :"
+      + "\n- Réseau enterré\n- Calorifuge");
+    await user.type(limits, " (à confirmer)");
+    expect((limits as HTMLTextAreaElement).value.endsWith("Calorifuge (à confirmer)")).toBe(true);
+  });
+
+  it("offers no insertion without a reserved line, nor read-only", () => {
+    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} reservedLineTitles={[]} />);
+    expect(screen.queryByRole("button", { name: "Insérer les réserves dans les précisions" })).not.toBeInTheDocument();
+    cleanup();
+    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} reservedLineTitles={["Réseau enterré"]} isReadOnly />);
+    expect(screen.queryByRole("button", { name: "Insérer les réserves dans les précisions" })).not.toBeInTheDocument();
   });
 });

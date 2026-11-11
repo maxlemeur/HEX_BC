@@ -20,6 +20,7 @@ import {
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
 import { IntakeDropzone } from "./IntakeDropzone";
+import type { IntakeUploadEvent } from "./IntakeUploadFeedback";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import type { IntakeDocumentData } from "./IntakeDocumentCard";
 import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
@@ -36,6 +37,7 @@ type IntakeWorkspaceProps = {
   entryMode?: boolean;
   hideAddFilesAction?: boolean;
   hideMissingPiecesAction?: boolean;
+  onUploadEvent?: (event: IntakeUploadEvent) => void;
 };
 
 const FILTER_PARAM = "intakeFilter";
@@ -116,6 +118,7 @@ export function IntakeWorkspace({
   entryMode = false,
   hideAddFilesAction = false,
   hideMissingPiecesAction = false,
+  onUploadEvent,
 }: IntakeWorkspaceProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -503,6 +506,7 @@ export function IntakeWorkspace({
             onRefresh={handleReclassified}
             compact={hasDocuments}
             hideSurface={shouldRenderEntryShell}
+            onUploadEvent={onUploadEvent}
           />
         </div>
       )}

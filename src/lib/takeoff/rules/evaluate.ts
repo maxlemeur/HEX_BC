@@ -9,7 +9,10 @@ import {
   WRAPPING_MATERIALS,
   checkNetworkDiameter,
   findNetworkDiameterEntries,
+  type ResolvedSize,
+  type SizeCandidate,
 } from "@/lib/takeoff/rules/network-diameters";
+import { sizeReadings } from "@/lib/takeoff/rules/inputs";
 import {
   REGISTRATION_VERSION,
   composeTranslations,
@@ -62,7 +65,8 @@ import {
 // writes the results of the lines it may still change (jobs not applied).
 // - An excluded line is no partner and never blocks: it is compared with
 //   included lines only to show its own results (for the review), as they
-//   would stand if it came back; two excluded lines are never compared.
+//   would stand if it came back. A separate preview also compares automatically excluded vector alternatives,
+//   without changing any retained quantity or included-line result.
 // - Duplicates: a correction settles an isolated pair only; three lines or
 //   more joined by pairs stay failed until each is excluded or accepted.
 // - Copies read differently (TI-684): two lines of one kind drawn at one place
@@ -107,6 +111,8 @@ export type RuleLine = {
   unit: string;
   quantity: number;
   is_excluded: boolean;
+  /** Automatically excluded vector alternative: compare its drawing without retaining its quantity. */
+  unselected_vector?: boolean;
   /** A line of an applied job: compared, never written. */
   frozen: boolean;
   /** A user attested the line's current quantity with its category (TI-686 D12): a quantity to enter is entered. */
@@ -160,6 +166,23 @@ function materialLabel(material: string) {
   return MATERIALS[material as keyof typeof MATERIALS]?.label ?? material;
 }
 
+/** A size in millimetres as a French text prints it (« 114,3 »). */
+function millimetres(value: number) {
+  return String(value).replace(".", ",");
+}
+
+/** « Ø 18 (DN nominal 15) »: a tube by its outer diameter, with the nominal DN its series derives from it. */
+function tubeLabel(tube: SizeCandidate) {
+  return `Ø ${millimetres(tube.od_mm)}${tube.nominal_dn === null ? "" : ` (DN nominal ${tube.nominal_dn})`}`;
+}
+
+/** « (Ø extérieur 22 mm, DN nominal 20) »: what a printed size resolved to, beside the size as printed. */
+function resolvedLabel(size: ResolvedSize) {
+  return `(Ø extérieur ${millimetres(size.od_mm)} mm${size.nominal_dn === null ? "" : `, DN nominal ${size.nominal_dn}`})`;
+}
+
+const COUNT_WORDS: Record<number, string> = { 2: "deux", 3: "trois", 4: "quatre" };
+
 // ---------------------------------------------------------------------------
 // Line rules
 
@@ -174,16 +197,19 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
   const network = inputs.network;
   const details = { network, material: inputs.material, dn: inputs.dn };
   let check = checkNetworkDiameter(network, inputs.material, inputs.dn);
-  // A vector label keeps the size, not its notation (« DN 100 » or « Ø 110 » both give a number): read it either way.
-  if (check.status === "dn_not_in_series" && inputs.source === "vector" && inputs.dn?.startsWith("DN ")) {
-    const outer = checkNetworkDiameter(network, inputs.material, `Ø ${inputs.dn.slice(3)}`);
-    if (outer.status === "compatible" || outer.status === "requires_justification") check = outer;
+  // A size is read as printed (TI-683). Only a vector size written before its notation was kept (« DN n » whatever the
+  // plan printed) is read the other way too, when the first reading names no tube (sizeReadings).
+  const [, outerReading] = sizeReadings(inputs);
+  if (check.status === "dn_not_in_series" && outerReading) {
+    const outer = checkNetworkDiameter(network, inputs.material, outerReading);
+    // The tube keeps the size as stored: « Ø n » was never printed nor written for this line.
+    if (outer.status === "compatible" || outer.status === "requires_justification") check = { ...outer, size: { ...outer.size, printed: inputs.dn as string } };
   }
   const name = `${networkLabel(network)} (${NETWORKS[network].label.toLowerCase()})`;
   // PE gas keeps its qualified installation requirement even when the diameter is missing or outside the series.
   // A stable code survives result bounding and is read identically by the UI, API and database trigger.
   if (network === "GAZ" && inputs.material === "pehd") {
-    const diameter = check.status === "dn_missing" ? " Diamètre non lu : système à préciser."
+    const diameter = check.status === "dn_missing" || check.status === "dn_ambiguous" ? " Diamètre non lu : système à préciser."
       : check.status === "dn_not_in_series" ? " Diamètre hors série : système à justifier." : "";
     return result("dn_network", "fail", "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION",
       `PE gaz : justifier une pose enterrée à l’extérieur hors emprise du bâtiment, ou une remontée en façade jusqu’au raccord métal/plastique.${diameter}`, details);
@@ -192,10 +218,12 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
     case "blocked":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_BLOCKED", check.reason, details, false);
     case "requires_justification":
-      return result("dn_network", "fail", "DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION", check.reason, details);
+      return result("dn_network", "fail", "DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION", check.reason, { ...details, size: check.size });
+    // The reason says the tube the printed size resolved to: its outer diameter and the nominal DN derived from it.
     case "compatible":
       return result("dn_network", "pass", "DN_NETWORK_COMPATIBLE",
-        `${inputs.dn} en ${materialLabel(inputs.material as string).toLowerCase()} compatible avec le réseau ${name}.`, details);
+        `${inputs.dn} en ${materialLabel(inputs.material as string).toLowerCase()} ${resolvedLabel(check.size)} compatible avec le réseau ${name}.`,
+        { ...details, size: check.size });
     case "material_missing":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_MISSING",
         `Matériau non lu : le DN ne peut pas être contrôlé pour le réseau ${name}.`, details);
@@ -204,6 +232,18 @@ function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
     case "dn_missing":
       return result("dn_network", "fail", "DN_NETWORK_DN_MISSING",
         `DN non lu (aucun ou deux) pour le réseau ${name}.${check.condition ? ` ${check.condition}` : ""}`, details);
+    // TI-683: a size that names several tubes is no size read. Same code as a DN not read (« aucun ou deux »): the
+    // line stays a quantity warning in TypeScript and SQL alike (quantity-review-policy.ts, takeoff_item_rule_blocked).
+    // On a couple to justify the size is read and each of its tubes is in the series: whichever it is, the couple
+    // still asks for its justification, so the line keeps that failure, which blocks until it is given.
+    case "dn_ambiguous": {
+      const count = COUNT_WORDS[check.candidates.length] ?? String(check.candidates.length);
+      const tubes = `${inputs.dn} désigne ${count} tubes en ${materialLabel(inputs.material as string).toLowerCase()} : `
+        + `${check.candidates.map(tubeLabel).join(" ou ")}. Préciser le diamètre extérieur pour le réseau ${name}.`;
+      return check.condition
+        ? result("dn_network", "fail", "DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION", `${check.condition} ${tubes}`, { ...details, size_candidates: check.candidates })
+        : result("dn_network", "fail", "DN_NETWORK_DN_MISSING", tubes, { ...details, size_candidates: check.candidates });
+    }
     case "material_not_allowed":
       return result("dn_network", "fail", "DN_NETWORK_MATERIAL_NOT_ALLOWED",
         `${materialLabel(inputs.material as string)} n’est pas admis pour le réseau ${name}.`,
@@ -339,13 +379,12 @@ type ZoneLine = RuleLine & { inputs: TakeoffRuleInputs; geometry: NonNullable<Ru
 /**
  * Sizes a line's DN names, as entries of the diameter table (family and outer diameter), through the series its
  * material is read in on its network, as the DN rule reads them (TI-684: stainless drainage in NF EN 1124); a vector
- * size reads either way (« DN 100 » or « Ø 110 » of one cast-iron or stainless drainage pipe).
+ * size written before its notation was kept reads either way (sizeReadings, TI-683).
  */
 function sizesOf(inputs: TakeoffRuleInputs): Set<string> {
   if (inputs.dn === null) return new Set();
   const { network, material } = inputs;
-  const entries = findNetworkDiameterEntries(inputs.dn, network, material);
-  if (inputs.source === "vector" && inputs.dn.startsWith("DN ")) entries.push(...findNetworkDiameterEntries(`Ø ${inputs.dn.slice(3)}`, network, material));
+  const entries = sizeReadings(inputs).flatMap((size) => findNetworkDiameterEntries(size, network, material));
   return new Set(entries.map((entry) => `${entry.family}:${entry.od_mm}`));
 }
 
@@ -812,6 +851,22 @@ export function evaluateTakeoffRules(input: { lines: readonly RuleLine[]; pages:
   }
   roomOverlaps(input.lines, results);
   const zone = zoneOverlaps(input.lines, pages, results);
+  // Alternative drawings reveal overlaps before a reviewer retains their quantities. Keep the included-line
+  // calculation above unchanged: an excluded alternative never spends a reduction or changes an applied quantity.
+  const candidates = new Set(input.lines.filter(line => line.is_excluded && line.unselected_vector && !line.frozen).map(line => line.id));
+  if (candidates.size > 0) {
+    const preview = new Map<string, TakeoffRuleResult[]>();
+    zoneOverlaps(input.lines.map(line => candidates.has(line.id) ? { ...line, is_excluded: false } : line), pages, preview);
+    for (const id of candidates) {
+      const overlap = preview.get(id)?.find(entry => entry.code === "ZONE_OVERLAP_DUPLICATE");
+      if (!overlap) continue;
+      const partners = overlap.details?.partners ?? [];
+      const reason = `Lecture vectorielle non retenue : recouvrement avec ${partners.map(partner => `« ${partner.designation} » (${partner.zone ?? "autre page"})`).join(", ")}. Comparez les tracés avant de retenir les quantités ; cette ligne reste exclue du devis.`;
+      const existing = results.get(id) ?? [];
+      results.set(id, [...existing.filter(entry => entry.rule !== "zone_overlap"), { ...overlap, reason }]);
+    }
+  }
+
   for (const list of results.values()) list.sort((left, right) => (RULE_ORDER.get(left.rule) ?? 9) - (RULE_ORDER.get(right.rule) ?? 9));
   return { results, transforms: zone.transforms, registrations: zone.registrations };
 }

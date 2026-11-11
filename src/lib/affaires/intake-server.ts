@@ -1998,14 +1998,17 @@ async function refreshAffaireBriefFromDocuments(input: {
   aiOwner?: ChatGptOwner | null;
   /** False when the caller must not wait on Drive (a deletion only retires copies). */
   readDrive?: boolean;
+  /** A provenance-only confirmation can keep an up-to-date brief after reconciliation. */
+  reuseBriefForConfirmation?: boolean;
 }) {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
   );
 
   // Before the missing pieces: a Drive plan counts once its métré working copy exists.
+  let planSync: Awaited<ReturnType<typeof syncTakeoffPlanSetFromAffaireIntake>> | null = null;
   try {
-    await syncTakeoffPlanSetFromAffaireIntake({
+    planSync = await syncTakeoffPlanSetFromAffaireIntake({
       supabase: input.supabase as never,
       project: {
         id: input.project.id,
@@ -2035,6 +2038,21 @@ async function refreshAffaireBriefFromDocuments(input: {
 
   if (uploadedDocuments.length === 0) {
     return null;
+  }
+
+  if (input.reuseBriefForConfirmation && planSync?.syncedDocumentCount === 0 && planSync.removedDocumentCount === 0 &&
+      !missingPieces.some((piece) => piece.code === "missing_plans")) {
+    const existing = await fetchAffaireBriefForProject({ supabase: input.supabase, projectId: input.project.id });
+    const generatedAt = Date.parse(existing?.draft.lastGeneratedAt ?? "");
+    const current = Number.isFinite(generatedAt) && uploadedDocuments.every((document) => {
+      const classifiedAt = Date.parse(document.classified_at ?? document.updated_at);
+      return !["queued", "processing"].includes(document.classification_status) &&
+        !isAffaireIntakeReanalysisPending(document) && Number.isFinite(classifiedAt) && classifiedAt <= generatedAt;
+    });
+    if (existing && current) {
+      await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
+      return existing.draft;
+    }
   }
 
   const briefDraft = await generateAffaireBriefDraft({
@@ -3293,6 +3311,13 @@ export async function reclassifyAffaireDocument(input: {
   };
 
   const previousIssues = document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE);
+  const confirmsExistingClassification =
+    input.category === document.document_kind &&
+    document.classification_status === "classified" &&
+    classificationStatus === "classified" &&
+    document.classified_at !== null &&
+    previousIssues.length === document.issues.length;
+  const manuallyOverriddenAt = new Date().toISOString();
   const nextIssues =
     input.category === "a_classer"
       ? addIssue(previousIssues, "Document remis manuellement dans la file à classer.")
@@ -3312,8 +3337,10 @@ export async function reclassifyAffaireDocument(input: {
         issues: nextIssues,
         classification_source: "manual",
         classified_by: context.userId,
-        classified_at: new Date().toISOString(),
-        manually_overridden_at: new Date().toISOString(),
+        // A human confirmation keeps the source generation used by plan copies.
+        // Its own author and timestamp are recorded independently below and in the audit event.
+        classified_at: confirmsExistingClassification ? document.classified_at : manuallyOverriddenAt,
+        manually_overridden_at: manuallyOverriddenAt,
       } as never)
       .eq("id", document.id)
       .eq("tenant_id", context.tenantId)
@@ -3363,6 +3390,7 @@ export async function reclassifyAffaireDocument(input: {
     project,
     uploadId: document.upload_id,
     actorUserId: context.userId,
+    reuseBriefForConfirmation: confirmsExistingClassification,
   });
 
   return { ok: true } as const;
@@ -3376,6 +3404,7 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
   uploadId: string;
   actorUserId: string;
   readDrive?: boolean;
+  reuseBriefForConfirmation?: boolean;
 }) {
   const { data, error } = await resolveSupabaseQuery<{
     data: unknown[];
@@ -3402,6 +3431,7 @@ export async function refreshAffaireIntakeFromActiveDocuments(input: {
     documents,
     actorUserId: input.actorUserId,
     readDrive: input.readDrive,
+    reuseBriefForConfirmation: input.reuseBriefForConfirmation,
   });
 }
 

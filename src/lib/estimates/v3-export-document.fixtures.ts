@@ -40,7 +40,7 @@ function documentItem(overrides: Partial<EstimateItem>): EstimateItem {
     snapshot_pu_ht_cents: null, snapshot_fo_ht_cents: null, snapshot_mo_ht_cents: null, snapshot_mo_atelier_ht_cents: null,
     snapshot_mo_chantier_ht_cents: null, line_total_ht_cents: null, line_tax_cents: null, line_total_ttc_cents: null, unit_code: null,
     pricing_status: "priced", h_mo_per_unit: null, h_mo_atelier_per_unit: null, h_mo_chantier_per_unit: null,
-    snapshot_gross_ht_cents: null, snapshot_gross_fo_ht_cents: null, was_not_priced: false, status_reason: null,
+    snapshot_gross_ht_cents: null, snapshot_gross_fo_ht_cents: null, was_not_priced: false, status_reason: null, offer_choice: null,
     ...overrides,
   };
 }
@@ -52,6 +52,7 @@ export type FixtureExportLine = {
   pricing_status?: EstimateItem["pricing_status"];
   was_not_priced?: boolean;
   status_reason?: unknown;
+  offer_choice?: unknown;
 };
 
 export function frozenV3ExportDocument(
@@ -71,6 +72,7 @@ export function frozenV3ExportDocument(
       source_metadata: lines[index].metadata as EstimateItem["source_metadata"],
       was_not_priced: lines[index].was_not_priced ?? false,
       status_reason: (lines[index].status_reason ?? null) as EstimateItem["status_reason"],
+      offer_choice: (lines[index].offer_choice ?? null) as EstimateItem["offer_choice"],
       quantity: Number(input.quantity), unit_price_ht_cents: Number(input.unit_price_ht_cents), unit_code: "u",
       pricing_status: breakdown.lines[index].pricing_status, tax_rate_bp: breakdown.lines[index].tax_rate_bp,
       pu_ht_cents: snapshot.pu_ht_cents, snapshot_pu_ht_cents: snapshot.snapshot_pu_ht_cents,

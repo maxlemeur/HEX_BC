@@ -56,7 +56,7 @@ async function main() {
   console.log(
     `Takeoff bench dataset passed: ${summary.documents} documents (${summary.verifiedBinaries} binaries verified), `
     + `${summary.truthFiles} truth files, ${summary.truthLines} lines${lots ? ` (${lots})` : ""}, `
-    + `noise ${summary.noise}, ${summary.pageFiles} page files, ${summary.groupFiles} group files`
+    + `noise ${summary.noise}, ${summary.pageFiles} page files, ${summary.groupFiles} group files, ${summary.measuredFiles} measurement files`
     + (withoutBinary.length > 0
       ? `, ${withoutBinary.length} truth plan${withoutBinary.length === 1 ? "" : "s"} without binary `
         + `(${withoutBinary.join(", ")}), skipped by the bench`

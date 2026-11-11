@@ -40,6 +40,19 @@ const partner = (overrides: Record<string, unknown> = {}) => ({ item_id: "111111
   job_id: "22222222-2222-4222-8222-222222222222", zone: "Z2", designation: "EF Inox 316L DN 22", overlap_m: 1, resolved: false, ...overrides });
 
 describe("targetedReviewLines", () => {
+  it("lists automatic vector overlaps while respecting a reviewer dismissal", () => {
+    const candidate = line({ is_excluded: true, metadata: { vector: { kind: "network" } },
+      exclusion_reason: "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.",
+      rule_results: [duplicate({ overlap_m: 1, partner_count: 1, partners: [partner()] })] });
+    const dismissed = { ...candidate, id: "00000000-0000-4000-8000-000000000999", exclusion_reason: "Hors périmètre vérifié." };
+    const review = targetedReviewLines([candidate, dismissed], 0.5, "C");
+    expect(review.lines.map(entry => entry.item.id)).toEqual([candidate.id]);
+    expect(review.guard.passed).toBe(true);
+    expect(candidate.is_excluded).toBe(true);
+    expect(acceptanceOf(candidate, "C").enabled).toBe(false);
+    expect(zoneOverlapGuidance(candidate)).toMatchObject({ kind: "candidate", overlap_m: 1, reduce_to: null });
+  });
+
   // TI-682 D11: an hypothesis arrives excluded; it stays in the list until someone decides it. Ways it fails: the
   // weld to enter leaves the list with its exclusion and nobody enters it; V is offered on a line still excluded; a
   // line its reviewer excluded, or a vector measure left out, comes back in the list.

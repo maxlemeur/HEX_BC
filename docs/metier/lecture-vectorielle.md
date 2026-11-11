@@ -202,6 +202,12 @@ est une constante nommée et versionnée dans le code.
      - par sa ligne de rappel, dont l'extrémité tombe à moins de 8 pt de l'axe. Elle part
        du libellé : un mur qui passe sous le libellé sans s'y arrêter n'en est pas une ;
      - sinon par sa position : le tuyau parallèle le plus proche.
+   - La taille garde la notation que le libellé imprime (TI-683, D7) : « Ø 110 » et
+     « DN 110 » sont deux tailles. Un diamètre extérieur garde sa décimale (« Ø 42,4 »),
+     et « ⌀ » ou « ∅ » se lisent comme « Ø ». La notation suit la taille quand elle est propagée,
+     sépare les totaux (« DN 100 » et « Ø 100 » d'un même réseau ne s'additionnent pas)
+     et s'écrit dans la désignation de la ligne et de son calorifuge. Un tronçon dont
+     deux libellés ne diffèrent que par la notation est coupé entre eux comme pour deux DN.
    - Un tronçon dont deux libellés diffèrent (DN, matériau ou calorifuge, à une
      réduction) est coupé entre eux : à la fin de trait la plus proche du milieu des
      deux libellés, ou à ce milieu si aucun trait ne finit entre eux. Un tuyau exporté
@@ -436,6 +442,74 @@ facultatif), il appartient à la page que ses appels ont lue (`item_chunks`), pa
 pages lues : il n'est jamais recopié sur chaque page raster. Si ses appels ont lu
 plusieurs pages, on ne sait pas de laquelle il vient : ces pages ne sont pas lues,
 plutôt que de lui en donner une.
+
+**Tranches vecteur et raster** (TI-678, décision Q8 du 5 nov.). Elles sont ajoutées
+après lecture des résultats de la réserve v1 et le rapport le dit. Le chiffre global,
+calculé comme avant, reste le chiffre de tête.
+
+- Un plan est dans la tranche de ses pages dans le run vectoriel : « vecteur » si aucune
+  n'est raster, « raster » si toutes le sont. Un plan aux pages mêlées, ou dont les
+  passes ne s'accordent pas, n'est dans aucune tranche et le rapport le nomme. Un plan
+  dont une page a échoué n'est pas noté : il est déjà hors des totaux.
+- Par tranche, longueurs et surfaces à part, sur les mêmes plans que les totaux :
+  - la **couverture**, part des clés notées qui ont été lues, dans ou hors tolérance ;
+  - l'**erreur médiane des clés lues**, sans les clés manquées ; rien si aucune n'est lue ;
+  - les clés dans la tolérance.
+- Par tranche encore, un seul chiffre pour tous les types de clés : les **erreurs
+  silencieuses**, clés à haute confiance en erreur, quand le run a classé ses lignes.
+- **Abstention.** Une page raster est confiée à un humain. Sur la tranche raster, la
+  lecture vectorielle ne lit donc rien : ses clés sont comptées, jamais réussies. Les
+  lignes que le run y recopie de la baseline sont la lecture de la baseline, montrée à
+  côté.
+- **Intervalle par plan.** Le rapport donne le plan le plus bas et le plus haut de la
+  tranche, chaque plan étant la médiane de ses passes. Une tranche d'un seul plan n'a
+  pas d'intervalle.
+- Le critère des longueurs (part strictement plus haute, erreur strictement plus basse,
+  une clé manquée comptant 100 %) est aussi calculé sur la tranche vecteur. Il n'a pas
+  de verdict sur une abstention.
+
+**Longueurs jugées à la mesure au trait** (TI-662, décision du 11 nov.). Un devis peut
+compter plus de tuyau que le plan n'en trace : chutes vers les appareils, majorations,
+arrondi de chaque tronçon. Une lecture qui suit le dessin reste alors en dessous du
+devis, même quand elle lit juste. Le jugement est ajouté après lecture des résultats de
+la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent pas.
+
+- **La mesure.** Une personne mesure le plan à la main, le long de l'axe du tuyau
+  dessiné, en plan seulement, sans chute, sans majoration et sans arrondi. La consigne
+  est de mesurer sans regarder les quantités du devis ni la lecture ; le banc ne peut
+  pas le vérifier. Les clés à mesurer viennent de la vérité, donc du devis : la mesure
+  dit combien le plan trace de chaque ligne du devis, pas ce que le plan trace en plus.
+- **Le fichier.** `truth/measured/<id>.json` du jeu privé porte une ligne par longueur
+  notée du plan (zone, niveau, réseau, matériau, diamètre), avec sa longueur en mètres.
+  Une ligne que la personne n'a pas pu suivre sur le plan reste sans longueur (`null`),
+  jamais à 0 : sa clé reste jugée au devis.
+- **Le contrôle.** `takeoff:bench:check` construit les clés comme le score. Il refuse :
+  - une mesure qui ne porte pas le nom de son plan, ou d'un plan sans binaire, que le
+    banc ne lit jamais ;
+  - une ligne qui n'est pas une longueur notée du plan : faute de frappe, comptage,
+    calorifuge au m², ligne hors score (non observable, observable en partie, ambiguë) ;
+  - une mesure qui oublie une longueur notée du plan : le jugement porterait sinon sur
+    les clés que quelqu'un a choisi de mesurer ;
+  - la mesure d'un plan dont la vérité couvre plusieurs plans (voir plus bas).
+- **Le jugement.** La longueur lue par chaque run est comparée à la mesure au lieu du
+  devis, à 10 % de la mesure. Une clé manquée compte 100 %. Seules les clés mesurées
+  sont comptées, des deux côtés, et le rapport les rapporte aux longueurs notées des
+  plans jugés. Le critère des longueurs y est calculé comme ailleurs.
+- **Plans jugés.** Seuls les plans de la tranche vecteur, notés par les deux runs à
+  chaque passe. Sur un plan raster ou mixte, le run vectoriel porte les lignes de la
+  baseline : les juger compterait la lecture de la baseline comme celle des vecteurs.
+  Un plan mesuré qui n'est pas jugé est nommé dans le rapport, avec sa raison : vérité
+  de plusieurs plans, plan non noté par les deux runs à chaque passe ou non lancé, plan
+  raster ou mixte, aucune longueur mesurée.
+- **Vérité de plusieurs plans.** Une mesure est celle d'un plan, et se juge sur la
+  vérité de ce plan seul. Une vérité de niveau ou de lot a des clés qu'un plan ne trace
+  qu'en partie, ou pas du tout : elle reste jugée au devis.
+- **Écart du devis.** Le rapport donne la médiane de (devis − mesure) / mesure sur les
+  clés mesurées : c'est ce que le jugement au devis demande à une lecture au-delà du
+  dessin. Il est négatif quand le devis compte moins que le dessin.
+- **Trace.** `report.json` garde, par plan jugé et par clé, le devis, la mesure et la
+  lecture de chaque run à chaque passe, ainsi que les longueurs notées restées sans
+  mesure. `report.md` n'imprime que des parts et des écarts, jamais une quantité.
 
 ## Règles fixes (L5)
 

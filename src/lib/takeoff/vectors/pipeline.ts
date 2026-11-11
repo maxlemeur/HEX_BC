@@ -20,7 +20,8 @@ import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 // read (texts, scale) but no network is measured from them; the level C
 // reading stays the source (TI-658 pipeline step 5).
 
-export const VECTOR_READING_VERSION = 10;
+// 11 (TI-683): runs and totals keep the notation their labels print a size in.
+export const VECTOR_READING_VERSION = 11;
 export const RASTER_COVERAGE = 0.9;
 
 export type VectorGroupReading = Pick<GroupStats, "id" | "layer" | "layerName" | "colors" | "width" | "dash" | "paths" | "segments" | "closed" | "nearWhite" | "grey"> & {

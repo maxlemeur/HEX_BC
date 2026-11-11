@@ -32,6 +32,7 @@ import {
 
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
+import { hasOfferLimitsText, readOfferReserve } from "@/lib/estimates/offer-choice";
 import { requiresStatusReason } from "@/lib/estimates/status-reason";
 import { mapSupabaseError } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
@@ -98,6 +99,7 @@ type EstimateGatingVersion = Pick<
       | "content_revision"
       | "calc_snapshot_content_revision"
       | "calc_snapshot_context"
+      | "exclusions"
     >
   >;
 type EstimateGatingProject = Pick<EstimateProjectRow, "id" | "client_name" | "notes"> & Partial<Pick<EstimateProjectRow, "user_id">>;
@@ -380,7 +382,10 @@ export async function evaluateEstimateSendGating(
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";
     if (pricingStatus === "not_priced") {
-      itemIdsByFlag.not_priced_unclassified.add(item.id);
+      // TI-682, lot C, PR 4 (D10, D28): a readable reserve declared by an administrator lets the line leave unpriced; the
+      // issuer still sees it. Anything else is still to classify.
+      if (isEngine3 && readOfferReserve(item) !== null) itemIdsByFlag.offer_reserve_declared.add(item.id);
+      else itemIdsByFlag.not_priced_unclassified.add(item.id);
       continue;
     }
     // TI-682, lot C (D11): a necessary service left unpriced, then excluded, says why before it leaves (internally).
@@ -390,6 +395,12 @@ export async function evaluateEstimateSendGating(
     // A line that already misses its price or its quantity says so under its own flag.
     if (flags.includes("missing_price") || flags.includes("missing_quantity")) continue;
     if (!hasLineAmountInput(item)) itemIdsByFlag.priced_line_without_amount.add(item.id);
+  }
+
+  // A reserve is written in the offer: its limits text says something. A version read without that text is treated as
+  // empty (refused rather than sent).
+  if (itemIdsByFlag.offer_reserve_declared.size > 0 && !hasOfferLimitsText(version.exclusions)) {
+    itemIdsByFlag.offer_reserve_declared.forEach((itemId) => itemIdsByFlag.offer_limits_required.add(itemId));
   }
 
   if (version.margin_mode === "tiered" && marginTiers.length === 0) {

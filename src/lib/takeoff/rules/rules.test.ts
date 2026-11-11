@@ -474,7 +474,7 @@ describe("duplicate runs between zones", () => {
 
   type Seg = [number, number, number, number];
   /** A line of its own page (one job each): its centrelines in the common frame, its quantity, its status and DN. */
-  type Spec = { id: string; segments: Seg[]; quantity: number; frozen?: boolean; excluded?: boolean; dn?: string };
+  type Spec = { id: string; segments: Seg[]; quantity: number; frozen?: boolean; excluded?: boolean; unselected?: boolean; dn?: string };
 
   /**
    * Lines of a level on their own pages (every page shifted by -40 m per page with its drawing), in a given page order:
@@ -485,6 +485,7 @@ describe("duplicate runs between zones", () => {
       anchors: sheet(-40 * index, 0, { titleBlock: 10 }), denominator: Array.isArray(denominator) ? denominator[index] : denominator }));
     const lines = specs.map((spec, index) => line(spec.id, { job_id: `job-${index}`, page_key: `job-${index}#1`, quantity: spec.quantity,
       designation: `EF Inox 316L DN 22 (${spec.id})`, frozen: spec.frozen ?? false, is_excluded: spec.excluded ?? false,
+      ...(spec.unselected ? { unselected_vector: true } : {}),
       ...(spec.dn ? { inputs: inputs({ dn: spec.dn }) } : {}),
       geometry: { segments_m: spec.segments.map(([x0, y0, x1, y1]): Seg => [x0 - 40 * index, y0, x1 - 40 * index, y1]),
         polygon_m: null, length_m: spec.segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0), area_m2: null } }));
@@ -713,6 +714,19 @@ describe("duplicate runs between zones", () => {
       expect(inEveryOrder(run(false), [100, 50, 100]))
         .toEqual(["O:ZONE_OVERLAP_DUPLICATE:9:3 lignes", "D:ZONE_OVERLAP_DUPLICATE:5:3 lignes", "X:ZONE_OVERLAP_DUPLICATE:4:3 lignes"]);
       expect(inEveryOrder(run(true), [100, 50, 100]).slice(0, 2)).toEqual(["O:ZONE_OVERLAP_DUPLICATE:5", "D:ZONE_OVERLAP_DUPLICATE:5"]);
+    });
+
+    it("shows a vector reading not retained which plan it faces, and leaves the retained line alone", () => {
+      // The automatic exclusion of a vector alternative (#238) is previewed as if it came back: on the overview it would
+      // yield to the detail, on the detail it would prevail. The retained line counts once either way.
+      const asOverview = [detail, overview(7, { excluded: true, unselected: true })];
+      expect(inEveryOrder(asOverview, [50, 100])).toEqual(["D:ZONE_OVERLAP_NONE:-", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+      const first = onPages(asOverview, [0, 1], [50, 100]).results;
+      expect(plans(first, "O")).toEqual(["D:enlarged:false"]);
+      expect(zoneRule(first, "O")?.reason).toContain("Lecture vectorielle non retenue");
+      const asDetail = [{ ...detail, excluded: true, unselected: true }, overview()];
+      expect(inEveryOrder(asDetail, [50, 100])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_NONE:-"]);
+      expect(plans(onPages(asDetail, [0, 1], [50, 100]).results, "D")).toEqual(["O:overview:false"]);
     });
   });
 
@@ -964,6 +978,22 @@ describe("duplicate runs between zones", () => {
     const result = zones({ lines: [twin], z2: { geometry: { segments_m: [[-36, 1.06, -33, 1.06]], polygon_m: null, length_m: 3, area_m2: null } } });
     expect(rule(result.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
     expect(rule(result.results, "z1b", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("reports unselected vector overlaps without counting excluded partners", () => {
+    const candidate = { is_excluded: true, unselected_vector: true };
+    const both = zones({ z1: candidate, z2: candidate });
+    for (const id of ["z1", "z2"]) {
+      expect(rule(both.results, id, "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 1 } });
+      expect(rule(both.results, id, "zone_overlap")?.reason).toContain("non retenue");
+    }
+    const mixed = zones({ z2: candidate });
+    expect(rule(mixed.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(mixed.results, "z2", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(rule(zones({ z1: candidate, z2: { is_excluded: true } }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
+    expect(rule(zones({ z1: candidate, z2: candidate, z2Level: "R+2" }).results, "z1", "zone_overlap"))
+      .toMatchObject({ code: "ZONE_OVERLAP_NONE" });
   });
 
   it("spends no reduction on an excluded partner", () => {
