@@ -25,6 +25,14 @@
 .affaire-file-list-head, .affaire-file-list-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(144px, 32%); align-items: center; gap: 14px; border-bottom: 1px solid var(--border); }
 .affaire-file-list-head { min-height: 42px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-foreground); }
 .affaire-file-list-row { min-height: 68px; }
+.affaire-file-list-row[data-selected] { background: var(--info-subtle); }
+.affaire-file-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.affaire-file-check { display: grid; place-items: center; min-width: 32px; min-height: 44px; flex-shrink: 0; cursor: pointer; }
+.affaire-file-check input { width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer; }
+.affaire-file-check input:disabled { cursor: not-allowed; }
+.affaire-file-selection { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; background: var(--info-subtle); font-size: 13px; }
+.affaire-file-selection strong { margin-right: auto; }
+.affaire-file-selection-hint { flex-basis: 100%; color: var(--warning); }
 .affaire-file-list-row > span { overflow-wrap: anywhere; color: var(--muted-foreground); }
 .affaire-file-confidence { display: inline-block; margin-left: 8px; border-radius: 4px; padding: 3px 6px; background: #eef3fb; color: #36557d; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .affaire-file-open { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0; text-align: left; cursor: pointer; font-weight: 550; }
@@ -61,7 +69,7 @@
 .affaire-workbench-empty { color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
 .affaire-workbench .affaire-brief-details { margin-top: 28px; }
 .affaire-brief-details > summary { padding: 16px 0; cursor: pointer; color: var(--primary); font-size: 14px; font-weight: 550; }
-.affaire-workbench button:focus-visible, .affaire-workbench select:focus-visible, .affaire-workbench a:focus-visible, .affaire-workbench summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.affaire-workbench button:focus-visible, .affaire-workbench select:focus-visible, .affaire-workbench input:focus-visible, .affaire-workbench a:focus-visible, .affaire-workbench summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .affaire-workbench #brief > section > div:first-child { flex-wrap: wrap; }
 .affaire-workbench #brief > section > div:first-child > div { flex-wrap: wrap; }
 @media (max-width: 1100px) {
@@ -88,6 +96,7 @@
   .affaire-dossier-columns h3 { font-size: 19px; }
   .affaire-file-classification select { min-height: 44px; font-size: 16px; }
   .affaire-file-classification button { min-height: 44px; }
+  .affaire-file-selection button { min-height: 44px; }
   .affaire-brief-facts > div { grid-template-columns: 110px minmax(0, 1fr); }
   .affaire-workbench-estimate-action { width: 100%; margin-left: 0; }
 }
