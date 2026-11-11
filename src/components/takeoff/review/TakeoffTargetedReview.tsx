@@ -634,7 +634,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         <TakeoffApplyWizard open={wizardOpen} jobId={jobId} versionId={versionId}
           targetVersionLabel={job.version_number ? `V${job.version_number}` : null}
           includedCount={included.length} excludedCount={items.length - included.length}
-          isSubmitting={apply.submitting} submitError={apply.error} onOpenChange={setWizardOpen}
+          isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
           onReturnToReview={() => setWizardOpen(false)} />

@@ -39,3 +39,48 @@ describe("mapApplyTakeoffRpcError, alternative sources", () => {
     expect(error.details).toMatchObject({ guard: "quantity_sources" });
   });
 });
+
+// TI-682 lot D, PR 2: a page another takeoff already brought enters only by a decision (private.assert_takeoff_pages_once
+// and the decisions the step records). Each refusal names the page and says what to do; a stale decision is read again.
+describe("mapApplyTakeoffRpcError, a page already in the estimate", () => {
+  const page = (code: string, state: string, details: string | null) =>
+    mapApplyTakeoffRpcError({ code: state, message: code, details, hint: null }, { jobId: JOB_ID });
+  const named = '{"scope": "page", "reason": "page_already_applied", "source_page": 2, "source_file_name": "plan-fictif.pdf",'
+    + ' "earlier_job_ids": ["11111111-1111-4111-8111-111111111111"], "line_count": 3}';
+
+  it("refuses a page applied again without a decision with a 422 that names it and the step to decide in", () => {
+    const error = page("TAKEOFF_PAGE_ALREADY_APPLIED", "23514", named);
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
+    expect(error.message).toBe("La page 2 de « plan-fictif.pdf » est déjà au devis par un autre métré (3 lignes). "
+      + "Choisissez à l’étape « Pages déjà au devis » de remplacer sa mesure ou de garder les deux.");
+    expect(error.details).toMatchObject({ guard: "page_already_applied", source_page: 2, line_count: 3,
+      earlier_job_ids: ["11111111-1111-4111-8111-111111111111"] });
+  });
+
+  it("asks to read the pages again when the estimate changed since the decision (409, retryable)", () => {
+    for (const code of ["TAKEOFF_PAGE_DECISION_STALE", "TAKEOFF_PAGE_REPLACE_CONFLICT"]) {
+      const error = page(code, "40001", '{"scope": "page", "reason": "line_changed", "source_page": 1, "source_file_name": "plan.pdf"}');
+      expect(error).toMatchObject({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: true });
+      expect(error.details).toMatchObject({ guard: "page_decision" });
+      expect(error.message).toContain("Le devis a changé depuis la proposition");
+    }
+  });
+
+  it.each([
+    ["take_required", "Une quantité de ligne a été modifiée à la main"],
+    ["dpgf_keep_both", "Garder les deux mesures n’est pas possible sur une page qui alimente une ligne DPGF"],
+    ["ambiguous_document", "deux plans de même nom"],
+    ["unit_mismatch", "même unité"],
+    ["strategy_replace", "« Remplacer la section »"],
+    ["shape", "Les choix des pages déjà au devis sont incomplets"],
+  ])("says why a decision is invalid: %s", (reason, text) => {
+    const error = page("TAKEOFF_PAGE_DECISION_INVALID", "22023", JSON.stringify({ scope: "page", reason }));
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
+    expect(error.details).toMatchObject({ guard: "page_decision", reason });
+    expect(error.message).toContain(text);
+  });
+
+  it("says a decision of an applied takeoff is frozen", () => {
+    expect(page("TAKEOFF_PAGE_DECISIONS_FROZEN", "55000", null)).toMatchObject({ status: 409, code: TakeoffErrorCode.CONFLICT });
+  });
+});

@@ -16,9 +16,22 @@ import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import { takeoffApplyOverrideItemState, type TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
 import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
+import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 
 /** A line the apply guard reads, with the state an admin override records when it lifts it (TI-677 PR D). */
 export type TakeoffApplyGuardRow = ApplyGuardItem & { override_state: TakeoffApplyOverrideItemState };
+
+/**
+ * TI-682 lot D: records the estimator's decision for each page another takeoff already brought into the estimate,
+ * replacing all of the takeoff's earlier decisions, under the user's session (public.record_takeoff_page_decisions).
+ */
+export async function recordTakeoffPageDecisions(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  jobId: string;
+  decisions: readonly TakeoffPageDecision[];
+}) {
+  return input.supabase.rpc("record_takeoff_page_decisions" as never, { p_job_id: input.jobId, p_decisions: input.decisions } as never);
+}
 
 export async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];

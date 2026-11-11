@@ -69,6 +69,8 @@ const newLineSchema = z.object({
   quantity: z.number(),
   /** The unit the database compares (a code or a status mention); null when the referential does not know it. */
   unit_key: z.string().nullable(),
+  /** The earlier lines of the page it may replace: the same unit, the same document, never a DPGF target. */
+  candidate_ids: z.array(uuid),
 }).strict();
 const earlierLineSchema = z.object({
   id: uuid,
@@ -107,8 +109,11 @@ export const takeoffPageReplacementRowSchema = z.object({
   }).strict()),
   /** A new line known only by its name meets two identified documents of that name here: no pair across them. */
   ambiguous_document: z.boolean(),
-  /** Why keeping both is refused on this page, if it is: its new lines feed a DPGF target another takeoff fed. */
-  keep_both_refused: z.enum(["dpgf_target"]).nullable(),
+  /**
+   * Why keeping both is refused on this page, if it is: its new lines feed a DPGF target another takeoff fed (D-6), or
+   * « Fusionner », required on a DPGF version, sends a new line onto an earlier line of the page.
+   */
+  keep_both_refused: z.enum(["dpgf_target", "merge_match"]).nullable(),
 }).strict();
 export type TakeoffPageReplacementRow = z.infer<typeof takeoffPageReplacementRowSchema>;
 

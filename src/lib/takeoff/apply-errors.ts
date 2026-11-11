@@ -83,6 +83,52 @@ function takeoffConflictPage(conflict: { source_file_name?: string | null; sourc
   return conflict.source_file_name ? `${page} de « ${conflict.source_file_name} »` : page;
 }
 
+const takeoffPageRefusalSchema = z.object({
+  scope: z.literal("page"),
+  reason: z.string().optional(),
+  source_file_name: z.string().nullable().optional(),
+  source_page: z.number().int().nullable().optional(),
+  plan_file_id: z.string().nullable().optional(),
+  earlier_job_ids: z.array(z.string()).optional(),
+  line_count: z.number().int().optional(),
+  estimate_item_id: z.string().optional(),
+});
+
+/** What the page guard named (JSON detail); null when it says nothing readable. */
+function parseTakeoffPageRefusal(detail: string | null | undefined) {
+  if (!detail) return null;
+  try {
+    const parsed = takeoffPageRefusalSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** « La page 3 de « plan.pdf » », with what the guard named. */
+function pageName(page: { source_file_name?: string | null; source_page?: number | null }) {
+  const name = typeof page.source_page === "number" ? `La page ${page.source_page}` : "Une page";
+  return page.source_file_name ? `${name} de « ${page.source_file_name} »` : name;
+}
+
+/** Why the database refused a page decision (TAKEOFF_PAGE_DECISION_INVALID). */
+const PAGE_DECISION_MESSAGES: Record<string, string> = {
+  take_required: "Une quantité de ligne a été modifiée à la main : choisissez de prendre la nouvelle mesure ou de garder la vôtre.",
+  dpgf_keep_both: "Garder les deux mesures n’est pas possible sur une page qui alimente une ligne DPGF déjà alimentée par un autre métré : la ligne DPGF ne garde qu’une mesure. Remplacez la mesure précédente.",
+  ambiguous_document: "Une ligne du métré ne connaît que le nom de son plan, et deux plans de même nom sont au devis sur cette page : rattachez-la à la main ou ajoutez-la.",
+  unit_mismatch: "Une ligne ne peut remplacer qu’une ligne de même unité.",
+  strategy_replace: "« Remplacer la section » vide la section entière : il ne se combine pas avec un remplacement ligne à ligne. Choisissez « Ajouter ».",
+  dpgf_target: "Une ligne DPGF suit son rapprochement : elle n’est ni remplacée ni retirée ici.",
+  conflicting_actions: "Une même ligne a reçu deux choix contraires sur deux pages.",
+  update_without_pair: "Une ligne à mettre à jour n’a pas de ligne du nouveau métré.",
+  pair_without_update: "Une ligne rattachée n’est pas marquée à mettre à jour.",
+  new_line_paired_twice: "Une ligne du nouveau métré est rattachée deux fois.",
+  new_line_not_applied: "Une ligne rattachée n’entre pas au devis (exclue, ignorée ou intégrée à un ouvrage).",
+  job_not_completed: "Seul un métré terminé reçoit des choix sur ses pages.",
+  page_twice: "Une même page a reçu deux choix.",
+  shape: "Les choix des pages déjà au devis sont incomplets : choisissez pour chaque page et chaque ligne.",
+};
+
 export function mapApplyTakeoffRpcError(
   error: ApplyTakeoffRpcError,
   input: { jobId: string }
@@ -114,6 +160,32 @@ export function mapApplyTakeoffRpcError(
         ? `Une mesure vectorielle et une ligne lue sur le plan ${takeoffConflictPage(conflict)} sont retenues ensemble. Conservez une seule lecture par page : excluez l’une des deux dans la revue. Seuls un comptage ou une mesure d’une autre nature, dans une unité connue, restent à côté d’une mesure.`
         : "Deux lectures alternatives sont retenues pour la même quantité. Conservez une seule source par poste ou zone.",
       details: { ...details, guard: "quantity_sources", ...(conflict ?? {}) }, retryable: false, jobId: input.jobId });
+  }
+
+  if (normalized.includes("takeoff_page_")) {
+    // TI-682 lot D: a plan page enters an estimate once (private.assert_takeoff_pages_once and the page decisions).
+    const page = parseTakeoffPageRefusal(error.details);
+    const guardDetails = { ...details, ...(page ?? {}) };
+    if (normalized.includes("takeoff_page_already_applied")) {
+      const lines = typeof page?.line_count === "number" ? ` (${page.line_count} ligne${page.line_count > 1 ? "s" : ""})` : "";
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+        message: `${pageName(page ?? {})} est déjà au devis par un autre métré${lines}. `
+          + "Choisissez à l’étape « Pages déjà au devis » de remplacer sa mesure ou de garder les deux.",
+        details: { ...guardDetails, guard: "page_already_applied" }, retryable: false, jobId: input.jobId });
+    }
+    if (normalized.includes("takeoff_page_decision_stale") || normalized.includes("takeoff_page_replace_conflict")) {
+      return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+        message: "Le devis a changé depuis la proposition des pages déjà au devis. Relisez-la et confirmez à nouveau.",
+        details: { ...guardDetails, guard: "page_decision" }, retryable: true, jobId: input.jobId });
+    }
+    if (normalized.includes("takeoff_page_decisions_frozen")) {
+      return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+        message: "Ce métré est déjà appliqué : ses choix sur les pages déjà au devis ne changent plus.",
+        details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
+    }
+    return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message: PAGE_DECISION_MESSAGES[page?.reason ?? ""] ?? PAGE_DECISION_MESSAGES.shape,
+      details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
   }
 
   if (normalized.includes("takeoff_dpgf_quantity_")) {

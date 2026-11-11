@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { TAKEOFF_PAGE_KEEP_BOTH_REASONS } from "@/lib/takeoff/page-replacement-contracts";
+
 // TI-682 lot D, PR 1: the pages a takeoff (or a launch) reads that another takeoff already brought into the estimate
 // version (page-contributions.ts). Read only: it warns, it decides nothing.
 
@@ -35,6 +37,14 @@ export const takeoffPageContributionsResponseSchema = z.object({
   unidentified_item_ids: z.array(uuid),
   /** Estimate lines another takeoff brought, on any page. */
   other_takeoff_line_count: z.number().int().nonnegative(),
+  /** PR 2: what the estimator decided for the pages of this takeoff (none before its application). */
+  decisions: z.array(z.object({
+    file_name: z.string().nullable(),
+    source_page: z.number().int().positive().nullable(),
+    decision: z.enum(["replace", "keep_both"]),
+    reason_code: z.enum(TAKEOFF_PAGE_KEEP_BOTH_REASONS).nullable(),
+    note: z.string().nullable(),
+  }).strict()).optional(),
 }).strict();
 
 export type TakeoffPageContributionsResponse = z.infer<typeof takeoffPageContributionsResponseSchema>;

@@ -137,7 +137,7 @@ export function proposePagePairs(input: {
   const candidates = input.candidates.filter((candidate) => candidate.source_provider !== "dpgf");
   const pageSources = candidates.flatMap((candidate) => candidate.sources);
   type Slot = { candidate: ReplacementCandidate; source: ReplacementSourceLine | null; unit: string };
-  const slots: Slot[] = candidates.flatMap((candidate) => {
+  const slots: Slot[] = candidates.flatMap((candidate): Slot[] => {
     const lineUnit = estimateLineUnitKey(candidate);
     if (candidate.sources.length === 0) return [{ candidate, source: null, unit: lineUnit }];
     return candidate.sources.map((source) => ({ candidate, source, unit: lineUnit }));
@@ -216,13 +216,14 @@ export function mergeMatches(newLines: ReadonlyArray<{ id: string; designation: 
 /** The quantities a decision gives an earlier line: its measure now, the part the replaced pages remove, the new one. */
 export function replacementQuantities(input: {
   quantity: number | null;
-  unit: { unit_code: string | null; description: string | null };
+  /** Metres per unit of a length (lengthFactor), null for any other unit. */
+  factor: number | null;
   /** Every source line of the estimate line, with its quantity (none for an engine 1/2 line). */
   sources: ReadonlyArray<{ id: string; quantity: number }>;
   removedSourceIds: ReadonlySet<string>;
   added: ReadonlyArray<{ quantity: number }>;
 }) {
-  const factor = lengthFactor(input.unit);
+  const factor = input.factor;
   const current = input.quantity ?? 0;
   const legacy = input.sources.length === 0;
   const measuredRaw = legacy ? current : input.sources.reduce((total, source) => total + source.quantity, 0);

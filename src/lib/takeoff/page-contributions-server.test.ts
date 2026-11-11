@@ -81,6 +81,7 @@ function database() {
       in(column: string, values: unknown[]) { filters.push({ column, values }); return builder; },
       not(column: string) { filters.push({ column, isNotNull: true }); return builder; },
       order() { return builder; },
+      limit() { return builder; },
       range(start: number, end: number) { range = [start, end]; return builder; },
       maybeSingle: () => Promise.resolve({ data: rows()[0] ?? null, error: null }),
       then(resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) {

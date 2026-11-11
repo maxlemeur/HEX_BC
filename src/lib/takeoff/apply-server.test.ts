@@ -9,6 +9,7 @@ vi.mock("@/lib/takeoff/job-read-server", () => ({
 vi.mock("@/lib/takeoff/mapping-preview-server", () => ({ buildTakeoffMappingPreviewForJob: vi.fn() }));
 vi.mock("@/lib/takeoff/apply-repository", () => ({
   invokeApplyTakeoffRpc: vi.fn(),
+  recordTakeoffPageDecisions: vi.fn(),
   issueTakeoffDpgfApplyAuthorization: vi.fn(),
   listTakeoffApplyGuardItems: vi.fn(),
   listTakeoffRulePartnerExclusions: vi.fn(),
@@ -77,6 +78,42 @@ beforeEach(() => {
   vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary, rows: [] } as never);
   vi.mocked(repository.issueTakeoffDpgfApplyAuthorization).mockImplementation(async (input) => input.authorizationToken);
   vi.mocked(repository.invokeApplyTakeoffRpc).mockResolvedValue({ data: { created_count: 1 }, error: null } as never);
+  vi.mocked(repository.recordTakeoffPageDecisions).mockResolvedValue({ data: 0, error: null } as never);
+});
+
+// TI-682 lot D, PR 2: the estimator's page decisions reach the database before the application, which reads them under
+// the version's lock; none sent records none (an earlier attempt's decisions are not left behind), and a refused record
+// stops the application. Written before the decisions existed.
+describe("takeoff apply with page decisions", () => {
+  const decision = { document: { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: "plan.pdf" },
+    source_page: 1, earlier_job_ids: [SECTION_ID], decision: "keep_both", reason_code: "other_zone", note: null,
+    lines: [{ estimate_item_id: SECTION_ID, expected_updated_at: "2026-11-11T10:00:00.000000+00:00", action: "keep", take: null, item_ids: [] }],
+    pairs: [] };
+
+  it("records the decisions sent, after the draft check and before the atomic write", async () => {
+    await applyTakeoffJob(JOB_ID, { ...request, page_decisions: [decision] });
+    expect(repository.recordTakeoffPageDecisions).toHaveBeenCalledExactlyOnceWith({ supabase: auth.supabase, jobId: JOB_ID, decisions: [decision] });
+    calledBefore(vi.mocked(bulkUpdateEstimateItems), vi.mocked(repository.recordTakeoffPageDecisions));
+    calledBefore(vi.mocked(repository.recordTakeoffPageDecisions), vi.mocked(repository.invokeApplyTakeoffRpc));
+  });
+
+  it("records none when none is sent", async () => {
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.recordTakeoffPageDecisions).toHaveBeenCalledExactlyOnceWith({ supabase: auth.supabase, jobId: JOB_ID, decisions: [] });
+  });
+
+  it("stops before the application when the database refuses the decisions", async () => {
+    vi.mocked(repository.recordTakeoffPageDecisions).mockResolvedValue({ data: null,
+      error: { code: "22023", message: "TAKEOFF_PAGE_DECISION_INVALID", details: '{"reason": "shape"}', hint: null } } as never);
+    await expect(applyTakeoffJob(JOB_ID, { ...request, page_decisions: [decision] })).rejects.toMatchObject({ status: 422,
+      details: expect.objectContaining({ guard: "page_decision" }) });
+    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses a keep-both decision without its reason before reaching the database", async () => {
+    await expect(applyTakeoffJob(JOB_ID, { ...request, page_decisions: [{ ...decision, reason_code: null }] })).rejects.toMatchObject({ status: 422 });
+    expect(repository.recordTakeoffPageDecisions).not.toHaveBeenCalled();
+  });
 });
 
 describe("takeoff apply orchestration", () => {

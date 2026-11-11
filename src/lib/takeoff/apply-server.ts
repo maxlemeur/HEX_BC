@@ -19,6 +19,7 @@ import {
   listTakeoffRulePartnerExclusions,
   loadTakeoffApplyConcurrencyToken,
   logTakeoffMappingApplyAuditEvents,
+  recordTakeoffPageDecisions,
   revokeTakeoffDpgfApplyAuthorization,
 } from "@/lib/takeoff/apply-repository";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
@@ -26,7 +27,8 @@ import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-reposit
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
 import { buildDpgfApplyQuantityPolicy } from "@/lib/takeoff/dpgf-apply-quantities";
-import { computeTakeoffDpgfRows, hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { excludeDpgfOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
 import { FORCE_MESSAGES, forcedItemError, packForcedItems, type ForcedEntry } from "@/lib/takeoff/force-reasons";
@@ -181,15 +183,7 @@ export async function applyTakeoffJob(
     const comparisonContext = hasDpgfTargetLines ? await loadTakeoffDpgfComparisonContext({
       auth: { supabase, tenantId, userId }, jobId: normalizedJobId, versionId: jobRow.estimate_version_id,
     }) : null;
-    if (comparisonContext) {
-      const outOfScope = new Set(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
-        .filter(row => row.applied_decision?.decision === "out_of_scope")
-        .flatMap(row => row.linked_takeoff_items.map(item => item.item_id)));
-      mappingPreview.items = mappingPreview.items.map(item => outOfScope.has(item.item_id)
-        ? { ...item, action: "skip", transformed: { ...item.transformed, is_excluded: true } } : item);
-      const excluded = new Set(mappingPreview.items.filter(item => item.action === "skip" || item.action === "apply_assembly").map(item => item.item_id));
-      comparisonContext.comparisonInput.takeoffLines = comparisonContext.comparisonInput.takeoffLines.filter(item => !excluded.has(item.item_id));
-    }
+    excludeDpgfOutOfScope(mappingPreview, comparisonContext);
     {
       const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
         tenantId,
@@ -278,6 +272,13 @@ export async function applyTakeoffJob(
     });
     // An empty bulk mutation retains estimate authorization, draft lock and OCC checks.
     await bulkUpdateEstimateItems(jobRow.estimate_version_id, [], concurrencyToken);
+
+    // TI-682 lot D: the estimator's decision for each page another takeoff already brought (replace its earlier measure,
+    // or keep both with a reason), recorded under the user's session just before the application, which reads them under
+    // the version's lock. Always recorded, none included: an application without a decision leaves none behind from an
+    // earlier attempt, and the guard refuses a page already in the estimate.
+    const recorded = await recordTakeoffPageDecisions({ supabase, jobId: normalizedJobId, decisions: payload.page_decisions ?? [] });
+    if (recorded.error) throw mapApplyTakeoffRpcError(recorded.error, { jobId: normalizedJobId });
 
     let dpgfAuthorizationToken: string | null = null;
     let rpcData: unknown;

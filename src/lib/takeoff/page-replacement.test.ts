@@ -125,22 +125,21 @@ describe("proposePagePairs — which new line replaces which earlier line", () =
 });
 
 describe("replacementQuantities — what a replacement gives an earlier line", () => {
-  const ml = { unit_code: "ml", description: "ml" };
   it("takes the replaced page's part out and the new measure in, rounded once for a length", () => {
-    expect(replacementQuantities({ quantity: 16, unit: ml, sources: [{ id: id(1), quantity: 10.2 }, { id: id(2), quantity: 5.3 }],
+    expect(replacementQuantities({ quantity: 16, factor: 1, sources: [{ id: id(1), quantity: 10.2 }, { id: id(2), quantity: 5.3 }],
       removedSourceIds: new Set([id(1)]), added: [{ quantity: 8.1 }] })).toEqual({ current: 16, measured: 16, changedByHand: false, next: 14 });
   });
   it("tells a quantity changed by hand", () => {
-    expect(replacementQuantities({ quantity: 6, unit: { unit_code: "u", description: "u" }, sources: [{ id: id(1), quantity: 4 }],
+    expect(replacementQuantities({ quantity: 6, factor: null, sources: [{ id: id(1), quantity: 4 }],
       removedSourceIds: new Set([id(1)]), added: [{ quantity: 5 }] })).toMatchObject({ measured: 4, changedByHand: true, next: 5 });
   });
   it("replaces an engine 1/2 line whole: its sources are not known", () => {
-    expect(replacementQuantities({ quantity: 4, unit: { unit_code: null, description: "u" }, sources: [], removedSourceIds: new Set(),
+    expect(replacementQuantities({ quantity: 4, factor: null, sources: [], removedSourceIds: new Set(),
       added: [{ quantity: 5 }] })).toEqual({ current: 4, measured: 4, changedByHand: false, next: 5 });
   });
   it("rounds centimetres to the metre, as finalize_takeoff_lengths does", () => {
     expect(lengthFactor({ unit_code: "cm", description: null })).toBe(0.01);
-    expect(replacementQuantities({ quantity: 200, unit: { unit_code: "cm", description: null }, sources: [{ id: id(1), quantity: 150 }],
+    expect(replacementQuantities({ quantity: 200, factor: 0.01, sources: [{ id: id(1), quantity: 150 }],
       removedSourceIds: new Set([id(1)]), added: [{ quantity: 101 }] }).next).toBe(200);
   });
 });

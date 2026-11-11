@@ -382,6 +382,8 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string) => {
+      // TI-682 lot D: the page decisions (none here) are recorded before the application.
+      if (fn === "record_takeoff_page_decisions") return { data: 0, error: null };
       if (fn === "apply_takeoff_job_guarded_atomic" && options.atomicRpcMissing) {
         return {
           data: null,
@@ -463,7 +465,7 @@ describe("applyTakeoffJob", () => {
       },
     });
 
-    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(supabase.rpc).mock.calls.filter(([fn]) => fn === "apply_takeoff_job_guarded_atomic")).toHaveLength(1);
     expect(supabase.rpc).toHaveBeenCalledWith(
       "apply_takeoff_job_guarded_atomic",
       expect.any(Object)

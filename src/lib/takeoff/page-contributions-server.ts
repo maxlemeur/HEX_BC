@@ -141,6 +141,7 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
 }
 
 const versionIdSchema = z.string().uuid("version_id invalide.");
+const pageDecisionsSchema = takeoffPageContributionsResponseSchema.shape.decisions.unwrap();
 
 /**
  * 404 unless the user reads the version (tenant, project membership through RLS) and the takeoff is part of it, launched
@@ -167,8 +168,19 @@ export async function getTakeoffJobPageContributions(jobId: string, versionId: u
     .select(TAKEOFF_LINE_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, normalizedJobId as never) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire les lignes du métré.", normalizedJobId);
-  return readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: normalizedVersionId,
-    ownLines: (data ?? []) as unknown as TakeoffLineRow[] });
+  const [read, decisions] = await Promise.all([readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: normalizedVersionId,
+    ownLines: (data ?? []) as unknown as TakeoffLineRow[] }), readPageDecisions(context, normalizedJobId)]);
+  return decisions.length ? { ...read, decisions } : read;
+}
+
+/** PR 2: the decisions recorded for this takeoff's pages (RLS: the members of its tenant who read its version). */
+async function readPageDecisions(context: Context, jobId: string) {
+  const { data, error } = await context.supabase.from("takeoff_page_decisions" as never)
+    .select("file_name:document->>file_name,source_page,decision,reason_code,note" as never)
+    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never)
+    .order("source_page" as never, { ascending: true, nullsFirst: false } as never).limit(2000);
+  if (error) readFailed(error, "Impossible de lire les choix des pages déjà au devis.", jobId);
+  return parseWithSchema(pageDecisionsSchema, data ?? [], "Choix des pages déjà au devis invalides.");
 }
 
 /** POST /api/takeoff/page-contributions: before a launch, the pages of the chosen plans the target version already holds. */
