@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { CALC_V3_PHASES } from "../../scripts/tester-army/calc-v3-phases";
 import { ALERT_WORKFLOWS } from "../../scripts/tester-army/nightly-alert";
 import { loadImpactMap, matchesAny } from "../../scripts/tester-army/select-journeys";
 
@@ -49,10 +48,10 @@ const event = (event_name: string, ref = "refs/heads/main", run_id = 1): Github 
 // runs 20 jobs at once and a busy day brings more than twenty pushes: they must stay one at a
 // time, few jobs wide, and never be started or superseded by a push of documentation only.
 describe("full and calc-v3 campaigns of main after a push", () => {
-  const shards = JSON.parse(read("scripts/tester-army/army-shards.json")) as { suites: { full: { maxShards: number } } };
+  const shards = JSON.parse(read("scripts/tester-army/army-shards.json")) as { suites: { full: { maxShards: number } }; calcV3: { maxGroups: number } };
   const campaigns = [
     { file: ".github/workflows/e2e-army-full.yml", job: /^ {2}army-full-shard:$/mu, widest: shards.suites.full.maxShards },
-    { file: ".github/workflows/e2e-army-calc-v3.yml", job: /^ {2}army-calc-v3-phase:$/mu, widest: CALC_V3_PHASES.length },
+    { file: ".github/workflows/e2e-army-calc-v3.yml", job: /^ {2}army-calc-v3-group:$/mu, widest: shards.calcV3.maxGroups },
   ];
 
   it("covers exactly the workflows whose red result on main raises the alert", () => {

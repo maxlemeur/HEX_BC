@@ -1,10 +1,11 @@
 // Aggregate check of parallel TesterArmy jobs: army-critical (shards of the
 // critical selection), army-takeoff (shards of the full-only journeys the same
 // selection reaches, each a runner full --files run), army-full (shards of the
-// nightly full suite and its development job) and army-calc-v3 (one job per
-// phase). Runs with plain Node
-// (type stripping, builtins only), after `actions/download-artifact` put each
-// job's evidence in <evidence>/<artifact name>/. Contract:
+// nightly full suite and its development job) and army-calc-v3 (groups of
+// phases, each group one job that runs its phases on one stack). Runs with
+// plain Node (type stripping, builtins and the calc-v3 phase table only), after
+// `actions/download-artifact` put each job's evidence in
+// <evidence>/<artifact name>/. Contract:
 // docs/testing/tester-army-ci.md, "Jobs parallèles"; failure modes:
 // src/test/army-shard-aggregate.test.ts.
 //
@@ -12,6 +13,8 @@
 // its own passing, privacy-checked evidence whose bytes match the unit's
 // inventory, all units tested the same sources, each shard ran exactly its
 // planned files, and the shards together ran the plan's files, no file twice.
+// Likewise each calc-v3 group ran exactly its planned phases, and the groups
+// together ran the selected phases, each once.
 // A sharded whole suite must also list exactly the files the e2e CLI
 // discovered: every shard's report records the whole discovery, the tests
 // outside its positional files skipped as unselected.
@@ -22,10 +25,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { calcV3Scope } from "./calc-v3-phases.ts";
+
 export type AggregateSuite = "critical" | "takeoff" | "full" | "calc-v3";
 export type AggregateInput = {
   suite: AggregateSuite;
-  /** critical and takeoff: the selection (selection.json, its shards or takeoffShards); full: the shard plan; calc-v3: the planned phase names. */
+  /**
+   * critical and takeoff: the selection (selection.json, its shards or takeoffShards); full: the shard plan;
+   * calc-v3: { phases, groups }, the selected phase names (["none"] when nothing runs) and the matrix of the
+   * group jobs, as the plan job outputs them.
+   */
   plan: unknown;
   /** Directory holding one subdirectory per downloaded artifact. */
   evidence: string;
@@ -53,6 +62,8 @@ type Unit = {
   kind: "shard" | "development" | "calc-v3";
   shard?: PlannedShard;
   phase?: string;
+  /** calc-v3: the phases the group job was started with; ["all"] is the complete campaign in one job. */
+  phases?: string[];
 };
 /** files: what its selected results ran; discovered: every file the e2e CLI discovered, selected or not. */
 type Report = { path: string; sha256: string; summary: unknown; files: string[]; discovered: string[] };
@@ -75,7 +86,7 @@ export const AGGREGATE_JOBS: Record<AggregateSuite, { plan: string; units: strin
   critical: { plan: "army-select", units: "army-critical-shard" },
   takeoff: { plan: "army-select", units: "army-takeoff-shard" },
   full: { plan: "army-full-plan", units: "army-full-shard", development: "army-full-development" },
-  "calc-v3": { plan: "army-calc-v3-plan", units: "army-calc-v3-phase" },
+  "calc-v3": { plan: "army-calc-v3-plan", units: "army-calc-v3-group" },
 };
 
 const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
@@ -137,18 +148,53 @@ function checkPlan(plan: Plan, problems: string[]) {
   if (!same([...owners.keys(), SETUP], plan.files)) problems.push("The shards' files are not the plan's files.");
 }
 
+const PHASE_NAME = /^[a-z0-9-]+$/u;
+const distinctPhases = (phases: readonly string[]) => phases.length > 0 && phases.every((phase) => PHASE_NAME.test(phase)) && new Set(phases).size === phases.length;
+
+/**
+ * The calc-v3 group jobs of the plan: the groups must be numbered 1..n and
+ * partition the selected phases (each phase in exactly one group, no empty
+ * group). An explicit complete campaign is the single group "all".
+ */
+function plannedGroups(input: AggregateInput, problems: string[]): { units: Unit[]; scope: string } {
+  const plan = record(input.plan);
+  const phases = strings(plan.phases);
+  const groups = Array.isArray(plan.groups) ? plan.groups.map(record) : undefined;
+  const readable = groups?.every((group) => Number.isInteger(group.group) && Number.isInteger(group.total) && typeof group.phases === "string");
+  if (phases?.length === 1 && phases[0] === "none") {
+    if (!readable || groups!.length) problems.push("A calc-v3 plan without phases plans no group.");
+    return { units: [], scope: "not-run" };
+  }
+  if (!phases || !distinctPhases(phases)) {
+    problems.push("The calc-v3 plan must list distinct phase names.");
+    return { units: [], scope: "calc-v3" };
+  }
+  if (!groups || !readable) {
+    problems.push("The calc-v3 group plan is unreadable (a list of groups with group, total and comma-separated phases expected).");
+    return { units: [], scope: "calc-v3" };
+  }
+  if (groups.length === 0) problems.push("The calc-v3 plan selects phases but plans no group.");
+  const owners = new Map<string, number>();
+  const units: Unit[] = groups.map((group, index) => {
+    if (group.group !== index + 1 || group.total !== groups.length) problems.push(`The plan numbers group ${index + 1} as ${String(group.group)}/${String(group.total)}.`);
+    const list = String(group.phases).split(",");
+    if (!distinctPhases(list)) problems.push(`Planned group ${index + 1} must list at least one phase, each a distinct phase name.`);
+    for (const phase of new Set(list.filter(Boolean))) owners.set(phase, (owners.get(phase) ?? 0) + 1);
+    return { id: `group ${index + 1}/${groups.length}`, artifact: `army-calc-v3-group-${index + 1}-evidence`, kind: "calc-v3", phases: list };
+  });
+  const doubled = [...owners].filter(([, count]) => count > 1).map(([phase]) => phase);
+  const unplanned = phases.filter((phase) => !owners.has(phase));
+  const unselected = [...owners.keys()].filter((phase) => !phases.includes(phase));
+  if (doubled.length) problems.push(`Phases planned in 2 groups: ${doubled.join(", ")}.`);
+  if (unplanned.length && groups.length) problems.push(`Selected phases planned in no group: ${unplanned.join(", ")}.`);
+  if (unselected.length) problems.push(`Groups plan phases the selection does not list: ${unselected.join(", ")}.`);
+  return { units, scope: "calc-v3" };
+}
+
 /** Units the plan expects, with their artifact directories. */
 /** wholeSuite: a sharded listing of the whole suite, which every shard's CLI discovery must equal. */
 function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[]; plan?: Plan; scope: string; wholeSuite?: boolean } {
-  if (input.suite === "calc-v3") {
-    const phases = strings(input.plan);
-    if (phases?.length === 1 && phases[0] === "none") return { units: [], scope: "not-run" };
-    if (!phases || phases.length === 0 || phases.some((phase) => !/^[a-z0-9-]+$/u.test(phase)) || new Set(phases).size !== phases.length) {
-      problems.push("The calc-v3 plan must list distinct phase names.");
-      return { units: [], scope: "calc-v3" };
-    }
-    return { scope: "calc-v3", units: phases.map((phase) => ({ id: `calc-v3 ${phase}`, artifact: `army-calc-v3-${phase}-evidence`, kind: "calc-v3", phase })) };
-  }
+  if (input.suite === "calc-v3") return plannedGroups(input, problems);
   const selection = record(input.plan);
   const plan = readPlan(input.suite === "critical" ? selection.shards : input.suite === "takeoff" ? selection.takeoffShards : input.plan, problems);
   if (!plan) return { units: [], scope: input.suite };
@@ -213,8 +259,11 @@ function expectedPhases(input: AggregateInput, unit: Unit, plan: Plan | undefine
   return plan?.development === "in-shard" ? ["full", "development"] : ["full"];
 }
 
+/** A calc-v3 unit that is the explicit complete campaign in one job: the runner is started without --phase. */
+const wholeCampaign = (unit: Unit) => unit.phases?.length === 1 && unit.phases[0] === "all";
+
 function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined): string {
-  if (unit.kind === "calc-v3") return unit.phase === "all" ? "calc-v3" : `calc-v3-${unit.phase}`;
+  if (unit.kind === "calc-v3") return calcV3Scope(wholeCampaign(unit) ? undefined : unit.phases);
   if (unit.kind === "development") return "full-development";
   if (input.suite === "takeoff") return unit.shard?.files.length ? "filtered-full" : "full";
   if (unit.shard?.files.length) return `filtered-${input.suite}`;
@@ -319,8 +368,15 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
     source: { revision: source.revision, diffSha256: source.diffSha256, inputsSha256: sha256(JSON.stringify(source.inputs ?? null)) },
   };
   if (unit.kind === "calc-v3") {
-    if (unit.phase !== "all" && manifest.calcV3Phase !== unit.phase) problems.push(`${where} records calc-v3 phase ${String(manifest.calcV3Phase)}.`);
-    if (unit.phase === "all" && manifest.calcV3Phase !== undefined) problems.push(`${where} records one phase for the whole campaign.`);
+    const planned = unit.phases!;
+    const whole = wholeCampaign(unit);
+    // The runner records its --phase list as given: the group's planned phases, in the plan's order.
+    const recorded = strings(manifest.calcV3Phases);
+    if (whole) {
+      if (manifest.calcV3Phases !== undefined) problems.push(`${where} records phases for the whole campaign.`);
+    } else if (recorded?.join(",") !== planned.join(",")) {
+      problems.push(`${where} records calc-v3 phases ${recorded?.join(",") ?? "(none)"}, planned ${planned.join(",")}.`);
+    }
     const campaignFile = path.join(directory, "calc-v3.json");
     let campaign: Record<string, unknown> = {};
     try { campaign = record(readJson(campaignFile)); } catch { problems.push(`${where} has no readable calc-v3.json.`); }
@@ -329,14 +385,22 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
     if (phases.length === 0 || phases.some((phase) => phase.status !== "passed")) {
       problems.push(`${where} calc-v3.json: phases ${phases.map((phase) => `${String(phase.phase)} ${String(phase.status)}`).join(", ") || "none"}.`);
     }
-    if (unit.phase !== "all" && !same(result.phases, [unit.phase!])) problems.push(`${where} calc-v3.json ran ${result.phases.join(", ")}.`);
+    if (!whole) {
+      // The campaign ran exactly the group's phases: none skipped (a stopped campaign), none added, none twice.
+      const missing = planned.filter((phase) => !result.phases!.includes(phase));
+      const unplanned = sorted(result.phases.filter((phase) => !planned.includes(phase)));
+      const repeated = sorted(result.phases.filter((phase, index) => result.phases!.indexOf(phase) !== index));
+      if (missing.length) problems.push(`${where} calc-v3.json did not run ${missing.join(", ")}.`);
+      if (unplanned.length) problems.push(`${where} calc-v3.json ran ${unplanned.join(", ")}, which its plan does not list.`);
+      if (repeated.length) problems.push(`${where} calc-v3.json ran ${repeated.join(", ")} more than once.`);
+    }
     // The phase's own status decides the aggregate; its e2e report only names the red journeys.
     // A phase that stopped before its journeys has no report and names none.
-    for (const phase of result.phases.filter((name) => /^[a-z0-9-]+$/u.test(name))) {
+    for (const phase of sorted(result.phases).filter((name) => PHASE_NAME.test(name))) {
       try {
         const run = record(record(readJson(path.join(directory, phase, "sdk", "report.json"))).run);
         nameNotPassed((Array.isArray(run.results) ? run.results : []).map(record)
-          .filter((entry) => entry.selected === true && entry.status !== "passed"), unit.id, notPassed);
+          .filter((entry) => entry.selected === true && entry.status !== "passed"), `calc-v3 ${phase}`, notPassed);
       } catch { /* no readable report */ }
     }
   } else {
@@ -371,6 +435,26 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
   return result;
 }
 
+/** calc-v3: the groups' campaigns together ran the selected phases, each in exactly one group. */
+function checkPhasesAcrossGroups(input: AggregateInput, records: UnitRecord[], problems: string[]) {
+  const expected = strings(record(input.plan).phases) ?? [];
+  // The complete campaign in one job has no list to compare: its own campaign file decides.
+  if (expected.length === 1 && expected[0] === "all") return undefined;
+  const owners = new Map<string, string[]>();
+  for (const unit of records) for (const phase of new Set(unit.phases ?? [])) owners.set(phase, [...(owners.get(phase) ?? []), unit.id]);
+  const executed = sorted(owners.keys());
+  const union = {
+    expected: sorted(expected), executed,
+    missing: sorted(expected.filter((phase) => !owners.has(phase))),
+    unexpected: executed.filter((phase) => !expected.includes(phase)),
+    duplicated: executed.filter((phase) => owners.get(phase)!.length > 1),
+  };
+  if (union.missing.length) problems.push(`Planned phases missing from every group: ${union.missing.join(", ")}.`);
+  if (union.unexpected.length) problems.push(`Phases run outside the plan: ${union.unexpected.join(", ")}.`);
+  if (union.duplicated.length) problems.push(`Phases run by two groups: ${union.duplicated.join(", ")}.`);
+  return union;
+}
+
 /** Union, overlap and source identity across the units. */
 function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records: UnitRecord[], problems: string[], wholeSuite = false) {
   const sources = records.filter((unit) => unit.source);
@@ -379,6 +463,7 @@ function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records
   if (input.revision && sources.some((unit) => unit.source!.revision !== input.revision)) {
     problems.push(`A unit's revision differs from the tested commit ${input.revision}.`);
   }
+  if (input.suite === "calc-v3") return checkPhasesAcrossGroups(input, records, problems);
   if (!plan || plan.files.length === 0) return undefined;
   const owners = new Map<string, string[]>();
   for (const unit of records.filter((entry) => entry.kind === "shard" && entry.reports)) {
@@ -428,7 +513,7 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
   const manifest = {
     schemaVersion: "army-ci-aggregate-1", suite: input.suite, scope, status, revision: input.revision ?? null,
     startedAt, finishedAt: new Date().toISOString(), jobs: input.results,
-    plan: input.suite === "calc-v3" ? { phases: input.plan } : { reason: plan?.reason, files: plan?.files, workers: plan?.workers,
+    plan: input.suite === "calc-v3" ? { phases: record(input.plan).phases, groups: record(input.plan).groups } : { reason: plan?.reason, files: plan?.files, workers: plan?.workers,
       development: plan?.development, shards: plan?.shards },
     // notPassed: read by nightly-alert.ts to name the red journeys of a scheduled campaign.
     units: records, ...(union ? { union } : {}), problems, notPassed,
@@ -452,18 +537,23 @@ function summary(input: AggregateInput, result: AggregateResult): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** The plan job's group matrix (its `groups` output); undefined when it is not JSON, which the aggregate refuses. */
+function calcV3Groups(json: string): unknown {
+  try { return JSON.parse(json); } catch { return undefined; }
+}
+
 function main() {
   const [suite, ...args] = process.argv.slice(2);
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
-    if (!["--plan", "--phases", "--evidence", "--out", "--results", "--revision"].includes(args[index]) || values.has(args[index]) || !args[index + 1]) {
+    if (!["--plan", "--phases", "--groups", "--evidence", "--out", "--results", "--revision"].includes(args[index]) || values.has(args[index]) || !args[index + 1]) {
       throw new Error(`Unknown, repeated or empty argument ${args[index]}.`);
     }
     values.set(args[index], args[index + 1]);
   }
   if (!["critical", "takeoff", "full", "calc-v3"].includes(suite) || !values.get("--evidence") || !values.get("--out") || !values.has("--results") ||
-    (suite === "calc-v3" ? !values.has("--phases") : !values.has("--plan"))) {
-    throw new Error("Usage: node scripts/tester-army/aggregate-shards.ts critical|takeoff|full --plan FILE | calc-v3 --phases A,B " +
+    (suite === "calc-v3" ? !values.has("--phases") || !values.has("--groups") : !values.has("--plan"))) {
+    throw new Error("Usage: node scripts/tester-army/aggregate-shards.ts critical|takeoff|full --plan FILE | calc-v3 --phases A,B --groups MATRIX_JSON " +
       "--evidence DIR --out DIR --results job=result,... [--revision SHA]");
   }
   const results = Object.fromEntries(values.get("--results")!.split(",").filter(Boolean).map((pair) => {
@@ -472,7 +562,8 @@ function main() {
   }));
   let plan: unknown;
   try {
-    plan = suite === "calc-v3" ? values.get("--phases")!.split(",").filter(Boolean) : readJson(values.get("--plan")!);
+    plan = suite === "calc-v3" ? { phases: values.get("--phases")!.split(",").filter(Boolean), groups: calcV3Groups(values.get("--groups")!) }
+      : readJson(values.get("--plan")!);
   } catch {
     plan = undefined;
   }

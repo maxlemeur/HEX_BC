@@ -13,7 +13,7 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Critical](../../.github/workflows/e2e-army-critical.yml) | PR vers `main`, push `main`, manuel ; sélection métier et métré, piles natives indépendantes, checks `army-critical` et `army-takeoff` |
 | [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; étapes lourdes d'une PR selon chemins DB/runtime ; les autres lancements sont complets |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
-| [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md) |
+| [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
 | [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
 
 Les commandes locales ne modifient ni les règles de protection de `main` ni
@@ -67,8 +67,11 @@ fois et une journée chargée compte plus de vingt push.
 
 Le résultat d'un commit se lit donc sur la première campagne terminée qui le
 contient : environ 45 minutes après le push (première campagne mesurée, le
-10/11/2026 : Full 40 minutes, Calc-v3 46 minutes), davantage derrière une
-campagne déjà en cours. Une campagne rouge ouvre le
+10/11/2026 : Full 40 minutes, Calc-v3 46 minutes avec un job par phase),
+davantage derrière une campagne déjà en cours. Depuis, les phases calc-v3
+tournent en cinq groupes, deux à la fois : une trentaine de minutes d'après les
+durées de `army-shards.json`, estimation que la première campagne groupée
+remplacera par sa mesure. Une campagne rouge ouvre le
 [ticket d'alerte](#alerte-des-campagnes-de-main).
 
 ## Avant un push direct sur main
@@ -88,9 +91,9 @@ d'une PR, puis affiche la commande locale de chaque suite :
 - « mapped to the change » : une règle relie le changement à ces parcours ou
   phases ; ils sont à lancer ;
 - « every journey » ou « every phase » : repli de la sélection sur un chemin
-  partagé ou inconnu de la carte. Une PR lancerait tout en parallèle ; sur le
-  poste, lancer ce que le changement peut modifier ; la campagne qui suit le
-  push couvre le reste ;
+  partagé ou inconnu de la carte. Une PR lancerait tout, en jobs parallèles ;
+  sur le poste, lancer ce que le changement peut modifier ; la campagne qui
+  suit le push couvre le reste ;
 - phase développement : elle pilote le même hub d'affaire que les parcours du
   métré et les suit ; aucune règle ne la relie à un fichier source ;
 - parcours `extended` : seuls les fichiers de parcours modifiés sont listés ; un
@@ -108,7 +111,7 @@ planifiée ou lancée après un push, et tient un ticket GitHub par workflow, ti
 - campagne rouge : le ticket est ouvert, ou reçoit un commentaire s'il l'est
   déjà. Il cite le run, ses jobs en échec et les parcours non passés que nomme
   `notPassed` dans le manifeste agrégé (rapports des shards et des phases
-  calc-v3) ; un échec antérieur aux parcours n'en nomme aucun ;
+  calc-v3 de chaque groupe) ; un échec antérieur aux parcours n'en nomme aucun ;
 - première campagne verte : le ticket est commenté puis fermé ;
 - campagne annulée ou sans conclusion : rien n'est écrit ;
 - résultat dépassé : une campagne planifiée et une campagne lancée après un push
@@ -137,12 +140,31 @@ coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
 métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
 un seul job. Les durées ne choisissent pas la couverture.
 
+Les phases calc-v3 sélectionnées tournent en groupes : cinq jobs au plus
+(`calcV3.maxGroups` du même fichier), un groupe par phase quand la sélection en
+compte moins. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
+seul build, puis exécute ses phases l'une après l'autre
+(`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
+invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
+[`select-calc-v3.ts`](../../scripts/tester-army/select-calc-v3.ts) répartit les
+phases de la plus longue à la plus courte sur le groupe le moins chargé,
+d'après les secondes de parcours mesurées par phase (`calcV3.seconds`, hors
+préparation de la pile) ; une phase n'est pas coupée et aucun groupe n'est
+vide. La même sélection donne toujours la même répartition. Avec les 19
+phases, chaque job dure environ 9 minutes (6 minutes de parcours, le reste en
+préparation) au lieu de 19 jobs de 3 à 8 minutes. Le déclenchement manuel `all`
+garde la campagne complète dans un seul job, et une phase explicite le sien.
+
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie
 les manifestes, sources, sélections, workers, résultats et empreintes de chaque
 unité. L'union doit correspondre exactement au plan, hors setups explicitement
 partagés. Une unité manquante, échouée, interrompue, avec tests sautés ou preuve
-incohérente empêche le succès agrégé. Les agrégats conservent les preuves des
-unités et leur portée `full`, `filtered-critical` ou `filtered-full`.
+incohérente empêche le succès agrégé. Pour calc-v3, les unités sont les
+groupes : le manifeste et la campagne de chaque groupe doivent lister ses phases
+prévues, toutes réussies, et les groupes ensemble exécuter chaque phase
+sélectionnée une seule fois ; une phase manquante, en double ou hors plan est
+nommée. Les agrégats conservent les preuves des unités et leur portée `full`,
+`filtered-critical`, `filtered-full` ou `calc-v3`.
 
 ## Pile, confidentialité et diagnostic
 

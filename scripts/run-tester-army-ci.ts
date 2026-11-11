@@ -16,7 +16,9 @@ import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-f
 import { awaitBrowserInstall } from "./tester-army/browser-install";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
-import { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS, CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import {
+  CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS, CALC_V3_FORBIDDEN_PORTS, calcV3Scope, parseCalcV3Phases, type CalcV3Phase,
+} from "./tester-army/calc-v3-phases";
 import { runDevLoopSession } from "./tester-army/dev-loop";
 import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
@@ -34,7 +36,7 @@ import { assertInstalledDependencies } from "./tester-army/installed-dependencie
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3", "explore"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3|explore [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3|explore [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME[,NAME...] [one phase only: --grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, any journey folder of its selection (its shards,
@@ -43,7 +45,8 @@ const FILES_PATTERN = suite === "full" ? FULL_JOURNEY_FILE : CRITICAL_JOURNEY_FI
 let grep: string | undefined;
 let selectedFixtureFiles: string[] | undefined;
 let files: string[] = [];
-let calcV3Phase: CalcV3Phase | undefined;
+// The calc-v3 phases to run on this stack, in this order (a group job runs several); none: the complete campaign.
+let calcV3Phases: CalcV3Phase[] | undefined;
 // The development phase of the full suite alone: its own job in a sharded nightly run.
 let fullPhase: "development" | undefined;
 // This run's place among the parallel jobs of one selection (docs/testing/tester-army-ci.md), recorded only.
@@ -101,8 +104,8 @@ for (let index = 3; index < process.argv.length; index += 2) {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
   } else if (option === "--phase") {
-    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error(`--phase names one calc-v3 phase: ${CALC_V3_PHASES.join("|")}.`);
-    calcV3Phase = value;
+    if (suite !== "calc-v3") throw new Error("--phase is restricted to calc-v3 (its phases) and full (development).");
+    calcV3Phases = parseCalcV3Phases(value);
   } else if (option === "--ttl-minutes") {
     if (suite !== "dev-loop" || !/^[0-9]+$/.test(value) || Number(value) < DEV_LOOP_TTL_RANGE[0] || Number(value) > DEV_LOOP_TTL_RANGE[1]) {
       throw new Error(`--ttl-minutes is restricted to dev-loop: an integer from ${DEV_LOOP_TTL_RANGE[0]} to ${DEV_LOOP_TTL_RANGE[1]}.`);
@@ -128,7 +131,7 @@ const workers = process.env.E2E_ARMY_WORKERS ?? "";
 if (workers !== "" && !/^[1-4]$/.test(workers)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workers}".`);
 }
-if (suite === "calc-v3" && grep && !calcV3Phase) throw new Error("A calc-v3 --grep filters exactly one --phase.");
+if (suite === "calc-v3" && grep && calcV3Phases?.length !== 1) throw new Error("A calc-v3 --grep filters exactly one --phase.");
 if (fullPhase && (grep || files.length || shard)) throw new Error("full --phase development runs that phase alone: no --grep, --files or --shard.");
 // A filtered full run proves only the production full selection it filters;
 // the development phase (its own journeys) runs with the unfiltered suite only,
@@ -158,14 +161,14 @@ const manifest: Record<string, unknown> = {
   platform: process.platform,
   appOrigin: `http://localhost:${appPort}`,
   scope: suite === "dev" ? "interactive-development" : suite === "dev-loop" ? DEV_LOOP_SESSION_SCOPE
-    : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : fullPhase ? `full-${fullPhase}` : suite,
+    : grep || files.length ? `filtered-${suite}` : calcV3Phases ? calcV3Scope(calcV3Phases) : fullPhase ? `full-${fullPhase}` : suite,
   ...(suite === "dev-loop" ? { qualification: false, ttlMinutes } : {}),
   ...(grep ? { grep } : {}),
   // Not `files`: retainEvidence writes the evidence inventory under that key.
   ...(files.length ? { journeyFiles: files } : {}),
   ...(shard ? { shard } : {}),
   ...(tenantCalcEngine ? { tenantCalcEngine } : {}),
-  ...(calcV3Phase ? { calcV3Phase } : {}),
+  ...(calcV3Phases ? { calcV3Phases } : {}),
   ...(suite === "full" && !fullPhases.includes("development")
     ? { phasesNotRun: { development: "a filtered full run proves only the selected journeys of its production full phase" } }
     : {}),
@@ -258,7 +261,7 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
 // away from that qualification window; every database, build and browser check still runs unchanged.
 const buildsEarly = process.env.E2E_ARMY_SERIAL_BUILD !== "1" && (suite === "critical" ||
   (suite === "full" && !fullPhases.every((phase) => phase === "development")) ||
-  (suite === "calc-v3" && (calcV3Phase ? [calcV3Phase] : CALC_V3_PHASES).some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")));
+  (suite === "calc-v3" && (calcV3Phases ?? CALC_V3_PHASES).some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")));
 let earlyBuild: { origin: string; anonKey: string; done: Promise<void> } | undefined;
 
 function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
@@ -453,7 +456,7 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
       root, evidence, appPort, environment, backend: backend.origin, anonKey: local.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, admin,
       owner: { userId: user.user.id, tenantId, laborRoleId: laborRole.id },
-      phase: calcV3Phase, grep, remember: (secret) => { knownSecrets.push(secret); }, redact,
+      phases: calcV3Phases, grep, remember: (secret) => { knownSecrets.push(secret); }, redact,
       build: () => earlyBuild ? awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
         : runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
     });
