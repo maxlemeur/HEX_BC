@@ -968,12 +968,13 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 
       // L'événement d'envoi enregistre la réserve ; une duplication ramène la ligne « Non chiffrée » à classer.
       await accountLogin(ui);
-      const events = await apiRequest<Envelope<{ events: Array<{ event_type: string; metadata: Record<string, unknown> }> }>>(
+      const events = await apiRequest<Envelope<{ events: Array<{ eventType: string; metadata: Record<string, unknown> }> }>>(
         browser, "GET", `/api/estimates/${ids.versionId}/events`);
-      const sentEvents = (events.body.data?.events ?? []).filter((event) => event.event_type === "sent");
+      const sentEvents = (events.body.data?.events ?? []).filter((event) => event.eventType === "sent");
       const recorded = sentEvents.map((event) => ((event.metadata.offer_choices ?? []) as Array<Record<string, unknown>>)
         .map((entry) => ({ item: entry.item_id, kind: entry.kind, basis: entry.basis, code: entry.code, note: entry.note, by: entry.decided_by })));
-      await record("sent-event", { versionId: ids.versionId, status: events.status, actual: recorded });
+      await record("sent-event", { versionId: ids.versionId, status: events.status,
+        eventTypes: (events.body.data?.events ?? []).map((event) => event.eventType), actual: recorded });
       expect(recorded).toEqual([[{ item: reservedId, kind: "reserve", basis: "private_estimate", code: "pending_survey", note: NOTE,
         by: fixture.owner.userId }]]);
       const duplicated = await apiRequest<Envelope<{ version_id: string }>>(browser, "POST", `/api/estimates/${ids.versionId}/duplicate`);

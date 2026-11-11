@@ -143,9 +143,10 @@ export function sameStatusReason(left: unknown, right: unknown): boolean {
  * The line the editor keeps after a status change, as the database leaves it
  * (private.track_estimate_item_status_reason): « was not priced » never goes back to false once the line has been
  * « Non chiffrée »; a reason leaves with the excluded statuses.
- * « Was not priced » follows the last saved line (`saved`): the autosave merges the changes made within its delay into
- * one write, and the database compares that write with the stored line, not with the statuses shown in between (priced,
- * then « Non chiffrée », then « Hors lot » before the save is priced → out_of_scope there). `null`: a line not saved yet,
+ * « Was not priced » follows the line the database will hold before the next write (`saved`: the editor document's
+ * expected line, confirmed plus saves in flight, with the flag the database derived): the autosave merges the changes
+ * made within its delay into one write, compared with that line, not with the statuses shown in between (priced, then
+ * « Non chiffrée », then « Hors lot » before the save is priced → out_of_scope there). `null`: a line not saved yet,
  * whose creation carries only its status. The reason leaves against the line as shown (`shown`), so a pending reason is
  * never written with a status that cannot carry it.
  */

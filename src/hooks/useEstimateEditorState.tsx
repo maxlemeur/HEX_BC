@@ -1522,9 +1522,9 @@ export function useEstimateEditorState({
         // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
         const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
         // TI-682, lot C : la ligne reste celle que la base garde (« a été Non chiffrée » collant, motif effacé quand
-        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet). L'indicateur suit la dernière ligne
-        // enregistrée : l'écriture fusionnée du délai d'enregistrement est ce que la base compare.
-        const saved = editorDocument.getSnapshot().confirmedItems.find((candidate) => candidate.id === item.id) ?? null;
+        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet). L'indicateur suit la ligne attendue en base
+        // (confirmée, plus les enregistrements en vol) : l'écriture fusionnée du délai d'enregistrement s'y compare.
+        const saved = (editorDocument.getExpectedItem(item.id) as EditorEstimateItem | undefined) ?? null;
         const statusTracked = current ? applyStatusReasonRules(current, item, saved) : item;
         // TI-682, lot C, PR 4 : la réserve écrite est celle que la base garde : la réserve enregistrée, effacée si le
         // statut qui sera écrit ne lui convient plus (jamais une saisie de la grille).

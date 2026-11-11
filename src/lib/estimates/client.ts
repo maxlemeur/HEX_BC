@@ -2665,7 +2665,7 @@ export async function setEstimateLineOfferChoice(
     "Impossible d'enregistrer la réserve.",
     (value) => {
       const receipt = estimateOfferChoiceReceiptSchema.parse(value);
-      if (receipt.item.id !== itemId || receipt.version.id.toLowerCase() !== versionId.toLowerCase()) {
+      if (receipt.item.id.toLowerCase() !== itemId.toLowerCase() || receipt.version.id.toLowerCase() !== versionId.toLowerCase()) {
         throw new Error("La confirmation appartient à une autre ligne.");
       }
       return receipt;

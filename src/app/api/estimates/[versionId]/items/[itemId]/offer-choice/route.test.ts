@@ -24,8 +24,8 @@ import {
   getVersionAccessOrThrow,
 } from "@/lib/estimates/server-context";
 
-const VERSION_ID = "11111111-1111-4111-8111-111111111111";
-const ITEM_ID = "22222222-2222-4222-8222-222222222222";
+const VERSION_ID = "1111111a-1111-4111-8111-11111111111a";
+const ITEM_ID = "2222222b-2222-4222-8222-22222222222b";
 const TENANT_ID = "33333333-3333-4333-8333-333333333333";
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const SESSION_ID = "55555555-5555-4555-8555-555555555555";
@@ -138,5 +138,8 @@ describe("PUT/DELETE …/items/{itemId}/offer-choice (TI-682)", () => {
       [404, "ESTIMATE_OFFER_CHOICE_LINE_REQUIRED"], [409, "VERSION_CONFLICT"], [409, "LOCK_REQUIRED"], [403, "READ_ONLY"]]);
     rpc.mockResolvedValueOnce({ data: { ...receipt, item: { ...receipt.item, id: VERSION_ID } }, error: null });
     expect((await read(await PUT(request("PUT", reserve), params))).status).toBe(500);
+    // An identifier spelled in capitals in the URL is the same line: its committed receipt is accepted.
+    const upper = { params: Promise.resolve({ versionId: VERSION_ID.toUpperCase(), itemId: ITEM_ID.toUpperCase() }) };
+    expect((await read(await PUT(request("PUT", reserve), upper))).status).toBe(200);
   });
 });

@@ -92,7 +92,8 @@ export async function setEstimateLineOfferChoice(input: {
   });
   if (error) throw mapOfferChoiceRpcError(error);
   const parsed = estimateOfferChoiceReceiptSchema.safeParse(data);
-  if (!parsed.success || parsed.data.item.id !== input.itemId || parsed.data.version.id !== input.versionId) {
+  if (!parsed.success || parsed.data.item.id.toLowerCase() !== input.itemId.toLowerCase()
+    || parsed.data.version.id.toLowerCase() !== input.versionId.toLowerCase()) {
     throw internalError("La confirmation de la réserve est invalide. Relisez le devis.", undefined, "BATCH_OUTCOME_UNKNOWN");
   }
   return parsed.data;
