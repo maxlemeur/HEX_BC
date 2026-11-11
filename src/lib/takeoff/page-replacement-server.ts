@@ -73,7 +73,7 @@ const ESTIMATE_LINE_SELECT = "id,title,unit_code,description,pricing_status,quan
   + "mapping_action:source_metadata->>mapping_action";
 const JOB_SELECT = "id,created_at,level,source_file_name,sources:preparation_snapshot->preparation->sources";
 
-const sourcesSchema = z.array(z.object({ document_id: z.string(), kind: z.string().nullish(), active: z.boolean().nullish(),
+const sourcesSchema = z.array(z.object({ document_id: z.string(), document_name: z.string().nullish(), kind: z.string().nullish(), active: z.boolean().nullish(),
   content_hash: z.string().nullish(), logical_document_id: z.string().nullish() }));
 
 function readFailed(error: unknown, message: string, jobId?: string): never {
@@ -169,7 +169,8 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
   const included = ownLines.filter((line) => !line.is_excluded && !leftOut.has(line.id));
   const result = findPagesAlreadyInEstimate({ jobId: normalizedJobId,
     newLines: included.map((line) => ({ id: line.id, identity: lines.get(line.id)!.identity })),
-    estimateLines: [...provenance.values()], earlierItems });
+    estimateLines: [...provenance.values()], earlierItems,
+    jobSources: new Map([...jobs.values()].map((row) => [row.id.toLowerCase(), sourcesOf(row)])) });
 
   // « Fusionner » on a DPGF version: the lines it matches by title in the target section are imposed.
   const merged = mergeRequired && applyRequest.strategy === "merge"

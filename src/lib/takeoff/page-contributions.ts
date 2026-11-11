@@ -28,6 +28,8 @@ export type TakeoffPageIdentity = { document: TakeoffPageDocument; page: number 
 /** A source of a takeoff's preparation snapshot, as stored (`preparation_snapshot.preparation.sources`). */
 export type PageDocumentSource = {
   document_id: string;
+  /** The document's file name as the preparation names it (an engine 1/2 line is tied to its source by it). */
+  document_name?: string | null;
   kind?: string | null;
   active?: boolean | null;
   content_hash?: string | null;
@@ -137,7 +139,8 @@ type Contribution = { job_id: string; item_id: string | null; identity: TakeoffP
  * longer readable) its takeoff, file and page when it came from a takeoff. A DPGF target is read only through the
  * takeoff lines it names: its own file and page are the DPGF's.
  */
-export function estimateLineContributions(line: EstimateLineProvenance, earlierItems: ReadonlyMap<string, EarlierTakeoffLine>): Contribution[] {
+export function estimateLineContributions(line: EstimateLineProvenance, earlierItems: ReadonlyMap<string, EarlierTakeoffLine>,
+  jobSources?: ReadonlyMap<string, readonly PageDocumentSource[] | null>): Contribution[] {
   const sources = estimateLineTakeoffItemIds(line.source_metadata, line.source_job_id).flatMap((itemId) => {
     const item = earlierItems.get(itemId);
     return item ? [{ job_id: item.job_id.toLowerCase(), item_id: itemId, identity: item.identity }] : [];
@@ -146,8 +149,18 @@ export function estimateLineContributions(line: EstimateLineProvenance, earlierI
   const jobId = uuid(line.source_job_id);
   if (line.source_provider !== "takeoff" || !jobId) return [];
   const fileName = text(line.source_file_name);
-  return [{ job_id: jobId, item_id: null, identity: fileName ? { document: { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: fileName },
-    page: page(line.source_page) } : null }];
+  if (!fileName) return [{ job_id: jobId, item_id: null, identity: null }];
+  // PR 2: the document of its takeoff's preparation that bears its file name (its plan file, content hash and plan
+  // reference), so that a revision or a renamed upload of that document is the same page; else its name only.
+  const named = (jobSources?.get(jobId) ?? []).filter((source) => source.active !== false && (source.kind ?? "plan") === "plan"
+    && normalizedName(text(source.document_name)) === normalizedName(fileName));
+  const source = named.length === 1 ? named[0] : undefined;
+  return [{ job_id: jobId, item_id: null, identity: { document: {
+    plan_file_id: source ? uuid(source.document_id) : null,
+    content_hash: source ? (text(source.content_hash) && SHA256.test(source.content_hash!.trim()) ? source.content_hash!.trim().toLowerCase()
+      : uploadHash(source.document_id)) : null,
+    logical_document_id: source ? text(source.logical_document_id) : null,
+    file_name: fileName }, page: page(line.source_page) } }];
 }
 
 export type PageAlreadyInEstimate = {
@@ -183,6 +196,8 @@ export function findPagesAlreadyInEstimate(input: {
   newLines: readonly NewTakeoffLine[];
   estimateLines: readonly EstimateLineProvenance[];
   earlierItems: ReadonlyMap<string, EarlierTakeoffLine>;
+  /** PR 2: each earlier takeoff's preparation sources, for its engine 1/2 lines (estimateLineContributions). */
+  jobSources?: ReadonlyMap<string, readonly PageDocumentSource[] | null>;
 }): PagesAlreadyInEstimate {
   const jobId = input.jobId?.toLowerCase() ?? null;
   const unidentified = input.newLines.filter((line) => line.identity === null).map((line) => line.id);
@@ -198,7 +213,7 @@ export function findPagesAlreadyInEstimate(input: {
   const contributed = new Map<string, { job_id: string; identity: TakeoffPageIdentity; estimate_item_ids: Set<string>; takeoff_item_ids: Set<string> }>();
   const otherLines = new Set<string>();
   for (const line of input.estimateLines) {
-    for (const contribution of estimateLineContributions(line, input.earlierItems)) {
+    for (const contribution of estimateLineContributions(line, input.earlierItems, input.jobSources)) {
       if (contribution.job_id !== jobId) otherLines.add(line.id);
       if (!contribution.identity) continue;
       const key = JSON.stringify([contribution.job_id, contribution.identity]);

@@ -206,7 +206,10 @@ create function private.takeoff_pages_already_in_estimate(
   p_job_id uuid,
   p_new_lines jsonb,
   p_estimate_lines jsonb,
-  p_earlier_items jsonb
+  p_earlier_items jsonb,
+  -- Each earlier takeoff's preparation sources ({job_id: sources}): an engine 1/2 line names no source line, and the
+  -- source of its takeoff that bears its file name gives its document (plan file, content hash, plan reference).
+  p_job_sources jsonb default '{}'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -253,8 +256,27 @@ begin
     union all
     select lines.ordinality, 1, lines.value ->> 'id', pg_catalog.lower(lines.value ->> 'source_job_id'), null,
       case when private.takeoff_text_or_null(lines.value -> 'source_file_name') is not null then pg_catalog.jsonb_build_object(
-        'document', pg_catalog.jsonb_build_object('plan_file_id', null, 'content_hash', null, 'logical_document_id', null,
-          'file_name', private.takeoff_text_or_null(lines.value -> 'source_file_name')),
+        'document', coalesce((
+          select pg_catalog.jsonb_build_object('plan_file_id', private.takeoff_uuid_or_null(named.source -> 'document_id'),
+            'content_hash', case
+              when private.takeoff_text_or_null(named.source -> 'content_hash') ~* '^[a-f0-9]{64}$'
+                then pg_catalog.lower(private.takeoff_text_or_null(named.source -> 'content_hash'))
+              when (named.source ->> 'document_id') ~* '^upload:[a-f0-9]{64}$'
+                then pg_catalog.lower(pg_catalog.substr(named.source ->> 'document_id', 8)) end,
+            'logical_document_id', private.takeoff_text_or_null(named.source -> 'logical_document_id'),
+            'file_name', private.takeoff_text_or_null(lines.value -> 'source_file_name'))
+          from (select (pg_catalog.array_agg(source.value))[1] as source, pg_catalog.count(*) as count
+            from pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(p_job_sources
+                -> pg_catalog.lower(lines.value ->> 'source_job_id')) = 'array'
+              then p_job_sources -> pg_catalog.lower(lines.value ->> 'source_job_id') else '[]'::jsonb end) as source(value)
+            where pg_catalog.jsonb_typeof(source.value -> 'document_id') = 'string'
+              and coalesce(source.value -> 'active', 'null'::jsonb) <> 'false'::jsonb
+              and coalesce(nullif(source.value -> 'kind', 'null'::jsonb), '"plan"'::jsonb) = '"plan"'::jsonb
+              and private.takeoff_normalized_name(private.takeoff_text_or_null(source.value -> 'document_name'))
+                = private.takeoff_normalized_name(private.takeoff_text_or_null(lines.value -> 'source_file_name'))) as named
+          where named.count = 1),
+          pg_catalog.jsonb_build_object('plan_file_id', null, 'content_hash', null, 'logical_document_id', null,
+            'file_name', private.takeoff_text_or_null(lines.value -> 'source_file_name'))),
         'page', case when pg_catalog.jsonb_typeof(lines.value -> 'source_page') = 'number'
           and (lines.value ->> 'source_page')::numeric > 0
           and (lines.value ->> 'source_page')::numeric = pg_catalog.trunc((lines.value ->> 'source_page')::numeric)
@@ -392,6 +414,7 @@ declare
   estimate_lines jsonb;
   new_lines jsonb;
   earlier_items jsonb;
+  job_sources jsonb;
 begin
   select version.tenant_id into version_tenant from public.estimate_versions as version where version.id = p_version_id;
 
@@ -429,7 +452,14 @@ begin
   where item.job_id = p_job_id and item.tenant_id = version_tenant
     and case when p_new_item_ids is null then not item.is_excluded else item.id = any(p_new_item_ids) end;
 
-  return private.takeoff_pages_already_in_estimate(p_job_id, new_lines, estimate_lines, earlier_items);
+  -- The preparation sources of the takeoffs the version's lines name, for their engine 1/2 lines.
+  select coalesce(pg_catalog.jsonb_object_agg(job.id::text, coalesce(job.preparation_snapshot #> '{preparation,sources}', '[]'::jsonb)), '{}'::jsonb)
+    into job_sources
+  from public.takeoff_jobs as job
+  where job.tenant_id = version_tenant and job.id in (select (line.value ->> 'source_job_id')::uuid
+    from pg_catalog.jsonb_array_elements(estimate_lines) as line(value));
+
+  return private.takeoff_pages_already_in_estimate(p_job_id, new_lines, estimate_lines, earlier_items, job_sources);
 end;
 $$;
 
@@ -483,7 +513,7 @@ revoke all on function private.takeoff_same_document(jsonb, jsonb) from public, 
 revoke all on function private.takeoff_same_page(jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function private.takeoff_line_page_identity(text, integer, jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function private.takeoff_estimate_line_item_ids(jsonb, uuid) from public, anon, authenticated, service_role;
-revoke all on function private.takeoff_pages_already_in_estimate(uuid, jsonb, jsonb, jsonb) from public, anon, authenticated, service_role;
+revoke all on function private.takeoff_pages_already_in_estimate(uuid, jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function private.takeoff_page_contributions(uuid, uuid, uuid[]) from public, anon, authenticated, service_role;
 revoke all on function private.takeoff_page_conflicts(uuid, uuid, uuid[]) from public, anon, authenticated, service_role;
 

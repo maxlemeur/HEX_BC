@@ -55,6 +55,7 @@ const JOB_SELECT = "id,estimate_version_id,created_at,source_file_name,sources:p
 
 const sourcesSchema = z.array(z.object({
   document_id: z.string(),
+  document_name: z.string().nullish(),
   kind: z.string().nullish(),
   active: z.boolean().nullish(),
   content_hash: z.string().nullish(),
@@ -125,7 +126,8 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
     identity: takeoffLinePageIdentity(line, sourcesOf(jobs.get(line.job_id))) }]));
   const ownSources = input.jobId ? sourcesOf(jobs.get(input.jobId)) : null;
   const newLines = input.launchLines ?? input.ownLines.map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
-  const result = findPagesAlreadyInEstimate({ jobId: input.jobId, newLines, estimateLines, earlierItems });
+  const jobSources = new Map([...jobs.values()].map((job) => [job.id.toLowerCase(), sourcesOf(job)]));
+  const result = findPagesAlreadyInEstimate({ jobId: input.jobId, newLines, estimateLines, earlierItems, jobSources });
   const named = new Set(result.pages.flatMap((page) => page.earlier.map((earlier) => earlier.job_id)));
   return parseWithSchema(takeoffPageContributionsResponseSchema, {
     version_id: input.versionId,

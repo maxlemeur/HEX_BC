@@ -28,7 +28,7 @@ type Vectors = {
     sources: PageDocumentSource[] | null; expected: TakeoffPageIdentity | null }>;
   line_item_ids: Array<{ name: string; source_metadata: unknown; source_job_id: string | null; expected: string[] }>;
   pages: Array<{ name: string; job_id: string | null; new_lines: NewTakeoffLine[]; estimate_lines: EstimateLineProvenance[];
-    earlier_items: EarlierTakeoffLine[]; expected: ReturnType<typeof findPagesAlreadyInEstimate> }>;
+    earlier_items: EarlierTakeoffLine[]; job_sources?: Record<string, PageDocumentSource[]>; expected: ReturnType<typeof findPagesAlreadyInEstimate> }>;
 };
 
 const VECTORS_FILE = path.join(process.cwd(), "src/lib/takeoff/page-contributions.vectors.json");
@@ -51,7 +51,8 @@ describe("page identity vectors — the TypeScript reader", () => {
 
   it.each(vectors.pages.map((entry) => [entry.name, entry] as const))("pages already in the estimate: %s", (_name, entry) => {
     expect(findPagesAlreadyInEstimate({ jobId: entry.job_id, newLines: entry.new_lines, estimateLines: entry.estimate_lines,
-      earlierItems: new Map(entry.earlier_items.map((item) => [item.id, item])) })).toEqual(entry.expected);
+      earlierItems: new Map(entry.earlier_items.map((item) => [item.id, item])),
+      jobSources: new Map(Object.entries(entry.job_sources ?? {})) })).toEqual(entry.expected);
   });
 
   it("covers the cases the SQL guard depends on", () => {
