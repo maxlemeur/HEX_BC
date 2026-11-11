@@ -3,11 +3,22 @@ name: TesterArmy calc-v3
 # Owned native stacks, production builds and exact business assertions. PRs
 # select affected phases; unknown impact runs all. Nightly and after a push to
 # main, every phase runs.
+#
+# Groups (docs/testing/tester-army-ci.md, "Jobs parallèles"): the plan job
+# splits the selected phases into at most five groups, balanced by the measured
+# seconds of scripts/tester-army/army-shards.json (calcV3). Each group is one
+# job: it prepares one owned stack and one build, then runs its phases one
+# after another, each with its own fixtures and its own TesterArmy run; a red
+# phase never stops the phases after it. A selection of fewer phases keeps one
+# group per phase. The army-calc-v3 job is the check: it fails unless the plan
+# and every group job succeeded and the groups' verified evidence together ran
+# exactly the selected phases, each once and passed, then retains it all as
+# army-calc-v3-evidence.
 on:
   workflow_dispatch:
     inputs:
       phase:
-        description: "nightly : toutes les phases en parallèle ; all : campagne complète dans un job ; sinon une seule phase."
+        description: "nightly : toutes les phases, réparties en groupes parallèles ; all : campagne complète dans un job ; sinon une seule phase."
         required: false
         default: nightly
         type: choice
@@ -64,6 +75,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       phases: ${{ steps.plan.outputs.phases }}
+      groups: ${{ steps.plan.outputs.groups }}
     steps:
       - name: Refuse any Supabase target other than loopback or the distinct staging host
         id: target_guard
@@ -127,6 +139,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+      # phases: the selection; groups: the matrix of the jobs that run it.
       - name: Plan the calc-v3 phases
         id: plan
         env:
@@ -146,11 +159,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # One owned stack per phase; a red phase never cancels the others.
-  army-calc-v3-phase:
-    name: army-calc-v3 ${{ matrix.phase }}
+  # One owned stack per group of phases; a red group never cancels the others.
+  army-calc-v3-group:
+    name: army-calc-v3 group ${{ matrix.group }}/${{ matrix.total }}
     needs: army-calc-v3-plan
-    if: needs.army-calc-v3-plan.outputs.phases != '[]'
+    if: needs.army-calc-v3-plan.outputs.groups != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 80
     strategy:
@@ -158,7 +171,7 @@ jobs:
       # The account runs 20 jobs at once: a push campaign takes two of them.
       max-parallel: ${{ github.event_name == 'push' && 2 || 20 }}
       matrix:
-        phase: ${{ fromJSON(needs.army-calc-v3-plan.outputs.phases) }}
+        include: ${{ fromJSON(needs.army-calc-v3-plan.outputs.groups) }}
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
@@ -241,35 +254,38 @@ jobs:
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
       # The runner reports its evidence directory only after the privacy check
-      # passed (GITHUB_OUTPUT evidence=...), so a phase whose evidence failed
+      # passed (GITHUB_OUTPUT evidence=...), so a group whose evidence failed
       # that check is never uploaded.
       - name: Run native database and TesterArmy calc-v3 phases
         id: journeys
         env:
-          CALC_V3_PHASE: ${{ matrix.phase }}
+          # The group's phases, comma-separated; "all": the explicit complete campaign.
+          CALC_V3_PHASES: ${{ matrix.phases }}
         run: |
           set -uo pipefail
-          if [[ "$CALC_V3_PHASE" == "all" ]]; then
+          if [[ "$CALC_V3_PHASES" == "all" ]]; then
             node --import tsx scripts/run-tester-army-ci.ts calc-v3
           else
-            node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$CALC_V3_PHASE"
+            node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$CALC_V3_PHASES"
           fi
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: army-calc-v3-${{ matrix.phase }}-evidence
+          name: army-calc-v3-group-${{ matrix.group }}-evidence
           include-hidden-files: true
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
 
-  # The check of the campaign: green only when every planned phase passed on
-  # its own stack with verified evidence (scripts/tester-army/aggregate-shards.ts),
-  # naming the phases without proof otherwise.
+  # The check of the campaign: green only when the plan and every group job
+  # succeeded and the groups' verified evidence together ran exactly the
+  # selected phases, each once and passed (scripts/tester-army/aggregate-shards.ts),
+  # naming the phases without proof otherwise. It runs after a failed or
+  # skipped group too, never after a cancellation.
   army-calc-v3:
     name: army-calc-v3
-    needs: [army-calc-v3-plan, army-calc-v3-phase]
+    needs: [army-calc-v3-plan, army-calc-v3-group]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -341,24 +357,26 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - name: Download the phase evidence
-        if: needs.army-calc-v3-plan.outputs.phases != '[]'
+      - name: Download the group evidence
+        if: needs.army-calc-v3-plan.outputs.groups != '[]'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: army-calc-v3-*-evidence
-          path: .e2e/army/ci/aggregate-input/phases
-      - name: Aggregate the calc-v3 phases
+          pattern: army-calc-v3-group-*-evidence
+          path: .e2e/army/ci/aggregate-input/groups
+      - name: Aggregate the calc-v3 groups
         id: aggregate
         env:
           PLAN_RESULT: ${{ needs.army-calc-v3-plan.result }}
-          PHASES_RESULT: ${{ needs.army-calc-v3-phase.result }}
+          GROUPS_RESULT: ${{ needs.army-calc-v3-group.result }}
           PHASES_JSON: ${{ needs.army-calc-v3-plan.outputs.phases }}
+          # The matrix the group jobs were started from.
+          GROUPS_JSON: ${{ needs.army-calc-v3-plan.outputs.groups }}
         run: |
           set -euo pipefail
           phases="$(node -e 'const p = JSON.parse(process.env.PHASES_JSON); if (!Array.isArray(p)) process.exit(1); process.stdout.write(p.length ? p.join(",") : "none")')"
           node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/aggregate-shards.ts calc-v3 \
-            --phases "$phases" --evidence .e2e/army/ci/aggregate-input/phases --out .e2e/army/ci/aggregate \
-            --results "army-calc-v3-plan=$PLAN_RESULT,army-calc-v3-phase=$PHASES_RESULT" --revision "$GITHUB_SHA"
+            --phases "$phases" --groups "$GROUPS_JSON" --evidence .e2e/army/ci/aggregate-input/groups --out .e2e/army/ci/aggregate \
+            --results "army-calc-v3-plan=$PLAN_RESULT,army-calc-v3-group=$GROUPS_RESULT" --revision "$GITHUB_SHA"
       - name: Retain sanitized business evidence
         if: always() && steps.aggregate.outputs.evidence != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -10,7 +10,8 @@ inventaires et nombres attendus dans un rapport de campagne.
 | `../run-tester-army-ci.ts` | Pile autonome locale, contrôles DB, compte/tenant, build, parcours et destruction |
 | `journey-preflight.mjs` | Collecte réelle, filtres, inventaire des parcours locaux hors sélections |
 | `select-journeys.ts`, `army-impact-map.json`, `army-shards.json` | Sélection CI et répartition des fichiers |
-| `aggregate-shards.ts` | Vérification des preuves de chaque shard et de leur union |
+| `select-calc-v3.ts` | Sélection des phases calc-v3 et répartition en groupes (`army-shards.json`, `calcV3`) |
+| `aggregate-shards.ts` | Vérification des preuves de chaque shard ou groupe calc-v3 et de leur union |
 | `dev-loop.ts`, `dev-loop-state.ts` | Itérations réutilisables et reprise des ressources possédées |
 | `calc-v3-campaign.ts`, `calc-v3-phases.ts`, `calc-v3-fixtures.ts` | Campagne de calcul/émission, sélections et préconditions |
 | `build-local.mjs` | Build isolé et identité de ses entrées |

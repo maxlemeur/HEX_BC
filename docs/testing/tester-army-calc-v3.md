@@ -19,10 +19,14 @@ Depuis un checkout préparé selon le [guide local](tester-army-local-developmen
 ```sh
 npm run e2e:army:calc-v3
 npm run e2e:army:calc-v3 -- --phase journeys --app-port 3118
+npm run e2e:army:calc-v3 -- --phase access,generated-atomic --app-port 3118
 npm run e2e:army:calc-v3 -- --phase resume --grep '^GR06\s' --app-port 3118
 ```
 
-`--grep` exige une phase explicite. Les ports 45585 et 33485 de l'ancienne pile
+`--phase` nomme une phase, ou plusieurs phases distinctes séparées par des
+virgules : elles s'exécutent alors l'une après l'autre sur la même pile, dans
+cet ordre, et une phase rouge n'arrête pas les suivantes. `--grep` exige
+exactement une phase. Les ports 45585 et 33485 de l'ancienne pile
 de recette sont refusés. Les sources et le build restent fixes pendant une
 campagne. Un run filtré conserve sa portée et ne vaut pas campagne complète.
 
@@ -65,11 +69,18 @@ uniquement les scénarios sélectionnés. Les autres variantes d'émission (`PDF
 
 ## CI et preuve
 
-Le [workflow calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) exécute le
-plan nocturne en phases séparées ; le lancement manuel permet `nightly`, `all`
-ou une phase. Le plan et les nombres de résultats viennent de la configuration,
-pas d'un total recopié ici. Un changement de ce workflow déclenche aussi sa
-validation sur PR.
+Le [workflow calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) répartit
+les phases sélectionnées en cinq [groupes](tester-army-ci.md#jobs-parallèles)
+au plus, un job et une pile par groupe ; le lancement manuel permet `nightly`,
+`all` (campagne complète dans un job) ou une phase. Le check `army-calc-v3`
+n'est vert que si les groupes ont ensemble exécuté chaque phase sélectionnée,
+une seule fois et avec succès. Le plan et les nombres de résultats viennent de
+la configuration, pas d'un total recopié ici. Un changement de ce workflow
+déclenche aussi sa validation sur PR.
+
+Le manifeste d'un run `--phase` liste ses phases (`calcV3Phases`) et sa portée
+les reprend (`calc-v3-access,generated-atomic`) ; `calc-v3.json` donne le
+résultat de chacune.
 
 La campagne conserve sous `.e2e/army/ci/` son manifeste, les preuves de pile et
 build, les phases, rapports et artefacts métier expurgés. Les phases d'émission

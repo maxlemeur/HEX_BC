@@ -501,8 +501,8 @@ describe("CI and local quality guardrails", () => {
         unit: "army-takeoff-shard-${{ matrix.shard }}-evidence", pattern: "army-takeoff-shard-*-evidence", artifact: "army-takeoff-evidence" },
       { suite: "full", file: ".github/workflows/e2e-army-full.yml", output: "shards", aggregate: "army-full", name: fullName,
         unit: "army-full-shard-${{ matrix.shard }}-evidence", pattern: "army-full-*-evidence", artifact: "army-full-evidence" },
-      { suite: "calc-v3", file: ".github/workflows/e2e-army-calc-v3.yml", output: "phases", aggregate: "army-calc-v3", name: "army-calc-v3",
-        unit: "army-calc-v3-${{ matrix.phase }}-evidence", pattern: "army-calc-v3-*-evidence", artifact: "army-calc-v3-evidence" },
+      { suite: "calc-v3", file: ".github/workflows/e2e-army-calc-v3.yml", output: "groups", aggregate: "army-calc-v3", name: "army-calc-v3",
+        unit: "army-calc-v3-group-${{ matrix.group }}-evidence", pattern: "army-calc-v3-group-*-evidence", artifact: "army-calc-v3-evidence" },
     ] as const;
     for (const { suite, file, output, aggregate, name, unit, pattern, artifact } of suites) {
       const workflow = read(file);
@@ -543,7 +543,7 @@ describe("CI and local quality guardrails", () => {
       // It downloads every unit's artifact and none of the aggregate's own.
       expect(job, file).toContain(`\n          pattern: ${pattern}\n`);
       const glob = new RegExp(`^${pattern.replace(/\./gu, "\\.").replace("*", "[^/]+")}$`, "u");
-      const units_ = (suite === "calc-v3" ? ["journeys", "offers"] : ["1", "12"]).map((value) => unit.replace(/\$\{\{ matrix\.[a-z]+ \}\}/u, value));
+      const units_ = ["1", "12"].map((value) => unit.replace(/\$\{\{ matrix\.[a-z]+ \}\}/u, value));
       if (development) {
         units_.push("army-full-development-evidence");
         expect(jobs[development], file).toContain("\n          name: army-full-development-evidence\n");
@@ -552,6 +552,50 @@ describe("CI and local quality guardrails", () => {
       expect(glob.test(artifact), file).toBe(false);
       expect(workflow.split(`name: ${artifact}\n`).length - 1, file).toBeLessThanOrEqual(1);
     }
+  });
+
+  // calc-v3 groups (docs/testing/tester-army-ci.md, "Jobs parallèles"): each
+  // group job runs the phases of its matrix entry on one stack. Ways the wiring
+  // could drop phases while every job stays green: the job runs another list
+  // than its matrix entry (or the whole campaign for a group), the aggregate is
+  // not given the matrix the jobs were started from, or group jobs start for a
+  // plan without groups.
+  it("runs each calc-v3 group job on the phases of its matrix entry and hands the aggregate the same matrix", () => {
+    const jobs = workflowJobs(read(".github/workflows/e2e-army-calc-v3.yml"));
+    expect(jobs["army-calc-v3-plan"]).toContain("\n      phases: ${{ steps.plan.outputs.phases }}\n      groups: ${{ steps.plan.outputs.groups }}\n");
+    const group = jobs["army-calc-v3-group"];
+    expect(group).toContain("\n    name: army-calc-v3 group ${{ matrix.group }}/${{ matrix.total }}\n");
+    expect(group).toContain("\n    if: needs.army-calc-v3-plan.outputs.groups != '[]'\n");
+    expect(group).toContain("\n        include: ${{ fromJSON(needs.army-calc-v3-plan.outputs.groups) }}\n");
+    const step = stepNamed(group, "Run native database and TesterArmy calc-v3 phases");
+    expect(step).toContain("\n          CALC_V3_PHASES: ${{ matrix.phases }}\n");
+
+    // The step's own shell, with a `node` that records its arguments.
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "calc-v3-group-step-"));
+    try {
+      const log = path.join(directory, "arguments.log");
+      fs.writeFileSync(path.join(directory, "node"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$ARGUMENTS_LOG"\nexit "${NODE_EXIT:-0}"\n', { mode: 0o755 });
+      const run = (phases: string, exit = "0") => {
+        fs.writeFileSync(log, "");
+        const result = spawnSync("bash", ["-c", runScript(step)], { cwd: directory, encoding: "utf8",
+          env: { NODE_ENV: "test", PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`, ARGUMENTS_LOG: log, NODE_EXIT: exit, CALC_V3_PHASES: phases } });
+        return { status: result.status, calls: fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean) };
+      };
+      const runner = "--import tsx scripts/run-tester-army-ci.ts calc-v3";
+      expect(run("journeys,resume,access")).toEqual({ status: 0, calls: [`${runner} --phase journeys,resume,access`] });
+      expect(run("mobile")).toEqual({ status: 0, calls: [`${runner} --phase mobile`] });
+      // Only the explicit complete campaign runs without a list.
+      expect(run("all")).toEqual({ status: 0, calls: [runner] });
+      // A red group is a red job: the runner's exit code is the step's.
+      expect(run("journeys,resume", "1").status).toBe(1);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+
+    const aggregate = stepNamed(jobs["army-calc-v3"], "Aggregate the calc-v3 groups");
+    expect(aggregate).toContain("\n          PHASES_JSON: ${{ needs.army-calc-v3-plan.outputs.phases }}\n");
+    expect(aggregate).toContain("\n          GROUPS_JSON: ${{ needs.army-calc-v3-plan.outputs.groups }}\n");
+    expect(runScript(aggregate)).toContain('--phases "$phases" --groups "$GROUPS_JSON"');
   });
 
   it.skipIf(!canRunGuard && !process.env.CI)(
