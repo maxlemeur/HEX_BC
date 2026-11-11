@@ -6,6 +6,7 @@ import {
   AFFAIRE_INTAKE_DWG_NOTICE,
   AFFAIRE_INTAKE_DXF_NOTICE,
   AFFAIRE_INTAKE_FCSTD_NOTICE,
+  AFFAIRE_INTAKE_IFC_NOTICE,
   affaireIntakeCadNotice,
   affaireIntakeFileUrl,
   getAffaireIntakeAllowedMimeTypes,
@@ -35,6 +36,10 @@ describe("CAD/BIM dossier originals", () => {
     ["Chaufferie.FCStd", ""],
     ["chaufferie.fcstd", "application/zip"],
     ["chaufferie.fcstd", "application/x-extension-fcstd"],
+    ["Maquette CVC.IFC", ""],
+    ["maquette.ifc", "application/x-step"],
+    ["maquette.ifc", "model/ifc"],
+    ["maquette.ifc", "text/plain"],
   ])("accepts the original %s with browser MIME %s", (name, type) => {
     expect(validate(name, type)).toEqual({ valid: true });
     expect(inferAffaireIntakeMimeType(name)).toBe("application/octet-stream");
@@ -51,6 +56,12 @@ describe("CAD/BIM dossier originals", () => {
     expect(validate("document.pdf", "application/zip").valid).toBe(false);
     expect(validate("plan.dwg", "application/zip").valid).toBe(false);
     expect(validate("maquette.fcstd", "application/x-msdownload").valid).toBe(false);
+    // An IFC model is a text, and comes as one or as a STEP file: never as an archive, an image or a program.
+    expect(validate("maquette.ifc", "application/zip").valid).toBe(false);
+    expect(validate("maquette.ifc", "application/x-msdownload").valid).toBe(false);
+    expect(validate("maquette.ifc", "text/html").valid).toBe(false);
+    expect(validate("plan.dwg", "application/x-step").valid).toBe(false);
+    expect(validate("maquette.ifczip", "application/zip").valid).toBe(false);
   });
 
   it.each([
@@ -58,6 +69,7 @@ describe("CAD/BIM dossier originals", () => {
     ["cctp.dxf", AFFAIRE_INTAKE_DXF_NOTICE],
     ["maquette.rvt", AFFAIRE_INTAKE_CAD_NOTICE],
     ["cctp.FCStd", AFFAIRE_INTAKE_FCSTD_NOTICE],
+    ["dpgf plomberie.ifc", AFFAIRE_INTAKE_IFC_NOTICE],
   ])("does not infer readable business content from %s", (name, notice) => {
     const result = getHeuristicAffaireDocumentClassification({ fileName: name });
     expect(result.documentKind).toBe("plans");
@@ -71,6 +83,8 @@ describe("CAD/BIM dossier originals", () => {
     expect(affaireIntakeCadNotice("réseaux.DWG")).toBe(AFFAIRE_INTAKE_DWG_NOTICE);
     expect(affaireIntakeCadNotice("maquette.rvt")).toBe(AFFAIRE_INTAKE_CAD_NOTICE);
     expect(affaireIntakeCadNotice("Chaufferie.FCStd")).toBe(AFFAIRE_INTAKE_FCSTD_NOTICE);
+    expect(affaireIntakeCadNotice("Maquette CVC.IFC")).toBe(AFFAIRE_INTAKE_IFC_NOTICE);
+    expect(AFFAIRE_INTAKE_IFC_NOTICE).not.toContain("non disponibles");
     expect(affaireIntakeCadNotice("plan.dxf.pdf")).toBeNull();
     expect(AFFAIRE_INTAKE_FCSTD_NOTICE).not.toContain("non disponibles");
     expect(AFFAIRE_INTAKE_DXF_NOTICE).not.toContain("non disponibles");
@@ -91,6 +105,8 @@ describe("CAD/BIM dossier originals", () => {
     expect(driveFileRejection({ ...file, name: "plan.pdf" })).toBe("Format non pris en charge.");
     expect(driveFileRejection({ ...file, name: "Chaufferie.FCStd", mimeType: "application/zip" })).toBeNull();
     expect(driveFileRejection({ ...file, name: "archive.zip", mimeType: "application/zip" })).toBe("Format non pris en charge.");
+    expect(driveFileRejection({ ...file, name: "Maquette.ifc", mimeType: "application/x-step" })).toBeNull();
+    expect(driveFileRejection({ ...file, name: "Maquette.ifc", mimeType: "application/zip" })).toBe("Format non pris en charge.");
     expect(driveFileRejection({ ...file, capabilities: { canDownload: false } })).toBe("Lecture interdite par le propriétaire.");
   });
 });

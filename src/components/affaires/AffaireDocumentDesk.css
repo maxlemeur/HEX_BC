@@ -150,6 +150,11 @@
 .document-cad-panel .document-cad-objects :is(th, td):last-child { text-align: left; }
 .document-cad-panel .document-cad-model-note { margin: 10px 0; }
 .document-cad-unsupported { color: var(--muted-foreground); font-size: 11px; line-height: 1.7; }
+.document-cad-viewer > .document-cad-unavailable { margin: auto; max-width: 40ch; border: 0; background: none; line-height: 1.6; text-align: center; }
+.document-ifc-dialog .document-cad-workspace { grid-template-columns: minmax(0, 1fr) clamp(340px, 34vw, 440px); }
+.document-ifc-types small { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: 10px; font-weight: 400; }
+.document-cad-panel .document-ifc-class > * { padding-top: 12px; border-bottom-color: var(--border); color: var(--foreground); font-weight: 600; }
+.document-ifc-types td:not(:first-child) { white-space: nowrap; vertical-align: top; }
 .document-cad-plot { padding-top: 14px; border-top: 1px solid var(--border); }
 .document-cad-plot > .document-desk-button { width: 100%; }
 .document-cad-error { margin: 10px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }

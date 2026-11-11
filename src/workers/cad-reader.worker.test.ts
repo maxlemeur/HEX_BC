@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { dxfBytes, layer, line, rec, type DxfFixture } from "@/lib/cad/dxf.test-utils";
 import { BOILER_ROOM, PNG, SKETCHED_ROOM, documentXml, fcstd } from "@/lib/cad/fcstd.test-utils";
+import { boilerRoomIfc, ifcFile } from "@/lib/cad/ifc.test-utils";
 import { readCadOriginal } from "@/lib/cad/original";
 import { dwgBytes, pngBytes } from "@/lib/cad/originals.test-utils";
 import { createCadReader, type CadWorkerRequest } from "@/workers/cad-reader.worker";
@@ -100,6 +101,33 @@ describe("createCadReader", () => {
     expect(plotted.response).toMatchObject({ ok: true, type: "plot", plot: { denominator: 50, layers: ["Local technique", "Réservations"], paths: 5 } });
   });
 
+  it("reads an IFC model and hands over the buffers of its mesh, without copying them", async () => {
+    const reader = createCadReader();
+    await reader(readRequest("plan.dxf", dxfBytes(plan), "r0"));
+    const reply = await reader(readRequest("Chaufferie.ifc", boilerRoomIfc()));
+    if (!reply.response.ok || reply.response.type !== "read" || reply.response.original.kind !== "ifc") throw new Error("model expected");
+    const { model } = reply.response.original;
+    expect(model).toMatchObject({ schema: "IFC4", elements: 12 });
+    const mesh = model.mesh!;
+    expect(reply.transfer).toEqual([mesh.positions.buffer, mesh.normals.buffer, mesh.colors.buffer, mesh.indices.buffer]);
+    expect(new Set(reply.transfer).size).toBe(4);
+    for (const part of [mesh.positions, mesh.normals, mesh.colors, mesh.indices]) expect(part.byteLength).toBe(part.buffer.byteLength);
+    // The message can be posted with its buffers handed over, and arrives whole.
+    const posted = structuredClone(reply.response, { transfer: reply.transfer });
+    if (!posted.ok || posted.type !== "read" || posted.original.kind !== "ifc") throw new Error("model expected");
+    expect(posted.original.model.mesh?.triangles).toBe(mesh.triangles);
+    expect(posted.original.model.mesh?.indices.length).toBe(mesh.triangles * 3);
+    expect(mesh.indices.length).toBe(0);
+    // A model is not a drawing: there is nothing to plot, not even the plan read before it.
+    expect((await reader({ requestId: "p9", type: "plot", options: {} })).response).toMatchObject({ ok: false, reason: "no_drawing" });
+  });
+
+  it("reads an IFC model without a shape, with nothing to hand over", async () => {
+    const reply = await createCadReader()(readRequest("vide.ifc", ifcFile(() => undefined)));
+    expect(reply.response).toMatchObject({ ok: true, type: "read", original: { kind: "ifc", model: { elements: 0, mesh: null } } });
+    expect(reply.transfer).toEqual([]);
+  });
+
   it("forgets the drawing when another original is read, even one it cannot read", async () => {
     const reader = createCadReader();
     await reader(readRequest("plan.dxf", dxfBytes(plan)));
@@ -117,6 +145,8 @@ describe("createCadReader", () => {
     ["faux.dwg", new Uint8Array(Buffer.from("%PDF-1.7 pas un DWG")), "not_dwg"],
     ["faux.rvt", new Uint8Array(Buffer.from("%PDF-1.7 pas un RVT")), "not_rvt"],
     ["faux.fcstd", new Uint8Array(Buffer.from("%PDF-1.7 pas un FCStd")), "not_fcstd"],
+    ["faux.ifc", new Uint8Array(Buffer.from("%PDF-1.7 pas un IFC")), "not_ifc"],
+    ["coupé.ifc", boilerRoomIfc().subarray(0, 3000), "damaged_ifc"],
     ["plan.pdf", new Uint8Array(Buffer.from("%PDF-1.7")), "unsupported"],
   ])("says why %s is not read", async (fileName, bytes, reason) => {
     const reply = await createCadReader()(readRequest(fileName, bytes));

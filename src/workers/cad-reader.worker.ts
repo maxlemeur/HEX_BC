@@ -1,5 +1,5 @@
 // Reads a CAD original away from the page: a large DXF takes seconds to read
-// and to plot. The worker keeps the drawing it has read, so that a plot does
+// and to plot, and so does an IFC model to mesh. The worker keeps the drawing it has read, so that a plot does
 // not send it back; one worker serves one opened document.
 
 import { CadReadError, type CadReadErrorReason } from "../lib/cad/dxf";
@@ -26,7 +26,8 @@ function alone(bytes: Uint8Array): Uint8Array {
   return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice();
 }
 
-export function createCadReader(): (request: CadWorkerRequest) => Promise<CadWorkerReply> {
+/** `ifcWasmUrl`: where the WebAssembly that reads an IFC model is fetched from; asked only when one is read. */
+export function createCadReader(options: { ifcWasmUrl?(): string } = {}): (request: CadWorkerRequest) => Promise<CadWorkerReply> {
   let drawing: CadDrawing | null = null;
 
   return async (request) => {
@@ -34,7 +35,12 @@ export function createCadReader(): (request: CadWorkerRequest) => Promise<CadWor
     try {
       if (request.type === "read") {
         drawing = null;
-        const original = await readCadOriginal(request.fileName, new Uint8Array(request.buffer));
+        const original = await readCadOriginal(request.fileName, new Uint8Array(request.buffer), { ifcWasmUrl: options.ifcWasmUrl?.() });
+        if (original.kind === "ifc") {
+          // The mesh is heavy and the worker has no more use for it: its buffers are handed over.
+          const { mesh } = original.model;
+          return { response: { requestId, ok: true, type: "read", original }, transfer: mesh ? [mesh.positions.buffer, mesh.normals.buffer, mesh.colors.buffer, mesh.indices.buffer] : [] };
+        }
         // What a file says of itself goes with its image alone; a drawing is posted as a copy, since the worker needs its own to plot.
         const said = original.kind === "drawing" ? original.source : original.summary;
         const thumbnail = said?.thumbnail && { ...said.thumbnail, bytes: alone(said.thumbnail.bytes) };
@@ -55,7 +61,8 @@ export function createCadReader(): (request: CadWorkerRequest) => Promise<CadWor
 }
 
 if (typeof self !== "undefined") {
-  const reader = createCadReader();
+  // The bundler copies the file beside the worker and gives its address.
+  const reader = createCadReader({ ifcWasmUrl: () => new URL("web-ifc/web-ifc.wasm", import.meta.url).href });
   self.onmessage = async (event: MessageEvent<CadWorkerRequest>) => {
     const request = event.data;
     if (!request || typeof request.requestId !== "string" || (request.type !== "read" && request.type !== "plot")) return;

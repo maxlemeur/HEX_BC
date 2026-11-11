@@ -19,6 +19,7 @@ import {
   formatCadQuantity,
 } from "@/lib/cad/messages";
 import type { CadDrawing } from "@/lib/cad/model";
+import type { CadOriginal } from "@/lib/cad/original";
 import type { CadPlot, CadPlotOptions } from "@/lib/cad/plot";
 import { CAD_PLOT_DENOMINATORS } from "@/lib/cad/plot-scales";
 import { cadQuantitiesCsv, cadUsedLayers, measureCadDrawing, type CadLayerQuantity } from "@/lib/cad/quantities";
@@ -26,6 +27,7 @@ import type { CadSummary } from "@/lib/cad/summary";
 import { buildCadScene, cadDisplayColor } from "@/lib/cad/view";
 import { IntakeCadCanvas } from "./IntakeCadCanvas";
 import { IntakeCadModel } from "./IntakeCadModel";
+import { IntakeIfcModel } from "./IntakeIfcModel";
 
 /** Blocks listed on the screen at most: the export has them all. */
 const MAX_BLOCK_ROWS = 200;
@@ -38,6 +40,12 @@ const SUMMARY_GUIDANCE: Record<CadSummary["format"], string> = {
 
 /** A model has a large view when something in it has a shape: the list of its objects. */
 const listedModel = (summary: CadSummary) => (summary.model && summary.model.total > 0 ? summary.model : null);
+
+/** Whether the large view has something to show: a drawing, the objects of a model, the elements of an IFC one. */
+function hasLargeView(original: CadOriginal): boolean {
+  if (original.kind === "drawing") return true;
+  return original.kind === "ifc" ? original.model.elements > 0 : listedModel(original.summary) !== null;
+}
 
 const counted = (count: number, one: string, many: string) => `${count.toLocaleString("fr-FR")} ${count > 1 ? many : one}`;
 
@@ -368,8 +376,9 @@ function CadDrawingView({
 /**
  * The preview of a CAD original: a DXF is read in the browser and shown with
  * its layers and quantities, and so are a DWG once the server has converted it
- * (`drawingUrl`) and the sketches of a FreeCAD model; a Revit model, a DWG
- * without its drawing or a FreeCAD model without a sketch shows what its file says.
+ * (`drawingUrl`) and the sketches of a FreeCAD model; an IFC model is shown in
+ * 3D with its quantities; a Revit model, a DWG without its drawing or a FreeCAD
+ * model without a sketch shows what its file says.
  * `expanded` opens the large view: that of a drawing, or the objects of a model.
  */
 export function IntakeCadPreview({
@@ -391,11 +400,11 @@ export function IntakeCadPreview({
   canManage: boolean;
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
-  /** Told whether the large view has something to show: a drawing, or the objects of a model. */
+  /** Told whether the large view has something to show: a drawing, or what a model holds. */
   onEnlargeableChange?(enlargeable: boolean): void;
 }) {
   const { state, retry, plot } = useCadOriginal(useMemo(() => ({ url, fileName, drawingUrl }), [url, fileName, drawingUrl]));
-  const enlargeable = state.status === "ready" && (state.original.kind === "drawing" || listedModel(state.original.summary) !== null);
+  const enlargeable = state.status === "ready" && hasLargeView(state.original);
 
   useEffect(() => {
     onEnlargeableChange?.(enlargeable);
@@ -417,9 +426,12 @@ export function IntakeCadPreview({
     return (
       <div className="document-preview-empty" role="status">
         <LoaderCircle className="animate-spin" size={24} />
-        <p>{state.status === "loading" && state.converting ? "Conversion du DWG…" : "Lecture du plan…"}</p>
+        <p>{state.status === "loading" && state.converting ? "Conversion du DWG…" : /\.ifc$/iu.test(fileName) ? "Lecture de la maquette…" : "Lecture du plan…"}</p>
       </div>
     );
+  }
+  if (state.original.kind === "ifc") {
+    return <IntakeIfcModel model={state.original.model} fileName={fileName} expanded={expanded} onExpandedChange={onExpandedChange} />;
   }
   if (state.original.kind === "summary") {
     return (

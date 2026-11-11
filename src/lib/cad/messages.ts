@@ -19,6 +19,9 @@ const READ_MESSAGES: Record<CadReadErrorReason, string> = {
   not_rvt: "Ce fichier porte l’extension RVT mais n’en a pas le contenu.",
   not_fcstd: "Ce fichier porte l’extension FCStd mais n’en a pas le contenu.",
   damaged_fcstd: "Ce document FreeCAD est incomplet ou endommagé : il n’a pas pu être lu. Enregistrez-le à nouveau dans FreeCAD, puis déposez-le.",
+  not_ifc: "Ce fichier porte l’extension IFC mais n’en a pas le contenu.",
+  damaged_ifc: "Cette maquette IFC est incomplète ou endommagée : elle n’a pas pu être lue. Exportez-la à nouveau, puis déposez-la.",
+  unsupported_ifc: "Cette maquette est dans une version du format IFC que MergeOne ne lit pas. Exportez-la en IFC2x3 ou en IFC4, puis déposez-la.",
   model_too_large: "Le document de ce fichier FreeCAD est trop volumineux pour être lu ici.",
   unsupported: "Ce format n’est pas lu par MergeOne.",
 };

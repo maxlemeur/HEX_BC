@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect } from "e2e";
 import { PDFDocument } from "pdf-lib";
 import { circle, dxfBytes, insert, layer, line, lwpolyline, text } from "@/lib/cad/dxf.test-utils";
 import { BOILER_ROOM, SKETCHED_ROOM, documentXml, fcstd } from "@/lib/cad/fcstd.test-utils";
-import { armyTest, createEstimateViaWizard, recordEvidence } from "../critical/fixtures";
+import { boilerRoomIfc } from "@/lib/cad/ifc.test-utils";
+import { armyTest, createEstimateViaWizard, recordEvidence, resolveDownload } from "../critical/fixtures";
 import { localClient } from "../takeoff/native-ui";
 
 armyTest("CAD01 accepts DWG DXF RVT originals without claiming extraction", {
@@ -389,4 +390,168 @@ armyTest("CAD04 reads a FreeCAD model of the dossier: objects with their dimensi
   await recordEvidence(army, "cad-freecad", { originals: [fileName, plainName], plot: plotName, sheet_mm: [220, 210], scale: "1/20",
     totals: { sketches: 2, length_m: 13.57, objects: 6 }, screenshots: [compact, large, objects].map(file => path.basename(file)),
     scope: "Fictional FreeCAD documents read in the browser: objects with the dimensions the file gives, sketches drawn and measured by layer, and their plotted PDF added to the dossier. No solid is measured." });
+});
+
+armyTest("CAD05 reads an IFC model of the dossier: 3D view, quantities by class, type and storey, CSV", {
+  session: "army", trace: "off", tags: ["critical", "intake-cad", "local"], timeout: 300_000,
+}, async (ui) => {
+  const { army, app, browser, screen } = ui;
+  const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-CAD05`, title: "Maquette IFC fictive" }, army);
+  const { client } = await localClient();
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
+  await mkdir(directory, { recursive: true });
+  // One fictional boiler room written by hand in the two schemas a Revit export comes in, no real model: twelve elements
+  // on two storeys, pipes and ducts as extruded shapes, a hose as a faceted one, a wall that declares its quantities.
+  const fileName = "chaufferie-fictive.ifc", olderName = "chaufferie-fictive-2x3.IFC";
+  const bytes = boilerRoomIfc();
+  await writeFile(path.join(directory, fileName), bytes);
+  await writeFile(path.join(directory, olderName), boilerRoomIfc({ schema: "IFC2X3" }));
+  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  // A real client interaction proves hydration before setting the hidden file input.
+  await screen.getByRole("button", "Modifier la fiche", { exact: true }).click();
+  await expect(screen.getByRole("button", "Annuler", { exact: true })).toBeVisible();
+  await screen.getByRole("button", "Annuler", { exact: true }).click();
+  const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
+  await expect(upload).toHaveAttribute("accept", /\.ifc/);
+  await upload.setInputFiles([fileName, olderName].map(name => path.join(directory, name)));
+  const stored = async (name: string) => {
+    const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status,document_kind,issues")
+      .eq("project_id", ids.projectId).eq("file_name", name);
+    if (result.error) throw new Error(`Owned CAD read failed: ${result.error.code}`);
+    return result.data.filter(doc => doc.upload_status === "uploaded");
+  };
+  await expect.poll(async () => (await stored(fileName)).length + (await stored(olderName)).length, { timeout: 60_000 }).toBe(2);
+  // The notice comes with the classification, a moment after the deposit.
+  await expect.poll(async () => (await stored(fileName))[0]?.issues ?? [], { timeout: 60_000 })
+    .toEqual(expect.arrayContaining([expect.stringContaining("Maquette IFC conservée")]));
+  const [original] = await stored(fileName), [older] = await stored(olderName);
+  expect(original).toMatchObject({ mime_type: "application/octet-stream", document_kind: "plans" });
+  // The dossier keeps the model as it was deposited.
+  const kept = await client.storage.from("affaire-intake").download(original.storage_path!);
+  expect(kept.error).toBeNull();
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  expect(createHash("sha256").update(Buffer.from(await kept.data!.arrayBuffer())).digest("hex")).toBe(sha256);
+
+  // The model is read in the browser and drawn in the preview of the dossier.
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${original.id}#intake`);
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
+  await expect(screen.getByText("IFC4 · 12 éléments · 2 niveaux", { exact: true })).toBeVisible({ timeout: 90_000 });
+  const view = () => browser.locator(".document-cad-stage > canvas").first();
+  const triangles = async () => Number(await view().getAttribute("data-triangles") ?? -1);
+  // What the view says it drew, then what is on the screen: its picture has pixels that are not its background.
+  // (A WebGL canvas gives its pixels to the screen and keeps none to read back.)
+  await expect.poll(triangles, { timeout: 30_000 }).toBe(448);
+  const painted = async (screenshot: string) => {
+    const box = await view().boundingBox();
+    if (!box) return -1;
+    return browser.evaluate(async ({ png, box }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const scale = image.naturalWidth / window.innerWidth;
+      const pixels = context.getImageData(Math.ceil(box.x * scale) + 2, Math.ceil(box.y * scale) + 2, Math.floor(box.width * scale) - 4, Math.floor(box.height * scale) - 4).data;
+      // The background of the view is one pale colour: that of its first pixel, in a corner the model does not reach.
+      let count = 0;
+      for (let at = 0; at < pixels.length; at += 4) if (Math.abs(pixels[at] - pixels[0]) + Math.abs(pixels[at + 1] - pixels[1]) + Math.abs(pixels[at + 2] - pixels[2]) > 24) count += 1;
+      return count;
+    }, { png: (await readFile(screenshot)).toString("base64"), box });
+  };
+  const compact = await app.screenshot("cad05-model-preview");
+  expect(await painted(compact)).toBeGreaterThan(1_000);
+
+  await screen.getByRole("button", "Vue 3D et quantités", { exact: true }).click();
+  await expect(screen.getByRole("heading", "Quantités lues", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Écrite par Atelier fictif 1.0 · IFC4 · 12 éléments · 2 niveaux", { exact: true })).toBeVisible();
+  // One view at a time: the large one took the place of the small one.
+  await expect(browser.locator(".document-cad-stage > canvas")).toHaveCount(1);
+  await expect.poll(triangles, { timeout: 30_000 }).toBe(448);
+  const shown = () => browser.evaluate(() => document.querySelector(".document-cad-panel dl dd")?.textContent ?? "");
+  const table = () => browser.evaluate(() => [...document.querySelectorAll('.document-cad-dialog table[aria-label="Quantités par type"] tbody tr')]
+    .map(row => [...row.children].map(cell => (cell.textContent ?? "").replace(/\s/gu, " "))));
+  // Runs read in the shapes: three PVC pipes of 4,25 m, 1,75 m and 0,06 m; a duct of 3 m and a stub the ports of which are
+  // 0,25 m apart, both 400 × 350 mm; the collector declares 3,1 m; the hose, a faceted shape, is measured: « ≈ ».
+  // A class adds up its own lengths; the wall declares its length, its area and its volume.
+  expect(await table()).toEqual([
+    ["Gaines IfcDuctSegment", "2", "3,25 m"],
+    ["Gaine rectangulaire:Soufflage 400 × 350 mm", "2", "3,25 m"],
+    ["Raccords de tuyauterie IfcPipeFitting", "2", ""],
+    ["Coude PVC:87°", "2", ""],
+    ["Tuyaux IfcPipeSegment", "6", "≈ 12,36 m"],
+    ["Collecteur:Fonte Ø 160 mm", "1", "3,1 m"],
+    ["Flexible:Raccordement", "1", "≈ 1,2 m"],
+    ["Tuyau cuivre:Alimentation Ø 40 mm", "1", "2 m"],
+    ["Tuyau PVC:Évacuation Ø 110 mm", "3", "6,06 m"],
+    ["Appareils sanitaires IfcSanitaryTerminal", "1", ""],
+    ["Lavabo:Standard", "1", ""],
+    ["Murs IfcWall", "1", "5 m"],
+    ["Sans type Surface 13,14 m² · Volume 2,63 m³", "1", "5 m"],
+  ]);
+  expect(await shown()).toBe("12");
+  // The picture is taken once the window has finished opening.
+  await expect.poll(() => browser.evaluate(() => getComputedStyle(document.querySelector(".document-cad-dialog") ?? document.body).opacity)).toBe("1");
+  const large = await app.screenshot("cad05-model-and-quantities");
+  expect(await painted(large)).toBeGreaterThan(1_000);
+
+  // A storey narrows the quantities and the view together: the basement holds the ducts, the copper pipe and the hose.
+  const storey = screen.getByRole("combobox", "Niveau", { exact: true });
+  await storey.selectOption({ label: "Sous-sol" });
+  await expect.poll(shown).toBe("4");
+  await expect.poll(table).toEqual([
+    ["Gaines IfcDuctSegment", "2", "3,25 m"],
+    ["Gaine rectangulaire:Soufflage 400 × 350 mm", "2", "3,25 m"],
+    ["Tuyaux IfcPipeSegment", "2", "≈ 3,2 m"],
+    ["Flexible:Raccordement", "1", "≈ 1,2 m"],
+    ["Tuyau cuivre:Alimentation Ø 40 mm", "1", "2 m"],
+  ]);
+  await expect.poll(triangles).toBe(76);
+  // A class hidden leaves the view and the quantities.
+  await screen.getByRole("checkbox", "Gaines (IfcDuctSegment), 2 éléments", { exact: true }).uncheck();
+  await expect.poll(triangles).toBe(52);
+  await expect.poll(shown).toBe("2");
+  const basement = await app.screenshot("cad05-basement-pipes");
+  // What is shown is what is exported: the pipes of the basement.
+  const file = await browser.waitForDownload(() => screen.getByRole("button", "Exporter les quantités (CSV)", { exact: true }).click(), { timeout: 30_000 });
+  // The browser names a download in the encoding of its locale: without a UTF-8 one (LANG=C.UTF-8) it gives up on « é » and calls the file « download ».
+  expect(file.suggestedFilename).toBe("chaufferie-fictive - quantités.csv");
+  const csv = (await readFile(await resolveDownload(file), "utf8")).replace(/^\uFEFF/u, "").trim().split("\r\n");
+  expect(csv).toEqual([
+    "Classe IFC;Nature;Type;Section;Niveau;Nombre;Longueur (m);Longueurs approchées;Surface (m²);Volume (m³)",
+    "IfcPipeSegment;Tuyaux;Flexible:Raccordement;;Sous-sol;1;1,2;1;;",
+    "IfcPipeSegment;Tuyaux;Tuyau cuivre:Alimentation;Ø 40 mm;Sous-sol;1;2;;;",
+  ]);
+  // The collector is on no storey.
+  await screen.getByRole("button", "Tout afficher", { exact: true }).click();
+  await storey.selectOption({ label: "Hors niveau" });
+  await expect.poll(table).toEqual([["Tuyaux IfcPipeSegment", "1", "3,1 m"], ["Collecteur:Fonte Ø 160 mm", "1", "3,1 m"]]);
+  await expect.poll(triangles).toBe(40);
+  await storey.selectOption({ label: "Tous les niveaux" });
+  await expect.poll(triangles).toBe(448);
+  // Closing the large view brings the small one back, on a context of its own, with the whole model.
+  await browser.keyboard.press("Escape");
+  await expect(screen.getByRole("heading", "Quantités lues", { exact: true })).toBeHidden();
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
+  await expect(browser.locator(".document-cad-stage > canvas")).toHaveCount(1);
+  await expect.poll(triangles, { timeout: 30_000 }).toBe(448);
+  expect(await painted(await app.screenshot("cad05-model-preview-again"))).toBeGreaterThan(1_000);
+
+  // The same room as Revit 2019 and older write it: the classes are those of IFC2X3, the quantities are the same.
+  await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${older.id}#intake`);
+  await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
+  await expect(screen.getByText("IFC2X3 · 12 éléments · 2 niveaux", { exact: true })).toBeVisible({ timeout: 90_000 });
+  await expect.poll(triangles, { timeout: 30_000 }).toBe(448);
+  await screen.getByRole("button", "Vue 3D et quantités", { exact: true }).click();
+  await expect(screen.getByRole("heading", "Quantités lues", { exact: true })).toBeVisible();
+  expect((await table()).filter(row => /^Tuyaux, gaines|^Tuyau PVC|^Gaine/u.test(row[0]))).toEqual([
+    ["Tuyaux, gaines et chemins de câbles IfcFlowSegment", "8", "≈ 15,61 m"],
+    ["Gaine rectangulaire:Soufflage 400 × 350 mm", "2", "3,25 m"],
+    ["Tuyau PVC:Évacuation Ø 110 mm", "3", "6,06 m"],
+  ]);
+  await recordEvidence(army, "cad-ifc", { originals: [fileName, olderName], sha256, elements: 12, storeys: ["Sous-sol", "Rez-de-chaussée"], triangles: 448,
+    totals: { pipes_m: 12.36, ducts_m: 3.25, wall_m: 5, wall_m2: 13.14, wall_m3: 2.63 }, screenshots: [compact, large, basement].map(file => path.basename(file)),
+    scope: "Fictional IFC models (IFC4 and IFC2X3) read in the browser by web-ifc: elements counted by class, type and storey, lengths read in the extruded shapes, in the ports or declared, drawn in 3D by the in-house WebGL view, and their CSV. No real model is read here." });
 });
