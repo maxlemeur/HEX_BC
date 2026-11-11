@@ -65,13 +65,77 @@ export async function prepareChatGptServerWorkspace() {
   } };
 }
 
-/** Compile the real protected pages and the callback's missing-state rejection before UI assertions. */
-export async function warmChatGptServer(origin: string, email: string, workflow: "profile" | "takeoff" = "takeoff") {
+/**
+ * The compile waves of a ChatGPT development server. "profile" and "journeys" are the readiness of a server: the real
+ * protected pages and the callback's missing-state rejection, before UI assertions. The two "takeoff" waves are every
+ * other page and API route the tests of chatgpt-local-takeoff.e2e.ts use, so that no test waits for a compile.
+ */
+export type ChatGptCompileWave = "profile" | "journeys" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+
+/**
+ * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
+ * routes, then the job routes. One wave a hook: see compileChatGptRoutes.
+ */
+export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs"] as const;
+
+type CompileRequest = { path: string; method?: "OPTIONS"; anonymous?: boolean; expected: number[] };
+
+function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
+  const absent = "00000000-0000-4000-8000-000000000001";
+  // GETs refuse through absent IDs and missing OAuth state. Next may start streaming a page before its missing
+  // project, version or job calls notFound(): 200 or 404.
+  const page = (path: string): CompileRequest => ({ path, expected: [200, 404] });
+  // Next answers OPTIONS from the compiled module's exports (204, Allow), without running a handler.
+  const route = (path: string): CompileRequest => ({ path, method: "OPTIONS", expected: [204] });
+  const callback: CompileRequest = { path: "/auth/chatgpt/callback", expected: [302, 303, 307] };
+  if (wave === "profile") {
+    return [{ path: "/dashboard", expected: [200] }, { path: "/dashboard/profile", expected: [200] }, callback];
+  }
+  if (wave === "journeys") {
+    return [
+      ...["/dashboard", "/dashboard/profile", "/dashboard/estimates/new", `/dashboard/estimates/${absent}/edit`]
+        .map(path => ({ path, expected: [200] })),
+      { path: `/api/estimates/${absent}`, expected: [404] },
+      { path: `/api/estimates/${absent}/suggestion-learning`, expected: [200, 404] },
+      page(`/dashboard/affaires/${absent}/plans`), page(`/dashboard/affaires/${absent}/takeoff`), callback,
+      ...[`/api/takeoff/plan-sets/${absent}/files`, `/api/takeoff/plan-sets/${absent}/files/reconcile`]
+        .map(path => ({ path, expected: [400, 403, 404, 405] })),
+    ];
+  }
+  // The entries the tests of chatgpt-local-takeoff.e2e.ts compiled in their own bodies (the compile-path spans of
+  // this server's Next trace, the same 23 in two runs). There, a first use waited for its compile, and for any
+  // compile already running, inside one 30 s action: in CI, V3C08's first item write took 17 to 22 s in green runs
+  // and timed out at 30 s.
+  if (wave === "takeoff-editor") {
+    return [
+      // A session would be redirected to the dashboard before the login page compiles.
+      { path: "/login", anonymous: true, expected: [200] },
+      ...[`/dashboard/affaires/${absent}`, `/dashboard/estimates/${absent}/takeoff/new`,
+        `/dashboard/estimates/${absent}/takeoff/${absent}`].map(page),
+      ...["/api/feature-flags", "/api/estimates", "/api/estimates/templates",
+        ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(name => `/api/estimates/${absent}/${name}`),
+      ].map(route),
+    ];
+  }
+  return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
+    "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`,
+    ...["retry", "resubmit", "reconcile"].map(command => `/api/takeoff/jobs/${absent}/${command}`),
+    "/api/internal/takeoff/process-job", "/api/google-drive/connection"].map(route);
+}
+
+/**
+ * Compiles one wave of a ChatGPT development server and fails on any unexpected answer.
+ *
+ * Call each wave from a hook of its own. The runner gives every beforeAll the default test limit (90 s, e2e.config.ts)
+ * and has no limit per hook: on a CI shard running its two workers, the "journeys" wave alone takes 50 to 60 s, and
+ * the server start, that wave and the takeoff waves in one hook passed 90 s before any test ran (run 43075417216).
+ */
+export async function compileChatGptRoutes(origin: string, email: string, wave: ChatGptCompileWave) {
   const app = new URL(origin);
   if (app.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(app.hostname)) throw new Error("Local ChatGPT server required.");
   const cookies = new Map<string, string>();
   const started = Date.now();
-  const requests: Array<{ path: string; status: number | null; elapsedMs: number }> = [];
+  const requests: Array<{ method: string; path: string; status: number | null; elapsedMs: number }> = [];
   const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: { getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
       setAll: values => { for (const { name, value } of values) cookies.set(name, value); } },
@@ -79,35 +143,20 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
   try {
     const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
     if (login.error) throw new Error("ChatGPT readiness login failed.");
-    const signal = AbortSignal.timeout(90_000);
-    const absentPlanSet = "00000000-0000-4000-8000-000000000001";
-    const paths = workflow === "profile" ? ["/dashboard", "/dashboard/profile", "/auth/chatgpt/callback"] : [
-      "/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
-      `/dashboard/estimates/${absentPlanSet}/edit`, `/api/estimates/${absentPlanSet}`,
-      `/api/estimates/${absentPlanSet}/suggestion-learning`, `/dashboard/affaires/${absentPlanSet}/plans`,
-      `/dashboard/affaires/${absentPlanSet}/takeoff`,
-      "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
-      `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
-    // Submit this journey's entries together: Next coalesces pending entries
-    // and serializes its Webpack compiler. Barriers create extra cold builds.
-    // GETs only: absent IDs and missing OAuth state preserve the real refusals.
-    const warm = async (pathname: string) => {
-      const routeStarted = Date.now();
+    // Under the 90 s of the hook, so that a slow compile fails here, by name and with its timings kept.
+    const signal = AbortSignal.timeout(80_000);
+    const compile = async (request: CompileRequest) => {
+      const requestStarted = Date.now();
+      const method = request.method ?? "GET";
       let status: number | null = null;
       try {
-        const response = await fetch(new URL(pathname, origin), { redirect: "manual", signal,
-          headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
+        const response = await fetch(new URL(request.path, origin), { method, redirect: "manual", signal,
+          headers: request.anonymous ? {} : { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
         status = response.status;
-        const learning = pathname === `/api/estimates/${absentPlanSet}/suggestion-learning`;
-        const expected = learning ? [200, 404]
-          : pathname.startsWith(`/api/estimates/${absentPlanSet}`) ? [404]
-          : pathname.startsWith("/api/") ? [400, 403, 404, 405]
-          : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
-          // Next may start streaming before the missing project calls notFound().
-          : ["plans", "takeoff"].some(page => pathname === `/dashboard/affaires/${absentPlanSet}/${page}`)
-            ? [200, 404] : [200];
-        if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
-        if (learning && response.status === 200) {
+        if (!request.expected.includes(response.status)) {
+          throw new Error(`ChatGPT readiness failed for ${method} ${request.path}: ${response.status}.`);
+        }
+        if (request.path.endsWith("/suggestion-learning") && response.status === 200) {
           // Disabled learning returns its empty state before checking the version.
           const body = await response.json();
           if (body?.ok !== true || body.data?.config?.enabled !== false ||
@@ -118,11 +167,12 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
           await response.text();
         }
       } finally {
-        requests.push({ path: pathname, status, elapsedMs: Date.now() - routeStarted });
+        requests.push({ method, path: request.path, status, elapsedMs: Date.now() - requestStarted });
       }
     };
-    const results = await Promise.allSettled(paths.map(warm));
-    for (const result of results) {
+    // Submit the wave's entries together: Next coalesces pending entries and serializes its Webpack compiler.
+    // Barriers inside a wave create extra cold builds.
+    for (const result of await Promise.allSettled(compileRequests(wave).map(compile))) {
       if (result.status === "rejected") throw result.reason;
     }
   } finally {
@@ -130,8 +180,8 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
       const artifacts = path.resolve(".e2e/army/critical/artifacts");
       await mkdir(artifacts, { recursive: true });
       // Only constant refusal paths, response statuses and timings; no cookies or bodies.
-      await writeFile(path.join(artifacts, `chatgpt-readiness-${app.port}.json`),
-        JSON.stringify({ workflow, elapsedMs: Date.now() - started, requests }));
+      await writeFile(path.join(artifacts, `chatgpt-readiness-${app.port}-${wave}.json`),
+        JSON.stringify({ wave, elapsedMs: Date.now() - started, requests }));
     } finally {
       await client.auth.signOut({ scope: "local" });
     }

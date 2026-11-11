@@ -49,6 +49,8 @@ export type EstimateV3GridModel = {
   /** Lignes calculées par le moteur pur pour l'aperçu courant (vide si l'aperçu est refusé). */
   lines: EstimateV3LineIndex;
   allowedTaxRatesBp: readonly number[];
+  /** Coefficient de vente FO de l'aperçu courant, pour le détail du coût de fourniture d'une ligne (TI-541). */
+  saleCoefficientFo?: string | null;
 };
 
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);

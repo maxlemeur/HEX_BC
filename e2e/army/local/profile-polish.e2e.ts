@@ -9,7 +9,7 @@ import { credentials, expect } from "e2e";
 
 import { recordEvidence } from "../critical/fixtures";
 import { hydratedUi } from "../critical/hydration-support";
-import { createLocalChatGptOwner, prepareChatGptServerWorkspace, warmChatGptServer } from "./chatgpt-server-support";
+import { compileChatGptRoutes, createLocalChatGptOwner, prepareChatGptServerWorkspace } from "./chatgpt-server-support";
 
 test("PFL01 profile preserves saved details, AI preferences and accessible account management", {
   tags: ["critical", "local", "profile"], session: "army", timeout: 300_000,
@@ -80,7 +80,7 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
       return fetch(`${origin}/favicon.ico`).then(response => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
-    await warmChatGptServer(origin, email, "profile");
+    await compileChatGptRoutes(origin, email, "profile");
     // This journey uses its own loopback origin and the SDK's plain test fixture,
     // not armyTest. Confine browser traffic before loading the login page.
     await browser.route("**/*", async route => {

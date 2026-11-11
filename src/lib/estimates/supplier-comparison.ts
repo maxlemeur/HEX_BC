@@ -635,6 +635,8 @@ export function buildEstimateSupplierPreselectionReview(input: {
   itemTitleById: Map<string, string>;
   /** Devise du devis : un prix dans une autre devise n'est jamais préselectionné. */
   estimateCurrency?: string | null;
+  /** TI-541 : lignes portant un coût chantier. Leur coût est déjà choisi : ni proposition, ni exception. */
+  siteCostItemIds?: ReadonlySet<string>;
 }): EstimateSupplierPreselectionReview {
   const estimateCurrency = input.estimateCurrency?.trim() || "EUR";
   const summary = createEmptyEstimateSupplierPreselectionSummary();
@@ -643,6 +645,10 @@ export function buildEstimateSupplierPreselectionReview(input: {
 
   input.comparisons.forEach((comparison) => {
     summary.total_items += 1;
+    if (input.siteCostItemIds?.has(comparison.item_id)) {
+      summary.already_selected_items += 1;
+      return;
+    }
 
     const itemTitle = input.itemTitleById.get(comparison.item_id) ?? "Ligne";
     const proposedAlternative =
