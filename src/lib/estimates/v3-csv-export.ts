@@ -15,6 +15,7 @@ import { ESTIMATE_EXPORT_PROGRESS_COMPLETE } from "@/lib/estimates/export-stream
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { formatOfferChoice } from "@/lib/estimates/offer-choice";
 import { formatStatusReason } from "@/lib/estimates/status-reason";
 import { TAKEOFF_PROVISION_EXPORT_HEADER, takeoffProvisionExportLabel } from "@/lib/estimates/takeoff-provision";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
@@ -45,6 +46,8 @@ import {
  * TI-682 lot C, PR 3 : puis « Motif interne » (motif d'une ligne exclue après « Non chiffrée », `status_reason`), dernière
  * colonne ; même règle, aucun classeur client ou fournisseur ne la porte. Moteur 3 seulement (le CSV v1/v2 n'en a pas :
  * aucune ligne v1/v2 ne porte de statut ni de motif).
+ * TI-682 lot C, PR 4 : puis « Réserve dans l'offre » (base, motif et précision de la réserve écrite d'une ligne « Non
+ * chiffrée », `offer_choice`), dernière colonne ; même règle.
  */
 
 export const ESTIMATE_V3_CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
@@ -59,11 +62,14 @@ const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO a
 /** TI-682 lot C : motif interne d'une exclusion, après « Provision métré ». */
 export const STATUS_REASON_EXPORT_HEADER = "Motif interne";
 
+/** TI-682 lot C, PR 4 : réserve écrite dans l'offre, après « Motif interne ». */
+export const OFFER_CHOICE_EXPORT_HEADER = "Réserve dans l'offre";
+
 export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
     `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", "Transport FO", ...(laborSplit ? LABOR_SPLIT_HEADER : []),
-    TAKEOFF_PROVISION_EXPORT_HEADER, STATUS_REASON_EXPORT_HEADER];
+    TAKEOFF_PROVISION_EXPORT_HEADER, STATUS_REASON_EXPORT_HEADER, OFFER_CHOICE_EXPORT_HEADER];
 }
 
 /** Lignes du CSV v3 (en-tête, lignes du document, puis pied sous « Désignation » / « Total HT »). */
@@ -127,6 +133,7 @@ export function buildEstimateV3CsvRows(input: {
         : ["", "", "", "", "", ""]),
       takeoffProvisionExportLabel(item.source_metadata),
       formatStatusReason(item.status_reason),
+      formatOfferChoice(item),
     ]);
   }
   const totalColumn = header.indexOf(`Total HT (${currency})`);

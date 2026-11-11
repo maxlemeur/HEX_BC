@@ -37,6 +37,8 @@ describe("EstimateSendGatingDialog", () => {
     renderDialog([flag("missing_price", "Prix manquant"), flag("not_priced_unclassified", "Lignes non chiffrées à classer")]);
     expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
     expect(screen.getByText(/Les lignes non chiffrées se classent avant l'envoi/)).toBeInTheDocument();
+    // TI-682, lot C, PR 4: the honest way out is named.
+    expect(screen.getByText(/un administrateur déclare la réserve sur la ligne/)).toBeInTheDocument();
   });
   // TI-682, lot C (D25): an excluded necessary service says why before it leaves. The send window lists the lines and
   // takes the reason on the spot; no override is offered while one remains.
@@ -110,6 +112,66 @@ describe("EstimateSendGatingDialog", () => {
       );
       expect(screen.getByText("Calorifuge des réseaux")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Enregistrer le motif/ })).not.toBeInTheDocument();
+    });
+  });
+
+  // TI-682, lot C, PR 4 (D10, D28): the written reserve. The issuer sees each reserve and its basis; a reserve with empty
+  // limits is written, never forced.
+  describe("written reserves", () => {
+    const reserveLines = [
+      { id: "line-1", title: "Réseau enterré", description: "Devis privé (hors marché public) — À chiffrer après relevé" },
+      { id: "line-2", title: "Calorifuge", description: "Quantités indicatives selon le règlement de la consultation — "
+        + "Question posée à l'acheteur : RC article 5.2" },
+    ];
+    const declared: EstimateSendGatingFlag = { key: "offer_reserve_declared", severity: "warning", count: 2,
+      itemIds: ["line-1", "line-2"], label: "Réserves écrites dans l'offre", description: "Vérifiez la base de chaque réserve." };
+    const limits: EstimateSendGatingFlag = { key: "offer_limits_required", severity: "blocking", count: 2,
+      itemIds: ["line-1", "line-2"], label: "Précisions et limites de prestation à rédiger", description: "À rédiger" };
+    function renderReserveDialog(blocking: EstimateSendGatingFlag[], onOpenLimits?: () => void) {
+      const onConfirm = vi.fn();
+      render(
+        <EstimateSendGatingDialog
+          isOpen
+          isSubmitting={false}
+          phaseLabel={null}
+          blockingFlags={blocking}
+          warningFlags={[declared]}
+          canForce
+          reserveLines={reserveLines}
+          onOpenLimits={onOpenLimits}
+          onClose={vi.fn()}
+          onConfirm={onConfirm}
+          onForceConfirm={vi.fn()}
+        />
+      );
+      return onConfirm;
+    }
+
+    it("lists each reserved line with its basis and reason, and lets the offer leave once the limits are written", () => {
+      const onConfirm = renderReserveDialog([]);
+      expect(screen.getByText("Réseau enterré")).toBeInTheDocument();
+      expect(screen.getByText("Devis privé (hors marché public) — À chiffrer après relevé")).toBeInTheDocument();
+      expect(screen.getByText(/RC article 5\.2/)).toBeInTheDocument();
+      expect(screen.getByText(/En marché public à prix global et forfaitaire, une réserve peut rendre l'offre irrégulière/))
+        .toBeInTheDocument();
+      expect(screen.queryByText(/line-1/)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Envoyer" }));
+      expect(onConfirm).toHaveBeenCalled();
+    });
+
+    it("withholds the override while the limits are empty, and opens them to write on request", () => {
+      const open = vi.fn();
+      renderReserveDialog([flag("missing_price", "Prix manquant"), limits], open);
+      expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Envoyer" })).toBeDisabled();
+      expect(screen.getByText(/le forçage n'est pas proposé tant que les précisions sont vides/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Rédiger les précisions" }));
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no writing to a reader who cannot write the limits", () => {
+      renderReserveDialog([limits]);
+      expect(screen.queryByRole("button", { name: "Rédiger les précisions" })).not.toBeInTheDocument();
     });
   });
 });

@@ -1,4 +1,5 @@
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
+import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from "@/lib/estimates/offer-choice";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
@@ -2072,6 +2073,12 @@ const estimateLineIdPathParameter = pathParameter({
   schemaName: "EstimateLineIdPathParameter",
   schema: uuidSchema,
 });
+const estimateItemIdPathParameter = pathParameter({
+  name: "itemId",
+  description: "Identifiant UUID d'une ligne de la version.",
+  schemaName: "EstimateItemIdPathParameter",
+  schema: uuidSchema,
+});
 const takeoffRuleIdPathParameter = pathParameter({
   name: "ruleId",
   description: "Identifiant UUID de la regle de mapping Takeoff.",
@@ -2580,6 +2587,12 @@ const createEstimateItemBody = jsonBody({
   name: "CreateEstimateItemRequest",
   description: "Creation d'un item (section ou ligne).",
   schema: createEstimateItemSchema,
+});
+
+const estimateOfferChoiceBody = jsonBody({
+  name: "EstimateLineOfferChoiceRequest",
+  description: "Réserve écrite dans l'offre d'une ligne « Non chiffrée » (TI-682) : base, motif et précision internes.",
+  schema: estimateOfferChoiceInputSchema,
 });
 
 const updateEstimateItemBody = jsonBody({
@@ -3889,6 +3902,37 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: deleteEstimateItemBody,
     responses: {
       "200": jsonResponse("Item supprime.", apiEstimateItemDeletedSchemaDefinition),
+    },
+  },
+  {
+    method: "put",
+    path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
+    summary: "Déclarer la réserve écrite d'une ligne",
+    description: "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
+    requestBody: estimateOfferChoiceBody,
+    responses: {
+      "200": jsonResponse("Réserve enregistrée : la ligne et le nouveau jeton de version.",
+        successResponseSchemaDefinition("ApiEstimateLineOfferChoiceResponse", estimateOfferChoiceReceiptSchema)),
+      "400": jsonResponse("Réserve invalide, version d'un autre moteur que le 3, ou jeton manquant.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("ESTIMATE_OFFER_CHOICE_FORBIDDEN (pas administrateur) ou READ_ONLY (version envoyée).", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Version ou ligne introuvable.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED, ou ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (la ligne n'est pas « Non chiffrée »).", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
+    summary: "Retirer la réserve écrite d'une ligne",
+    description: "TI-682 : un administrateur du tenant retire la réserve d'une ligne d'une v3 brouillon ; la ligne redevient « Non chiffrée » à classer. Mêmes contrôles que la déclaration.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
+    responses: {
+      "200": jsonResponse("Réserve retirée : la ligne et le nouveau jeton de version.",
+        successResponseSchemaDefinition("ApiEstimateLineOfferChoiceWithdrawnResponse", estimateOfferChoiceReceiptSchema)),
+      "403": jsonResponse("ESTIMATE_OFFER_CHOICE_FORBIDDEN ou READ_ONLY.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("VERSION_CONFLICT ou LOCK_REQUIRED.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {

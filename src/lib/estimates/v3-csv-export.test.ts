@@ -102,12 +102,12 @@ describe("v3 estimate CSV takeoff provision column (TI-682)", () => {
     const split = ["h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier", "K MO chantier"];
     for (const laborSplit of [false, true]) {
       const rows = csvRows(frozenV3Document(laborSplit));
-      expect(rows[0]).toEqual([...base, ...(laborSplit ? split : []), PROVISION_HEADER, REASON_HEADER]);
+      expect(rows[0]).toEqual([...base, ...(laborSplit ? split : []), PROVISION_HEADER, REASON_HEADER, RESERVE_HEADER]);
       expect(estimateV3CsvHeader("EUR", laborSplit)).toEqual(rows[0]);
       expect(rows.filter((row) => row.length > 0).every((row) => row.length === rows[0].length)).toBe(true);
       const footer = rows.slice(rows.findIndex((row) => row.length === 0) + 1);
       expect(footer.length).toBeGreaterThan(0);
-      expect(footer.map((row) => row.slice(-2))).toEqual(footer.map(() => ["", ""]));
+      expect(footer.map((row) => row.slice(-3))).toEqual(footer.map(() => ["", "", ""]));
     }
   });
 
@@ -138,7 +138,39 @@ describe("v3 estimate CSV internal reason column (TI-682)", () => {
   it("states the internal reason of each excluded line in the last column, empty without one", () => {
     const rows = csvRows(frozenV3ExportDocument(LINES));
     const header = rows[0] as string[];
-    expect(header.slice(-2)).toEqual([PROVISION_HEADER, REASON_HEADER]);
+    expect(header.slice(-3, -1)).toEqual([PROVISION_HEADER, REASON_HEADER]);
+    const designation = header.indexOf("Désignation");
+    const reason = header.indexOf(REASON_HEADER);
+    expect(rows.slice(1, 1 + LINES.length).map((row) => [row[designation], row[reason]]))
+      .toEqual(LINES.map((line) => [line.title, line.expected]));
+    const csv = writeEstimateV3Csv(rows);
+    const workbook = XLSX.read(csv.slice(1), { type: "string", raw: true, FS: ";" });
+    const parsed = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
+    expect(parsed.slice(1, 1 + LINES.length).map((row) => row[reason])).toEqual(LINES.map((line) => line.expected));
+  });
+});
+
+// TI-682 lot C, PR 4: the written reserve of a « Non chiffrée » line (its basis, code and note), in the last column
+// « Réserve dans l'offre ». Only the internal CSV carries it (offer-choice-exports.test.ts guards the other workbooks).
+const RESERVE_HEADER = "Réserve dans l'offre";
+
+describe("v3 estimate CSV written reserve column (TI-682)", () => {
+  const reserve = (extra: Record<string, unknown> = {}) => ({ kind: "reserve", basis: "private_estimate", code: "pending_survey",
+    note: null, decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T18:02:23.123456+00:00", ...extra });
+  const LINES = [
+    { title: "ARMY chiffrée", metadata: {}, expected: "" },
+    { title: "ARMY non chiffrée", metadata: {}, pricing_status: "not_priced", was_not_priced: true, expected: "" },
+    { title: "ARMY réservée", metadata: {}, pricing_status: "not_priced", was_not_priced: true, offer_choice: reserve(),
+      expected: "Réserve — Devis privé (hors marché public) — À chiffrer après relevé" },
+    { title: "ARMY réservée RC", metadata: {}, pricing_status: "not_priced", was_not_priced: true,
+      offer_choice: reserve({ basis: "indicative_quantities", code: "pending_buyer_answer", note: "RC article 5.2" }),
+      expected: "Réserve — Quantités indicatives selon le règlement de la consultation — Question posée à l'acheteur : RC article 5.2" },
+  ] as const;
+
+  it("states the reserve of each reserved line in the last column, after the internal reason, empty without one", () => {
+    const rows = csvRows(frozenV3ExportDocument(LINES));
+    const header = rows[0] as string[];
+    expect(header.slice(-3)).toEqual([PROVISION_HEADER, REASON_HEADER, RESERVE_HEADER]);
     const designation = header.indexOf("Désignation");
     expect(rows.slice(1, 1 + LINES.length).map((row) => [row[designation], row.at(-1)]))
       .toEqual(LINES.map((line) => [line.title, line.expected]));

@@ -96,6 +96,7 @@ values
   ('public.freeze_estimate_v3_snapshot', 'gel v3 (M4) : refuse tout moteur autre que 3'),
   ('private.estimate_v3_canonical_input', 'entrées canoniques v3 (M4) : refuse tout moteur autre que 3'),
   ('private.derive_estimate_item_v3_columns', 'dérivation des heures et du taux d''une ligne v3 (M4) : sans effet hors moteur 3'),
+  ('public.set_estimate_line_offer_choice', 'réserve écrite dans l''offre (TI-682, lot C) : refuse tout moteur autre que 3 (ESTIMATE_OFFER_CHOICE_ENGINE_NOT_SUPPORTED) ; écrit sous contrat d''écrivain v3'),
   ('private.derive_estimate_item_fo_provision', 'provision FO d''une ligne v3 (TI-534) : dérivée du type FO en moteur 3, 1,000 imposé hors moteur 3'),
   ('private.retire_empty_accepted_legacy_estimate', 'maintenance ponctuelle réservée à postgres : cible unique acceptée, vide et non scellée, avec restauration du garde dans la transaction ; fonction retirée par la migration V3 suivante');
 

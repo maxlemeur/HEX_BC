@@ -2,6 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { applyStatusReasonRules, type EstimateStatusReason } from "@/lib/estimates/status-reason";
+import {
+  applyOfferChoiceRules,
+  describeOfferChoice,
+  readOfferReserve,
+  type EstimateOfferChoiceInput,
+} from "@/lib/estimates/offer-choice";
 import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
@@ -141,6 +147,7 @@ import {
   type EstimateEditorData,
   releaseEstimateDraftLock,
   saveEstimateVersion,
+  setEstimateLineOfferChoice,
   updateEstimateLaborRole,
   type VersionZeroDraftSummary,
   type SuggestionLearningState as SuggestionLearningClientState,
@@ -1516,8 +1523,14 @@ export function useEstimateEditorState({
         // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
         const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
         // TI-682, lot C : la ligne reste celle que la base garde (« a été Non chiffrée » collant, motif effacé quand
-        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet).
-        const tracked = current ? applyStatusReasonRules(current, item) : item;
+        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet). L'indicateur suit la ligne attendue en base
+        // (confirmée, plus les enregistrements en vol) : l'écriture fusionnée du délai d'enregistrement s'y compare.
+        const saved = (editorDocument.getExpectedItem(item.id) as EditorEstimateItem | undefined) ?? null;
+        const statusTracked = current ? applyStatusReasonRules(current, item, saved) : item;
+        // TI-682, lot C, PR 4 : la réserve écrite est celle que la base garde : la réserve enregistrée, effacée si le
+        // statut qui sera écrit ne lui convient plus (jamais une saisie de la grille).
+        const tracked = saved ? applyOfferChoiceRules(saved, { ...statusTracked, offer_choice: saved.offer_choice ?? null })
+          : statusTracked;
         return withRederivedFoProvision(current, tracked, foProvisionBySupplyTypeId);
       }
       const taxRate =
@@ -1556,6 +1569,7 @@ export function useEstimateEditorState({
     [
       calcEngineVersion,
       computeLineValuesWithLaborContext,
+      editorDocument,
       foProvisionBySupplyTypeId,
       getItemsSnapshot,
       isLaborSplitEnabled,
@@ -2396,11 +2410,35 @@ export function useEstimateEditorState({
     ]
   );
 
+  // TI-682, lot C, PR 4 : réserve écrite d'une ligne « Non chiffrée », par un administrateur du tenant. Les saisies en
+  // attente partent d'abord (la ligne doit être enregistrée « Non chiffrée ») ; la route répond par le jeton de version
+  // que la file d'écriture publie, et la ligne confirmée prend la réserve.
+  const canDeclareOfferReserve = profile?.tenant_role === "admin" && !isReadOnly && !isConflictLocked && !isViewerReadOnly;
+  const saveOfferChoice = useCallback(async (itemId: string, choice: EstimateOfferChoiceInput | null) => {
+    const flushed = await flushBufferedItemUpdates();
+    if (flushed === "error" || flushed === "blocked") {
+      throw new Error("Les modifications en cours du devis doivent être enregistrées avant la réserve.");
+    }
+    const token = versionRef.current?.updated_at;
+    if (!token || !editorDocument.isCurrent(documentScope)) throw new Error("Le devis a changé. Rechargez-le.");
+    const receipt = await setEstimateLineOfferChoice(resolvedVersionId, itemId, choice, token);
+    if (!editorDocument.isCurrent(documentScope)) return;
+    editorDocument.acknowledgeItems([{ id: itemId, updates: { offer_choice: receipt.item.offer_choice } }]);
+  }, [documentScope, editorDocument, flushBufferedItemUpdates, resolvedVersionId, versionRef]);
+
   const v3Grid = useMemo<EstimateV3GridModel | null>(
-    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
-      saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null }),
-    [v3Breakdown, allowedTaxRatesBp]
+    () => (v3Breakdown === undefined ? null : {
+      lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
+      saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null,
+      offerReserve: { canDeclare: canDeclareOfferReserve, save: saveOfferChoice },
+    }),
+    [v3Breakdown, allowedTaxRatesBp, canDeclareOfferReserve, saveOfferChoice]
   );
+
+  // Titres des lignes « Non chiffrée » réservées, pour le paragraphe des précisions (insertion éditable).
+  const reservedLineTitles = useMemo(() => (isV3 ? items : [])
+    .filter((item) => readOfferReserve(item) !== null)
+    .map((item) => item.title?.trim() || "Sans titre"), [isV3, items]);
 
   const closeSettingsDrawer = useCallback(() => {
     setIsSettingsDrawerOpen(false);
@@ -2605,6 +2643,7 @@ export function useEstimateEditorState({
           recovery: batchRecovery,
           isFrozen: version.status !== "draft",
           storedMarginMultiplier,
+          reservedLineTitles,
           onChangeSettings: updateSettings,
           onSaveSettings: handleSaveSettings,
           laborRoles,
@@ -2758,6 +2797,21 @@ export function useEstimateEditorState({
     await recheckSend();
   }, [flushBufferedItemUpdates, handlePatchItem, recheckSend]);
 
+  // TI-682, lot C, PR 4 : les lignes réservées, nommées dans la fenêtre d'envoi avec leur base ; les précisions s'ouvrent
+  // depuis la fenêtre pour y insérer le paragraphe des réserves.
+  const reserveItemIds = useMemo(() => [...new Set((sendGating ? [...sendGating.blockingFlags, ...sendGating.warningFlags] : [])
+    .filter((flag) => flag.key === "offer_reserve_declared" || flag.key === "offer_limits_required")
+    .flatMap((flag) => flag.itemIds))], [sendGating]);
+  const reserveLines = useMemo(() => reserveItemIds.map((itemId) => {
+    const item = items.find((candidate) => candidate.id === itemId);
+    const reserve = item ? readOfferReserve(item) : null;
+    return { id: itemId, title: item?.title?.trim() || "Sans titre", description: reserve ? describeOfferChoice(reserve) : "" };
+  }), [items, reserveItemIds]);
+  const openLimitsFromSendDialog = useCallback(() => {
+    closeSendGatingDialog();
+    handleOpenSettingsDrawer("exclusions");
+  }, [closeSendGatingDialog, handleOpenSettingsDrawer]);
+
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
@@ -2768,6 +2822,8 @@ export function useEstimateEditorState({
     projectId: version?.project_id ?? null,
     statusReasonLines,
     onSaveStatusReason: isReadOnly || isConflictLocked || isViewerReadOnly ? undefined : saveStatusReasonFromSendDialog,
+    reserveLines,
+    onOpenLimits: isReadOnly || isConflictLocked || isViewerReadOnly ? undefined : openLimitsFromSendDialog,
     onClose: closeSendGatingDialog,
     onConfirm: () => void handleConfirmSend(false),
     onForceConfirm: () => void handleConfirmSend(true),

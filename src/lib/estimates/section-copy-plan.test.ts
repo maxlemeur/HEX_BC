@@ -29,7 +29,7 @@ function item(overrides: Partial<EstimateItemRow>): EstimateItemRow {
     snapshot_fo_ht_cents: null, snapshot_gross_fo_ht_cents: null,
     snapshot_gross_ht_cents: null, snapshot_mo_atelier_ht_cents: null,
     snapshot_mo_chantier_ht_cents: null, snapshot_mo_ht_cents: null,
-    snapshot_pu_ht_cents: null, status_reason: null, was_not_priced: false,
+    snapshot_pu_ht_cents: null, status_reason: null, was_not_priced: false, offer_choice: null,
     ...overrides,
   };
 }

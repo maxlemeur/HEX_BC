@@ -177,7 +177,10 @@ propres contrôles de complétude, d'unité et de taux, et une ligne `not_priced
 bloque l'envoi tant qu'elle n'est pas classée (TI-682, voir
 [cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)). Une ligne classée
 après avoir été `not_priced` porte un motif interne (`status_reason`) avant
-l'envoi ; ce motif ne change aucun montant et n'entre pas dans le sceau.
+l'envoi ; ce motif ne change aucun montant et n'entre pas dans le sceau. Une
+ligne `not_priced` peut aussi partir avec une réserve écrite (`offer_choice`) :
+elle reste `not_priced`, hors du HT et de la TVA, et la réserve n'entre pas
+dans le sceau.
 
 Le pied suit cet ordre :
 

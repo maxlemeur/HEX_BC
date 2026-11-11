@@ -20,6 +20,7 @@ import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
+import { OFFER_RESERVE_WARNING } from "@/lib/estimates/offer-choice";
 import {
   ESTIMATE_STATUS_REASON_CODE_VALUES,
   ESTIMATE_STATUS_REASON_CODES,
@@ -36,6 +37,9 @@ import {
 /** A line the send window names by its title and status (TI-682 lot C: lines excluded without a reason). */
 export type EstimateSendGatingLine = { id: string; title: string; statusLabel: string };
 
+/** A reserved line, by its title and its reserve's basis and reason (TI-682 lot C, PR 4: internal, for the issuer). */
+export type EstimateSendGatingReserveLine = { id: string; title: string; description: string };
+
 type EstimateSendGatingDialogProps = {
   isOpen: boolean;
   isSubmitting: boolean;
@@ -48,6 +52,10 @@ type EstimateSendGatingDialogProps = {
   statusReasonLines?: readonly EstimateSendGatingLine[];
   /** Saves the internal reason of a line, then checks the send again; absent for a reader who cannot write the line. */
   onSaveStatusReason?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
+  /** The reserved lines of `offer_reserve_declared` and `offer_limits_required`, by title and reserve. */
+  reserveLines?: readonly EstimateSendGatingReserveLine[];
+  /** Opens the limits text, where the reserves are inserted and reviewed; absent for who cannot write it. */
+  onOpenLimits?: () => void;
   onClose: () => void;
   onConfirm: () => void;
   onForceConfirm: () => void;
@@ -177,6 +185,9 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
     : [];
 }
 
+/** Flags whose lines the window names by their titles (never by identifiers). */
+const LINES_BY_TITLE_FLAG_KEYS = new Set(["excluded_without_reason", "offer_reserve_declared", "offer_limits_required"]);
+
 function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const details = flag.details ?? {};
   const detailsLines: Array<{
@@ -266,7 +277,7 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
       });
     }
   }
-  if (flag.itemIds.length > 0 && flag.key !== "excluded_without_reason") {
+  if (flag.itemIds.length > 0 && !LINES_BY_TITLE_FLAG_KEYS.has(flag.key)) {
     const preview = flag.itemIds.slice(0, 5).join(", ");
     detailsLines.push({
       key: "item-ids",
@@ -411,6 +422,48 @@ function renderStatusReasonEntries(
   );
 }
 
+/**
+ * TI-682, lot C, PR 4 (D10, D28): the written reserves. The issuer reads each reserved line with the basis an
+ * administrator declared (the tool records it, it cannot verify it); a reserve with empty limits is written, not forced.
+ */
+function renderReserveEntries(
+  flag: EstimateSendGatingFlag,
+  lines: readonly EstimateSendGatingReserveLine[],
+  disabled: boolean,
+  onInsert?: () => void,
+) {
+  if (flag.key !== "offer_reserve_declared" && flag.key !== "offer_limits_required") return null;
+  const byId = new Map(lines.map((line) => [line.id, line]));
+  if (flag.key === "offer_limits_required") {
+    return onInsert ? (
+      <div className="mt-2">
+        <Button variant="outline" size="sm" disabled={disabled} onClick={onInsert}>
+          Rédiger les précisions
+        </Button>
+      </div>
+    ) : null;
+  }
+  return (
+    <div className="mt-2">
+      <p className="mb-2 text-xs text-warning">{OFFER_RESERVE_WARNING}</p>
+      <ul className="space-y-2">
+        {flag.itemIds.map((itemId) => {
+          const line = byId.get(itemId);
+          return (
+            <li key={itemId} className="rounded-lg bg-surface px-2.5 py-2" data-testid="estimate-send-gating-reserve-line">
+              <span className="block text-xs font-medium text-foreground">{line?.title ?? "Ligne sans titre"}</span>
+              {line?.description ? <span className="block text-xs text-foreground-secondary">{line.description}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-xs text-muted-foreground">
+        La base et le motif restent internes : le client lit « Non chiffrée » sur la ligne et vos précisions.
+      </p>
+    </div>
+  );
+}
+
 function renderFlags(
   flags: EstimateSendGatingFlag[],
   projectId?: string | null,
@@ -418,6 +471,11 @@ function renderFlags(
     lines: readonly EstimateSendGatingLine[];
     disabled: boolean;
     onSave?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
+  },
+  reserves?: {
+    lines: readonly EstimateSendGatingReserveLine[];
+    disabled: boolean;
+    onInsert?: () => void;
   },
 ) {
   return (
@@ -457,6 +515,7 @@ function renderFlags(
               {statusReason
                 ? renderStatusReasonEntries(flag, statusReason.lines, statusReason.disabled, statusReason.onSave)
                 : null}
+              {reserves ? renderReserveEntries(flag, reserves.lines, reserves.disabled, reserves.onInsert) : null}
               {registerAction ? (
                 <div className="mt-2 rounded-lg bg-surface px-2.5 py-2">
                   <p className="text-xs font-medium text-primary">
@@ -490,6 +549,8 @@ export function EstimateSendGatingDialog({
   projectId,
   statusReasonLines = [],
   onSaveStatusReason,
+  reserveLines = [],
+  onOpenLimits,
   onClose,
   onConfirm,
   onForceConfirm,
@@ -505,6 +566,8 @@ export function EstimateSendGatingDialog({
     (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(flag.key));
   const hasNotPricedToClassify = blockingFlags.some((flag) => flag.key === "not_priced_unclassified");
   const hasExcludedWithoutReason = blockingFlags.some((flag) => flag.key === "excluded_without_reason");
+  const hasLimitsRequired = blockingFlags.some((flag) => flag.key === "offer_limits_required");
+  const reserves = { lines: reserveLines, disabled: isSubmitting, onInsert: onOpenLimits };
 
   return (
     <Dialog
@@ -555,7 +618,12 @@ export function EstimateSendGatingDialog({
                 lines: statusReasonLines,
                 disabled: isSubmitting,
                 onSave: onSaveStatusReason,
-              })}
+              }, reserves)}
+              {hasNotPricedToClassify ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Une ligne qui ne peut pas être chiffrée aujourd&apos;hui peut partir « Non chiffrée » si l&apos;offre le dit : un administrateur déclare la réserve sur la ligne (bouton « Réserve »).
+                </p>
+              ) : null}
               {hasNotPricedToClassify && canForce ? (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Les lignes non chiffrées se classent avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;il en reste.
@@ -564,6 +632,11 @@ export function EstimateSendGatingDialog({
               {hasExcludedWithoutReason && canForce ? (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Les lignes exclues après « Non chiffrée » se justifient avant l&apos;envoi : le forçage n&apos;est pas proposé tant qu&apos;un motif manque.
+                </p>
+              ) : null}
+              {hasLimitsRequired && canForce ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Une offre qui réserve des lignes dit par écrit ce qu&apos;elle ne chiffre pas : le forçage n&apos;est pas proposé tant que les précisions sont vides.
                 </p>
               ) : null}
             </section>
@@ -576,7 +649,7 @@ export function EstimateSendGatingDialog({
               <p className="mb-2 text-xs text-muted-foreground">
                 Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent être assumés explicitement.
               </p>
-              {renderFlags(warningFlags, projectId)}
+              {renderFlags(warningFlags, projectId, undefined, reserves)}
             </section>
           ) : null}
           {!hasBlocking && !hasWarnings ? (

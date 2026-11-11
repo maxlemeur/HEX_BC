@@ -670,3 +670,97 @@ it("does not create an intention for an unchanged automatic coefficient", () => 
   document.enqueueItem(id, { k_fo: 1.13, k_fo_manual: false });
   expect(document.captureSave().entries).toEqual([]);
 });
+
+// TI-682, lot C, PR 4: the database clears the written reserve of a line whose status leaves « Non chiffrée »; the
+// editor never sends that column, so it clears its own copy when the save of such a status is acknowledged.
+describe("the written reserve follows the saved status", () => {
+  const RESERVE = { kind: "reserve" as const, basis: "private_estimate" as const, code: "pending_survey" as const, note: null,
+    decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-11T18:02:23.123456+00:00" };
+  function reserved() {
+    const fixture = createEstimateEditorResponseFixture();
+    const response = { ...fixture, version: { ...fixture.version, calc_engine_version: 3 },
+      items: fixture.items.map((item) => item.item_type === "line"
+        ? { ...item, pricing_status: "not_priced", was_not_priced: true, offer_choice: RESERVE } : item) };
+    const read = prepareEstimateEditorRead(parseEstimateEditorData(response, response.version.id), false);
+    const document = new EstimateEditorDocument({ actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      tenantId: read.confirmed.version.tenant_id, versionId: read.confirmed.version.id });
+    document.acceptRead(read);
+    return { document, id: read.confirmed.items.find((item) => item.item_type === "line")!.id };
+  }
+  const line = (items: readonly { id: string; offer_choice?: unknown }[], id: string) => items.find((item) => item.id === id)!;
+
+  it("clears the reserve once a status leaving « Non chiffrée » is saved, and keeps it through any other save", () => {
+    const { document, id } = reserved();
+    document.enqueueItem(id, { title: "Renommée" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toEqual(RESERVE);
+    document.enqueueItem(id, { pricing_status: "priced" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toBeNull();
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+    document.enqueueItem(id, { pricing_status: "not_priced" });
+    document.acceptSave(document.captureSave());
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+  });
+
+  it("takes the reserve an administrator declared, acknowledged by its route", () => {
+    const { document, id } = reserved();
+    document.acknowledgeItems([{ id, updates: { offer_choice: null } }]);
+    expect(line(document.getSnapshot().items, id).offer_choice).toBeNull();
+    document.acknowledgeItems([{ id, updates: { offer_choice: RESERVE } }]);
+    expect(line(document.getSnapshot().confirmedItems, id).offer_choice).toEqual(RESERVE);
+  });
+});
+
+// TI-682, lot C (review of #222 and of PR 4): the columns the database derives on a save (« was not priced », the reason
+// and the reserve a status change clears) are never sent; the document applies the same rules when it acknowledges a
+// save, and its expected line (confirmed plus in-flight saves) is what the next merged write is compared with.
+describe("the document keeps the columns the database derives from a saved status", () => {
+  function v3Line(overrides: Record<string, unknown>) {
+    const fixture = createEstimateEditorResponseFixture();
+    const response = { ...fixture, version: { ...fixture.version, calc_engine_version: 3 },
+      items: fixture.items.map((item) => item.item_type === "line" ? { ...item, ...overrides } : item) };
+    const read = prepareEstimateEditorRead(parseEstimateEditorData(response, response.version.id), false);
+    const document = new EstimateEditorDocument({ actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      tenantId: read.confirmed.version.tenant_id, versionId: read.confirmed.version.id });
+    document.acceptRead(read);
+    return { document, id: read.confirmed.items.find((item) => item.item_type === "line")!.id };
+  }
+  const saveStatus = (document: EstimateEditorDocument, id: string, pricing_status: string) => {
+    document.enqueueItem(id, { pricing_status } as never);
+    document.acceptSave(document.captureSave());
+  };
+  const confirmed = (document: EstimateEditorDocument, id: string) =>
+    document.getSnapshot().confirmedItems.find((item) => item.id === id)!;
+
+  it("makes a line « was not priced » once a « Non chiffrée » status is saved, and keeps it through the next saves", () => {
+    const { document, id } = v3Line({ pricing_status: "priced", was_not_priced: false });
+    saveStatus(document, id, "not_priced");
+    expect(confirmed(document, id).was_not_priced).toBe(true);
+    saveStatus(document, id, "priced");
+    expect(confirmed(document, id)).toMatchObject({ pricing_status: "priced", was_not_priced: true });
+    expect(document.getExpectedItem(id)).toMatchObject({ pricing_status: "priced", was_not_priced: true });
+  });
+
+  it("counts a save in flight in the expected line: status, flag and cleared reserve", () => {
+    const { document, id } = v3Line({ pricing_status: "priced", was_not_priced: false });
+    document.enqueueItem(id, { pricing_status: "not_priced" } as never);
+    document.captureSave();
+    expect(document.getExpectedItem(id)).toMatchObject({ pricing_status: "not_priced", was_not_priced: true });
+    const reserved = v3Line({ pricing_status: "not_priced", was_not_priced: true, offer_choice: { kind: "reserve",
+      basis: "private_estimate", code: "pending_survey", note: null, decided_by: "11111111-1111-4111-8111-111111111111",
+      decided_at: "2026-11-11T18:02:23.123456+00:00" } });
+    reserved.document.enqueueItem(reserved.id, { pricing_status: "priced" } as never);
+    reserved.document.captureSave();
+    expect(reserved.document.getExpectedItem(reserved.id)).toMatchObject({ pricing_status: "priced", offer_choice: null });
+  });
+
+  it("clears a reason once a status leaving the excluded ones is saved", () => {
+    const { document, id } = v3Line({ pricing_status: "out_of_scope", was_not_priced: true,
+      status_reason: { code: "other_trade", note: null } });
+    saveStatus(document, id, "for_memory");
+    expect(confirmed(document, id).status_reason).toEqual({ code: "other_trade", note: null });
+    saveStatus(document, id, "priced");
+    expect(confirmed(document, id)).toMatchObject({ status_reason: null, was_not_priced: true });
+  });
+});

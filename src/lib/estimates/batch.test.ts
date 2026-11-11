@@ -384,6 +384,18 @@ describe("executeEstimateBatch", () => {
       expect(db.commit).not.toHaveBeenCalled();
     });
 
+    // TI-682, lot C, PR 4: the written reserve is declared by an administrator through its own route, never by the batch.
+    it.each([
+      ["update", { op: "update", id: ITEM_ID, data: { offer_choice: { kind: "reserve", basis: "private_estimate", code: "pending_survey" } } }],
+      ["update to null", { op: "update", id: ITEM_ID, data: { offer_choice: null } }],
+      ["create", { op: "create", data: { item_type: "line", parent_id: SECTION_ID, title: "Ligne", pricing_status: "not_priced",
+        offer_choice: { kind: "reserve", basis: "private_estimate", code: "pending_survey" } } }],
+    ])("refuses the written reserve as a batch input (%s), by name, before anything is written", async (_name, operation) => {
+      asV3();
+      await expect(executeEstimateBatch(VERSION_ID, [operation as never], OPTIONS)).rejects.toThrow(/réserve écrite/);
+      expect(db.commit).not.toHaveBeenCalled();
+    });
+
     it("refuses « was not priced » at creation too", async () => {
       asV3();
       await expect(executeEstimateBatch(VERSION_ID, [{ op: "create", data: {
