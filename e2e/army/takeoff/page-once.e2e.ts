@@ -4,7 +4,7 @@ import { expect } from "e2e";
 
 import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contributions-contracts";
 
-import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
+import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
 import { applyOwnedTakeoff } from "./fixtures";
 import { VECTOR_PLAN, buildVectorPlanPdf } from "./vector-plan-fixture";
 import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./worker-support";
@@ -16,6 +16,9 @@ import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./wor
 // can tie the two, is read by a second takeoff of the same estimate version. Its targeted and complete reviews name the page, the first takeoff (which the link opens) and its line in
 // the estimate; the application wizard names them before its last click. The warning decides nothing: applied anyway
 // from the targeted review, the page is in the estimate twice, and the banner, read again without a reload, says so.
+// The version is then copied: both takeoffs are carried over with their lines. Once the second takeoff's line is
+// removed from the copy only, the first takeoff reviewed under the copy reports nothing, while under the original
+// version the page is still there twice; a version the takeoff is not part of reads nothing (404).
 // TKR01 and TKR02 (two zone plans, two pages) are the negative control. Fictional plans only.
 
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 240_000 };
@@ -23,8 +26,9 @@ const REGION = "Pages déjà au devis";
 
 type Envelope<T> = { ok: boolean; data: T };
 
-async function readPages(ui: WorkerUi, jobId: string) {
-  const read = await apiRequest<Envelope<TakeoffPageContributionsResponse>>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/page-contributions`);
+async function readPages(ui: WorkerUi, jobId: string, versionId: string) {
+  const read = await apiRequest<Envelope<TakeoffPageContributionsResponse>>(ui.browser, "GET",
+    `/api/takeoff/jobs/${jobId}/page-contributions?version_id=${versionId}`);
   expect([read.status, read.body.ok]).toEqual([200, true]);
   return read.body.data;
 }
@@ -44,7 +48,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     const applied = await applyOwnedTakeoff(ui.browser, ids.versionId, first, { strategy: "append", target_section_id: target.parent_id });
     expect(applied.status).toBe(200);
     // The first takeoff's own page is in the estimate through itself only: nothing to report.
-    expect(await readPages(ui, first)).toMatchObject({ pages: [], other_takeoff_line_count: 0 });
+    expect(await readPages(ui, first, ids.versionId)).toMatchObject({ pages: [], other_takeoff_line_count: 0 });
 
     // The same plan read again: the same bytes and confirmed preparation, a new takeoff of the same version, under another
     // file name: neither side has a plan file, so only the content hash can tell it is the same page.
@@ -70,7 +74,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     // The read names page 1 of the plan, the first takeoff and its one estimate line.
     const estimateLines = (await readEstimate(ui.browser, ids.versionId)).items.filter((item) => item.title === network.designation);
     expect(estimateLines).toHaveLength(1);
-    const pages = await readPages(ui, second);
+    const pages = await readPages(ui, second, ids.versionId);
     expect(pages).toMatchObject({ version_id: ids.versionId, unidentified_item_ids: [], other_takeoff_line_count: 1,
       pages: [{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 0 }],
       jobs: [{ id: first, estimate_version_id: ids.versionId, source_file_name: fileName }] });
@@ -146,7 +150,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     await expect(twice).toContainText(pageRow);
     await expect(twice).toContainText("Ce métré est déjà appliqué : ces pages sont au devis deux fois.");
     screenshots.push(await ui.app.screenshot("ti682-targeted-review-page-applied-twice"));
-    const appliedPages = await readPages(ui, second);
+    const appliedPages = await readPages(ui, second, ids.versionId);
     expect(appliedPages.pages).toMatchObject([{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 1 }]);
 
     // The warning decided nothing: the run is now in the estimate twice, the second takeoff applied.
@@ -155,4 +159,35 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     expect((await client.from("takeoff_jobs").select("status").eq("id", second).single()).data).toEqual({ status: "applied" });
     await recordEvidence(ui.army, "TKD01-warned", { ids, first, second, screenshots, appliedPages, doubled: doubled.map((line) => line.id),
       boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 on one fictional vector plan uploaded twice with the same confirmed preparation; applied twice only after both reviews and the wizard warned." });
+
+    // A copy of the version: both takeoffs are carried over into it, each line keeping its provenance.
+    const copied = await apiRequest<Envelope<{ version_id: string }>>(ui.browser, "POST", `/api/estimates/${ids.versionId}/duplicate`);
+    expect(copied.status).toBe(201);
+    const copy = copied.body.data.version_id;
+    ownEstimate(ui.army, { projectId: ids.projectId, versionId: copy });
+    expect((await readPages(ui, first, copy)).pages).toMatchObject([{ page: 1, earlier: [{ job_id: second, line_count: 1 }], own_line_count: 1 }]);
+    // The second takeoff's line removed from the copy only: under the copy the page is in the estimate once.
+    const copiedLines = await client.from("estimate_items").select("id").eq("version_id", copy).eq("source_job_id", second);
+    expect(copiedLines.error).toBeNull();
+    expect(copiedLines.data).toHaveLength(1);
+    expect((await apiRequest(ui.browser, "POST", `/api/estimates/${copy}/lock`)).status).toBe(201);
+    const removed = await apiRequest(ui.browser, "DELETE", `/api/estimates/${copy}/items`, { id: (copiedLines.data as Array<{ id: string }>)[0].id });
+    expect(removed.status).toBe(200);
+    const underCopy = await readPages(ui, first, copy);
+    expect(underCopy).toMatchObject({ version_id: copy, pages: [], other_takeoff_line_count: 0 });
+    // The original version is unchanged: the page is still there twice.
+    expect((await readPages(ui, first, ids.versionId)).pages).toMatchObject([{ page: 1, earlier: [{ job_id: second, line_count: 1 }], own_line_count: 1 }]);
+    // The first takeoff's review opened under the copy reads the copy, and names no page.
+    const [copyRead] = await Promise.all([
+      ui.browser.waitForResponse(new RegExp(`/api/takeoff/jobs/${first}/page-contributions\\?version_id=${copy}$`)),
+      ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${first}/review?versionId=${copy}`),
+    ]);
+    expect(copyRead.status).toBe(200);
+    expect((await copyRead.json<Envelope<TakeoffPageContributionsResponse>>()).data.pages).toEqual([]);
+    await expect(ui.browser.locator("#takeoff-review-mode-panel")).toBeVisible();
+    await expect(ui.screen.getByRole("region", REGION, { exact: true })).toHaveCount(0);
+    // A version id the takeoff is not part of (here: none the user can read) opens nothing.
+    const foreign = await apiRequest<{ ok: boolean }>(ui.browser, "GET", `/api/takeoff/jobs/${first}/page-contributions?version_id=${randomUUID()}`);
+    expect([foreign.status, foreign.body.ok]).toEqual([404, false]);
+    await recordEvidence(ui.army, "TKD01-copied-version", { ids, first, second, copy, removed: copiedLines.data, underCopy });
   });

@@ -2248,6 +2248,13 @@ const takeoffDpgfCompareVersionIdQueryParameter = queryParameter({
   schema: uuidSchema,
   required: true,
 });
+const takeoffPageContributionsVersionIdQueryParameter = queryParameter({
+  name: "version_id",
+  description: "Version de chiffrage revue : celle du metre, ou une copie dans laquelle il a ete repris. 404 si elle est illisible ou si le metre n'en fait pas partie.",
+  schemaName: "TakeoffPageContributionsVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: true,
+});
 const takeoffPriceSuggestionEstimateItemIdQueryParameter = queryParameter({
   name: "estimate_item_id",
   description: "Identifiant UUID de la ligne DPGF cible pour la suggestion de prix.",
@@ -3162,9 +3169,9 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/page-contributions",
     summary: "Pages du metre deja au devis par un autre metre",
     description:
-      "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que sa version de devis porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
+      "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que la version de devis revue porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
     tags: ["Takeoff"],
-    parameters: [takeoffJobIdPathParameter],
+    parameters: [takeoffJobIdPathParameter, takeoffPageContributionsVersionIdQueryParameter],
     responses: {
       "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
       ...takeoffJobsErrorResponses,

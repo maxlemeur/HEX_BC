@@ -4,12 +4,8 @@ import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
-import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
-import {
-  getAuthenticatedTakeoffContext,
-  getTakeoffJobDetailByIdOrThrow,
-  type AuthenticatedTakeoffContext,
-} from "@/lib/takeoff/job-read-server";
+import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import {
   estimateLineTakeoffItemIds,
   findPagesAlreadyInEstimate,
@@ -28,10 +24,13 @@ import {
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { getEstimateVersionProjectIdOrThrow } from "@/lib/takeoff/version-access-server";
+import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
-// TI-682 lot D, PR 1: which pages a takeoff reads that another takeoff already brought into its estimate version.
-// Read with the user's session only: the active tenant, the job's own read (404 for a job the user cannot read) and
-// the RLS of estimate_items, takeoff_items and takeoff_jobs bound it; never the service role. Every read is narrow
+// TI-682 lot D, PR 1: which pages a takeoff reads that another takeoff already brought into the estimate version under
+// review: its own version, or a copy it was carried over into (the review, the wizard and its draft lock work on that
+// copy). Read with the user's session only: the active tenant, the version's read and the takeoffs it holds (404 for a
+// version the user cannot read or a takeoff that is not part of it) and the RLS of estimate_items, takeoff_items and
+// takeoff_jobs bound it; never the service role. Every read is narrow
 // (the provenance columns, the source document of a line, the sources of a preparation) and paged: no read per line.
 
 type Supabase = AuthenticatedTakeoffContext["supabase"];
@@ -137,16 +136,34 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
   }, "Lecture des pages déjà au devis invalide.");
 }
 
-/** GET /api/takeoff/jobs/[jobId]/page-contributions: the pages of this takeoff its estimate version already holds from another. */
-export async function getTakeoffJobPageContributions(jobId: string): Promise<TakeoffPageContributionsResponse> {
+const versionIdSchema = z.string().uuid("version_id invalide.");
+
+/**
+ * 404 unless the user reads the version (tenant, project membership through RLS) and the takeoff is part of it, launched
+ * in it or carried over into it: a version id from the client never opens another tenant's or another project's lines.
+ */
+async function assertTakeoffJobOfVersion(context: Context, jobId: string, versionId: string) {
+  await getEstimateVersionProjectIdOrThrow({ supabase: context.supabase as Supabase, tenantId: context.tenantId, versionId });
+  const jobs = await listAccessibleTakeoffJobsForVersion({ supabase: context.supabase as never, tenantId: context.tenantId, versionId });
+  if (jobs.some((job) => job.id === jobId)) return;
+  throw new TakeoffError({ status: 404, code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND, message: "Job takeoff introuvable pour cette version.",
+    details: { job_id: jobId, version_id: versionId }, retryable: false, jobId });
+}
+
+/**
+ * GET /api/takeoff/jobs/[jobId]/page-contributions?version_id=: the pages of this takeoff the reviewed estimate version
+ * already holds from another.
+ */
+export async function getTakeoffJobPageContributions(jobId: string, versionId: unknown): Promise<TakeoffPageContributionsResponse> {
   const context = await getAuthenticatedTakeoffContext();
   const normalizedJobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant job invalide.");
-  const job = await getTakeoffJobDetailByIdOrThrow({ supabase: context.supabase, tenantId: context.tenantId, jobId: normalizedJobId });
+  const normalizedVersionId = parseWithSchema(versionIdSchema, versionId, "version_id invalide.");
+  await assertTakeoffJobOfVersion(context, normalizedJobId, normalizedVersionId);
   const { data, error } = await readAllRows(() => context.supabase.from("takeoff_items" as never)
     .select(TAKEOFF_LINE_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, normalizedJobId as never) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire les lignes du métré.", normalizedJobId);
-  return readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: job.estimate_version_id,
+  return readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: normalizedVersionId,
     ownLines: (data ?? []) as unknown as TakeoffLineRow[] });
 }
 

@@ -138,7 +138,9 @@ ce qu'une application écrit ne change.
 
   Une ligne supprimée ne compte plus ; une version copiée garde sa provenance, donc
   ses pages. Une ligne collée ou saisie à la main n'a pas de provenance : elle n'est
-  pas vue.
+  pas vue. Le devis lu est celui de la version revue : un métré repris dans une
+  version copiée se compare aux lignes de la copie (celles qu'on y a ajoutées ou
+  retirées), non à la version où il a été lancé.
 - **Lignes non comparées.** Une ligne du nouveau métré sans plan ni page (métré à
   plusieurs fichiers sans préparation, page hors du jeu) n'est comparée à rien : elle
   est comptée et affichée comme telle.
@@ -166,13 +168,16 @@ ce qu'une application écrit ne change.
   - une fois le métré appliqué, seules restent signalées les pages où ses propres
     lignes sont encore au devis : là, la page y est deux fois. Ses lignes sans page
     sont sur la page signalée, par la même règle. Appliqué depuis la revue, le
-    bandeau relit le devis.
+    bandeau relit le devis ; il le relit aussi quand la revue complète enregistre la
+    page source corrigée d'une ligne. L'exclusion d'une ligne ne demande pas de
+    relecture : le bandeau filtre les pages sur les lignes affichées.
 - **Provenance périmée.** Une clé d'arrondi ou de ligne DPGF écrite par un autre métré
   que le dernier de la ligne (une fusion ultérieure l'a gardée) ne compte pas.
-- **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions`, et
+- **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
+  version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
-  session de l'utilisateur : le tenant actif, la lecture du métré et la RLS des lignes
-  du devis, des lignes de métré et des métrés la bornent. La définition est écrite une
+  session de l'utilisateur : le tenant actif, la lecture de la version et de ses
+  métrés, et la RLS des lignes du devis, des lignes de métré et des métrés la bornent. La définition est écrite une
   fois en TypeScript
   ([`page-contributions.ts`](../../src/lib/takeoff/page-contributions.ts)), sur la table
   de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts),

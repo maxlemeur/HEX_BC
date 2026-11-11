@@ -243,7 +243,7 @@ describe("TakeoffApplyWizard", () => {
       expect(within(notice).queryByRole("button")).toBeNull();
       expect(within(notice).queryByRole("radio")).toBeNull();
       expect(screen.getByRole("button", { name: "Confirmer l'application" })).toBeEnabled();
-      expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, expect.anything());
+      expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, VERSION_ID, expect.anything());
     });
 
     it("shows it with a preset strategy too", async () => {

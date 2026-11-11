@@ -19591,7 +19591,7 @@
           "Takeoff"
         ],
         "summary": "Pages du metre deja au devis par un autre metre",
-        "description": "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que sa version de devis porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
+        "description": "Lecture seule (TI-682) : pour chaque page de plan que ce metre lit et que la version de devis revue porte deja par un autre metre, ce metre anterieur et le nombre de lignes qu'il y a apportees ; les lignes sans plan ni page sont comptees, non comparees. Avertissement, aucune decision.",
         "parameters": [
           {
             "name": "jobId",
@@ -19600,6 +19600,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "query",
+            "description": "Version de chiffrage revue : celle du metre, ou une copie dans laquelle il a ete repris. 404 si elle est illisible ou si le metre n'en fait pas partie.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPageContributionsVersionIdQueryParameter"
             }
           }
         ],
@@ -70116,6 +70125,11 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "TakeoffPageContributionsVersionIdQueryParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ApiTakeoffPageContributionsResponse": {
         "type": "object",

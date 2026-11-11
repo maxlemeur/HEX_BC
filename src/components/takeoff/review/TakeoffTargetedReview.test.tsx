@@ -424,6 +424,6 @@ describe("TakeoffTargetedReview", () => {
       `/dashboard/affaires/44444444-4444-4444-8444-444444444444/takeoff/${earlier}/review?versionId=${earlierVersion}`);
     // Their Z1/Z2 duplicates pair two lines of this takeoff, not a line of the earlier one: the banner leaves them alone.
     expect(banner).not.toHaveTextContent("ne retirez pas la ligne");
-    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, expect.anything());
+    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, VERSION_ID, expect.anything());
   });
 });

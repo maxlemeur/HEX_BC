@@ -21,7 +21,7 @@ import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
-import { afterReviewSave, editReviewItem, reviewPatch, type ReviewItem } from "@/lib/takeoff/review-item-edits";
+import { afterReviewSave, editReviewItem, reviewPatch, sourcePageSaved, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
   TakeoffReviewModeSwitch,
   type ReviewMode,
@@ -315,6 +315,8 @@ export default function TakeoffReviewPage({
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
+  // TI-682 lot D: one more each time a save changes a line's source page: the pages already in the estimate are read again.
+  const [savedSourcePages, setSavedSourcePages] = useState(0);
   const [tables, setTables] = useState<TakeoffTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -696,6 +698,9 @@ export default function TakeoffReviewPage({
       const resultByItemId = new Map(
         response.results.map((entry) => [entry.item_id, entry] as const)
       );
+      if (response.results.some((result) => result.success && result.item && sourcePageSaved(result.item, submitted?.get(result.item_id)))) {
+        setSavedSourcePages((count) => count + 1);
+      }
       setItems((prev) =>
         withRuleStates(prev.map((item) => {
           const result = resultByItemId.get(item.id);
@@ -1065,9 +1070,10 @@ export default function TakeoffReviewPage({
     dpgfCompareLoading || dpgfCompareData === null;
   const hasDpgfValidationError = dpgfCompareError !== null;
   const hasAlreadyBeenApplied = jobStatus === "applied" || applySuccess !== null;
-  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision),
-  // read again once it is applied here: the estimate then holds its lines.
-  const pagesInEstimate = useTakeoffJobPageContributions(jobId, hasAlreadyBeenApplied);
+  // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate version shown here (a
+  // warning, no decision), read again once it is applied here (the estimate then holds its lines) and after a saved
+  // change of a line's source page. Exclusion needs no new read: the banner filters the pages by the lines on screen.
+  const pagesInEstimate = useTakeoffJobPageContributions(jobId, versionId, { applied: hasAlreadyBeenApplied, revision: savedSourcePages });
   const canOpenApplyWizard =
     !hasAlreadyBeenApplied &&
     jobStatus === "completed" &&

@@ -26,8 +26,10 @@ async function read(path: string, init: RequestInit): Promise<TakeoffPageContrib
   return parsed.data;
 }
 
-export function fetchTakeoffJobPageContributions(jobId: string, options: { signal?: AbortSignal } = {}) {
-  return read(`/api/takeoff/jobs/${encodeURIComponent(jobId)}/page-contributions`, { method: "GET", signal: options.signal });
+/** `versionId`: the estimate version the review shows (the takeoff's own, or a copy it was carried over into). */
+export function fetchTakeoffJobPageContributions(jobId: string, versionId: string, options: { signal?: AbortSignal } = {}) {
+  return read(`/api/takeoff/jobs/${encodeURIComponent(jobId)}/page-contributions?version_id=${encodeURIComponent(versionId)}`,
+    { method: "GET", signal: options.signal });
 }
 
 export function fetchLaunchPageContributions(request: TakeoffLaunchPageContributionsRequest, options: { signal?: AbortSignal } = {}) {

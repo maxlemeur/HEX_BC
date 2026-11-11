@@ -23,7 +23,11 @@ import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contri
 // - once this takeoff is applied on screen, the banner keeps the read taken before, which holds none of its lines,
 //   and hides the page just added a second time;
 // - a Z1/Z2 duplicate with a line of the earlier takeoff on another of its pages is called « the same page read
-//   twice »: the estimator would keep a run counted twice.
+//   twice »: the estimator would keep a run counted twice;
+// - a takeoff carried over into a copied version is compared with the version it was launched in, not the copy the
+//   review shows and the wizard locks;
+// - a line's source page corrected and saved keeps the read taken before: a page now matched shows nothing, a page no
+//   longer matched keeps a false warning, until a reload.
 
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const EARLIER_JOB = "11111111-1111-4111-8111-111111111111";
@@ -111,7 +115,7 @@ describe("the review banner", () => {
       .mockResolvedValueOnce(READ)
       .mockResolvedValueOnce({ ...READ, pages: [{ ...READ.pages[0], own_line_count: 1 }] });
     function Review({ applied }: Readonly<{ applied: boolean }>) {
-      const read = useTakeoffJobPageContributions(line(70), applied);
+      const read = useTakeoffJobPageContributions(line(70), VERSION_ID, { applied });
       return <TakeoffPagesAlreadyInEstimateBanner read={read} items={[item(1)]} applied={applied} jobHref={href} />;
     }
     const { rerender } = render(<Review applied={false} />);
@@ -119,6 +123,40 @@ describe("the review banner", () => {
     rerender(<Review applied />);
     await waitFor(() => expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("ces pages sont au devis deux fois"));
     expect(fetchTakeoffJobPageContributions).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the version the review shows, a copy the takeoff was carried over into", async () => {
+    vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue(READ);
+    function Review() {
+      const read = useTakeoffJobPageContributions(line(70), VERSION_ID);
+      return <TakeoffPagesAlreadyInEstimateBanner read={read} items={[item(1)]} applied={false} jobHref={href} />;
+    }
+    render(<Review />);
+    await screen.findByRole("region", { name: "Pages déjà au devis" });
+    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(line(70), VERSION_ID, expect.anything());
+  });
+
+  it("reads the pages again after a line's source page is saved, and keeps the banner until the new read", async () => {
+    // Saved from page 1 to page 2: page 1 is no longer this takeoff's; then back to page 1, matched again.
+    let answer!: (read: TakeoffPageContributionsResponse) => void;
+    vi.mocked(fetchTakeoffJobPageContributions)
+      .mockResolvedValueOnce(READ)
+      .mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }))
+      .mockResolvedValueOnce(READ);
+    function Review({ revision }: Readonly<{ revision: number }>) {
+      const read = useTakeoffJobPageContributions(line(70), VERSION_ID, { revision });
+      return <TakeoffPagesAlreadyInEstimateBanner read={read} items={[item(1)]} applied={false} jobHref={href} />;
+    }
+    const { rerender } = render(<Review revision={0} />);
+    await screen.findByRole("region", { name: "Pages déjà au devis" });
+    rerender(<Review revision={1} />);
+    await waitFor(() => expect(fetchTakeoffJobPageContributions).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toBeInTheDocument();
+    answer({ ...READ, pages: [], jobs: [], unidentified_item_ids: [] });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Pages déjà au devis" })).toBeNull());
+    rerender(<Review revision={2} />);
+    expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("plan-fictif-R+1.pdf, page 1");
+    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledTimes(3);
   });
 
   it("keeps a Z1/Z2 duplicate with a takeoff of another zone as it is", () => {

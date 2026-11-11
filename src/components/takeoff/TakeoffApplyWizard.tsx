@@ -111,7 +111,7 @@ export function TakeoffApplyWizard({
   const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   // TI-682 lot D: read when the wizard opens, shown before the last click. A notice only: nothing to decide yet.
-  const pagesInEstimate = useTakeoffJobPageContributions(open ? jobId : null);
+  const pagesInEstimate = useTakeoffJobPageContributions(open ? jobId : null, versionId);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";

@@ -33,24 +33,28 @@ function takeoffLabel(job: Job | undefined) {
 }
 
 /**
- * The read of the pages of a takeoff its version already holds from another; none while `jobId` is null. Read again
- * once the takeoff is applied: the read taken before holds none of its lines, and the page it just added again would
- * stay hidden. The earlier read is not shown meanwhile.
+ * The read of the pages of a takeoff the estimate version under review already holds from another (`versionId`: the
+ * version the review shows, the takeoff's own or a copy it was carried over into); none while `jobId` is null.
+ * Read again once the takeoff is applied: the read taken before holds none of its lines, and the page it just added
+ * again would stay hidden; the earlier read is not shown meanwhile. Read again too at each `revision` (a line's source
+ * page saved): the page compared has changed. The earlier read stays shown until then; it was right a moment ago.
  */
-export function useTakeoffJobPageContributions(jobId: string | null, applied = false): Read {
-  const key = jobId ? `${jobId}:${applied ? "applied" : "open"}` : null;
-  const [read, setRead] = useState<Read & { key: string | null }>({ key: null, data: null, error: null });
+export function useTakeoffJobPageContributions(jobId: string | null, versionId: string,
+  options: { applied?: boolean; revision?: number } = {}): Read {
+  const base = jobId ? `${jobId}:${versionId}:${options.applied ? "applied" : "open"}` : null;
+  const key = base ? `${base}:${options.revision ?? 0}` : null;
+  const [read, setRead] = useState<Read & { key: string | null; base: string | null }>({ key: null, base: null, data: null, error: null });
   useEffect(() => {
     if (!key || !jobId) return;
     const controller = new AbortController();
-    void fetchTakeoffJobPageContributions(jobId, { signal: controller.signal }).then(
-      (data) => setRead({ key, data, error: null }),
+    void fetchTakeoffJobPageContributions(jobId, versionId, { signal: controller.signal }).then(
+      (data) => setRead({ key, base, data, error: null }),
       (error: unknown) => {
-        if (!controller.signal.aborted) setRead({ key, data: null, error: error instanceof Error ? error.message : "Vérification indisponible." });
+        if (!controller.signal.aborted) setRead({ key, base, data: null, error: error instanceof Error ? error.message : "Vérification indisponible." });
       });
     return () => controller.abort();
-  }, [jobId, key]);
-  return read.key === key ? { data: read.data, error: read.error } : { data: null, error: null };
+  }, [base, jobId, key, versionId]);
+  return base && read.base === base ? { data: read.data, error: read.error } : { data: null, error: null };
 }
 
 /**
