@@ -324,6 +324,7 @@
     "20261111144803_estimate_line_status_reason.sql": "30d7f4d6b86cc1fa71cad270735516d4908ae01d3649566cd36947886544d8ed",
     "20261111155627_estimate_line_nature_pose_only.sql": "1af827341cae5a391a87be88c23e9bfbaf9db5d41c69b4dfa7c1fd6eff00c296",
     "20261111181152_estimate_site_cost_origin.sql": "44f20db82a1ba37b4cca6d4956ee383cfdc21499dbc8f30b436f01beeb4f38e6",
-    "20261111193950_estimate_line_offer_choice.sql": "4818a1ef1a14812305e2bc91310f1cb9717fab297178b6fd722113cda4c560f3"
+    "20261111193950_estimate_line_offer_choice.sql": "4818a1ef1a14812305e2bc91310f1cb9717fab297178b6fd722113cda4c560f3",
+    "20261111195141_optional_dossier_documents_policy.sql": "d564ce476d4f2ee4daef3cae09bf351690f2a72297c37704ab6220b429476de6"
   }
 }

@@ -45,7 +45,7 @@ describe("affaire intake helpers", () => {
     );
   });
 
-  it("does not let an ambiguous spreadsheet satisfy a critical missing piece", () => {
+  it("keeps absent documents advisory even when an ambiguous spreadsheet needs review", () => {
     const missingPieces = buildAffaireIntakeMissingPieces([
       {
         uploadStatus: "uploaded",
@@ -63,7 +63,7 @@ describe("affaire intake helpers", () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: "missing_dpgf",
-          severity: "critical",
+          severity: "warning",
         }),
       ])
     );
@@ -82,6 +82,8 @@ describe("affaire intake helpers", () => {
         documentKind: "plans",
       },
     ]);
+
+    missingPieces.find((piece) => piece.code === "missing_dpgf")!.severity = "critical";
 
     const snapshot = buildAffaireIntakeReadinessSnapshot({
       documents: [
@@ -145,15 +147,15 @@ describe("affaire intake helpers", () => {
     expect(snapshot).toMatchObject({
       reviewDocumentsCount: 1,
       missingPiecesCount: 3,
-      criticalMissingPiecesCount: 1,
+      criticalMissingPiecesCount: 0,
       provisionalMissingPiecesCount: 1,
-      provisionalCriticalMissingPiecesCount: 1,
+      provisionalCriticalMissingPiecesCount: 0,
       confirmedMissingPiecesCount: 2,
       confirmedCriticalMissingPiecesCount: 0,
-      reviewCouldLiftCriticalMissing: true,
-      reviewBeforeMissing: true,
+      reviewCouldLiftCriticalMissing: false,
+      reviewBeforeMissing: false,
       dominantAction: "review",
-      hubReadinessImpact: "critical",
+      hubReadinessImpact: "warning",
     });
   });
 
