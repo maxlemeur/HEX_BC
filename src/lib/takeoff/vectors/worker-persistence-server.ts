@@ -13,6 +13,7 @@ import { boundPageAnchors } from "@/lib/takeoff/rules/registration";
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 import { selectQuantitySources, type QuantitySourceItem } from "@/lib/takeoff/quantity-source-selection";
 import { listAllTakeoffItemsByJobId } from "@/lib/takeoff/job-read-server";
+import { withUndecidedHypothesesAsAlternatives } from "@/lib/takeoff/hypothesis";
 
 // Writes a job's vector reading with the worker's service role (TI-662): one
 // takeoff_vector_pages row per page read, then its measured items in
@@ -92,7 +93,8 @@ export async function persistTakeoffVectorReading(input: {
   // the commit uncertain: propagate that failure instead of deleting the chosen reading.
   if (items > 0) {
     const reading = await listAllTakeoffItemsByJobId({ supabase: input.supabase, tenantId: input.job.tenant_id, jobId: input.job.id });
-    const selections = selectQuantitySources(reading as QuantitySourceItem[]);
+    // TI-682: an hypothesis arrived excluded, yet the selection reads it as the alternative reading it is.
+    const selections = selectQuantitySources(withUndecidedHypothesesAsAlternatives(reading) as QuantitySourceItem[]);
     if (selections.length) {
       try {
         const selection = await input.supabase.rpc("select_takeoff_quantity_sources" as never,

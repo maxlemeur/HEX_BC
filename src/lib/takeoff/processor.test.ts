@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 // Pagination faults are covered with the real SDK in read-all.test.ts.
@@ -27,6 +27,7 @@ import {
 } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -115,6 +116,8 @@ type StoredTakeoffItemRow = {
   source_file_name: string | null;
   source_page: number | null;
   metadata: Record<string, unknown>;
+  is_excluded?: boolean;
+  exclusion_reason?: string | null;
 };
 
 type StoredTakeoffRunMetricRow = {
@@ -3846,5 +3849,71 @@ describe("processLevelC", () => {
       budget_exceeded: true,
       timed_out: false,
     });
+  });
+});
+
+// TI-682 lot B (D11): an hypothesis is never preselected. The worker writes it excluded, with its reason; a line the
+// plan shows keeps its preselection.
+describe("hypothesis preselection", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("writes every line of a takeoff asked for an estimate excluded, as an hypothesis to include", async () => {
+    const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.objective = "estimate";
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash,
+      document_name: "niveau-a.csv",
+    };
+    const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: snapshot }, downloadFile: { bytes, mimeType: "text/csv" } });
+    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
+      { designation: "Tube fictif R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
+    ])));
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    expect(result.status).toBe("completed");
+    expect(mock.state.takeoffItems).toHaveLength(1);
+    expect(mock.state.takeoffItems[0]).toMatchObject({
+      metadata: { quantity_nature: "estimated" }, is_excluded: true,
+      exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated,
+    });
+  });
+
+  it("writes a quantity a plan cannot show excluded, and leaves the count beside it preselected", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_RULES", "1");
+    const bytes = await createPdfArrayBuffer(1);
+    const mock = createTakeoffProcessorSupabaseMock({ job: {
+      level: "B", source_file_name: "plan.pdf", source_file_path: DEFAULT_SOURCE_PATH_B, source_file_type: "application/pdf",
+    }, downloadFile: { bytes, mimeType: "application/pdf" } });
+    const exchange = buildTakeoffExchange([
+      { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.95, evidence: "Supposées" },
+      { designation: "Vanne DN 20", quantity: 4, unit: "u", source_page: 1, confidence: 0.95, evidence: "Repères V1 à V4" },
+    ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
+    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" }));
+    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    expect(result.status).toBe("completed");
+    const [weld, valve] = mock.state.takeoffItems;
+    expect(weld).toMatchObject({ designation: "Soudures inox", metadata: { rule_inputs: { non_observable: "weld" } },
+      is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable });
+    expect(valve).toMatchObject({ designation: "Vanne DN 20", metadata: { rule_inputs: { non_observable: null } } });
+    expect(valve).toMatchObject({ is_excluded: false, exclusion_reason: null });
+    // One bulk insert: every row carries the same columns (the API refuses rows whose keys differ).
+    expect(Object.keys(valve).sort()).toEqual(Object.keys(weld).sort());
+  });
+
+  it("reads no quantity as non observable when the fixed rules are off: the line stays preselected", async () => {
+    const bytes = await createPdfArrayBuffer(1);
+    const mock = createTakeoffProcessorSupabaseMock({ job: {
+      level: "B", source_file_name: "plan.pdf", source_file_path: DEFAULT_SOURCE_PATH_B, source_file_type: "application/pdf",
+    }, downloadFile: { bytes, mimeType: "application/pdf" } });
+    const exchange = buildTakeoffExchange([
+      { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.95, evidence: "Supposées" },
+    ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
+    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" }));
+    await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    expect(mock.state.takeoffItems[0]).toMatchObject({ designation: "Soudures inox", is_excluded: false, exclusion_reason: null });
+    expect(mock.state.takeoffItems[0].metadata.rule_inputs).toBeUndefined();
   });
 });

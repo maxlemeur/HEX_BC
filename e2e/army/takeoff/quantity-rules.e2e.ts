@@ -8,6 +8,7 @@ import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
 import { ownedTakeoffJobs } from "../critical/plans-support";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { localTakeoffWorkerClient } from "./fixtures";
 import { signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
 import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
@@ -182,7 +183,9 @@ armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be c
 // listed with its reason (1.00 m counted twice, the Z2 line), the application stays closed, the user removes the
 // shared metre from the Z1 line by direct entry, the decision holds after a reload, both jobs apply through the
 // wizard and the estimate counts the metre once. The providers' stub lines are settled in the UI too: excluded with
-// a reason (E) on Z1, accepted (V) on Z2.
+// a reason (E) on Z1, accepted (V) on Z2. Since TI-682 (D11) the application refuses a measured run beside a length
+// the model read on the same page: the stub pipe names no network, nothing proves it is another run (TKQ03 asserts
+// the refusal). Z2's accepted pipe is therefore left out before the application; the valve count stays beside the run.
 armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the user settles it by keyboard, kept after a reload, counted once", options,
   async (ui) => {
     const { ids, target, jobs, client } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
@@ -285,7 +288,8 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     expect(zoneCode(z1)).toBe("ZONE_OVERLAP_RESOLVED");
     expect(zoneCode((await readItems(ui, jobs.Z2)).find((item) => item.designation === ZONE_PLANS.designation))).toBe("ZONE_OVERLAP_RESOLVED");
 
-    // Each job applies through the wizard of its targeted review; Z2's stub line is accepted (V) first.
+    // Each job applies through the wizard of its targeted review. Z2's stub line is first accepted by keyboard (V) with
+    // its coded reason, then left out: a length the model read on the page of the measured run cannot be applied with it.
     for (const zone of ["Z1", "Z2"] as const) {
       if (zone === "Z2") {
         await ui.app.open(targeted(jobs.Z2));
@@ -299,6 +303,11 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
         await justification.getByRole("button", "Confirmer l’acceptation", { exact: true }).click();
         expect((await accepted).status).toBe(200);
         await expect(list.getByRole("option")).toHaveCount(0);
+        const pipe = (await readItems(ui, jobs.Z2)).find((item) => item.designation === "ARMY worker pipe") as Item;
+        expect(pipe).toMatchObject({ is_verified: true, is_excluded: false });
+        await patchItems(ui, jobs.Z2, [{ item: pipe, fields: { is_excluded: true, exclusion_reason: "Lecture du plan écartée : tronçon mesuré retenu." } }]);
+        await ui.app.open(targeted(jobs.Z2));
+        await expect(screen.getByRole("button", "Appliquer au devis", { exact: true })).toBeEnabled();
       }
       await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
       const wizard = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
@@ -323,8 +332,9 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     const runs = estimate.items.filter((item) => item.title === ZONE_PLANS.designation).map((item) => Number(item.quantity)).sort();
     expect(runs).toEqual([3, 4]);
     expect(runs.reduce((sum, quantity) => sum + quantity, 0)).toBe(ZONE_PLANS.zones.Z1.length_m + ZONE_PLANS.zones.Z2.length_m - ZONE_PLANS.overlap_m);
-    // TI-681: retain the raw 12.5 m, sell the whole line at the next metre.
-    expect(estimate.items.filter((item) => item.title === "ARMY worker pipe").map((item) => Number(item.quantity))).toEqual([13]);
+    // TI-682: the page counts one reading of its lengths, the measured run; the model's pipe never reached the estimate
+    // (TKQ01 holds the rounding of a sold length).
+    expect(estimate.items.filter((item) => item.title === "ARMY worker pipe")).toEqual([]);
     await recordEvidence(ui.army, "TKR02-applied-once", { ids, jobs, estimateRuns: runs, target: target.parent_id });
   });
 
@@ -335,7 +345,9 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
     const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
     const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
-    expect(weld).toMatchObject({ quantity: 2, unit: "kg" });
+    // TI-682 D11: the weld count is an hypothesis; it arrives excluded with its reason, and stays in the list to enter.
+    expect(weld).toMatchObject({ quantity: 2, unit: "kg", is_excluded: true,
+      exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable });
     const target = `/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review/targeted?versionId=${ids.versionId}&line=${weld.id}`;
     await ui.app.open(target);
     await expect(panel).toContainText("NON_OBSERVABLE_TO_ENTER");
@@ -373,6 +385,9 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
     await entry.getByRole("button", "Enregistrer la quantité", { exact: true }).click();
     expect((await attested).status).toBe(200);
     await expect(list.getByRole("option", /^Soudures atelier/)).toHaveCount(0);
+    // Entering the quantity with what it rests on is the decision that includes the line (TI-682 D11).
+    expect((await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)).toMatchObject({ is_excluded: false, exclusion_reason: null,
+      quantity_entry_category: "written_confirmation" });
 
     await list.getByRole("option", /^ARMY worker pipe/).click();
     await panel.getByRole("button", /^Exclure/).click();
@@ -619,7 +634,8 @@ armyTest("TKR07 the complete review sends a weld count to the targeted review, w
     const { screen } = ui;
     const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
     const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
-    expect(weld).toMatchObject({ quantity: 2, unit: "kg", quantity_entry_category: null });
+    expect(weld).toMatchObject({ quantity: 2, unit: "kg", quantity_entry_category: null, is_excluded: true,
+      exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable });
 
     // The complete review: a new count typed on the line leads to the targeted review, unsaved.
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobs.Z1}/review?versionId=${ids.versionId}&reviewMode=production`);
@@ -652,7 +668,10 @@ armyTest("TKR07 the complete review sends a weld count to the targeted review, w
     await save.click();
     expect((await entered).status).toBe(200);
     const stored = (await readItems(ui, jobs.Z1)).find((item) => item.id === weld.id)!;
+    // An hypothesis its reviewer entered and justified is included by that decision (TI-682 D11); it reaches the
+    // estimate as an internal provision (TI-686 D12).
     expect(stored).toMatchObject({ quantity: 6, quantity_entry_category: "hypothesis", quantity_entry_note: assumed,
+      is_excluded: false, exclusion_reason: null,
       rule_results: expect.arrayContaining([expect.objectContaining({ code: "NON_OBSERVABLE_ENTERED" })]) });
     await recordEvidence(ui.army, "TKR07-hypothesis", { ids, jobs, line: weld.id, quantity: stored.quantity,
       category: stored.quantity_entry_category ?? null, note: stored.quantity_entry_note ?? null });

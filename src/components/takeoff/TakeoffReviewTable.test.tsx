@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import TakeoffReviewTable, { reviewBlockReasons } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 // TI-664 L5c, the row shortcuts of the review grid (E exclude, V verify, P proof) against direct entry in its cells.
 // Ways it fails, written before the fix:
@@ -35,9 +36,9 @@ const ITEM: ReviewItem = {
   _error: null,
 };
 
-function renderTable() {
+function renderTable(item: ReviewItem = ITEM) {
   const handlers = { onUpdateItem: vi.fn(), onExcludeItems: vi.fn(), onIncludeItems: vi.fn(), onOpenEvidencePanel: vi.fn() };
-  const view = render(<TakeoffReviewTable items={[ITEM]} {...handlers} />);
+  const view = render(<TakeoffReviewTable items={[item]} {...handlers} />);
   const cell = (column: string) => view.container.querySelector<HTMLElement>(`[data-cell-column-key="${column}"]`)!;
   return { ...handlers, cell };
 }
@@ -87,6 +88,32 @@ describe("TakeoffReviewTable row shortcuts", () => {
 
     expect(table.onExcludeItems).not.toHaveBeenCalled();
     expect(table.onUpdateItem).toHaveBeenCalledWith(ITEM.id, "quantity", 4);
+  });
+});
+
+// TI-682 D11: a quantity a plan cannot show arrives excluded, as an hypothesis. Ways the grid fails: its quantity
+// cell is read-only as any excluded line's, so that typing the count never leads to the targeted review where it is
+// entered (TI-686 D12); or the quantity of a line its reviewer excluded becomes editable.
+describe("TakeoffReviewTable hypothesis that arrived excluded", () => {
+  const TO_ENTER = { rule: "non_observable", status: "fail", code: "NON_OBSERVABLE_TO_ENTER", version: 1, acceptable: false,
+    reason: "Quantité à saisir." } as TakeoffRuleResult;
+  const weld = { ...ITEM, designation: "Soudures atelier", unit: "u", rule_results: [TO_ENTER], is_excluded: true };
+
+  it("takes a count typed on the weld, which the page sends to the targeted review", () => {
+    const table = renderTable({ ...weld, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable });
+    const quantity = table.cell("quantity");
+    expect(quantity).not.toHaveAttribute("aria-readonly");
+    expect(table.cell("designation")).toHaveAttribute("aria-readonly", "true");
+    act(() => quantity.focus());
+    fireEvent.keyDown(quantity, { key: "6" });
+    expect(table.onUpdateItem).toHaveBeenCalledWith(ITEM.id, "quantity", 6);
+  });
+
+  it.each([
+    ["a weld its reviewer excluded", { ...weld, exclusion_reason: "Hors lot." }],
+    ["an estimate that arrived excluded", { ...ITEM, is_excluded: true, exclusion_reason: TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.estimated }],
+  ])("keeps the quantity of %s read-only", (_label, item) => {
+    expect(renderTable(item).cell("quantity")).toHaveAttribute("aria-readonly", "true");
   });
 });
 

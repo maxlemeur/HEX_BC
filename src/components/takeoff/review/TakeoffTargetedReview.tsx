@@ -39,6 +39,7 @@ import {
   type TargetedReviewLine,
   type ZoneOverlapGuidance,
 } from "@/lib/takeoff/targeted-review";
+import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS, isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type { TakeoffApplyResponse, TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";
 
@@ -77,8 +78,13 @@ function quantityInput(value: number) {
   return String(value).replace(".", ",");
 }
 
+/**
+ * A quantity a plan cannot show: the rule says so, and so does an hypothesis that arrived excluded for it (TI-682),
+ * even before its rules were computed.
+ */
 function hasToEnter(item: TakeoffJobItem) {
-  return (item.rule_results ?? []).some((entry) => entry.rule === "non_observable");
+  return (item.rule_results ?? []).some((entry) => entry.rule === "non_observable")
+    || (item.is_excluded && item.exclusion_reason === TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS.non_observable);
 }
 
 /** A typed quantity: a positive number, with a comma or a dot. */
@@ -294,6 +300,12 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     void decide(current.item, { is_verified: true }, "Ligne acceptée", current.item.rules_evaluated_at ?? undefined);
   }, [acceptance, busy, current, decide, readOnly]);
 
+  // TI-682 D11: an hypothesis arrives excluded; including it is its reviewer's decision.
+  const include = useCallback(() => {
+    if (!current || readOnly || busy || !isUndecidedHypothesis(current.item) || hasToEnter(current.item)) return;
+    void decide(current.item, { is_excluded: false, exclusion_reason: null }, "Ligne incluse");
+  }, [busy, current, decide, readOnly]);
+
   const move = (delta: number) => {
     if (visible.length === 0) return;
     const index = selectedIndex < 0 ? 0 : Math.min(visible.length - 1, Math.max(0, selectedIndex + delta));
@@ -341,6 +353,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     } else if (key === "v" || key === "V") {
       event.preventDefault();
       accept();
+    } else if (key === "i" || key === "I") {
+      event.preventDefault();
+      include();
     } else if (key === "F2") {
       event.preventDefault();
       startEntry(null);
@@ -446,12 +461,13 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 {counts.all === 0 ? "Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu." : "Aucune ligne pour ce filtre."}
               </p>
             ) : null}
-            <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2"
+            <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2 I"
               aria-activedescendant={current ? `targeted-line-${current.item.id}` : undefined}
               className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring">
               {visible.map((line) => {
                 const selected = line.item.id === selectedId;
                 const first = line.rule_failures[0];
+                const hypothesis = isUndecidedHypothesis(line.item);
                 return (
                   <li key={line.item.id} id={`targeted-line-${line.item.id}`} role="option" aria-selected={selected}
                     className={cn("cursor-pointer px-3 py-2 text-xs", selected ? "bg-primary/10" : "hover:bg-surface-subtle")}
@@ -461,6 +477,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                         <span className="block truncate text-sm font-medium text-foreground" title={line.item.designation}>{line.item.designation}</span>
                         <span className="block text-muted-foreground">
                           {first ? TAKEOFF_RULE_LABELS[first.rule]
+                            : hypothesis ? "Hypothèse non présélectionnée"
                             : line.tier === "uncertain" ? "Confiance moyenne"
                               : line.reasons.map((reason) => APPLY_GUARD_REASON_LABELS[reason]).join(" · ")}
                           {line.rule_failures.length > 1 ? ` + ${line.rule_failures.length - 1}` : ""}
@@ -469,7 +486,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                       <span className="shrink-0 text-right">
                         <span className="block font-mono tabular-nums text-foreground">{quantityText(line.item.quantity)} {line.item.unit}</span>
                         {saving.has(line.item.id) ? <Spinner aria-label="Enregistrement" className="ml-auto size-3" />
-                          : <Badge size="sm" variant={line.tier === "rejected" ? "danger" : "warning"}>{line.tier === "rejected" ? "Rejetée" : "Incertaine"}</Badge>}
+                          : <Badge size="sm" variant={line.tier === "rejected" ? "danger" : "warning"}>{line.tier === "rejected" ? "Rejetée" : hypothesis ? "Hypothèse" : "Incertaine"}</Badge>}
                       </span>
                     </span>
                   </li>
@@ -544,6 +561,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                   onCommit={commitQuantity} onStartEntry={() => startEntry(null)}
                   onExclude={() => openExclusion(guidance?.remove_line ? duplicateExclusionReason(guidance) : "", guidance?.remove_line === true)}
                   onAccept={() => { accept(); focusList(); }}
+                  onInclude={() => { include(); focusList(); }}
                   onReduce={(to) => {
                     // A reduced quantity to enter is entered too: with what it rests on (TI-686 D12).
                     if (hasToEnter(current.item)) {
@@ -587,7 +605,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         <QuantityEntryDialog quantity={pendingEntry.quantity} unit={enteredItem.unit} busy={busy}
           onClose={() => { setPendingEntry(null); requestFocusList(); }}
           onConfirm={(value) => {
-            void decide(enteredItem, { quantity: pendingEntry.quantity, quantity_entry: value }, pendingEntry.done,
+            // Entering an hypothesis's quantity with what it rests on is the decision that includes it (TI-682 D11).
+            void decide(enteredItem, { quantity: pendingEntry.quantity, quantity_entry: value,
+              ...(isUndecidedHypothesis(enteredItem) ? { is_excluded: false, exclusion_reason: null } : {}) }, pendingEntry.done,
               pendingEntry.expectedEvaluation);
             setPendingEntry(null);
             requestFocusList();
@@ -635,6 +655,8 @@ type LineDecisionProps = {
   onStartEntry: () => void;
   onExclude: () => void;
   onAccept: () => void;
+  /** Includes an hypothesis that arrived excluded (TI-682 D11). */
+  onInclude: () => void;
   onReduce: (quantity: number) => void;
   onSelectPartner: (itemId: string) => void;
   partnerListed: (itemId: string) => boolean;
@@ -642,10 +664,11 @@ type LineDecisionProps = {
 };
 
 function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
-  onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
+  onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onInclude, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
-  const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable");
+  const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable") || hasToEnter(item);
   const otherReasons = line.reasons.filter((reason) => reason !== "rule_failed");
+  const hypothesis = isUndecidedHypothesis(item);
   const disabled = busy || readOnly;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -653,7 +676,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">{item.designation}</h2>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge size="sm" variant={line.tier === "rejected" ? "danger" : "warning"}>{line.tier === "rejected" ? "Rejetée" : "Incertaine"}</Badge>
+            <Badge size="sm" variant={line.tier === "rejected" ? "danger" : "warning"}>{line.tier === "rejected" ? "Rejetée" : hypothesis ? "Hypothèse" : "Incertaine"}</Badge>
             <span>Confiance {({ high: "élevée", medium: "moyenne", low: "faible" } as const)[quantityConfidence(item.confidence, (item.rule_results ?? []).filter(rule => rule.status === "fail").map(rule => rule.reason))]}</span>
             {item.source_page !== null ? <span>· p. {item.source_page}</span> : null}
             {item.is_verified ? <Badge size="sm" variant="info">Acceptée</Badge> : null}
@@ -697,7 +720,9 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
 
         <section aria-label="Raisons" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Raisons</h3>
-          {line.tier === "uncertain" ? (
+          {hypothesis ? (
+            <p className="text-foreground-secondary">{item.exclusion_reason}</p>
+          ) : line.tier === "uncertain" ? (
             <p className="text-foreground-secondary">Confiance moyenne : contrôlez la ligne, puis acceptez-la (V) ou corrigez-la.</p>
           ) : null}
           {otherReasons.map((reason) => (
@@ -791,6 +816,9 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         <div role="toolbar" aria-label="Décisions" className="flex flex-wrap gap-2">
           <Button size="sm" variant="danger" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Exclure<Kbd>E</Kbd></Button>
           <Button size="sm" variant="outline" disabled={disabled} onClick={onStartEntry} aria-keyshortcuts="F2">{toEnter ? "Saisir" : "Corriger"}<Kbd>F2</Kbd></Button>
+          {hypothesis && !toEnter ? (
+            <Button size="sm" variant="secondary" disabled={disabled} onClick={onInclude} aria-keyshortcuts="I">Inclure<Kbd>I</Kbd></Button>
+          ) : null}
           <Button size="sm" variant="primary" disabled={disabled || !acceptance?.enabled} onClick={onAccept} aria-keyshortcuts="V">Accepter<Kbd>V</Kbd></Button>
         </div>
         {acceptance && !acceptance.enabled && acceptance.reason && level !== null ? (

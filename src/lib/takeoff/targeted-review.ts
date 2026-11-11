@@ -11,6 +11,7 @@ import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import type { TakeoffRuleResult, ZoneOverlapPartner } from "@/lib/takeoff/rules/types";
 import { isQuantityWarning, quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
+import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 
 // TI-681: show protections, quantity uncertainties, alternative-reading gaps
 // and important priced posts. Recommendations never require every run to be
@@ -19,8 +20,14 @@ import { isQuantityWarning, quantitySourceComparison } from "@/lib/takeoff/quant
 // TI-686 H17: V is never offered on a line that has a quantity to enter, even beside an acceptable failure (the
 // database refuses V while a failure V never settles is there). A quantity to enter is entered with what it rests on
 // (TI-686 D12, the review's QuantityEntryDialog).
+// TI-682 D11: an hypothesis arrives excluded, never preselected. It stays listed until someone decides it (enters its
+// quantity with what it rests on, includes it, or excludes it with a reason of their own): left out of the list, a
+// necessary quantity would leave the estimate without anyone seeing it.
 
 export type TargetedReviewTier = "rejected" | "uncertain";
+
+/** A line as the review reads it: the guard's fields, and the reason of its exclusion when it is loaded. */
+type ReviewItem = ApplyGuardItem & { exclusion_reason?: string | null };
 
 export type TargetedReviewLine<T extends ApplyGuardItem> = {
   item: T;
@@ -31,7 +38,7 @@ export type TargetedReviewLine<T extends ApplyGuardItem> = {
 };
 
 /** The lines to review, rejected then uncertain, each in the job's order, and the guard they come from. */
-export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[], threshold: number, level: string | null,
+export function targetedReviewLines<T extends ReviewItem>(items: readonly T[], threshold: number, level: string | null,
   importantIds: readonly string[] = []) {
   const guard: ApplyGuardResult = checkApplyGuard([...items], threshold, { level, leftOut: leftOutByPartners });
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -44,10 +51,12 @@ export function targetedReviewLines<T extends ApplyGuardItem>(items: readonly T[
   const listed = new Set(lines.map((line) => line.item.id));
   const important = new Set(importantIds);
   for (const item of items) {
-    if (item.is_excluded || listed.has(item.id)) continue;
+    if (listed.has(item.id)) continue;
+    const undecided = isUndecidedHypothesis(item);
+    if (item.is_excluded && !undecided) continue;
     const warnings = (item.rule_results ?? []).filter((entry) => entry.status === "fail" && isQuantityWarning(entry.code));
     const comparison = quantitySourceComparison("metadata" in item ? item.metadata : null);
-    if ((warnings.length === 0 && !important.has(item.id) && !comparison?.delta) || item.is_verified) continue;
+    if (!undecided && ((warnings.length === 0 && !important.has(item.id) && !comparison?.delta) || item.is_verified)) continue;
     lines.push({ item, tier: "uncertain", reasons: warnings.length ? ["rule_failed"] : [], rule_failures: warnings });
   }
   for (const line of lines) {
@@ -63,8 +72,11 @@ export type Acceptance = { enabled: boolean; reason: string | null };
 const STALE_REASON = "Règles à recalculer : ce qu’elles disaient peut ne plus tenir, V ne les lève pas. Utilisez « Recalculer les règles ».";
 const TO_ENTER_REASON = "Une quantité à saisir ne s’accepte pas : saisissez-la (F2, puis Entrée).";
 
+const UNDECIDED_HYPOTHESIS_REASON = "Hypothèse non présélectionnée : V ne l’inclut pas. Saisissez sa quantité ou incluez la ligne.";
+
 /** Whether V settles something on this line, and why not. */
-export function acceptanceOf(item: ApplyGuardItem, level: string | null): Acceptance {
+export function acceptanceOf(item: ReviewItem, level: string | null): Acceptance {
+  if (isUndecidedHypothesis(item)) return { enabled: false, reason: UNDECIDED_HYPOTHESIS_REASON };
   if (item.is_verified) return { enabled: false, reason: "Ligne déjà acceptée." };
   if (item.rules_stale) return { enabled: false, reason: STALE_REASON };
   const failures = blockingRules(item.rule_results, false);

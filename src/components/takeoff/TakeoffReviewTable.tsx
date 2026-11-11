@@ -37,6 +37,7 @@ import {
   type ApplyGuardBlockReason,
 } from "@/lib/takeoff/guards";
 import { targetedReviewLines } from "@/lib/takeoff/targeted-review";
+import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -632,6 +633,10 @@ export default function TakeoffReviewTable({
               filteredItems.map((item) => {
                 const anomalies = detectAnomalies(item, anomalyContext);
                 const isExcluded = item.is_excluded;
+                // TI-682 D11: an hypothesis a plan cannot show arrives excluded; typing its quantity here still leads to
+                // the targeted review, where it is entered with what it rests on (TI-686 D12), which includes it.
+                const quantityToEnter = isUndecidedHypothesis(item)
+                  && (item.rule_results ?? []).some((result) => result.rule === "non_observable" && result.status === "fail");
                 const rowClassName = [
                   isExcluded && "bg-surface-subtle",
                   item._error && "bg-danger-light",
@@ -694,7 +699,7 @@ export default function TakeoffReviewTable({
                             onUpdateItem(item.id, "quantity", num);
                           }
                         }}
-                        readOnly={isExcluded}
+                        readOnly={isExcluded && !quantityToEnter}
                         type="number"
                         step="0.001"
                         min="0.001"
