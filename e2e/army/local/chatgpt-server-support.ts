@@ -144,7 +144,8 @@ export async function compileChatGptRoutes(origin: string, email: string, wave: 
     const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
     if (login.error) throw new Error("ChatGPT readiness login failed.");
     // Under the 90 s of the hook, so that a slow compile fails here, by name and with its timings kept.
-    const signal = AbortSignal.timeout(80_000);
+    const boundMs = 80_000;
+    const signal = AbortSignal.timeout(boundMs);
     const compile = async (request: CompileRequest) => {
       const requestStarted = Date.now();
       const method = request.method ?? "GET";
@@ -166,6 +167,13 @@ export async function compileChatGptRoutes(origin: string, email: string, wave: 
         } else {
           await response.text();
         }
+      } catch (error) {
+        // The bound rejects with a bare "The operation was aborted due to timeout": name the wave and the entry.
+        if (signal.aborted && error === signal.reason) {
+          throw new Error(`ChatGPT readiness wave ${wave} had no ${status === null ? "answer" : "complete answer"} for ${method} ${
+            request.path} within ${boundMs / 1000} s.`, { cause: error });
+        }
+        throw error;
       } finally {
         requests.push({ method, path: request.path, status, elapsedMs: Date.now() - requestStarted });
       }
