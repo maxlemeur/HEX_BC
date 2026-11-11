@@ -14,9 +14,14 @@ vi.mock("@/lib/takeoff/client", () => ({
   applyTakeoffJob: vi.fn(),
   isTakeoffApiError: () => false,
 }));
+vi.mock("@/lib/takeoff/page-contributions-client", () => ({
+  fetchTakeoffJobPageContributions: vi.fn(),
+  fetchLaunchPageContributions: vi.fn(),
+}));
 
 import { TakeoffTargetedReview } from "@/components/takeoff/review/TakeoffTargetedReview";
 import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, patchTakeoffItems } from "@/lib/takeoff/client";
+import { fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-client";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
@@ -96,6 +101,8 @@ beforeEach(() => {
   } as never);
   vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue({ summary: { total_lines: 0, to_confirm: 0, significant_gaps: 0,
     lines_without_proof: 0, forced_manual: 0, unused_takeoff_items: 0 } } as never);
+  vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
+    unidentified_item_ids: [], other_takeoff_line_count: 0 });
 });
 afterEach(() => {
   cleanup();
@@ -457,5 +464,22 @@ describe("TakeoffTargetedReview", () => {
 
     await waitFor(() => expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.toEnter,
       updated_at: ITEMS[0].updated_at, fields: { quantity: 12, quantity_entry: { category: "site_survey" } } }] }));
+  });
+  // TI-682 lot D, PR 1: the page this takeoff re-reads is already in the estimate through an earlier takeoff. The
+  // targeted review names it at its head with that takeoff (and opens it) before the application. Written before the banner.
+  it("names a page already in the estimate through another takeoff, and opens that takeoff", async () => {
+    const earlier = "66666666-6666-4666-8666-666666666666";
+    const earlierVersion = "77777777-7777-4777-8777-777777777777";
+    vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, other_takeoff_line_count: 2, unidentified_item_ids: [],
+      jobs: [{ id: earlier, estimate_version_id: earlierVersion, created_at: "2026-11-10T09:30:00.000Z", source_file_name: "plan.pdf" }],
+      pages: [{ file_name: "plan.pdf", page: 1, item_ids: [ids.z1, ids.z2], earlier: [{ job_id: earlier, line_count: 2, takeoff_item_ids: [] }], own_line_count: 0 }] });
+    await open();
+    const banner = await screen.findByRole("region", { name: "Pages déjà au devis" });
+    expect(banner).toHaveTextContent("plan.pdf, page 1 : déjà au devis par le métré du 10/11/2026 (plan.pdf), 2 lignes");
+    expect(within(banner).getByRole("link", { name: "Ouvrir le métré" })).toHaveAttribute("href",
+      `/dashboard/affaires/44444444-4444-4444-8444-444444444444/takeoff/${earlier}/review?versionId=${earlierVersion}`);
+    // Their Z1/Z2 duplicates pair two lines of this takeoff, not a line of the earlier one: the banner leaves them alone.
+    expect(banner).not.toHaveTextContent("ne retirez pas la ligne");
+    expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, VERSION_ID, expect.anything());
   });
 });

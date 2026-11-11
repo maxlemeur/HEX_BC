@@ -76,7 +76,7 @@ test("affaire workbench separates dossier, pricing and review without losing dee
   await browser.reload();
   await expect(screen.getByRole("heading", "Résumé financier", { exact: true })).toBeVisible();
   await app.open(`/dashboard/affaires/${projectId}?registerStatus=open&registerSeverity=critical#register`);
-  await expect(screen.getByRole("heading", "Registre hypothèses & pièces manquantes", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("heading", "Points à traiter", { exact: true })).toBeVisible();
   await expect(screen.getByRole("heading", "Résumé financier", { exact: true })).not.toBeVisible();
   await app.open(`/dashboard/affaires/${projectId}#finish-line-orders`);
   await expect(screen.getByRole("heading", "Brouillons par fournisseur, sans ressaisie", { exact: true })).toBeVisible();

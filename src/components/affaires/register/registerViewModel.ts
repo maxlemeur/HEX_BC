@@ -4,6 +4,7 @@ import {
   canAffaireRegisterEntryClarifyWithClient,
   canAffaireRegisterEntryContinueWithHypothesis,
   canAffaireRegisterEntryRequestRevalidation,
+  deriveAffaireRegisterBusinessImpact,
   AFFAIRE_REGISTER_ORIGIN_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
   AFFAIRE_REGISTER_STATUS_LABELS,
@@ -35,6 +36,27 @@ export const SEVERITY_TONE: Record<AffaireRegisterEntrySeverity, string> = {
   warning: "bg-warning/10 text-warning",
   critical: "bg-danger/10 text-danger",
 };
+
+export function getRegisterBlockingCount(summary: AffaireRegisterSummary) {
+  return summary.criticalOpenCount + (summary.criticalClarifyWithClientCount ?? 0) +
+    (summary.revalidationRequiredCount ?? 0);
+}
+
+export function getRegisterEntryImpact(entry: AffaireRegisterEntry) {
+  if (entry.status === "validated" || entry.status === "rejected") {
+    return { label: entry.status === "validated" ? "Traité" : "Écarté", blocking: false, rank: 4 };
+  }
+  if (isAffaireRegisterEntryRevalidationRequired(entry)) {
+    return { label: "À revalider", blocking: true, rank: 0 };
+  }
+  if (deriveAffaireRegisterBusinessImpact(entry).includes("blocks_submission")) {
+    return { label: "Bloquant", blocking: true, rank: 1 };
+  }
+  if (entry.status === "clarify_with_client") {
+    return { label: "Retour client", blocking: false, rank: 2 };
+  }
+  return { label: entry.kind === "assumption" ? "À confirmer" : "À suivre", blocking: false, rank: 3 };
+}
 
 export type RegisterEntryWorkflowAction = {
   key: string;

@@ -22,7 +22,7 @@ import { switchToExpertMode } from "./engine-v3-editor-support";
 // Parcours qui capturent : sans la session de campagne restaurée (engine-v3-creators.e2e.ts), une sélection faite
 // d'eux seuls est refusée par le runner ; y joindre V3C01 par exemple.
 const capturing = { tags: ["critical", "local", "affaire-hub", "fresh-start"], timeout: 600_000 } as const;
-const HUB_CARDS = ["Résumé financier", "Analyse de marge", "Versions", "Registre hypothèses & pièces manquantes", "Approbation"] as const;
+const HUB_CARDS = ["Résumé financier", "Analyse de marge", "Versions", "Points à traiter", "Approbation"] as const;
 /** The full hub of a v1/v2 current version without a line: its margin analysis is empty, hence no card (H3). */
 const WITHOUT_MARGIN = HUB_CARDS.filter((title) => title !== "Analyse de marge");
 const V3_NOTICE_V2 = "Marge indisponible pour V2 : aucun déboursé calculable.";
