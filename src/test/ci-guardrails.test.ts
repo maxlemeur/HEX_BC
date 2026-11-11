@@ -644,7 +644,10 @@ describe("CI and local quality guardrails", () => {
 
   it("keeps Army business runs deterministic and authenticated evidence private", () => {
     const config = read("e2e.config.ts");
-    expect(config).toContain("retries: 0");
+    // Zero retries unless the CI launcher asks for one, which classifies a failure and never passes it:
+    // src/test/army-retry-quarantine.test.ts loads the configuration and reads the result.
+    expect(config).not.toMatch(/retries: \d/u);
+    expect(read("e2e/army/local/calc-v3.config.ts")).toContain("retries: 0");
     expect(config).toContain('trace: critical || performance || coverage ? "off" : "on"');
     expect(config).toContain('E2E_ARMY_BLOCK_WORKERS: "1"');
     expect(config).toContain("maxDuration:");

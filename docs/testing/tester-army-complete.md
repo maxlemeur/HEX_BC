@@ -26,7 +26,9 @@ npm run e2e:army:explore
 ```
 
 `--grep` prouve seulement les cas sélectionnés. Un test ignoré, bloqué, interrompu
-ou absent du rapport ne vaut jamais un succès. Aucun retry automatique n'est ajouté.
+ou absent du rapport ne vaut jamais un succès. Aucun retry automatique n'est ajouté
+sur le poste ; en CI, une seconde tentative
+[classe un échec sans jamais le rendre vert](tester-army-ci.md#tentative-unique-et-quarantaine).
 
 ## Couverture et limites
 

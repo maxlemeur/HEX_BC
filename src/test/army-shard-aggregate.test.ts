@@ -84,7 +84,7 @@ type UnitOptions = {
   extra?: Record<string, unknown>;
   revision?: string;
   calcV3?: { phases: { phase: string; status: string }[] };
-  results?: (file: string) => { status: string; titlePath?: string[] };
+  results?: (file: string) => { status: string; titlePath?: string[]; attempts?: { status: string }[]; expectedFailure?: { reason: string } };
   summary?: Record<string, number>;
   /** Other evidence files of the unit, by relative path. */
   files?: Record<string, string>;
@@ -261,6 +261,79 @@ describe("TesterArmy shard aggregation", () => {
     fs.rmSync(evidence, { recursive: true, force: true });
     writeCriticalShards();
     expect(aggregateEvidence(critical(criticalSelection())).notPassed).toEqual([]);
+  });
+
+  it("tells a journey that passed on its retry from one that failed both attempts, and keeps both red", () => {
+    // The e2e CLI exits 0 on a run whose only non-pass is flaky: a shard that let it through would have a clean
+    // exit code and manifest, and only its report would say that a journey needed its retry.
+    writeCriticalShards(undefined, (index) => (index === 1 ? {
+      results: (file) => (file === A ? { status: "flaky", titlePath: ["A01 the hub opens"], attempts: [{ status: "failed" }, { status: "passed" }] }
+        : file === C ? { status: "failed", titlePath: ["C02 the export downloads"], attempts: [{ status: "failed" }, { status: "failed" }] } : { status: "passed" }),
+      summary: { passed: 1, failed: 1, flaky: 1 },
+    } : {}));
+    const result = aggregateEvidence(critical(criticalSelection()));
+    expect(result.status).toBe("failed");
+    expect(result.notPassed).toEqual([
+      "shard 1/2 : a.e2e.ts : A01 the hub opens (intermittent: failed on attempt 1, passed on attempt 2)",
+      "shard 1/2 : c.e2e.ts : C02 the export downloads (failed on both attempts)",
+    ]);
+    expect(result.problems.join("\n")).toContain(`shard 1/2 critical/report.json: 2 selected result(s) not passed, first ${A} (intermittent: failed on attempt 1, passed on attempt 2).`);
+
+    // A flaky journey alone, with the exit code 0 the CLI gives it, is red too.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards(undefined, (index) => (index === 1 ? {
+      results: (file) => (file === A ? { status: "flaky", titlePath: ["A01 the hub opens"], attempts: [{ status: "failed" }, { status: "passed" }] } : { status: "passed" }),
+      summary: { passed: 2, flaky: 1 },
+    } : {}));
+    const selection = path.join(directory, "selection.json");
+    fs.writeFileSync(selection, JSON.stringify(criticalSelection()));
+    const summary = path.join(directory, "github-summary.md");
+    const run = spawnSync(process.execPath, [AGGREGATOR, "critical", "--plan", selection, "--evidence", evidence,
+      "--out", out, "--results", "army-select=success,army-critical-shard=success", "--revision", REVISION], {
+      cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "", GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
+    });
+    expect(run.status).toBe(1);
+    const written = fs.readFileSync(summary, "utf8");
+    expect(written).toContain("Parcours non passés (1)");
+    expect(written).toContain("- shard 1/2 : a.e2e.ts : A01 the hub opens (intermittent: failed on attempt 1, passed on attempt 2)");
+    expect(written).toContain("« intermittent »");
+  });
+
+  it("lists the quarantined journeys with their ticket in a green aggregate, and refuses one without a ticket", () => {
+    // The runner reports an expected failure as passed: the counts add up and nothing else says the journey proves nothing.
+    const quarantine = (reason: string) => (index: number): Partial<UnitOptions> => (index === 1 ? {
+      results: (file) => (file === A ? { status: "passed", titlePath: ["A01 the hub opens"], expectedFailure: { reason } } : { status: "passed" }),
+    } : {});
+    writeCriticalShards(undefined, quarantine("TI-681: the hub does not open"));
+    const result = aggregateEvidence(critical(criticalSelection()));
+    expect(result).toMatchObject({ status: "passed", problems: [], notPassed: [] });
+    expect(result.quarantined).toEqual(["TI-681 : shard 1/2 : a.e2e.ts : A01 the hub opens (TI-681: the hub does not open)"]);
+    expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).quarantined).toEqual(result.quarantined);
+
+    const selection = path.join(directory, "selection.json");
+    fs.writeFileSync(selection, JSON.stringify(criticalSelection()));
+    const summary = path.join(directory, "github-summary.md");
+    const run = spawnSync(process.execPath, [AGGREGATOR, "critical", "--plan", selection, "--evidence", evidence,
+      "--out", out, "--results", "army-select=success,army-critical-shard=success", "--revision", REVISION], {
+      cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "", GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
+    });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain("::warning title=TesterArmy quarantine::TI-681 : shard 1/2 : a.e2e.ts : A01 the hub opens (TI-681: the hub does not open)");
+    const written = fs.readFileSync(summary, "utf8");
+    expect(written).toContain("Parcours en quarantaine (1)");
+    expect(written).toContain("- TI-681 : shard 1/2 : a.e2e.ts : A01 the hub opens (TI-681: the hub does not open)");
+    // A green aggregate without quarantine says nothing about it.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards();
+    expect(aggregateEvidence(critical(criticalSelection())).quarantined).toEqual([]);
+
+    // An expected failure without a ticket is not a quarantine: the shard that let it through is refused here too.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards(undefined, quarantine("expected to fail"));
+    const refused = aggregateEvidence(critical(criticalSelection()));
+    expect(refused.status).toBe("failed");
+    expect(refused.problems.join("\n")).toContain(`shard 1/2 critical/report.json: ${A} > A01 the hub opens is expected to fail without a ticket (reason "expected to fail")`);
+    expect(refused.quarantined).toEqual(["no ticket : shard 1/2 : a.e2e.ts : A01 the hub opens (expected to fail)"]);
   });
 
   it("fails on evidence that is not the shard's own, on other revisions and on a swapped shard", () => {
@@ -523,6 +596,27 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
     expect(red.problems.join("\n")).toContain("group 1/2 (army-calc-v3-group-1-evidence) calc-v3.json: phases journeys passed, resume failed.");
     expect(red.notPassed).toEqual(["calc-v3 resume : generated-ouvrage-resume.e2e.ts : GR02 resumes the draft (failed)"]);
     expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8")).units.map((unit: { status: string }) => unit.status)).toEqual(["failed", "passed"]);
+  });
+
+  it("names the intermittent and the quarantined journeys of a calc-v3 phase from its own report", () => {
+    const file = "e2e/army/local/generated-ouvrage-resume.e2e.ts";
+    writeGroup(1, PLAN[0], { files: { "resume/sdk/report.json": JSON.stringify({ run: { results: [
+      { file, selected: true, status: "passed", titlePath: ["GR03 keeps the draft"], expectedFailure: { reason: "red on main, #204" } },
+      { file, selected: true, status: "passed", titlePath: ["GR04 keeps the page"] },
+    ] } }) } });
+    writeGroup(2, PLAN[1]);
+    const green = aggregateEvidence(calc(PLAN));
+    expect(green).toMatchObject({ status: "passed", problems: [], notPassed: [] });
+    expect(green.quarantined).toEqual(["#204 : calc-v3 resume : generated-ouvrage-resume.e2e.ts : GR03 keeps the draft (red on main, #204)"]);
+
+    reset();
+    writeGroup(1, PLAN[0], { ran: [["journeys", "passed"], ["resume", "failed"]], files: { "resume/sdk/report.json": JSON.stringify({ run: { results: [
+      { file, selected: true, status: "flaky", titlePath: ["GR02 resumes the draft"], attempts: [{ status: "timed-out" }, { status: "passed" }] },
+    ] } }) } });
+    writeGroup(2, PLAN[1]);
+    expect(aggregateEvidence(calc(PLAN)).notPassed).toEqual([
+      "calc-v3 resume : generated-ouvrage-resume.e2e.ts : GR02 resumes the draft (intermittent: timed-out on attempt 1, passed on attempt 2)",
+    ]);
   });
 
   it("fails calc-v3 on a missing, duplicated or unplanned phase and on a group that does not list its planned phases", () => {

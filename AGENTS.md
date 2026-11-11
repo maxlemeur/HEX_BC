@@ -88,8 +88,14 @@ contract take precedence over historical reports and procedures.
 | Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
 
 - Diagnose failures before rerunning affected checks; never mask them with retries
-  or higher timeouts. Broaden only for a failure or material risk. Once required
-  checks pass, stop testing unchanged inputs; do not duplicate full CI suites.
+  or higher timeouts. CI retries a failed journey once, only to classify it: one
+  that then passes is named « intermittent », its check stays red, and the label
+  is not evidence that your change is innocent. `test.fail` is only a quarantine
+  for a journey red on `main`: its reason cites an open ticket (`TI-681`, `#123`)
+  and the campaign summary lists it
+  ([rule](docs/testing/tester-army-ci.md#tentative-unique-et-quarantaine)).
+  Broaden only for a failure or material risk. Once required checks pass, stop
+  testing unchanged inputs; do not duplicate full CI suites.
 - Never weaken, skip or remove the CI quality, smoke, critical, takeoff, SQL/RLS
   and calc-v3 checks to get green. Selection and schedules belong to workflows
   and the [CI guide](docs/testing/tester-army-ci.md).

@@ -51,6 +51,21 @@ if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
 }
 const workers = workersSetting === "" ? 1 : Number(workersSetting);
 const dogfoodPerformance = performance && process.env.E2E_DOGFOOD_OWNED_STACK === "1";
+
+// One retry, asked only by the CI launcher of the critical and full campaigns
+// (scripts/run-tester-army-ci.ts): it tells a journey that fails intermittently
+// from one that fails twice, and never makes a campaign green. The e2e CLI exits
+// 0 on a journey that passed on its retry; scripts/run-tester-army.mjs, the
+// launcher and the aggregate keep it red (scripts/tester-army/journey-outcomes.ts).
+// A workstation run keeps zero, and no value above one is accepted.
+const retriesSetting = process.env.E2E_ARMY_RETRIES ?? "";
+if (!["", "0", "1"].includes(retriesSetting)) {
+  throw new Error(`E2E_ARMY_RETRIES must be 0 or 1 (default 0); received "${retriesSetting}".`);
+}
+if (retriesSetting === "1" && !critical) {
+  throw new Error("E2E_ARMY_RETRIES=1 is reserved for the critical and full campaigns of run-tester-army-ci.ts in CI.");
+}
+const retries = retriesSetting === "1" ? 1 : 0;
 if (workers > 1 && !(critical && process.env.E2E_ARMY_LOCAL_DB_URL)) {
   throw new Error("E2E_ARMY_WORKERS above 1 is reserved for critical journeys on the owned ephemeral stack (npm run e2e:army:local or e2e:army:ci).");
 }
@@ -137,7 +152,7 @@ export default {
     },
   ],
   workers,
-  retries: 0,
+  retries,
   // This lot normally takes a few minutes; a hung campaign must stay a failure.
   ...(critical ? { maxDuration: full ? 3_600_000 : techDebt ? 900_000 : 1_800_000 } : {}),
   timeout: 90_000,
