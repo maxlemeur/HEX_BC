@@ -779,6 +779,18 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   : "Corrigez ou excluez la ligne mal lue ; si ce sont deux tuyaux, acceptez (V) une fois vérifié."}
               </p>
             ) : null}
+            {guidance.kind !== "unregistered" && guidance.kind !== "candidate" && guidance.partners.some((partner) => partner.plan === "enlarged") ? (
+              <p className="text-xs text-foreground-secondary">
+                Cette ligne est sur le plan d’ensemble : à indice cohérent, le plan agrandi fait foi dans son périmètre. La longueur
+                commune se retire de cette ligne, pas de celle du plan agrandi.
+              </p>
+            ) : null}
+            {guidance.kind !== "unregistered" && guidance.kind !== "candidate" && guidance.partners.some((partner) => partner.plan === "overview") ? (
+              <p className="text-xs text-foreground-secondary">
+                Cette ligne est sur le plan agrandi, qui fait foi dans son périmètre à indice cohérent : la correction revient à la
+                ligne du plan d’ensemble.
+              </p>
+            ) : null}
             {guidance.kind === "candidate" ? <p className="text-xs text-foreground-secondary">Lecture non retenue : comparez les plans avant d’inclure cette ligne dans le devis.</p> : null}
             {guidance.partners.length > 0 ? (
               <ul aria-label="Lignes des autres zones" className="space-y-1">
@@ -786,6 +798,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                   <li key={partner.item_id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-xs">
                     <Badge size="sm" variant="outline">{partner.zone ?? "Autre page"}</Badge>
                     <span className="min-w-0 flex-1 truncate" title={partner.designation}>{partner.designation}</span>
+                    {partner.plan ? <Badge size="sm" variant="outline">{partner.plan === "enlarged" ? "Plan agrandi" : "Plan d’ensemble"}</Badge> : null}
                     {partner.differs ? (
                       <Badge size="sm" variant="warning">
                         Lu autrement : {partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")}

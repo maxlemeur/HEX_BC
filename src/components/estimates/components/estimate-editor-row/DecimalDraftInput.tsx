@@ -100,9 +100,10 @@ export const DecimalDraftInput = forwardRef<
         const parsed = resolve(nextValue);
         if (parsed === null) {
           event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
-          event.currentTarget.reportValidity();
+          // Leave the invalid draft visible without stealing focus from the next control.
           return;
         }
+        event.currentTarget.setCustomValidity("");
         setDraftValue(null);
         onValueChange(parsed);
         onValueCommit(parsed);

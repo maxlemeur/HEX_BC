@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { MATERIAL_CODES, NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
-import { TAKEOFF_RULE_IDS, ZONE_OVERLAP_DIFFERENCES, type TakeoffRuleInputs, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
+import { TAKEOFF_RULE_IDS, ZONE_OVERLAP_DIFFERENCES, ZONE_OVERLAP_PLANS, type TakeoffRuleInputs, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 // Wire shapes of the fixed rules (TI-664): the inputs the worker writes in
 // takeoff_items.metadata.rule_inputs, the results the server writes in
@@ -29,6 +29,7 @@ const LIMITS = { code: 64, reason: 1000, partners: 50, zone: 16, designation: 50
 const PartnerSchema = z.object({
   item_id: z.string(), job_id: z.string(), zone: z.string().max(LIMITS.zone).nullable(), designation: z.string().max(LIMITS.designation),
   overlap_m: finite, resolved: z.boolean(), differs: z.array(z.enum(ZONE_OVERLAP_DIFFERENCES)).min(1).max(ZONE_OVERLAP_DIFFERENCES.length).optional(),
+  plan: z.enum(ZONE_OVERLAP_PLANS).optional(),
 });
 
 export const TakeoffRuleResultSchema: z.ZodType<TakeoffRuleResult> = z.object({

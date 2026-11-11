@@ -40,12 +40,14 @@ import type {
   TakeoffRuleResult,
   ZoneOverlapDifference,
   ZoneOverlapPartner,
+  ZoneOverlapPlan,
 } from "@/lib/takeoff/rules/types";
 import {
   ZONE_OVERLAP_VERSION,
   CoverageCache,
   commonLength,
   coveredBy,
+  isEnlargedPlan,
   minCommonLength,
   restCoverage,
   restOf,
@@ -70,6 +72,9 @@ import {
 // - Copies read differently (TI-684): two lines of one kind drawn at one place
 //   on two pages are a pair whatever their network, material and DN, unless
 //   each has its copy of the same reading there; the partner says what differs.
+// - Enlarged plans (TI-684, D14): a line whose copies are all on plans at a
+//   finer scale yields to them; it settles what they draw of it by its own
+//   reduction, in no group. The enlarged plans' lines fail with it until then.
 // - Versions: each result carries the version of its rule, which moves with
 //   its thresholds or reference table.
 
@@ -649,6 +654,27 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     }
     // An excluded line counts nothing: only included lines are the other side of a pair.
     const partnersOf = (id: string) => (pairsOf.get(id) ?? []).filter(({ other }) => !other.is_excluded);
+    // Enlarged plans (TI-684, D14: « à indice cohérent, le détail agrandi fait foi dans son périmètre »). A line
+    // yields when every included line that draws it again is on an enlarged plan of its page: the correction is then
+    // its own, whatever those lines settle between them, and it joins no group. It never yields when it is applied (it
+    // is never called to change: the pair stays with the current line, as with any applied partner), when it has a
+    // copy on a plan of its own scale or a coarser one (it settles as before), or when it could be one run with a line
+    // of a page that shares no frame (« zones non recalées » is then its result, and nothing would carry the pair).
+    // Read on included lines only: an excluded line is shown as it would stand if it came back.
+    const enlarges = (detail: ZoneLine, overview: ZoneLine) =>
+      isEnlargedPlan(pages.get(detail.page_key)?.denominator, pages.get(overview.page_key)?.denominator);
+    const yielding = new Map<string, boolean>();
+    const yields = (line: ZoneLine) => {
+      if (!yielding.has(line.id)) {
+        yielding.set(line.id, !line.frozen && !unregistered.has(line.id) && partnersOf(line.id).every(({ other }) => enlarges(other, line)));
+      }
+      return yielding.get(line.id) as boolean;
+    };
+    /** What the other line of a pair is to this one: on the enlarged plan this line yields to, on the overview that yields to this line, or neither. */
+    const planOf = (line: ZoneLine, other: ZoneLine): ZoneOverlapPlan | undefined =>
+      enlarges(other, line) && yields(line) ? "enlarged" : enlarges(line, other) && yields(other) ? "overview" : undefined;
+    // The partners a line settles with as before: neither plan prevails.
+    const peersOf = (line: ZoneLine) => partnersOf(line.id).filter(({ other }) => planOf(line, other) === undefined);
     // What partners cover of a line: with each partner, its continuous stretches of at least that pair's minimum; with
     // a copy read differently, the stretches no line of the same reading explains.
     const coveredOf = (line: ZoneLine, partners: readonly ZoneLine[]) => coveredBy(overlapLine(line),
@@ -664,13 +690,15 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       return root;
     };
     for (const pair of pairs) {
-      if (byId.get(pair.left)?.is_excluded || byId.get(pair.right)?.is_excluded) continue;
+      const [leftLine, rightLine] = [byId.get(pair.left) as ZoneLine, byId.get(pair.right) as ZoneLine];
+      // A line that yields to an enlarged plan is in no group: its pairs are its own to settle.
+      if (leftLine.is_excluded || rightLine.is_excluded || planOf(leftLine, rightLine) !== undefined) continue;
       const [left, right] = [find(pair.left), find(pair.right)];
       if (left !== right) parent.set(left, right);
     }
     const groupSize = new Map<string, number>();
     for (const line of levelLines) {
-      if (!line.is_excluded && partnersOf(line.id).length > 0) groupSize.set(find(line.id), (groupSize.get(find(line.id)) ?? 0) + 1);
+      if (!line.is_excluded && peersOf(line).length > 0) groupSize.set(find(line.id), (groupSize.get(find(line.id)) ?? 0) + 1);
     }
     /**
      * A line's group and whether it is counted once. A reduction says how much a line removed, never where: it settles
@@ -678,7 +706,8 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
      * excluded or accepted; `overlap_m` is then what other lines draw of the line. An excluded line is shown as it
      * would stand if it came back, with its partners and their groups.
      */
-    const outcomeOf = (line: ZoneLine, partners: ReturnType<typeof partnersOf>) => {
+    type Entry = ReturnType<typeof partnersOf>[number];
+    const peerOutcome = (line: ZoneLine, partners: readonly Entry[]) => {
       const roots = new Set(partners.map(({ other }) => find(other.id)));
       const size = line.is_excluded ? 1 + [...roots].reduce((sum, root) => sum + (groupSize.get(root) ?? 1), 0) : groupSize.get(find(line.id)) ?? 1;
       if (size === 2) {
@@ -686,6 +715,25 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         return { size, ...settlePair(overlap_m, [reduction(line), reduction(other)]) };
       }
       return { size, settled: false, deficit_m: coveredOf(line, partners.map(({ other }) => other)) };
+    };
+    /**
+     * A line that yields removes what the enlarged plans draw of it: the union of what they draw, by its own reduction
+     * alone (theirs may settle the pairs they form between them, and a reduction never says where). With a single
+     * enlarged line that has no other copy, the pair settles as any pair: either reduction removes the common length
+     * (a detail reduced before its job was applied still counts). `returning`: an excluded line of an enlarged plan,
+     * shown as it would stand if it came back.
+     */
+    const yielded = new Map<string, ReturnType<typeof settlePair>>();
+    const yieldOf = (line: ZoneLine, returning?: Entry) => {
+      const cached = returning ? undefined : yielded.get(line.id);
+      if (cached) return cached;
+      const partners = returning ? [...partnersOf(line.id), returning] : partnersOf(line.id);
+      const [first] = partners;
+      const alone = partners.length === 1 && partnersOf(first.other.id).every(({ other }) => other.id === line.id);
+      const drawn = partners.length === 1 ? first.overlap_m : coveredOf(line, partners.map(({ other }) => other));
+      const outcome = settlePair(drawn, [reduction(line), alone ? reduction(first.other) : 0]);
+      if (!returning) yielded.set(line.id, outcome);
+      return outcome;
     };
 
     for (const line of levelLines) {
@@ -696,42 +744,81 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           { level }));
         continue;
       }
-      const included = partnersOf(line.id);
-      if (included.length === 0) {
+      const all = partnersOf(line.id);
+      if (all.length === 0) {
         push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_NONE",
           `Aucun tronçon commun avec une autre page du niveau ${level}.`, { level }));
         continue;
       }
-      const outcome = outcomeOf(line, included);
-      const partners: ZoneOverlapPartner[] = included.map(({ other, overlap_m }) => {
-        const differs = differsOf(line.id, other.id);
+      const listed = (entries: readonly Entry[], resolved: boolean): ZoneOverlapPartner[] => entries.map(({ other, overlap_m }) => {
+        const [differs, plan] = [differsOf(line.id, other.id), planOf(line, other)];
         return { item_id: other.id, job_id: other.job_id, zone: pages.get(other.page_key)?.zone ?? null, designation: other.designation,
-          overlap_m, resolved: outcome.settled, ...(differs ? { differs } : {}) };
+          overlap_m, resolved, ...(differs ? { differs } : {}), ...(plan ? { plan } : {}) };
       }).sort((left, right) => right.overlap_m - left.overlap_m || byText(left.item_id, right.item_id));
-      const where = partners.map((partner) => `${metres(partner.overlap_m)} avec « ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}${
-        partner.differs ? `, lu autrement (${partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")})` : ""}`).join(", ");
-      const readDifferently = partners.some((partner) => partner.differs);
+      const described = (entries: readonly ZoneOverlapPartner[]) => entries.map((partner) =>
+        `${metres(partner.overlap_m)} avec « ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}${
+          partner.differs ? `, lu autrement (${partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")})` : ""}`).join(", ");
+      const zonesOf = (entries: readonly ZoneOverlapPartner[]) => entries.map((partner) => partner.zone ?? "une autre page").join(", ");
+      if (yields(line)) {
+        // Every copy of the line is on an enlarged plan, which prevails: the line carries the correction.
+        const outcome = yieldOf(line);
+        const partners = listed(all, outcome.settled);
+        if (outcome.settled) {
+          push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_RESOLVED",
+            `Longueur commune avec le plan agrandi (${zonesOf(partners)}) déjà retirée.`, { level, partners }));
+        } else {
+          push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
+            `Tronçon du plan d’ensemble dessiné aussi sur un plan agrandi du niveau ${level} : ${described(partners)}. À indice cohérent, le plan agrandi fait foi dans son périmètre : cette ligne garde encore ${metres(outcome.deficit_m)} qu’il dessine, retirez cette longueur de cette ligne, ou excluez-la si elle est entièrement en double.${
+              partners.some((partner) => partner.differs) ? " Pour une copie lue autrement, la lecture du plan agrandi fait foi ; si ce sont deux tuyaux distincts, acceptez (V) chaque ligne une fois vérifiée." : ""}`,
+            { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m }));
+        }
+        continue;
+      }
+      // The line's peers settle with it as before. Its copies on an overview that yields to it are that overview's to
+      // remove: the line fails with them until then (a duplicate never settles by itself), and names only what is open.
+      const included = all.filter(({ other }) => planOf(line, other) === undefined);
+      const yieldTo = (entry: Entry) => yieldOf(entry.other, line.is_excluded ? { other: line, overlap_m: entry.overlap_m } : undefined);
+      const pending = all.filter((entry) => planOf(line, entry.other) === "overview" && !yieldTo(entry).settled);
+      const outcome = included.length > 0 ? peerOutcome(line, included) : { size: 1, settled: true, deficit_m: 0 };
+      if (outcome.settled && pending.length === 0) {
+        const partners = listed(all, true);
+        push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_RESOLVED", included.length === all.length
+          ? `Longueur commune avec ${zonesOf(partners)} déjà retirée par les réductions des deux lignes.`
+          : `Longueur commune avec ${zonesOf(partners)} déjà retirée.`, { level, partners }));
+        continue;
+      }
       if (outcome.settled) {
-        push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_RESOLVED",
-          `Longueur commune avec ${partners.map((partner) => partner.zone ?? "une autre page").join(", ")} déjà retirée par les réductions des deux lignes.`,
-          { level, partners }));
-      } else if (outcome.size === 2 && readDifferently) {
+        const partners = listed(pending, false);
+        const [first] = pending;
+        const drawn = pending.length === 1 ? Math.min(first.overlap_m, yieldTo(first).deficit_m) : coveredOf(line, pending.map(({ other }) => other));
+        push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
+          `Tronçon dessiné aussi sur le plan d’ensemble du niveau ${level} : ${described(partners)}. À indice cohérent, ce plan agrandi fait foi dans son périmètre : la longueur commune se retire de la ligne du plan d’ensemble, pas de celle-ci.${
+            partners.some((partner) => partner.differs) ? " Pour une copie lue autrement, la lecture de ce plan fait foi ; si ce sont deux tuyaux distincts, acceptez (V) chaque ligne une fois vérifiée." : ""}`,
+          { level, partners, partner_count: partners.length, overlap_m: drawn }));
+        continue;
+      }
+      const peers = listed(included, false);
+      const partners = [...peers, ...listed(pending, false)];
+      const where = described(peers);
+      const readDifferently = peers.some((partner) => partner.differs);
+      const overviews = pending.length > 0 ? ` Sa copie sur le plan d’ensemble (${described(listed(pending, false))}) se retire de la ligne du plan d’ensemble.` : "";
+      if (outcome.size === 2 && readDifferently) {
         // One run counted twice with a wrong reading, or two pipes drawn over each other: the rule cannot tell.
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
           `Tronçon dessiné au même endroit sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. Si c’est le même tronçon, la version compte encore ${metres(outcome.deficit_m)} deux fois et l’une des deux lectures est fausse : ${included[0].other.frozen && !line.frozen
             ? `retirez cette longueur de cette ligne (« ${included[0].other.designation} » est dans un job appliqué), ou excluez-la si elle est mal lue.`
-            : "retirez cette longueur d’une des lignes, ou excluez la ligne mal lue."} Si ce sont deux tuyaux distincts, acceptez (V) chaque ligne une fois vérifiée.`,
+            : "retirez cette longueur d’une des lignes, ou excluez la ligne mal lue."} Si ce sont deux tuyaux distincts, acceptez (V) chaque ligne une fois vérifiée.${overviews}`,
           { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m }));
       } else if (outcome.size === 2) {
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
           `Tronçon compté aussi sur une autre page du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}. La version compte encore ${metres(outcome.deficit_m)} deux fois : ${included[0].other.frozen && !line.frozen
             ? `retirez cette longueur de cette ligne (« ${included[0].other.designation} » est dans un job appliqué), ou excluez-la si elle est entièrement en double.`
-            : "retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double."}`,
+            : "retirez cette longueur d’une des lignes, ou excluez une ligne entièrement en double."}${overviews}`,
           { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m }));
       } else {
         push(results, line.id, result("zone_overlap", "fail", "ZONE_OVERLAP_DUPLICATE",
           `Tronçon compté aussi sur d’autres pages du niveau ${level}${zone ? ` que ${zone}` : ""} : ${where}, soit ${metres(outcome.deficit_m)} de cette ligne. ${outcome.size} lignes se recouvrent : une correction de quantité ne règle pas un groupe de plus de deux lignes. Excluez chaque ligne entièrement en double, ou acceptez (V) chaque ligne une fois vérifiée.${
-            readDifferently ? " Une copie lue autrement est soit le même tronçon mal lu, soit un autre tuyau dessiné au même endroit." : ""}`,
+            readDifferently ? " Une copie lue autrement est soit le même tronçon mal lu, soit un autre tuyau dessiné au même endroit." : ""}${overviews}`,
           { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m, group_size: outcome.size }));
       }
     }
