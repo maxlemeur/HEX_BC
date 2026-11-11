@@ -12,6 +12,7 @@ import {
 import { useToast } from "@/components/feedback/toast-provider";
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  AFFAIRE_REGISTER_BLOCKING_QUERY_PARAM,
   type AffaireRegisterRevalidationImpactedStage,
   AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
@@ -133,8 +134,9 @@ export function useAffaireRegisterCardController({
     parseAffaireRegisterRevalidationSearchParam(
       searchParams.get(AFFAIRE_REGISTER_REVALIDATION_QUERY_PARAM) ?? undefined
     );
+  const filterBlockingOnly = registerPage?.filters.blockingOnly ?? searchParams.get(AFFAIRE_REGISTER_BLOCKING_QUERY_PARAM) === "1";
   const hasActiveFilters = Boolean(
-    filterStatus || filterSeverity || filterKind || filterRevalidationRequired
+    filterStatus || filterSeverity || filterKind || filterRevalidationRequired || filterBlockingOnly
   );
   const effectiveSummary = summary ?? buildDerivedSummary(items);
   const activeFiltersLabel = [
@@ -151,6 +153,7 @@ export function useAffaireRegisterCardController({
     severity?: AffaireRegisterEntrySeverity | null;
     kind?: AffaireRegisterEntryKind | null;
     revalidationRequired?: boolean;
+    blockingOnly?: boolean;
     cursor?: string | null;
   }) {
     const nextStatus =
@@ -167,13 +170,17 @@ export function useAffaireRegisterCardController({
         : filterRevalidationRequired;
     const nextCursor =
       "cursor" in next ? next.cursor ?? null : registerPage?.filters.cursor ?? null;
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    // Clearing a legacy register deep link must not fall back to the dossier.
+    nextSearchParams.set("view", "register");
     const href = buildAffaireRegisterSearchHref({
       pathname,
-      searchParams: new URLSearchParams(searchParams.toString()),
+      searchParams: nextSearchParams,
       status: nextStatus,
       severity: nextSeverity,
       kind: nextKind,
       revalidationRequired: nextRevalidationRequired,
+      blockingOnly: "blockingOnly" in next ? next.blockingOnly : filterBlockingOnly,
       cursor: nextCursor,
     });
 
@@ -188,6 +195,7 @@ export function useAffaireRegisterCardController({
       severity: null,
       kind: null,
       revalidationRequired: false,
+      blockingOnly: false,
       cursor: null,
     });
   }
@@ -428,6 +436,7 @@ export function useAffaireRegisterCardController({
     registerPage,
     activeScopeOptions,
     filterStatus,
+    filterBlockingOnly,
     filterSeverity,
     filterKind,
     filterRevalidationRequired,

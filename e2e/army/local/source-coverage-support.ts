@@ -267,7 +267,8 @@ export async function createRegister(c: Case) {
     { key: "M1", kind: "missing_piece", text: "ARMY pièce manquante : détail D-B des traversées en zone B." },
   ];
   for (const entry of entries) {
-    await c.screen.getByRole("button", "+ Ajouter un point", { exact: true }).tap();
+    // The plus is decorative; use the compact register's accessible label.
+    await c.screen.getByRole("button", "Ajouter un point", { exact: true }).tap();
     await c.screen.getByLabel("Type", { exact: true }).selectOption({ value: entry.kind });
     await c.screen.getByLabel("Sévérité", { exact: true }).selectOption({ value: "warning" });
     await c.screen.getByLabel("Scope", { exact: true }).selectOption({ value: "lot" });

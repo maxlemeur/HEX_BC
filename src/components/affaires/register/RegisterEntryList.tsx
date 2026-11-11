@@ -1,3 +1,8 @@
+"use client";
+
+import { useId, useState } from "react";
+import { ChevronRight } from "lucide-react";
+
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
   AFFAIRE_REGISTER_SEVERITY_LABELS,
@@ -12,8 +17,7 @@ import {
   getEntryStatusLabel,
   getEntryStatusPanel,
   getEntryStatusActions,
-  getEntryStatusTone,
-  SEVERITY_TONE,
+  getRegisterEntryImpact,
 } from "./registerViewModel";
 
 type RegisterEntryListProps = {
@@ -22,110 +26,79 @@ type RegisterEntryListProps = {
   isReadOnly: boolean;
   isMutationPending: boolean;
   pendingEntryId: string | null;
+  focusedEntryId?: string | null;
   onOpenTransitionDialog: (transition: PendingTransition) => void;
 };
 
-function RegisterEntryCard({
+function RegisterEntryRow({
   entry,
   isReadOnly,
   isMutationPending,
   pendingEntryId,
+  expanded,
+  onToggle,
   onOpenTransitionDialog,
-}: Readonly<{
+}: Readonly<Omit<RegisterEntryListProps, "items" | "hasActiveFilters" | "focusedEntryId"> & {
   entry: AffaireRegisterEntry;
-  isReadOnly: boolean;
-  isMutationPending: boolean;
-  pendingEntryId: string | null;
-  onOpenTransitionDialog: (transition: PendingTransition) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }>) {
+  const detailsId = useId();
   const isPendingEntry = isMutationPending && pendingEntryId === entry.id;
+  const impact = getRegisterEntryImpact(entry);
   const statusPanel = getEntryStatusPanel(entry);
 
   return (
-    <article className="rounded-2xl border border-border bg-surface p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              {AFFAIRE_REGISTER_KIND_LABELS[entry.kind]}
-            </span>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${SEVERITY_TONE[entry.severity]}`}
-            >
-              {AFFAIRE_REGISTER_SEVERITY_LABELS[entry.severity]}
-            </span>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${getEntryStatusTone(entry)}`}
-            >
-              {getEntryStatusLabel(entry)}
-            </span>
-          </div>
-          <p className="mt-3 text-sm text-foreground">{entry.text}</p>
-          <div className="mt-3 rounded-2xl border border-border bg-surface-subtle/80 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Contexte métier
-            </p>
-            <p className="mt-1 text-sm text-foreground-secondary">
-              {getEntryContextSummary(entry)}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {getEntryContextTags(entry).map((tag) => (
-                <span
-                  key={`${entry.id}-${tag.label}`}
-                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-muted-foreground"
-                >
-                  <span className="font-medium text-foreground-secondary">{tag.label}</span>
-                  {` · ${tag.value}`}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>
-              MAJ: {formatDateTime(entry.updatedAt)}
-              {entry.updatedByName ? ` · ${entry.updatedByName}` : ""}
-            </span>
-          </div>
+    <article className="register-entry" data-blocking={impact.blocking || undefined}>
+      <button
+        type="button"
+        className="register-entry-toggle"
+        aria-label={(isReadOnly ? "Consulter " : "Traiter ") + entry.text}
+        aria-describedby={detailsId + "-kind " + detailsId + "-impact"}
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={onToggle}
+      >
+        <span className="register-entry-label">
+          <span className="register-entry-title">{entry.text}</span>
+          <span id={detailsId + "-kind"} className="register-entry-kind">{AFFAIRE_REGISTER_KIND_LABELS[entry.kind]}</span>
+        </span>
+        <span id={detailsId + "-impact"} className="register-entry-impact">{impact.label}</span>
+        <span className="register-entry-affordance">
+          {impact.blocking ? <span className="register-treat-label">{isReadOnly ? "Consulter" : "Traiter"}</span> : null}
+          <ChevronRight size={18} aria-hidden="true" />
+        </span>
+      </button>
+      <div id={detailsId} hidden={!expanded} className="register-entry-details">
+        <div className="register-entry-metadata">
+          <span>{AFFAIRE_REGISTER_SEVERITY_LABELS[entry.severity]}</span>
+          <span>{getEntryStatusLabel(entry)}</span>
         </div>
-        <div className="w-full max-w-sm rounded-2xl border border-border bg-surface-subtle/80 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {statusPanel.title}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {statusPanel.description}
-          </p>
+        <p className="text-sm text-foreground-secondary">{getEntryContextSummary(entry)}</p>
+        <dl className="register-context">
+          {getEntryContextTags(entry).map((tag) => (
+            <div key={tag.label}><dt>{tag.label}</dt><dd>{tag.value}</dd></div>
+          ))}
+          <div><dt>Mis à jour</dt><dd>{formatDateTime(entry.updatedAt)}{entry.updatedByName ? " · " + entry.updatedByName : ""}</dd></div>
+        </dl>
+        <div className="register-entry-decision">
+          <h3>{statusPanel.title}</h3>
+          <p>{statusPanel.description}</p>
           {statusPanel.note ? (
-            <div className="mt-3 rounded-xl border border-primary/15 bg-surface/80 px-3 py-2 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground-secondary">
-                {statusPanel.note.label}
-              </p>
-              <p className="mt-1">{statusPanel.note.value}</p>
-            </div>
+            <p className="register-entry-note"><strong>{statusPanel.note.label}</strong>{statusPanel.note.value}</p>
           ) : null}
           {!isReadOnly ? (
-            <div className="mt-3 grid gap-2" aria-label="Actions de statut">
+            <div className="register-entry-actions" aria-label="Actions de statut">
               {getEntryStatusActions(entry).map((action) => (
                 <button
                   key={action.key}
                   type="button"
-                  className={`rounded-2xl border px-3 py-3 text-left transition ${
-                    action.tone === "success"
-                      ? "border-success/20 bg-success/5 hover:border-success/35"
-                      : action.tone === "danger"
-                        ? "border-danger/20 bg-danger/5 hover:border-danger/35"
-                        : action.tone === "brand"
-                          ? "border-primary/20 bg-primary/5 hover:border-primary/35"
-                          : "border-border bg-surface hover:border-border-strong"
-                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                  data-tone={action.tone}
                   disabled={isPendingEntry}
                   onClick={() => onOpenTransitionDialog(action.transition)}
                 >
-                  <span className="block text-sm font-medium text-foreground">
-                    {action.label}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {action.description}
-                  </span>
+                  <span>{action.label}</span>
+                  <span>{action.description}</span>
                 </button>
               ))}
             </div>
@@ -139,40 +112,33 @@ function RegisterEntryCard({
 export function RegisterEntryList({
   items,
   hasActiveFilters,
-  isReadOnly,
-  isMutationPending,
-  pendingEntryId,
-  onOpenTransitionDialog,
+  focusedEntryId,
+  ...props
 }: Readonly<RegisterEntryListProps>) {
+  const [expandedId, setExpandedId] = useState<string | null>(focusedEntryId ?? null);
+  const sortedItems = [...items].sort((left, right) => getRegisterEntryImpact(left).rank - getRegisterEntryImpact(right).rank);
+
+  if (items.length === 0) {
+    return (
+      <div className="register-empty">
+        <p>{hasActiveFilters ? "Aucun point ne correspond à ces filtres." : "Aucun point à traiter pour le moment."}</p>
+        <p>{hasActiveFilters ? "Revenez à Tous pour consulter l’ensemble du registre." : "Les hypothèses et pièces manquantes apparaîtront ici."}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-4 space-y-3">
-      {items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-surface-subtle/70 px-4 py-8 text-center">
-          <p className="text-sm font-medium text-foreground-secondary">
-            {hasActiveFilters
-              ? "Aucun point ne correspond à ces filtres."
-              : "Aucun point du registre sur cette vue pour le moment."}
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {hasActiveFilters
-              ? "Réinitialisez les filtres pour revenir à l'ensemble du registre."
-              : isReadOnly
-                ? "Les futures hypothèses, pièces manquantes et transitions apparaîtront ici."
-                : "Ajoutez une hypothèse ou une pièce manquante pour démarrer une trace exploitable."}
-          </p>
-        </div>
-      ) : (
-        items.map((entry) => (
-          <RegisterEntryCard
-            key={entry.id}
-            entry={entry}
-            isReadOnly={isReadOnly}
-            isMutationPending={isMutationPending}
-            pendingEntryId={pendingEntryId}
-            onOpenTransitionDialog={onOpenTransitionDialog}
-          />
-        ))
-      )}
+    <div className="register-list">
+      <div className="register-list-head" aria-hidden="true"><span>Point</span><span>Impact</span><span /></div>
+      {sortedItems.map((entry) => (
+        <RegisterEntryRow
+          key={entry.id}
+          entry={entry}
+          expanded={expandedId === entry.id}
+          onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+          {...props}
+        />
+      ))}
     </div>
   );
 }
