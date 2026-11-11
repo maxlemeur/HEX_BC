@@ -332,7 +332,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
 **Doublon**
-([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 1) :
+([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 2) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
@@ -341,6 +341,17 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - La distance D est comprise : une copie à 5 cm pile est un doublon. Deux tronçons bout à bout ne se recouvrent sur rien, quel que soit le bruit des calculs ; aucun résultat ne dépend de la page prise pour repère.
 - Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur B R+4) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
 - La détection ne dépend pas du règlement : une paire, sa longueur commune et son minimum sont les mêmes qu'elle soit isolée ou dans un groupe (voir Résolution).
+
+**Copies lues autrement** (TI-684, décision D14 du 6 nov. 2026 ; version 2 de la règle) :
+
+- Deux lignes de même genre (tuyau ou calorifuge) dessinées au même endroit sur deux pages d'un niveau forment aussi une paire quand leur réseau, leur matériau ou leur DN se contredisent. Avant la version 2, elles n'étaient jamais comparées : le tronçon comptait deux fois sans alerte.
+- La règle ne sait pas trancher : soit un même tronçon lu différemment sur l'une des pages (il est compté deux fois et une lecture est fausse), soit deux tuyaux distincts dessinés l'un sur l'autre. Elle échoue les deux lignes en `ZONE_OVERLAP_DUPLICATE` et la raison le dit.
+- Le partenaire porte `differs` : ce que les deux lectures ont de différent parmi `network`, `material` et `dn` (« lu autrement (réseau, diamètre) » dans la raison et la revue ciblée). Le diamètre n'est nommé que si les deux tailles imprimées ne désignent aucune taille commune (« DN 100 » et « Ø 110 » en fonte sont une même taille, sur deux réseaux aussi). Un DN non lu contredit un DN lu ; un matériau non lu, ou la nuance non précisée d'un matériau (« inox » à côté d'« inox 316L »), ne contredit rien. Absent quand les deux lignes sont un même tronçon.
+- Mêmes seuils que le doublon : D = 5 cm, 2°, L = 30 cm ou la bande du dessin, par tronçon continu.
+- **Deux tuyaux côte à côte ne sont pas des copies.** Chaque ligne est d'abord réduite à ce qu'aucune ligne de même lecture ne dessine sur l'autre page ; seuls ces restes sont comparés. Eau froide et eau chaude à 4 cm l'une de l'autre, dessinées sur Z1 et sur Z2, restent deux paires isolées, chacune réglée par sa réduction, et non un groupe de quatre lignes. Une copie exclue explique encore son tronçon : l'exclusion règle une quantité, le tracé reste sur la page. À côté d'une copie, un reste d'au plus D n'en est pas un : deux plans recalés à 1 ou 2 cm près laissent un tel éclat au bout de chaque tiret, et ces éclats mis bout à bout feraient du tuyau voisin une copie lue autrement. Un axe qu'aucune copie ne dessine est gardé entier, même court (les cordes d'un tracé courbe).
+- Le règlement est celui de toute paire ou de tout groupe : réduction de la longueur commune, exclusion de la ligne mal lue, ou « Accepter » (V) sur chaque ligne quand ce sont deux tuyaux. Comme tout avertissement de quantité, il ne bloque pas l'application (TI-681).
+- Jamais comparés : un tuyau et son calorifuge, deux lignes d'une même page, deux niveaux, deux pages sans repère commun (« zones non recalées » ne vaut que pour deux lignes qui pourraient être un même tronçon).
+- Chaque ligne d'une page est mesurée contre toutes celles de l'autre en un seul passage : le coût suit le nombre d'axes des pages, pas le nombre de paires de lectures.
 
 **Résolution**
 
@@ -359,6 +370,11 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement. Un recalcul qui lui apporte un échec qu'elle n'avait pas (un nouveau partenaire, une autre règle, un autre code, une autre version) lui retire sa vérification : voir « Décisions ».
 - **Limites connues** :
+  - deux tuyaux réellement superposés en plan sur deux pages (une feuille par réseau, par exemple) échouent comme des copies lues autrement : c'est à l'utilisateur de les accepter (V) ;
+  - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
+  - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
+  - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
+  - la règle du plan agrandi (D14 : le détail fait foi dans son périmètre, le plan d'ensemble contrôle la couverture) n'est pas appliquée : un détail et son plan d'ensemble se règlent comme tout doublon ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
