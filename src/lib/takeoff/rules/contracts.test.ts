@@ -42,3 +42,23 @@ describe("rule results at the last bound", () => {
     }
   });
 });
+
+// TI-684: a partner drawn at the same place but read differently says what differs. The stored results are parsed
+// before each write and after each read: a field the schema does not know would be dropped, and the review would show a
+// copy read with another DN as a plain duplicate.
+describe("a copy read differently in stored results", () => {
+  const duplicate = (differs: unknown): TakeoffRuleResult => ({ rule: "zone_overlap", status: "fail", code: "ZONE_OVERLAP_DUPLICATE", version: 201,
+    acceptable: true, reason: "Tronçon dessiné au même endroit sur une autre page.", details: { level: "R+1", overlap_m: 1, partner_count: 1,
+      partners: [{ item_id: "9f000000-0000-4000-8000-000000000001", job_id: "9f000000-0000-4000-8000-000000009000", zone: "Z2",
+        designation: "EF Inox 316L DN 28", overlap_m: 1, resolved: false, ...(differs === undefined ? {} : { differs }) } as never] } });
+
+  it("keeps what the partner reads differently through the write bounds, and nothing on a plain duplicate", () => {
+    expect(boundRuleResults([duplicate(["network", "dn"])])[0].details?.partners?.[0]).toMatchObject({ differs: ["network", "dn"] });
+    expect(boundRuleResults([duplicate(undefined)])[0].details?.partners?.[0]).not.toHaveProperty("differs");
+  });
+
+  it("refuses a difference the rule does not know, or an empty list", () => {
+    expect(() => boundRuleResults([duplicate(["colour"])])).toThrow();
+    expect(() => boundRuleResults([duplicate([])])).toThrow();
+  });
+});

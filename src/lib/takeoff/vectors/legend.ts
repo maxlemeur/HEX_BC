@@ -182,6 +182,18 @@ function mixOf(color: { r: number; g: number; b: number }, base: { r: number; g:
 }
 
 /**
+ * Whether a colour is a tint (mixed with white, 10 to 85 %) or a shade (mixed with black, 10 to 60 %) of a base
+ * colour, within TINT_TOLERANCE on every channel. A colour is neither a tint nor a shade of itself.
+ */
+export function isTintOrShade(color: string, base: string) {
+  const rgb = parseHexColor(color), origin = parseHexColor(base);
+  if (!rgb || !origin) return false;
+  const tint = mixOf(rgb, origin, 255), shade = mixOf(rgb, origin, 0);
+  return (tint.t >= 0.1 && tint.t <= 0.85 && tint.residual <= TINT_TOLERANCE)
+    || (shade.t >= 0.1 && shade.t <= 0.6 && shade.residual <= TINT_TOLERANCE);
+}
+
+/**
  * The legend colour a stroke colour is drawn in: the colour itself, or a tint
  * (mixed with white, 10 to 85 %) or shade (mixed with black, 10 to 60 %) of
  * it, as drawing tools render a pipe's outline and 3D shading. A colour close
@@ -193,13 +205,7 @@ export function matchLegendColor(legend: PageLegend, color: string): LegendColor
   if (exact) return exact;
   const rgb = parseHexColor(color);
   if (!rgb || isNearWhite(color) || isGrey(color)) return null;
-  const matches = legend.colors.filter((entry) => {
-    const base = parseHexColor(entry.color);
-    if (!base) return false;
-    const tint = mixOf(rgb, base, 255), shade = mixOf(rgb, base, 0);
-    return (tint.t >= 0.1 && tint.t <= 0.85 && tint.residual <= TINT_TOLERANCE)
-      || (shade.t >= 0.1 && shade.t <= 0.6 && shade.residual <= TINT_TOLERANCE);
-  });
+  const matches = legend.colors.filter((entry) => isTintOrShade(color, entry.color));
   if (matches.length === 0) return null;
   const candidates = [...new Set(matches.flatMap((entry) => entry.candidates))].sort();
   return { color, network: commonNetwork(matches.flatMap((entry) => (entry.network ? [entry.network] : entry.candidates))), candidates };

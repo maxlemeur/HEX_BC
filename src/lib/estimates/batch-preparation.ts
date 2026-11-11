@@ -15,6 +15,7 @@ import {
 import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { isTransportSensitiveFoType, sameFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 import { deriveFoProvision, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
+import { applyStatusReasonRules, isEstimateExcludedPricingStatus, sameStatusReason } from "@/lib/estimates/status-reason";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
   isAncestorOrSelf, resolveSectionLevel, type HierarchyIndex,
@@ -58,6 +59,21 @@ export class EstimateBatchPreparationError extends Error {
   constructor(readonly index: number, readonly operation: BatchOperationInput["op"], readonly failure: ApiError) {
     super(failure.message);
   }
+}
+
+/**
+ * TI-682, lot C: the CHECK estimate_items_status_reason_check, refused by name before the database refuses it as a
+ * generic invalid batch. A reason left unchanged on a line priced again is cleared (applyStatusReasonRules), never refused.
+ */
+function assertStatusReasonMatchesStatus(item: Pick<Item, "pricing_status" | "status_reason">,
+  current: Pick<Item, "status_reason"> | null) {
+  if (item.status_reason == null || isEstimateExcludedPricingStatus(item.pricing_status)) return;
+  if (current && sameStatusReason(item.status_reason, current.status_reason)) return;
+  throw badRequest(
+    "Un motif interne ne se donne qu'à une ligne Inclus, Pour mémoire, Hors lot ou Sans objet.",
+    { status_reason: item.status_reason, pricing_status: item.pricing_status },
+    "ESTIMATE_STATUS_REASON_STATUS_MISMATCH",
+  );
 }
 
 function unavailable() {
@@ -308,6 +324,7 @@ export async function prepareEstimateBatch(input: {
           source_file_name: data.source_file_name ?? null, source_page: data.source_page ?? null,
           source_metadata: {}, snapshot_pu_ht_cents: null, snapshot_fo_ht_cents: null,
           snapshot_mo_ht_cents: null, snapshot_mo_atelier_ht_cents: null, snapshot_mo_chantier_ht_cents: null,
+          status_reason: null, was_not_priced: false,
         };
         if (data.item_type === "line") Object.assign(item, {
           ...data, id: item.id, parent_id: parentId, position, title: item.title,
@@ -322,6 +339,8 @@ export async function prepareEstimateBatch(input: {
         validatePlacement(item);
         await references(item);
         if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin);
+        if (isLine) item.was_not_priced = item.pricing_status === "not_priced";
+        assertStatusReasonMatchesStatus(item, null);
         items.set(item.id, item);
         const sourceMetadata = suppliedMetadata.get(index);
         createdIds.push(sourceMetadata ? { index, id: item.id, source_metadata: sourceMetadata } : { index, id: item.id });
@@ -350,6 +369,8 @@ export async function prepareEstimateBatch(input: {
             next.fo_provision = foProvisionOf(next.supply_type_id, next.fo_price_origin);
           }
           changedLineIds.add(next.id);
+          Object.assign(next, applyStatusReasonRules(current, next));
+          assertStatusReasonMatchesStatus(next, current);
         }
         validatePlacement(next);
         items.set(next.id, next);

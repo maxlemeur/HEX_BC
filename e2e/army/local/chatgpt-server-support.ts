@@ -65,13 +65,16 @@ export async function prepareChatGptServerWorkspace() {
   } };
 }
 
-/** Compile the real protected pages and the callback's missing-state rejection before UI assertions. */
-export async function warmChatGptServer(origin: string, email: string, workflow: "profile" | "takeoff" = "takeoff") {
+/**
+ * Compile the real protected pages and the callback's missing-state rejection before UI assertions; for the takeoff
+ * journey file, also every page and API route its tests use, so no test waits for a compile.
+ */
+export async function warmChatGptServer(origin: string, email: string, workflow: "profile" | "decisions" | "takeoff") {
   const app = new URL(origin);
   if (app.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(app.hostname)) throw new Error("Local ChatGPT server required.");
   const cookies = new Map<string, string>();
   const started = Date.now();
-  const requests: Array<{ path: string; status: number | null; elapsedMs: number }> = [];
+  const requests: Array<{ wave: number; method: string; path: string; status: number | null; elapsedMs: number }> = [];
   const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: { getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
       setAll: values => { for (const { name, value } of values) cookies.set(name, value); } },
@@ -79,7 +82,6 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
   try {
     const login = await client.auth.signInWithPassword({ email, password: process.env.E2E_LOGIN_PASSWORD! });
     if (login.error) throw new Error("ChatGPT readiness login failed.");
-    const signal = AbortSignal.timeout(90_000);
     const absentPlanSet = "00000000-0000-4000-8000-000000000001";
     const paths = workflow === "profile" ? ["/dashboard", "/dashboard/profile", "/auth/chatgpt/callback"] : [
       "/dashboard", "/dashboard/profile", "/dashboard/estimates/new",
@@ -88,25 +90,27 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
       `/dashboard/affaires/${absentPlanSet}/takeoff`,
       "/auth/chatgpt/callback", `/api/takeoff/plan-sets/${absentPlanSet}/files`,
       `/api/takeoff/plan-sets/${absentPlanSet}/files/reconcile`];
-    // Submit this journey's entries together: Next coalesces pending entries
+    // Submit each wave's entries together: Next coalesces pending entries
     // and serializes its Webpack compiler. Barriers create extra cold builds.
-    // GETs only: absent IDs and missing OAuth state preserve the real refusals.
-    const warm = async (pathname: string) => {
+    // GETs refuse through absent IDs and missing OAuth state; OPTIONS (below) runs no handler.
+    const warm = async (pathname: string, wave: number, signal: AbortSignal,
+      request: { method?: "GET" | "OPTIONS"; anonymous?: boolean; expected?: number[] } = {}) => {
       const routeStarted = Date.now();
+      const method = request.method ?? "GET";
       let status: number | null = null;
       try {
-        const response = await fetch(new URL(pathname, origin), { redirect: "manual", signal,
-          headers: { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
+        const response = await fetch(new URL(pathname, origin), { method, redirect: "manual", signal,
+          headers: request.anonymous ? {} : { cookie: [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ") } });
         status = response.status;
         const learning = pathname === `/api/estimates/${absentPlanSet}/suggestion-learning`;
-        const expected = learning ? [200, 404]
+        const expected = request.expected ?? (learning ? [200, 404]
           : pathname.startsWith(`/api/estimates/${absentPlanSet}`) ? [404]
           : pathname.startsWith("/api/") ? [400, 403, 404, 405]
           : pathname === "/auth/chatgpt/callback" ? [302, 303, 307]
           // Next may start streaming before the missing project calls notFound().
           : ["plans", "takeoff"].some(page => pathname === `/dashboard/affaires/${absentPlanSet}/${page}`)
-            ? [200, 404] : [200];
-        if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${pathname}: ${response.status}.`);
+            ? [200, 404] : [200]);
+        if (!expected.includes(response.status)) throw new Error(`ChatGPT readiness failed for ${method} ${pathname}: ${response.status}.`);
         if (learning && response.status === 200) {
           // Disabled learning returns its empty state before checking the version.
           const body = await response.json();
@@ -118,12 +122,39 @@ export async function warmChatGptServer(origin: string, email: string, workflow:
           await response.text();
         }
       } finally {
-        requests.push({ path: pathname, status, elapsedMs: Date.now() - routeStarted });
+        requests.push({ wave, method, path: pathname, status, elapsedMs: Date.now() - routeStarted });
       }
     };
-    const results = await Promise.allSettled(paths.map(warm));
-    for (const result of results) {
-      if (result.status === "rejected") throw result.reason;
+    const settle = async (wave: Array<Promise<void>>) => {
+      for (const result of await Promise.allSettled(wave)) {
+        if (result.status === "rejected") throw result.reason;
+      }
+    };
+    const first = AbortSignal.timeout(90_000);
+    await settle(paths.map(pathname => warm(pathname, 1, first)));
+    if (workflow === "takeoff") {
+      // Entries the tests of chatgpt-local-takeoff.e2e.ts compiled in their own bodies (the
+      // compile-path spans of this server's Next trace, the same 23 in two runs). There, a first
+      // use waited for its compile, and for any compile already running, inside one 30 s action:
+      // in CI, V3C08's first item write took 17 to 22 s in green runs and timed out at 30 s.
+      // A second wave with its own bound: the first one alone takes 38 to 55 s in CI.
+      const second = AbortSignal.timeout(90_000);
+      const pages = [`/dashboard/affaires/${absentPlanSet}`, `/dashboard/estimates/${absentPlanSet}/takeoff/new`,
+        `/dashboard/estimates/${absentPlanSet}/takeoff/${absentPlanSet}`];
+      const routes = ["/api/feature-flags", "/api/estimates", "/api/estimates/templates",
+        ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(route => `/api/estimates/${absentPlanSet}/${route}`),
+        `/api/affaires/${absentPlanSet}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
+        "/api/takeoff/jobs", `/api/takeoff/jobs/${absentPlanSet}`,
+        ...["retry", "resubmit", "reconcile"].map(command => `/api/takeoff/jobs/${absentPlanSet}/${command}`),
+        "/api/internal/takeoff/process-job", "/api/google-drive/connection"];
+      await settle([
+        // A session would be redirected to the dashboard before the login page compiles.
+        warm("/login", 2, second, { anonymous: true, expected: [200] }),
+        // Next may start streaming before the missing project, version or job calls notFound().
+        ...pages.map(pathname => warm(pathname, 2, second, { expected: [200, 404] })),
+        // Next answers OPTIONS from the compiled module's exports (204, Allow), without a handler.
+        ...routes.map(pathname => warm(pathname, 2, second, { method: "OPTIONS", expected: [204] })),
+      ]);
     }
   } finally {
     try {

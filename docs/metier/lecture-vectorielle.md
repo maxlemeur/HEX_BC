@@ -102,6 +102,20 @@ est une constante nommée et versionnée dans le code.
        tronçons raccordés la laissent « à revoir » ;
    - **libellés** : une couleur sans légende prend le réseau de ses libellés. Il faut au
      moins 2 libellés, d'accord à 80 %, dont la ligne de rappel finit sur elle.
+     - Un tuyau est dessiné en bande, son contour dans une couleur et son fond dans une
+       teinte de celle-ci, et une ligne de rappel peut finir sur le tuyau voisin. Une
+       couleur dont les libellés sont d'accord à moins de 80 % prend quand même le réseau
+       que nomme plus de la moitié d'entre eux (elle en a donc 3 au moins) si :
+       - une couleur de sa famille (une teinte ou une ombre d'elle, ou la couleur dont
+         elle est une teinte ou une ombre) a ce réseau par ses propres libellés, dont
+         5 au moins le nomment ;
+       - aucune couleur de la famille n'a un autre réseau par ses propres libellés : un
+         même contour borderait alors des tuyaux de deux réseaux, il reste « à revoir » ;
+       - les libellés de la couleur et de toute sa famille, comptés ensemble, sont
+         d'accord à 80 % sur ce réseau.
+     - Une autre épaisseur de la même couleur n'est pas une teinte. Une couleur qui n'a
+       qu'un libellé, ou aucun, n'est jamais classée par sa famille. Les couleurs quasi
+       blanches, grises ou sombres ne reçoivent aucun libellé.
 
    Vient ensuite **Decisions**, pour les groupes restés sans classe
    ([`group-decisions.ts`](../../src/lib/takeoff/vectors/group-decisions.ts),

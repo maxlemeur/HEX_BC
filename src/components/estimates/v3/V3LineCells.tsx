@@ -26,6 +26,14 @@ import {
   type EstimateV3LineIndex,
 } from "@/lib/estimates/v3-editor";
 import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
+import {
+  asksStatusReason,
+  isExcludedAfterNotPriced,
+  readEstimateStatusReason,
+  requiresStatusReason,
+  type EstimateStatusReason,
+} from "@/lib/estimates/status-reason";
+import { V3StatusReasonDialog } from "@/components/estimates/v3/V3StatusReasonDialog";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
 /**
@@ -46,17 +54,45 @@ export type EstimateV3GridModel = {
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);
 const UNIT_OPTIONS_ID = "estimate-v3-unit-options";
 
+/**
+ * TI-682, lot C : demande du motif interne d'une ligne. La fenêtre vit au niveau de la grille, pas dans la ligne : en
+ * grille compacte, le statut se choisit dans le menu « Details de la ligne », qui se ferme (et se démonte) dès que la
+ * fenêtre prend le focus.
+ */
+type StatusReasonRequest = {
+  title: string;
+  statusLabel: string;
+  reason: unknown;
+  isReadOnly: boolean;
+  save: (reason: EstimateStatusReason) => void;
+};
+const StatusReasonRequestContext = createContext<((request: StatusReasonRequest) => void) | null>(null);
+
 export function EstimateV3GridProvider({ value, children }: { value: EstimateV3GridModel | null; children: ReactNode }) {
+  const [statusReasonRequest, setStatusReasonRequest] = useState<StatusReasonRequest | null>(null);
   return (
     <EstimateV3GridContext.Provider value={value}>
-      {children}
-      {value ? (
-        <datalist id={UNIT_OPTIONS_ID}>
-          {MEASUREMENT_UNITS.filter((unit) => unit.active).map((unit) => (
-            <option key={unit.code} value={formatEstimateV3UnitLabel(unit.code)} />
-          ))}
-        </datalist>
-      ) : null}
+      <StatusReasonRequestContext.Provider value={setStatusReasonRequest}>
+        {children}
+        {value ? (
+          <>
+            <datalist id={UNIT_OPTIONS_ID}>
+              {MEASUREMENT_UNITS.filter((unit) => unit.active).map((unit) => (
+                <option key={unit.code} value={formatEstimateV3UnitLabel(unit.code)} />
+              ))}
+            </datalist>
+            <V3StatusReasonDialog
+              line={statusReasonRequest}
+              isReadOnly={statusReasonRequest?.isReadOnly ?? true}
+              onClose={() => setStatusReasonRequest(null)}
+              onSave={(reason) => {
+                statusReasonRequest?.save(reason);
+                setStatusReasonRequest(null);
+              }}
+            />
+          </>
+        ) : null}
+      </StatusReasonRequestContext.Provider>
     </EstimateV3GridContext.Provider>
   );
 }
@@ -314,6 +350,8 @@ export function V3LaborHoursCellContent({
 /**
  * Statut de chiffrage (D9) et taux de TVA de ligne (D8) d'une v3, sous la désignation. Une ligne
  * non chiffrée garde ses saisies (Q, PR, h/u) ; le moteur l'exclut du HT et de la TVA.
+ * TI-682, lot C : une ligne non chiffrée (ou qui l'a été) passée Inclus, Pour mémoire, Hors lot ou Sans objet demande
+ * son motif interne. Le statut s'enregistre de toute façon ; seul l'envoi attend le motif.
  */
 export function V3LineStateControls({
   item,
@@ -327,6 +365,14 @@ export function V3LineStateControls({
   const status = isEstimateV3PricingStatus(item.pricing_status) ? item.pricing_status : "priced";
   const allowedRates = useEstimateV3Grid()?.allowedTaxRatesBp ?? [];
   const taxRates = resolveEstimateV3TaxRateOptions(allowedRates, item.tax_rate_bp);
+  const requestStatusReason = useContext(StatusReasonRequestContext);
+  const labelOf = (value: string) => ESTIMATE_V3_PRICING_STATUS_OPTIONS.find((option) => option.value === value)?.label ?? value;
+  const openReason = (nextStatus: string) => requestStatusReason?.({
+    title: lineLabel(item), statusLabel: labelOf(nextStatus), reason: item.status_reason, isReadOnly,
+    save: (reason) => onPatchItem(item.id, { status_reason: reason }, { persist: true }),
+  });
+  const showsReason = isExcludedAfterNotPriced(item);
+  const missingReason = requiresStatusReason(item);
   return (
     <span className="inline-flex shrink-0 items-center gap-1" data-testid="estimate-v3-line-state">
       <select
@@ -335,14 +381,30 @@ export function V3LineStateControls({
         value={status}
         disabled={isReadOnly}
         onChange={(event) => {
-          if (!isEstimateV3PricingStatus(event.target.value)) return;
-          onPatchItem(item.id, { pricing_status: event.target.value }, { persist: true });
+          const next = event.target.value;
+          if (!isEstimateV3PricingStatus(next)) return;
+          onPatchItem(item.id, { pricing_status: next }, { persist: true });
+          // Asked once: a line moving between excluded statuses keeps the reason it already has.
+          if (asksStatusReason(item, next) && readEstimateStatusReason(item.status_reason) === null) openReason(next);
         }}
       >
         {ESTIMATE_V3_PRICING_STATUS_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
       </select>
+      {showsReason ? (
+        <button
+          type="button"
+          className={missingReason
+            ? "shrink-0 whitespace-nowrap rounded border border-warning-border bg-warning-subtle px-1.5 text-xs text-warning"
+            : "shrink-0 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground hover:text-foreground"}
+          aria-label={`${missingReason ? "Motif interne à saisir" : "Motif interne"} pour ${lineLabel(item)}`}
+          title={missingReason ? "Motif interne à saisir avant l'envoi (jamais transmis au client)" : "Motif interne (jamais transmis au client)"}
+          onClick={() => openReason(status)}
+        >
+          {missingReason ? "Motif à saisir" : "Motif"}
+        </button>
+      ) : null}
       <select
         className="estimate-input h-6 w-auto py-0 text-xs"
         aria-label={`Taux de TVA pour ${lineLabel(item)}`}
