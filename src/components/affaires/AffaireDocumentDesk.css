@@ -66,6 +66,7 @@
 .document-desk-status { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; padding: 4px 6px; font-size: 10px; white-space: nowrap; }
 .document-desk-status-review { background: #fff4df; color: #815321; }
 .document-desk-status-valid { background: #edf7f1; color: #236043; }
+.document-desk-status-ai { background: #eef3fb; color: #36557d; font-variant-numeric: tabular-nums; }
 .document-desk-status-processing { background: #eef3fb; color: #36557d; }
 .document-desk-status-unavailable { background: var(--muted); color: var(--muted-foreground); }
 .document-desk-empty, .document-preview-empty { padding: 40px 22px; text-align: center; color: var(--muted-foreground); font-size: 12px; }
