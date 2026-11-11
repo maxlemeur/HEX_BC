@@ -30,7 +30,7 @@ import {
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { runTakeoffBenchTriage } from "@/lib/takeoff/bench/triage";
 import { buildBenchTriageReport, renderBenchTriageReportMarkdown, type BenchTriageMetadata } from "@/lib/takeoff/bench/triage-report";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, vectorTimings } from "@/lib/takeoff/bench/vector-report";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, stoppedVisionBench, type VectorDecisionsHook } from "@/lib/takeoff/bench/vector-run";
 import { renderVisionSection, visionReport } from "@/lib/takeoff/bench/vision-report";
 import { VISION_CORRECTED_CONFIDENCE, VISION_REVIEW_LIMITS, VISION_REVIEW_PROMPT_VERSION, VISION_REVIEW_VERSION } from "@/lib/takeoff/bench/vision-review";
@@ -392,7 +392,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   };
   const report = buildBenchReport({ metadata, run: result.run, scopes, noise: dataset.noise, pipeline: "vector", vectorRules: vectorRules() });
   const baselineReport = baseline ? buildBenchReport({ metadata: baseline.metadata, run: baseline.run, scopes, noise: dataset.noise }) : null;
-  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport) : null;
+  const comparison = baselineReport ? compareVectorWithBaseline(report, baselineReport,
+    scopeSlices(result.vector.passes, report.couples.flatMap((couple) => couple.passes).flatMap((pass) => pass.scopes))) : null;
   const decisions = budget && capability ? {
     capability: { status: capability.status, model: capability.model }, budget: budget.snapshot(),
     stop: result.run.stop?.error.name === "DecisionsStop" ? { reason: result.run.stop.error.code, message: result.run.stop.error.message, at: result.run.stop.at } : null,

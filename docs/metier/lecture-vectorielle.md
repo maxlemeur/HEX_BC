@@ -437,6 +437,30 @@ rapport de tri dont les pages gardées ne montent pas strictement (désordre, do
 au-delà du document) est refusé : un appel n'est rendu que par sa première et sa dernière
 page.
 
+**Tranches vecteur et raster** (TI-678, décision Q8 du 5 nov.). Elles sont ajoutées
+après lecture des résultats de la réserve v1 et le rapport le dit. Le chiffre global,
+calculé comme avant, reste le chiffre de tête.
+
+- Un plan est dans la tranche de ses pages dans le run vectoriel : « vecteur » si aucune
+  n'est raster, « raster » si toutes le sont. Un plan aux pages mêlées, ou dont une page
+  a échoué, n'est dans aucune tranche et le rapport le nomme.
+- Par tranche, longueurs et surfaces à part, sur les mêmes plans que les totaux :
+  - la **couverture**, part des clés notées qui ont été lues, dans ou hors tolérance ;
+  - l'**erreur médiane des clés lues**, sans les clés manquées ; rien si aucune n'est lue ;
+  - les clés dans la tolérance ;
+  - les **erreurs silencieuses**, clés à haute confiance en erreur, quand le run a classé
+    ses lignes.
+- **Abstention.** Une page raster est confiée à un humain. Sur la tranche raster, la
+  lecture vectorielle ne lit donc rien : ses clés sont comptées, jamais réussies. Les
+  lignes que le run y recopie de la baseline sont la lecture de la baseline, montrée à
+  côté.
+- **Intervalle par plan.** Le rapport donne le plan le plus bas et le plus haut de la
+  tranche, chaque plan étant la médiane de ses passes. Une tranche d'un seul plan n'a
+  pas d'intervalle.
+- Le critère des longueurs (part strictement plus haute, erreur strictement plus basse,
+  une clé manquée comptant 100 %) est aussi calculé sur la tranche vecteur. Il n'a pas
+  de verdict sur une abstention.
+
 Un item de la baseline appartient à sa page (`source_page`). Sans elle (le champ est
 facultatif), il appartient à la page que ses appels ont lue (`item_chunks`), parmi les
 pages lues : il n'est jamais recopié sur chaque page raster. Si ses appels ont lu

@@ -18,6 +18,20 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // the renders apart (nearest rank), answers classified (≥ 0.8), proposed or
 // left « à revoir », and the stops; report.md never prints a group id, colour
 // or layer (report.json keeps each group's answer).
+//
+// Vector and raster slices (TI-678, decision Q8 of 5 Nov): added after the v1
+// results were read, beside the global figure, which stays the headline and is
+// computed as before. A plan is in the slice of its pages in the vector run:
+// vector when none is raster, raster when all are; a plan with both, or with a
+// failed page, is in neither and is named. Per slice, lengths and surfaces
+// apart: the coverage (scored keys read over scored keys), the median error
+// on the keys read (nothing when none was read), the keys within tolerance,
+// and the silent errors (keys at high confidence in error, when the run
+// classed its lines). On the raster slice the vector reading abstains: its
+// page goes to a human, and the lines the run copies there from the baseline
+// are the baseline's reading, never a success of the vectors. The interval is
+// taken over the plans of the slice (lowest and highest plan), each plan the
+// median of its passes; a single plan has none.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -31,12 +45,47 @@ export type ScopeComparison = {
   lengths_gain: boolean | null;
   surfaces_no_regression: boolean | null;
 };
+export type ScopeSlice = "vector" | "raster" | "mixed";
+export type SliceKind = {
+  /** Scored keys of the slice. */
+  keys: number;
+  /** Scored keys read (within or out of tolerance), and their share of the scored keys. */
+  read: number | null;
+  coverage: number | null;
+  within: number | null;
+  /** Median relative error over the keys read; null when none was read. */
+  median_error_read: number | null;
+  /** Lowest and highest plan of the slice, each the median of its passes; null with fewer than two plans. */
+  by_plan: { plans: number; coverage: [number, number] | null; median_error_read: [number, number] | null } | null;
+};
+export type SliceSide = {
+  /** The reading hands the slice's pages to a human: its keys are counted, nothing is read. */
+  abstained: boolean;
+  lengths: SliceKind;
+  surfaces: SliceKind;
+  /** Keys at high confidence in error; null when a plan of the slice was scored without classing its lines. */
+  silent_errors: number | null;
+};
+export type SliceComparison = {
+  plans: string[];
+  vector: SliceSide;
+  baseline: SliceSide;
+  /** The acceptance rule on the slice's keys (share strictly higher, median error strictly lower, a missed key 100 %); null on an abstention. */
+  lengths_gain: boolean | null;
+};
 export type VectorComparison = {
   passes: { vector: number; baseline: number };
   scopes: ScopeComparison[];
   totals: Record<"reserve" | "truth" | "all", { vector: SideMetrics; baseline: SideMetrics; lengths_gain: boolean | null; surfaces_no_regression: boolean | null }>;
   /** Scopes scored by the vector run but not by both runs in every pass: shown per scope, left out of the totals. */
   left_out_of_totals: string[];
+  /** Vector and raster slices, added after the v1 results were read (TI-678); null when the pages of the vector run are not given. */
+  slices: {
+    declared: "added_after_v1_results";
+    totals: Record<"reserve" | "truth" | "all", Record<"vector" | "raster", SliceComparison>>;
+    /** Plans of the totals in neither slice: vector and raster pages, or a failed page. */
+    left_out: string[];
+  } | null;
 };
 
 function median(values: readonly number[]): number | null {
@@ -96,7 +145,69 @@ function scoredScopes(report: BenchReport) {
   return report.couples.flatMap((couple) => couple.passes).map((pass) => pass.scopes.filter((scope) => scope.status === "scored"));
 }
 
-export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchReport): VectorComparison {
+/**
+ * The slice of each scope from the pages of its documents in the vector run: « vector » when no page is raster,
+ * « raster » when every page is, « mixed » otherwise (pages of both kinds, a failed page, or passes that disagree).
+ * A scope none of whose documents ran has no slice.
+ */
+export function scopeSlices(passes: readonly VectorBenchPass[], scopes: ReadonlyArray<Pick<ScopeScore, "id" | "documents">>): Map<string, ScopeSlice> {
+  const slices = new Map<string, ScopeSlice>();
+  for (const scope of scopes) {
+    const perPass = passes.flatMap((pass): ScopeSlice[] => {
+      const pages = pass.documents.filter((document) => scope.documents.includes(document.id)).flatMap((document) => document.pages);
+      if (pages.length === 0) return [];
+      if (pages.some((page) => page.status === "failed")) return ["mixed"];
+      const raster = pages.filter((page) => page.reading?.mode === "raster" || page.raster_items_from_baseline !== null).length;
+      return [raster === 0 ? "vector" : raster === pages.length ? "raster" : "mixed"];
+    });
+    if (perPass.length > 0) slices.set(scope.id, new Set(perPass).size === 1 ? perPass[0] : "mixed");
+  }
+  return slices;
+}
+
+const EMPTY_SLICE_KIND: SliceKind = { keys: 0, read: null, coverage: null, within: null, median_error_read: null, by_plan: null };
+
+function sliceKindOfPass(keys: readonly KeyScore[]) {
+  const scored = keys.filter((key) => key.status !== "out_of_score");
+  if (scored.length === 0) return null;
+  const read = scored.filter((key) => key.status !== "missed");
+  return { keys: scored.length, read: read.length, within: scored.filter((key) => key.status === "ok").length, error: median(read.map(keyError)) };
+}
+
+/** Coverage, keys within tolerance and median error on the keys read, each the median over the passes. */
+function sliceMetrics(passes: ReadonlyArray<readonly KeyScore[]>, filter: (key: KeyScore) => boolean): Omit<SliceKind, "by_plan"> {
+  const perPass = passes.map((keys) => sliceKindOfPass(keys.filter(filter))).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  if (perPass.length === 0) return { keys: 0, read: null, coverage: null, within: null, median_error_read: null };
+  return {
+    keys: perPass[0].keys, read: median(perPass.map((entry) => entry.read)), coverage: round(median(perPass.map((entry) => entry.read / entry.keys))),
+    within: median(perPass.map((entry) => entry.within)),
+    median_error_read: round(median(perPass.flatMap((entry) => (entry.error === null ? [] : [entry.error])))),
+  };
+}
+
+function range(values: ReadonlyArray<number | null>): [number, number] | null {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length === 0 ? null : [Math.min(...known), Math.max(...known)];
+}
+
+/** One side of a slice: its plans' scopes per pass (a pass may lack a plan the totals already left out). */
+function sliceSide(passes: ScopeScore[][], plans: readonly string[], abstained: boolean): SliceSide {
+  const inSlice = passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id)));
+  const pooled = inSlice.map((scopes) => scopes.flatMap((scope) => scope.keys));
+  const kind = (filter: (key: KeyScore) => boolean): SliceKind => {
+    const total = sliceMetrics(pooled, filter);
+    if (abstained) return { ...EMPTY_SLICE_KIND, keys: total.keys };
+    const perPlan = plans.map((plan) => sliceMetrics(inSlice.map((scopes) => scopes.filter((scope) => scope.id === plan).flatMap((scope) => scope.keys)), filter))
+      .filter((entry) => entry.keys > 0);
+    return { ...total, by_plan: perPlan.length < 2 ? null
+      : { plans: perPlan.length, coverage: range(perPlan.map((entry) => entry.coverage)), median_error_read: range(perPlan.map((entry) => entry.median_error_read)) } };
+  };
+  const classed = plans.length > 0 && inSlice.every((scopes) => scopes.every((scope) => scope.confidence !== undefined));
+  const silent = classed ? median(inSlice.map((scopes) => scopes.reduce((sum, scope) => sum + (scope.confidence?.keys_high_confidence_error ?? 0), 0))) : null;
+  return { abstained, lengths: kind(isLength), surfaces: kind(isSurface), silent_errors: abstained ? null : silent };
+}
+
+export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchReport, slices?: ReadonlyMap<string, ScopeSlice>): VectorComparison {
   const vectorPasses = scoredScopes(vector);
   const baselinePasses = scoredScopes(baseline);
   const ids = [...new Set(vectorPasses.flat().map((scope) => scope.id))].sort();
@@ -121,10 +232,25 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     const baselineSide = side(pick(baselinePasses));
     return { vector: vectorSide, baseline: baselineSide, ...verdicts(vectorSide, baselineSide) };
   };
+  // Slices use the plans of the totals (scored on both sides in every pass), so each compares the same keys.
+  const roleOf = (id: string) => (vectorPasses.flat().find((scope) => scope.id === id) as ScopeScore).role;
+  const slice = (role: "reserve" | "truth" | "all", name: "vector" | "raster"): SliceComparison => {
+    const plans = common.filter((id) => slices?.get(id) === name && (role === "all" || roleOf(id) === role));
+    const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id)).flatMap((scope) => scope.keys));
+    return {
+      plans, vector: sliceSide(vectorPasses, plans, name === "raster"), baseline: sliceSide(baselinePasses, plans, false),
+      lengths_gain: name === "raster" ? null : verdicts(side(pick(vectorPasses)), side(pick(baselinePasses))).lengths_gain,
+    };
+  };
+  const slicesOf = (role: "reserve" | "truth" | "all") => ({ vector: slice(role, "vector"), raster: slice(role, "raster") });
   return {
     passes: { vector: vectorPasses.length, baseline: baselinePasses.length },
     scopes, totals: { reserve: total("reserve"), truth: total("truth"), all: total("all") },
     left_out_of_totals: ids.filter((id) => !common.includes(id)),
+    slices: slices ? {
+      declared: "added_after_v1_results", totals: { reserve: slicesOf("reserve"), truth: slicesOf("truth"), all: slicesOf("all") },
+      left_out: common.filter((id) => slices.get(id) !== "vector" && slices.get(id) !== "raster"),
+    } : null,
   };
 }
 
@@ -222,6 +348,42 @@ export function vectorDecisionsTotal(passes: readonly VectorBenchPass[]) {
   return pages.length === 0 ? null : summarizeDecisions(null, pages);
 }
 
+function percent(value: number | null) {
+  return value === null ? "–" : `${(value * 100).toFixed(0)} %`;
+}
+
+function sliceCell(kind: SliceKind, abstained: boolean) {
+  if (kind.keys === 0) return "–";
+  if (abstained) return `abstention (${kind.keys} clés)`;
+  const interval = kind.by_plan
+    ? `, par plan (${kind.by_plan.plans}) : couverture ${kind.by_plan.coverage ? kind.by_plan.coverage.map(percent).join(" à ") : "–"}, `
+      + `erreur ${kind.by_plan.median_error_read ? kind.by_plan.median_error_read.map(percent).join(" à ") : "–"}`
+    : "";
+  return `couverture ${percent(kind.coverage)} (${kind.read} / ${kind.keys}), erreur médiane des clés lues ${percent(kind.median_error_read)}, `
+    + `${kind.within} dans la tolérance${interval}`;
+}
+
+/** The slices of the comparison: shares and counts only, declared as added after the v1 results. */
+function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
+  const lines = ["### Tranches vecteur et raster (ajoutées après lecture des résultats v1)", "",
+    "Le chiffre global ci-dessus reste le chiffre de tête. Couverture : clés notées lues ; l’erreur médiane ne porte que sur les clés lues. "
+    + "Une page raster est confiée à un humain : la lecture vectorielle s’y abstient, ce n’est jamais un succès. "
+    + "Erreurs silencieuses : clés à haute confiance en erreur. Intervalle : plan le plus bas et le plus haut de la tranche.", ""];
+  const silent = (side: SliceSide) => (side.abstained ? "abstention" : side.silent_errors === null ? "–" : String(side.silent_errors));
+  const rows = (["reserve", "truth", "all"] as const).flatMap((role) => (["vector", "raster"] as const).map((name) => {
+    const entry = slices.totals[role][name];
+    return [`**${role === "reserve" ? "Réserve" : role === "truth" ? "Hors réserve" : "Tous"}**, ${name === "vector" ? "vecteur" : "raster"}`, entry.plans.length,
+      sliceCell(entry.vector.lengths, entry.vector.abstained), sliceCell(entry.baseline.lengths, false),
+      entry.vector.abstained ? "abstention" : verdict(entry.lengths_gain, "gain", "pas de gain"),
+      sliceCell(entry.vector.surfaces, entry.vector.abstained), sliceCell(entry.baseline.surfaces, false),
+      `${silent(entry.vector)} / ${silent(entry.baseline)}`];
+  }));
+  lines.push(...table(["Tranche", "Plans", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline",
+    "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
+  if (slices.left_out.length > 0) lines.push(`Hors tranches (pages vecteur et raster mêlées, ou page en échec) : ${slices.left_out.join(", ")}.`, "");
+  return lines;
+}
+
 /** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
 export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null,
   decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null) {
@@ -288,6 +450,7 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     if (comparison.left_out_of_totals.length > 0) {
       lines.push(`Hors totaux (non notés par les deux runs à chaque passe) : ${comparison.left_out_of_totals.join(", ")}.`, "");
     }
+    if (comparison.slices) lines.push(...renderSlices(comparison.slices));
   }
   return lines;
 }

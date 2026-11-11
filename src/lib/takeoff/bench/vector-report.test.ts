@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildBenchReport, type BenchReport, type BenchReportMetadata, type PassReport } from "@/lib/takeoff/bench/report";
 import { GroupTruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import type { KeyLabel, KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
-import { compareVectorWithBaseline, renderVectorSections, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
+import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
@@ -356,5 +356,142 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     expect(markdown).toContain("call_failed");
     for (const secret of ["FICTIF_SECRET_LAYER", "#123456", "#654321", "oc:"]) expect(markdown).not.toContain(secret);
     expect(renderVectorSections([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }], null).join("\n")).not.toContain("## Decisions");
+  });
+});
+
+// Vector and raster slices of the comparison (TI-678, decision Q8 of 5 Nov: added after the v1 results were read,
+// the global v1 figure stays the headline). Ways they could misstate the reading, written before the code:
+// - the keys of a raster plan, whose lines the vector run copies from the baseline, count as read or within
+//   tolerance for the vector reading: a page handed to a human is an abstention, never a success;
+// - the coverage counts a missed key as read, or a key out of score in its denominator; the median error on the
+//   keys read includes the missed keys (100 %), or is 0 % instead of nothing when no key was read;
+// - the slices move the global totals of v1, or the reserve is mixed with the other plans;
+// - a plan with vector and raster pages, or with a page that failed, is put in a slice;
+// - silent errors (keys at high confidence in error) are summed as 0 for a run that never classed its lines, or
+//   pooled over the passes instead of their median;
+// - the interval is computed over pooled keys instead of per plan, or printed for a single plan;
+// - report.md does not say the slices were added after the v1 results, or prints a quantity.
+
+/** A pass of the vector run: each document's pages, « raster » standing on that many baseline items. */
+function vectorPass(pages: Record<string, ReadonlyArray<"vector" | "failed" | number>>, pass = 1): VectorBenchPass {
+  return { pass, documents: Object.entries(pages).map(([id, modes]) => ({ id, pages: modes.map((mode, index) => ({
+    page: index + 1, status: mode === "failed" ? "failed" as const : "ok" as const,
+    error: mode === "failed" ? { name: "Fictional", code: null, message: "Fictional failure." } : null,
+    reading: null, raster_items_from_baseline: typeof mode === "number" ? mode : null })) })) };
+}
+
+/** Confidence counts of a scope: keys at high confidence, and those in error (the silent errors). */
+function confidence(high: number, errors: number): NonNullable<ScopeScore["confidence"]> {
+  return { lines: { rejected: 0, uncertain: 0, high }, keys_high_confidence: high, keys_high_confidence_error: errors, high_confidence_errors: [] };
+}
+
+describe("takeoff bench vector and raster slices (TI-678)", () => {
+  const reserve = { role: "reserve" as const };
+
+  it("puts a plan in the slice of its pages in the vector run, and leaves out a mixed or failed one", () => {
+    const scopes = [scope("a-plan-02", []), scope("c-plan-02", []), scope("c-plan-03", []), scope("d-plan-02", []), scope("e-plan-01", [])];
+    const slices = scopeSlices([vectorPass({ "a-plan-02": ["vector", "vector"], "c-plan-02": [4], "c-plan-03": ["vector", 2], "d-plan-02": ["vector", "failed"] })], scopes);
+    expect(Object.fromEntries(slices)).toEqual({ "truth/a-plan-02.json": "vector", "truth/c-plan-02.json": "raster", "truth/c-plan-03.json": "mixed",
+      "truth/d-plan-02.json": "mixed" });
+    // A raster page in any pass makes the plan raster in that pass: two passes that disagree are mixed.
+    expect(scopeSlices([vectorPass({ "a-plan-02": ["vector"] }, 1), vectorPass({ "a-plan-02": [3] }, 2)], scopes).get("truth/a-plan-02.json")).toBe("mixed");
+  });
+
+  it("publishes coverage, median error on the keys read and silent errors per slice, the raster slice as an abstention", () => {
+    const vector = report([[
+      scope("a-plan-02", keys("length", [["ok", 0.04], ["out_of_tolerance", 0.3], ["missed"]]), { ...reserve, confidence: confidence(2, 1) }),
+      // The vector run copies the baseline's lines on a raster plan: its keys here are the baseline's reading.
+      scope("c-plan-02", keys("length", [["ok", 0.02], ["out_of_tolerance", -0.6], ["missed"], ["missed"]]), { ...reserve, confidence: confidence(2, 1) }),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-02", keys("length", [["out_of_tolerance", 0.5], ["missed"], ["missed"]]), { ...reserve, confidence: confidence(1, 1) }),
+      scope("c-plan-02", keys("length", [["ok", 0.02], ["out_of_tolerance", -0.6], ["missed"], ["missed"]]), { ...reserve, confidence: confidence(2, 1) }),
+    ]]);
+    const slices = scopeSlices([vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [4] })], vector.couples[0].passes[0].scopes);
+    const comparison = compareVectorWithBaseline(vector, baseline, slices);
+    const withoutSlices = compareVectorWithBaseline(vector, baseline);
+    // The v1 figure is untouched: same totals with and without the slices, the raster plan's copied keys included.
+    expect(comparison.totals).toEqual(withoutSlices.totals);
+    expect(comparison.totals.reserve.vector.lengths).toEqual(metrics(7, 2, 0.2857, 0.6));
+    expect(withoutSlices.slices).toBeNull();
+    const { vector: vectorSlice, raster } = comparison.slices!.totals.reserve;
+    // Vector slice: 2 keys read of 3 (missed key not read), errors 0.04 and 0.3 on the keys read (0.3 with the missed one).
+    expect(vectorSlice.vector).toEqual({ abstained: false, silent_errors: 1,
+      lengths: { keys: 3, read: 2, coverage: 0.6667, within: 1, median_error_read: 0.17, by_plan: null },
+      surfaces: { keys: 0, read: null, coverage: null, within: null, median_error_read: null, by_plan: null } });
+    expect(vectorSlice.baseline.lengths).toEqual({ keys: 3, read: 1, coverage: 0.3333, within: 0, median_error_read: 0.5, by_plan: null });
+    expect(vectorSlice).toMatchObject({ plans: ["truth/a-plan-02.json"], lengths_gain: true });
+    // Raster slice: the vector reading abstains on its 4 keys, whatever the copied lines scored; the baseline is shown.
+    expect(raster.vector).toEqual({ abstained: true, silent_errors: null,
+      lengths: { keys: 4, read: null, coverage: null, within: null, median_error_read: null, by_plan: null },
+      surfaces: { keys: 0, read: null, coverage: null, within: null, median_error_read: null, by_plan: null } });
+    expect(raster.baseline).toMatchObject({ abstained: false, silent_errors: 1, lengths: { keys: 4, read: 2, coverage: 0.5, within: 1, median_error_read: 0.31 } });
+    expect(raster.lengths_gain).toBeNull();
+    // The other plans are not in the reserve's slices.
+    expect(comparison.slices!.totals.truth.vector.plans).toEqual([]);
+    expect(comparison.slices!.left_out).toEqual([]);
+  });
+
+  it("reads no error on the keys read when none was read, and no silent error from a run that never classed its lines", () => {
+    const vector = report([[scope("a-plan-02", [...keys("length", [["missed"], ["missed"], ["out_of_score"]]), ...keys("surface", [["ok", 0.01]])], reserve)]], "vector");
+    const comparison = compareVectorWithBaseline(vector, vector, scopeSlices([vectorPass({ "a-plan-02": ["vector"] })], vector.couples[0].passes[0].scopes));
+    const side = comparison.slices!.totals.reserve.vector.vector;
+    expect(side.lengths).toEqual({ keys: 2, read: 0, coverage: 0, within: 0, median_error_read: null, by_plan: null });
+    expect(side.surfaces).toMatchObject({ keys: 1, read: 1, coverage: 1, median_error_read: 0.01 });
+    expect(side.silent_errors).toBeNull();
+    // Equal sides: never a gain.
+    expect(comparison.slices!.totals.reserve.vector.lengths_gain).toBe(false);
+  });
+
+  it("takes the median over the passes and the interval over the plans, never over pooled keys", () => {
+    const first = [
+      scope("a-plan-01", keys("length", [["ok", 0.02], ["ok", 0.04], ["missed"], ["missed"]]), { confidence: confidence(2, 0) }),
+      scope("b-plan-11", keys("length", [["out_of_tolerance", 0.5], ["out_of_tolerance", 0.3]]), { confidence: confidence(2, 2) }),
+      scope("b-plan-12", keys("length", [["ok", 0.06]]), { confidence: confidence(1, 0) }),
+    ];
+    const second = [
+      scope("a-plan-01", keys("length", [["ok", 0.02], ["missed"], ["missed"], ["missed"]]), { confidence: confidence(1, 0) }),
+      scope("b-plan-11", keys("length", [["out_of_tolerance", 0.5], ["out_of_tolerance", 0.3]]), { confidence: confidence(2, 2) }),
+      scope("b-plan-12", keys("length", [["ok", 0.06]]), { confidence: confidence(1, 1) }),
+    ];
+    const third = [
+      scope("a-plan-01", keys("length", [["ok", 0.02], ["ok", 0.04], ["ok", 0.08], ["missed"]]), { confidence: confidence(3, 0) }),
+      scope("b-plan-11", keys("length", [["out_of_tolerance", 0.5], ["out_of_tolerance", 0.3]]), { confidence: confidence(2, 1) }),
+      scope("b-plan-12", keys("length", [["ok", 0.06]]), { confidence: confidence(1, 1) }),
+    ];
+    const vector = report([first, second, third], "vector");
+    const passes = [1, 2, 3].map((pass) => vectorPass({ "a-plan-01": ["vector"], "b-plan-11": ["vector"], "b-plan-12": ["vector"] }, pass));
+    const side = compareVectorWithBaseline(vector, vector, scopeSlices(passes, first)).slices!.totals.truth.vector.vector;
+    // Keys read per pass 5, 4, 6 of 7; errors on the keys read per pass: medians 0.06, 0.18, 0.07; silent errors 2, 3, 2.
+    expect(side.lengths).toMatchObject({ keys: 7, read: 5, coverage: 0.7143, median_error_read: 0.07 });
+    expect(side.silent_errors).toBe(2);
+    // Per plan (each the median of its passes): coverage 0.5, 1, 1 and error 0.03, 0.4, 0.06.
+    expect(side.lengths.by_plan).toEqual({ plans: 3, coverage: [0.5, 1], median_error_read: [0.03, 0.4] });
+  });
+
+  it("leaves a mixed plan out of both slices and names it", () => {
+    const scopes = [scope("a-plan-02", keys("length", [["ok", 0.02]]), reserve), scope("c-plan-03", keys("length", [["ok", 0.02]]), reserve)];
+    const vector = report([scopes], "vector");
+    const comparison = compareVectorWithBaseline(vector, vector, scopeSlices([vectorPass({ "a-plan-02": ["vector"], "c-plan-03": ["vector", 5] })], scopes));
+    expect(comparison.slices!.totals.reserve.vector.plans).toEqual(["truth/a-plan-02.json"]);
+    expect(comparison.slices!.totals.reserve.raster.plans).toEqual([]);
+    expect(comparison.slices!.left_out).toEqual(["truth/c-plan-03.json"]);
+  });
+
+  it("prints the slices as added after the v1 results, with shares and counts and never a quantity", () => {
+    const vector = report([[
+      scope("a-plan-02", keys("length", [["ok", 0.04], ["out_of_tolerance", 0.3], ["missed"]]), { ...reserve, confidence: confidence(2, 1) }),
+      scope("c-plan-02", keys("length", [["ok", 0.02], ["missed"]]), { ...reserve, confidence: confidence(1, 0) }),
+    ]], "vector");
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [4] })];
+    const comparison = compareVectorWithBaseline(vector, vector, scopeSlices(passes, vector.couples[0].passes[0].scopes));
+    const markdown = renderVectorSections(passes, comparison).join("\n");
+    expect(markdown).toContain("ajoutées après lecture des résultats v1");
+    expect(markdown).toContain("67 % (2 / 3)");
+    expect(markdown).toContain("abstention (2 clés)");
+    expect(markdown).toMatch(/erreurs silencieuses/i);
+    for (const quantity of [...QUANTITIES.length, ...QUANTITIES.surface]) expect(markdown).not.toContain(String(quantity));
+    // Without the slices the section is absent.
+    expect(renderVectorSections(passes, compareVectorWithBaseline(vector, vector)).join("\n")).not.toContain("résultats v1");
   });
 });
