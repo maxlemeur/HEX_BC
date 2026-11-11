@@ -60,6 +60,14 @@ async function patchItems(ui: WorkerUi, jobId: string, items: Array<{ item: Item
   return new Map(patched.body.data.results.map((result) => [result.item_id, result.item as Item]));
 }
 
+/** TI-682 lot D: the pages of a takeoff the reviewed version already holds from another one, and whether another one is there at all. */
+async function pagesAlreadyInEstimate(ui: WorkerUi, jobId: string, versionId: string) {
+  const read = await apiRequest<{ ok: boolean; data: { pages: unknown[]; other_takeoff_line_count: number } }>(ui.browser, "GET",
+    `/api/takeoff/jobs/${jobId}/page-contributions?version_id=${versionId}`);
+  expect([read.status, read.body.ok]).toEqual([200, true]);
+  return { pages: read.body.data.pages, seen: read.body.data.other_takeoff_line_count > 0 };
+}
+
 const zoneCode = (item: Item | undefined) => item?.rule_results?.find((entry) => entry.rule === "zone_overlap")?.code ?? null;
 
 /** Z1 then Z2: two level C jobs of one estimate version, each read by the real worker with the vector reading and the rules. */
@@ -172,6 +180,9 @@ armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be c
       const applied = await applyWithLease(ui.browser, ids.versionId, jobs[zone], apply);
       expect([zone, applied.status, (applied.body as Envelope<{ job: { status: string } }>).data?.job?.status]).toEqual([zone, 200, "applied"]);
     }
+    // TI-682 lot D, negative control: two zone plans are two documents; neither page is reported, though each
+    // takeoff sees the other's lines in the estimate.
+    for (const zone of ["Z1", "Z2"] as const) expect([zone, await pagesAlreadyInEstimate(ui, jobs[zone], ids.versionId)]).toEqual([zone, { pages: [], seen: true }]);
     // Z2 applied after Z1: its last computation, just before its application, read Z1 as an applied (frozen) partner.
     const z2Applied = (await readItems(ui, jobs.Z2)).find((item) => item.id === lines.Z2.ef.id);
     expect(z2Applied?.rule_results?.find((entry) => entry.rule === "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED",
@@ -297,6 +308,9 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     for (const zone of ["Z1", "Z2"] as const) {
       if (zone === "Z2") {
         await ui.app.open(targeted(jobs.Z2));
+        // TI-682 lot D, negative control: Z1, applied, is another plan; Z2's page is not already in the estimate.
+        expect(await pagesAlreadyInEstimate(ui, jobs.Z2, ids.versionId)).toEqual({ pages: [], seen: true });
+        await expect(screen.getByRole("region", "Pages déjà au devis", { exact: true })).toHaveCount(0);
         await expect(list.getByRole("option")).toHaveCount(1);
         await list.getByRole("option", /^ARMY worker pipe/).click();
         const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs.Z2}/items`);
