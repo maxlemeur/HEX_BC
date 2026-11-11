@@ -108,4 +108,27 @@ describe("manual estimate lifecycle decisions", () => {
       })
     );
   });
+  // TI-682, lot C (D25): an excluded necessary service says why before it leaves; no administrator sends it without.
+  it("refuses an admin override while an excluded line has no internal reason", () => {
+    const blocked = gating(true);
+    const result: EstimateSendGatingResult = {
+      ...blocked,
+      blockingFlags: [...blocked.blockingFlags, {
+        key: "excluded_without_reason",
+        severity: "blocking",
+        count: 1,
+        item_ids: ["line-1"],
+        label: "Motif interne d'exclusion à saisir",
+        description: "À justifier",
+      }],
+    };
+    expect(() => resolveEstimateSendOverride(result, true)).toThrowError(
+      expect.objectContaining({
+        status: 400,
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: { gating: result, not_forceable: ["excluded_without_reason"] },
+        message: expect.stringContaining("motif interne"),
+      })
+    );
+  });
 });

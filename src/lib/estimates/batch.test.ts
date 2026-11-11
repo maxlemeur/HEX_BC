@@ -332,4 +332,82 @@ describe("executeEstimateBatch", () => {
     // The provision is the database's: the operations replayed by an idempotent retry stay those of the client.
     expect(JSON.stringify(sent.p_operations)).not.toContain("fo_provision");
   });
+  // TI-682, lot C: the internal reason of an exclusion is a line key of the batch, on create and update, written with
+  // the status by anyone who may write the line. « Was not priced » is the database's: never an input.
+  describe("status_reason", () => {
+    const NOTE = "Fourni par le maître d'ouvrage";
+    function asV3(status = "not_priced") {
+      Object.assign(db.version, {
+        calc_engine_version: 3, sale_coefficient_fo: 1, sale_coefficient_mo: 1, discount_amount_cents: null,
+        gross_ht_cents: 0, discount_applied_cents: 0, commercial_rounding_cents: 0, total_ht_cents: 0, total_tax_cents: 0,
+        total_ttc_cents: 0,
+      });
+      db.rows.estimate_items = [section(), {
+        ...line(), unit_price_ht_cents: 0, h_mo: 0, h_mo_per_unit: 0, unit_code: "u", pricing_status: status, fo_provision: 1,
+        pu_ht_cents: null, line_total_ht_cents: 0, line_tax_cents: 0, line_total_ttc_cents: 0,
+        was_not_priced: status === "not_priced", status_reason: null,
+      }];
+      db.commit.mockResolvedValue({ data: null, error: { code: "40001", message: "ESTIMATE_BATCH_STALE" } });
+    }
+    const sentOperations = () => (db.commit.mock.calls[0][0] as { p_operations: unknown }).p_operations;
+
+    it("sends the reason with the status, its note trimmed, on update and on create", async () => {
+      asV3();
+      const operations: BatchOperationInput[] = [
+        { op: "update", id: ITEM_ID, data: { pricing_status: "out_of_scope", status_reason: { code: "client_supplied", note: `  ${NOTE}\n` } } },
+        { op: "create", data: { item_type: "line", parent_id: SECTION_ID, title: "Hors lot direct", pricing_status: "out_of_scope",
+          status_reason: { code: "other_trade" } as never } },
+      ];
+      await expect(executeEstimateBatch(VERSION_ID, operations, OPTIONS)).rejects.toMatchObject({ code: "ESTIMATE_BATCH_STALE" });
+      expect(sentOperations()).toEqual([
+        { op: "update", id: ITEM_ID, data: { pricing_status: "out_of_scope", status_reason: { code: "client_supplied", note: NOTE } } },
+        { op: "create", data: expect.objectContaining({ pricing_status: "out_of_scope", status_reason: { code: "other_trade", note: null } }) },
+      ]);
+    });
+
+    it("clears the reason with null", async () => {
+      asV3("out_of_scope");
+      await expect(executeEstimateBatch(VERSION_ID, [{ op: "update", id: ITEM_ID, data: { status_reason: null } }], OPTIONS))
+        .rejects.toMatchObject({ code: "ESTIMATE_BATCH_STALE" });
+      expect(sentOperations()).toEqual([{ op: "update", id: ITEM_ID, data: { status_reason: null } }]);
+    });
+
+    it.each([
+      ["an unknown code", { status_reason: { code: "unknown" } }],
+      ["a note of 9 characters", { status_reason: { code: "other_trade", note: "123456789" } }],
+      ["« other » without a note", { status_reason: { code: "other", note: "  " } }],
+      ["« was not priced » as an input", { was_not_priced: false }],
+    ])("refuses %s before anything is written", async (_name, data) => {
+      asV3();
+      await expect(executeEstimateBatch(VERSION_ID, [{ op: "update", id: ITEM_ID, data } as never], OPTIONS)).rejects.toThrow();
+      expect(db.commit).not.toHaveBeenCalled();
+    });
+
+    it("refuses « was not priced » at creation too", async () => {
+      asV3();
+      await expect(executeEstimateBatch(VERSION_ID, [{ op: "create", data: {
+        item_type: "line", parent_id: SECTION_ID, title: "Ligne", pricing_status: "out_of_scope", was_not_priced: true,
+      } } as never], OPTIONS)).rejects.toThrow();
+      expect(db.commit).not.toHaveBeenCalled();
+    });
+
+    it("refuses a reason on an engine 2 line by name", async () => {
+      await expect(executeEstimateBatch(VERSION_ID, [
+        { op: "update", id: ITEM_ID, data: { status_reason: { code: "other_trade", note: null } } },
+      ], OPTIONS)).resolves.toMatchObject({
+        committed: false, results: [expect.objectContaining({ status: "error", code: "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED" })],
+      });
+      expect(db.commit).not.toHaveBeenCalled();
+    });
+
+    it("refuses by name a new reason on a line that is not excluded", async () => {
+      asV3("out_of_scope");
+      await expect(executeEstimateBatch(VERSION_ID, [
+        { op: "update", id: ITEM_ID, data: { pricing_status: "priced", status_reason: { code: "other_trade", note: null } } },
+      ], OPTIONS)).resolves.toMatchObject({
+        committed: false, results: [expect.objectContaining({ status: "error", code: "ESTIMATE_STATUS_REASON_STATUS_MISMATCH" })],
+      });
+      expect(db.commit).not.toHaveBeenCalled();
+    });
+  });
 });

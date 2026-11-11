@@ -78,8 +78,16 @@ export function resolveEstimateSendOverride(
     .map((flag) => flag.key)
     .filter((key) => (ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS as readonly string[]).includes(key));
   if (notForceable.length > 0) {
+    const reasons = [
+      ...(notForceable.includes("not_priced_unclassified")
+        ? ["des lignes « Non chiffrée » restent à classer (chiffrez-les, ou passez-les en Inclus, Pour mémoire, Hors lot ou Sans objet)"]
+        : []),
+      ...(notForceable.includes("excluded_without_reason")
+        ? ["des lignes exclues après « Non chiffrée » attendent leur motif interne"]
+        : []),
+    ];
     throw badRequest(
-      "Envoi bloqué : des lignes « Non chiffrée » restent à classer (chiffrez-les, ou passez-les en Inclus, Pour mémoire, Hors lot ou Sans objet). Un administrateur ne peut pas forcer cet envoi.",
+      `Envoi bloqué : ${reasons.join(" ; ")}. Un administrateur ne peut pas forcer cet envoi.`,
       { gating, not_forceable: notForceable },
       "ESTIMATE_GATING_NOT_FORCEABLE"
     );

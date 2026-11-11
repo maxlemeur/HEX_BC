@@ -223,6 +223,17 @@ ou une masse est un plan de réseau), le niveau et la zone. Les choix de niveau 
 de zone viennent du texte de la page et du périmètre (`RDC`, `R+n`, `R-n`, `SSn`,
 `Zn`, normalisés), plus `inconnu` ; sans candidat, la question n'est pas posée.
 
+Un niveau imprimé hors de ce vocabulaire (`L00`, `L01`, `GANTRY` sur un data
+center) se déclare dans les niveaux du périmètre. Il est gardé tel qu'écrit, sans
+équivalence (`L00` n'est pas le RDC), sur 16 caractères au plus : majuscules,
+chiffres, espace et `. _ / + -`. Un mot du périmètre avec une minuscule
+(« Tous ») n'est pas un niveau. Il n'est proposé que sur une page qui l'imprime
+à l'identique (même casse, sans lettre ni chiffre accolé) et vient après les
+niveaux connus, jamais classé parmi eux. Deux pages ne partagent un tel niveau
+que si le libellé est le même. Sans tri, la lecture vectorielle le lit dans le
+nom du fichier quand un seul libellé déclaré y figure. Donner un niveau ajoute
+des contrôles (doublons entre plans d'un même niveau) et n'en retire aucun.
+
 Une page n'est proposée à l'écart que si le type répondu est une coupe, une
 façade, un plan de toiture, un plan de masse ou une pièce écrite, avec une
 confiance d'au moins 0,8, une réponse complète et une vignette lisible. Sinon elle

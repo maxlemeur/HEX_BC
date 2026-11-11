@@ -15,7 +15,7 @@ import {
   UNITS,
   UNITS_BY_KIND,
 } from "@/lib/takeoff/bench/keys";
-import { TAKEOFF_PAGE_TYPES } from "@/lib/takeoff/page-triage";
+import { freeTakeoffLevelLabel, TAKEOFF_PAGE_TYPES } from "@/lib/takeoff/page-triage";
 
 // Schemas of the private takeoff bench dataset (TI-659). The dataset lives outside
 // Git (`outputs/takeoff-bench-dataset/`): `manifest.json`, `raw/<id>.<ext>`,
@@ -497,7 +497,9 @@ export const PageTruthFileSchema = z.strictObject({
   pages: z.array(z.strictObject({
     page: z.number().int().min(1),
     type: z.enum(TAKEOFF_PAGE_TYPES),
-    niveau: z.string().regex(PAGE_TRUTH_LEVEL_PATTERN, "niveau is RDC, R+n, R-n, SSn or null").nullable(),
+    // A free printed level (L00, GANTRY: TI-687) is written as the triage keeps it; « R + 1 » stays refused.
+    niveau: z.string().refine((value) => PAGE_TRUTH_LEVEL_PATTERN.test(value) || freeTakeoffLevelLabel(value) === value,
+      "niveau is RDC, R+n, R-n, SSn, a free printed label as written, or null").nullable(),
     zone: z.string().regex(PAGE_TRUTH_ZONE_PATTERN, "zone is Zn or null").nullable(),
     garder: z.boolean(),
     statut: z.enum(PAGE_TRUTH_STATUSES),

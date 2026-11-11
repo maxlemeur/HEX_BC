@@ -29,7 +29,7 @@ function item(overrides: Partial<EstimateItemRow>): EstimateItemRow {
     snapshot_fo_ht_cents: null, snapshot_gross_fo_ht_cents: null,
     snapshot_gross_ht_cents: null, snapshot_mo_atelier_ht_cents: null,
     snapshot_mo_chantier_ht_cents: null, snapshot_mo_ht_cents: null,
-    snapshot_pu_ht_cents: null,
+    snapshot_pu_ht_cents: null, status_reason: null, was_not_priced: false,
     ...overrides,
   };
 }
@@ -114,5 +114,21 @@ describe("TI-534 v3 section copy price origin", () => {
         if (linked) expect(operation.data.fo_price_origin).toBeNull();
       }
     }
+  });
+});
+
+// TI-682, lot C: a section copy creates new lines, which have not been « Non chiffrée »; it carries neither the internal
+// reason of an exclusion nor the flag (the database sets the flag; the batch refuses it as an input).
+describe("TI-682 v3 section copy of an excluded line", () => {
+  it("copies the status, never the internal reason nor « was not priced »", () => {
+    const source = item({ pricing_status: "out_of_scope", unit_code: "u", was_not_priced: true,
+      status_reason: { code: "other_trade", note: "Lot CVC du marché" } });
+    const [operation] = planV3SectionCopy({ payload: [{ ...source, id: "copy-line", source_metadata: source.source_metadata ?? {} }],
+      sourceIdByNewId: new Map([["copy-line", source.id]]), sourceItemsById: new Map([[source.id, source]]),
+      sourceIsV3: true, sameVersion: false }).operations;
+    if (operation.op !== "create" || operation.data.item_type !== "line") throw new Error("Expected the real line create payload");
+    expect(operation.data.pricing_status).toBe("out_of_scope");
+    expect(Object.hasOwn(operation.data, "status_reason")).toBe(false);
+    expect(Object.hasOwn(operation.data, "was_not_priced")).toBe(false);
   });
 });

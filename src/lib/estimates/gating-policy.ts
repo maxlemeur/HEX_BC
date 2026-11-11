@@ -19,13 +19,18 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "version_zero_review_pending",
   "not_priced_unclassified",
   "priced_line_without_amount",
+  "excluded_without_reason",
 ] as const;
 
 /**
- * TI-682 (D25): flags no tenant setting can downgrade. A « Non chiffrée » line is a line still to classify: it is
- * priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors lot », « Sans objet »).
+ * TI-682 (D25): flags no tenant setting can downgrade and no administrator can force. A « Non chiffrée » line is a
+ * line still to classify: it is priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors
+ * lot », « Sans objet »). Lot C (D11): a line so classified after « Non chiffrée » says why, internally.
  */
-export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = ["not_priced_unclassified"];
+export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = [
+  "not_priced_unclassified",
+  "excluded_without_reason",
+];
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
 
@@ -106,6 +111,11 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Une ligne « Chiffrée » sans prix ni heures partirait à 0 €. Chiffrez-la, ou donnez-lui le statut « Inclus » ou « Pour mémoire ».",
   },
+  excluded_without_reason: {
+    label: "Motif interne d'exclusion à saisir",
+    description:
+      "Une prestation laissée « Non chiffrée » puis classée Inclus, Pour mémoire, Hors lot ou Sans objet dit pourquoi avant l'envoi. Ce motif reste interne : le client ne le lit jamais.",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -134,6 +144,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   version_zero_review_pending: "blocking",
   not_priced_unclassified: "blocking",
   priced_line_without_amount: "blocking",
+  excluded_without_reason: "blocking",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

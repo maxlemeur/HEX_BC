@@ -96,6 +96,16 @@ set local role service_role;
 select throws_ok($$ select private.retire_empty_accepted_legacy_estimate(null,null,null,null,null,null,null) $$,'42501','permission denied for schema private','service-role call is refused');
 reset role;
 
+-- From here on the function takes its NOWAIT table locks. Autovacuum (VACUUM or
+-- ANALYZE) holds SHARE UPDATE EXCLUSIVE on a table it processes, and the rolled
+-- back inserts of the earlier pgTAP files leave estimate_versions due for it: a
+-- NOWAIT lock fails at once with 55P03 where a waiting one would cancel the
+-- worker. Holding that mode here keeps autovacuum off these five tables until the
+-- rollback. It does not block writers (ROW EXCLUSIVE), so it adds nothing to
+-- what the witness below observes, and never conflicts with the function's own
+-- locks, taken in this same transaction.
+lock table public.estimate_versions, private.estimate_purchase_receipts, private.estimate_purchase_transfers,
+  private.estimate_source_coverage_events, storage.objects in share update exclusive mode;
 select throws_ok($$ select pg_temp.call_retire('79000000-0000-4000-8000-000000000021','79000000-0000-4000-8000-000000000020') $$,'22023','LEGACY_RETIRE_TARGET_MISMATCH','sealed accepted version is refused');
 select throws_ok($$ select pg_temp.call_retire('79000000-0000-4000-8000-000000000031','79000000-0000-4000-8000-000000000030') $$,'22023','LEGACY_RETIRE_NOT_EMPTY_OR_NOT_SOLE_VERSION','accepted version with line is refused');
 select throws_ok($$ select pg_temp.call_retire('79000000-0000-4000-8000-000000000011','79000000-0000-4000-8000-000000000020') $$,'22023','LEGACY_RETIRE_TARGET_MISMATCH','wrong project identity is refused');
