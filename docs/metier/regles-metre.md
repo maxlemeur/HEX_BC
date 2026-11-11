@@ -332,7 +332,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
 **Doublon**
-([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 2) :
+([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 3) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
@@ -353,6 +353,22 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Jamais comparés : un tuyau et son calorifuge, deux lignes d'une même page, deux niveaux, deux pages sans repère commun (« zones non recalées » ne vaut que pour deux lignes qui pourraient être un même tronçon).
 - Chaque ligne d'une page est mesurée contre toutes celles de l'autre en un seul passage : le coût suit le nombre d'axes des pages, pas le nombre de paires de lectures.
 
+**Plans agrandis** (TI-684, décision D14 du 6 nov. 2026 : « à indice cohérent, le détail agrandi fait foi dans son périmètre » ; version 3 de la règle) :
+
+- Une page est le **plan agrandi** d'une autre quand son échelle est au moins 1,5 fois plus fine (1/50 à côté de 1/100 ou de 1/200), les deux échelles étant lues. Deux pages de même échelle, ou dont une échelle n'est pas lue, ne sont jamais un détail et son plan d'ensemble.
+- Une ligne **cède** quand toutes les lignes incluses qui la dessinent aussi sont sur des plans agrandis de sa page. La correction lui revient :
+  - elle échoue en `ZONE_OVERLAP_DUPLICATE` tant que sa propre réduction ne retire pas ce que les plans agrandis dessinent d'elle (l'union des tronçons couverts), à 1 cm près, ou qu'elle n'est pas exclue ;
+  - elle n'entre dans aucun groupe : un plan d'ensemble au-dessus de deux zones se règle par sa réduction, et les deux zones gardent leur propre paire à leur limite ;
+  - le partenaire porte `plan: "enlarged"`, et la raison dit que le plan agrandi fait foi.
+- La ligne du plan agrandi échoue avec elle tant que la copie n'est pas retirée (un doublon détecté ne se règle jamais tout seul, et « Accepter » ne lève que la ligne vérifiée). Son partenaire porte `plan: "overview"` ; la raison dit que la longueur se retire de la ligne du plan d'ensemble, et la revue ciblée ne lui propose ni réduction ni retrait. Une ligne en échec ne nomme que ce qui reste ouvert : ses partenaires de même rang, et les lignes du plan d'ensemble qui n'ont pas encore retiré leur copie.
+- **Deux lignes seules** (une ligne du plan d'ensemble dont l'unique copie est une ligne du plan agrandi sans autre copie) se règlent comme toute paire : la réduction de l'une ou de l'autre retire la longueur commune. Une ligne de détail réduite avant d'être appliquée compte donc toujours. Au-delà, seules les réductions de la ligne qui cède comptent : celles des plans agrandis peuvent régler leurs propres paires, et une réduction ne dit jamais où elle retire.
+- Une copie lue autrement suit la même règle : la lecture du plan agrandi fait foi, et chaque ligne s'accepte (V) si ce sont deux tuyaux distincts.
+- **Ne cède pas** :
+  - une ligne d'un job appliqué (jamais appelée à changer) : la paire reste réglée par la ligne du job courant, comme avec toute ligne figée ;
+  - une ligne qui a aussi une copie sur une page de sa propre échelle, ou sur une page plus grossière : elle se règle comme avant (paire ou groupe). Sur trois échelles (1/200, 1/100, 1/50), la ligne au 1/200 cède aux deux autres, qui gardent entre elles une paire ordinaire ;
+  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon.
+- **À indice cohérent** : la règle ne lit pas l'indice des plans (il est tenu par la préparation du métré, qui refuse déjà deux révisions d'un même document). Deux plans d'indices différents sont à trancher par l'utilisateur ; la raison rappelle la condition.
+
 **Résolution**
 
 - Deux lignes partenaires forment une paire ; les lignes incluses reliées par des paires forment un groupe. Le résultat ne dépend jamais de l'ordre des pages ni de celui des lignes.
@@ -363,10 +379,10 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - Exclure une ligne entièrement en double règle aussi la paire.
 - **Groupe de trois lignes ou plus** : aucune correction ne le règle. Chaque ligne reste en `ZONE_OVERLAP_DUPLICATE` jusqu'à ce qu'elle soit exclue (entièrement en double) ou acceptée (V).
   - La raison donne, pour chaque ligne partenaire, la longueur commune ; puis la longueur de la ligne que d'autres lignes dessinent (`overlap_m`) et le nombre de lignes du groupe (`group_size`).
-  - Exclure une ligne entièrement en double peut ramener le groupe à une paire, qui se règle alors par sa réduction. Un plan d'ensemble au-dessus de deux zones qui se touchent, exclu, les laisse sans doublon.
+  - Exclure une ligne entièrement en double peut ramener le groupe à une paire, qui se règle alors par sa réduction. Un plan de même échelle au-dessus de deux zones qui se touchent, exclu, les laisse sans doublon.
 - **Pourquoi** (décision du 4 nov. 2026, après quatre tours Codex et deux revues adverses) : c'est un écart voulu à la résolution par défaut du ticket (« corriger une ligne en retirant cette longueur ») pour les groupes. Régler un groupe par ses réductions exige de savoir où chacune a retiré sa longueur.
   - Chaque modèle essayé a laissé passer un double compte : somme par groupe (une réduction réglait un tronçon que sa ligne ne dessine pas), flot sur des tronçons communs, payeurs d'une couverture minimale (une ligne figée supposée payer ce qu'elle n'a jamais retiré ; des lignes qui sortent d'un tronçon commun, 1,5 m compté deux fois et réglé).
-  - Le parcours d'acceptation du ticket porte sur une paire Z1/Z2 de deux jobs d'une version, qui se règle toujours par correction. Trois zones en enfilade, ou un plan d'ensemble au-dessus de deux zones, forment un groupe : il faut exclure ou accepter. L'erreur tombe du côté d'un blocage, jamais d'un double compte.
+  - Le parcours d'acceptation du ticket porte sur une paire Z1/Z2 de deux jobs d'une version, qui se règle toujours par correction. Trois zones en enfilade, ou un plan de même échelle au-dessus de deux zones, forment un groupe : il faut exclure ou accepter (un plan d'ensemble à une échelle plus grossière cède : voir « Plans agrandis »). L'erreur tombe du côté d'un blocage, jamais d'un double compte.
 - Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement. Un recalcul qui lui apporte un échec qu'elle n'avait pas (un nouveau partenaire, une autre règle, un autre code, une autre version) lui retire sa vérification : voir « Décisions ».
 - **Limites connues** :
@@ -374,7 +390,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
   - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
   - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
-  - la règle du plan agrandi (D14 : le détail fait foi dans son périmètre, le plan d'ensemble contrôle la couverture) n'est pas appliquée : un détail et son plan d'ensemble se règlent comme tout doublon ;
+  - plans agrandis : le contrôle de couverture de D14 (un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas) n'est pas fait, un tel tronçon compte sans alerte ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.

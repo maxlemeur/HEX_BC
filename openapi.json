@@ -64668,6 +64668,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -66396,6 +66403,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -66738,6 +66752,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -67076,6 +67097,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -67396,6 +67424,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -67806,6 +67841,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -68126,6 +68168,13 @@
                                               "dn"
                                             ]
                                           }
+                                        },
+                                        "plan": {
+                                          "type": "string",
+                                          "enum": [
+                                            "enlarged",
+                                            "overview"
+                                          ]
                                         }
                                       },
                                       "required": [
@@ -69722,6 +69771,13 @@
                                                   "dn"
                                                 ]
                                               }
+                                            },
+                                            "plan": {
+                                              "type": "string",
+                                              "enum": [
+                                                "enlarged",
+                                                "overview"
+                                              ]
                                             }
                                           },
                                           "required": [
@@ -70098,6 +70154,13 @@
                                           "dn"
                                         ]
                                       }
+                                    },
+                                    "plan": {
+                                      "type": "string",
+                                      "enum": [
+                                        "enlarged",
+                                        "overview"
+                                      ]
                                     }
                                   },
                                   "required": [

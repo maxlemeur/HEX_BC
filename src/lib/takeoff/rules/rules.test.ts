@@ -549,13 +549,13 @@ describe("duplicate runs between zones", () => {
       .toEqual(["Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_DUPLICATE:6:3 lignes", "Z3:ZONE_OVERLAP_RESOLVED:-"]);
   });
 
-  it("measures each pair of a group at its own scale, and settles a pair of two 1/50 pages beside a 1/200 page", () => {
+  it("measures each pair at its own scale, and settles a pair of two 1/50 pages beside a 1/200 page", () => {
     // A (1/50) holds 0.4 m drawn again on B (1/50) and 5 m drawn again on C (1/200, minimum 49 cm): 0.4 m is a duplicate
-    // of its own pair, under C's minimum. Three lines: corrections never settle them.
-    const specs = (quantityA: number, dnC = "DN 22", yC = 1): Spec[] => [
+    // of its own pair, under C's minimum. With C applied, three lines: corrections never settle them.
+    const specs = (quantityA: number, dnC = "DN 22", yC = 1, c: Partial<Spec> = { frozen: true }): Spec[] => [
       { id: "A", segments: [[0, 1, 0.4, 1], [2, 1, 7, 1]], quantity: quantityA },
       { id: "B", segments: [[0, 1, 0.4, 1]], quantity: 0.4 },
-      { id: "C", segments: [[2, yC, 7, yC]], quantity: 5, dn: dnC },
+      { id: "C", segments: [[2, yC, 7, yC]], quantity: 5, dn: dnC, ...c },
     ];
     for (const quantity of [5.4, 0.01]) {
       expect(inEveryOrder(specs(quantity), [50, 50, 200]))
@@ -568,6 +568,152 @@ describe("duplicate runs between zones", () => {
     expect(inEveryOrder(specs(5.4, "DN 22", 1.06), [50, 50, 200]))
       .toEqual(["A:ZONE_OVERLAP_DUPLICATE:0.4", "B:ZONE_OVERLAP_DUPLICATE:0.4", "C:ZONE_OVERLAP_NONE:-"]);
     expect(inEveryOrder(specs(5, "DN 28", 1.06), [50, 50, 200])).toEqual(["A:ZONE_OVERLAP_RESOLVED:-", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_NONE:-"]);
+    // TI-684, enlarged plans: C not applied is an overview of A and yields to it. A and B stay a pair of 0.4 m, which
+    // A's reduction settles; C's copy of A is C's to remove, and A fails with it until then.
+    expect(inEveryOrder(specs(5.4, "DN 22", 1, {}), [50, 50, 200]))
+      .toEqual(["A:ZONE_OVERLAP_DUPLICATE:0.4", "B:ZONE_OVERLAP_DUPLICATE:0.4", "C:ZONE_OVERLAP_DUPLICATE:5"]);
+    expect(inEveryOrder(specs(0.01, "DN 22", 1, {}), [50, 50, 200]))
+      .toEqual(["A:ZONE_OVERLAP_DUPLICATE:5", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_DUPLICATE:5"]);
+    expect(inEveryOrder(specs(5, "DN 22", 1, { quantity: 0 }), [50, 50, 200]))
+      .toEqual(["A:ZONE_OVERLAP_RESOLVED:-", "B:ZONE_OVERLAP_RESOLVED:-", "C:ZONE_OVERLAP_RESOLVED:-"]);
+    expect(inEveryOrder(specs(5.4, "DN 28", 1, {}), [50, 50, 200]))
+      .toEqual(["A:ZONE_OVERLAP_DUPLICATE:0.4", "B:ZONE_OVERLAP_DUPLICATE:0.4", "C:ZONE_OVERLAP_DUPLICATE:5"]);
+  });
+
+  // TI-684, enlarged plans (D14 of 6 Nov. 2026, written before the rule): « à indice cohérent, le détail agrandi fait
+  // foi dans son périmètre ». A line of an overview whose copies are all on plans at a finer scale yields to them: it
+  // carries the correction, in no group. A duplicate never settles by itself: both lines fail until it is removed.
+  describe("enlarged plans (TI-684, D14)", () => {
+    const detail: Spec = { id: "D", segments: [[0, 1, 5, 1]], quantity: 5 };
+    const overview = (quantity = 7, extra: Partial<Spec> = {}): Spec => ({ id: "O", segments: [[2, 1, 9, 1]], quantity, ...extra });
+    const zoneRule = (results: Map<string, TakeoffRuleResult[]>, id: string) => rule(results, id, "zone_overlap");
+    const plans = (results: Map<string, TakeoffRuleResult[]>, id: string) =>
+      zoneRule(results, id)?.details?.partners?.map((partner) => `${partner.item_id}:${partner.plan ?? "-"}:${partner.resolved}`);
+
+    it("leaves the correction to the overview's line and says so on both lines: the enlarged plan prevails", () => {
+      // D (1/50) draws 0–5 m, O (1/100) 2–9 m: 3 m are counted twice.
+      expect(inEveryOrder([detail, overview()], [50, 100])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+      const { results } = onPages([detail, overview()], [0, 1], [50, 100]);
+      const [d, o] = [zoneRule(results, "D"), zoneRule(results, "O")];
+      expect(o).toMatchObject({ status: "fail", acceptable: true, details: { overlap_m: 3, partner_count: 1 } });
+      expect(plans(results, "O")).toEqual(["D:enlarged:false"]);
+      expect(o?.reason).toContain("le plan agrandi fait foi");
+      expect(o?.reason).toContain("retirez cette longueur de cette ligne");
+      expect(d).toMatchObject({ status: "fail", acceptable: true, details: { overlap_m: 3, partner_count: 1 } });
+      expect(plans(results, "D")).toEqual(["O:overview:false"]);
+      expect(d?.reason).toContain("se retire de la ligne du plan d’ensemble, pas de celle-ci");
+    });
+
+    it("settles a detail and its overview by a reduction or an exclusion, as any pair", () => {
+      expect(inEveryOrder([detail, overview(4)], [50, 100])).toEqual(["D:ZONE_OVERLAP_RESOLVED:-", "O:ZONE_OVERLAP_RESOLVED:-"]);
+      expect(inEveryOrder([detail, overview(4.01)], [50, 100])).toEqual(["D:ZONE_OVERLAP_RESOLVED:-", "O:ZONE_OVERLAP_RESOLVED:-"]);
+      expect(inEveryOrder([detail, overview(5)], [50, 100])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:1", "O:ZONE_OVERLAP_DUPLICATE:1"]);
+      // The detail reduced instead (or reduced before its job was applied): the run counts once, nothing is left to settle.
+      expect(inEveryOrder([{ ...detail, quantity: 2 }, overview()], [50, 100])).toEqual(["D:ZONE_OVERLAP_RESOLVED:-", "O:ZONE_OVERLAP_RESOLVED:-"]);
+      expect(inEveryOrder([{ ...detail, quantity: 2, frozen: true }, overview()], [50, 100])).toEqual(["D:ZONE_OVERLAP_RESOLVED:-", "O:ZONE_OVERLAP_RESOLVED:-"]);
+      // Excluded, a line counts nothing and is shown as it would stand if it came back.
+      expect(inEveryOrder([detail, overview(7, { excluded: true })], [50, 100])).toEqual(["D:ZONE_OVERLAP_NONE:-", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+      expect(inEveryOrder([{ ...detail, excluded: true }, overview()], [50, 100])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_NONE:-"]);
+      const settled = onPages([detail, overview(4)], [0, 1], [50, 100]).results;
+      expect([plans(settled, "D"), plans(settled, "O")]).toEqual([["O:overview:true"], ["D:enlarged:true"]]);
+    });
+
+    it("lets an overview above two zones settle by its own reduction, whatever the zones settle between them", () => {
+      // Z1 (0–31 m) and Z2 (30–60 m) share 1 m; G (1/100) draws 0–70 m, of which the zones draw 60 m. Until this rule
+      // the three lines were a group that only an exclusion or V settled.
+      const run = (z1: number, g: number): Spec[] => [
+        { id: "Z1", segments: [[0, 1, 31, 1]], quantity: z1 }, { id: "Z2", segments: [[30, 1, 60, 1]], quantity: 30 },
+        { id: "G", segments: [[0, 1, 70, 1]], quantity: g },
+      ];
+      expect(inEveryOrder(run(31, 70), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:1", "Z2:ZONE_OVERLAP_DUPLICATE:1", "G:ZONE_OVERLAP_DUPLICATE:60"]);
+      // Z1's reduction settles its pair with Z2 and nothing of G: a reduction never says where. Each zone then fails
+      // for what G still draws of it.
+      expect(inEveryOrder(run(30, 70), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:31", "Z2:ZONE_OVERLAP_DUPLICATE:30", "G:ZONE_OVERLAP_DUPLICATE:60"]);
+      expect(inEveryOrder(run(31, 10), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:1", "Z2:ZONE_OVERLAP_DUPLICATE:1", "G:ZONE_OVERLAP_RESOLVED:-"]);
+      expect(inEveryOrder(run(31, 40), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:1", "Z2:ZONE_OVERLAP_DUPLICATE:1", "G:ZONE_OVERLAP_DUPLICATE:30"]);
+      expect(inEveryOrder(run(30, 10), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_RESOLVED:-", "G:ZONE_OVERLAP_RESOLVED:-"]);
+      // A failed line names only what is still open: its peer, and the overview while it has not removed its copy.
+      const open = onPages(run(31, 70), [0, 1, 2], [50, 50, 100]).results;
+      expect([plans(open, "Z1"), plans(open, "G")]).toEqual([["Z2:-:false", "G:overview:false"], ["Z1:enlarged:false", "Z2:enlarged:false"]]);
+      expect(zoneRule(open, "Z1")?.reason).toContain("Sa copie sur le plan d’ensemble");
+      expect(plans(onPages(run(31, 10), [0, 1, 2], [50, 50, 100]).results, "Z1")).toEqual(["Z2:-:false"]);
+      // Two zones that only touch: each fails with the overview alone, until the overview removes the 60 m.
+      const touching = (g: number): Spec[] => [{ id: "Z1", segments: [[0, 1, 30.06, 1]], quantity: 30.06 },
+        { id: "Z2", segments: [[29.94, 1, 60, 1]], quantity: 30.06 }, { id: "G", segments: [[0, 1, 60, 1]], quantity: g }];
+      expect(inEveryOrder(touching(60), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_DUPLICATE:30.06", "Z2:ZONE_OVERLAP_DUPLICATE:30.06", "G:ZONE_OVERLAP_DUPLICATE:60"]);
+      expect(inEveryOrder(touching(0), [50, 50, 100])).toEqual(["Z1:ZONE_OVERLAP_RESOLVED:-", "Z2:ZONE_OVERLAP_RESOLVED:-", "G:ZONE_OVERLAP_RESOLVED:-"]);
+      expect(inEveryOrder(touching(60).map((spec) => (spec.id === "G" ? { ...spec, excluded: true } : spec)), [50, 50, 100]))
+        .toEqual(["Z1:ZONE_OVERLAP_NONE:-", "Z2:ZONE_OVERLAP_NONE:-", "G:ZONE_OVERLAP_DUPLICATE:60"]);
+    });
+
+    it("keeps the pair as it was when no plan is clearly enlarged, or the overview's line is applied", () => {
+      // The same scale, a scale that is not read, or one under 1.5 times finer: neither plan prevails.
+      for (const scales of [[50, 50], [100, 100], [50, null], [null, 100], [null, null], [50, 70], [100, 145], [50, 75], [100, 200]] as Array<Array<number | null>>) {
+        const [finer, coarser] = scales;
+        const enlarged = finer !== null && coarser !== null && coarser / finer >= 1.5;
+        const { results } = onPages([detail, overview()], [0, 1], scales);
+        expect(codes(results, ["D", "O"]), String(scales)).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+        expect([plans(results, "D"), plans(results, "O")], String(scales))
+          .toEqual(enlarged ? [["O:overview:false"], ["D:enlarged:false"]] : [["O:-:false"], ["D:-:false"]]);
+      }
+      // An applied overview is never called to change: the correction stays with the current line, as for any applied partner.
+      const applied = onPages([detail, overview(7, { frozen: true })], [0, 1], [50, 100]).results;
+      expect(codes(applied, ["D", "O"])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+      expect(plans(applied, "D")).toEqual(["O:-:false"]);
+      expect(zoneRule(applied, "D")?.reason).toContain("job appliqué");
+      // An applied detail changes nothing: the overview yields to it.
+      expect(plans(onPages([{ ...detail, frozen: true }, overview()], [0, 1], [50, 100]).results, "O")).toEqual(["D:enlarged:false"]);
+    });
+
+    it("yields only when every copy of the line is on an enlarged plan", () => {
+      // O (1/100) is drawn again on D (1/50) and on P, another 1/100 page: a group of three lines, as before.
+      const plain: Spec[] = [detail, overview(), { id: "P", segments: [[4, 1, 9, 1]], quantity: 5 }];
+      expect(inEveryOrder(plain, [50, 100, 100]))
+        .toEqual(["D:ZONE_OVERLAP_DUPLICATE:3:3 lignes", "O:ZONE_OVERLAP_DUPLICATE:7:3 lignes", "P:ZONE_OVERLAP_DUPLICATE:5:3 lignes"]);
+      // Three scales: the 1/200 plan yields to both finer plans; the 1/100 plan, itself a detail of it, settles its pair
+      // with the 1/50 plan as any pair (a line that prevails over one plan never yields to another).
+      const chain: Spec[] = [{ id: "F", segments: [[0, 1, 4, 1]], quantity: 4 }, { id: "M", segments: [[0, 1, 10, 1]], quantity: 10 },
+        { id: "G", segments: [[0, 1, 20, 1]], quantity: 20 }];
+      expect(inEveryOrder(chain, [50, 100, 200])).toEqual(["F:ZONE_OVERLAP_DUPLICATE:4", "M:ZONE_OVERLAP_DUPLICATE:4", "G:ZONE_OVERLAP_DUPLICATE:10"]);
+      expect(inEveryOrder([chain[0], { ...chain[1], quantity: 6 }, { ...chain[2], quantity: 10 }], [50, 100, 200]))
+        .toEqual(["F:ZONE_OVERLAP_RESOLVED:-", "M:ZONE_OVERLAP_RESOLVED:-", "G:ZONE_OVERLAP_RESOLVED:-"]);
+    });
+
+    it("lets the enlarged plan's reading prevail over a copy the overview reads differently", () => {
+      const { results } = onPages([detail, overview(7, { dn: "DN 28" })], [0, 1], [50, 100]);
+      expect(codes(results, ["D", "O"])).toEqual(["D:ZONE_OVERLAP_DUPLICATE:3", "O:ZONE_OVERLAP_DUPLICATE:3"]);
+      const o = zoneRule(results, "O");
+      expect(o?.details?.partners).toEqual([expect.objectContaining({ item_id: "D", differs: ["dn"], plan: "enlarged" })]);
+      expect(o?.reason).toContain("lu autrement (diamètre)");
+      expect(o?.reason).toContain("la lecture du plan agrandi fait foi");
+      expect(zoneRule(results, "D")?.details?.partners).toEqual([expect.objectContaining({ item_id: "O", differs: ["dn"], plan: "overview" })]);
+    });
+
+    // Independent review of the enlarged plans, written before their fix.
+    it("never lets a line yield when its own result is « zones non recalées » (review)", () => {
+      // O (1/100) could be one run with Z, on a page without anchors: O fails as unregistered. D, a copy of O read with
+      // another DN on an enlarged plan, passed for O's to settle, and O's V for the registration let the 3 m through.
+      const pages = [page("job-0#1", { order: 0, anchors: sheet(0, 0, { titleBlock: 10 }), denominator: 100 }),
+        page("job-1#1", { order: 10_000, zone: "Z2", anchors: sheet(-40, 0, { titleBlock: 10 }), denominator: 50 }),
+        page("job-2#1", { order: 20_000, zone: "Z3", anchors: null, denominator: 100 })];
+      const at = (id: string, slot: number, x0: number, x1: number, dn = "DN 22") => line(id, { job_id: `job-${slot}`, page_key: `job-${slot}#1`,
+        quantity: x1 - x0, inputs: inputs({ dn, model_quantity: x1 - x0 }),
+        geometry: { segments_m: [[x0 - 40 * slot, 1, x1 - 40 * slot, 1]], polygon_m: null, length_m: x1 - x0, area_m2: null } });
+      const { results } = evaluateTakeoffRules({ pages, lines: [at("O", 0, 2, 9), at("D", 1, 0, 5, "DN 28"), at("Z", 2, 0, 4)] });
+      expect(zoneRule(results, "O")?.code).toBe("ZONE_OVERLAP_UNREGISTERED");
+      expect(zoneRule(results, "D")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE", details: { overlap_m: 3 } });
+      expect(plans(results, "D")).toEqual(["O:-:false"]);
+    });
+
+    it("keeps the detail failed when a V given in a group is left alone with a yielding line (review)", () => {
+      // O (1/100) 0–10 m, D (1/50) 0–5 m, X (1/100) 6–10 m: a group of three. O accepted (V), then X excluded: O
+      // yields, with a failure it already had, so its V stays. D still fails with O: 15 m are counted for 10 m drawn.
+      const run = (excluded: boolean): Spec[] => [{ id: "O", segments: [[0, 1, 10, 1]], quantity: 10 }, { id: "D", segments: [[0, 1, 5, 1]], quantity: 5 },
+        { id: "X", segments: [[6, 1, 10, 1]], quantity: 4, excluded }];
+      expect(inEveryOrder(run(false), [100, 50, 100]))
+        .toEqual(["O:ZONE_OVERLAP_DUPLICATE:9:3 lignes", "D:ZONE_OVERLAP_DUPLICATE:5:3 lignes", "X:ZONE_OVERLAP_DUPLICATE:4:3 lignes"]);
+      expect(inEveryOrder(run(true), [100, 50, 100]).slice(0, 2)).toEqual(["O:ZONE_OVERLAP_DUPLICATE:5", "D:ZONE_OVERLAP_DUPLICATE:5"]);
+    });
   });
 
   it("never settles a chain of four pages by corrections (Codex round 4), only once the lines entirely duplicated are excluded", () => {
@@ -1298,7 +1444,7 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
   it("gives the oracle's outcome on random pairs: geometry, scales, applied, excluded, reductions, page and list orders", () => {
     const random = generator(664);
     const mismatches: string[] = [];
-    const seen = { none: 0, settled: 0, open: 0, coarse: 0, frozen: 0, excluded: 0, dashed: 0, tolerance: 0, contradicting: 0 };
+    const seen = { none: 0, settled: 0, open: 0, coarse: 0, frozen: 0, excluded: 0, dashed: 0, tolerance: 0, contradicting: 0, enlarged: 0 };
     for (let index = 0; index < 2000; index += 1) {
       const a = runsOf(random);
       const b = runsOf(random, a);
@@ -1346,15 +1492,21 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       const useful = (reduction: number) => Math.min(commonMm, Math.max(0, reduction));
       const deficit = Math.max(0, commonMm - useful(ra) - useful(rb));
       const settled = deficit <= 10 * Math.max(1, [ra, rb].filter((reduction) => reduction > 0).length);
+      // Enlarged plans (TI-684): the line of the coarser page yields when the other page is at least 1.5 times finer and
+      // the line is not applied. Two lines alone settle as any pair; each names what the other's plan is to its own.
+      const finer = (side: number) => denominators[side] !== null && denominators[1 - side] !== null
+        && (denominators[1 - side] as number) >= (denominators[side] as number) * 1.5;
+      const yielding = [0, 1].find((side) => finer(1 - side) && !frozen[side]);
       const expected = (side: number) => {
-        const other = `${side === 0 ? "b" : "a"}=${commonMm / 1000}${contradicting ? "≠dn" : ""}`;
+        const plan = yielding === side ? "→enlarged" : yielding === 1 - side ? "→overview" : "";
+        const other = `${side === 0 ? "b" : "a"}=${commonMm / 1000}${contradicting ? "≠dn" : ""}${plan}`;
         if (!paired || excluded[1 - side]) return "ZONE_OVERLAP_NONE";
         return settled ? `ZONE_OVERLAP_RESOLVED [${other}]` : `ZONE_OVERLAP_DUPLICATE ${deficit / 1000} [${other}]`;
       };
       const actual = (id: string) => {
         const entry = rule(results, id, "zone_overlap");
         const details = entry?.details;
-        return `${entry?.code}${details?.overlap_m !== undefined ? ` ${details.overlap_m}` : ""}${details?.partners ? ` [${details.partners.map((partner) => `${partner.item_id}=${partner.overlap_m}${partner.differs ? `≠${partner.differs.join("+")}` : ""}`).join(",")}]` : ""}${details?.group_size ? ` ${details.group_size} lignes` : ""}`;
+        return `${entry?.code}${details?.overlap_m !== undefined ? ` ${details.overlap_m}` : ""}${details?.partners ? ` [${details.partners.map((partner) => `${partner.item_id}=${partner.overlap_m}${partner.differs ? `≠${partner.differs.join("+")}` : ""}${partner.plan ? `→${partner.plan}` : ""}`).join(",")}]` : ""}${details?.group_size ? ` ${details.group_size} lignes` : ""}`;
       };
       for (const [side, id] of [[0, "a"], [1, "b"]] as const) {
         if (actual(id) !== expected(side)) mismatches.push(`#${index} ${id}: ${actual(id)} ≠ ${expected(side)} (a ${JSON.stringify(a)} b ${JSON.stringify(b)} 1/${denominators.join(", 1/")} r ${ra}, ${rb} frozen ${frozen} excluded ${excluded})`);
@@ -1369,6 +1521,7 @@ describe("isolated pairs of duplicates against an exact oracle", () => {
       if (paired && [a, b].some((runs) => runs.length > 3)) seen.dashed += 1;
       if (paired && deficit > 0 && settled) seen.tolerance += 1;
       if (paired && contradicting) seen.contradicting += 1;
+      if (paired && yielding !== undefined) seen.enlarged += 1;
     }
     expect(mismatches).toEqual([]);
     // The cases cover every branch of the oracle.

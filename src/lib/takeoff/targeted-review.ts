@@ -142,6 +142,9 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
     const own = Math.max(0, thousandths(measured - overlap));
     return { ...base, kind: "group", overlap_m: overlap, group_size: groupSize, remove_line: !stale && own <= SETTLE_M, own_m: own };
   }
+  // Enlarged plans (TI-684, D14): a line whose open copies are all on an overview that yields to it prevails. The
+  // length is the overview's line to remove: nothing is offered on this one.
+  if (partners.length > 0 && partners.every((partner) => partner.plan === "overview")) return { ...base, kind: "pair", overlap_m: overlap };
   const reduced = thousandths(Math.min(item.quantity, measured) - overlap);
   const entire = reduced <= SETTLE_M;
   return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire || stale ? null : reduced, remove_line: entire && !stale };
@@ -154,8 +157,10 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
 export function duplicateExclusionReason(guidance: ZoneOverlapGuidance) {
   const others = guidance.partners.map((partner) => `« ${partner.designation} »${partner.zone ? ` (${partner.zone})` : ""}${
     partner.differs ? `, lu autrement (${partner.differs.map((difference) => ZONE_OVERLAP_DIFFERENCE_LABELS[difference]).join(", ")})` : ""}`);
+  // An overview's line that yields to enlarged plans (TI-684, D14): the reason names the plan that prevails.
+  const by = `${guidance.partners.length > 0 && guidance.partners.every((partner) => partner.plan === "enlarged") ? "le plan agrandi, " : ""}${others.join(", ")}`;
   if (guidance.partners.some((partner) => partner.differs)) {
-    return `Tronçon déjà compté par ${others.join(", ")} : la lecture de cette ligne est écartée.`.slice(0, 500);
+    return `Tronçon déjà compté par ${by} : la lecture de cette ligne est écartée.`.slice(0, 500);
   }
-  return `Entièrement en double : tronçon déjà compté par ${others.join(", ") || "une autre zone"}.`.slice(0, 500);
+  return `Entièrement en double : tronçon déjà compté par ${by || "une autre zone"}.`.slice(0, 500);
 }

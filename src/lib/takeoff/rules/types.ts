@@ -55,6 +55,10 @@ export type TakeoffRuleCode = { [R in TakeoffRuleId]: CodesOf<R> }[TakeoffRuleId
 export const ZONE_OVERLAP_DIFFERENCES = ["network", "material", "dn"] as const;
 export type ZoneOverlapDifference = (typeof ZONE_OVERLAP_DIFFERENCES)[number];
 
+/** Where the other line of a pair is drawn when one of the two plans enlarges the other (TI-684). */
+export const ZONE_OVERLAP_PLANS = ["enlarged", "overview"] as const;
+export type ZoneOverlapPlan = (typeof ZONE_OVERLAP_PLANS)[number];
+
 /** A duplicate run of another page (Z1/Z2): the other line and the length both count. */
 export type ZoneOverlapPartner = {
   item_id: string;
@@ -69,6 +73,12 @@ export type ZoneOverlapPartner = {
    * reading, or two pipes drawn over each other. Absent when both lines carry one reading.
    */
   differs?: ZoneOverlapDifference[];
+  /**
+   * Enlarged plans (TI-684, D14): « enlarged » when the other line is on an enlarged plan of this line's page, which
+   * prevails (this line carries the correction); « overview » when it is on the overview this line's plan enlarges
+   * (the other line carries it). Absent when neither plan prevails.
+   */
+  plan?: ZoneOverlapPlan;
 };
 
 export type TakeoffRuleDetails = {
