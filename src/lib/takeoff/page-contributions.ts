@@ -206,38 +206,44 @@ export function findPagesAlreadyInEstimate(input: {
       contributed.set(key, group);
     }
   }
-  // One entry per page as the screen names it: two documents the new takeoff names alike are one row. Each entry keeps
-  // the pages it stands for (the new page's document at the page shown), to place this takeoff's own lines on it.
+  // One entry per document and page, not per file name: two plan files of the same name are two rows, each with its
+  // own lines and its own earlier lines, and one document some lines know by another identity is one row. The lines
+  // that name their plan file or its content come first, so that a line known only by its name joins their row
+  // whatever the order read; among several rows of that name, it joins the first. Each entry keeps the pages it
+  // stands for (the new page's document at the page shown), to place this takeoff's own lines on it.
   type Entry = { file_name: string | null; page: number | null; identities: TakeoffPageIdentity[]; item_ids: Set<string>;
     earlier: Map<string, { estimate_item_ids: Set<string>; takeoff_item_ids: Set<string> }>; own: Set<string> };
-  const pages = new Map<string, Entry>();
-  for (const { identity, item_ids } of newPages.values()) {
+  const pages: Entry[] = [];
+  const knownByNameOnly = ({ identity }: { identity: TakeoffPageIdentity }) => (identity.document.plan_file_id || identity.document.content_hash ? 0 : 1);
+  for (const { identity, item_ids } of [...newPages.values()].sort((left, right) => knownByNameOnly(left) - knownByNameOnly(right))) {
     for (const contribution of contributed.values()) {
       if (contribution.job_id === jobId || !isSamePage(identity, contribution.identity)) continue;
       const shown = identity.page ?? contribution.identity.page;
-      const fileName = identity.document.file_name ?? contribution.identity.document.file_name;
-      const key = JSON.stringify([normalizedName(fileName) ?? identity.document.plan_file_id ?? identity.document.content_hash, shown]);
-      const entry = pages.get(key) ?? { file_name: fileName, page: shown, identities: [], item_ids: new Set<string>(),
-        earlier: new Map<string, { estimate_item_ids: Set<string>; takeoff_item_ids: Set<string> }>(), own: new Set<string>() };
+      let entry = pages.find((candidate) => candidate.page === shown
+        && candidate.identities.some((known) => isSameDocument(known.document, identity.document)));
+      if (!entry) {
+        entry = { file_name: identity.document.file_name ?? contribution.identity.document.file_name, page: shown, identities: [],
+          item_ids: new Set<string>(), earlier: new Map<string, { estimate_item_ids: Set<string>; takeoff_item_ids: Set<string> }>(), own: new Set<string>() };
+        pages.push(entry);
+      }
       entry.identities.push({ document: identity.document, page: shown });
       for (const id of item_ids) entry.item_ids.add(id);
       const earlier = entry.earlier.get(contribution.job_id) ?? { estimate_item_ids: new Set<string>(), takeoff_item_ids: new Set<string>() };
       for (const id of contribution.estimate_item_ids) earlier.estimate_item_ids.add(id);
       for (const id of contribution.takeoff_item_ids) earlier.takeoff_item_ids.add(id);
       entry.earlier.set(contribution.job_id, earlier);
-      pages.set(key, entry);
     }
   }
   // This takeoff's own estimate lines, on a reported page by the same rule as the comparison: a page unknown on either
   // side is the same page. Not by the row's key: an own line without page would miss the page an earlier one names.
   for (const contribution of contributed.values()) {
     if (contribution.job_id !== jobId) continue;
-    for (const entry of pages.values()) {
+    for (const entry of pages) {
       if (!entry.identities.some((identity) => isSamePage(identity, contribution.identity))) continue;
       for (const id of contribution.estimate_item_ids) entry.own.add(id);
     }
   }
-  const found: PageAlreadyInEstimate[] = [...pages.values()].map((entry) => ({ file_name: entry.file_name, page: entry.page,
+  const found: PageAlreadyInEstimate[] = pages.map((entry) => ({ file_name: entry.file_name, page: entry.page,
     item_ids: [...entry.item_ids].sort(),
     earlier: [...entry.earlier].map(([job, ids]) => ({ job_id: job, estimate_item_ids: [...ids.estimate_item_ids].sort(),
       takeoff_item_ids: [...ids.takeoff_item_ids].sort() })).sort((a, b) => a.job_id.localeCompare(b.job_id)),

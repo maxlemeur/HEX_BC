@@ -100,8 +100,9 @@ function PageRows({ data, pages, jobHref }: Readonly<{ data: TakeoffPageContribu
   const jobs = new Map(data.jobs.map((job) => [job.id, job]));
   return (
     <ul aria-label="Pages concernées" className="max-h-40 space-y-1 overflow-y-auto">
-      {pages.map((page) => (
-        <li key={`${page.file_name ?? ""}:${page.page ?? "?"}`} className="text-foreground-secondary">
+      {pages.map((page, index) => (
+        // Two documents of the same name are two rows of the same label: the position tells them apart.
+        <li key={`${index}:${page.file_name ?? ""}:${page.page ?? "?"}`} className="text-foreground-secondary">
           <span className="font-medium text-foreground">{pageLabel(page)}</span>
           {" : déjà au devis par "}
           {page.earlier.map((earlier, index) => {

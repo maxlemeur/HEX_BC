@@ -103,6 +103,27 @@ describe("the review banner", () => {
     expect(banner).not.toHaveTextContent("ne retirez pas la ligne");
   });
 
+  it("keeps two documents of the same name as two rows, and drops the one whose lines are all excluded", () => {
+    // Two plan files named alike, page 1 of each already in the estimate: the reader gives one row per document.
+    const twoDocuments = { ...READ, pages: [
+      { ...READ.pages[0], item_ids: [line(1)], earlier: [{ job_id: EARLIER_JOB, line_count: 3, takeoff_item_ids: [line(50)] }] },
+      { ...READ.pages[0], item_ids: [line(2)], earlier: [{ job_id: EARLIER_JOB, line_count: 5, takeoff_item_ids: [line(60)] }] },
+    ] };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { rerender } = render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: twoDocuments, error: null }} items={[item(1), item(2)]} applied={false} jobHref={href} />);
+    const rows = () => within(screen.getByRole("list", { name: "Pages concernées" })).getAllByRole("listitem");
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("3 lignes"), expect.stringContaining("5 lignes")]);
+    expect(errors).not.toHaveBeenCalled();
+    // The first document's line excluded: only the second document's row and lines stay.
+    rerender(<TakeoffPagesAlreadyInEstimateBanner read={{ data: twoDocuments, error: null }} applied={false} jobHref={href}
+      items={[item(1, true), item(2, false, [duplicateOf(EARLIER_JOB, line(50))])]} />);
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("5 lignes")]);
+    // The Z1/Z2 partner is a line the earlier takeoff read on the other document: two zones, not one page read twice.
+    expect(screen.getByRole("region", { name: "Pages déjà au devis" })).not.toHaveTextContent("ne retirez pas la ligne");
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
   it("says nothing of a Z1/Z2 duplicate when the earlier takeoff's lines on the page are not known", () => {
     const unknown = { ...READ, pages: [{ ...READ.pages[0], earlier: [{ job_id: EARLIER_JOB, line_count: 3, takeoff_item_ids: [] }] }] };
     render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: unknown, error: null }} applied={false} jobHref={href}

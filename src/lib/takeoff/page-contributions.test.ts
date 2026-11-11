@@ -324,6 +324,70 @@ describe("findPagesAlreadyInEstimate — the estimate's lines traced back to the
   });
 });
 
+describe("findPagesAlreadyInEstimate — one row per document, not per file name", () => {
+  const earlier = (n: number, identity: TakeoffPageIdentity | null, jobId = JOB_EARLIER): [string, EarlierTakeoffLine] =>
+    [id(n), { id: id(n), job_id: jobId, identity }];
+  const estimateLine = (n: number, input: Partial<EstimateLineProvenance>): EstimateLineProvenance => ({
+    id: id(n), source_provider: "takeoff", source_job_id: JOB_EARLIER, source_file_name: null, source_page: null, source_metadata: {}, ...input,
+  });
+  const newLine = (n: number, identity: TakeoffPageIdentity | null) => ({ id: id(n), identity });
+
+  it("keeps two identified documents of the same name apart, each with its own lines and earlier lines", () => {
+    // Two plan files both named « plan.pdf »: excluding the lines of one must leave nothing of it on the other's row,
+    // and a Z1/Z2 partner the earlier takeoff read on one is not on the other's page.
+    const result = findPagesAlreadyInEstimate({
+      jobId: JOB_NEW,
+      newLines: [newLine(101, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 1)), newLine(102, at({ plan_file_id: PLAN_B, file_name: "plan.pdf" }, 1))],
+      estimateLines: [
+        estimateLine(201, { source_metadata: { takeoff_item_id: id(1) } }),
+        estimateLine(202, { source_metadata: { takeoff_item_id: id(2) } }),
+        estimateLine(203, { source_job_id: JOB_NEW, source_metadata: { takeoff_item_id: id(102) } }),
+      ],
+      earlierItems: new Map([earlier(1, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 1)), earlier(2, at({ plan_file_id: PLAN_B, file_name: "plan.pdf" }, 1)),
+        earlier(102, at({ plan_file_id: PLAN_B, file_name: "plan.pdf" }, 1), JOB_NEW)]),
+    });
+    expect(result.pages).toEqual([
+      { file_name: "plan.pdf", page: 1, item_ids: [id(101)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)], takeoff_item_ids: [id(1)] }], own_estimate_item_ids: [] },
+      { file_name: "plan.pdf", page: 1, item_ids: [id(102)], earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(202)], takeoff_item_ids: [id(2)] }], own_estimate_item_ids: [id(203)] },
+    ]);
+  });
+
+  it("keeps two uploads of the same name and two contents apart", () => {
+    const result = findPagesAlreadyInEstimate({
+      jobId: JOB_NEW,
+      newLines: [newLine(101, at({ content_hash: HASH, file_name: "plan.pdf" }, 1)), newLine(102, at({ content_hash: OTHER_HASH, file_name: "plan.pdf" }, 1))],
+      estimateLines: [estimateLine(201, { source_metadata: { takeoff_item_id: id(1) } }), estimateLine(202, { source_metadata: { takeoff_item_id: id(2) } })],
+      earlierItems: new Map([earlier(1, at({ content_hash: HASH, file_name: "plan.pdf" }, 1)), earlier(2, at({ content_hash: OTHER_HASH, file_name: "plan.pdf" }, 1))]),
+    });
+    expect(result.pages.map((page) => [page.item_ids, page.earlier.map((entry) => entry.takeoff_item_ids)])).toEqual([[[id(101)], [[id(1)]]], [[id(102)], [[id(2)]]]]);
+  });
+
+  it.each([["the identified line first", [101, 102]], ["the line known by its name first", [102, 101]]] as const)(
+    "keeps one row for a document some of its lines know only by its name (%s)", (_label, order) => {
+      const lines = { 101: newLine(101, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 1)), 102: newLine(102, at({ file_name: "Plan.PDF" }, 1)) };
+      const result = findPagesAlreadyInEstimate({
+        jobId: JOB_NEW,
+        newLines: order.map((n) => lines[n]),
+        estimateLines: [estimateLine(201, { source_metadata: { takeoff_item_id: id(1) } })],
+        earlierItems: new Map([earlier(1, at({ plan_file_id: PLAN_A, file_name: "plan.pdf" }, 1))]),
+      });
+      expect(result.pages).toEqual([{ file_name: "plan.pdf", page: 1, item_ids: [id(101), id(102)],
+        earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)], takeoff_item_ids: [id(1)] }], own_estimate_item_ids: [] }]);
+    });
+
+  it("keeps one row for two revisions of one plan reference", () => {
+    const result = findPagesAlreadyInEstimate({
+      jobId: JOB_NEW,
+      newLines: [newLine(101, at({ logical_document_id: "PLB-R1", plan_file_id: PLAN_A, file_name: "ind A.pdf" }, 1)),
+        newLine(102, at({ logical_document_id: "PLB-R1", plan_file_id: PLAN_B, file_name: "ind B.pdf" }, 1))],
+      estimateLines: [estimateLine(201, { source_metadata: { takeoff_item_id: id(1) } })],
+      earlierItems: new Map([earlier(1, at({ logical_document_id: "PLB-R1", plan_file_id: PLAN_A, file_name: "ind A.pdf" }, 1))]),
+    });
+    expect(result.pages).toEqual([{ file_name: "ind A.pdf", page: 1, item_ids: [id(101), id(102)],
+      earlier: [{ job_id: JOB_EARLIER, estimate_item_ids: [id(201)], takeoff_item_ids: [id(1)] }], own_estimate_item_ids: [] }]);
+  });
+});
+
 describe("launchDocumentsOf — what a launch is about to read", () => {
   it("keeps the active plan sources with their identity and pages", () => {
     expect(launchDocumentsOf([

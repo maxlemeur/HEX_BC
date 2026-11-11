@@ -130,7 +130,9 @@ ce qu'une application écrit ne change.
     de fichier (minuscules, blancs réduits).
 
   Deux fichiers de même nom, chacun identifié, sans référence commune, restent deux
-  documents.
+  documents. L'avertissement donne une ligne par document et par page : deux fichiers
+  de même nom y sont deux lignes, chacune avec ses propres lignes de métré ; deux
+  révisions d'une même référence n'en sont qu'une.
 - **Ce qui est déjà au devis** se lit dans les lignes du devis, remontées jusqu'aux
   lignes de métré figées dont elles viennent :
   - moteur 3 : la ligne de métré de la ligne, toutes celles d'une longueur regroupée
