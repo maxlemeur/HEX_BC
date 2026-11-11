@@ -111,7 +111,30 @@ describe("syncAffaireRegisterMissingPieces", () => {
     }));
   });
 
-  it("drops stale workflow metadata when reactivating an inactive sync key", async () => {
+  it("updates the historical default while preserving a manual critical override", async () => {
+    const existing = { ...createInactiveExistingRow(), code: "missing_dpgf", text: "DPGF manquant",
+      sync_key: "missing_piece:missing_dpgf", status: "open", is_active: true, source_file_name: null,
+      metadata: { severityDecision: { mode: "manual", canonicalSeverity: "critical", overriddenSeverity: "critical",
+        updatedAt: NOW, updatedByUserId: USER_ID, comment: "Exigence explicite" } } };
+    const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => ({
+      data: name === "reconcile_affaire_plan_gap" ? false : { ...existing, ...(params.p_patch as object) }, error: null,
+    }));
+    const builder = {
+      select: () => builder, eq: () => builder, in: () => builder,
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: [existing], error: null })),
+    };
+    const supabase = { from: () => builder, rpc };
+    vi.mocked(createServiceRoleClient).mockReturnValue(supabase as never);
+    await syncAffaireRegisterMissingPieces({ supabase: supabase as never, project: createProjectRow(),
+      missingPieces: [{ code: "missing_dpgf", label: "DPGF manquant", severity: "critical" }], actorUserId: USER_ID });
+    expect(rpc).toHaveBeenCalledWith("update_affaire_register_entry_with_event", expect.objectContaining({
+      p_entry_id: ENTRY_ID, p_patch: expect.objectContaining({ severity: "critical", metadata: expect.objectContaining({
+        severityDecision: expect.objectContaining({ mode: "manual", canonicalSeverity: "warning", overriddenSeverity: "critical" }),
+      }) }),
+    }));
+  });
+
+  it("reactivates an optional missing piece without stale workflow or a legacy critical default", async () => {
     const eventPayloads: unknown[] = [];
     const upsertPayloads: Array<Record<string, unknown>> = [];
     const existingRow = { ...createInactiveExistingRow(), code: "missing_cctp", sync_key: "missing_piece:missing_cctp" };
@@ -213,15 +236,14 @@ describe("syncAffaireRegisterMissingPieces", () => {
     expect(upsertPayloads[0]).toMatchObject({
       project_id: PROJECT_ID,
       sync_key: "missing_piece:missing_cctp",
+      severity: "warning",
       status: "open",
       is_active: true,
       updated_by: USER_ID,
       metadata: {
         custom: "kept",
-        businessImpact: [
-          "affects_hub_readiness",
-          "blocks_submission",
-        ],
+        severityDecision: { canonicalSeverity: "warning", mode: "canonical" },
+        businessImpact: ["affects_hub_readiness"],
         structuredLocation: {
           scopeType: "project",
           scopeId: null,
