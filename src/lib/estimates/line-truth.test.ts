@@ -87,6 +87,37 @@ describe("resolveEstimateLineTruth, takeoff provisions", () => {
     expect(truth?.source.kind).toBe("dpgf");
   });
 
+  // TI-682 lot C: an hypothesis its reviewer included without entering its quantity is marked at application, and the
+  // detail says why it is one; the line still prints as an ordinary line.
+  it("shows an estimate or a quantity a plan cannot show, counted without entry, as a hypothesis saying why", () => {
+    const estimated = { ...HYPOTHESIS, entry_category: null, hypothesis_cause: "estimated" };
+    const notObservable = { ...HYPOTHESIS, entry_category: null, hypothesis_cause: "non_observable" };
+    expect([estimated, notObservable].map((source) => resolveEstimateLineTruth(line("takeoff", marked(source)))))
+      .toEqual([expect.objectContaining({ needsReview: true, qtyStatus: {
+        code: "hypothesis",
+        label: "Hypothèse",
+        detail: "Quantité estimée au métré, sans mesure sur un plan, comptée sans saisie : provision à confirmer ; le client voit "
+          + "une ligne ordinaire.",
+      } }), expect.objectContaining({ needsReview: true, qtyStatus: {
+        code: "hypothesis",
+        label: "Hypothèse",
+        detail: "Quantité qu’un plan ne montre pas, comptée au métré sans saisie : provision à confirmer ; le client voit une "
+          + "ligne ordinaire.",
+      } })]);
+    const dpgf = resolveEstimateLineTruth(line("dpgf", { dpgf_source_quantity: 30, takeoff_provision: {
+      version: 1, job_id: JOB_ID, sources: [estimated] } }));
+    expect([dpgf?.qtyStatus.code, dpgf?.source.kind]).toEqual(["hypothesis", "dpgf"]);
+  });
+
+  it("reads the cause written beside an entered or a forced source as the marker without it", () => {
+    for (const [withCause, without] of [[{ ...HYPOTHESIS, hypothesis_cause: "entered_hypothesis" }, HYPOTHESIS],
+      [{ ...FORCED, hypothesis_cause: null }, FORCED],
+      [{ ...FORCED, forced_reason: "priced_hypothesis", hypothesis_cause: null }, { ...FORCED, forced_reason: "priced_hypothesis" }]]) {
+      expect(resolveEstimateLineTruth(line("takeoff", marked(withCause)))?.qtyStatus)
+        .toEqual(resolveEstimateLineTruth(line("takeoff", marked(without)))?.qtyStatus);
+    }
+  });
+
   it("keeps a takeoff line without marker measured", () => {
     expect(resolveEstimateLineTruth(line("takeoff", { takeoff_item_id: FORCED.takeoff_item_id }))?.qtyStatus.code).toBe("measured");
   });

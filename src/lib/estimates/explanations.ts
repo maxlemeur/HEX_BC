@@ -34,7 +34,7 @@ import {
   type EstimateVersionDetailsForDiff,
 } from "@/lib/estimates/diff";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
-import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import { readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvisionHypothesisBasis } from "@/lib/estimates/takeoff-provision";
 
 const ESTIMATE_EXPLANATIONS_SELECT = [
   "id",
@@ -539,6 +539,15 @@ function hasConflictingDeltaNarrative(input: {
   return decreasePattern.test(narrative);
 }
 
+/** TI-686 D12, TI-682 lot C: what a hypothesis provision of the takeoff rests on (src/lib/estimates/line-truth.ts). */
+const TAKEOFF_HYPOTHESIS_BASIS_LABELS: Readonly<Record<TakeoffProvisionHypothesisBasis, string>> = {
+  entered: "Quantité saisie sur hypothèse au métré",
+  estimated: "Quantité estimée au métré, comptée sans saisie",
+  non_observable: "Quantité qu’un plan ne montre pas, comptée au métré sans saisie",
+  forced: "Ligne forcée à l’application du métré comme hypothèse chiffrée",
+  other: "Quantité sur hypothèse au métré",
+};
+
 function extractSourceMetadataStatements(input: {
   sourceMetadata: unknown;
   facts: EstimateExplanationStatement[];
@@ -551,14 +560,14 @@ function extractSourceMetadataStatements(input: {
     return;
   }
 
-  // TI-686 D10/D12: what the amount of a line the takeoff application marked is. Internal explanation only (H9).
+  // TI-686 D10/D12, TI-682 lot C: what the amount of a line the takeoff application marked is. Internal explanation
+  // only (H9).
   const provision = readTakeoffProvision(sourceMetadata);
   if (provision) {
+    const basis = takeoffProvisionHypothesisBasis(provision);
     pushStatement(input.hypotheses, {
-      label: provision.kind === "hypothesis"
-        ? provision.sources.some((source) => source.entry_category === "hypothesis")
-          ? "Quantité saisie sur hypothèse au métré"
-          : "Ligne forcée à l’application du métré comme hypothèse chiffrée"
+      label: basis
+        ? TAKEOFF_HYPOTHESIS_BASIS_LABELS[basis]
         : provision.readable
           ? "Ligne forcée à l’application du métré (provision interne)"
           : "Provision interne posée au métré (marqueur illisible)",

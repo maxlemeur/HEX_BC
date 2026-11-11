@@ -66,6 +66,10 @@ const MARKED_LINES = [
   { title: "ARMY forcée", metadata: marker({ forced: true, forced_reason: "additional_evidence" }), expected: "Provision interne" },
   { title: "ARMY hypothèse saisie", metadata: marker({ entry_category: "hypothesis" }), expected: "Hypothèse" },
   { title: "ARMY hypothèse chiffrée", metadata: marker({ forced: true, forced_reason: "priced_hypothesis" }), expected: "Hypothèse" },
+  // TI-682 lot C: an hypothesis included without entry; a forced source whose cause is null stays a provision.
+  { title: "ARMY hypothèse estimée", metadata: marker({ hypothesis_cause: "estimated" }), expected: "Hypothèse" },
+  { title: "ARMY forcée sans hypothèse", metadata: marker({ forced: true, forced_reason: "additional_evidence", hypothesis_cause: null }),
+    expected: "Provision interne" },
   { title: "ARMY marqueur illisible", metadata: { takeoff_provision: { version: 2, sources: "?" } }, expected: "Provision interne" },
   { title: "ARMY autre métadonnée", metadata: { dpgf_row_id: "row-1" }, expected: "" },
 ] as const;
