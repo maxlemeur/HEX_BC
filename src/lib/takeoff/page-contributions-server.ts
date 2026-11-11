@@ -38,7 +38,7 @@ type Context = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId">;
 
 type TakeoffLineRow = { id: string; job_id: string; source_file_name: string | null; source_page: number | null; source_document: unknown };
 type EstimateLineRow = Omit<EstimateLineProvenance, "source_metadata"> & { takeoff_item_id: unknown; rounding_item_ids: unknown; rounding_job_id: unknown;
-  policy_item_ids: unknown; policy_job_id: unknown };
+  policy_item_ids: unknown; policy_job_id: unknown; replacement_item_ids: unknown; replacement_job_id: unknown };
 type JobRow = { id: string; estimate_version_id: string; created_at: string; source_file_name: string | null; sources: unknown };
 
 const TAKEOFF_LINE_SELECT = "id,job_id,source_file_name,source_page,source_document:metadata->source_document";
@@ -48,7 +48,9 @@ const ESTIMATE_LINE_SELECT = "id,source_provider,source_job_id,source_file_name,
   + "rounding_item_ids:source_metadata->takeoff_length_rounding->item_ids,"
   + "rounding_job_id:source_metadata->takeoff_length_rounding->>job_id,"
   + "policy_item_ids:source_metadata->takeoff_quantity_policy->item_ids,"
-  + "policy_job_id:source_metadata->takeoff_quantity_policy->>job_id";
+  + "policy_job_id:source_metadata->takeoff_quantity_policy->>job_id,"
+  + "replacement_item_ids:source_metadata->takeoff_page_replacement->item_ids,"
+  + "replacement_job_id:source_metadata->takeoff_page_replacement->>job_id";
 const JOB_SELECT = "id,estimate_version_id,created_at,source_file_name,sources:preparation_snapshot->preparation->sources";
 
 const sourcesSchema = z.array(z.object({
@@ -79,10 +81,12 @@ async function readEstimateProvenance(context: Context, versionId: string): Prom
     .eq("tenant_id" as never, context.tenantId as never).eq("version_id" as never, versionId as never)
     .not("source_job_id" as never, "is", null) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire la provenance des lignes du devis.");
-  return ((data ?? []) as unknown as EstimateLineRow[]).map(({ takeoff_item_id, rounding_item_ids, rounding_job_id, policy_item_ids, policy_job_id, ...line }) => ({
+  return ((data ?? []) as unknown as EstimateLineRow[]).map(({ takeoff_item_id, rounding_item_ids, rounding_job_id, policy_item_ids, policy_job_id,
+    replacement_item_ids, replacement_job_id, ...line }) => ({
     ...line,
     source_metadata: { takeoff_item_id, takeoff_length_rounding: { job_id: rounding_job_id, item_ids: rounding_item_ids },
-      takeoff_quantity_policy: { job_id: policy_job_id, item_ids: policy_item_ids } },
+      takeoff_quantity_policy: { job_id: policy_job_id, item_ids: policy_item_ids },
+      takeoff_page_replacement: { job_id: replacement_job_id, item_ids: replacement_item_ids } },
   }));
 }
 

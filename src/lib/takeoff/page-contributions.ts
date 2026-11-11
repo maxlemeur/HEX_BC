@@ -95,9 +95,11 @@ export function takeoffLinePageIdentity(
 }
 
 /**
- * The takeoff lines an estimate line comes from (engine 3 provenance), each once, in the order read. A rounding or
- * DPGF key written by another takeoff than the line's last one (`sourceJobId`) is stale: a later `merge` rewrote the
- * line's quantity and `takeoff_item_id` but kept the key. Its lines no longer feed the line and are not read.
+ * The takeoff lines an estimate line comes from (engine 3 provenance), each once, in the order read. A rounding,
+ * DPGF or page replacement key written by another takeoff than the line's last one (`sourceJobId`) is stale: a later
+ * `merge` rewrote the line's quantity and `takeoff_item_id` but kept the key. Its lines no longer feed the line and are
+ * not read. A replaced line (`takeoff_page_replacement`, PR 2) lists every source it now holds: the new takeoff's lines
+ * and the earlier lines of the pages it did not replace.
  */
 export function estimateLineTakeoffItemIds(sourceMetadata: unknown, sourceJobId?: string | null): string[] {
   const metadata = record(sourceMetadata);
@@ -109,7 +111,8 @@ export function estimateLineTakeoffItemIds(sourceMetadata: unknown, sourceJobId?
     if (lineJob && keyJob && keyJob !== lineJob) return [];
     return Array.isArray(entry?.item_ids) ? entry.item_ids : [];
   };
-  const ids = [metadata.takeoff_item_id, ...listed("takeoff_length_rounding"), ...listed("takeoff_quantity_policy")]
+  const ids = [metadata.takeoff_item_id, ...listed("takeoff_length_rounding"), ...listed("takeoff_quantity_policy"),
+    ...listed("takeoff_page_replacement")]
     .map(uuid).filter((value): value is string => value !== null);
   return [...new Set(ids)];
 }

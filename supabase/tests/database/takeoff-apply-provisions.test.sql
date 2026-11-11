@@ -344,6 +344,48 @@ values
    'c3000000-0000-4000-8000-000000000001', encode(sha256(convert_to('provisions-207', 'UTF8')), 'hex'), '{}'::jsonb,
    now() + interval '5 minutes');
 
+-- TI-682 lot D, PR 2 (…_takeoff_page_decisions.sql): the later jobs below (202, 206, 208) read page 1 of plan-fictif.pdf
+-- again. A page enters an estimate once, so each one now applies with the estimator's decision for the page, as the
+-- « Pages déjà au devis » step records it: the line it measures again replaced by its new line (202: P3 Tube forcé by 311,
+-- which « Fusionner » also matches), every other earlier line of the page kept, the DPGF line left to its own policy
+-- (206, 208). What these cases prove (the last application wins the marker) is unchanged. Built as the fixtures' owner from
+-- the guard's own reading of the page, recorded by the administrator.
+create temporary table prov_page_decisions (job_id uuid primary key, decisions jsonb not null) on commit drop;
+grant select on prov_page_decisions to authenticated;
+create or replace function pg_temp.prov_page_decision(p_job_id uuid, p_replace_title text, p_pair uuid)
+returns void
+language sql
+as $$
+  insert into prov_page_decisions (job_id, decisions)
+  select p_job_id, jsonb_build_array(jsonb_build_object(
+    'document', jsonb_build_object('plan_file_id', null, 'content_hash', null, 'logical_document_id', null,
+      'file_name', 'plan-fictif.pdf'),
+    'source_page', 1,
+    'earlier_job_ids', (select jsonb_agg(distinct conflict.earlier_job_id)
+      from private.takeoff_page_conflicts(job.estimate_version_id, p_job_id, null) as conflict),
+    'decision', 'replace', 'reason_code', null, 'note', null,
+    'lines', (select jsonb_agg(jsonb_build_object('estimate_item_id', line.estimate_item_id,
+        'expected_updated_at', item.updated_at,
+        'action', case when item.title = p_replace_title then 'update' else 'keep' end, 'take', null,
+        'item_ids', line.item_ids))
+      from (select conflict.estimate_item_id,
+          coalesce(jsonb_agg(conflict.earlier_item_id) filter (where conflict.earlier_item_id is not null), '[]'::jsonb) as item_ids
+        from private.takeoff_page_conflicts(job.estimate_version_id, p_job_id, null) as conflict
+        group by conflict.estimate_item_id) as line
+      join public.estimate_items item on item.id = line.estimate_item_id),
+    'pairs', case when p_pair is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('takeoff_item_id', p_pair,
+      'estimate_item_id', (select item.id from public.estimate_items item
+        where item.version_id = job.estimate_version_id and item.title = p_replace_title and item.item_type = 'line'))) end))
+  from public.takeoff_jobs job where job.id = p_job_id
+$$;
+create or replace function pg_temp.prov_record_page_decision(p_job_id uuid)
+returns integer
+language sql
+as $$
+  select public.record_takeoff_page_decisions(p_job_id, (select decisions from prov_page_decisions where job_id = p_job_id))
+$$;
+grant execute on function pg_temp.prov_record_page_decision(uuid) to authenticated;
+
 -- Helpers ------------------------------------------------------------------------------------------------
 
 create temporary table prov_outcome (case_name text primary key, outcome text) on commit drop;
@@ -601,7 +643,10 @@ insert into public.takeoff_apply_override_consumptions (audit_log_id, tenant_id,
 values ('c3000000-0000-4000-8000-000000000501', current_setting('test.tenant_id')::uuid,
   'c3000000-0000-4000-8000-000000000201', 'c3000000-0000-4000-8000-000000000101',
   'c3000000-0000-4000-8000-000000000001');
+select pg_temp.prov_page_decision('c3000000-0000-4000-8000-000000000202', 'P3 Tube forcé', 'c3000000-0000-4000-8000-000000000311');
 set local role authenticated;
+select is(pg_temp.prov_record_page_decision('c3000000-0000-4000-8000-000000000202'), 1,
+  'fixture (TI-682 lot D): the later job replaces the forced line it measures again, the other lines of the page kept');
 select is(pg_temp.prov_apply('v3-4-merge', 'c3000000-0000-4000-8000-000000000202', 'merge',
   'c3000000-0000-4000-8000-000000000111', '{}', null), 'ok', '4 arguments, v3: a later verified job merges onto the line');
 reset role;
@@ -740,7 +785,10 @@ values (current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000
     'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
       from public.takeoff_items ti where ti.id = 'c3000000-0000-4000-8000-000000000351')))),
   now() + interval '5 minutes');
+select pg_temp.prov_page_decision('c3000000-0000-4000-8000-000000000206', null, null);
 set local role authenticated;
+select is(pg_temp.prov_record_page_decision('c3000000-0000-4000-8000-000000000206'), 1,
+  'fixture (TI-682 lot D): the later job leaves the DPGF line to its policy and keeps the other lines of the page');
 select is(pg_temp.prov_apply('v3-5-again', 'c3000000-0000-4000-8000-000000000206', 'merge',
   'c3000000-0000-4000-8000-000000000114', '{}', 'provisions-206'), 'ok',
   '5 arguments, v3: a later verified job reconciles the DPGF line again');
@@ -768,7 +816,10 @@ values (current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000
     'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
       from public.takeoff_items ti where ti.id = 'c3000000-0000-4000-8000-000000000352')))),
   now() + interval '5 minutes');
+select pg_temp.prov_page_decision('c3000000-0000-4000-8000-000000000208', null, null);
 set local role authenticated;
+select is(pg_temp.prov_record_page_decision('c3000000-0000-4000-8000-000000000208'), 1,
+  'fixture (TI-682 lot D): the later job leaves the DPGF line to its policy and keeps the other lines of the page');
 select is(pg_temp.prov_apply('v3-5-estimated', 'c3000000-0000-4000-8000-000000000208', 'merge',
   'c3000000-0000-4000-8000-000000000114', '{}', 'provisions-208'), 'ok',
   '5 arguments, v3: a later job reconciles the DPGF line from an estimated run');
