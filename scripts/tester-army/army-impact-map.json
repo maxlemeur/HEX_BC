@@ -719,6 +719,7 @@
         "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
+        "e2e/army/takeoff/page-once.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts",
         "e2e/army/takeoff/targeted-policy.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
