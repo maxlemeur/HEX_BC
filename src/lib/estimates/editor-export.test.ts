@@ -192,6 +192,8 @@ describe("estimate editor CSV takeoff provision column (TI-682)", () => {
     { title: "Ligne sans marqueur", metadata: {}, expected: "" },
     { title: "Ligne forcée", metadata: marker(source({ forced: true, forced_reason: "additional_evidence" })), expected: "Provision interne" },
     { title: "Ligne hypothèse", metadata: marker(source({ entry_category: "hypothesis" })), expected: "Hypothèse" },
+    // TI-682 lot C: a quantity a plan cannot show, included without entry.
+    { title: "Ligne non observable", metadata: marker(source({ hypothesis_cause: "non_observable" })), expected: "Hypothèse" },
     { title: "Ligne illisible", metadata: { takeoff_provision: "?" }, expected: "Provision interne" },
   ];
 
