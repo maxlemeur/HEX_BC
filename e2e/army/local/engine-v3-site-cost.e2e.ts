@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
 import { apiRequest, armyTest, readEstimate, recordEvidence, saveLineEditsWithShortcut } from "../critical/fixtures";
@@ -281,4 +282,40 @@ armyTest("PS54102 a POSE SEULE line with a small supply takes no provision, acce
     expect(await stateOf()).toEqual(["supply_and_labor", 800, "site", 1, 15461, 216454, 216454]);
     await record("ps541-outcome", { line: (await readEstimate(browser, draft.versionId)).items.find((item) => item.id === wc.id),
       screenshots: [poseScreenshot] });
+  });
+
+
+armyTest("SC54103 deleting then undoing a site-cost line preserves its source, manual K FO and price", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
+    const draft = await prepareV3Draft(ui, army, "SC541UNDO");
+    const title = `${army.runPrefix} site cost undo`;
+    const selectionId = randomUUID();
+    const origin = { selection_id: selectionId, source_id: selectionId, kind: "site", transport_mode: null,
+      site: { supplier: "Négoce Fictif", offer_reference: "UNDO-534", offer_date: "2026-11-03", document: null } };
+    await seedLines(ui, army, draft, "site-undo", [{ title, quantity: 2, unit_code: "u", pricing_status: "priced",
+      unit_price_ht_cents: 800, k_fo: 1, k_fo_manual: true, h_mo_per_unit: 0, k_mo: 1, fo_price_origin: origin }]);
+    await app.open(`/dashboard/estimates/${draft.versionId}/edit`);
+    await waitForDraftLease(ui);
+    const before = await readEstimate(browser, draft.versionId);
+    const original = before.items.find(row => row.title === title)!;
+    expect(original).toMatchObject({ fo_price_origin: origin, k_fo: 1, k_fo_manual: true, pu_ht_cents: 1040, line_total_ht_cents: 2080 });
+    await screen.getByRole("button", `Plus d'actions pour ${title}`, { exact: true }).click();
+    await screen.getByRole("menuitem", "Supprimer", { exact: true }).click();
+    const confirmation = screen.getByRole("dialog", "Confirmer la suppression", { exact: true });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", "Supprimer", { exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.some(row => row.title === title)).toBe(false);
+    const undo = screen.getByTestId("estimate-editor-undo-button", { visible: true });
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.some(row => row.title === title)).toBe(true);
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    const after = await readEstimate(browser, draft.versionId);
+    expect(after.items.find(row => row.title === title)).toMatchObject({ fo_price_origin: origin,
+      k_fo: 1, k_fo_manual: true, fo_provision: 1, unit_price_ht_cents: 800, pu_ht_cents: 1040, line_total_ht_cents: 2080 });
+    expect(after.version.total_ht_cents).toBe(before.version.total_ht_cents);
+    await recordEvidence(army, "site-cost-undo", { before, after });
   });

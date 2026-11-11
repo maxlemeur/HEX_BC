@@ -315,15 +315,24 @@ armyTest("LEGCLIP04 copying a historical effective K FO and a manual one preserv
     await querySql(`select set_config('miaouffrage.estimate_v3_writer','${draft.versionId}',false);
       insert into public.estimate_items(id,version_id,parent_id,item_type,position,title,quantity,unit_price_ht_cents,k_fo,fo_provision,unit_code,pricing_status,tax_rate_bp,k_mo,h_mo_per_unit,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents)
       values('${legacyId}','${draft.versionId}','${draft.seed.parent_id}','line',2,'${legacyTitle}',2.5,1250,1.003,1.03,'u','priced',2000,1,0,0,0,0,0);`);
-    const manualTitle = `${draft.seed.title} neutral`;
+    const manualTitle = draft.seed.title;
     await browser.reload();
     await expect(screen.getByRole("grid", gridName, { exact: true })).toBeVisible();
     await waitForDraftLease(ui);
-    const titleInput = browser.locator(`[data-estimate-item-id="${draft.seed.id}"] [data-testid="estimate-line-title-input"]`);
-    await titleInput.fill(manualTitle);
-    await titleInput.press("Tab");
-    await saveLineEditsWithShortcut({ ...ui, army }, draft.versionId, manualTitle, army);
+    // Reprice through the ordinary writer; a title-only save intentionally leaves cached money unchanged.
+    const quantity = screen.getByLabel(`Quantité pour ${legacyTitle}`, { exact: true });
+    for (const value of ["2,6", "2,5"]) {
+      await quantity.fill(value);
+      await quantity.press("Tab");
+      await saveLineEditsWithShortcut(ui, draft.versionId, legacyTitle, army);
+      await expect.poll(async () => {
+        const line = (await readEstimate(browser, draft.versionId)).items.find(row => row.id === legacyId)!;
+        return [line.quantity, line.pu_ht_cents, line.line_total_ht_cents];
+      }).toEqual(value === "2,6" ? [2.6, 1679, 4365] : [2.5, 1679, 4198]);
+    }
     const before = await readEstimate(browser, draft.versionId);
+    expect(before.items.find(row => row.id === legacyId)).toMatchObject({ pu_ht_cents: 1679, line_total_ht_cents: 4198 });
+    expect(before.version).toMatchObject({ total_ht_cents: 8261, total_tax_cents: 1652, total_ttc_cents: 9913 });
     const observeCopy = await observeNativeCopy(browser);
     for (const title of [manualTitle, legacyTitle]) await screen.getByLabel(`Sélectionner la ligne ${title}`, { exact: true }).check();
     await browser.keyboard.press("ControlOrMeta+c");
