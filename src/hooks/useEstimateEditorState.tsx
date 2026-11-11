@@ -2396,7 +2396,8 @@ export function useEstimateEditorState({
   );
 
   const v3Grid = useMemo<EstimateV3GridModel | null>(
-    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp }),
+    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
+      saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null }),
     [v3Breakdown, allowedTaxRatesBp]
   );
 
