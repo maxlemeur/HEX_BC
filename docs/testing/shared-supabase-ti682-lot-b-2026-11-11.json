@@ -1,0 +1,389 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-11",
+  "status": "completed",
+  "previousReceipt": "docs/testing/shared-supabase-ti686-completion-2026-11-10.json",
+  "sourceCommit": "cd7640322190af54eda9b2ae32db5f0b77012bdb",
+  "sourcePullRequest": {
+    "url": "https://github.com/maxlemeur/HEX_BC/pull/203",
+    "state": "MERGED",
+    "mergedAt": "2026-11-11T09:43:35Z",
+    "mergeCommit": "cd7640322190af54eda9b2ae32db5f0b77012bdb"
+  },
+  "target": {
+    "projectName": "bon_de_commande",
+    "environment": "MergeOne / HEX_BC shared Supabase, also production",
+    "identityVerifiedWithConnector": true,
+    "projectReferenceOmitted": true
+  },
+  "authorization": "Thanh explicitly authorized this one migration and its verification on 2026-11-11 in the parent thread. No other migration, deployment, data change/backfill, environment-variable change or rollback is authorized by this task.",
+  "migrations": [
+    {
+      "name": "takeoff_hypothesis_preselection",
+      "repositoryVersion": "20261111035718",
+      "path": "supabase/migrations/20261111035718_takeoff_hypothesis_preselection.sql",
+      "bytes": 8868,
+      "sha256": "a96e818834e86d78c53664f84ec259a747a24fb94219400967420d2420e4db93",
+      "manifestMatches": true,
+      "applied": {
+        "version": "20261111101306",
+        "name": "takeoff_hypothesis_preselection",
+        "statements": 1,
+        "bytes": 8868,
+        "sha256": "a96e818834e86d78c53664f84ec259a747a24fb94219400967420d2420e4db93",
+        "observed_at": "2026-11-11 10:13:35.526487+00"
+      },
+      "storedStatementEqualsFullFile": true
+    }
+  ],
+  "preflight": {
+    "observed_at": "2026-11-11 10:12:30.198188+00",
+    "historyRows": 372,
+    "latestMigration": {
+      "version": "20261110115859",
+      "name": "20261110094505_takeoff_override_consumptions_admin_read"
+    },
+    "repositoryMigrationsCompared": 319,
+    "comparisonMethod": "Match repository version, full canonical filename stem or timestamp-stripped historical name. For the two established historical split migrations, require every documented remote part.",
+    "legacySplitRepresentations": [
+      {
+        "path": "supabase/migrations/20261012030743_atomic_estimate_batch.sql",
+        "remote": [
+          {
+            "version": "20261015222147",
+            "name": "atomic_estimate_batch_part_1"
+          },
+          {
+            "version": "20261015222301",
+            "name": "atomic_estimate_batch_part_2"
+          }
+        ]
+      },
+      {
+        "path": "supabase/migrations/20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql",
+        "remote": [
+          {
+            "version": "20261015222315",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_1"
+          },
+          {
+            "version": "20261015222318",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_2"
+          },
+          {
+            "version": "20261015222322",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_3"
+          },
+          {
+            "version": "20261015222326",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_4"
+          },
+          {
+            "version": "20261015222337",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_5"
+          },
+          {
+            "version": "20261015222341",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_6"
+          },
+          {
+            "version": "20261015222348",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_7"
+          },
+          {
+            "version": "20261015222352",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_8"
+          },
+          {
+            "version": "20261015233534",
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_9"
+          }
+        ]
+      }
+    ],
+    "legacySplitReference": "docs/testing/shared-supabase-main-catchup-2026-11-10.json",
+    "onlyMissingMigration": "supabase/migrations/20261111035718_takeoff_hypothesis_preselection.sql",
+    "counts": {
+      "lignes": 0,
+      "presele": 0,
+      "hypotheses_presele": 0
+    },
+    "countsScope": "All takeoff_items joined to takeoff_jobs with job.status <> 'applied', using the prepared task's exact count query; aggregate counts only.",
+    "existingRowsBackfilled": false,
+    "newFunctionsAbsentBefore": true,
+    "newTriggerAbsentBefore": true,
+    "columns": [
+      {
+        "type": "text",
+        "table": "measurement_units",
+        "column": "code",
+        "nullable": "NO"
+      },
+      {
+        "type": "text",
+        "table": "measurement_units",
+        "column": "dimension",
+        "nullable": "NO"
+      },
+      {
+        "type": "uuid",
+        "table": "takeoff_items",
+        "column": "job_id",
+        "nullable": "NO"
+      },
+      {
+        "type": "text",
+        "table": "takeoff_items",
+        "column": "unit",
+        "nullable": "NO"
+      },
+      {
+        "type": "text",
+        "table": "takeoff_items",
+        "column": "source_file_name",
+        "nullable": "YES"
+      },
+      {
+        "type": "integer",
+        "table": "takeoff_items",
+        "column": "source_page",
+        "nullable": "YES"
+      },
+      {
+        "type": "jsonb",
+        "table": "takeoff_items",
+        "column": "metadata",
+        "nullable": "NO"
+      },
+      {
+        "type": "boolean",
+        "table": "takeoff_items",
+        "column": "is_excluded",
+        "nullable": "NO"
+      },
+      {
+        "type": "text",
+        "table": "takeoff_items",
+        "column": "exclusion_reason",
+        "nullable": "YES"
+      },
+      {
+        "type": "text",
+        "table": "takeoff_items",
+        "column": "quantity_entry_category",
+        "nullable": "YES"
+      },
+      {
+        "type": "uuid",
+        "table": "takeoff_jobs",
+        "column": "id",
+        "nullable": "NO"
+      },
+      {
+        "type": "USER-DEFINED",
+        "table": "takeoff_jobs",
+        "column": "status",
+        "nullable": "NO"
+      }
+    ],
+    "prerequisiteFunctions": [
+      {
+        "config": [
+          "search_path=\"\""
+        ],
+        "schema": "private",
+        "signature": "private.normalize_unit(text)",
+        "security_definer": false
+      },
+      {
+        "config": [
+          "search_path=\"\""
+        ],
+        "schema": "private",
+        "signature": "private.unit_token(text)",
+        "security_definer": false
+      },
+      {
+        "config": [
+          "search_path=pg_catalog"
+        ],
+        "schema": "private",
+        "signature": "private.assert_takeoff_single_quantity_source(uuid)",
+        "security_definer": false
+      }
+    ]
+  },
+  "history": {
+    "before": 372,
+    "after": 373,
+    "previousEntriesUnchanged": true,
+    "onlyAuthorizedNameAdded": true,
+    "added": [
+      {
+        "version": "20261111101306",
+        "name": "takeoff_hypothesis_preselection"
+      }
+    ]
+  },
+  "postChecks": {
+    "functions": [
+      {
+        "schema": "private",
+        "proname": "assert_takeoff_single_quantity_source",
+        "identity_arguments": "p_job_id uuid",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "provolatile": "v",
+        "body_sha256": "bb36c9d0137abed9a64b8e7952de865a928fb8dbf74e33767eec13fde5a67fd4",
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": false
+      },
+      {
+        "schema": "private",
+        "proname": "takeoff_unit_dimension",
+        "identity_arguments": "p_unit text",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "owner": "postgres",
+        "provolatile": "s",
+        "body_sha256": "6fa67dfa74f9a15f71c0281a9c6508ea25c9a4f40c1e8508fe7b116f65eab478",
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": false
+      },
+      {
+        "schema": "public",
+        "proname": "exclude_new_takeoff_hypothesis",
+        "identity_arguments": "",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=pg_catalog"
+        ],
+        "owner": "postgres",
+        "provolatile": "v",
+        "body_sha256": "4604c4a2c287e4e4ed0cf9f541090336d6ac5f1ddefef94c4df653c680726166",
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": false
+      },
+      {
+        "schema": "public",
+        "proname": "takeoff_item_hypothesis_cause",
+        "identity_arguments": "p_metadata jsonb, p_quantity_entry_category text",
+        "prosecdef": false,
+        "proconfig": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "owner": "postgres",
+        "provolatile": "i",
+        "body_sha256": "e4de81df21d6872172afee60534e4f61b77828cb3453c52057c0f3cd15bb2998",
+        "execute_public": false,
+        "execute_anon": false,
+        "execute_authenticated": false,
+        "execute_service_role": true
+      }
+    ],
+    "functionCount": 4,
+    "allFunctionBodiesMatchSourceSha256": true,
+    "trigger": {
+      "tgname": "exclude_new_takeoff_hypothesis",
+      "tgenabled": "O",
+      "tgtype": 7,
+      "definition": "CREATE TRIGGER exclude_new_takeoff_hypothesis BEFORE INSERT ON public.takeoff_items FOR EACH ROW EXECUTE FUNCTION exclude_new_takeoff_hypothesis()"
+    },
+    "predicate": {
+      "expected": {
+        "estimated": "estimated",
+        "non_observable": "non_observable",
+        "attestee": null,
+        "ml": "length",
+        "u": "count"
+      },
+      "actual": {
+        "estimated": "estimated",
+        "non_observable": "non_observable",
+        "attestee": null,
+        "ml": "length",
+        "u": "count"
+      },
+      "passed": true
+    }
+  },
+  "securityAdvisors": {
+    "comparison": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "before": 24,
+        "after": 24,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "before": 70,
+        "after": 70,
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "before": 1,
+        "after": 1,
+        "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+      }
+    ],
+    "identitiesBefore": 95,
+    "identitiesAfter": 95,
+    "addedFindings": [],
+    "removedFindings": [],
+    "comparisonMethod": "Compare each finding by advice name, level, detail and metadata; ignore observed_at only."
+  },
+  "evidence": {
+    "methods": [
+      "Supabase connector list_projects: target identity, no API keys requested.",
+      "Git fetch origin and GitHub PR read: merged source and exact origin/main blob; source hash matches migration manifest.",
+      "Supabase connector list_migrations: before and after, canonical/alias/split comparison.",
+      "Supabase connector execute_sql: read-only prerequisite catalogue and prepared before-count query.",
+      "Supabase connector apply_migration: one successful call with the complete exact git blob, including final newline.",
+      "Supabase connector execute_sql: stored statements direct text equality against full source, byte count and SHA-256; function properties, privileges and body hashes; enabled BEFORE INSERT trigger; prepared predicate.",
+      "Supabase connector get_advisors(type=security): all 95 finding identities unchanged.",
+      "retro-guards/tool-results.cjs assertSuccess: 12 project/migration/query/advisor response envelopes validated."
+    ],
+    "queries": {
+      "preflight": "select clock_timestamp() as observed_at, (select count(*) from supabase_migrations.schema_migrations) as history_rows, (select max(version) from supabase_migrations.schema_migrations) as latest_version, (select jsonb_agg(jsonb_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable) order by table_name,ordinal_position) from information_schema.columns where table_schema='public' and ((table_name='takeoff_items' and column_name in ('job_id','is_excluded','metadata','quantity_entry_category','exclusion_reason','unit','source_file_name','source_page')) or (table_name='takeoff_jobs' and column_name in ('id','status')) or (table_name='measurement_units' and column_name in ('code','dimension')))) as columns, (select jsonb_agg(jsonb_build_object('signature',p.oid::regprocedure::text,'schema',n.nspname,'security_definer',p.prosecdef,'config',p.proconfig)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname||'.'||p.proname) in ('public.takeoff_item_hypothesis_cause','public.exclude_new_takeoff_hypothesis','private.takeoff_unit_dimension','private.assert_takeoff_single_quantity_source','private.normalize_unit','private.unit_token')) as functions, (select count(*) from pg_trigger where tgrelid='public.takeoff_items'::regclass and tgname='exclude_new_takeoff_hypothesis') as new_trigger_count;",
+      "beforeCounts": "select count(*) as lignes,\n       count(*) filter (where not is_excluded) as presele,\n       count(*) filter (where not is_excluded and quantity_entry_category is null\n         and (metadata ->> 'quantity_nature' = 'estimated'\n           or jsonb_typeof(metadata #> '{rule_inputs,non_observable}') = 'string')) as hypotheses_presele\nfrom public.takeoff_items item\njoin public.takeoff_jobs job on job.id = item.job_id\nwhere job.status <> 'applied';",
+      "storedStatementVerification": {
+        "queryTemplate": "select clock_timestamp() as observed_at, version, name, cardinality(statements) as statements, octet_length(array_to_string(statements, '')) as bytes, encode(sha256(convert_to(array_to_string(statements, ''), 'UTF8')), 'hex') as sha256, cardinality(statements)=1 and statements[1]=$ti682_exact$<EXACT_SOURCE_FILE_CONTENT>$ti682_exact$ as stored_statement_equals_full_file from supabase_migrations.schema_migrations where name='takeoff_hypothesis_preselection';",
+        "substitution": "<EXACT_SOURCE_FILE_CONTENT> was replaced with the full exact sourceCommit:path blob, including its final newline, before executing the read-only query.",
+        "path": "supabase/migrations/20261111035718_takeoff_hypothesis_preselection.sql",
+        "sha256": "a96e818834e86d78c53664f84ec259a747a24fb94219400967420d2420e4db93"
+      },
+      "functions": "select n.nspname as schema, p.proname, pg_get_function_identity_arguments(p.oid) as identity_arguments, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner, p.provolatile, encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex') as body_sha256, exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0 and a.privilege_type='EXECUTE') as execute_public, has_function_privilege('anon',p.oid,'EXECUTE') as execute_anon, has_function_privilege('authenticated',p.oid,'EXECUTE') as execute_authenticated, has_function_privilege('service_role',p.oid,'EXECUTE') as execute_service_role from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname,p.proname) in (('public','takeoff_item_hypothesis_cause'),('public','exclude_new_takeoff_hypothesis'),('private','takeoff_unit_dimension'),('private','assert_takeoff_single_quantity_source')) order by n.nspname,p.proname;",
+      "trigger": "select tgname, tgenabled, tgtype, pg_get_triggerdef(oid) as definition from pg_trigger where tgrelid='public.takeoff_items'::regclass and tgname='exclude_new_takeoff_hypothesis';",
+      "predicate": "select public.takeoff_item_hypothesis_cause('{\"quantity_nature\":\"estimated\"}', null) as estimated,\n       public.takeoff_item_hypothesis_cause('{\"rule_inputs\":{\"non_observable\":\"weld\"}}', null) as non_observable,\n       public.takeoff_item_hypothesis_cause('{\"rule_inputs\":{\"non_observable\":\"weld\"}}', 'site_survey') as attestee,\n       private.takeoff_unit_dimension('ml') as ml, private.takeoff_unit_dimension('u') as u;"
+    }
+  },
+  "limitations": [
+    "Read-only catalogue and exact migration-application evidence; no authenticated business journey or release qualification.",
+    "No insert/update probes or backfill were run on the shared production database. Trigger existence, event, enabled state and exact function bodies were verified without writing business rows.",
+    "No local application suite: the repository change contains only this documentation receipt. Migration SQL and application sources are unchanged.",
+    "Pre-existing security advice remains open; no added or removed findings."
+  ],
+  "deployment": false,
+  "vercelTouched": false,
+  "environmentVariablesChanged": false,
+  "otherMigrationsApplied": [],
+  "rollbackExecuted": false,
+  "businessRowsWrittenByChecks": false,
+  "canonicalWorkingDirectoryModified": false
+}
