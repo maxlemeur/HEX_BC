@@ -63,6 +63,8 @@ const WARNING_MESSAGES: Record<CadWarningCode, (details: string[]) => string> = 
   spline_fit_points: ([count]) => (Number(count) > 1
     ? `${count} splines sont tracées par leurs points de passage : leur longueur est approchée.`
     : "1 spline est tracée par ses points de passage : sa longueur est approchée."),
+  sketch_limit: () => "Les esquisses comptent trop d’éléments pour être toutes dessinées.",
+  sketch_unread: () => "Des éléments des esquisses ne sont pas dessinés, comme les ellipses et les splines : ils sont comptés sous « Objets non lus ».",
 };
 
 /** One sentence per kind of warning the reading left, in the order they came, the blocks of a kind named together. */

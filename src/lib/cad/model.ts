@@ -119,7 +119,10 @@ export type CadWarningCode =
   | "xref_missing"
   | "block_cycle"
   | "depth_limit"
-  | "spline_fit_points";
+  | "spline_fit_points"
+  /** Of a drawing made of the sketches of a model: more elements than are read, or elements of a kind that is not drawn. */
+  | "sketch_limit"
+  | "sketch_unread";
 
 export type CadWarning = { code: CadWarningCode; detail?: string };
 

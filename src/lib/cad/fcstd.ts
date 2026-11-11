@@ -35,8 +35,11 @@ export type CadModel = {
   sketches: number;
   /** The document holds more than is shown: objects past those `objects` lists, or what `left` tells. */
   truncated: boolean;
-  /** `sketches`: the sketches hold elements that are not drawn; `dimensions`: an object listed has more dimensions than it lists. */
-  left: { sketches: boolean; dimensions: boolean };
+  /**
+   * `sketches`: the sketches hold more elements than are read; `unread`: they hold elements of a kind that is not drawn
+   * (ellipses, splines, arcs on the other face); `dimensions`: an object listed has more dimensions than it lists.
+   */
+  left: { sketches: boolean; unread: boolean; dimensions: boolean };
 };
 
 /** `maxNames`: the objects a document may name, listed or not; `maxObjects`: those that are listed. */
@@ -286,7 +289,7 @@ function listed(value: string): string {
   return oneLine(value).slice(0, MAX_TEXT).trim();
 }
 
-function sketchesToDxf(found: Found[]): { dxf: string | null; sketches: number } {
+function sketchesToDxf(found: Found[]): { dxf: string | null; sketches: number; unread: number } {
   const sketches = found.filter((entry) => entry.geometry.length > 0);
   const pairs: string[] = [];
   const put = (code: number, value: string | number) => pairs.push(String(code), String(value));
@@ -316,7 +319,7 @@ function sketchesToDxf(found: Found[]): { dxf: string | null; sketches: number }
   });
   put(0, "ENDTAB"); put(0, "ENDSEC");
   put(0, "SECTION"); put(2, "ENTITIES");
-  let drawn = 0;
+  let drawn = 0, unread = 0;
   sketches.forEach((sketch, index) => {
     for (const { tag, attributes } of sketch.geometry) {
       const value = (name: string) => Number(attributes[name]);
@@ -338,15 +341,16 @@ function sketchesToDxf(found: Found[]): { dxf: string | null; sketches: number }
         put(10, real(value("CenterX"))); put(20, real(value("CenterY"))); put(40, real(value("Radius")));
         put(50, real(degrees(value("StartAngle") + turned))); put(51, real(degrees(value("EndAngle") + turned)));
         drawn += 1;
-      } else if (tag !== "GeomPoint" && tag !== "Point" && /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(tag)) {
-        // Ellipses, splines and the rest: named so that the drawing says what it does not show. A point draws nothing.
-        put(0, `${tag.toUpperCase()}_NON_LU`); put(8, layers[index]);
+      } else if (tag !== "GeomPoint" && tag !== "Point") {
+        // Ellipses, splines and the rest: counted, and named so that the drawing says what it does not show. A point draws nothing.
+        unread += 1;
+        if (/^[A-Za-z][A-Za-z0-9]{0,40}$/.test(tag)) { put(0, `${tag.toUpperCase()}_NON_LU`); put(8, layers[index]); }
       }
     }
   });
   put(0, "ENDSEC"); put(0, "EOF");
   // Sketches of which nothing is drawn make no drawing: the model is then summed up.
-  return drawn === 0 ? { dxf: null, sketches: 0 } : { dxf: `${pairs.join("\n")}\n`, sketches: sketches.length };
+  return drawn === 0 ? { dxf: null, sketches: 0, unread } : { dxf: `${pairs.join("\n")}\n`, sketches: sketches.length, unread };
 }
 
 function kindOf(entry: Found): string {
@@ -366,15 +370,16 @@ export async function readFcstd(bytes: Uint8Array, options: { limits?: Partial<F
   const image = await zip.read("thumbnails/Thumbnail.png", MAX_THUMBNAIL_BYTES);
   const thumbnail = image && PNG_SIGNATURE.every((value, index) => image[index] === value) ? { type: "image/png" as const, bytes: image } : null;
   const shaped = document.found.filter((entry) => entry.shaped);
-  const { dxf, sketches } = sketchesToDxf(document.found);
+  const { dxf, sketches, unread } = sketchesToDxf(document.found);
   const kept = shaped.slice(0, limits.maxObjects);
   const objects = kept.map((entry) => ({
     name: listed(entry.name), label: listed(entry.label) || listed(entry.name), type: listed(entry.type), kind: listed(kindOf(entry)), dimensions: entry.dimensions,
   }));
   // What the limits left out of the document may be elements of a sketch, or a sketch whole: the drawing is then not all of it.
-  const left = { sketches: document.left > 0, dimensions: kept.some((entry) => entry.cut) };
+  // Nor is it when a sketch holds an element that is not drawn.
+  const left = { sketches: document.left > 0, unread: unread > 0, dimensions: kept.some((entry) => entry.cut) };
   return {
-    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || left.sketches || left.dimensions, left } },
+    summary: { format: "fcstd", version: document.version, thumbnail, model: { objects, total: shaped.length, sketches, truncated: shaped.length > objects.length || left.sketches || left.unread || left.dimensions, left } },
     sketchesDxf: dxf,
   };
 }

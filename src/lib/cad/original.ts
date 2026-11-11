@@ -5,7 +5,7 @@
 
 import { CadReadError, readDxf, type CadLimits } from "./dxf";
 import { readFcstd, type FcstdLimits } from "./fcstd";
-import type { CadDrawing } from "./model";
+import type { CadDrawing, CadWarning } from "./model";
 import { readDwgSummary, readRvtSummary, type CadSummary } from "./summary";
 
 export type CadOriginalFormat = "dxf" | "dwg" | "rvt" | "fcstd";
@@ -31,8 +31,11 @@ export async function readCadOriginal(fileName: string, bytes: Uint8Array, optio
     if (sketchesDxf === null) return { kind: "summary", summary };
     try {
       const drawing = readDxf(new TextEncoder().encode(sketchesDxf), { limits: options.limits });
-      // Sketches of which elements were left out make a drawing read in part: its quantities are a minimum, and it is not plotted.
-      return { kind: "drawing", drawing: summary.model.left.sketches ? { ...drawing, truncated: true } : drawing, source: summary };
+      // Sketches of which elements were left out, by a limit or for being of a kind that is not drawn, make a drawing read in part:
+      // it says why, its quantities are a minimum, and it is not plotted as a whole plan.
+      const { left } = summary.model;
+      const missing: CadWarning[] = [...(left.sketches ? [{ code: "sketch_limit" as const }] : []), ...(left.unread ? [{ code: "sketch_unread" as const }] : [])];
+      return { kind: "drawing", drawing: missing.length > 0 ? { ...drawing, truncated: true, warnings: [...drawing.warnings, ...missing] } : drawing, source: summary };
     } catch (error) {
       if (!(error instanceof CadReadError)) throw error;
       // Sketches too heavy to be read as a drawing: the document is summed up, and says that they are not drawn.

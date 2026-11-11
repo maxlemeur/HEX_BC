@@ -17,7 +17,7 @@ describe("FreeCAD documents", () => {
       total: 4,
       sketches: 0,
       truncated: false,
-      left: { sketches: false, dimensions: false },
+      left: { sketches: false, unread: false, dimensions: false },
       objects: [
         { name: "Box", label: "Ballon & socle", type: "Part::Box", kind: "Box", dimensions: [{ name: "Length", kind: "length", value: 800 }, { name: "Width", kind: "length", value: 600 }, { name: "Height", kind: "length", value: 1900 }] },
         { name: "Pipe", label: "Départ chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 4250.5 }] },
@@ -53,7 +53,8 @@ describe("FreeCAD documents", () => {
       ])] },
     ];
     const { summary, sketchesDxf } = await readFcstd(fcstd(documentXml(entries)));
-    expect(summary.model).toMatchObject({ total: 2, sketches: 2, truncated: false });
+    // An ellipse and an arc on the other face are not drawn: the model says that its sketches hold more than the drawing shows.
+    expect(summary.model).toMatchObject({ total: 2, sketches: 2, truncated: true, left: { sketches: false, unread: true, dimensions: false } });
     const drawing = readDxf(strToU8(sketchesDxf!));
     expect(drawing.units.metresPerUnit).toBe(0.001);
     // The reader always knows layer « 0 »: no sketch is drawn on it.
@@ -174,7 +175,13 @@ describe("FreeCAD documents", () => {
     ];
     const { summary, sketchesDxf } = await readFcstd(fcstd(documentXml(entries)));
     expect(sketchesDxf).toBeNull();
-    expect(summary.model).toMatchObject({ total: 5, sketches: 0, truncated: false });
+    expect(summary.model).toMatchObject({ total: 5, sketches: 0, truncated: true, left: { sketches: false, unread: true, dimensions: false } });
+
+    // A point draws nothing and leaves nothing out; a construction line is not part of the drawing either.
+    const plain: FcstdEntry[] = [{ type: "Sketcher::SketchObject", name: "Sketch", properties: [label("Local"), shape("Sketch"), geometry("Geometry", [
+      segment(0, 0, 4000, 0), segment(0, 0, 4000, 2000, true), element("Point", `<GeomPoint X="1" Y="2" Z="0"/>`),
+    ])] }];
+    expect((await readFcstd(fcstd(documentXml(plain)))).summary.model).toMatchObject({ sketches: 1, truncated: false, left: { sketches: false, unread: false, dimensions: false } });
   });
 
   it("says when it lists or draws less than the document holds", async () => {
@@ -192,7 +199,7 @@ describe("FreeCAD documents", () => {
   it("says when an object has more dimensions than it lists, and only then", async () => {
     const box = (name: string, shaped = true): FcstdEntry => ({ type: "Part::Box", name, properties: [label(name), float("Length", "Length", 10), float("Width", "Length", 20), float("Height", "Length", 30), ...(shaped ? [shape(name)] : [])] });
     const whole = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 3 } })).summary.model;
-    expect(whole).toMatchObject({ total: 1, truncated: false, left: { sketches: false, dimensions: false } });
+    expect(whole).toMatchObject({ total: 1, truncated: false, left: { sketches: false, unread: false, dimensions: false } });
 
     const cut = (await readFcstd(fcstd(documentXml([box("Box")])), { limits: { maxDimensions: 2 } })).summary.model;
     expect(cut.objects[0].dimensions).toHaveLength(2);

@@ -73,7 +73,7 @@ const DRAWING = "/api/affaires/p1/intake/files/d1/drawing";
 
 // A fictional boiler room as FreeCAD would describe it: lengths in mm, areas in mm².
 const MODEL: CadModel = {
-  total: 4, sketches: 0, truncated: false, left: { sketches: false, dimensions: false },
+  total: 4, sketches: 0, truncated: false, left: { sketches: false, unread: false, dimensions: false },
   objects: [
     { name: "Pipe", label: "Départ chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 4250.5 }] },
     { name: "Pipe001", label: "Retour chauffage", type: "Part::FeaturePython", kind: "Pipe Segment", dimensions: [{ name: "Diameter", kind: "length", value: 33.7 }, { name: "Length", kind: "length", value: 1749.5 }] },
@@ -281,20 +281,20 @@ describe("IntakeCadPreview", () => {
   });
 
   it("says when an object of a model has more dimensions than it lists, with what else was left out", async () => {
-    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, truncated: true, left: { sketches: false, dimensions: true } }) }, FCSTD);
+    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, truncated: true, left: { sketches: false, unread: false, dimensions: true } }) }, FCSTD);
     await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
     expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent("Cette maquette n’a pas été lue en entier : certains de ses objets ont plus de dimensions qu’il n’en est listé.");
     cleanup();
 
-    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, total: 2500, truncated: true, left: { sketches: true, dimensions: true } }) }, FCSTD);
+    await opened({ kind: "summary", summary: fcstdSummary({ ...MODEL, total: 2500, truncated: true, left: { sketches: true, unread: true, dimensions: true } }) }, FCSTD);
     await userEvent.click(screen.getByRole("button", { name: "Objets et dimensions" }));
     expect(within(await screen.findByRole("dialog")).getByRole("alert")).toHaveTextContent(
-      /Cette maquette n’a pas été lue en entier : 4 de ses 2\s500 objets sont listés et exportés ; ses esquisses comptent trop d’éléments pour être toutes dessinées ; certains de ses objets ont plus de dimensions qu’il n’en est listé\./u,
+      /Cette maquette n’a pas été lue en entier : 4 de ses 2\s500 objets sont listés et exportés ; ses esquisses comptent trop d’éléments pour être toutes dessinées ; des éléments de ses esquisses, comme les ellipses et les splines, ne sont pas dessinés ; certains de ses objets ont plus de dimensions qu’il n’en est listé\./u,
     );
   });
 
   it("has no large view for a model in which nothing has a shape", async () => {
-    const { onEnlargeableChange } = await opened({ kind: "summary", summary: fcstdSummary({ objects: [], total: 0, sketches: 0, truncated: false, left: { sketches: false, dimensions: false } }) }, FCSTD);
+    const { onEnlargeableChange } = await opened({ kind: "summary", summary: fcstdSummary({ objects: [], total: 0, sketches: 0, truncated: false, left: { sketches: false, unread: false, dimensions: false } }) }, FCSTD);
     expect(screen.getByText("Aucun objet ayant une forme")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Objets et dimensions" })).not.toBeInTheDocument();
     expect(onEnlargeableChange).toHaveBeenLastCalledWith(false);
@@ -472,5 +472,14 @@ describe("IntakeCadPreview", () => {
     const warning = dialog.getByRole("alert");
     expect(warning).toHaveTextContent("Ce dessin compte trop d’objets : la lecture s’est arrêtée avant la fin.");
     expect(warning).toHaveTextContent("Les quantités affichées sont un minimum.");
+  });
+
+  it("says of sketches not all drawn that their quantities are a minimum, and why", async () => {
+    const partial = { ...drawing, truncated: true, warnings: [{ code: "sketch_unread" as const }], unsupported: [{ type: "ELLIPSE_NON_LU", count: 2 }] };
+    const { dialog } = await enlarged({ kind: "drawing", drawing: partial, source: fcstdSummary({ ...MODEL, sketches: 1, truncated: true, left: { sketches: false, unread: true, dimensions: false } }) }, FCSTD);
+    const [warning] = dialog.getAllByRole("alert");
+    expect(warning).toHaveTextContent("Des éléments des esquisses ne sont pas dessinés, comme les ellipses et les splines : ils sont comptés sous « Objets non lus ».");
+    expect(warning).toHaveTextContent("Les quantités affichées sont un minimum.");
+    expect(dialog.getByText("ELLIPSE_NON_LU × 2")).toBeInTheDocument();
   });
 });

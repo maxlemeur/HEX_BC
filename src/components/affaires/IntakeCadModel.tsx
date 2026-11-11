@@ -23,6 +23,7 @@ export function IntakeCadModel({ model, fileName, open = false }: { model: CadMo
   const leftOut = [
     ...(model.total > listed ? [`${listed.toLocaleString("fr-FR")} de ses ${model.total.toLocaleString("fr-FR")} objets sont listés et exportés`] : []),
     ...(model.left.sketches ? ["ses esquisses comptent trop d’éléments pour être toutes dessinées"] : []),
+    ...(model.left.unread ? ["des éléments de ses esquisses, comme les ellipses et les splines, ne sont pas dessinés"] : []),
     ...(model.left.dimensions ? ["certains de ses objets ont plus de dimensions qu’il n’en est listé"] : []),
   ];
   const exportObjects = () => downloadBlob(new Blob([cadModelCsv(model)], { type: "text/csv;charset=utf-8" }), cadModelFileName(fileName));
