@@ -129,6 +129,7 @@ export function selectableEstimateLineNatures(input: {
   printsPoseOnly: boolean;
   current: EstimateLineNature;
 }): readonly EstimateLineNature[] {
+  if (input.printsPoseOnly) return ESTIMATE_LINE_NATURES.filter((nature) => nature !== "labor_only");
   return ESTIMATE_LINE_NATURES.filter(
     (nature) => nature !== "pose_only" || input.printsPoseOnly || input.current === "pose_only",
   );

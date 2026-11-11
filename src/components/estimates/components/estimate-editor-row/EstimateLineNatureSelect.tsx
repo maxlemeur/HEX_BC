@@ -40,8 +40,9 @@ export function EstimateLineNatureSelect({
   const selectedNature = resolveEstimateLineNature(item);
   const printsPoseOnly = useEstimateV3Grid() !== null;
   const descriptionId = `estimate-line-nature-description-${item.id}`;
-  const fullLabel = ESTIMATE_LINE_NATURE_LABELS[selectedNature];
-  const compactLabel = COMPACT_LINE_NATURE_LABELS[selectedNature];
+  const needsChoice = printsPoseOnly && selectedNature === "labor_only" && !isReadOnly;
+  const fullLabel = needsChoice ? "Choisir la nature" : ESTIMATE_LINE_NATURE_LABELS[selectedNature];
+  const compactLabel = needsChoice ? "Choisir la nature" : COMPACT_LINE_NATURE_LABELS[selectedNature];
   const lineLabel = item.title || "sans titre";
 
   if (isReadOnly) {
@@ -94,6 +95,7 @@ export function EstimateLineNatureSelect({
           )
         }
       >
+        {needsChoice ? <option value="labor_only" hidden disabled>Choisir la nature</option> : null}
         {selectableEstimateLineNatures({ printsPoseOnly, current: selectedNature }).map((nature) => (
           <option key={nature} value={nature}>
             {ESTIMATE_LINE_NATURE_LABELS[nature]}

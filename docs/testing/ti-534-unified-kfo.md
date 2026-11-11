@@ -92,7 +92,7 @@ Avec les bases initiales, vérifier ces montants **avant marge** :
 
 TI-534 intègre `origin/main` contenant TI-539 et TI-541 (base `0a5f58e5`). La
 migration unifiée est postérieure à celle de TI-541 et conserve sa provenance
-`site` et sa règle POSE SEULE. Le sélecteur emploie « Pose » ; le choix explicite
+`site` et sa règle POSE SEULE. Le sélecteur v3 propose trois choix, sans « Pose » simple ; le choix explicite
 « POSE SEULE » ajoute cette mention après la désignation dans le devis.
 Les tests isolés de calcul ne remplacent pas la recette de persistance et d’interface.
 

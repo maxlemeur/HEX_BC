@@ -111,7 +111,18 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
       await expect(control).toBeVisible();
       return control;
     };
-    await (await natureOf(pose.title!)).selectOption({ value: "pose_only" });
+    const poseControl = await natureOf(pose.title!);
+    const menu = await browser.evaluate((title) => {
+      const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label")?.endsWith(`nature de ligne pour ${title}`) && node.getBoundingClientRect().width > 0);
+      if (!select) return null;
+      const label = select.closest("label")?.querySelector<HTMLElement>(".estimate-line-nature-picker__label");
+      return { choices: Array.from(select.options).filter(option => !option.hidden && !option.disabled).map(option => option.value),
+        width: select.getBoundingClientRect().width, fits: label ? label.scrollWidth <= label.clientWidth : false };
+    }, pose.title!);
+    expect(menu?.choices).toEqual(["supply_only", "supply_and_labor", "pose_only"]);
+    expect(menu?.width).toBeGreaterThanOrEqual(180);
+    expect(menu?.fits).toBe(true);
+    await poseControl.selectOption({ value: "pose_only" });
     await saveLineEditsWithShortcut(ui, draft.versionId, pose.title!, army);
     await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.find((item) => item.id === pose.id)?.line_nature)
       .toBe("pose_only");

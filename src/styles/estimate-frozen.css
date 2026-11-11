@@ -2040,6 +2040,7 @@
 }
 
 .estimate-line-nature-picker {
+  width: 14rem;
   position: relative;
   display: inline-flex;
   min-width: 0;
@@ -2052,6 +2053,7 @@
 }
 
 .estimate-line-nature-picker__label {
+  width: 100%;
   display: inline-flex;
   min-width: 0;
   max-width: 100%;
