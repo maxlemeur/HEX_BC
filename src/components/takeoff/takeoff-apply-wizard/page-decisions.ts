@@ -33,7 +33,9 @@ export type PageOutcome = {
   updated: Array<{ id: string; title: string; before: number | null; after: number; changedByHand: boolean; take: "new" | "keep_mine" | null;
     newLineIds: string[] }>;
   added: string[];
-  vanished: Array<{ id: string; title: string; quantity: number | null; choice: "remove" | "keep" | null }>;
+  vanished: Array<{ id: string; title: string; quantity: number | null; choice: "remove" | "keep" | null;
+    /** It also carries other pages: it is kept, never removed (its other pages would go with it). */
+    otherPages: boolean }>;
   dpgfTargets: string[];
 };
 
@@ -52,7 +54,9 @@ export function pageOutcome(row: TakeoffPageReplacementRow, draft: PageDraft): P
     }
     const newLineIds = pairedBy.get(line.id) ?? [];
     if (newLineIds.length === 0) {
-      outcome.vanished.push({ id: line.id, title: line.title, quantity: line.quantity, choice: draft.choices[line.id] ?? null });
+      const choice = draft.choices[line.id] ?? null;
+      outcome.vanished.push({ id: line.id, title: line.title, quantity: line.quantity, otherPages: line.other_pages,
+        choice: choice === "remove" && line.other_pages ? null : choice });
       continue;
     }
     const next = replacementQuantities({ quantity: line.quantity, factor: line.length_factor,
@@ -77,6 +81,15 @@ export function pageMissing(row: TakeoffPageReplacementRow, draft: PageDraft): s
   }
   const outcome = pageOutcome(row, draft);
   const missing: string[] = [];
+  const notFed = row.earlier_lines.filter((line) => line.dpgf_target && !line.fed_again);
+  if (notFed.length > 0) {
+    missing.push(`${notFed.map((line) => `« ${line.title} »`).join(", ")} : ligne DPGF que ce métré n’alimente pas ; sa mesure resterait à côté de la nouvelle. Gardez les deux mesures avec un motif.`);
+  }
+  const replaces = outcome.updated.length > 0 || outcome.vanished.some((line) => line.choice === "remove")
+    || row.earlier_lines.some((line) => line.dpgf_target && line.fed_again);
+  if (!replaces && outcome.vanished.every((line) => line.choice !== null)) {
+    missing.push("Rien n’est remplacé sur cette page : gardez les deux mesures avec un motif.");
+  }
   const vanished = outcome.vanished.filter((line) => line.choice === null).length;
   if (vanished > 0) missing.push(`${vanished} ligne${vanished > 1 ? "s" : ""} que le nouveau métré n’a plus : retirer ou garder.`);
   const takes = outcome.updated.filter((line) => line.changedByHand && line.take === null).length;

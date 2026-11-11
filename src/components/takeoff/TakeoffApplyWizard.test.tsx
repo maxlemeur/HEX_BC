@@ -246,7 +246,7 @@ describe("TakeoffApplyWizard", () => {
     const earlierLine = (id: string, title: string, extra: Record<string, unknown> = {}) => ({ id, title, unit_key: "ml", quantity: 13,
       measured_quantity: 13, changed_by_hand: false, updated_at: "2026-11-10T09:30:00.123456+00:00", unit_price_ht_cents: 2500,
       job_id: EARLIER_JOB, dpgf_target: false, item_ids: [`${id.slice(0, -1)}9`], sources: [{ id: `${id.slice(0, -1)}9`, quantity: 12.4 }],
-      length_factor: 1, ...extra });
+      length_factor: 1, assembly: false, other_pages: false, fed_again: false, ...extra });
     const proposal = (rowExtra: Record<string, unknown> = {}, lineA: Record<string, unknown> = {}): TakeoffPageReplacementResponse => ({
       job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false,
       jobs: [{ id: EARLIER_JOB, created_at: "2026-11-10T09:30:00.000Z", level: "C", source_file_name: "plan.pdf" }],
@@ -337,6 +337,38 @@ describe("TakeoffApplyWizard", () => {
       expect(onConfirm.mock.calls[0][0].pageDecisions).toMatchObject([{ decision: "keep_both", reason_code: "complementary_scope",
         note: "Réseau du local technique ajouté", pairs: [], lines: [{ estimate_item_id: LINE_A, action: "keep" },
           { estimate_item_id: LINE_B, action: "keep" }] }]);
+    });
+
+    // The independent review: removing a line that also carries another page would remove that page too; a « replacement »
+    // that replaces nothing is keeping both without a reason. Written before the fix.
+    it("never removes a vanished line that also carries another page, and keeps it waiting for « keep »", async () => {
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, {}));
+      const base = proposal();
+      base.rows[0].earlier_lines[1] = { ...base.rows[0].earlier_lines[1], other_pages: true };
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(base);
+      renderWizard(undefined, { presetStrategy: "append" });
+      await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      expect(within(within(panel).getByLabelText("Choix pour Vanne d’arrêt")).getByRole("option", { name: /Retirer du devis/ })).toBeDisabled();
+      fireEvent.click(within(panel).getByRole("button", { name: "Retirer les 1 ligne" }));
+      expect(within(panel).getByLabelText("Choix pour Vanne d’arrêt")).toHaveValue("");
+      expect(confirm()).toBeDisabled();
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "keep" } });
+      await waitFor(() => expect(confirm()).toBeEnabled());
+    });
+
+    it("asks to keep both, with a reason, when the replacement would replace nothing", async () => {
+      const base = proposal();
+      base.rows[0].pairs = [];
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(base);
+      renderWizard(undefined, { presetStrategy: "append" });
+      await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
+      fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+      const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      fireEvent.click(within(panel).getByRole("button", { name: "Garder les 2 lignes" }));
+      expect(confirm()).toBeDisabled();
+      expect(within(panel).getByRole("status")).toHaveTextContent("Rien n’est remplacé sur cette page");
     });
 
     it("does not offer to keep both where the page feeds a DPGF line another takeoff fed", async () => {

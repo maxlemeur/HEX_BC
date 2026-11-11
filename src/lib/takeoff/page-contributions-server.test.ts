@@ -39,7 +39,7 @@ function job(id: string, versionId: string, createdAt: string): Row {
 const takeoffLine = (n: number, jobId: string): Row =>
   ({ id: item(n), tenant_id: TENANT, job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: 1, source_document: null });
 const estimateLine = (n: number, versionId: string, jobId: string, itemId: string): Row => ({ id: line(n), tenant_id: TENANT,
-  version_id: versionId, source_provider: "takeoff", source_job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: 1,
+  version_id: versionId, item_type: "line", source_provider: "takeoff", source_job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: 1,
   takeoff_item_id: itemId, rounding_item_ids: null, rounding_job_id: null, policy_item_ids: null, policy_job_id: null });
 
 function database() {
@@ -56,6 +56,8 @@ function database() {
     takeoff_items: [takeoffLine(1, J1), takeoffLine(2, J2), takeoffLine(3, J3)],
     estimate_items: [
       estimateLine(1, V1, J1, item(1)), estimateLine(3, V1, J3, item(3)),
+      // PR 2: the section of an ouvrage J3 applied carries J3's line too; a section is never a line of the page.
+      { ...estimateLine(5, V1, J3, item(3)), item_type: "section" },
       // The copy keeps each line's source_job_id and provenance; J3's copied line was removed, J2 applied in the copy.
       estimateLine(4, V2, J1, item(1)), estimateLine(2, V2, J2, item(2)),
     ],
@@ -122,6 +124,7 @@ describe("getTakeoffJobPageContributions — the estimate version the review sho
 
     expect(db.estimateReads()).toEqual([V1]);
     expect(read.pages).toMatchObject([{ page: 1, own_line_count: 1, earlier: [{ job_id: J3, line_count: 1 }] }]);
+    expect(read.other_takeoff_line_count).toBe(1);
   });
 
   it.each([

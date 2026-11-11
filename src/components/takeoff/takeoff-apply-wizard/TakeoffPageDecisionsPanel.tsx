@@ -52,8 +52,10 @@ function PageDecision({ row, jobs, draft, disabled, onChange }: Readonly<{
   const missing = pageMissing(row, draft);
   const titles = new Map(row.earlier_lines.map((line) => [line.id, line.title]));
   const name = `takeoff-page-${row.key}`;
+  // A line that also carries another page is never removed: « remove all » leaves it waiting for « keep ».
   const setChoices = (choice: "remove" | "keep") => onChange({ ...draft,
-    choices: { ...draft.choices, ...Object.fromEntries(outcome.vanished.map((line) => [line.id, choice])) } });
+    choices: { ...draft.choices, ...Object.fromEntries(outcome.vanished.filter((line) => choice === "keep" || !line.otherPages)
+      .map((line) => [line.id, choice])) } });
   return (
     <fieldset aria-label={`Page ${label}`} className="space-y-3 rounded-lg border border-border bg-background p-3">
       <legend className="px-1 text-sm font-semibold text-foreground">{label}</legend>
@@ -162,7 +164,9 @@ function PageDecision({ row, jobs, draft, disabled, onChange }: Readonly<{
                     <NativeSelect aria-label={`Choix pour ${line.title}`} wrapperClassName="w-auto" size="sm" value={line.choice ?? ""} disabled={disabled}
                       onChange={(event) => onChange({ ...draft, choices: { ...draft.choices, [line.id]: (event.target.value || null) as "remove" | "keep" | null } })}>
                       <option value="">Choisir…</option>
-                      <option value="remove">Retirer du devis</option>
+                      <option value="remove" disabled={line.otherPages}>
+                        {line.otherPages ? "Retirer du devis (impossible : porte aussi d’autres pages)" : "Retirer du devis"}
+                      </option>
                       <option value="keep">Garder</option>
                     </NativeSelect>
                   </li>

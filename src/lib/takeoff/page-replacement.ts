@@ -47,6 +47,8 @@ export type ReplacementCandidate = {
   description: string | null;
   pricing_status: string;
   source_provider: string | null;
+  /** A line an ouvrage materialized from a takeoff line: its quantity is the ouvrage's, never a measure to replace. */
+  assembly?: boolean;
   sources: ReplacementSourceLine[];
 };
 export type ProposedPair = {
@@ -134,7 +136,7 @@ export function proposePagePairs(input: {
   const paired = new Set(pairs.map((pair) => pair.takeoff_item_id));
   const usedSources = new Set(pairs.flatMap((pair) => (pair.source_item_id ? [pair.source_item_id] : [])));
   const usedLegacy = new Set(pairs.filter((pair) => pair.source_item_id === null).map((pair) => pair.estimate_item_id));
-  const candidates = input.candidates.filter((candidate) => candidate.source_provider !== "dpgf");
+  const candidates = input.candidates.filter((candidate) => candidate.source_provider !== "dpgf" && !candidate.assembly);
   const pageSources = candidates.flatMap((candidate) => candidate.sources);
   type Slot = { candidate: ReplacementCandidate; source: ReplacementSourceLine | null; unit: string };
   const slots: Slot[] = candidates.flatMap((candidate): Slot[] => {
@@ -226,16 +228,20 @@ export function replacementQuantities(input: {
   const factor = input.factor;
   const current = input.quantity ?? 0;
   const legacy = input.sources.length === 0;
-  const measuredRaw = legacy ? current : input.sources.reduce((total, source) => total + source.quantity, 0);
-  const measured = legacy ? current : roundedMeasure(measuredRaw, factor);
+  const measuredRaw = legacy ? null : input.sources.reduce((total, source) => total + source.quantity, 0);
+  const measured = measuredRaw === null ? null : roundedMeasure(measuredRaw, factor);
   const keptRaw = legacy ? 0 : input.sources.filter((source) => !input.removedSourceIds.has(source.id))
     .reduce((total, source) => total + source.quantity, 0);
   const addedRaw = input.added.reduce((total, line) => total + line.quantity, 0);
   return {
     current,
     measured,
-    /** The estimator typed another quantity than the one its sources give (never for an engine 1/2 line). */
-    changedByHand: !legacy && Math.abs(current - measured) > 1e-9,
+    /**
+     * The estimator typed another quantity than the one its sources give: neither their sum rounded (since TI-681) nor
+     * their raw sum (a length applied before). An engine 1/2 line names no source: it cannot be told, so it is asked.
+     */
+    changedByHand: measured === null || measuredRaw === null
+      || (Math.abs(current - measured) > 1e-9 && Math.abs(current - measuredRaw) > 1e-9),
     next: roundedMeasure(keptRaw + addedRaw, factor),
   };
 }

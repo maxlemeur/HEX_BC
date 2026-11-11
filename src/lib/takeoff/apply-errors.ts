@@ -113,6 +113,10 @@ function pageName(page: { source_file_name?: string | null; source_page?: number
 
 /** Why the database refused a page decision (TAKEOFF_PAGE_DECISION_INVALID). */
 const PAGE_DECISION_MESSAGES: Record<string, string> = {
+  remove_other_pages: "Une ligne à retirer porte aussi d’autres pages du plan : la retirer les retirerait. Gardez-la, ou corrigez-la dans le devis.",
+  assembly_line: "Une ligne d’ouvrage tient sa quantité de l’ouvrage : elle se garde ou se retire, jamais une ligne du métré ne la remplace.",
+  nothing_replaced: "Rien n’est remplacé sur une page : gardez les deux mesures avec un motif.",
+  dpgf_not_replaced: "Une ligne DPGF de la page n’est pas alimentée par ce métré : sa mesure resterait à côté de la nouvelle. Gardez les deux mesures avec un motif.",
   take_required: "Une quantité de ligne a été modifiée à la main : choisissez de prendre la nouvelle mesure ou de garder la vôtre.",
   dpgf_keep_both: "Garder les deux mesures n’est pas possible sur une page qui alimente une ligne DPGF déjà alimentée par un autre métré : la ligne DPGF ne garde qu’une mesure. Remplacez la mesure précédente.",
   ambiguous_document: "Une ligne du métré ne connaît que le nom de son plan, et deux plans de même nom sont au devis sur cette page : rattachez-la à la main ou ajoutez-la.",
@@ -173,7 +177,14 @@ export function mapApplyTakeoffRpcError(
           + "Choisissez à l’étape « Pages déjà au devis » de remplacer sa mesure ou de garder les deux.",
         details: { ...guardDetails, guard: "page_already_applied" }, retryable: false, jobId: input.jobId });
     }
-    if (normalized.includes("takeoff_page_decision_stale") || normalized.includes("takeoff_page_replace_conflict")) {
+    if (normalized.includes("takeoff_page_replace_conflict")) {
+      // Deterministic: the same proposal would meet the same match again; the estimator changes the strategy or a pair.
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+        message: "« Fusionner » rattache une ligne du nouveau métré à une autre ligne que celle choisie à l’étape « Pages déjà au devis ». "
+          + "Choisissez « Ajouter », ou rattachez la ligne comme la fusion le fait.",
+        details: { ...guardDetails, guard: "page_decision", reason: "merge_elsewhere" }, retryable: false, jobId: input.jobId });
+    }
+    if (normalized.includes("takeoff_page_decision_stale")) {
       return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
         message: "Le devis a changé depuis la proposition des pages déjà au devis. Relisez-la et confirmez à nouveau.",
         details: { ...guardDetails, guard: "page_decision" }, retryable: true, jobId: input.jobId });

@@ -79,6 +79,8 @@ async function readEstimateProvenance(context: Context, versionId: string): Prom
   const { data, error } = await readAllRows(() => context.supabase.from("estimate_items" as never)
     .select(ESTIMATE_LINE_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, context.tenantId as never).eq("version_id" as never, versionId as never)
+    // PR 2: a line only; an ouvrage's section carries its source line too, but holds no quantity of the page.
+    .eq("item_type" as never, "line" as never)
     .not("source_job_id" as never, "is", null) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire la provenance des lignes du devis.");
   return ((data ?? []) as unknown as EstimateLineRow[]).map(({ takeoff_item_id, rounding_item_ids, rounding_job_id, policy_item_ids, policy_job_id,

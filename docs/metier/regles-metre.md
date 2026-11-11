@@ -219,16 +219,26 @@ seconde fois sans décision.
   70,4 % des lignes vision et 98,6 % des lignes vectorielles sont appariées.
 - **Lignes que le nouveau métré n'a plus** : aucun choix par défaut, « Retirer du
   devis » ou « Garder », et deux boutons qui règlent toutes les lignes en un clic.
-  La confirmation attend un choix pour chacune.
+  La confirmation attend un choix pour chacune. Une ligne qui porte aussi d'autres
+  pages (une longueur regroupée sur deux pages) ne se retire pas : ses autres pages
+  partiraient avec elle ; elle se garde. Une ligne d'ouvrage tient sa quantité de
+  l'ouvrage : elle se garde ou se retire, jamais une ligne du métré ne la remplace.
+  Une section d'ouvrage n'est pas une ligne de la page.
+- **Rien remplacé** : un « remplacement » qui garde toutes les lignes précédentes
+  garde en fait les deux mesures ; il demande « Garder les deux » et son motif.
 - **Quantité modifiée à la main** (elle diffère de ce que ses sources donnent) :
   « Prendre la nouvelle mesure » ou « Garder ma quantité » ; jamais écrasée sans ce
-  choix. Une ligne des moteurs 1 et 2 ne nomme pas ses sources : elle est remplacée
-  entière, et sa modification à la main ne peut pas être vue.
+  choix. Une longueur appliquée avant TI-681 (sa mesure brute, jamais arrondie) n'est
+  pas une quantité modifiée. Une ligne des moteurs 1 et 2 ne nomme pas ses sources :
+  elle est remplacée entière, et comme une modification à la main ne peut pas s'y
+  voir, le choix est toujours demandé.
 - **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
   ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
   ingénieurs comme aux administrateurs. Refusé sur une page qui alimente une ligne
   DPGF déjà alimentée par un autre métré, tant que la ligne DPGF ne garde que la
-  dernière mesure.
+  dernière mesure. À l'inverse, une ligne DPGF de la page que le nouveau métré
+  n'alimente pas ne peut pas être « remplacée » : sa mesure resterait à côté de la
+  nouvelle ; on garde alors les deux, avec un motif.
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.

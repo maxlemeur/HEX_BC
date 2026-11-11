@@ -78,6 +78,13 @@ describe("proposePagePairs — which new line replaces which earlier line", () =
     expect(pairs.map((pair) => [pair.takeoff_item_id, pair.source_item_id])).toEqual([[id(101), id(1)], [id(102), id(2)]]);
   });
 
+  it("never pairs an ouvrage's component: its quantity is the ouvrage's", () => {
+    expect(proposePagePairs({
+      newLines: [fresh(101, "Collier", "u", 7)],
+      candidates: [line(201, "Collier", "u", [source(1, "Collier", "u", 6)], { assembly: true })],
+    })).toEqual([]);
+  });
+
   it("never pairs a DPGF target: its own policy replaces it per takeoff", () => {
     expect(proposePagePairs({
       newLines: [fresh(101, "EF cuivre DN 22", "ml", 30)],
@@ -133,9 +140,13 @@ describe("replacementQuantities — what a replacement gives an earlier line", (
     expect(replacementQuantities({ quantity: 6, factor: null, sources: [{ id: id(1), quantity: 4 }],
       removedSourceIds: new Set([id(1)]), added: [{ quantity: 5 }] })).toMatchObject({ measured: 4, changedByHand: true, next: 5 });
   });
-  it("replaces an engine 1/2 line whole: its sources are not known", () => {
+  it("replaces an engine 1/2 line whole, and asks: whether its quantity was changed by hand cannot be seen", () => {
     expect(replacementQuantities({ quantity: 4, factor: null, sources: [], removedSourceIds: new Set(),
-      added: [{ quantity: 5 }] })).toEqual({ current: 4, measured: 4, changedByHand: false, next: 5 });
+      added: [{ quantity: 5 }] })).toEqual({ current: 4, measured: null, changedByHand: true, next: 5 });
+  });
+  it("takes a length applied before TI-681, its raw measure never rounded, for no change by hand", () => {
+    expect(replacementQuantities({ quantity: 10.2, factor: 1, sources: [{ id: id(1), quantity: 10.2 }], removedSourceIds: new Set([id(1)]),
+      added: [{ quantity: 8 }] })).toEqual({ current: 10.2, measured: 11, changedByHand: false, next: 8 });
   });
   it("rounds centimetres to the metre, as finalize_takeoff_lengths does", () => {
     expect(lengthFactor({ unit_code: "cm", description: null })).toBe(0.01);

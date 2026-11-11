@@ -59,7 +59,7 @@ type EstimateLineRow = { id: string; title: string; unit_code: string | null; de
   quantity: number | string | null; updated_at: string; unit_price_ht_cents: number | null; parent_id: string | null; position: number;
   item_type: string; source_provider: string | null; source_job_id: string | null; source_file_name: string | null; source_page: number | null;
   takeoff_item_id: unknown; rounding_item_ids: unknown; rounding_job_id: unknown; policy_item_ids: unknown; policy_job_id: unknown;
-  replacement_item_ids: unknown; replacement_job_id: unknown };
+  replacement_item_ids: unknown; replacement_job_id: unknown; mapping_action: unknown };
 type JobRow = { id: string; created_at: string; level: string | null; source_file_name: string | null; sources: unknown };
 
 const TAKEOFF_LINE_SELECT = "id,job_id,designation,unit,quantity,is_excluded,source_file_name,source_page,"
@@ -69,7 +69,8 @@ const ESTIMATE_LINE_SELECT = "id,title,unit_code,description,pricing_status,quan
   + "takeoff_item_id:source_metadata->>takeoff_item_id,"
   + "rounding_item_ids:source_metadata->takeoff_length_rounding->item_ids,rounding_job_id:source_metadata->takeoff_length_rounding->>job_id,"
   + "policy_item_ids:source_metadata->takeoff_quantity_policy->item_ids,policy_job_id:source_metadata->takeoff_quantity_policy->>job_id,"
-  + "replacement_item_ids:source_metadata->takeoff_page_replacement->item_ids,replacement_job_id:source_metadata->takeoff_page_replacement->>job_id";
+  + "replacement_item_ids:source_metadata->takeoff_page_replacement->item_ids,replacement_job_id:source_metadata->takeoff_page_replacement->>job_id,"
+  + "mapping_action:source_metadata->>mapping_action";
 const JOB_SELECT = "id,created_at,level,source_file_name,sources:preparation_snapshot->preparation->sources";
 
 const sourcesSchema = z.array(z.object({ document_id: z.string(), kind: z.string().nullish(), active: z.boolean().nullish(),
@@ -200,7 +201,8 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
           continue;
         }
         candidates.set(estimateItemId, { id: line.id, title: line.title, unit_code: line.unit_code, description: line.description,
-          pricing_status: line.pricing_status, source_provider: line.source_provider, sources, job_id: earlier.job_id, item_ids: onPage });
+          pricing_status: line.pricing_status, source_provider: line.source_provider, assembly: line.mapping_action === "apply_assembly",
+          sources, job_id: earlier.job_id, item_ids: onPage });
       }
     }
     const newLines: ReplacementNewLine[] = page.item_ids.flatMap((id) => {
@@ -233,7 +235,8 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
       earlier_job_ids: page.earlier.map((earlier) => earlier.job_id),
       new_lines: newLines.map((line) => ({ id: line.id, designation: line.designation, unit: line.unit, quantity: line.quantity,
         unit_key: unitKey(line.unit),
-        candidate_ids: [...candidates.values()].filter((candidate) => candidate.source_provider !== "dpgf" && unitKey(line.unit) !== null
+        candidate_ids: [...candidates.values()].filter((candidate) => candidate.source_provider !== "dpgf" && !candidate.assembly
+          && unitKey(line.unit) !== null
           && estimateLineUnitKey(candidate) === unitKey(line.unit)
           && candidate.sources.every((source) => mayReplaceAcrossDocuments(line, source, pageSources))).map((candidate) => candidate.id) })),
       earlier_lines: [...candidates.values()].map((candidate) => {
@@ -241,11 +244,16 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
         const allSources = (sourceIdsOf.get(candidate.id) ?? []).flatMap((id) => (lines.get(id) ? [{ id, quantity: lines.get(id)!.quantity }] : []));
         const quantities = replacementQuantities({ quantity: number(line.quantity), factor: lengthFactor(line), sources: allSources,
           removedSourceIds: new Set(candidate.item_ids), added: [] });
+        const measuredLine = line.source_provider !== "dpgf" && !candidate.assembly;
         return { id: line.id, title: line.title, unit_key: estimateLineUnitKey(line), quantity: number(line.quantity),
-          measured_quantity: line.source_provider === "dpgf" ? null : quantities.measured,
-          changed_by_hand: line.source_provider !== "dpgf" && quantities.changedByHand,
+          measured_quantity: measuredLine ? quantities.measured : null,
+          changed_by_hand: measuredLine && quantities.changedByHand,
           updated_at: line.updated_at, unit_price_ht_cents: line.unit_price_ht_cents, job_id: candidate.job_id,
-          dpgf_target: line.source_provider === "dpgf", item_ids: candidate.item_ids, sources: allSources, length_factor: lengthFactor(line) };
+          dpgf_target: line.source_provider === "dpgf",
+          fed_again: line.source_provider === "dpgf" && newLines.some((newLine) => fedTargets.get(newLine.id) === line.id),
+          assembly: Boolean(candidate.assembly),
+          other_pages: (sourceIdsOf.get(candidate.id) ?? []).some((id) => !candidate.item_ids.includes(id)),
+          item_ids: candidate.item_ids, sources: allSources, length_factor: lengthFactor(line) };
       }),
       pairs: pairs.map((pair) => ({ ...pair, locked: pair.reason === "merge" })),
       ambiguous_document: nameOnly && identifiedDocuments.size > 1,

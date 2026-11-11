@@ -54,7 +54,9 @@ create temporary table po_cases (case_no integer primary key, engine smallint no
 insert into po_cases (case_no, engine, dpgf) values
   (1, 3, false), (2, 3, true), (3, 3, false), (4, 3, false), (5, 3, false), (6, 3, false), (7, 3, false), (8, 3, false),
   (9, 3, false), (10, 3, false), (11, 3, false), (12, 3, false), (13, 3, false), (14, 3, false), (15, 3, false),
-  (16, 2, false), (17, 3, true), (18, 3, false), (19, 3, false), (20, 3, false), (21, 3, false), (22, 3, false);
+  (16, 2, false), (17, 3, true), (18, 3, false), (19, 3, false), (20, 3, false), (21, 3, false), (22, 3, false),
+  -- The independent review's cases (23 to 28).
+  (23, 3, false), (24, 3, false), (25, 3, false), (26, 3, false), (27, 3, true), (28, 3, false);
 grant select on po_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -164,7 +166,21 @@ insert into po_items (case_no, job_no, line_no, designation, quantity, unit, fil
   -- 19, 20, 21: decided by another person, with « Remplacer la section », merged by title without a decision.
   (19, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (19, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
   (20, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (20, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
-  (21, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (21, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}');
+  (21, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (21, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 23: « keep mine » with « Fusionner », which writes the new quantity on its matched line first.
+  (23, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (23, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 24: a length merged over two pages, gone from page 1 only: removing the line would remove page 2's part.
+  (24, 1, 1, 'EF cuivre DN 20', 10.2, 'ml', 'plan-fictif.pdf', 1, 'A', '{}'), (24, 1, 2, 'EF cuivre DN 20', 5.3, 'ml', 'plan-fictif.pdf', 2, 'A', '{}'),
+  (24, 2, 1, 'WC suspendu', 2, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 25: an ouvrage applied from a line of the page (its section and its component lines carry the source line).
+  (25, 1, 1, 'Collier', 6, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (25, 1, 2, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  (25, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (25, 2, 2, 'Collier', 7, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 26: a « replacement » that keeps every earlier line and replaces nothing.
+  (26, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (26, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 27: a DPGF target fed by M1 from the page, not fed again by M2.
+  (27, 1, 1, 'EF cuivre DN 22', 30, 'ml', 'plan-fictif.pdf', 1, 'A', '{}'), (27, 2, 1, 'Vanne d''arrêt', 3, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 28: a length applied before TI-681, never rounded (its quantity is its raw measure).
+  (28, 1, 1, 'EF cuivre DN 20', 10.2, 'ml', 'plan-fictif.pdf', 1, 'A', '{}'), (28, 2, 1, 'EF cuivre DN 20', 8, 'ml', 'plan-fictif.pdf', 1, 'A', '{}');
 insert into po_items (case_no, job_no, line_no, designation, quantity, unit, file_name, page, document, hypothesis, verified) values
   (15, 1, 1, 'Support mural', 8, 'u', 'plan-fictif.pdf', 1, 'A', true, false),
   (15, 2, 1, 'Support mural', 9, 'u', 'plan-fictif.pdf', 1, 'A', false, true),
@@ -218,7 +234,8 @@ create or replace function pg_temp.po_plan(p_job uuid, p_overrides jsonb)
 returns jsonb language sql security definer as $$
   select coalesce(jsonb_agg(jsonb_build_object('item_id', item.id, 'source_order', item.source_order, 'rule_id', null,
     'action', coalesce(p_overrides -> item.id::text ->> 'action', 'none'), 'designation', btrim(item.designation),
-    'unit_price_cents', null, 'category_id', null, 'assembly_id', null) order by item.source_order), '[]'::jsonb)
+    'unit_price_cents', null, 'category_id', null, 'assembly_id', (p_overrides -> item.id::text ->> 'assembly_id')::uuid)
+    order by item.source_order), '[]'::jsonb)
   from (select ti.*, (row_number() over (order by ti.created_at, ti.id) - 1)::integer as source_order
     from public.takeoff_items ti where ti.job_id = p_job) as item
 $$;
@@ -343,11 +360,21 @@ returns void language sql as $$
   from public.estimate_items target where target.id = pg_temp.po_id(p_case * 1000 + 3)
 $$;
 select pg_temp.po_dpgf_permit(17, 1, 'page-once-17-1');
+select pg_temp.po_dpgf_permit(27, 1, 'page-once-27-1');
+-- Case 25: the ouvrage M1 applies from its collar (a section and one component line).
+insert into public.estimate_assemblies (id, tenant_id, created_by, name)
+values (pg_temp.po_id(25900), current_setting('test.tenant_id')::uuid, pg_temp.po_id(1), 'Ouvrage support fictif');
+insert into public.estimate_assembly_items (id, tenant_id, assembly_id, title, unit, default_quantity, h_mo, position, cost_type,
+  unit_cost_ht_cents)
+values (pg_temp.po_id(25901), current_setting('test.tenant_id')::uuid, pg_temp.po_id(25900), 'Support distribution', 'u', 4, 0, 1,
+  'material', 300);
 
 select pg_temp.po_as(1);
 set local role authenticated;
-select is(pg_temp.po_apply('M1 ' || c.case_no, pg_temp.po_job(c.case_no, 1), case when c.case_no = 17 then 'merge' else 'append' end,
-    '{}'::jsonb, case c.case_no when 2 then 'page-once-2-1' when 17 then 'page-once-17-1' end), 'ok',
+select is(pg_temp.po_apply('M1 ' || c.case_no, pg_temp.po_job(c.case_no, 1), case when c.case_no in (17, 27) then 'merge' else 'append' end,
+    case when c.case_no = 25 then jsonb_build_object(pg_temp.po_item(25, 1, 1)::text,
+      jsonb_build_object('action', 'apply_assembly', 'assembly_id', pg_temp.po_id(25900))) else '{}'::jsonb end,
+    case c.case_no when 2 then 'page-once-2-1' when 17 then 'page-once-17-1' when 27 then 'page-once-27-1' end), 'ok',
   'fixture: the first takeoff of case ' || c.case_no || ' applies alone')
 from po_cases c where c.case_no <> 8;
 reset role;
@@ -385,6 +412,14 @@ begin
   perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(12)::text, true);
   update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(12, 'WC suspendu')).id;
   perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(12), '{}'::uuid[]);
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(23)::text, true);
+  update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(23, 'WC suspendu')).id;
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(23), '{}'::uuid[]);
+  -- Case 28: a length line as an application before TI-681 left it, its raw measure without a rounding key.
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(28)::text, true);
+  update public.estimate_items set quantity = 10.2, source_metadata = source_metadata - 'takeoff_length_rounding'
+  where id = (pg_temp.po_line(28, 'EF cuivre DN 20')).id;
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(28), '{}'::uuid[]);
   perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(22)::text, true);
   update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(22, 'WC suspendu')).id;
   -- Lot C (#231): the line left « Non chiffrée » with a written reserve declared in the offer.
@@ -455,6 +490,14 @@ select is(pg_temp.po_decide(pg_temp.po_job(8, 2), jsonb_build_array(pg_temp.po_d
 select is(pg_temp.po_decide(pg_temp.po_job(8, 2), jsonb_build_array(pg_temp.po_decision(8, 'keep_both', 'complementary_scope', 'court',
     jsonb_build_array(pg_temp.po_ref(8, 'WC suspendu', 'keep', null, array[pg_temp.po_item(8, 1, 1)])), '[]'::jsonb))),
   '22023 TAKEOFF_PAGE_DECISION_INVALID shape', 'a complementary scope needs a note of ten characters at least');
+select is(pg_temp.po_decide(pg_temp.po_job(8, 2), jsonb_build_array(pg_temp.po_decision(8, 'keep_both', 'other_zone', null,
+    jsonb_build_array(pg_temp.po_ref(8, 'WC suspendu', 'keep', null, array[pg_temp.po_item(8, 1, 1)])
+      || '{"expected_updated_at": "hier"}'::jsonb), '[]'::jsonb))),
+  '22023 TAKEOFF_PAGE_DECISION_INVALID shape', 'a line read at no readable time is refused');
+select is(pg_temp.po_decide(pg_temp.po_job(8, 2), jsonb_build_array(pg_temp.po_decision(8, 'keep_both', 'other_zone', null,
+    jsonb_build_array(pg_temp.po_ref(8, 'WC suspendu', 'keep', null, array[pg_temp.po_item(8, 1, 1)])), '[]'::jsonb)
+    || '{"source_page": 1.5}'::jsonb)),
+  '22023 TAKEOFF_PAGE_DECISION_INVALID shape', 'a page that is no whole number is refused');
 select is(pg_temp.po_decide(pg_temp.po_job(8, 2), jsonb_build_array(pg_temp.po_decision(8, 'keep_both', 'other_zone', null,
     jsonb_build_array(pg_temp.po_ref(8, 'WC suspendu', 'keep', null, array[pg_temp.po_item(8, 1, 1)])), '[]'::jsonb))),
   'ok 1', 'an engineer keeps both with « another zone »');
@@ -677,6 +720,18 @@ select is(pg_temp.po_apply('engine 2 relaunch', pg_temp.po_job(16, 2), 'append',
 select is(pg_temp.po_decide(pg_temp.po_job(16, 2), jsonb_build_array(pg_temp.po_decision(16, 'replace', null, null,
     jsonb_build_array(pg_temp.po_ref(16, 'WC suspendu', 'update', null, null), pg_temp.po_ref(16, 'Vanne d''arrêt', 'update', null, null)),
     jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(16, 2, 1), 16, 'WC suspendu'),
+      pg_temp.po_pair(pg_temp.po_item(16, 2, 2), 16, 'Vanne d''arrêt'))))), 'ok 1', 'fixture: engine 2 replacement without a choice');
+reset role;
+drop table if exists pg_temp._takeoff_apply_source;
+drop table if exists pg_temp._takeoff_apply_created_ids;
+drop table if exists pg_temp._takeoff_apply_matches;
+drop table if exists pg_temp._takeoff_apply_unmatched;
+set local role authenticated;
+select is(pg_temp.po_apply('engine 2 no choice', pg_temp.po_job(16, 2), 'append', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
+  'engine 2: a line names no source, so a quantity changed by hand cannot be seen: the estimator chooses');
+select is(pg_temp.po_decide(pg_temp.po_job(16, 2), jsonb_build_array(pg_temp.po_decision(16, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(16, 'WC suspendu', 'update', 'new', null), pg_temp.po_ref(16, 'Vanne d''arrêt', 'update', 'new', null)),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(16, 2, 1), 16, 'WC suspendu'),
       pg_temp.po_pair(pg_temp.po_item(16, 2, 2), 16, 'Vanne d''arrêt'))))), 'ok 1', 'fixture: engine 2 replacement');
 reset role;
 drop table if exists pg_temp._takeoff_apply_source;
@@ -738,6 +793,72 @@ select is(pg_temp.po_decide(pg_temp.po_job(20, 2), jsonb_build_array(pg_temp.po_
 select is(pg_temp.po_apply('section emptied', pg_temp.po_job(20, 2), 'replace', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
   'a replacement beside « Remplacer la section » is refused');
 reset role;
+
+-- The independent review's cases ----------------------------------------------------------------------------------
+-- Written before their fixes (red on the first version of this migration): « keep mine » kept what « Fusionner » wrote;
+-- removing a length merged over two pages removed the page kept; an ouvrage's section blocked every decision; a new line
+-- replaced an ouvrage's component; a « replacement » that kept everything let the page in twice without a reason; a DPGF
+-- target not fed again was kept silently; a length applied before TI-681 was taken for a quantity changed by hand.
+set local role authenticated;
+select is(pg_temp.po_decide(pg_temp.po_job(23, 2), jsonb_build_array(pg_temp.po_decision(23, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(23, 'WC suspendu', 'update', 'keep_mine', array[pg_temp.po_item(23, 1, 1)])),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(23, 2, 1), 23, 'WC suspendu'))))), 'ok 1', 'fixture: « keep mine »');
+select is(pg_temp.po_apply('keep mine merged', pg_temp.po_job(23, 2), 'merge', '{}'::jsonb, null), 'ok',
+  '« keep mine » applies with « Fusionner »');
+select is(pg_temp.po_decide(pg_temp.po_job(24, 2), jsonb_build_array(pg_temp.po_decision(24, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(24, 'EF cuivre DN 20', 'remove', null, array[pg_temp.po_item(24, 1, 1)])), '[]'::jsonb))),
+  'ok 1', 'fixture: a length of two pages removed');
+select is(pg_temp.po_apply('remove other pages', pg_temp.po_job(24, 2), 'append', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
+  'a line that also carries another page is not removed: its other page would go with it');
+select is(pg_temp.po_decide(pg_temp.po_job(25, 2), jsonb_build_array(pg_temp.po_decision(25, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(25, 'WC suspendu', 'update', null, array[pg_temp.po_item(25, 1, 2)]),
+      pg_temp.po_ref(25, 'Support distribution', 'update', null, array[pg_temp.po_item(25, 1, 1)])),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(25, 2, 1), 25, 'WC suspendu'),
+      pg_temp.po_pair(pg_temp.po_item(25, 2, 2), 25, 'Support distribution'))))), 'ok 1', 'fixture: an ouvrage component paired');
+select is(pg_temp.po_apply('assembly paired', pg_temp.po_job(25, 2), 'append', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
+  'a new line never replaces an ouvrage''s component: its quantity is the ouvrage''s, not a measure');
+select is(pg_temp.po_decide(pg_temp.po_job(25, 2), jsonb_build_array(pg_temp.po_decision(25, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(25, 'WC suspendu', 'update', null, array[pg_temp.po_item(25, 1, 2)]),
+      pg_temp.po_ref(25, 'Support distribution', 'keep', null, array[pg_temp.po_item(25, 1, 1)])),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(25, 2, 1), 25, 'WC suspendu'))))), 'ok 1', 'fixture: the ouvrage kept');
+select is(pg_temp.po_apply('assembly kept', pg_temp.po_job(25, 2), 'append', '{}'::jsonb, null), 'ok',
+  'an ouvrage''s section is no line to decide: the decision of its lines is enough');
+select is(pg_temp.po_decide(pg_temp.po_job(26, 2), jsonb_build_array(pg_temp.po_decision(26, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(26, 'WC suspendu', 'keep', null, array[pg_temp.po_item(26, 1, 1)])), '[]'::jsonb))),
+  'ok 1', 'fixture: a « replacement » keeping everything');
+select is(pg_temp.po_apply('nothing replaced', pg_temp.po_job(26, 2), 'append', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
+  'a « replacement » that replaces nothing is keeping both, which needs a reason');
+reset role;
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+select current_setting('test.tenant_id')::uuid, pg_temp.po_job(27, 2), pg_temp.po_version(27), pg_temp.po_id(1),
+  encode(sha256(convert_to(token, 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes'
+from unnest(array['page-once-27-2', 'page-once-27-2b']) as token;
+set local role authenticated;
+select is(pg_temp.po_decide(pg_temp.po_job(27, 2), jsonb_build_array(pg_temp.po_decision(27, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(27, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(27, 1, 1)])), '[]'::jsonb))),
+  'ok 1', 'fixture: a DPGF target left to a policy that does not feed it');
+select is(pg_temp.po_apply('dpgf not fed', pg_temp.po_job(27, 2), 'append', '{}'::jsonb, 'page-once-27-2'),
+  '22023 TAKEOFF_PAGE_DECISION_INVALID', 'a DPGF target the new takeoff does not feed again is not « replaced »: its earlier measure stays');
+select is(pg_temp.po_decide(pg_temp.po_job(27, 2), jsonb_build_array(pg_temp.po_decision(27, 'keep_both', 'other_trade', null,
+    jsonb_build_array(pg_temp.po_ref(27, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(27, 1, 1)])), '[]'::jsonb))),
+  'ok 1', 'fixture: both kept');
+select is(pg_temp.po_apply('dpgf kept both', pg_temp.po_job(27, 2), 'append', '{}'::jsonb, 'page-once-27-2b'), 'ok',
+  'keeping both is allowed where the DPGF target is not fed again');
+select is(pg_temp.po_decide(pg_temp.po_job(28, 2), jsonb_build_array(pg_temp.po_decision(28, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(28, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(28, 1, 1)])),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(28, 2, 1), 28, 'EF cuivre DN 20'))))), 'ok 1', 'fixture: an unrounded length');
+select is(pg_temp.po_apply('unrounded', pg_temp.po_job(28, 2), 'append', '{}'::jsonb, null), 'ok',
+  'a length applied before TI-681 (its raw measure, never rounded) is no quantity changed by hand');
+reset role;
+select is((select jsonb_agg(detail ->> 'reason' order by case_name) from po_outcome
+    where case_name in ('remove other pages', 'assembly paired', 'nothing replaced', 'dpgf not fed', 'engine 2 no choice')),
+  '["assembly_line", "dpgf_not_replaced", "take_required", "nothing_replaced", "remove_other_pages"]'::jsonb, 'each refusal says why');
+select is((pg_temp.po_line(23, 'WC suspendu')).quantity, 6::numeric, '« keep mine » keeps the estimator''s 6, not what « Fusionner » wrote');
+select is((select jsonb_agg(jsonb_build_array(item.title, item.quantity) order by item.title) from public.estimate_items item
+    where item.version_id = pg_temp.po_version(25) and item.item_type = 'line'),
+  '[["Collier", 7], ["Support distribution", 4], ["WC suspendu", 5]]'::jsonb, 'the ouvrage stays, the count is replaced, the new collar added');
+select is((pg_temp.po_line(28, 'EF cuivre DN 20')).quantity, 8::numeric, 'the unrounded length takes the new measure');
 
 -- The decisions table: no direct write, other tenants see nothing and write nothing -------------------------------------
 

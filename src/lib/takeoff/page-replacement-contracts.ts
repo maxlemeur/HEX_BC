@@ -85,6 +85,12 @@ const earlierLineSchema = z.object({
   job_id: uuid,
   /** A DPGF target: its own policy replaces it; it is only kept or replaced by the DPGF reconciliation. */
   dpgf_target: z.boolean(),
+  /** A DPGF target this takeoff's lines of the page feed again: replacing the page replaces its measure. */
+  fed_again: z.boolean(),
+  /** A line an ouvrage materialized: its quantity is the ouvrage's; it is kept or removed, never paired. */
+  assembly: z.boolean(),
+  /** It also carries other pages than this one: removing it would remove them; it is kept or paired. */
+  other_pages: z.boolean(),
   /** Its earlier source lines on this page (none for an engine 1/2 line). */
   item_ids: z.array(uuid),
   /** Every source line with its quantity, to show what a replacement gives. */

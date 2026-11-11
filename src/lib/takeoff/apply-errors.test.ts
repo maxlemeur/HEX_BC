@@ -58,7 +58,7 @@ describe("mapApplyTakeoffRpcError, a page already in the estimate", () => {
   });
 
   it("asks to read the pages again when the estimate changed since the decision (409, retryable)", () => {
-    for (const code of ["TAKEOFF_PAGE_DECISION_STALE", "TAKEOFF_PAGE_REPLACE_CONFLICT"]) {
+    for (const code of ["TAKEOFF_PAGE_DECISION_STALE"]) {
       const error = page(code, "40001", '{"scope": "page", "reason": "line_changed", "source_page": 1, "source_file_name": "plan.pdf"}');
       expect(error).toMatchObject({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: true });
       expect(error.details).toMatchObject({ guard: "page_decision" });
@@ -66,7 +66,17 @@ describe("mapApplyTakeoffRpcError, a page already in the estimate", () => {
     }
   });
 
+  it("says « Fusionner » sends a line elsewhere than its pair: a choice, not a change to read again", () => {
+    const error = page("TAKEOFF_PAGE_REPLACE_CONFLICT", "40001", '{"scope": "page", "estimate_item_id": "x"}');
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
+    expect(error.message).toContain("« Fusionner » rattache une ligne du nouveau métré à une autre ligne que celle choisie");
+  });
+
   it.each([
+    ["remove_other_pages", "porte aussi d’autres pages"],
+    ["assembly_line", "ouvrage"],
+    ["nothing_replaced", "Rien n’est remplacé"],
+    ["dpgf_not_replaced", "n’est pas alimentée par ce métré"],
     ["take_required", "Une quantité de ligne a été modifiée à la main"],
     ["dpgf_keep_both", "Garder les deux mesures n’est pas possible sur une page qui alimente une ligne DPGF"],
     ["ambiguous_document", "deux plans de même nom"],
