@@ -40,6 +40,21 @@ node scripts/tester-army/select-journeys.ts --event pull_request --base origin/m
 npm run e2e:army:local -- --files 'e2e/army/critical/estimate-integrity.e2e.ts'
 ```
 
+Les phases calc-v3 d'une PR sont choisies par
+[`select-calc-v3.ts`](../../scripts/tester-army/select-calc-v3.ts) sur le même
+graphe. Un fichier modifié lance les phases dont un parcours le charge et celles
+de sa règle de domaine. Chaque point d'entrée qu'il atteint doit être expliqué :
+une page ou une route qu'aucune phase ni règle ne couvre lance toutes les phases,
+même si le parcours d'une phase atteint aussi le fichier. Aucune phase ne tourne
+pour un changement qu'aucune phase ne charge : tests unitaires, parcours des
+autres suites, outillage et workflows que la carte classe `nonRuntime`. Sous
+`src/`, seuls les tests unitaires (`*.test.ts`, `*.test.tsx`) sont dans ce cas :
+le build de chaque phase vérifie les types du reste, et la préparation de la pile
+en lance ou en lit une partie par chemin. Lancent toujours toutes les phases : le
+workflow et le profil calc-v3, la matrice RLS et `vitest.config.ts`,
+`openapi.json`, du code applicatif qui n'atteint aucune phase, et un fichier
+supprimé.
+
 Le premier appel compare les commits (`base...head`), pas le travail non
 commité. `--files` et `--grep` s'excluent. Avant de créer une pile,
 `journey-preflight.mjs` refuse une sélection sans parcours métier, une
