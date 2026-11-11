@@ -102,6 +102,16 @@ describe("takeoff bench dataset", () => {
     expect(loaded.pageTruths.get("load-plan-01")?.pages[0].type).toBe("coupe");
   });
 
+  it("loads the hand measurements of the plans, and none when the folder is absent", async () => {
+    expect((await loadBenchDataset(dataset.root, ["a-plan-01"])).measured).toEqual([]);
+    await dataset.writeJson("truth/measured/a-plan-01.json", {
+      schema_version: 1, document: "a-plan-01", method: "Fictional method", measured_by: "Fictional estimator", measured_on: "2026-11-12",
+      lines: [{ zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: "DN 22", length_m: 11.2 }],
+    });
+    const loaded = await loadBenchDataset(dataset.root, ["a-plan-01"]);
+    expect(loaded.measured.map((file) => [file.document, file.lines.map((line) => line.length_m)])).toEqual([["a-plan-01", [11.2]]]);
+  });
+
   it("selects for a triage run every binary PDF with its page truth", async () => {
     const loaded = await loadBenchDataset(dataset.root, "all", { mode: "triage" });
     expect(loaded.selected.map(({ document }) => document.id)).toEqual(["a-plan-01", "a-plan-02", "c-plan-01", "d-plan-01", "load-plan-01"]);

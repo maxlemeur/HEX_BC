@@ -461,6 +461,32 @@ calculé comme avant, reste le chiffre de tête.
   une clé manquée comptant 100 %) est aussi calculé sur la tranche vecteur. Il n'a pas
   de verdict sur une abstention.
 
+**Longueurs jugées à la mesure au trait** (TI-662, décision du 11 nov.). Un devis peut
+compter plus de tuyau que le plan n'en trace : chutes vers les appareils, majorations,
+arrondi de chaque tronçon. Une lecture qui suit le dessin reste alors en dessous du
+devis, même quand elle lit juste. Le jugement est ajouté après lecture des résultats de
+la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent pas.
+
+- **La mesure.** Une personne mesure le plan à la main, le long de l'axe du tuyau
+  dessiné, en plan seulement, sans chute, sans majoration et sans arrondi. Elle ne voit
+  ni la lecture ni le devis. Le résultat est un fichier `truth/measured/<id>.json` du jeu
+  privé : une ligne par clé de longueur de la vérité du plan (zone, niveau, réseau,
+  matériau, diamètre), avec sa longueur en mètres. Une ligne que le plan ne trace pas en
+  plan (une colonne, une chute) reste sans longueur (`null`), jamais à 0.
+- **Le contrôle.** `takeoff:bench:check` refuse une mesure qui ne porte pas le nom de son
+  plan, ou dont une clé n'est pas une longueur observable de la vérité de ce plan : une
+  faute de frappe ne ferait sinon que retirer la clé du jugement, sans alerte.
+- **Le jugement.** Sur les plans mesurés, la longueur lue par chaque run est comparée à
+  la mesure au lieu du devis, avec la même tolérance. Une clé manquée compte 100 %.
+  Seules les clés mesurées sont comptées, des deux côtés. Le critère des longueurs y est
+  calculé comme ailleurs.
+- **Périmètre de plusieurs plans.** Il n'est jugé que si tous ses plans sont mesurés, et
+  une clé que si chaque plan lui donne une longueur ; les longueurs s'ajoutent. Un
+  périmètre mesuré en partie reste jugé au devis, et le rapport le nomme.
+- **Écart du devis.** Le rapport donne la médiane de (devis − mesure) / mesure sur les
+  clés mesurées : c'est ce que le jugement au devis demande à une lecture au-delà du
+  dessin.
+
 Un item de la baseline appartient à sa page (`source_page`). Sans elle (le champ est
 facultatif), il appartient à la page que ses appels ont lue (`item_chunks`), parmi les
 pages lues : il n'est jamais recopié sur chaque page raster. Si ses appels ont lu

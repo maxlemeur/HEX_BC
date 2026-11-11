@@ -6,11 +6,13 @@ import { checkTakeoffBenchDataset, formatBenchIssue } from "@/lib/takeoff/bench/
 import {
   GroupTruthFileSchema,
   ManifestSchema,
+  MeasuredTruthFileSchema,
   NoiseFileSchema,
   PageTruthFileSchema,
   TruthFileSchema,
   type GroupTruthFile,
   type ManifestDocument,
+  type MeasuredTruthFile,
   type NoiseFile,
   type PageTruthFile,
   type TakeoffBenchManifest,
@@ -24,7 +26,7 @@ import type { ScoreTruthFile } from "@/lib/takeoff/bench/score";
 // an explicit id needs both. Each PDF is verified again when it is read.
 // The dataset SHA is the SHA-256 of the sorted lines `<path>\t<sha256>\n` of
 // manifest.json and every truth/**/*.json, paths relative to the dataset.
-// Page truths (truth/pages, TI-663) are loaded too. A triage run takes every
+// Page truths (truth/pages, TI-663) and hand measurements (truth/measured, TI-662) are loaded too. A triage run takes every
 // binary PDF with a page truth (or the ids given, which need both); an explicit
 // extraction also accepts a plan that only has a page truth: it is measured
 // (tokens, latency) and left unscored.
@@ -46,6 +48,8 @@ export type BenchDataset = {
   groups: Map<string, GroupTruthFile>;
   /** truth/pages/<id>.json by document id (TI-663: the page truth of the triage). */
   pageTruths: Map<string, PageTruthFile>;
+  /** truth/measured/<id>.json (TI-662: the lengths of a plan measured by hand along the drawn line), sorted by document. */
+  measured: MeasuredTruthFile[];
   selected: Array<{ document: ManifestDocument; bytes: Buffer }>;
   skipped: Array<{ id: string; reason: string }>;
 };
@@ -128,6 +132,10 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
     const parsed = GroupTruthFileSchema.parse(await readJson(root, `truth/groups/${entry.name}`));
     groups.set(parsed.document, parsed);
   }
+  const measured: MeasuredTruthFile[] = [];
+  for (const entry of (await readdir(path.join(root, "truth", "measured"), { withFileTypes: true }).catch(() => [])).sort((left, right) => byText(left.name, right.name))) {
+    if (entry.isFile() && entry.name.endsWith(".json")) measured.push(MeasuredTruthFileSchema.parse(await readJson(root, `truth/measured/${entry.name}`)));
+  }
   const noiseFile = await stat(path.join(root, "truth", "noise.json")).catch(() => null);
   const noise = noiseFile ? NoiseFileSchema.parse(await readJson(root, "truth/noise.json")) : null;
   const pageTruths = new Map<string, PageTruthFile>();
@@ -174,5 +182,5 @@ export async function loadBenchDataset(datasetRoot: string, docs: "all" | readon
     const document = documents.get(id) as ManifestDocument;
     selected.push({ document, bytes: await readVerifiedPdf(root, document) });
   }
-  return { root, sha256: await datasetSha256(root), manifest, truthFiles, noise, groups, pageTruths, selected, skipped };
+  return { root, sha256: await datasetSha256(root), manifest, truthFiles, noise, groups, pageTruths, measured, selected, skipped };
 }

@@ -83,6 +83,13 @@ import { checkTakeoffBenchDataset, type BenchCheckResult } from "@/lib/takeoff/b
 //   denominator;
 // - a groups file not named after its document, which the bench would load
 //   for another document than the reviewer meant.
+// Ways truth/measured (lengths measured by hand along the drawn line, TI-662) could judge a reading on a wrong
+// length, written before the code:
+// - a valid measurement refused, or not counted in summary.measuredFiles;
+// - a measured key the truth of its plan does not score as a length (a typo in a diameter, a line the plan cannot
+//   give, a count), which no report would ever compare and nobody would miss;
+// - a file not named after its plan, a plan absent from the manifest or without quantity truth;
+// - anything else than a file of that name left in the folder.
 
 let dataset: FixtureDataset;
 
@@ -864,6 +871,51 @@ describe("takeoff bench dataset check", () => {
     expect(result.ok).toBe(true);
     // The fixture's page truths (TI-663) are unchanged; the group truth is counted apart.
     expect(result.summary).toMatchObject({ pageFiles: 5, groupFiles: 1 });
+  });
+
+  function measuredTruth(document: string, lines: Array<Record<string, unknown>>) {
+    return { schema_version: 1, document, method: "Fictional method: along the axis of the drawn pipe.", measured_by: "Fictional estimator",
+      measured_on: "2026-11-12", lines };
+  }
+  const COPPER = { zone: "Z1", level: "R+1", network: "EF", material: "cuivre", dn: "DN 22" };
+
+  it("accepts a hand measurement of a length its plan's truth scores, and counts it", async () => {
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expect(result.errors).toEqual([]);
+    expect(result.summary).toMatchObject({ pageFiles: 5, groupFiles: 0, measuredFiles: 1 });
+  });
+
+  it("refuses a measured key that is not an observable length of its plan's truth", async () => {
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [
+      { ...COPPER, length_m: 11.2 },
+      { ...COPPER, dn: "DN 28", length_m: 4 },
+      // Priced by the devis, but a riser the plan cannot give.
+      { zone: "Z1", level: "R+1", network: "EV", material: "pvc", dn: "DN 100", length_m: 6 },
+      // The reserve plan's key, not this plan's.
+      { zone: "Z2", level: "R+1", network: "ECS", material: "inox-316l", dn: "DN 22", length_m: null },
+    ]));
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    for (const index of [1, 2, 3]) expectIssue(result, "truth/measured/a-plan-01.json", `lines[${index}]`, /not an observable length of the truth of a-plan-01/);
+    expect(result.errors).toHaveLength(3);
+  });
+
+  it("refuses a measurement not named after its plan, of an unknown plan or of a plan without quantity truth", async () => {
+    await dataset.writeJson("truth/measured/a-plan-02.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/a-plan-02.json", "document", /named truth\/measured\/<document id>\.json/);
+    await dataset.writeJson("truth/measured/a-plan-02.json", measuredTruth("a-plan-09", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/a-plan-02.json", "document", /not in the manifest/);
+    await rm(path.join(dataset.root, "truth", "measured"), { recursive: true });
+    await dataset.writeJson("truth/measured/load-plan-01.json", measuredTruth("load-plan-01", [{ ...COPPER, length_m: 11.2 }]));
+    expectIssue(await checkTakeoffBenchDataset(dataset.root), "truth/measured/load-plan-01.json", "document", /no quantity truth covers load-plan-01/);
+  });
+
+  it("reports a measurement out of schema and an unexpected entry of the folder", async () => {
+    await dataset.writeJson("truth/measured/a-plan-01.json", measuredTruth("a-plan-01", [{ ...COPPER, length_m: 0 }]));
+    await dataset.writeJson("truth/measured/Notes.json", {});
+    const result = await checkTakeoffBenchDataset(dataset.root);
+    expectIssue(result, "truth/measured/a-plan-01.json", "lines[0].length_m", /./);
+    expectIssue(result, "truth/measured/Notes.json", "", /unexpected entry/);
   });
 
   it("refuses a group class that is neither a network code nor a known class", async () => {

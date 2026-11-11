@@ -1,6 +1,7 @@
 import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
+import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
-import type { KeyScore, ScopeScore } from "@/lib/takeoff/bench/score";
+import { toleranceOf, withinTolerance, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
@@ -32,6 +33,15 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // are the baseline's reading, never a success of the vectors. The interval is
 // taken over the plans of the slice (lowest and highest plan), each plan the
 // median of its passes; a single plan has none.
+//
+// Lengths judged on the hand measurement (TI-662, decision of 11 Nov): added
+// after the v1 results were read, beside the figures judged on the devis, which
+// stay as they are. On the plans measured along the drawn line (measured.ts),
+// the length each run read on a scored key is compared with the measurement
+// instead of the devis, same tolerance, a missed key 100 %; the keys without
+// measurement are left out, on both sides. The section also gives how far the
+// devis is from the measurement on those keys (median, signed): it is what the
+// judgment on the devis asks of a reading beyond the drawing.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -86,6 +96,22 @@ export type VectorComparison = {
     /** Plans of the totals in neither slice: vector and raster pages, or a failed page. */
     left_out: string[];
   } | null;
+  /** Lengths judged on the hand measurement of the plans that have one (TI-662); null when no measurement is given. */
+  measured: {
+    declared: "added_after_v1_results";
+    totals: Record<"reserve" | "truth" | "all", MeasuredJudgment>;
+    /** Scopes measured on some of their plans only: left to their devis. */
+    partial: string[];
+  } | null;
+};
+export type MeasuredJudgment = {
+  plans: string[];
+  vector: KindMetrics;
+  baseline: KindMetrics;
+  /** The acceptance rule on the measured keys: share strictly higher, median error strictly lower. */
+  lengths_gain: boolean | null;
+  /** Median over the measured keys of (devis − measurement) / measurement. */
+  devis_gap: number | null;
 };
 
 function median(values: readonly number[]): number | null {
@@ -207,7 +233,19 @@ function sliceSide(passes: ScopeScore[][], plans: readonly string[], abstained: 
   return { abstained, lengths: kind(isLength), surfaces: kind(isSurface), silent_errors: abstained ? null : silent };
 }
 
-export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchReport, slices?: ReadonlyMap<string, ScopeSlice>): VectorComparison {
+/** The scored length keys of a scope that have a measurement, judged on it: same reading, the measurement as the expected length. */
+function againstMeasurement(keys: readonly KeyScore[], lengths: ReadonlyMap<string, number> | undefined): KeyScore[] {
+  return keys.flatMap((key): KeyScore[] => {
+    const measured = isLength(key) && key.status !== "out_of_score" ? lengths?.get(measuredKey(key.key)) : undefined;
+    if (measured === undefined) return [];
+    const judged = { ...key, expected: measured, tolerance: toleranceOf("ml", measured) };
+    if (key.status === "missed" || key.actual === null) return [{ ...judged, status: "missed", relative_deviation: -1 }];
+    return [{ ...judged, status: withinTolerance("ml", measured, key.actual) ? "ok" : "out_of_tolerance", relative_deviation: (key.actual - measured) / measured }];
+  });
+}
+
+export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchReport,
+  { slices, measured }: { slices?: ReadonlyMap<string, ScopeSlice>; measured?: MeasuredLengths } = {}): VectorComparison {
   const vectorPasses = scoredScopes(vector);
   const baselinePasses = scoredScopes(baseline);
   const ids = [...new Set(vectorPasses.flat().map((scope) => scope.id))].sort();
@@ -243,6 +281,20 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     };
   };
   const slicesOf = (role: "reserve" | "truth" | "all") => ({ vector: slice(role, "vector"), raster: slice(role, "raster") });
+  // The measured judgment uses the plans of the totals too, and on each the keys that have a measurement.
+  const judgment = (role: "reserve" | "truth" | "all"): MeasuredJudgment => {
+    const plans = common.filter((id) => measured?.by_scope.has(id) && (role === "all" || roleOf(id) === role));
+    const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id))
+      .flatMap((scope) => againstMeasurement(scope.keys, measured?.by_scope.get(scope.id))));
+    const vectorSide = metrics(pick(vectorPasses), isLength), baselineSide = metrics(pick(baselinePasses), isLength);
+    const gaps = (vectorPasses[0] ?? []).filter((scope) => plans.includes(scope.id)).flatMap((scope) => scope.keys.flatMap((key) => {
+      const [judged] = againstMeasurement([key], measured?.by_scope.get(scope.id));
+      return judged && key.expected !== null && judged.expected ? [(key.expected - judged.expected) / judged.expected] : [];
+    }));
+    const none = { keys: 0, within: null, share: null, median_error: null };
+    return { plans, vector: vectorSide, baseline: baselineSide, devis_gap: round(median(gaps)),
+      lengths_gain: verdicts({ lengths: vectorSide, surfaces: none }, { lengths: baselineSide, surfaces: none }).lengths_gain };
+  };
   return {
     passes: { vector: vectorPasses.length, baseline: baselinePasses.length },
     scopes, totals: { reserve: total("reserve"), truth: total("truth"), all: total("all") },
@@ -250,6 +302,10 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
     slices: slices ? {
       declared: "added_after_v1_results", totals: { reserve: slicesOf("reserve"), truth: slicesOf("truth"), all: slicesOf("all") },
       left_out: common.filter((id) => slices.get(id) !== "vector" && slices.get(id) !== "raster"),
+    } : null,
+    measured: measured ? {
+      declared: "added_after_v1_results", totals: { reserve: judgment("reserve"), truth: judgment("truth"), all: judgment("all") },
+      partial: [...measured.partial],
     } : null,
   };
 }
@@ -384,6 +440,22 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
   return lines;
 }
 
+function renderMeasured(measured: NonNullable<VectorComparison["measured"]>) {
+  const lines = ["### Longueurs jugées à la mesure au trait (ajoutée après lecture des résultats v1)", "",
+    "Sur les plans mesurés à la main le long de l’axe du tuyau dessiné, en plan, sans chute ni majoration : la longueur lue est comparée à la mesure "
+    + "au lieu du devis, même tolérance, une clé manquée compte 100 %. Seules les clés mesurées sont comptées, des deux côtés. "
+    + "Les chiffres jugés au devis ci-dessus ne changent pas. Écart du devis : médiane de (devis − mesure) / mesure sur ces clés.", ""];
+  const gap = (value: number | null) => (value === null ? "–" : `${value >= 0 ? "+" : "−"}${(Math.abs(value) * 100).toFixed(0)} %`);
+  lines.push(...table(["Périmètre", "Plans mesurés", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Écart médian du devis à la mesure"],
+    (["reserve", "truth", "all"] as const).map((role) => {
+      const entry = measured.totals[role];
+      return [role === "reserve" ? "**Réserve**" : role === "truth" ? "**Hors réserve**" : "**Tous**", entry.plans.length, share(entry.vector),
+        share(entry.baseline), verdict(entry.lengths_gain, "gain", "pas de gain"), gap(entry.devis_gap)];
+    })), "");
+  if (measured.partial.length > 0) lines.push(`Mesurés en partie, laissés au devis (un plan du périmètre n’a pas de mesure) : ${measured.partial.join(", ")}.`, "");
+  return lines;
+}
+
 /** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
 export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null,
   decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null) {
@@ -451,6 +523,7 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
       lines.push(`Hors totaux (non notés par les deux runs à chaque passe) : ${comparison.left_out_of_totals.join(", ")}.`, "");
     }
     if (comparison.slices) lines.push(...renderSlices(comparison.slices));
+    if (comparison.measured) lines.push(...renderMeasured(comparison.measured));
   }
   return lines;
 }

@@ -9,6 +9,7 @@ import {
   GroupTruthFileSchema,
   ManifestDocumentSchema,
   ManifestSchema,
+  MeasuredTruthFileSchema,
   NoiseFileSchema,
   PageTruthFileSchema,
   TruthFileSchema,
@@ -30,7 +31,7 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 // truth file validates, refers to manifest documents of its own lot and uses known
 // keys; every workbook row is numbered by a basis its download supports, one per
 // document; no devis cell is split between plans or counted twice; truth/noise.json
-// records the noise result. It reports every error with its file and JSON path,
+// records the noise result; a hand measurement (truth/measured) names lengths its plan's truth scores. It reports every error with its file and JSON path,
 // and never writes to the dataset. A truth plan whose download failed keeps its
 // devis truth: it is listed in summary.truthWithoutBinary, and the bench skips it.
 
@@ -44,6 +45,7 @@ export type BenchCheckSummary = {
   noise: "measured" | "not_measured" | "absent";
   pageFiles: number;
   groupFiles: number;
+  measuredFiles: number;
   lots: Partial<Record<TruthLot, BenchLotSummary>>;
   /** Truth or reserve plans without a verified binary, whose truth comes from a devis. */
   truthWithoutBinary: string[];
@@ -89,7 +91,7 @@ function errnoCode(error: unknown) {
 class DatasetCheck {
   readonly errors: BenchIssue[] = [];
   readonly summary: BenchCheckSummary = {
-    documents: 0, verifiedBinaries: 0, truthFiles: 0, truthLines: 0, noise: "absent", pageFiles: 0, groupFiles: 0, lots: {},
+    documents: 0, verifiedBinaries: 0, truthFiles: 0, truthLines: 0, noise: "absent", pageFiles: 0, groupFiles: 0, measuredFiles: 0, lots: {},
     truthWithoutBinary: [],
   };
   /** Every id the manifest lists, even on an entry that fails its schema. */
@@ -104,6 +106,8 @@ class DatasetCheck {
   readonly truthWithoutBinary = new Set<string>();
   /** PDF pages a quantity truth line cites as its source: a page truth keeps them. */
   readonly citedPages = new Map<string, Set<number>>();
+  /** By document, the observable length keys (network lines in ml) of the truths that cover it: a hand measurement names one of them. */
+  readonly lengthKeys = new Map<string, Set<string>>();
   coverageComplete = true;
 
   constructor(readonly root: string) {}
@@ -446,6 +450,12 @@ function checkTruthLines(check: DatasetCheck, file: string, truth: TruthFile, co
       }
     }
   }
+  for (const line of truth.lines) {
+    if (line.kind !== "network" || line.unit !== "ml" || !line.observable_on_plan) continue;
+    for (const id of truth.documents) {
+      check.lengthKeys.set(id, (check.lengthKeys.get(id) ?? new Set()).add(lengthKey(line)));
+    }
+  }
   const lot = check.summary.lots[truth.lot] ?? { lines: 0, observable: 0 };
   lot.lines += truth.lines.length;
   lot.observable += truth.lines.filter((line) => line.observable_on_plan).length;
@@ -724,6 +734,42 @@ async function checkAnnotations(check: DatasetCheck, kind: "pages" | "groups") {
   }
 }
 
+function lengthKey(line: Pick<TruthLine, "zone" | "level" | "network" | "material" | "dn">) {
+  return JSON.stringify([line.zone, line.level, line.network, line.material, line.dn]);
+}
+
+/** truth/measured: a file per measured plan, named after it, each line an observable length of the truths covering the plan (TI-662). */
+async function checkMeasured(check: DatasetCheck) {
+  for (const entry of (await check.listDirectory("truth/measured")) ?? []) {
+    const file = `truth/measured/${entry.name}`;
+    if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
+      check.error(file, [], "unexpected entry: measurement files are <document id>.json");
+      continue;
+    }
+    check.summary.measuredFiles += 1;
+    const json = await check.readJson(file);
+    if (!json) continue;
+    const parsed = MeasuredTruthFileSchema.safeParse(json.value);
+    if (!parsed.success) {
+      check.zodErrors(file, parsed.error);
+      continue;
+    }
+    const id = parsed.data.document;
+    if (!check.reference(file, ["document"], id)) continue;
+    if (path.posix.basename(file, ".json") !== id) check.error(file, ["document"], "a measurement is named truth/measured/<document id>.json");
+    const keys = check.lengthKeys.get(id);
+    if (!keys) {
+      check.error(file, ["document"], `no quantity truth covers ${id} with an observable length: nothing to compare its measurement with`);
+      continue;
+    }
+    for (const [index, line] of parsed.data.lines.entries()) {
+      if (!keys.has(lengthKey(line))) {
+        check.error(file, ["lines", index], `not an observable length of the truth of ${id}: zone, level, network, material and dn are those of a truth line in ml`);
+      }
+    }
+  }
+}
+
 async function checkTruthDirectory(check: DatasetCheck) {
   const entries = await check.listDirectory("truth");
   if (!entries) {
@@ -733,7 +779,7 @@ async function checkTruthDirectory(check: DatasetCheck) {
   }
   for (const entry of entries) {
     const file = `truth/${entry.name}`;
-    if (entry.isDirectory() && (entry.name === "pages" || entry.name === "groups")) continue;
+    if (entry.isDirectory() && (entry.name === "pages" || entry.name === "groups" || entry.name === "measured")) continue;
     if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
       check.error(file, [], "unexpected entry: truth files are <lowercase anonymous name>.json");
       continue;
@@ -747,6 +793,7 @@ async function checkTruthDirectory(check: DatasetCheck) {
   }
   await checkAnnotations(check, "pages");
   await checkAnnotations(check, "groups");
+  await checkMeasured(check);
 }
 
 export async function checkTakeoffBenchDataset(datasetRoot: string): Promise<BenchCheckResult> {
