@@ -86,8 +86,9 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
 /**
  * One journey file's development server: `start` in its beforeAll, `stop` in its afterAll. Call it once per journey
  * module: the state lives in the returned object, so a module the runner imports again starts from nothing.
+ * `workflow` names the journey file, whose routes the readiness compiles (warmChatGptServer).
  */
-export function chatGptLocalServer() {
+export function chatGptLocalServer(workflow: "decisions" | "takeoff") {
   let localServer: ChildProcess | undefined;
   let localOrigin: string | undefined;
   let transportLog: string | undefined;
@@ -149,7 +150,7 @@ export function chatGptLocalServer() {
       return fetch(`${origin}/favicon.ico`).then((response) => response.ok).catch(() => false);
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
-    await warmChatGptServer(origin, email);
+    await warmChatGptServer(origin, email, workflow);
     return { origin, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
   }
 
