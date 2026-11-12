@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
-import { acceptanceOf, duplicateExclusionReason, targetedReviewLines, zoneOverlapGuidance } from "@/lib/takeoff/targeted-review";
+import { acceptanceOf, duplicateExclusionReason, targetedReviewLines, zoneCoverageGuidance, zoneOverlapGuidance } from "@/lib/takeoff/targeted-review";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 // TI-664 L5c, what the targeted review offers on a line. Ways it fails, written before the code:
@@ -38,6 +38,42 @@ const duplicate = (details: TakeoffRuleResult["details"]) => rule({ rule: "zone_
   reason: "Tronçon compté aussi sur une autre page.", details });
 const partner = (overrides: Record<string, unknown> = {}) => ({ item_id: "11111111-1111-4111-8111-111111111111",
   job_id: "22222222-2222-4222-8222-222222222222", zone: "Z2", designation: "EF Inox 316L DN 22", overlap_m: 1, resolved: false, ...overrides });
+
+// TI-684, coverage by the overview (written before the code). Ways the guidance fails: it offers to remove the uncovered
+// length while a duplicate of the line is open (the rule spends a reduction on duplicates first: the button would
+// settle nothing), from results to compute again, or down to nothing; it reads a settled coverage as a failure.
+describe("zoneCoverageGuidance", () => {
+  const uncovered = (uncovered_m: number, owed_m?: number) => rule({ rule: "zone_coverage", code: "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN", version: 101,
+    reason: "Tronçon du plan d’ensemble que le plan agrandi ne dessine pas.", details: { level: "R+1", uncovered_m, ...(owed_m ? { owed_m } : {}) } });
+
+  it("offers to remove the length the enlarged plan does not draw, and lists the line", () => {
+    const item = line({ quantity: 9, metadata: { rule_inputs: undefined }, rule_results: [uncovered(4)] });
+    expect(zoneCoverageGuidance(item)).toEqual({ stale: false, uncovered_m: 4, duplicate_open: false, reduce_to: 5, whole: false });
+    expect(targetedReviewLines([item], 0.5, "C").lines.map((entry) => entry.rule_failures.map((failure) => failure.code)))
+      .toEqual([["ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN"]]);
+    expect(acceptanceOf(item, "B")).toMatchObject({ enabled: true });
+  });
+
+  it("offers no reduction while a duplicate is open, on results to compute again, or down to nothing", () => {
+    const open = duplicate({ overlap_m: 1, partner_count: 1, partners: [partner()] });
+    const withDuplicate = line({ quantity: 9, rule_results: [open, uncovered(4, 1)] });
+    expect(zoneCoverageGuidance(withDuplicate)).toEqual({ stale: false, uncovered_m: 4, duplicate_open: true, reduce_to: null, whole: false });
+    // The open duplicate is another line's to remove (a copy on an overview that yields): the rule takes nothing of this
+    // line's reduction for it, removing the length settles the coverage.
+    expect(zoneCoverageGuidance(line({ quantity: 9, rule_results: [open, uncovered(4)] })))
+      .toEqual({ stale: false, uncovered_m: 4, duplicate_open: false, reduce_to: 5, whole: false });
+    // A pair settled within its centimetres leaves the rule a rest to take: no duplicate is open, the reduction is offered.
+    expect(zoneCoverageGuidance(line({ quantity: 9, rule_results: [uncovered(4, 0.02)] }))).toMatchObject({ duplicate_open: false, reduce_to: 5 });
+    expect(zoneCoverageGuidance(line({ quantity: 9, rule_results: [uncovered(4)], rules_stale: true })))
+      .toEqual({ stale: true, uncovered_m: 4, duplicate_open: false, reduce_to: null, whole: false });
+    expect(zoneCoverageGuidance(line({ quantity: 4, rule_results: [uncovered(4)] }))).toMatchObject({ reduce_to: null, whole: true });
+  });
+
+  it("reads nothing on a line whose coverage passes or was never read", () => {
+    expect(zoneCoverageGuidance(line())).toBeNull();
+    expect(zoneCoverageGuidance(line({ rule_results: [rule({ rule: "zone_coverage", status: "pass", code: "ZONE_COVERAGE_RESOLVED", version: 101 })] }))).toBeNull();
+  });
+});
 
 describe("targetedReviewLines", () => {
   it("lists automatic vector overlaps while respecting a reviewer dismissal", () => {

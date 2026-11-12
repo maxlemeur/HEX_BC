@@ -66764,6 +66764,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -67228,6 +67229,7 @@
                     "enum": [
                       "dn_network",
                       "zone_overlap",
+                      "zone_coverage",
                       "scale_dimension",
                       "area_printed",
                       "room_overlap",
@@ -68499,6 +68501,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -68848,6 +68851,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -69193,6 +69197,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -69520,6 +69525,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -69937,6 +69943,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -70264,6 +70271,7 @@
                                 "enum": [
                                   "dn_network",
                                   "zone_overlap",
+                                  "zone_coverage",
                                   "scale_dimension",
                                   "area_printed",
                                   "room_overlap",
@@ -71867,6 +71875,7 @@
                                     "enum": [
                                       "dn_network",
                                       "zone_overlap",
+                                      "zone_coverage",
                                       "scale_dimension",
                                       "area_printed",
                                       "room_overlap",
@@ -72250,6 +72259,7 @@
                             "enum": [
                               "dn_network",
                               "zone_overlap",
+                              "zone_coverage",
                               "scale_dimension",
                               "area_printed",
                               "room_overlap",
@@ -73117,6 +73127,7 @@
                     "enum": [
                       "dn_network",
                       "zone_overlap",
+                      "zone_coverage",
                       "scale_dimension",
                       "area_printed",
                       "room_overlap",
@@ -80461,6 +80472,7 @@
                           "enum": [
                             "dn_network",
                             "zone_overlap",
+                            "zone_coverage",
                             "scale_dimension",
                             "area_printed",
                             "room_overlap",

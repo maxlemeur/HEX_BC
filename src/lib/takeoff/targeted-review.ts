@@ -154,6 +154,41 @@ export function zoneOverlapGuidance(item: ApplyGuardItem & { quantity: number; m
   return { ...base, kind: "pair", overlap_m: overlap, reduce_to: entire || stale ? null : reduced, remove_line: entire && !stale };
 }
 
+export type ZoneCoverageGuidance = {
+  /** The results are to compute again: shown, never acted on. */
+  stale: boolean;
+  /** The length the line still counts inside the perimeter of enlarged plans that do not draw it (what is left to remove). */
+  uncovered_m: number;
+  /** A duplicate of the line is still open: the rule spends a reduction on duplicates first, so none is offered here. */
+  duplicate_open: boolean;
+  /** The quantity that removes the uncovered length; null when none is offered (or nothing of the line would be left). */
+  reduce_to: number | null;
+  /** Nothing of the line would be left: it is excluded, not reduced. */
+  whole: boolean;
+};
+
+/**
+ * What the coverage rule says of an overview's line (TI-684, D14) and what settles it; null when it does not fail it.
+ * The enlarged plan prevails in its perimeter: the length is removed when the run does not exist, the line accepted
+ * (V) when it exists and the enlarged plan misses it.
+ */
+export function zoneCoverageGuidance(item: ApplyGuardItem & { quantity: number; metadata?: unknown }): ZoneCoverageGuidance | null {
+  const results: readonly TakeoffRuleResult[] = item.rule_results ?? [];
+  const result = results.find((entry) => entry.rule === "zone_coverage");
+  if (!result || result.status !== "fail") return null;
+  const stale = item.rules_stale === true;
+  const uncovered = result.details?.uncovered_m ?? 0;
+  // A duplicate of the line is open and the rule still takes some of a reduction for it. An open duplicate that is
+  // another line's to remove (a copy on an overview that yields to this line) takes nothing: the reduction is offered.
+  const duplicateOpen = (result.details?.owed_m ?? 0) > 0 && results.some((entry) => entry.rule === "zone_overlap" && entry.status === "fail");
+  // The line as measured, as for a pair: the rules read a reduction against it, never against a quantity raised above.
+  const measured = readRuleInputs(item.metadata)?.model_quantity ?? item.quantity;
+  const reduced = thousandths(Math.min(item.quantity, measured) - uncovered);
+  const guided = !stale && !duplicateOpen && uncovered > 0;
+  return { stale, uncovered_m: uncovered, duplicate_open: duplicateOpen,
+    reduce_to: guided && reduced > SETTLE_M ? reduced : null, whole: guided && reduced <= SETTLE_M };
+}
+
 /**
  * The exclusion reason a guided « Retirer la ligne » proposes: the lines that draw it too, the user may edit it. A copy
  * read differently (TI-684) is no plain duplicate: the reason says which reading the exclusion sets aside.
