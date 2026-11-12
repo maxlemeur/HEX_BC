@@ -37,6 +37,7 @@ describe("TI-681 quantity review policy", () => {
 
   it("separates quantity uncertainty from technical protections and unknown rules", () => {
     expect(isQuantityWarning("ZONE_OVERLAP_DUPLICATE")).toBe(true);
+    expect(isQuantityWarning("ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN")).toBe(true);
     expect(isQuantityWarning("NON_OBSERVABLE_TO_ENTER")).toBe(true);
     expect(isQuantityWarning("DN_NETWORK_MATERIAL_BLOCKED")).toBe(false);
     expect(isQuantityWarning("DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION")).toBe(false);

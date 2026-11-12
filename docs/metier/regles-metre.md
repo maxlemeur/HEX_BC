@@ -234,6 +234,7 @@ qu'elles sont maintenant.
 |---|---|---|---|
 | `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
 | `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
+| `zone_coverage` | `ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN` | `ZONE_COVERAGE_COMPLETE`, `ZONE_COVERAGE_RESOLVED` | oui |
 | `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui, avec un motif codé et ce qui a été vérifié |
 | `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui, avec un motif codé, la base de la surface écrite et une note |
 | `room_overlap` | `ROOM_OVERLAP` | `ROOM_OVERLAP_NONE` | oui |
@@ -549,7 +550,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
   - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
   - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
-  - plans agrandis : le contrôle de couverture de D14 (un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas) n'est pas fait, un tel tronçon compte sans alerte ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
+  - plans agrandis : le contrôle de couverture de D14 est une règle à part (voir « Couverture des plans agrandis par le plan d'ensemble ») ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
@@ -564,6 +565,56 @@ avant la réserve) :
 - **Doublons** : 325 m d'axes en double à moins de 0,5 cm, 11 m entre 0,5 et 2 cm, aucun entre 2 et 5 cm.
   - Les premiers tuyaux distincts d'un même réseau sont à 8,6 cm. D = 5 cm tombe dans ce creux.
   - Le plus petit doublon mesuré fait 42 cm. Deux tronçons bout à bout à la limite de zone se recouvrent au plus d'une bande (7 pt : 12 cm au 1/50, 25 cm au 1/100). D'où L = 30 cm.
+
+### Couverture des plans agrandis par le plan d'ensemble
+
+Règle `zone_coverage` (TI-684, décision D14 du 6 nov. 2026 : « à indice cohérent, le détail
+agrandi fait foi dans son périmètre, et le plan d'ensemble contrôle la couverture » ;
+version 1, écrite 101 avec celle du recalage). Elle lit les mêmes lignes que
+`zone_overlap` : les tuyaux et les calorifuges d'une lecture vectorielle, au réseau lu, par
+niveau.
+
+- **Ce qu'elle cherche** : un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas. C'est soit un tronçon que la lecture du plan agrandi a manqué, soit un tracé du plan d'ensemble qui n'existe pas (ou plus) à l'échelle du détail, soit une copie dessinée trop loin de son double pour être un doublon. Avant cette règle, il comptait sans alerte.
+- **Plan agrandi** : la définition de `zone_overlap` (échelle au moins 1,5 fois plus fine, les deux échelles lues), sur deux pages du niveau qui partagent un repère. Deux pages de même échelle, une échelle non lue ou deux pages sans repère commun ne donnent aucun résultat.
+- **Périmètre** : pour un genre (tuyau ou calorifuge) et un réseau, le rectangle qui contient tout ce que le plan agrandi en dessine, lignes exclues comprises (une exclusion règle une quantité, le tracé reste sur la page).
+  - Un plan agrandi qui ne montre qu'un réseau ne dit rien des autres : une ligne d'eau chaude n'est pas contrôlée par un détail qui ne dessine que de l'eau froide.
+  - Une zone sans plan agrandi reste au plan d'ensemble : ce qui est hors de tout périmètre n'est pas lu.
+  - Un tronçon appartient au périmètre quand son axe y est. Un tracé qui longe un bord (parallèle à 2° près) y est encore à D = 5 cm du bord : c'est la copie du tronçon qui dessine ce bord, recalée à 1 ou 2 cm près. Tout autre tracé qui sort du périmètre s'arrête au bord, au millimètre ; un tracé à moins de 2° d'un bord est lu jusqu'à 5 cm au-delà de ce bord.
+- **Ce que le plan agrandi dessine d'une ligne** : ses copies sur ce plan, de même lecture ou lues autrement, exclues ou non, avec les seuils du doublon (D = 5 cm, 2°, minimum par tronçon continu à l'échelle la plus grossière).
+- **Ligne exclue** : aucun résultat. Elle ne compte rien, et deux lignes exclues ne sont pas comparées : ce que le plan agrandi dessine d'elle ne serait pas entier. La règle la lit dès qu'elle est incluse.
+- **Non dessiné** : ce qui reste de la ligne dans les périmètres.
+  - Entre deux copies d'un même axe, un vide plus court que le minimum est tenu pour dessiné (les tirets d'un réseau en pointillés, 5 cm d'écart).
+  - À côté d'une copie, un reste d'au plus D n'en est pas un (deux plans recalés à 1 ou 2 cm près).
+  - Le reste compte par tronçon continu d'au moins le minimum du plan d'ensemble (30 cm, ou une bande du dessin : 49 cm au 1/200), comme pour un doublon : les tirets d'un tracé en pointillés du plan d'ensemble s'additionnent.
+  - Une ligne dont moins que ce minimum entre dans un périmètre n'a aucun résultat.
+- **Résultats** :
+  - `ZONE_COVERAGE_COMPLETE` : tout ce que la ligne dessine dans les périmètres y est dessiné ;
+  - `ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN` : il reste une longueur non dessinée. La raison nomme le ou les plans agrandis et la longueur ; `details.uncovered_m` porte ce qui reste à régler ;
+  - `ZONE_COVERAGE_RESOLVED` : la réduction de la ligne a retiré cette longueur.
+- **Règlement** (rien ne se règle tout seul) :
+  - **réduction** de la ligne du plan d'ensemble, quand le tronçon n'existe pas. Une réduction ne dit jamais où elle retire : elle paie d'abord ce que les doublons de la ligne lui demandent, puis la couverture, à 1 cm près (2 cm quand la réduction d'une autre ligne a réglé une part du doublon, comme pour la paire). Une ligne de 15 m dont 6 m sont en double et 4 m non dessinés est réglée à 5 m ; à 9 m son doublon est réglé et la couverture échoue encore. Ce que les doublons demandent à la ligne :
+    - ligne qui cède : ce que les plans agrandis dessinent d'elle, moins ce que son unique partenaire sans autre copie a déjà retiré ;
+    - sa copie sur un plan d'ensemble qui lui cède : rien, sauf quand elles sont deux lignes seules (la paire se règle alors par l'une ou l'autre réduction : la ligne doit ce que le plan d'ensemble n'a pas retiré, et ce qu'elle a retiré pour la paire ne paie pas la couverture) ;
+    - paire isolée de même rang : la longueur commune moins ce que l'autre ligne a retiré (une paire Z1/Z2 déjà réglée par Z2 ne demande rien à Z1) ;
+    - groupe de trois lignes ou plus, qu'aucune réduction ne règle : tout ce que le groupe dessine de la ligne ;
+    - « ce que l'autre ligne a retiré » est sa réduction au-delà de son propre tronçon non dessiné, qu'elle paie d'abord : deux lignes d'une paire ne comptent jamais chacune toute la réduction de l'autre. Une paire de 6 m dont chaque ligne a 4 m non dessinés demande 14 m retirés en tout ; à 10 m, les deux lignes échouent encore pour 4 m.
+  - `details.owed_m` : ce que les doublons demandent encore à la réduction de la ligne (absent quand rien) ;
+  - **« Accepter » (V)**, quand le tronçon existe et manque au plan agrandi : le plan d'ensemble est alors la seule source de ce tronçon ;
+  - **exclusion** : une ligne exclue ne bloque jamais.
+  - C'est un avertissement de quantité (TI-681) : il ne bloque pas l'application, et V ne demande pas de motif.
+- **Ce qu'un V accepte** : les plans agrandis nommés et la longueur non dessinée, au millimètre (`details.quantity_context_key`, lue par `takeoff_rule_failure_keys`). Un autre plan agrandi ou une autre longueur non dessinée (plus longue ou plus courte) est un nouvel échec, qui retire la vérification ; les doublons de la ligne n'entrent pas dans cette identité.
+- **Deux échecs sur une ligne** : `zone_overlap` et `zone_coverage` sont deux règles, donc deux résultats. Une ligne du plan d'ensemble peut porter un doublon et un tronçon non dessiné ; la revue ciblée demande de régler le doublon d'abord.
+- **Revue ciblée** : la section « Couverture des plans agrandis » donne la longueur non dessinée encore comptée et propose « Retirer X m » quand aucun doublon ouvert ne demande encore de réduction à la ligne (`owed_m`) ; sinon elle renvoie au doublon. Un doublon ouvert qui se retire d'une autre ligne (la copie d'un plan d'ensemble qui cède) n'empêche pas la réduction. Quand rien ne resterait de la ligne, elle dit de l'exclure. V reste celui de la ligne : sur une ligne qui porte aussi un doublon, il accepte les deux échecs.
+- **Limites connues** :
+  - le périmètre est le rectangle de tous les traits lus du réseau : une zone en L couvre une partie du voisin, et un trait isolé (un échantillon de légende que la lecture aurait retenu) l'étend jusqu'à lui ; les tronçons du plan d'ensemble qui s'y trouvent sont signalés à tort (à accepter par V) ;
+  - un plan agrandi qui ne dessine qu'un tronçon d'un réseau a un périmètre réduit à ce tronçon : une copie du plan d'ensemble dessinée à plus de 5 cm de lui n'est signalée ni comme doublon ni ici ;
+  - une interruption du tracé du plan agrandi d'au moins le minimum (un appareil dessiné à l'échelle, 45 cm au 1/100) laisse cette longueur non dessinée : la ligne s'accepte par V ;
+  - un plan agrandi dont la lecture n'a retenu aucune ligne d'un réseau n'a pas de périmètre pour lui : ce qu'il a entièrement manqué n'est pas signalé ;
+  - une ligne dont le réseau n'est pas lu n'est pas contrôlée ;
+  - la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa couverture. La réduction d'une ligne partenaire paie d'abord son propre tronçon non dessiné, même accepté par V : la ligne doit alors plus qu'il ne faut à leur paire (elle s'accepte par V). Exclure la copie du plan agrandi libère la réduction que la ligne avait faite pour ce doublon : elle règle alors la couverture sans autre geste ;
+  - l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue ;
+  - la règle n'a pas été mesurée sur un plan réel : ses seuils sont ceux du doublon.
+- **Base de données** : `takeoff_item_rule_blocked` tient ce code pour un avertissement de quantité depuis la migration `20261111233221_takeoff_zone_coverage_warning.sql`. Sans elle, le code est inconnu de la garde de la base, qui bloque l'application de la ligne tant qu'elle n'est pas vérifiée ou exclue, alors que l'application la tient pour un avertissement : la migration s'applique avant le déploiement du code.
 
 ### Échelle du cartouche cohérente avec les cotes
 
@@ -1066,6 +1117,12 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - Groupe de trois lignes ou plus : aucune correction n'est proposée. « Retirer la ligne »
     n'est offert que pour une ligne que les autres dessinent entièrement (à 1 cm près, sur
     la longueur mesurée) ; sinon la ligne s'accepte (V) une fois vérifiée.
+- **Couverture des plans agrandis** : la section donne la longueur encore comptée que le
+  plan agrandi ne dessine pas. « Retirer 4,00 m » ramène la ligne à sa quantité moins cette
+  longueur ; tant qu'un doublon ouvert demande encore une réduction à la ligne, elle n'est
+  pas proposée et la section demande de régler d'abord le doublon. Quand rien ne resterait
+  de la ligne, la section dit de l'exclure. V accepte la ligne quand le tronçon existe et
+  manque au plan agrandi.
 - **Règles à recalculer** (un recalcul sauté ou en échec) : la raison reste affichée, mais
   rien n'est proposé (ni réduction, ni « Retirer la ligne », ni V) : elle peut ne plus tenir
   (longueur déjà retirée, partenaire déjà exclu). Entrée sur la quantité, même inchangée,

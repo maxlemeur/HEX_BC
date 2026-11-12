@@ -37,6 +37,7 @@ import {
   acceptanceOf,
   duplicateExclusionReason,
   targetedReviewLines,
+  zoneCoverageGuidance,
   zoneOverlapGuidance,
   type TargetedReviewLine,
   type ZoneOverlapGuidance,
@@ -679,6 +680,8 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
   const otherReasons = line.reasons.filter((reason) => reason !== "rule_failed");
   const hypothesis = isUndecidedHypothesis(item);
   const alternative = isUnselectedVectorReading(item);
+  // A reading not retained is excluded: nothing of it is counted, so no coverage is asked of it.
+  const coverage = alternative ? null : zoneCoverageGuidance(item);
   const disabled = busy || readOnly;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -836,6 +839,30 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
                 <Button size="sm" variant="secondary" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Retirer la ligne<Kbd>E</Kbd></Button>
               ) : null}
             </div>
+          </section>
+        ) : null}
+
+        {coverage ? (
+          <section aria-label="Couverture des plans agrandis" className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Couverture des plans agrandis</h3>
+            {coverage.stale ? (
+              <p role="status" className="text-xs text-warning">Règles à recalculer : rien n’est proposé avant le nouveau calcul.</p>
+            ) : null}
+            <p className="text-foreground-secondary">
+              Longueur encore comptée que le plan agrandi ne dessine pas :{" "}
+              <span className="font-mono font-semibold tabular-nums text-foreground">{metres(coverage.uncovered_m)}</span>
+            </p>
+            <p className="text-xs text-foreground-secondary">
+              Cette ligne est sur le plan d’ensemble : à indice cohérent, le plan agrandi fait foi dans son périmètre. Retirez cette
+              longueur si le tronçon n’existe pas ; acceptez (V) la ligne s’il existe et manque au plan agrandi.
+              {coverage.duplicate_open ? " Réglez d’abord le doublon : une réduction le retire en premier." : ""}
+              {coverage.whole ? " Rien ne resterait de cette ligne : excluez-la si le tronçon n’existe pas." : ""}
+            </p>
+            {coverage.reduce_to !== null ? (
+              <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onReduce(coverage.reduce_to as number)}>
+                Retirer {metres(coverage.uncovered_m)} (→ {quantityText(coverage.reduce_to)} {item.unit})
+              </Button>
+            ) : null}
           </section>
         ) : null}
 

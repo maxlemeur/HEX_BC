@@ -13,6 +13,7 @@ import {
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
 import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-fixtures";
+import { startBlockedStatementWatch } from "./tester-army/blocked-statements";
 import { awaitBrowserInstall } from "./tester-army/browser-install";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
@@ -283,12 +284,17 @@ async function awaitEarlyBuild(build: NonNullable<typeof earlyBuild>, backend: U
   await build.done;
 }
 
+// Started once the stack is proven owned, stopped before the stack is destroyed.
+let blockedStatementWatch: ReturnType<typeof startBlockedStatementWatch> | undefined;
+
 async function runApplication(local: SupabaseEnvironment) {
   try { await runOwnedApplication(local); }
   catch (error) {
     const diagnostic = redact(error instanceof Error ? error.message : String(error));
     manifest.applicationFailure = diagnostic;
     throw new SafeDiagnosticError(diagnostic);
+  } finally {
+    await blockedStatementWatch?.stop();
   }
 }
 
@@ -303,6 +309,13 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
   knownSecrets.push(local.NEXT_PUBLIC_SUPABASE_ANON_KEY!, local.SUPABASE_SERVICE_ROLE_KEY!);
   if (!local.E2E_ARMY_LOCAL_DB_URL || !local.E2E_ARMY_LOCAL_PSQL) throw new Error("The owned local SQL fixture transport is required.");
   knownSecrets.push(local.E2E_ARMY_LOCAL_DB_URL, decodeURIComponent(new URL(local.E2E_ARMY_LOCAL_DB_URL).password));
+  // Which statement ran for more than a second, and which backend blocked it
+  // (blocked-statements.jsonl). An interactive session has no journeys to explain.
+  if (!interactive) {
+    blockedStatementWatch = startBlockedStatementWatch({
+      databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, evidence, manifest, redact,
+    });
+  }
   // auth-js reports a dropped connection without its cause; keep it here.
   let networkFailure: unknown;
   const admin = createClient<Database>(backend.origin, local.SUPABASE_SERVICE_ROLE_KEY!, {
