@@ -90,7 +90,7 @@ function fakeRender(overrides: Partial<GroupDecisionsRender> = {}) {
   const render: GroupDecisionsRender = {
     legend: async () => {
       calls.legend += 1;
-      return { image: IMAGE, issue: null, duration_ms: 4 };
+      return { image: IMAGE, issue: null, dropped_images: 0, duration_ms: 4 };
     },
     sheets: async (plans) => {
       calls.sheets.push(plans.length);
@@ -250,14 +250,15 @@ describe("Decisions call loop (group-decisions-server.ts classifyVectorGroups)",
     expect(decisions.size).toBe(40);
   });
 
-  it("caps the dedicated calls at 50 and never offers a grey group a network", async () => {
+  it("caps the dedicated calls at 50 and never sends a grey group", async () => {
     const { decide, seen } = fakeDecide((alias, kind) => (kind === "batch" ? { value: "autre", confidence: 0.2 } : { value: "mur", confidence: 0.7 }));
     const outcome = await run(page(60, 2), { decide }).outcome;
     expect(seen.filter((call) => call.evidence.call === "dedicated")).toHaveLength(GROUP_DECISIONS_LIMITS.maxDedicatedCalls);
-    expect(seen.filter((call) => call.evidence.call === "batch").map((call) => call.names.length)).toEqual([36, 26]);
+    // TI-704: the 2 grey groups are filtered before the batches (60 questions, no longer 62), and get no answer.
+    expect(seen.filter((call) => call.evidence.call === "batch").map((call) => call.names.length)).toEqual([36, 24]);
     expect(outcome.calls.filter((call) => call.kind === "dedicated")).toHaveLength(50);
-    const greyAnswers = [...outcome.answers.values()].filter((answer) => answer.alias === "groupe_61" || answer.alias === "groupe_62");
-    expect(greyAnswers.every((answer) => answer.via === "batch" && answer.class === "autre")).toBe(true);
+    expect(outcome).toMatchObject({ candidates: 60, eligible: 60, left_out: 0 });
+    expect([...outcome.answers.keys()].some((id) => id.startsWith("c:#808080"))).toBe(false);
   });
 
   it("stops at the first failed or unavailable call, or an exception, without retry; the rest stays « à revoir »", async () => {
@@ -290,7 +291,7 @@ describe("Decisions call loop (group-decisions-server.ts classifyVectorGroups)",
     const { decide, seen } = fakeDecide(() => ({ value: "EU", confidence: 0.9 }));
     const noCanvas = fakeRender({ sheets: async (plans) => ({ images: plans.map(() => null), issue: "canvas_unavailable", render_ms: plans.map(() => null), duration_ms: 1 }) });
     await expect(run(page(5), { decide, render: noCanvas.render }).outcome).resolves.toMatchObject({ calls: [], stop: { reason: "canvas_unavailable" }, candidates: 5 });
-    const brokenLegend = fakeRender({ legend: async () => ({ image: null, issue: "render_failed", duration_ms: 1 }) });
+    const brokenLegend = fakeRender({ legend: async () => ({ image: null, issue: "render_failed", dropped_images: 0, duration_ms: 1 }) });
     await expect(run(page(5), { decide, render: brokenLegend.render }).outcome).resolves.toMatchObject({ calls: [], stop: { reason: "render_failed" } });
     const throwing = fakeRender({ sheets: async () => {
       throw new Error("Fictional render crash.");

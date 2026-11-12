@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ApiError } from "@/lib/estimates/errors";
-import { computeTotalsFromInputs } from "@/lib/order-calculations";
+import { computeTotalsFromInputs, OrderTotalNegativeError } from "@/lib/order-calculations";
 import { canWritePurchaseOrders } from "@/lib/purchase-orders";
 import { createPurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";
 import { purchaseOrderInputError, purchaseOrderWriteError, toPurchaseOrderLinePayload } from "@/lib/purchase-orders/write";
@@ -32,9 +32,12 @@ export async function POST(request: Request) {
   try {
     computeTotalsFromInputs(payload.items.map((item) => ({
       quantity: item.quantity, unitPriceHtCents: item.unitPriceCents, taxRateBp: item.taxRateBp,
+      pricePer: item.pricePer, kind: item.lineKind,
     })));
-  } catch {
-    return NextResponse.json({ error: "Le montant dépasse la capacité d'une commande." }, { status: 400 });
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof OrderTotalNegativeError ? error.message : "Le montant dépasse la capacité d'une commande.",
+    }, { status: 400 });
   }
   const { data, error } = await supabase.rpc("create_purchase_order_draft", {
     p_header: {

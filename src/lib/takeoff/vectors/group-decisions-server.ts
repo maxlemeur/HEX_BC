@@ -240,6 +240,7 @@ export async function classifyVectorGroups(input: {
     outcome.stop = renderStop(legend?.issue ?? null);
     return outcome;
   }
+  if (legend.dropped_images > 0) input.log?.(`légende : ${legend.dropped_images} image(s) du PDF absente(s) du rendu (trop lourdes ou illisibles)`);
   const batches = decisionBatches(candidates).slice(0, limits.maxBatchCalls);
   const sheets = await safely(() => render.sheets(batches.map((batch) => planContactSheet(model, batch))));
   if (!sheets || sheets.issue !== null || sheets.images.some((image) => image === null)) {

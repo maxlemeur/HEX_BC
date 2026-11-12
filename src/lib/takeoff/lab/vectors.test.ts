@@ -63,7 +63,7 @@ function page(): VectorPageExtraction {
 function render(dedicated: "ok" | "timeout"): GroupDecisionsRender {
   let sheets = 0;
   return {
-    legend: async () => ({ image: IMAGE, issue: null, duration_ms: 1 }),
+    legend: async () => ({ image: IMAGE, issue: null, dropped_images: 0, duration_ms: 1 }),
     sheets: async (plans) => {
       sheets += 1;
       if (sheets > 1 && dedicated === "timeout") return { images: plans.map(() => null), issue: "timeout", render_ms: plans.map(() => null), duration_ms: 1 };

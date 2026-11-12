@@ -14,6 +14,13 @@ import {
   type DeliverySiteData,
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
+import {
+  affaireHref,
+  deliveryModeOf,
+  storedLineDocumentFields,
+  storedOrderAffaire,
+  type StoredOrderLineFields,
+} from "@/components/purchase-orders/order-lines";
 import { buttonVariants } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
@@ -77,10 +84,14 @@ type PurchaseOrder = {
   suppliers: Supplier | null;
   delivery_sites: DeliverySite | null;
   profiles: UserProfile | null;
+  /** TI-691: the affaire of an order made from a material request, and how it is delivered without a site. */
+  project_id: string | null;
+  delivery_mode: string | null;
+  estimate_projects: { name: string; site_address: string | null } | null;
   purchase_order_items: PurchaseOrderItem[];
 };
 
-type PurchaseOrderItem = {
+type PurchaseOrderItem = StoredOrderLineFields & {
   id: string;
   designation: string;
   reference: string | null;
@@ -110,7 +121,7 @@ export default async function OrderPage({
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
-      "id, edit_revision, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email ), purchase_order_items(id, designation, reference, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, position)"
+      "id, edit_revision, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, project_id, delivery_mode, estimate_projects ( name, site_address ), suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email ), purchase_order_items(id, designation, reference, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, position, line_kind, price_per, imputation, overhead_category, material_request_line_id, material_request_lines ( position, request_id, material_requests ( project_id, requested_on ) ))"
     )
     .eq("id", id)
     .single();
@@ -120,6 +131,8 @@ export default async function OrderPage({
   }
 
   const order = orderData as unknown as PurchaseOrder;
+  const fromRequest = order.project_id !== null;
+  const affaire = storedOrderAffaire(order.estimate_projects);
   try {
     await assertCompletePurchaseOrderSnapshot(supabase, id, order.edit_revision, order.purchase_order_items.length);
   } catch (error) {
@@ -177,6 +190,7 @@ export default async function OrderPage({
     priceUnit: item.price_unit,
     unitPriceHtCents: item.unit_price_ht_cents,
     lineTotalHtCents: item.line_total_ht_cents,
+    ...storedLineDocumentFields(item, { fromRequest, onScreen: true }),
   }));
   const canManageDevis = order.status !== "canceled";
 
@@ -220,6 +234,17 @@ export default async function OrderPage({
             <span className="text-muted-foreground">
               Livraison : {formatOrderDate(order.expected_delivery_date)}
             </span>
+            {order.project_id && affaire ? (
+              <>
+                <span aria-hidden="true" className="text-subtle-foreground">·</span>
+                <Link
+                  href={affaireHref(order.project_id)}
+                  className="font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  Affaire : {affaire.name}
+                </Link>
+              </>
+            ) : null}
           </>
         }
         actions={
@@ -259,6 +284,8 @@ export default async function OrderPage({
           reference={order.reference}
           supplier={supplier}
           deliverySite={deliverySite}
+          affaire={affaire}
+          deliveryMode={deliveryModeOf(order.delivery_mode)}
           expectedDeliveryDate={order.expected_delivery_date}
           notes={order.notes}
           items={orderItems}

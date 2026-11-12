@@ -20,9 +20,11 @@ import { materialRequestsHref } from "./format";
 import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
 import { MaterialRequestHeader } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
+import { MaterialRequestOrders } from "./MaterialRequestOrders";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
+import { useMaterialRequestOrders } from "./useMaterialRequestOrders";
 
 function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string }>) {
   const router = useRouter();
@@ -33,6 +35,7 @@ function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequest
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const { data, canWrite, projectId, requestId } = editor;
+  const orders = useMaterialRequestOrders(editor);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -70,6 +73,7 @@ function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequest
           editor={editor}
           materialListId={materialListId}
           headingId={`${ids}-lines`}
+          orderedLine={orders.orderedLine}
           toolbar={
             <>
               <Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setMessageOpen(true)}>
@@ -86,6 +90,7 @@ function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequest
           }
         />
         <MaterialRequestConsultation editor={editor} affaireName={affaireName} headingId={`${ids}-consultation`} />
+        <MaterialRequestOrders editor={editor} orders={orders} headingId={`${ids}-orders`} />
         {canWrite ? (
           <div className="border-t border-border pt-4">
             <ConfirmButton

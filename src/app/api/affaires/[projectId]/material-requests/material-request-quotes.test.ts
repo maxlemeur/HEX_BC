@@ -261,6 +261,8 @@ function seed(actor: string, role: Role, overrides: { tables?: Partial<FakeTable
       create_material_request_quote: createQuoteInDatabase(),
       update_material_request_quote: updateQuoteInDatabase,
       retain_material_request_quote: retainQuoteInDatabase(actor),
+      // TI-691 delivery 3a: no line of these requests is in an order, so priced lines still edit (and reopen) freely.
+      material_request_order_summary: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true },
     },
     objects: overrides.objects ?? { [ORIGINAL_PATH]: JPEG, [ALPHA_PDF_PATH]: PDF },
     tables: {

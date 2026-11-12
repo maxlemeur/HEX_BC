@@ -73,11 +73,15 @@ async function truthJsonFiles(root: string, directory = "truth"): Promise<string
   return files;
 }
 
+/** SHA-256 of the sorted lines `<path>\t<sha256>\n` of some files, paths relative to `root` (the dataset SHA's rule). */
+export async function filesSha256(root: string, files: readonly string[]) {
+  const lines = await Promise.all([...files].sort(byText).map(async (file) => `${file}\t${sha256(await readFile(path.join(root, file)))}\n`));
+  return createHash("sha256").update(lines.join("")).digest("hex");
+}
+
 export async function datasetSha256(datasetRoot: string) {
   const root = path.resolve(datasetRoot);
-  const files = ["manifest.json", ...await truthJsonFiles(root)].sort(byText);
-  const lines = await Promise.all(files.map(async (file) => `${file}\t${sha256(await readFile(path.join(root, file)))}\n`));
-  return createHash("sha256").update(lines.join("")).digest("hex");
+  return filesSha256(root, ["manifest.json", ...await truthJsonFiles(root)]);
 }
 
 /** Reads a binary PDF of the manifest, refused unless its size and SHA-256 are still the manifest's. */

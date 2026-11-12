@@ -58,6 +58,12 @@ import {
   type MaterialRequestQuote,
   type MaterialRequestQuoteRetained,
 } from "@/lib/material-requests/quote-contracts";
+import {
+  MATERIAL_REQUEST_ORDER_NOT_READY_REASONS,
+  createMaterialRequestOrdersSchema,
+  type MaterialRequestOrdersCreated,
+  type MaterialRequestOrdersSummary,
+} from "@/lib/material-requests/order-contracts";
 import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import {
   jsonBody, jsonResponse, pathParameter, queryParameter, schemaDefinition,
@@ -162,6 +168,26 @@ const quote: z.ZodType<MaterialRequestQuote> = z.object({
 const quoteRetained: z.ZodType<MaterialRequestQuoteRetained> = z.object({
   item: quote, lines: z.array(line), closed_quote_ids: z.array(uuid),
 });
+// TI-691, delivery 3a: purchase orders from a request (src/lib/material-requests/order-contracts.ts).
+const ordersSummary: z.ZodType<MaterialRequestOrdersSummary> = z.object({
+  ready_line_ids: z.array(uuid),
+  not_ready: z.array(z.object({ line_id: uuid, reason: z.enum(MATERIAL_REQUEST_ORDER_NOT_READY_REASONS) })),
+  ordered: z.array(z.object({
+    line_id: uuid, purchase_order_id: uuid, purchase_order_reference: z.string(), status: z.string(), can_open: z.boolean(),
+  })),
+  orders: z.array(z.object({
+    id: uuid, reference: z.string(), supplier_name: z.string(), status: z.string(), total_ht_cents: z.number().int(),
+    line_count: z.number().int().min(0), can_open: z.boolean(),
+  })),
+  can_create: z.boolean(),
+});
+const ordersCreated: z.ZodType<MaterialRequestOrdersCreated> = z.object({
+  orders: z.array(z.object({
+    id: uuid, reference: z.string(), supplier_name: z.string(), status: z.string(), line_count: z.number().int().min(1),
+    total_ht_cents: z.number().int().min(0),
+  })),
+  replayed: z.boolean(),
+});
 const supplyTypeItem: z.ZodType<SupplyTypeListItem> = z.object({
   id: uuid, code: z.string(), name: z.string(), preferred_supplier_id: uuid.nullable(),
   preferred_supplier_name: z.string().nullable(),
@@ -236,6 +262,7 @@ const articleRule = "Rattacher, changer ou retirer l'article d'une ligne validé
 const linePriced = refusal("MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.");
 const quoteBusy = "MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était en cours (la base a levé un interblocage) ; rien n'est écrit, réessayer.";
 const quoteReadOnly = refusal("MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.");
+const lineOrdered = "MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.";
 const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
 const catalogueEditorRefusals = {
   "403": refusal("FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689)."),
@@ -284,9 +311,12 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "delete", path: one, summary: "Supprimer une demande",
-    description: "Supprime la demande, ses lignes et ses originaux, octets compris.",
+    description: "Supprime la demande, ses lignes et ses originaux, octets compris. Refusé tant qu'un bon de commande qui n'est pas annulé porte une de ses lignes (TI-691) : rien n'est supprimé, originaux compris.",
     parameters: [project, requestId],
-    responses: { "200": success("ApiMaterialRequestDeleted", "Demande supprimée.", deleted), ...writeRefusals },
+    responses: {
+      "200": success("ApiMaterialRequestDeleted", "Demande supprimée.", deleted), ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_ORDERED : des lignes sont dans un bon de commande qui n'est pas annulé ; l'annuler ou supprimer le brouillon d'abord. details.references."),
+    },
   },
   {
     tags, method: "post", path: `${one}/files`, summary: "Préparer le dépôt d'originaux",
@@ -353,14 +383,16 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: `Applique les mêmes valeurs aux lignes désignées et retourne ces lignes. ${draftRule}`,
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesBulkUpdate", description: "Lignes de la demande et valeurs à appliquer.", schema: bulkUpdateMaterialRequestLinesSchema }),
-    responses: { "200": success("ApiMaterialRequestLinesUpdated", "Lignes de la sélection.", linesData), ...writeRefusals, "409": linePriced },
+    responses: { "200": success("ApiMaterialRequestLinesUpdated", "Lignes de la sélection.", linesData), ...writeRefusals,
+      "409": refusal(`${linePriced.description} ${lineOrdered}`) },
   },
   {
     tags, method: "patch", path: `${one}/lines/{lineId}`, summary: "Modifier une ligne",
     description: `Seuls les champs envoyés changent. ${draftRule} Changer le type, la dimension, la matière, la zone ou l'imputation d'une ligne retire son « doublon vu », sauf si la même requête le redonne. Statut, position et validation ne se modifient pas ici.`,
     parameters: [project, requestId, lineId],
     requestBody: jsonBody({ name: "MaterialRequestLineUpdate", description: "Au moins un champ.", schema: updateMaterialRequestLineSchema }),
-    responses: { "200": success("ApiMaterialRequestLineUpdated", "Ligne enregistrée.", z.object({ line })), ...writeRefusals, "409": linePriced },
+    responses: { "200": success("ApiMaterialRequestLineUpdated", "Ligne enregistrée.", z.object({ line })), ...writeRefusals,
+      "409": refusal(`${linePriced.description} ${lineOrdered}`) },
   },
   {
     tags, method: "delete", path: `${one}/lines/{lineId}`, summary: "Supprimer une ligne",
@@ -413,6 +445,25 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     },
   },
   {
+    tags, method: "get", path: `${one}/orders`, summary: "Situation des commandes d'une demande",
+    description: "Pour les lecteurs de la demande (propriétaire de l'affaire, administrateur, directeur), dans l'ordre de la demande : les lignes prêtes à commander (validées, chiffrées par un devis retenu, dans aucun bon de commande non annulé), les autres avec la première chose qui leur manque (not_validated, no_supplier, not_priced ; le libellé est celui de l'écran), les lignes commandées avec leur bon et son statut, et chaque bon portant une ligne de la demande, annulés compris, du plus ancien au plus récent : référence, fournisseur, statut, total HT du bon, nombre de lignes de la demande qu'il porte. can_create dit si l'appelant peut créer les brouillons (il écrit la demande et peut commander : rôle admin ou engineer). Les bons sont décrits même quand l'appelant ne peut pas les ouvrir (un bon n'est lisible que par son auteur et les administrateurs).",
+    parameters: [project, requestId],
+    responses: { "200": success("ApiMaterialRequestOrders", "Situation des lignes et bons de la demande.", ordersSummary), ...readRefusals },
+  },
+  {
+    tags, method: "post", path: `${one}/orders`, summary: "Créer les brouillons de commande d'une demande",
+    description: "Un brouillon de bon de commande par fournisseur à partir des lignes prêtes, en une transaction : tous de l'affaire de la demande, sans chantier, avec le lieu de livraison de la demande (delivery_mode : site, office, counter) et une note qui la nomme ; les lignes en frais généraux suivent dans le brouillon de leur fournisseur, imputées aux frais généraux. Chaque ligne : article, référence chez ce fournisseur (sinon celle de l'article), libellé catalogue de la ligne, quantité, unité, prix HT et lot du devis retenu (jamais un prix du catalogue), TVA 20 %, type de fourniture, imputation, ligne de la demande. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Une ligne n'est commandée qu'une fois parmi les bons non annulés ; annuler son bon la rend de nouveau prête. La même clé renvoie les mêmes brouillons (200, replayed, chaque bon avec son statut actuel) et ne crée rien ; une nouvelle clé par clic.",
+    parameters: [project, requestId],
+    requestBody: jsonBody({ name: "MaterialRequestOrdersCreate", description: "Clé d'idempotence (UUID).", schema: createMaterialRequestOrdersSchema }),
+    responses: {
+      "201": success("ApiMaterialRequestOrdersCreated", "Brouillons créés, un par fournisseur (status draft).", ordersCreated),
+      "200": success("ApiMaterialRequestOrdersReplayed", "Même clé : les brouillons déjà créés, replayed vrai.", ordersCreated),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_LINE_ALREADY_ORDERED : une ligne vient d'être commandée par ailleurs. MATERIAL_REQUEST_ORDER_KEY_TAKEN : la clé a servi à un autre membre. MATERIAL_REQUEST_ORDER_BUSY : une autre écriture était en cours, réessayer. Rien n'est créé."),
+      "422": refusal("MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). Rien n'est créé."),
+    },
+  },
+  {
     tags, method: "post", path: `${one}/quotes/{quoteId}/close`, summary: "Clore un devis",
     description: "Clôt à la main un devis demandé ou reçu (daté par la base) ; il reste lisible et libère le fournisseur pour une nouvelle consultation. Un devis déjà clos est retourné tel quel.",
     parameters: [project, requestId, quoteId],
@@ -439,7 +490,8 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: "Ramène en brouillon les lignes désignées ; auteur et date de validation sont effacés. Une ligne chiffrée par un devis retenu se rouvre et se revalide de même : son prix et ce qu'elle commande ne changent pas.",
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesReopen", description: "Lignes à rouvrir.", schema: materialRequestLineIdsSchema }),
-    responses: { "200": success("ApiMaterialRequestLinesReopened", "Lignes désignées, en brouillon.", linesData), ...writeRefusals },
+    responses: { "200": success("ApiMaterialRequestLinesReopened", "Lignes désignées, en brouillon.", linesData), ...writeRefusals,
+      "409": refusal(lineOrdered) },
   },
   {
     tags, method: "post", path: `${one}/lines/retain-suppliers`, summary: "Retenir le fournisseur de plusieurs lignes",
