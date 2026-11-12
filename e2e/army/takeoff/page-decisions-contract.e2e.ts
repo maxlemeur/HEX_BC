@@ -334,6 +334,10 @@ commit;`);
           await opened.getByRole("button", "Suivant", { exact: true }).click();
           return opened;
         };
+        // The draft lease this journey's API calls hold (from the page they run in, before any navigation) is released,
+        // as closing that editor would: the wizard of the review takes its own.
+        const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+        if (released.status >= 300) problem("the journey's draft lease is released", released.body);
         const wizard = await openConfirmation();
         const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
         await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
