@@ -15,6 +15,9 @@ import { compareSizes, readSize } from "./size-keys";
  *  5. DN 20 and DN 25 are called the same, or an unreadable size is called different (it must stay unknown);
  *  6. a size with no unit (« coude 20 ») is read as DN for steel and as an outer diameter for copper or
  *     multilayer, as each trade writes it.
+ *  7. (Codex review of PR #263) a bare size of a material whose tubes have no DN (PVC, PEHD, PP, PER) is
+ *     dropped: « 32 » and « 40 » in PVC are both unreadable, so a size-40 article is not told apart from a
+ *     size-32 line, single or reducing.
  */
 
 const dnOf = (text: string, material: string | null = null) => readSize(text, material)?.dn ?? null;
@@ -64,6 +67,14 @@ describe("readSize", () => {
     expect(dnOf("20", null)).toBe(20);
     expect(dnOf("20", "Multicouche serti")).toBe(15);
     expect(dnOf("22", "Cuivre")).toBe(20);
+  });
+
+  it("keeps the outer diameter of a bare size when the material's tubes have no DN", () => {
+    expect(readSize("32", "PVC")).toMatchObject({ od: 32 });
+    expect(compareSizes(readSize("32", "PVC"), readSize("40", "PVC"))).toBe("different");
+    expect(compareSizes(readSize("32", "PVC"), readSize("Ø 32", "PVC"))).toBe("same");
+    expect(compareSizes(readSize("40-32", "PEHD"), readSize("40-25", "PEHD"))).toBe("different");
+    expect(compareSizes(readSize("40-32", "PEHD"), readSize("40 x 32", "PEHD"))).toBe("same");
   });
 
   it("reads nothing in a text without a size", () => {

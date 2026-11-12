@@ -21,6 +21,8 @@ export type SizeReading = {
   metric: number | null;
   /** Outer diameter in millimetres, when printed (and kept even when it resolves to a DN). */
   od: number | null;
+  /** Second outer diameter of a reducing piece named by its outer diameters (« 40-32 » in PEHD). */
+  reduceOd: number | null;
 };
 
 const NUMBER = String.raw`(\d+(?:[.,]\d+)?)`;
@@ -69,8 +71,26 @@ function dnOfOuterDiameter(od: number, material: string | null, code: MaterialCo
   return values.size === 1 ? [...values][0] : null;
 }
 
-function bareSize(value: number, material: string | null, code: MaterialCode | null) {
-  return namesByOuterDiameter(material, code) ? dnOfOuterDiameter(value, material, code) : value;
+/**
+ * A bare number, read as each trade writes it: a DN in steel, an outer diameter in copper, multilayer, PER,
+ * plastics and press-fit stainless. The outer diameter is kept even when no DN corresponds to it (PVC, PEHD,
+ * PP and PER tubes have none in the table): « 32 » and « 40 » in PVC must stay two different sizes.
+ */
+function bareSizes(values: number[], material: string | null, code: MaterialCode | null): SizeReading {
+  const [main, second = null] = values;
+  if (!namesByOuterDiameter(material, code)) {
+    return { dn: main, reduce: second, metric: null, od: null, reduceOd: null };
+  }
+  const reduce = second === null ? null : dnOfOuterDiameter(second, material, code);
+  const dn = dnOfOuterDiameter(main, material, code);
+  // A DN pair only when both sizes resolve, otherwise the outer diameters alone say the piece.
+  return {
+    dn: dn !== null && (second === null || reduce !== null) ? dn : null,
+    reduce: dn !== null ? reduce : null,
+    metric: null,
+    od: main,
+    reduceOd: second,
+  };
 }
 
 export function readSize(raw: string | null | undefined, material: string | null): SizeReading | null {
@@ -81,7 +101,7 @@ export function readSize(raw: string | null | undefined, material: string | null
     .trim();
   if (!text) return null;
   const code = materialCodeOf(material);
-  const empty: SizeReading = { dn: null, reduce: null, metric: null, od: null };
+  const empty: SizeReading = { dn: null, reduce: null, metric: null, od: null, reduceOd: null };
 
   const metric = /\bm\s?(\d{1,2})\b(?!\s*mm)/.exec(text);
   if (metric) return { ...empty, metric: Number(metric[1]) };
@@ -106,17 +126,10 @@ export function readSize(raw: string | null | undefined, material: string | null
   }
 
   const pair = new RegExp(String.raw`^${NUMBER}\s*(?:-|x|/|>)\s*${NUMBER}$`).exec(text);
-  if (pair) {
-    const main = bareSize(numberOf(pair[1]), material, code);
-    const second = bareSize(numberOf(pair[2]), material, code);
-    return main === null ? null : { ...empty, dn: main, reduce: second };
-  }
+  if (pair) return bareSizes([numberOf(pair[1]), numberOf(pair[2])], material, code);
 
   const single = new RegExp(String.raw`^${NUMBER}$`).exec(text);
-  if (single) {
-    const value = bareSize(numberOf(single[1]), material, code);
-    return value === null ? null : { ...empty, dn: value };
-  }
+  if (single) return bareSizes([numberOf(single[1])], material, code);
   return null;
 }
 
@@ -134,7 +147,10 @@ export function compareSizes(left: SizeReading | null, right: SizeReading | null
     return "same";
   }
   if (left.od !== null && right.od !== null) {
-    return Math.abs(left.od - right.od) <= OUTER_DIAMETER_TOLERANCE_MM ? "same" : "different";
+    const close = (a: number, b: number) => Math.abs(a - b) <= OUTER_DIAMETER_TOLERANCE_MM;
+    if (!close(left.od, right.od)) return "different";
+    if (left.reduceOd !== null && right.reduceOd !== null && !close(left.reduceOd, right.reduceOd)) return "different";
+    return "same";
   }
   return "unknown";
 }

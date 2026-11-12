@@ -58,6 +58,9 @@ type PreparedArticle = {
   words: ReadonlySet<string>;
   angle: number | null;
   materialWords: ReadonlySet<string>;
+  /** Grade and standard words (« 304L », « EN 10255 »), compared with the line's precision. */
+  gradeWords: ReadonlySet<string>;
+  gradeLabel: string | null;
   size: SizeReading | null;
   sizeLabel: string | null;
   references: ReadonlySet<string>;
@@ -99,6 +102,15 @@ function words(text: string | null | undefined): Set<string> {
     if (!raw || STOP_WORDS.has(raw) || /^\d+$/.test(raw)) continue;
     const word = ABBREVIATIONS[raw] ?? raw;
     out.add(word.length > 3 && /[sx]$/.test(word) ? word.slice(0, -1) : word);
+  }
+  return out;
+}
+
+/** Words of a grade or a standard, numbers included: « 316 », « PN16 », « EN 10255 ». */
+function gradeWords(...texts: Array<string | null | undefined>): Set<string> {
+  const out = new Set<string>();
+  for (const text of texts) {
+    for (const raw of foldText(text ?? "").split(/[^a-z0-9]+/)) if (raw && !STOP_WORDS.has(raw)) out.add(raw);
   }
   return out;
 }
@@ -174,7 +186,7 @@ function sizeLabel(size: SizeReading | null) {
   if (!size) return null;
   if (size.metric !== null) return `M${size.metric}`;
   if (size.dn !== null) return size.reduce !== null ? `DN ${size.dn} × ${size.reduce}` : `DN ${size.dn}`;
-  if (size.od !== null) return `Ø ${size.od}`;
+  if (size.od !== null) return size.reduceOd !== null ? `Ø ${size.od} × ${size.reduceOd}` : `Ø ${size.od}`;
   return null;
 }
 
@@ -189,6 +201,8 @@ export function prepareCatalogue(articles: readonly MatchArticle[]): PreparedCat
       words: new Set([...words(article.product_type), ...words(article.designation)]),
       angle: angleOf(article.product_type) ?? angleOf(article.designation),
       materialWords: words(article.material),
+      gradeWords: gradeWords(article.grade, article.standard),
+      gradeLabel: [article.grade, article.standard].map((value) => value?.trim()).filter(Boolean).join(" ") || null,
       size,
       sizeLabel: sizeLabel(size),
       references: new Set([article.reference, ...article.supplier_skus].map(referenceKey).filter(Boolean)),
@@ -199,6 +213,18 @@ export function prepareCatalogue(articles: readonly MatchArticle[]): PreparedCat
 }
 
 type MaterialVerdict = "same" | "family" | "unknown" | "different";
+
+/**
+ * The line's precision (« 316L ») against the article's grade and standard. One shared word is enough
+ * (« 316L PN16 » for a 316L article); none is another grade. Without a precision on the line there is
+ * nothing to compare; without a grade on the article it is unknown.
+ */
+function comparePrecisions(line: ReadonlySet<string>, article: ReadonlySet<string>): "none" | "same" | "unknown" | "different" {
+  if (line.size === 0) return "none";
+  if (article.size === 0) return "unknown";
+  for (const word of line) if (article.has(word)) return "same";
+  return "different";
+}
 
 function compareMaterials(line: ReadonlySet<string>, article: ReadonlySet<string>): MaterialVerdict {
   if (line.size === 0 || article.size === 0) return "unknown";
@@ -224,6 +250,8 @@ export function matchLine(
   const lineWords = words(line.product_type);
   const lineAngle = angleOf(line.product_type);
   const lineMaterial = words(line.material);
+  const linePrecision = gradeWords(line.material_precision);
+  const linePrecisionLabel = line.material_precision?.trim() ?? "";
   const lineSize = readSize(line.dimension, line.material);
   const lineSizeLabel = sizeLabel(lineSize);
   const lineReference = referenceKey(line.reference);
@@ -234,6 +262,8 @@ export function matchLine(
   for (const entry of catalogue) {
     const size = compareSizes(lineSize, entry.size);
     const material = compareMaterials(lineMaterial, entry.materialWords);
+    const precision = comparePrecisions(linePrecision, entry.gradeWords);
+    const otherAngle = lineAngle !== null && entry.angle !== null && lineAngle !== entry.angle;
     const reasons: string[] = [];
     const warnings: string[] = [];
 
@@ -244,12 +274,21 @@ export function matchLine(
       via = "reference";
       score = 100;
       reasons.push("Même référence");
+      // The reference comes first, but what the line says against it is the office's to settle.
       if (size === "different") {
         warnings.push(`La référence désigne une autre dimension (${entry.sizeLabel}) que la ligne (${lineSizeLabel}) : vérifiez.`);
       }
+      if (material === "different") {
+        warnings.push(`La référence désigne une autre matière (${entry.article.material?.trim()}) que la ligne (${line.material?.trim()}) : vérifiez.`);
+      }
+      if (precision === "different") {
+        warnings.push(`La référence désigne une autre nuance (${entry.gradeLabel}) que la ligne (${linePrecisionLabel}) : vérifiez.`);
+      }
+      if (otherAngle) {
+        warnings.push(`La référence désigne un autre angle (${entry.angle}°) que la ligne (${lineAngle}°) : vérifiez.`);
+      }
     } else {
-      const otherAngle = lineAngle !== null && entry.angle !== null && lineAngle !== entry.angle;
-      if (!byHand && (size === "different" || material === "different" || otherAngle)) continue;
+      if (!byHand && (size === "different" || material === "different" || precision === "different" || otherAngle)) continue;
       if (size === "different") {
         mismatches += 1;
         warnings.push(`Autre dimension (${entry.sizeLabel ?? entry.article.dimensions?.trim()}) que la ligne (${lineSizeLabel ?? line.dimension?.trim()}).`);
@@ -257,6 +296,10 @@ export function matchLine(
       if (material === "different") {
         mismatches += 1;
         warnings.push(`Autre matière (${entry.article.material?.trim()}) que la ligne (${line.material?.trim()}).`);
+      }
+      if (precision === "different") {
+        mismatches += 1;
+        warnings.push(`Autre nuance (${entry.gradeLabel}) que la ligne (${linePrecisionLabel}).`);
       }
       if (otherAngle) {
         mismatches += 1;
@@ -269,6 +312,11 @@ export function matchLine(
         // A usual name says which piece, not which size or material: what the line leaves open, the office checks.
         if (lineSize === null && entry.size !== null) {
           warnings.push(`La ligne ne donne pas de dimension ; l’article est en ${entry.sizeLabel ?? entry.article.dimensions?.trim()} : vérifiez.`);
+        } else if (lineSize !== null && entry.size !== null && size === "unknown") {
+          warnings.push(`Dimension de la ligne (${lineSizeLabel ?? line.dimension?.trim()}) et de l’article (${entry.sizeLabel ?? entry.article.dimensions?.trim()}) à rapprocher : vérifiez.`);
+        }
+        if (precision === "unknown") {
+          warnings.push(`La ligne précise « ${linePrecisionLabel} » ; l’article n’en dit rien : vérifiez.`);
         }
         if (lineMaterial.size === 0 && entry.materialWords.size > 0) {
           warnings.push(`La ligne ne donne pas de matière ; l’article est en ${entry.article.material?.trim()} : vérifiez.`);
@@ -279,12 +327,14 @@ export function matchLine(
         score = similarity * 45;
         score += { same: 30, unknown: 10, different: 0 }[size];
         score += { same: 20, family: 14, unknown: 6, different: 0 }[material];
+        if (precision === "same") score += 5;
       }
     }
 
     if (size === "same" && entry.sizeLabel) reasons.push(`Même dimension (${entry.sizeLabel})`);
     if (via !== "reference") {
       if (material === "same") reasons.push("Même matière");
+      if (precision === "same" && entry.gradeLabel) reasons.push(`Même nuance (${entry.gradeLabel})`);
       if (material === "family") reasons.push(`Matière de la famille « ${line.material?.trim()} »`);
     }
     if (lineUnit && entry.unitCode && lineUnit !== entry.unitCode) {

@@ -27,6 +27,11 @@ import { matchLine, prepareCatalogue, type MatchArticle, type MatchRequestLine }
  *     several unwarned first-tier proposals: the bulk link picks one of them blindly;
  * 15. a search by hand cannot reach another size, material or angle, so the office creates a duplicate
  *     article; or, when it can, that article is not flagged or is ranked above the matching ones.
+ * 16. (Codex review of PR #263) the line's precision (« 316L ») is never read: an « Inox » article of grade
+ *     304L comes out as the same material, unwarned through a usual name, and the bulk link writes 304L;
+ * 17. a reference that names another material or another angle than the line's comes out without a
+ *     warning (only another size was warned), so the bulk link takes it;
+ * 18. a usual name proposes an article whose size cannot be compared with the line's, without a warning.
  */
 
 let next = 0;
@@ -220,5 +225,41 @@ describe("matchLine", () => {
     expect(ids(elbow)[0]).toBe("coude45-304se-20");
     expect(elbow.find((candidate) => candidate.product_id === "coude90-304se-20")?.warnings)
       .toContain("Autre angle (90°) que la ligne (45°).");
+  });
+
+  it("reads the line's precision against the article's grade and standard", () => {
+    const grades = prepareCatalogue([
+      article({ id: "te-304", product_type: "Té", material: "Inox", grade: "304L", dimensions: "DN32", aliases: ["t inox"] }),
+      article({ id: "te-316", product_type: "Té", material: "Inox", grade: "316L", dimensions: "DN32" }),
+      article({ id: "te-nograde", product_type: "Té", material: "Inox", dimensions: "DN32", aliases: ["te sans nuance"] }),
+    ]);
+    const ranked = matchLine(line({ product_type: "té", material: "Inox", material_precision: "316L", dimension: "DN32" }), grades);
+    expect(ids(ranked)).toEqual(["te-316", "te-nograde"]);
+    const byAlias = matchLine(line({ product_type: "t inox", material: "Inox", material_precision: "316L", dimension: "DN32" }), grades);
+    expect(ids(byAlias)).not.toContain("te-304");
+    const unknown = matchLine(line({ product_type: "te sans nuance", material: "Inox", material_precision: "316L", dimension: "DN32" }), grades);
+    expect(unknown[0].via).toBe("alias");
+    expect(unknown[0].warnings).toContain("La ligne précise « 316L » ; l’article n’en dit rien : vérifiez.");
+    const byHand = matchLine(line({ product_type: "té", material: "Inox", material_precision: "316L", dimension: "DN32" }), grades, { byHand: true });
+    expect(byHand.find((candidate) => candidate.product_id === "te-304")?.warnings).toContain("Autre nuance (304L) que la ligne (316L).");
+  });
+
+  it("warns when the reference names another material or another angle than the line's", () => {
+    const refs = prepareCatalogue([
+      article({ id: "coude90-inox", product_type: "Coude 90°", material: "Inox 304L serti", dimensions: "DN20", reference: "CD-90-20" }),
+    ]);
+    const [candidate] = matchLine(line({ product_type: "coude 45°", material: "Cuivre", dimension: "DN20", reference: "CD-90-20" }), refs);
+    expect(candidate.via).toBe("reference");
+    expect(candidate.warnings).toEqual([
+      "La référence désigne une autre matière (Inox 304L serti) que la ligne (Cuivre) : vérifiez.",
+      "La référence désigne un autre angle (90°) que la ligne (45°) : vérifiez.",
+    ]);
+  });
+
+  it("warns when a usual name brings a size that cannot be compared with the line's", () => {
+    const odOnly = prepareCatalogue([article({ id: "manchon-pvc", product_type: "Manchon", material: "PVC", dimensions: "DN32", aliases: ["manchon colle"] })]);
+    const [candidate] = matchLine(line({ product_type: "manchon colle", material: "PVC", dimension: "32" }), odOnly);
+    expect(candidate.via).toBe("alias");
+    expect(candidate.warnings).toContain("Dimension de la ligne (Ø 32) et de l’article (DN 32) à rapprocher : vérifiez.");
   });
 });
