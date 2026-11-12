@@ -1,4 +1,4 @@
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/estimates/api-error";
 
 type JsonDecimal = { coefficient: bigint; exponent: number };
 
