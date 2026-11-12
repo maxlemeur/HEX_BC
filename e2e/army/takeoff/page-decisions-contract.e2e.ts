@@ -242,12 +242,15 @@ commit;`);
     relaunch: [read("Lavabo (relevé)", 5, "u", 1)],
     prepare: async ({ versionId, earlierJobId, plan, source }) => {
       const item = randomUUID();
+      // The earlier takeoff is applied, so its lines are frozen: the fixture line is written with triggers off.
       await sql(`begin;
+set local session_replication_role = replica;
 insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
   metadata, is_excluded, is_verified)
 select '${item}', job_item.tenant_id, job_item.job_id, job_item.result_id, 'EF cuivre DN 22', 30, 'ml', 0.95, 'ARMY localized fixture: EF cuivre DN 22',
   '${source()}', 1, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', '${plan()}')), false, false
 from public.takeoff_items job_item where job_item.job_id = '${earlierJobId}' limit 1;
+set local session_replication_role = origin;
 select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
 update public.estimate_items set source_job_id = '${earlierJobId}', source_file_name = '${source()}', source_page = 1,
   source_metadata = source_metadata || jsonb_build_object('takeoff_quantity_policy', jsonb_build_object('version', 1, 'job_id', '${earlierJobId}',
@@ -311,7 +314,7 @@ async function sql(text: string) {
     child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-8_192); });
     child.once("error", () => reject(new Error("The local SQL session could not start.")));
     child.once("close", (code) => {
-      if (code !== 0) reject(new Error(`Local SQL failed: SQLSTATE=${/ERROR:\s*([0-9A-Z]{5})/.exec(stderr)?.[1] ?? "unavailable"}`));
+      if (code !== 0) reject(new Error(`Local SQL failed: ${/ERROR:\s*([0-9A-Z]{5}:?[^\n]{0,160})/.exec(stderr)?.[1] ?? "unavailable"}`));
       else resolve(stdout.split(/\r?\n/).filter(Boolean));
     });
     child.stdin.end(text);
