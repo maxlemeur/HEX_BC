@@ -12,8 +12,9 @@ import path from "node:path";
 // Diagnostic only: it never fails nor delays a run. The repository's evidence is
 // public, so nothing a statement carries leaves this module:
 // - a statement is retained as its first keyword and the schema-qualified
-//   objects it names, read left to right so that a quote inside a comment, an
-//   escape or a quoted identifier cannot open a literal;
+//   objects it names, read left to right with the lexer's state so that a
+//   quote inside a comment, an escape or a quoted identifier cannot open a
+//   literal, and what follows a form the sampling cut open is dropped;
 // - a backend is retained as a kind of client, not as its role: on an owned
 //   stack the superuser's name is also the database password, which the runner's
 //   privacy check refuses anywhere in the evidence;
@@ -42,13 +43,73 @@ const SCHEMAS = new Set([
   "public", "private", "auth", "storage", "extensions", "net", "vault", "realtime", "graphql", "supabase_functions", "pg_catalog",
 ]);
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// What is not code, each form recognised only where code could start it: line and
-// block comments, escape strings, strings, dollar-quoted bodies (the only
-// capturing group is their tag), quoted identifiers. A statement cut by the
-// sampling ends its last form.
-const NOT_CODE = /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|(?<![A-Za-z0-9_$])[eE]'(?:\\[\s\S]|''|[^'\\])*(?:'|$)|'(?:''|[^'])*(?:'|$)|\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?(?:\$\1\$|$)|"(?:""|[^"])*(?:"|$)/g;
+const WORD = /[A-Za-z0-9_$]/;
 // Stands for a quoted identifier that is not a plain name: it joins nothing.
 const OPAQUE = "\u0001";
+
+/**
+ * The code of a statement: what is neither a comment, a string, a dollar-quoted
+ * body nor an odd quoted identifier. One pass, left to right, with the state the
+ * server's lexer keeps: block comments nest, a backslash escapes in an E'' string.
+ * The sampling cuts a statement, so a form may never close: everything from its
+ * opening is then dropped, never read as code.
+ */
+function statementCode(statement: string): string {
+  const text = statement.slice(0, MAX_STATEMENT_CHARACTERS);
+  let code = "";
+  let at = 0;
+  while (at < text.length) {
+    const character = text[at];
+    if (text.startsWith("--", at)) {
+      const end = text.indexOf("\n", at);
+      at = end === -1 ? text.length : end;
+      code += " ";
+    } else if (text.startsWith("/*", at)) {
+      let depth = 1;
+      at += 2;
+      while (at < text.length && depth > 0) {
+        if (text.startsWith("/*", at)) { depth += 1; at += 2; }
+        else if (text.startsWith("*/", at)) { depth -= 1; at += 2; }
+        else at += 1;
+      }
+      code += " ";
+    } else if (character === "'") {
+      const escapes = /^[eE]$/.test(text[at - 1] ?? "") && !WORD.test(text[at - 2] ?? "");
+      at += 1;
+      for (;;) {
+        if (at >= text.length) break;
+        if (text[at] === "\\") {
+          if (escapes) { at += 2; continue; }
+          // A backslash before a quote is an escape where standard_conforming_strings
+          // is off: where this string ends is not known, nor what follows it.
+          if (text[at + 1] === "'") { at = text.length; break; }
+        }
+        if (text[at] === "'") {
+          if (text[at + 1] === "'") { at += 2; continue; }
+          at += 1;
+          break;
+        }
+        at += 1;
+      }
+      code += " ";
+    } else if (character === "$" && !WORD.test(text[at - 1] ?? "") && /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.test(text.slice(at))) {
+      const tag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(text.slice(at))![0];
+      const end = text.indexOf(tag, at + tag.length);
+      at = end === -1 ? text.length : end + tag.length;
+      code += " ";
+    } else if (character === "\"") {
+      let end = at + 1;
+      while (end < text.length && (text[end] !== "\"" || text[end + 1] === "\"")) end += text[end] === "\"" ? 2 : 1;
+      const name = text.slice(at + 1, end);
+      code += end < text.length && IDENTIFIER.test(name) ? name : OPAQUE;
+      at = end < text.length ? end + 1 : text.length;
+    } else {
+      code += character;
+      at += 1;
+    }
+  }
+  return code;
+}
 
 const activity = (alias: string) => `
   'pid', ${alias}.pid, 'role', ${alias}.usename,
@@ -89,15 +150,9 @@ export interface BlockedStatement {
 
 /** First keyword and the schema-qualified objects of a statement, without any of its values. */
 export function blockedStatementLabel(query: string): string {
-  const code = String(query ?? "").slice(0, MAX_STATEMENT_CHARACTERS).replace(NOT_CODE, (form) => {
-    if (!form.startsWith("\"")) return " ";
-    const name = form.slice(1, form.length > 1 && form.endsWith("\"") ? -1 : undefined);
-    return IDENTIFIER.test(name) ? name : OPAQUE;
-  });
+  const code = statementCode(String(query ?? ""));
   const keyword = /^[\s(]*([A-Za-z]+)/.exec(code)?.[1]?.toLowerCase();
   if (!keyword || !KEYWORDS.has(keyword)) return "other";
-  // A nested block comment ends at its first closing: what follows is not known to be code.
-  if (code.includes("*/")) return keyword;
   const objects: string[] = [];
   for (const match of code.matchAll(/(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
     const object = `${match[1].toLowerCase()}.${match[2].toLowerCase()}`;

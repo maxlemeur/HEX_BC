@@ -64,13 +64,23 @@ describe("blocked statement labels", () => {
     expect(blockedStatementLabel("SELECT 1 AS \"l'alias\", 'public.leak1', ''")).toBe("select");
     expect(blockedStatementLabel("SELECT /* public.acme_corp */ 1")).toBe("select");
     expect(blockedStatementLabel("SELECT 1 -- storage.secretbucket")).toBe("select");
-    expect(blockedStatementLabel("SELECT /* outer /* inner */ public.nested */ 1 FROM public.t")).toBe("select");
+    expect(blockedStatementLabel("SELECT /* outer /* inner */ public.nested */ 1 FROM public.t")).toBe("select public.t");
     expect(blockedStatementLabel("SELECT * FROM \"public\".\"odd.name\" WHERE x")).toBe("select");
     expect(blockedStatementLabel("-- note\n  SELECT 1 FROM public.t")).toBe("select public.t");
   });
 
   it("names nothing a cut statement left open", () => {
     expect(blockedStatementLabel("INSERT INTO public.t(title) VALUES ('public.cut_in_the_middle")).toBe("insert public.t");
+    // The sampling cuts a statement at 600 characters: what an open comment, string,
+    // body or identifier would have closed later is not there to say so.
+    const cutAt600 = (head: string, last = "x") => `${head.padEnd(599, "x")}${last} */ ' $a$ " tail`;
+    expect(blockedStatementLabel(cutAt600("SELECT /* outer /* inner */ public.confidential_customer "))).toBe("select");
+    expect(blockedStatementLabel(cutAt600("SELECT 1 FROM public.t WHERE a = E'it\\'s public.leak_one ", "\\"))).toBe("select public.t");
+    expect(blockedStatementLabel("SELECT 1 FROM public.t JOIN \"public.leak_three")).toBe("select public.t");
+    expect(blockedStatementLabel("SELECT 1 FROM public.t WHERE $a$ public.leak_four $b$ public.leak_five")).toBe("select public.t");
+    expect(blockedStatementLabel("SELECT 1 FROM public.t WHERE a = E'cut after its backslash \\")).toBe("select public.t");
+    // A backslash before a closing quote: an escape where standard_conforming_strings is off.
+    expect(blockedStatementLabel("SELECT 1 FROM public.t WHERE a = 'it\\'s public.leak_two' AND b IN (SELECT 1 FROM public.u)")).toBe("select public.t");
     expect(blockedStatementLabel(`SELECT 1 FROM public.t ${" ".repeat(600)} JOIN public.too_far ON true`)).toBe("select public.t");
   });
 
