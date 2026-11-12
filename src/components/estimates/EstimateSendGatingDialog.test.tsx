@@ -174,4 +174,48 @@ describe("EstimateSendGatingDialog", () => {
       expect(screen.queryByRole("button", { name: "Rédiger les précisions" })).not.toBeInTheDocument();
     });
   });
+
+  // TI-682, lot C, PR 5: a provisional quantity leaves only with its sentence in the limits text. When that text can no
+  // longer receive the missing sentences, the window says how many characters are missing and what actually unblocks.
+  describe("provisional quantities", () => {
+    const missing = (details?: Record<string, unknown>): EstimateSendGatingFlag => ({
+      key: "provisional_quantity_mention_missing", severity: "blocking", count: 1, itemIds: ["line-1"],
+      label: "Mention « quantité provisionnelle » à écrire", description: "À écrire", ...(details ? { details } : {}) });
+    const lines = [{ id: "line-1", title: "Calorifuge", description: "Calorifuge : quantité provisionnelle de 12 ml, établie "
+      + "sur le plan CVC, à confirmer selon le relevé." }];
+    function renderProvisional(flagValue: EstimateSendGatingFlag) {
+      render(
+        <EstimateSendGatingDialog
+          isOpen
+          isSubmitting={false}
+          phaseLabel={null}
+          blockingFlags={[flagValue]}
+          warningFlags={[]}
+          canForce
+          reserveLines={lines}
+          onOpenLimits={vi.fn()}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+          onForceConfirm={vi.fn()}
+        />
+      );
+    }
+
+    it("lists the sentence each line asks, without override", () => {
+      renderProvisional(missing());
+      expect(screen.getByText(/quantité provisionnelle de 12 ml/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("estimate-send-gating-provisional-overflow")).not.toBeInTheDocument();
+    });
+
+    it("says how many characters the limits text lacks and what unblocks the offer", () => {
+      renderProvisional(missing({ limits_overflow: { missing_characters: 572, limit: 5000 } }));
+      const message = screen.getByTestId("estimate-send-gating-provisional-overflow");
+      expect(message).toHaveTextContent("il manque 572 caractères sur 5000.");
+      expect(message).toHaveTextContent("raccourcissez « Établie sur » et « À confirmer selon »");
+      expect(message).toHaveTextContent("allégez le reste des précisions");
+      expect(message).toHaveTextContent("retirez la déclaration des lignes dont la phrase manque");
+      expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
+    });
+  });
 });

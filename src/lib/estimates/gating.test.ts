@@ -28,6 +28,7 @@ import {
 } from "@/lib/feature-flags";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";
+import { appendProvisionalQuantityMentions, composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -970,6 +971,145 @@ describe("estimate send gating", () => {
         const result = await evaluate([unpriced("line-reserved", { offer_choice: reserve() })], { engine, exclusions: "Limites." });
         expect(keys(result)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
       }
+    });
+  });
+  // TI-682, lot C, PR 5: the provisional quantity. A priced line whose quantity rests on a takeoff hypothesis leaves
+  // priced; once an administrator declared it provisional, the offer's limits text carries the sentence written from the
+  // line as it is now. An hypothesis nobody declared is listed for the issuer, never blocked.
+  describe("provisional_quantity_mention_missing and takeoff_hypothesis_without_mention", () => {
+    const marker = (cause: string | null = "estimated") => ({ takeoff_provision: { version: 1, job_id: "job-1", sources: [
+      { takeoff_item_id: "takeoff-1", forced: false, forced_reason: null, entry_category: null, hypothesis_cause: cause },
+    ] } });
+    const provisional = (extra: Record<string, unknown> = {}) => ({ kind: "provisional_quantity", basis: "private_estimate",
+      note: null, established_on: "le plan CVC indice B", to_confirm_by: "le relevé contradictoire sur site",
+      decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-12T09:00:00.000000+00:00", ...extra });
+    const pricedLine = (id: string, extra: Record<string, unknown> = {}) => ({
+      ...createLineItem({ id, quantity: 12, unitPriceHtCents: 1500 }), title: "Calorifuge des réseaux EC", unit_code: "ml",
+      pricing_status: "priced", was_not_priced: false, status_reason: null, offer_choice: null,
+      source_metadata: marker(), ...extra,
+    });
+    const sentence = "Calorifuge des réseaux EC : quantité provisionnelle de 12 ml, établie sur le plan CVC indice B, à "
+      + "confirmer selon le relevé contradictoire sur site.";
+    const evaluate = (items: unknown[], options: { engine?: number; exclusions?: string | null } = {}) =>
+      evaluateEstimateSendGating({
+        supabase: createSupabaseGatingMock({ items, marginTiers: [], documents: [{ id: "doc-1" }] }) as never,
+        tenantId: TENANT_ID,
+        version: {
+          id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 18000,
+          project_id: "55555555-5555-4555-8555-555555555555", calc_engine_version: options.engine ?? 3,
+          exclusions: options.exclusions ?? null,
+        },
+        project: { id: "55555555-5555-4555-8555-555555555555", client_name: "Client A", notes: null },
+      });
+    const keys = (result: Awaited<ReturnType<typeof evaluate>>) => ({
+      blocking: result.blockingFlags.map((flag) => flag.key), warning: result.warningFlags.map((flag) => flag.key),
+    });
+
+    it("blocks a declared provisional quantity until its sentence is in the limits, without override, whatever the tenant flags", async () => {
+      vi.mocked(getFeatureFlagValueForTenant)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("provisional_quantity_mention_missing");
+      const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })],
+        { exclusions: "Réseaux enterrés non compris." });
+      expect(result.canSend).toBe(false);
+      expect(keys(result)).toEqual({ blocking: ["provisional_quantity_mention_missing"], warning: [] });
+      expect(result.blockingFlags[0]).toMatchObject({ severity: "blocking", item_ids: ["line-provisional"],
+        label: "Mention « quantité provisionnelle » à écrire" });
+      expect(() => resolveEstimateSendOverride(result, true)).toThrow(expect.objectContaining({
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: expect.objectContaining({ not_forceable: ["provisional_quantity_mention_missing"] }),
+      }));
+    });
+
+    it("lets the line leave priced once the limits carry its sentence, whatever its blanks and line breaks", async () => {
+      for (const exclusions of [sentence, `Réseaux enterrés non compris.\n\n${sentence.replace(", à confirmer", ",\n  à confirmer")}`]) {
+        const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })], { exclusions });
+        expect(keys(result), exclusions).toEqual({ blocking: [], warning: [] });
+        expect(result.canSend).toBe(true);
+      }
+    });
+
+    it("blocks again once the quantity, the title or the unit changed after the sentence was written", async () => {
+      for (const change of [{ quantity: 12.5 }, { title: "Calorifuge EC" }, { unit_code: "u" }, { quantity: null }]) {
+        const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional(), ...change })],
+          { exclusions: sentence });
+        expect(keys(result).blocking, JSON.stringify(change)).toContain("provisional_quantity_mention_missing");
+      }
+    });
+
+    it("also asks the limits text when it is empty, as for a reserve", async () => {
+      for (const exclusions of [null, "", " \n "]) {
+        const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })], { exclusions });
+        expect(keys(result).blocking, JSON.stringify(exclusions))
+          .toEqual(["offer_limits_required", "provisional_quantity_mention_missing"]);
+      }
+    });
+
+    it("lists the priced hypotheses nobody declared, as a warning only", async () => {
+      const result = await evaluate([
+        pricedLine("line-b-hypothesis"),
+        pricedLine("line-a-entered", { source_metadata: { takeoff_provision: { version: 1, job_id: "job-1", sources: [
+          { takeoff_item_id: "takeoff-2", forced: false, forced_reason: null, entry_category: "hypothesis" }] } } }),
+        pricedLine("line-provision", { source_metadata: marker(null) }),
+        pricedLine("line-plain", { source_metadata: {} }),
+        pricedLine("line-declared", { offer_choice: provisional({ established_on: "le plan CVC indice C" }) }),
+        pricedLine("line-unpriced-hypothesis", { pricing_status: "included" }),
+      ], { exclusions: sentence.replace("indice B", "indice C") });
+      expect(keys(result)).toEqual({ blocking: [], warning: ["takeoff_hypothesis_without_mention"] });
+      expect(result.warningFlags[0]).toMatchObject({ severity: "warning", item_ids: ["line-a-entered", "line-b-hypothesis"],
+        label: "Quantités sur hypothèse sans mention" });
+      expect(result.canSend).toBe(true);
+    });
+
+    it("does not take the sentence of « Gros Tube » for the sentence of « Tube »", async () => {
+      const tube = "Tube : quantité provisionnelle de 12 ml, établie sur le plan CVC indice B, à confirmer selon le relevé "
+        + "contradictoire sur site.";
+      const result = await evaluate([pricedLine("line-tube", { title: "Tube", offer_choice: provisional() }),
+        pricedLine("line-big-tube", { title: "Gros Tube", offer_choice: provisional() })], { exclusions: `Gros ${tube}` });
+      expect(keys(result).blocking).toEqual(["provisional_quantity_mention_missing"]);
+      expect(result.blockingFlags[0].item_ids).toEqual(["line-tube"]);
+    });
+
+    it("warns of a provisional sentence that matches no current line, and lets the offer leave", async () => {
+      const before = sentence.replace("de 12 ml", "de 10 ml");
+      const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })],
+        { exclusions: `${before}\n${sentence}` });
+      expect(keys(result)).toEqual({ blocking: [], warning: ["provisional_quantity_mention_stale"] });
+      expect(result.warningFlags[0]).toMatchObject({ severity: "warning", item_ids: [VERSION_ID], count: 1,
+        label: "Mention « quantité provisionnelle » à relire" });
+      expect(result.canSend).toBe(true);
+      const orphan = await evaluate([pricedLine("line-hypothesis")], { exclusions: sentence });
+      expect(keys(orphan)).toEqual({ blocking: [], warning: ["takeoff_hypothesis_without_mention", "provisional_quantity_mention_stale"] });
+    });
+
+    it("says what unblocks the offer when its limits can no longer receive the missing sentences", async () => {
+      const long = { established_on: "é".repeat(160), to_confirm_by: "è".repeat(160) };
+      const lines = Array.from({ length: 14 }, (_, index) =>
+        pricedLine(`line-${String(index).padStart(2, "0")}`, { title: `Ligne ${index}`, offer_choice: provisional(long) }));
+      const exclusions = "Réseaux enterrés non compris.";
+      const result = await evaluate(lines, { exclusions });
+      const missingFlag = result.blockingFlags.find((flag) => flag.key === "provisional_quantity_mention_missing");
+      const written = appendProvisionalQuantityMentions(exclusions, lines.map((line) =>
+        composeProvisionalQuantityMention(line, line.offer_choice as never)!));
+      expect(written.length).toBeGreaterThan(5000);
+      expect(missingFlag?.details).toEqual({ limits_overflow: { missing_characters: written.length - 5000, limit: 5000 } });
+      expect(() => resolveEstimateSendOverride(result, true)).toThrow(expect.objectContaining({
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        message: expect.stringContaining(`il manque ${written.length - 5000} caractères sur 5000`),
+      }));
+      // Under the bound, the flag says nothing of room.
+      const fitting = await evaluate(lines.slice(0, 2), { exclusions });
+      expect(fitting.blockingFlags.find((flag) => flag.key === "provisional_quantity_mention_missing")?.details).toBeUndefined();
+    });
+
+    it("reads no provisional quantity on engines 1 and 2, nor a choice the line's status does not fit", async () => {
+      for (const engine of [1, 2]) {
+        const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })], { engine });
+        expect(keys(result), String(engine)).toEqual({ blocking: [], warning: [] });
+      }
+      const unpriced = await evaluate([pricedLine("line-unpriced", { pricing_status: "not_priced", was_not_priced: true,
+        offer_choice: provisional() })], { exclusions: "Limites." });
+      expect(keys(unpriced)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
     });
   });
 });

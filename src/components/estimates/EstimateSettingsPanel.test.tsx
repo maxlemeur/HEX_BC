@@ -13,10 +13,12 @@ import {
 function ControlledEstimateSettingsPanel({
   initialSettings,
   reservedLineTitles,
+  provisionalQuantityMentions,
   isReadOnly = false,
 }: Readonly<{
   initialSettings: EstimateSettingsState;
   reservedLineTitles?: readonly string[];
+  provisionalQuantityMentions?: readonly string[];
   isReadOnly?: boolean;
 }>) {
   const [settings, setSettings] = useState(initialSettings);
@@ -35,6 +37,7 @@ function ControlledEstimateSettingsPanel({
       }
       onSave={() => undefined}
       reservedLineTitles={reservedLineTitles}
+      provisionalQuantityMentions={provisionalQuantityMentions}
     />
   );
 }
@@ -150,5 +153,39 @@ describe("EstimateSettingsPanel", () => {
     cleanup();
     render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} reservedLineTitles={["Réseau enterré"]} isReadOnly />);
     expect(screen.queryByRole("button", { name: "Insérer les réserves dans les précisions" })).not.toBeInTheDocument();
+  });
+
+  // TI-682, lot C, PR 5: the provisional quantity sentences the send asks, appended once each after what is written; when
+  // they cannot fit in the limits text (5,000 characters), nothing is inserted and the screen says how many are missing.
+  const sentence = (title: string, text = "le plan CVC indice B") =>
+    `${title} : quantité provisionnelle de 12 ml, établie sur ${text}, à confirmer selon ${text}.`;
+  const INSERT = "Insérer les mentions de quantité provisionnelle";
+
+  it("inserts the provisional quantity sentences still missing from the limits text", async () => {
+    const user = userEvent.setup();
+    render(<ControlledEstimateSettingsPanel initialSettings={{ ...baseSettings, exclusions: `Néant.\n${sentence("Tube")}` }}
+      provisionalQuantityMentions={[sentence("Tube"), sentence("Calorifuge")]} />);
+    expect(screen.getByText(/1 mention à écrire/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: INSERT }));
+    expect(screen.getByRole("textbox", { name: "Précisions et exclusions particulières" }))
+      .toHaveValue(`Néant.\n${sentence("Tube")}\n\n${sentence("Calorifuge")}`);
+    expect(screen.queryByRole("button", { name: INSERT })).not.toBeInTheDocument();
+  });
+
+  it("inserts nothing when the sentences do not fit, and says how many characters are missing and what unblocks", async () => {
+    const user = userEvent.setup();
+    const long = "é".repeat(160);
+    const mentions = Array.from({ length: 14 }, (_, index) => sentence(`Ligne ${index}`, long));
+    const exclusions = "Réseaux enterrés non compris.";
+    const missing = `${exclusions}\n\n${mentions.join("\n")}`.length - 5000;
+    render(<ControlledEstimateSettingsPanel initialSettings={{ ...baseSettings, exclusions }} provisionalQuantityMentions={mentions} />);
+    const button = screen.getByRole("button", { name: INSERT });
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(screen.getByRole("textbox", { name: "Précisions et exclusions particulières" })).toHaveValue(exclusions);
+    const message = screen.getByTestId("estimate-provisional-mentions-overflow");
+    expect(message).toHaveTextContent(`il manque ${missing} caractères. Rien n'est inséré.`);
+    expect(message).toHaveTextContent("raccourcissez « Établie sur » et « À confirmer selon »");
+    expect(message).toHaveTextContent("retirez la déclaration des lignes dont la phrase manque");
   });
 });

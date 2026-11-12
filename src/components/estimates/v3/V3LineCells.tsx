@@ -34,8 +34,10 @@ import {
   type EstimateStatusReason,
 } from "@/lib/estimates/status-reason";
 import { V3StatusReasonDialog } from "@/components/estimates/v3/V3StatusReasonDialog";
+import { V3OfferProvisionalQuantityDialog } from "@/components/estimates/v3/V3OfferProvisionalQuantityDialog";
 import { V3OfferReserveDialog } from "@/components/estimates/v3/V3OfferReserveDialog";
-import { readOfferReserve, type EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
+import { readOfferProvisionalQuantity, readOfferReserve, type EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
+import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
 /**
@@ -58,6 +60,8 @@ export type EstimateV3GridModel = {
   offerReserve?: {
     canDeclare: boolean;
     save: (itemId: string, choice: EstimateOfferChoiceInput | null) => Promise<void>;
+    /** PR 5: what « Établie sur » of a provisional quantity starts from (the takeoff line's note), or null. */
+    suggestEstablishedOn?: (itemId: string) => Promise<string | null>;
   };
   /** Coefficient de vente FO de l'aperçu courant, pour le détail du coût de fourniture d'une ligne (TI-541). */
   saleCoefficientFo?: string | null;
@@ -80,14 +84,26 @@ type StatusReasonRequest = {
 };
 const StatusReasonRequestContext = createContext<((request: StatusReasonRequest) => void) | null>(null);
 
-/** TI-682, lot C, PR 4 : la réserve écrite d'une ligne, ouverte au niveau de la grille pour la même raison. */
-type OfferReserveRequest = { itemId: string; title: string; choice: unknown; canDeclare: boolean };
+/**
+ * TI-682, lot C, PR 4 : la réserve écrite d'une ligne, ouverte au niveau de la grille pour la même raison. PR 5 : la
+ * quantité provisionnelle d'une ligne chiffrée sur hypothèse, avec ce qu'il faut pour écrire sa phrase.
+ */
+type OfferReserveRequest = {
+  kind: "reserve" | "provisional_quantity";
+  itemId: string;
+  title: string;
+  choice: unknown;
+  canDeclare: boolean;
+  quantity?: number | string | null;
+  unit_code?: string | null;
+};
 const OfferReserveRequestContext = createContext<((request: OfferReserveRequest) => void) | null>(null);
 
 export function EstimateV3GridProvider({ value, children }: { value: EstimateV3GridModel | null; children: ReactNode }) {
   const [statusReasonRequest, setStatusReasonRequest] = useState<StatusReasonRequest | null>(null);
   const [offerReserveRequest, setOfferReserveRequest] = useState<OfferReserveRequest | null>(null);
   const saveOfferReserve = value?.offerReserve?.save;
+  const suggestEstablishedOn = value?.offerReserve?.suggestEstablishedOn;
   return (
     <EstimateV3GridContext.Provider value={value}>
       <OfferReserveRequestContext.Provider value={setOfferReserveRequest}>
@@ -110,8 +126,20 @@ export function EstimateV3GridProvider({ value, children }: { value: EstimateV3G
               }}
             />
             <V3OfferReserveDialog
-              line={offerReserveRequest}
+              line={offerReserveRequest?.kind === "reserve" ? offerReserveRequest : null}
               canDeclare={Boolean(offerReserveRequest?.canDeclare && saveOfferReserve)}
+              onClose={() => setOfferReserveRequest(null)}
+              onSave={async (choice) => {
+                if (!offerReserveRequest || !saveOfferReserve) return;
+                await saveOfferReserve(offerReserveRequest.itemId, choice);
+                setOfferReserveRequest(null);
+              }}
+            />
+            <V3OfferProvisionalQuantityDialog
+              line={offerReserveRequest?.kind === "provisional_quantity" ? offerReserveRequest : null}
+              canDeclare={Boolean(offerReserveRequest?.canDeclare && saveOfferReserve)}
+              suggestEstablishedOn={offerReserveRequest && suggestEstablishedOn
+                ? () => suggestEstablishedOn(offerReserveRequest.itemId) : undefined}
               onClose={() => setOfferReserveRequest(null)}
               onSave={async (choice) => {
                 if (!offerReserveRequest || !saveOfferReserve) return;
@@ -408,6 +436,10 @@ export function V3LineStateControls({
   const canDeclareReserve = Boolean(useEstimateV3Grid()?.offerReserve?.canDeclare) && !isReadOnly;
   const reserve = readOfferReserve(item);
   const showsReserve = status === "not_priced" && (reserve !== null || canDeclareReserve);
+  // PR 5 : une ligne chiffrée dont la quantité repose sur une hypothèse du métré peut annoncer une quantité provisionnelle.
+  const provisional = readOfferProvisionalQuantity(item);
+  const isHypothesis = readTakeoffProvision(item.source_metadata)?.kind === "hypothesis";
+  const showsProvisional = status === "priced" && (provisional !== null || (isHypothesis && canDeclareReserve));
   return (
     <span className="inline-flex shrink-0 items-center gap-1" data-testid="estimate-v3-line-state">
       <select
@@ -450,10 +482,26 @@ export function V3LineStateControls({
           title={reserve
             ? "Réserve écrite dans l'offre : la ligne part « Non chiffrée », les précisions le disent"
             : "Déclarer une réserve écrite : la ligne part « Non chiffrée » et l'offre le dit (administrateur)"}
-          onClick={() => requestOfferReserve?.({ itemId: item.id, title: lineLabel(item), choice: item.offer_choice ?? null,
-            canDeclare: canDeclareReserve })}
+          onClick={() => requestOfferReserve?.({ kind: "reserve", itemId: item.id, title: lineLabel(item),
+            choice: item.offer_choice ?? null, canDeclare: canDeclareReserve })}
         >
           {reserve ? "Réservée" : "Réserve"}
+        </button>
+      ) : null}
+      {showsProvisional ? (
+        <button
+          type="button"
+          className={provisional
+            ? "shrink-0 whitespace-nowrap rounded border border-info-border bg-info-subtle px-1.5 text-xs text-info"
+            : "shrink-0 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground hover:text-foreground"}
+          aria-label={`${provisional ? "Quantité provisionnelle déclarée" : "Déclarer une quantité provisionnelle"} pour ${lineLabel(item)}`}
+          title={provisional
+            ? "Quantité provisionnelle : la ligne part chiffrée, les précisions disent sur quoi sa quantité est établie"
+            : "La quantité repose sur une hypothèse du métré : déclarer une quantité provisionnelle (administrateur)"}
+          onClick={() => requestOfferReserve?.({ kind: "provisional_quantity", itemId: item.id, title: lineLabel(item),
+            choice: item.offer_choice ?? null, canDeclare: canDeclareReserve, quantity: item.quantity, unit_code: item.unit_code })}
+        >
+          {provisional ? "Q. prov." : "Hypothèse"}
         </button>
       ) : null}
       <select

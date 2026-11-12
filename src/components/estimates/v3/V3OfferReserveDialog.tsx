@@ -55,7 +55,8 @@ function OfferReserveForm({
   onSave,
   onClose,
 }: Readonly<Omit<V3OfferReserveDialogProps, "line"> & { line: NonNullable<V3OfferReserveDialogProps["line"]> }>) {
-  const stored = readEstimateOfferChoice(line.choice);
+  const parsed = readEstimateOfferChoice(line.choice);
+  const stored = parsed?.kind === "reserve" ? parsed : null;
   const [basis, setBasis] = useState<EstimateOfferReserveBasis | "">(stored?.basis ?? "");
   const [code, setCode] = useState<EstimateOfferReserveCode | "">(stored?.code ?? "");
   const [note, setNote] = useState(stored?.note ?? "");
