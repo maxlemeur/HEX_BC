@@ -38,6 +38,7 @@ import {
   estimateBatchCommittedResultSchema as estimateBatchCommittedSchema, estimateBatchResultSchema,
 } from "@/lib/estimates/batch-contracts";
 import { z } from "zod";
+import { materialRequestOperations } from "@/lib/openapi/registry-material-requests";
 import { sourceCoverageOperations } from "@/lib/openapi/registry-source-coverage";
 import { purchaseReceiptSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import {
@@ -2953,6 +2954,7 @@ const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   ...sourceCoverageOperations,
+  ...materialRequestOperations,
   {
     method: "get",
     path: "/api/products/reference-suggestion",
