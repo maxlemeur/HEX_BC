@@ -67,7 +67,7 @@ const NEUTRAL_VERSION = {
 } as const;
 
 // §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20 ; h_mo = arrondi(Q × h/u, 3) (D4). TI-534 : une ligne
-// créée sans type FO reçoit la provision FO 1,01 (FO_unitaire = P × 1,01 × k_fo) ; PU, bruts, déboursé et gel
+// Le corpus financier fixe explicitement K FO manuel 1,01 ; une nouvelle ligne automatique prend 1,02.
 // ci-dessous l'appliquent (moteur pur 2.4, rejoué le 24/10/2026). À provision 1, ce sont ceux de la conception.
 const ORACLE = [
   { ref: "O1", unit: "ml", quantity: 20, prFo: 5466, hPerUnit: 1.991, hMo: 39.82, pu: 16734, gross: 334680 },
@@ -386,7 +386,7 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   const oracleLines = ORACLE.map(line => ({
     line_nature: line.hPerUnit > 0 ? "supply_and_labor" : "supply_only", title: `${army.runPrefix} ${line.ref}`, description: line.unit,
     unit_code: line.unit, pricing_status: "priced", quantity: line.quantity, unit_price_ht_cents: line.prFo, tax_rate_bp: 2000,
-    k_fo: 1, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1, labor_role_id: tuyauteur.id, source_provider: "manual",
+    k_fo: 1.01, k_fo_manual: true, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1, labor_role_id: tuyauteur.id, source_provider: "manual",
   }));
   const created = await writeLinesByBatch(browser, army, oracleId, "oracle", oracleLines);
   // V3P-04 sur l'état du lot de création lui-même, ligne par ligne par titre, avant tout réétiquetage (§10.2, C6 ;
@@ -461,12 +461,12 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
     line_nature: "supply_only", title: `${army.runPrefix} EUHIST`, description: "u", unit_code: "u", pricing_status: "priced",
     quantity: 1, unit_price_ht_cents: 200, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual",
   }]);
-  expect(lineItems(euhistLines).map(item => [item.pu_ht_cents, item.line_total_ht_cents])).toEqual([[263, 263]]);
+  expect(lineItems(euhistLines).map(item => [item.pu_ht_cents, item.line_total_ht_cents])).toEqual([[265, 265]]);
   const euhistAt1 = await saveSettings(browser, army, euhistId, "euhist-c1", { sale_coefficient_fo: 1, discount_bp: 1000 });
-  expect(v3Version(euhistAt1)).toEqual({ ...emptyV3, saleCoefficients: [1, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 202, applied: 20, totals: [182, 36, 218] });
+  expect(v3Version(euhistAt1)).toEqual({ ...emptyV3, saleCoefficients: [1, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 204, applied: 20, totals: [184, 37, 221] });
   const euhistAt2 = await saveSettings(browser, army, euhistId, "euhist-c2", { sale_coefficient_fo: 2 });
-  expect(v3Version(euhistAt2)).toEqual({ ...emptyV3, saleCoefficients: [2, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 404, applied: 40, totals: [364, 73, 437] });
-  expect(lineItems(euhistAt2).map(item => [item.pu_ht_cents, item.line_total_ht_cents, item.line_tax_cents])).toEqual([[404, 364, 73]]);
+  expect(v3Version(euhistAt2)).toEqual({ ...emptyV3, saleCoefficients: [2, 1.2], discount: { mode: "simple", bp: 1000, amountCents: null }, gross: 408, applied: 41, totals: [367, 73, 440] });
+  expect(lineItems(euhistAt2).map(item => [item.pu_ht_cents, item.line_total_ht_cents, item.line_tax_cents])).toEqual([[408, 367, 73]]);
 
   // V3P-09 : gel d'approbation v3, marque nette de la règle, puis file d'approbation à l'écran.
   const ruleId = await insertProjectMarginRule(owner, projectId, 1500);
@@ -740,16 +740,16 @@ armyTest("V3P02 the grid offers the tenant VAT rates and freezes two lines with 
     const result = await submit();
     expect(result).toMatchObject({ status: 201, body: { ok: true } });
     const frozen = await readEstimate(browser, draft.versionId);
-    // Each line sells for €131.30 (100.00 purchase × 1.01 provision × 1.30); tax is rounded by rate.
+    // Each line sells for €132.60 (100.00 purchase × 1.02 K FO × 1.30); tax is rounded by rate.
     expect(frozen.items.filter(item => item.item_type === "line").map(item => [item.id, item.tax_rate_bp, item.line_tax_cents]))
-      .toEqual([[historical.id, 850, 1116], [standard.id, 2000, 2626]]);
+      .toEqual([[historical.id, 850, 1127], [standard.id, 2000, 2652]]);
     expect(frozen.version.calc_snapshot_context).toMatchObject({
       engine: 3, tax_breakdown: [
-        { rate_bp: 850, base_cents: 13130, tax_cents: 1116 },
-        { rate_bp: 2000, base_cents: 13130, tax_cents: 2626 },
+        { rate_bp: 850, base_cents: 13260, tax_cents: 1127 },
+        { rate_bp: 2000, base_cents: 13260, tax_cents: 2652 },
       ],
     });
-    expect(frozen.version.total_tax_cents).toBe(3742);
+    expect(frozen.version.total_tax_cents).toBe(3779);
     expect(frozen.version.calc_snapshot_content_revision).toBe(frozen.version.content_revision);
     await recordEvidence(army, "v3p02-frozen", { versionId: draft.versionId, revision: frozen.version.content_revision, tax: frozen.version.total_tax_cents });
   });

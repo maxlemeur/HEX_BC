@@ -14,7 +14,7 @@ describe("TI-541 supply cost detail of a line", () => {
   it("writes the ticket's two examples to the cent", () => {
     const fitting = foCostDetail({ unit_price_ht_cents: 1000, k_fo: 0.9, fo_provision: 1.01 }, { saleCoefficientFo: "1.3" });
     expect(fitting).toMatchObject({ baseLabel: "Saisie manuelle", baseCents: 1000, costUnitCents: 909, saleUnitCents: 1182 });
-    expect(fitting.text).toBe("Saisie manuelle 10,00 € × provision FO 1,01 × K FO 0,9 = 9,09 € de coût FO ; × coef. de vente FO 1,3 = 11,82 €");
+    expect(fitting.text).toBe("Saisie manuelle 10,00 € × K FO 0,909 = 9,09 € de coût FO ; × coef. de vente FO 1,3 = 11,82 €");
     const tube = foCostDetail({ unit_price_ht_cents: 1000, k_fo: 0.9, fo_provision: 1.03 }, { saleCoefficientFo: 1 });
     expect(tube).toMatchObject({ costUnitCents: 927, saleUnitCents: 927 });
   });
@@ -23,7 +23,7 @@ describe("TI-541 supply cost detail of a line", () => {
       { saleCoefficientFo: 1 });
     expect(detail.baseLabel).toBe("Coût chantier");
     expect(detail.source).toBe("Négoce Fictif · offre OF-2611-07 · 03/11/2026");
-    expect(detail.text).toBe("Coût chantier 9,00 € × provision FO 1,01 × K FO 1 = 9,09 € de coût FO ; × coef. de vente FO 1 = 9,09 €");
+    expect(detail.text).toBe("Coût chantier 9,00 € × K FO 1,01 = 9,09 € de coût FO ; × coef. de vente FO 1 = 9,09 €");
   });
   it("equals the engine on a supply-only line, half cents included", () => {
     for (const [price, kFo, provision, sale] of [[14243, "1", "1.01", "1"], [17550, "1", "1.01", "1"], [1000, "0.9", "1.03", "1.3"],
@@ -37,7 +37,7 @@ describe("TI-541 supply cost detail of a line", () => {
   it("stops at the supply cost when the sale coefficient of the quote is not known, instead of inventing 1", () => {
     const detail = foCostDetail({ unit_price_ht_cents: 900, k_fo: 1, fo_provision: 1.01 }, { saleCoefficientFo: null });
     expect(detail).toMatchObject({ costUnitCents: 909, saleUnitCents: null });
-    expect(detail.text).toBe("Saisie manuelle 9,00 € × provision FO 1,01 × K FO 1 = 9,09 € de coût FO");
+    expect(detail.text).toBe("Saisie manuelle 9,00 € × K FO 1,01 = 9,09 € de coût FO");
     expect(foCostDetail({ unit_price_ht_cents: 900 }, {}).saleUnitCents).toBeNull();
   });
   it("reads an absent K FO or provision as 1 like the engine, an absent cost as 0, and leaves a provision of 1 out of the sentence", () => {
@@ -45,4 +45,14 @@ describe("TI-541 supply cost detail of a line", () => {
     expect(foCostDetail({ unit_price_ht_cents: 1754970, k_fo: "1.13", fo_provision: 1 }, { saleCoefficientFo: 1 }).text)
       .toBe("Saisie manuelle 17 549,70 € × K FO 1,13 = 19 831,16 € de coût FO ; × coef. de vente FO 1 = 19 831,16 €");
   });
+});
+
+// TI-534 counterexamples: a valid precise K FO must never silently become 1.
+it("keeps six-decimal K FO and folds a historical provision into the one displayed factor", () => {
+  const precise = foCostDetail({ unit_price_ht_cents: 10000, k_fo: "1.13625", fo_provision: 1 }, { saleCoefficientFo: 1 });
+  expect(precise.costUnitCents).toBe(11363);
+  expect(precise.text).toContain("× K FO 1,13625 = 113,63 €");
+  const historical = foCostDetail({ unit_price_ht_cents: 10000, k_fo: "0.95", fo_provision: "1.03" }, {});
+  expect(historical.costUnitCents).toBe(9785);
+  expect(historical.text).toBe("Saisie manuelle 100,00 € × K FO 0,9785 = 97,85 € de coût FO");
 });

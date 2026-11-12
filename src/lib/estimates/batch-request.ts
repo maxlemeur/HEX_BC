@@ -10,7 +10,7 @@ const SECTION_FIELDS = [
 ] as const;
 const LINE_FIELDS = [
   ...SECTION_FIELDS, "line_nature", "description", "quantity", "unit_price_ht_cents",
-  "tax_rate_bp", "k_fo", "h_mo", "h_mo_majoration", "k_mo", "labor_role_id",
+  "tax_rate_bp", "k_fo", "k_fo_manual", "h_mo", "h_mo_majoration", "k_mo", "labor_role_id",
   "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id",
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id", "fo_price_origin",
@@ -21,7 +21,7 @@ const LINE_FIELDS = [
 ] as const;
 const UPDATE_FIELDS = [
   "line_nature", "parent_id", "position", "title", "aid", "description",
-  "quantity", "unit_price_ht_cents", "tax_rate_bp", "k_fo", "h_mo",
+  "quantity", "unit_price_ht_cents", "tax_rate_bp", "k_fo", "k_fo_manual", "h_mo",
   "h_mo_majoration", "k_mo", "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id", "pu_ht_cents",
   "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents", "labor_role_id",

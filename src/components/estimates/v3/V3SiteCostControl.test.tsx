@@ -31,7 +31,7 @@ describe("TI-541 site cost control of a v3 line", () => {
     const onPatchItem = vi.fn();
     render(<Harness item={line()} saleCoefficientFo="1.3000" isReadOnly={false} onPatchItem={onPatchItem} />);
     expect(screen.getByTestId("estimate-line-fo-cost-detail").textContent)
-      .toBe("Offre fournisseur 10,00 € × provision FO 1,03 × K FO 1 = 10,30 € de coût FO ; × coef. de vente FO 1,3 = 13,39 €");
+      .toBe("Offre fournisseur 10,00 € × K FO 1,03 = 10,30 € de coût FO ; × coef. de vente FO 1,3 = 13,39 €");
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Saisir un coût chantier pour Tube du chantier" }));
     expect(screen.getByRole("dialog", { name: "Coût chantier" })).toBeTruthy();

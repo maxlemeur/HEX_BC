@@ -310,11 +310,12 @@ armyTest("CA03 API creation calculates from PostgreSQL quantity, coefficient and
     assertImmediate(parent);
     const parent_id = parent.response.body.data.item.id;
     observed.push(await create(ui, owned.versionId, "ca03-quantity-half", { item_type: "line", parent_id, title: `${fixture.prefix} quantité demi-précision`, quantity: 1.0005, unit_price_ht_cents: 100000 }, [100100, 20020, 120120], 0));
-    observed.push(await create(ui, owned.versionId, "ca03-coefficient-half", { item_type: "line", parent_id, title: `${fixture.prefix} coefficient demi-précision`, quantity: 1, unit_price_ht_cents: 100000, k_fo: 1.0005 }, [200200, 40040, 240240], 0));
-    observed.push(await create(ui, owned.versionId, "ca03-majoration-half", { item_type: "line", parent_id, title: `${fixture.prefix} majoration demi-précision`, quantity: 1, unit_price_ht_cents: 0, h_mo: 100, h_mo_majoration: 1.00005, labor_role_id: fixture.owner.laborRoleId }, [600240, 120048, 720288], 100));
+    // TI-534 widens stored K FO to six decimals; quantity and labour keep their own PostgreSQL scales.
+    observed.push(await create(ui, owned.versionId, "ca03-coefficient-half", { item_type: "line", parent_id, title: `${fixture.prefix} coefficient demi-précision`, quantity: 1, unit_price_ht_cents: 100000, k_fo: 1.0005 }, [200150, 40030, 240180], 0));
+    observed.push(await create(ui, owned.versionId, "ca03-majoration-half", { item_type: "line", parent_id, title: `${fixture.prefix} majoration demi-précision`, quantity: 1, unit_price_ht_cents: 0, h_mo: 100, h_mo_majoration: 1.00005, labor_role_id: fixture.owner.laborRoleId }, [600190, 120038, 720228], 100));
     await recordEvidence(ui.army, "ca03-precision-observations", { observations: observed, editorOpened: false, explicitSave: false });
     expect(observed[0].response.body.data.item.quantity).toBe(1.001);
-    expect(observed[1].response.body.data.item.k_fo).toBe(1.001);
+    expect(observed[1].response.body.data.item.k_fo).toBe(1.0005);
     expect(observed[2].response.body.data.item.h_mo_majoration).toBe(1.0001);
     for (const observation of observed) assertImmediate(observation);
   } finally { await release(ui, owned.versionId, "ca03"); }

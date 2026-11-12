@@ -40,6 +40,7 @@ export {
 type SaleFoMo1 = { foSaleHtCents: number; moSaleHtCents: number };
 type Section1 = {
   kind: "section";
+  kitMetier?: true;
   id: string;
   parentId: string | null;
   position: number;
@@ -184,7 +185,7 @@ function row(value: unknown): CommercialRow1 {
   const section = kind === "section";
   choice(kind, ["section", "line"], "rows.kind");
   const source = object(value, ["kind", "id", "parentId", "position", "depth", "title", "saleHtCents",
-    ...(section ? ["number"] : ["quantity", "unit", "unitSaleHtCents"])], "rows", ["foSaleHtCents", "moSaleHtCents"]);
+    ...(section ? ["number"] : ["quantity", "unit", "unitSaleHtCents"])], "rows", ["foSaleHtCents", "moSaleHtCents", ...(section ? ["kitMetier"] : [])]);
   const common = {
     id: uuid(source.id, "rows.id"), parentId: nullableUuid(source.parentId, "rows.parentId"),
     position: integer(source.position, 0, MAX_CENTS, "rows.position"),
@@ -197,7 +198,11 @@ function row(value: unknown): CommercialRow1 {
       moSaleHtCents: cents(source.moSaleHtCents, "rows.moSaleHtCents") };
     if (portions.foSaleHtCents + portions.moSaleHtCents !== common.saleHtCents) invalid("rows.sale portions");
   }
-  if (section) return { kind: "section", ...common, number: text(source.number, "rows.number"), ...portions };
+  if (section) {
+    if (source.kitMetier !== undefined && source.kitMetier !== true) invalid("rows.kitMetier");
+    return { kind: "section", ...common, number: text(source.number, "rows.number"), ...portions,
+      ...(source.kitMetier === true ? { kitMetier: true } : {}) };
+  }
   if (typeof source.quantity !== "number" || !Number.isFinite(source.quantity)
     || Object.is(source.quantity, -0) || source.quantity < 0 || source.quantity > Number.MAX_SAFE_INTEGER) invalid("rows.quantity");
   return { kind: "line", ...common, quantity: source.quantity, unit: text(source.unit, "rows.unit"),

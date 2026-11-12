@@ -117,6 +117,16 @@ describe("TI-534 v3 section copy price origin", () => {
   });
 });
 
+it.each([[1, 1.03, 1.03], [1.0735, 1, 1.0735]])(
+  "copies effective supply coefficient %s × %s once", (kFo, provision, expected) => {
+    const source = item({ k_fo: kFo, fo_provision: provision, k_fo_manual: null });
+    const [operation] = planV3SectionCopy({ payload: [{ ...source, id: "copy-line", source_metadata: source.source_metadata ?? {} }],
+      sourceIdByNewId: new Map([["copy-line", source.id]]), sourceItemsById: new Map([[source.id, source]]),
+      sourceIsV3: true, sameVersion: false }).operations;
+    expect(operation.op).toBe("create");
+    if (operation.op !== "create") throw new Error("Expected line creation");
+    expect(operation.data).toMatchObject({ k_fo: expected, k_fo_manual: true });
+  });
 // TI-682, lot C: a section copy creates new lines, which have not been « Non chiffrée »; it carries neither the internal
 // reason of an exclusion nor the flag (the database sets the flag; the batch refuses it as an input).
 describe("TI-682 v3 section copy of an excluded line", () => {

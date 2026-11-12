@@ -78,3 +78,9 @@ export function parseRatePercentDraft(value: string): number | null {
   const basisPoints = parseRateBp(value);
   return basisPoints === null ? null : basisPoints / 100;
 }
+
+/** Combined supply factors can carry six fractional digits. */
+export function parseKfoDraft(value: string): number | null {
+  const coefficient = parseDecimalInput(value, { maxFractionDigits: 6 });
+  return coefficient !== null && coefficient >= 0 ? coefficient : null;
+}

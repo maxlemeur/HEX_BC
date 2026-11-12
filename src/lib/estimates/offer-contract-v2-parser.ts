@@ -31,6 +31,8 @@ import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "
 type SaleFoMo2 = { foSaleHtCents: number; moSaleHtCents: number };
 type Section2 = {
   kind: "section";
+  /** Frozen presentation boundary; calculations retain all components. */
+  kitMetier?: true;
   id: string;
   parentId: string | null;
   position: number;
@@ -160,7 +162,7 @@ function row(value: unknown): CommercialRow2 {
   choice(kind, ["section", "line"], "rows.kind");
   const source = object(value, ["kind", "id", "parentId", "position", "depth", "title", "saleHtCents",
     ...(section ? ["number"] : ["quantity", "unitCode", "unitLabel", "pricingStatus", "taxRateBp", "unitSaleHtCents"])],
-  "rows", ["foSaleHtCents", "moSaleHtCents", ...(section ? [] : ["poseOnly"])]);
+  "rows", ["foSaleHtCents", "moSaleHtCents", ...(section ? ["kitMetier"] : ["poseOnly"])]);
   const common = {
     id: uuid(source.id, "rows.id"), parentId: nullableUuid(source.parentId, "rows.parentId"),
     position: integer(source.position, 0, MAX_CENTS, "rows.position"),
@@ -168,7 +170,11 @@ function row(value: unknown): CommercialRow2 {
     title: text(source.title, "rows.title"), saleHtCents: cents(source.saleHtCents, "rows.saleHtCents"),
   };
   const portions = portionsOf(source, common.saleHtCents);
-  if (section) return { kind: "section", ...common, number: text(source.number, "rows.number"), ...portions };
+  if (section) {
+    if (source.kitMetier !== undefined && source.kitMetier !== true) invalid("rows.kitMetier");
+    return { kind: "section", ...common, number: text(source.number, "rows.number"), ...portions,
+      ...(source.kitMetier === true ? { kitMetier: true } : {}) };
+  }
   const line: Line2 = {
     kind: "line", ...common, quantity: quantity(source.quantity, "rows.quantity"),
     unitCode: unitCode(source.unitCode, "rows.unitCode"), unitLabel: nullableText(source.unitLabel, "rows.unitLabel"),

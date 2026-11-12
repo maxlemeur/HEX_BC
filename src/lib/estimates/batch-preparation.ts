@@ -14,7 +14,7 @@ import {
 } from "@/lib/estimates/estimate-placement-helpers";
 import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { isTransportSensitiveFoType, sameFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
-import { deriveFoProvision, poseOnlyChanged, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
+import { projectUnifiedKfo, deriveFoProvision, poseOnlyChanged, supplyTypeChanged, type FoProvisionValue } from "@/lib/estimates/fo-provision";
 import { applyStatusReasonRules, isEstimateExcludedPricingStatus, sameStatusReason } from "@/lib/estimates/status-reason";
 import {
   buildHierarchyIndex, clampMaxSectionDepth, getDefaultSectionTitleForLevel,
@@ -170,6 +170,9 @@ export async function prepareEstimateBatch(input: {
   // TI-534: the supply type provisions read by the reference checks, for the mirror of
   // private.derive_estimate_item_fo_provision (1.000 on v1/v2 and on sections).
   const supplyTypeProvisions = new Map<string, FoProvisionValue>();
+  const preferences = perUnitLabor ? await supabase.from("estimate_fo_preferences").select("supply_type_id, coefficient").eq("tenant_id", tenantId).eq("user_id", input.projectUserId) : { data: [], error: null };
+  if (preferences.error) throw unavailable();
+  const userCoefficients = new Map((preferences.data ?? []).map(row => [row.supply_type_id, row.coefficient]));
   const resolveFoPrice = createFoPriceResolver(supabase, tenantId);
   const foProvisionOf = (supplyTypeId: string | null, origin?: unknown, lineNature?: string | null) =>
     perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin, lineNature) : 1;
@@ -195,7 +198,7 @@ export async function prepareEstimateBatch(input: {
               .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
             if (error) throw unavailable();
             if (!found) throw badRequest(`${field} invalide.`);
-            supplyTypeProvisions.set(found.id.toLowerCase(), { value: Number(found.default_fo_provision), transportSensitive: isTransportSensitiveFoType(found) });
+            supplyTypeProvisions.set(found.id.toLowerCase(), { value: Number(found.default_fo_provision), transportSensitive: isTransportSensitiveFoType(found), unified: true, user: userCoefficients.get(found.id), tube: [found.code,found.name].some(value => /^tubes?$/i.test(value.trim())) });
           } else {
             const { data: found, error } = await supabase.from(table).select("id")
               .eq("tenant_id", tenantId).eq("id", id).maybeSingle();
@@ -338,7 +341,10 @@ export async function prepareEstimateBatch(input: {
         validateAid(item);
         validatePlacement(item);
         await references(item);
-        if (isLine) item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin, item.line_nature);
+        if (isLine) {
+          item.fo_provision = foProvisionOf(item.supply_type_id, item.fo_price_origin, item.line_nature);
+          if (perUnitLabor) Object.assign(item, projectUnifiedKfo(item, supplyTypeProvisions));
+        }
         if (isLine) item.was_not_priced = item.pricing_status === "not_priced";
         assertStatusReasonMatchesStatus(item, null);
         items.set(item.id, item);
@@ -353,6 +359,7 @@ export async function prepareEstimateBatch(input: {
           throw badRequest("Les champs de ligne ne sont pas applicables à une section.");
         }
         const patch = engineItemWrite(rawPatch, current.item_type);
+        if (perUnitLabor && "k_fo" in rawPatch && !("k_fo_manual" in rawPatch)) patch.k_fo_manual = true;
         validateAid(patch);
         await references(patch);
         const next = perUnitLabor && current.item_type === "line"
@@ -369,6 +376,7 @@ export async function prepareEstimateBatch(input: {
               poseOnlyChanged(current.line_nature, next.line_nature)) {
             next.fo_provision = foProvisionOf(next.supply_type_id, next.fo_price_origin, next.line_nature);
           }
+          if (perUnitLabor) Object.assign(next, projectUnifiedKfo(next, supplyTypeProvisions, current));
           changedLineIds.add(next.id);
           Object.assign(next, applyStatusReasonRules(current, next));
           assertStatusReasonMatchesStatus(next, current);

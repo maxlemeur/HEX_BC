@@ -551,7 +551,7 @@ function buildBdcV3Rows(input: {
       typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
       puFoHtEur: priced ? euros(item.unit_price_ht_cents) : null,
       prFoHtEur: priced ? euros(item.unit_price_ht_cents) : null,
-      kFo: item.k_fo ?? 1,
+      kFo: Number(((item.k_fo ?? 1) * Number(item.fo_provision ?? 1)).toFixed(6)),
       hMo: null,
       kMo,
       tauxHoraireMoEur: null,

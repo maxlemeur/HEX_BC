@@ -226,6 +226,7 @@ export function useEstimateEditorPasteController({
             unit_price_ht_cents: unitPriceHtCents,
             tax_rate_bp: settings.tax_rate_bp,
             k_fo: kFo,
+            ...(row.k_fo !== null && row.k_fo !== undefined ? { k_fo_manual: true } : {}),
             h_mo_majoration: Math.max(toFiniteNumber(row.h_mo_majoration, 1), 0),
             k_mo: Math.max(toFiniteNumber(row.k_mo, 1), 0),
             labor_role_id: (h_mo_per_unit ?? 0) > 0 ? laborRoleId : null,

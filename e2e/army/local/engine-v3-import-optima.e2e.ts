@@ -219,9 +219,9 @@ async function importWorkbook(ui: Ui, army: ArmyState, projectId: string, lot: L
   // E4, E5: the preview proposes the workbook coefficients for the v3 and lists no control gap.
   await expect(screen.getByText("Coefficients du classeur proposés : FO 1,3 · MO 1,3", { exact: true })).toBeVisible({ timeout: 120_000 });
   await expect(screen.getByText("Aucun écart supérieur à 0,5 c avec « Prix Unitaire »", { exact: true })).toBeVisible();
-  // TI-534 : l'aperçu annonce la provision FO 1,01 des lignes créées, que le contrôle (provision 1) ne voit pas.
-  await expect(screen.getByText("Provision FO 1,01 ajoutée à la création (lignes sans type FO) : chaque prix unitaire créé " +
-    "dépasse « Prix Unitaire » de 1 % de sa part fourniture.", { exact: true })).toBeVisible();
+  // TI-534 : l'aperçu annonce le K FO 1,02 des lignes créées, que le contrôle (provision 1) ne voit pas.
+  await expect(screen.getByText("Le K FO paramétré est appliqué à la création. Sans type FO, sa base est 1,02 : " +
+    "le prix créé inclut alors 2 % sur la part fourniture.", { exact: true })).toBeVisible();
   const nextPreview = screen.getByRole("button", "Suivant : Confirmation", { exact: true });
   await expect(nextPreview).toBeEnabled({ timeout: 30_000 });
   await nextPreview.tap();
@@ -244,8 +244,8 @@ function lineItems(state: ArmyEstimate) {
 }
 
 /**
- * §5.4 at the workbook coefficients, statuses at 0 €. TI-534 : chaque ligne importée reçoit la provision FO 1,01
- * (sans type FO), donc PU = « Prix Unitaire » + 1 % de la part FO de vente (P × K FO × coefficient FO), à 1 c près
+ * §5.4 at the workbook coefficients, statuses at 0 €. TI-534 : chaque ligne importée reçoit le K FO 1,02
+ * (sans type FO), donc PU = « Prix Unitaire » + 2 % de la part FO de vente (P × K FO × coefficient FO), à 1 c près
  * (deux arrondis au demi-centime). Le contrôle du classeur à provision 1 reste l'aperçu « Aucun écart ».
  */
 async function expectImportedLot(browser: Browser, army: ArmyState, versionId: string, lot: Lot, label: string) {
@@ -265,7 +265,7 @@ async function expectImportedLot(browser: Browser, army: ArmyState, versionId: s
     pricesAtControlPlusProvision: priced.filter((line) => {
       const control = workbook.controlsByRow.get(Number(((field(line, "source_metadata") ?? {}) as { _timax_structure?: { source_row_number?: unknown } })
         ._timax_structure?.source_row_number));
-      const provisionCents = 0.01 * Number(line.unit_price_ht_cents) * Number(field(line, "k_fo") ?? 1) * Number(field(state.version, "sale_coefficient_fo"));
+      const provisionCents = 0.02 * Number(line.unit_price_ht_cents) * Number(field(state.version, "sale_coefficient_fo"));
       return control !== undefined && Math.abs(Number(line.pu_ht_cents) - control - provisionCents) <= 1;
     }).length,
     foProvisions: [...new Set(lines.map((line) => num(field(line, "fo_provision"))))],
@@ -279,7 +279,7 @@ async function expectImportedLot(browser: Browser, army: ArmyState, versionId: s
   await recordEvidence(army, `io-${label}-imported`, { versionId, readMs, workbookPriced: workbook.controls.length, workbookStatuses: workbook.statuses, observed });
   expectReadsWithinBudget(readMs);
   expect(observed).toEqual({
-    engine: 3, coefficients: [1.3, 1.3], priced: lot.priced, pricesAtControlPlusProvision: lot.priced, foProvisions: [1.01],
+    engine: 3, coefficients: [1.3, 1.3], priced: lot.priced, pricesAtControlPlusProvision: lot.priced, foProvisions: [1],
     statuses: lot.statuses,
     statusLinesAtZero: true, priceAsUnit: 0, hoursPerUnitRead: true, provenanceOnEveryLine: true,
     totalHtCents: lot.sumAtWorkbookCoefficientsCents,
@@ -570,7 +570,7 @@ armyTest("IO04 pasting the OPTIMA header and line O1 into a v3 shows h/u 1,991 a
         roleId: field(line, "labor_role_id"), pu: line.pu_ht_cents, parentId: field(line, "parent_id") };
       await recordEvidence(army, "io-paste", { versionId, observed });
       // 54,66 € × provision 1,01 × FO 1,30 + 1,991 h/u × 40 €/h × MO 1,20 = 167,34 € per unit (TI-534 : ligne collée sans type FO).
-      expect(observed).toEqual({ unitCode: "ml", hoursPerUnit: 1.991, hMo: 39.82, roleId, pu: 16734, parentId: sectionId });
+      expect(observed).toEqual({ unitCode: "ml", hoursPerUnit: 1.991, hMo: 39.82, roleId, pu: 16805, parentId: sectionId });
     } finally {
       await closePolicy(owner, army, "collage");
     }
@@ -655,7 +655,7 @@ armyTest("IO06 a v2 template enters a v3 with the same MO and lists its converte
       expect(observed).toEqual({
         perUnit: [[`${army.runPrefix} tube`, 0.5, 5], [`${army.runPrefix} collier`, 0.0003, 0.9]],
         converted: [[`${army.runPrefix} collier`, 1, 0.9]],
-        tube: [3713, 37130],
+        tube: [3726, 37260],
       });
     } finally {
       await closePolicy(owner, army, "modele");
@@ -727,7 +727,7 @@ armyTest("IO07 sections enter a v3 from a v2 (converted, listed) and from a v3 (
         engine: 3,
         perUnit: [[`${army.runPrefix} tube`, "ml", 0.5, 5], [`${army.runPrefix} collier`, "u", 0.0003, 0.9]],
         converted: [[`${army.runPrefix} collier`, 1, 0.9]],
-        tube: [3713, 37130],
+        tube: [3726, 37260],
         footer: true,
       });
 
@@ -1106,19 +1106,19 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
         engine: 3,
         coefficients: [1.25, 1.15],
         lines: [
-          [`${army.runPrefix} tube`, "ml", "priced", null, 15150],
-          [`${army.runPrefix} collier`, "u", "priced", null, 1515],
+          [`${army.runPrefix} tube`, "ml", "priced", null, 15300],
+          [`${army.runPrefix} collier`, "u", "priced", null, 1530],
           [`${army.runPrefix} provision`, null, "for_memory", null, 0],
           [`${army.runPrefix} hors lot`, null, "out_of_scope", null, 0],
         ],
-        pricedPu: [1515, 505],
+        pricedPu: [1530, 510],
         // G1 : la page du document source (`line.sourcePage`, comme le sérialiseur commun), jamais le numéro de ligne.
         provenance: [null, 7, null, null].map((page) => ["dpgf", filename, page]),
         sectionProvenance: ["dpgf", filename],
         metadata: [1, 2, 3, 4].map((row) => `${importId}|${row}|t|-`),
         previousItemsKept: true,
-        apiTotal: 16665,
-        sqlTotal: 16665,
+        apiTotal: 16830,
+        sqlTotal: 16830,
       });
     } finally {
       await closePolicy(owner, army, "dpgf-lie");
@@ -1230,9 +1230,9 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
         provenance: { inPlace: [`${documentId}|-|f|${documentId}`, "-|-|f|-"],
           toOther: [`${documentId}|-|f|${documentId}`, "-|-|f|-"] },
       });
-      // Tube: 10,00 € × 1,01 × 1,30 + 0,5 h/u × 40 €/h × 1,20 = 37,13 € × 10 ml ; coude: 2,50 € × 1,01 × 1,30 + 0,25 × 40 × 1,20
-      // = 15,2825 €, soit 15,28 € × 4 u (provision FO 1,01 des lignes sans type, TI-534).
-      expect(sourceTotal).toBe(37_130 + 6_112);
+      // Tube: 10,00 € × 1,01 × 1,30 + 0,5 h/u × 40 €/h × 1,20 = 37,26 € × 10 ml ; coude: 2,50 € × 1,01 × 1,30 + 0,25 × 40 × 1,20
+      // = 15,315 €, soit 15,32 € × 4 u (K FO 1,02 des lignes sans type, TI-534).
+      expect(sourceTotal).toBe(37_260 + 6_128);
 
       // C7 guard (green before): a v2 section duplicated in place keeps its amounts.
       const v2SectionId = await anchorV2Section(browser, army, anchorId, roleId, `${army.runPrefix} lot v2`);
@@ -1592,7 +1592,7 @@ WHERE parent_id = '${copiedSectionId}'::uuid AND item_type = 'line' AND source_m
         response: [atLimit.status, atLimit.body.ok, atLimit.body.error?.code ?? null],
         lines: copiedLines.length,
         withProvenance: Number(withProvenance),
-        priced: copiedLines.filter((line) => num(line.line_total_ht_cents) === 131).length,
+        priced: copiedLines.filter((line) => num(line.line_total_ht_cents) === 133).length,
         amounts: copiedLines.reduce<Record<string, number>>((counts, line) => {
           const key = [num(field(line, "pu_ht_cents")), num(line.line_total_ht_cents), num(field(line, "line_tax_cents")),
             num(field(line, "line_total_ttc_cents"))].join();
@@ -1612,8 +1612,8 @@ WHERE parent_id = '${copiedSectionId}'::uuid AND item_type = 'line' AND source_m
       // 999 × (1,00 € × provision 1,01 × FO 1,30 = 1,313 €, soit 1,31 €) = 1 308,69 € HT ; TVA 20 % : 261,738 €, soit 261,74 €,
       // répartie au plus fort reste (D13) : 26 c sur 799 lignes, 27 c sur 200 ; TTC 1 570,43 €.
       expect(boundary).toEqual({ response: [201, true, null], lines: 999, withProvenance: 999, priced: 999,
-        amounts: { "131,131,26,157": 799, "131,131,27,158": 200 },
-        total: 130_869, footer: [26_174, 157_043], sqlTotal: 130_869, provenanceExact: 999, revisionSteps: 1001, itemAudits: 1000 });
+        amounts: { "133,133,26,159": 400, "133,133,27,160": 599 },
+        total: 132_867, footer: [26_573, 159_440], sqlTotal: 132_867, provenanceExact: 999, revisionSteps: 1001, itemAudits: 1000 });
 
       // Lot 3.1: the copy reads only the selected subtrees of the source. A section selected with its own sub-section is
       // copied once, with its direct line, its sub-section and the two lines of the latter, in their order.
@@ -1678,7 +1678,7 @@ SELECT count(*) FROM public.dpgf_rows_mapped WHERE import_id = '${importId}'::uu
       };
       await recordEvidence(army, "io-linked-dpgf-long", { versionId, importId, observed });
       // 1 001 × (1,00 € × provision 1,01 × FO 1,30 = 1,313 €, soit 1,31 €) = 1 311,31 € HT.
-      expect(observed).toEqual({ response: [201, true, null, 3], rows: 1001, lines: 1001, total: 131_131, sqlTotal: 131_131 });
+      expect(observed).toEqual({ response: [201, true, null, 3], rows: 1001, lines: 1001, total: 133_133, sqlTotal: 133_133 });
     } finally {
       await closePolicy(owner, army, "dpgf-long");
     }

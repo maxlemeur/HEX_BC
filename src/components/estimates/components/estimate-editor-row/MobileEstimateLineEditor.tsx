@@ -1,4 +1,6 @@
 "use client";
+import { effectiveKfoValue, KFO_HELP } from "@/lib/estimates/unified-kfo";
+import { parseKfoDraft } from "@/lib/estimates/editor-values";
 
 import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
 import type { SupplyType } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -16,8 +18,6 @@ import {
 } from "@/components/estimates/v3/V3LineCells";
 import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
 import {
-  FO_PROVISION_CELL_TITLE,
-  formatFoProvision,
   formatMajorationPercentInput,
   parseAmountDraft,
   parseCoefficientDraft,
@@ -364,29 +364,23 @@ export function MobileEstimateLineEditor({
                 <Field label="Coefficient K FO">
                   <DecimalDraftInput
                     className={inputClassName}
-                    value={item.k_fo ?? 1}
+                    value={isV3 ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo ?? 1}
                     emptyValue={1}
                     disabled={isReadOnly}
-                    parseValue={parseCoefficientDraft}
+                    commitOnUnchangedBlur={!isV3}
+            parseValue={isV3 ? parseKfoDraft : parseCoefficientDraft}
+                    title={KFO_HELP}
                     aria-label={`Coefficient fourniture K FO pour ${lineLabel}`}
                     onValueChange={(value) =>
-                      onPatchItem(item.id, { k_fo: value }, { persist: false })
+                      onPatchItem(item.id, { k_fo: value, ...(isV3 ? { k_fo_manual: true } : {}) }, { persist: false })
                     }
                     onValueCommit={(value) =>
-                      onPatchItem(item.id, { k_fo: value }, { persist: true })
+                      onPatchItem(item.id, { k_fo: value, ...(isV3 ? { k_fo_manual: true } : {}) }, { persist: true })
                     }
                   />
                 </Field>
               </div>
-              {isV3 ? (
-                <p className="text-xs text-[var(--slate-600)]" title={FO_PROVISION_CELL_TITLE}>
-                  {item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status">Type FO à préciser — </span> : null}
-                  {"Provision FO (automatique, selon le type) : "}
-                  <output aria-label={`Provision FO pour ${lineLabel}`} className="font-semibold tabular-nums">
-                    {formatFoProvision(item.fo_provision)}
-                  </output>
-                </p>
-              ) : null}
+
               <Field label="Majoration main d’œuvre (%)">
                 <DecimalDraftInput
                   className={inputClassName}

@@ -35,6 +35,7 @@ import {
   templateLineHoursPerUnitForV3,
   type TemplateV3ConvertedLine,
 } from "@/lib/estimates/template-v3-hours";
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import type { Database } from "@/types/database";
 
@@ -114,7 +115,9 @@ function lineOperation(item: ItemInsert, source: ItemRow, sourceIsV3: boolean, k
     source_page: source.source_page,
   };
   if (sourceIsV3) {
-    return { op: "create", data: compact({ ...common, unit_code: source.unit_code, pricing_status: source.pricing_status,
+    return { op: "create", data: compact({ ...common,
+      k_fo: multiplyToStoredEstimateNumeric(source.k_fo ?? 1, source.fo_provision ?? 1, 6), k_fo_manual: true,
+      unit_code: source.unit_code, pricing_status: source.pricing_status,
       h_mo_per_unit: source.h_mo_per_unit, h_mo_atelier_per_unit: source.h_mo_atelier_per_unit,
       h_mo_chantier_per_unit: source.h_mo_chantier_per_unit }) } as BatchOperationInput;
   }

@@ -201,10 +201,10 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     const sectionT = await seedSection(ui, army, draft, "v3e05-section", `${army.runPrefix} lot T`, 2);
     const [lineD] = await seedLines(ui, army, draft, "v3e05-d", [supply(title("D"), 1, 2000)], sectionT.id);
     expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents, lineD.line_total_ht_cents])
-      .toEqual([35860, 6565, 1313, 2626]);
-    const initial: Totals = [46364, 9273, 55637];
-    const withoutC: Totals = [45051, 9010, 54061];
-    const withoutT: Totals = [43738, 8748, 52486];
+      .toEqual([36120, 6630, 1326, 2652]);
+    const initial: Totals = [46728, 9346, 56074];
+    const withoutC: Totals = [45402, 9080, 54482];
+    const withoutT: Totals = [44076, 8815, 52891];
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e05");
     await waitForDraftLease(ui);
@@ -347,7 +347,7 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     await recordEvidence(army, "v3e05-undo-delete", { versionId: draft.versionId, originalId: lineC.id, actual: restoreView });
     expect(restoreView, "an undone v3 deletion recreates the line with its v3 inputs").toEqual({
       totals: initial, newId: true, genericRefusal: false,
-      line: { unit: "u", status: "priced", quantity: 1, prFo: 1000, hPerUnit: 0, pu: 1313, net: 1313, taxRateBp: 2000, roleId: null },
+      line: { unit: "u", status: "priced", quantity: 1, prFo: 1000, hPerUnit: 0, pu: 1326, net: 1326, taxRateBp: 2000, roleId: null },
     });
     const expectedRestoredPlacement = placementBeforeDelete.map(item => ({ ...item,
       id: item.id === lineC.id ? restoredC!.id : item.id,
@@ -394,8 +394,8 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     });
 
     await checkpoint(ui, army, "v3e05-final", draft.versionId, {
-      api: { version: { totals: withoutT, gross: 43738 },
-        lines: { [lineA.id]: { net: 35860 }, [lineB.id]: { unit: "u", net: 6565 }, [restoredC!.id]: { unit: "u", net: 1313 } } },
+      api: { version: { totals: withoutT, gross: 44076 },
+        lines: { [lineA.id]: { net: 36120 }, [lineB.id]: { unit: "u", net: 6630 }, [restoredC!.id]: { unit: "u", net: 1326 } } },
       screen: { chips: chips(withoutT) },
     });
     const errors = await readErrors();
@@ -413,10 +413,10 @@ armyTest("V3E06 bulk majoration, move and delete of v3 lines, and their undo, go
     const [lineA, lineB, lineC] = await seedLines(ui, army, draft, "v3e06", [
       withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("B"), 1, 5000), supply(title("C"), 1, 1000)]);
     const sectionT = await seedSection(ui, army, draft, "v3e06-section", `${army.runPrefix} lot T`, 2);
-    expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents]).toEqual([35860, 6565, 1313]);
+    expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents]).toEqual([36120, 6630, 1326]);
     // Majoration 150 % : A = 2 × (131,30 € + 1 h × 1,5 × 40 € × 1,2) = 406,60 € ; B sans heures, inchangée.
-    const majorated: Totals = [48538, 9708, 58246];
-    const onlyC: Totals = [1313, 263, 1576];
+    const majorated: Totals = [48876, 9775, 58651];
+    const onlyC: Totals = [1326, 265, 1591];
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e06");
     await waitForDraftLease(ui);
@@ -439,7 +439,7 @@ armyTest("V3E06 bulk majoration, move and delete of v3 lines, and their undo, go
     };
     await recordEvidence(army, "v3e06-majoration", { versionId: draft.versionId, actual: majorationView });
     expect(majorationView, "a bulk majoration of v3 lines is written by the v3 writer").toEqual({
-      majorations: [1.5, 1.5], totals: majorated, lineA: { pu: 20330, net: 40660, hMo: 2 }, genericRefusal: false,
+      majorations: [1.5, 1.5], totals: majorated, lineA: { pu: 20460, net: 40920, hMo: 2 }, genericRefusal: false,
     });
 
     // Déplacement en lot vers le lot T : placement seul, totaux inchangés.
@@ -483,14 +483,14 @@ armyTest("V3E06 bulk majoration, move and delete of v3 lines, and their undo, go
     await recordEvidence(army, "v3e06-undo-delete", { versionId: draft.versionId, actual: restoreView });
     expect(restoreView, "an undone bulk delete recreates the v3 lines with their inputs").toEqual({
       totals: majorated, genericRefusal: false,
-      lineA: { unit: "u", status: "priced", quantity: 2, prFo: 10000, hPerUnit: 1, pu: 20330, net: 40660, taxRateBp: 2000,
+      lineA: { unit: "u", status: "priced", quantity: 2, prFo: 10000, hPerUnit: 1, pu: 20460, net: 40920, taxRateBp: 2000,
         roleId: draft.tuyauteurId, parent: sectionT.id, majoration: 1.5 },
-      lineB: { unit: "u", status: "priced", quantity: 1, prFo: 5000, hPerUnit: 0, pu: 6565, net: 6565, taxRateBp: 2000,
+      lineB: { unit: "u", status: "priced", quantity: 1, prFo: 5000, hPerUnit: 0, pu: 6630, net: 6630, taxRateBp: 2000,
         roleId: null, parent: sectionT.id, majoration: 1.5 },
     });
 
     await checkpoint(ui, army, "v3e06-final", draft.versionId, {
-      api: { version: { totals: majorated, gross: 48538 }, lines: { [restoredA!.id]: { net: 40660 }, [restoredB!.id]: { net: 6565 }, [lineC.id]: { net: 1313 } } },
+      api: { version: { totals: majorated, gross: 48876 }, lines: { [restoredA!.id]: { net: 40920 }, [restoredB!.id]: { net: 6630 }, [lineC.id]: { net: 1326 } } },
       screen: { chips: chips(majorated) },
     });
     await recordEvidence(army, "v3e06-end", { versionId: draft.versionId, nativeDialogs: dialogs });
@@ -503,8 +503,8 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
     const draft = await prepareV3Draft(ui, army, "V3E07");
     // L : 1 u, 200,00 € + 5 h/u : 40 €/h → PU 502,60 € ; 50 €/h → 262,60 € + 5 × 50 × 1,2 = 562,60 €.
     const [line] = await seedLines(ui, army, draft, "v3e07", [withLabor(`${army.runPrefix} L`, 1, 20000, 5, draft.tuyauteurId)]);
-    expect([line.pu_ht_cents, line.line_total_ht_cents]).toEqual([50260, 50260]);
-    const at50: Totals = [56260, 11252, 67512];
+    expect([line.pu_ht_cents, line.line_total_ht_cents]).toEqual([50520, 50520]);
+    const at50: Totals = [56520, 11304, 67824];
     await switchToExpertMode(ui);
     const dialog = await openSettings(ui, draft.versionId);
 
@@ -525,12 +525,12 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
     };
     await recordEvidence(army, "v3e07-rate", { versionId: draft.versionId, roleId: draft.tuyauteurId, dialogText: normalized(await dialog.textContent()), actual: storedView });
     expect(storedView, "a v3 labour rate change is stored with the recomputed totals").toEqual({
-      rate: 5000, totals: at50, line: { pu: 56260, net: 56260 }, genericRefusal: false,
+      rate: 5000, totals: at50, line: { pu: 56520, net: 56520 }, genericRefusal: false,
     });
 
     await openGrid(ui, draft.versionId);
     await checkpoint(ui, army, "v3e07-rate", draft.versionId, {
-      api: { version: { totals: at50, gross: 56260 }, lines: { [line.id]: { pu: 56260, net: 56260 } } },
+      api: { version: { totals: at50, gross: 56520 }, lines: { [line.id]: { pu: 56520, net: 56520 } } },
       screen: { chips: chips(at50) },
     });
     await app.open(`/dashboard/estimates/${draft.versionId}`);
@@ -581,15 +581,15 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
       };
       return { headlineHt: headline("Total HT"), headlineTtc: headline("Total TTC"), summaryHt: summary("HT net"), summaryTtc: summary("TTC à payer") };
     });
-    const expectedCurrencies = { headlineHt: "$562.60", headlineTtc: "$675.12", summaryHt: "$562.60", summaryTtc: "$675.12" };
+    const expectedCurrencies = { headlineHt: "$565.20", headlineTtc: "$678.24", summaryHt: "$565.20", summaryTtc: "$678.24" };
     await becomes(async () => JSON.stringify(await readCurrencies()) === JSON.stringify(expectedCurrencies), 30_000);
     const currencies = await readCurrencies();
     await recordEvidence(army, "v3e07-currency", { versionId: draft.versionId, expected: expectedCurrencies, actual: currencies, nativeDialogs: dialogs });
     expect(currencies, "the v3 headline totals are formatted in the version currency, as the summary").toEqual(expectedCurrencies);
 
     // Revue de la correction F2 : l'entrée « Courante » de l'historique suit aussi la devise de la version (mêmes
-    // « $562.60 » / « $675.12 »), l'ancre v2 reste en euros, et aucun écart n'est calculé entre deux devises.
-    const expectedTimelineUsd = [{ current: true, ht: "$562.60", delta: null, ttc: "$675.12" }, anchorEntry];
+    // « $565.20 » / « $678.24 »), l'ancre v2 reste en euros, et aucun écart n'est calculé entre deux devises.
+    const expectedTimelineUsd = [{ current: true, ht: "$565.20", delta: null, ttc: "$678.24" }, anchorEntry];
     await becomes(async () => JSON.stringify(await readTimeline()) === JSON.stringify(expectedTimelineUsd), 30_000);
     const timelineUsd = await readTimeline();
     await recordEvidence(army, "v3e07-timeline-currency", {
@@ -612,7 +612,7 @@ armyTest("V3E08 the cost, margin and markup columns of a v3 line read the engine
     ]);
     await patchSettingsByApi(ui, army, draft, "v3e08-discount", { discount_amount_cents: null, discount_bp: 1000 });
     const discounted = await readConsistent(ui, draft.versionId);
-    expect(totalsOf(discounted)).toEqual([13368, 2674, 16042]);
+    expect(totalsOf(discounted)).toEqual([13414, 2683, 16097]);
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e08");
     await waitForDraftLease(ui);
@@ -632,7 +632,7 @@ armyTest("V3E08 the cost, margin and markup columns of a v3 line read the engine
     }, itemId);
     const margins = { priced: await marginView(lineP.id), outOfScope: await marginView(lineH.id) };
     const expectedMargins = {
-      priced: { ds: "110,30 €", marge: "25,10 €", marque: "18,5 %", negative: false },
+      priced: { ds: "110,60 €", marge: "25,18 €", marque: "18,5 %", negative: false },
       outOfScope: { ds: "0,00 €", marge: "0,00 €", marque: "-", negative: false },
     };
     await recordEvidence(army, "v3e08-margins", { versionId: draft.versionId, expected: expectedMargins, actual: margins });
@@ -645,7 +645,7 @@ armyTest("V3E08 the cost, margin and markup columns of a v3 line read the engine
     await fillCell(ui, `Heures de main-d’œuvre par unité pour ${lineQ.title}`, "2");
     await saveLineEditsWithShortcut(ui, draft.versionId, lineQ.title, army);
     await waitForAutoSave(ui, draft.versionId, (snapshot) =>
-      Number(snapshot.items.find(item => item.id === lineQ.id)?.h_mo_per_unit) === 2 && sameTotals(snapshot, [22008, 4402, 26410]), army);
+      Number(snapshot.items.find(item => item.id === lineQ.id)?.h_mo_per_unit) === 2 && sameTotals(snapshot, [22054, 4411, 26465]), army);
     await expect.poll(async () => normalized(await screen.getByTestId("estimate-page-toolbar-autosave-status").textContent()), { timeout: 30_000 })
       .toMatch(/^(Sauvegardé|À jour)$/);
     const afterSave = await missingLaborTime();
@@ -664,7 +664,7 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
     const draft = await prepareV3Draft(ui, army, "V3E09");
     // A v3 line as the grid makes it: its unit in unit_code (D9), nothing in description.
     const [line] = await seedLines(ui, army, draft, "v3e09", [supply(`${army.runPrefix} tube à remplacer`, 2, 1500, { unit_code: "ml" })]);
-    expect([line.unit_code, line.description ?? null, line.line_total_ht_cents]).toEqual(["ml", null, 3940]);
+    expect([line.unit_code, line.description ?? null, line.line_total_ht_cents]).toEqual(["ml", null, 3978]);
     army.ownedPriceLookupProjects = [draft.projectId];
     const created = async <T>(label: string, pathname: string, body: unknown) => {
       const response = await apiRequest<Envelope<{ item: T }>>(browser, "POST", pathname, body);
@@ -723,12 +723,12 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
       unitCode: savedLine.unit_code ?? null, description: savedLine.description ?? null, title: savedLine.title,
       prFo: Number(savedLine.unit_price_ht_cents), offerId: savedLine.selected_supplier_price_id ?? null, totals: totalsOf(saved),
     };
-    const expectedPersisted = { unitCode: "ml", description: null, title: inMl.designation, prFo: 1240, offerId: inMl.offer.id, totals: [3256, 651, 3907] };
+    const expectedPersisted = { unitCode: "ml", description: null, title: inMl.designation, prFo: 1240, offerId: inMl.offer.id, totals: [3288, 658, 3946] };
     await recordEvidence(army, "v3e09-associated", { versionId: draft.versionId, lineId: line.id, expected: expectedPersisted, actual: persisted, nativeDialogs: dialogs });
     expect(persisted, "the associated article keeps the v3 unit_code and never writes description").toEqual(expectedPersisted);
     await checkpoint(ui, army, "v3e09-associated", draft.versionId, {
-      api: { version: { totals: [3256, 651, 3907] }, lines: { [line.id]: { unit: "ml", prFo: 1240, pu: 1628, net: 3256 } } },
-      screen: { chips: chips([3256, 651, 3907]), rows: [{ id: line.id, title: inMl.designation, unit: "ml — mètre linéaire", pu: "16,28", pt: eur(3256) }] },
+      api: { version: { totals: [3288, 658, 3946] }, lines: { [line.id]: { unit: "ml", prFo: 1240, pu: 1644, net: 3288 } } },
+      screen: { chips: chips([3288, 658, 3946]), rows: [{ id: line.id, title: inMl.designation, unit: "ml — mètre linéaire", pu: "16,44", pt: eur(3288) }] },
     });
 
     // Revue Codex de la PR #44 (F1) : la suggestion de la désignation juge aussi un prix de référence (sans offre) dans
@@ -754,15 +754,15 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
     };
     const expectedKept = {
       popoverRefused: true, unitCode: "ml", description: null, title: inPiece.designation,
-      productId: inMl.productId, prFo: 1240, offerId: inMl.offer.id, totals: [3256, 651, 3907],
+      productId: inMl.productId, prFo: 1240, offerId: inMl.offer.id, totals: [3288, 658, 3946],
     };
     await recordEvidence(army, "v3e09-reference-price", {
       versionId: draft.versionId, lineId: line.id, referenceProductId: inPiece.productId, expected: expectedKept, actual: kept, popoverText, nativeDialogs: dialogs,
     });
     expect(kept, "a reference price in another unit never prices the v3 line: refused by name, nothing but the typed title written").toEqual(expectedKept);
     await checkpoint(ui, army, "v3e09-reference-refused", draft.versionId, {
-      api: { version: { totals: [3256, 651, 3907] }, lines: { [line.id]: { unit: "ml", productId: inMl.productId, offerId: inMl.offer.id, prFo: 1240, pu: 1628, net: 3256 } } },
-      screen: { chips: chips([3256, 651, 3907]), rows: [{ id: line.id, title: inPiece.designation, unit: "ml — mètre linéaire", pu: "16,28", pt: eur(3256) }] },
+      api: { version: { totals: [3288, 658, 3946] }, lines: { [line.id]: { unit: "ml", productId: inMl.productId, offerId: inMl.offer.id, prFo: 1240, pu: 1644, net: 3288 } } },
+      screen: { chips: chips([3288, 658, 3946]), rows: [{ id: line.id, title: inPiece.designation, unit: "ml — mètre linéaire", pu: "16,44", pt: eur(3288) }] },
     });
   });
 
@@ -772,7 +772,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     const dialogs = await recordDialogs(ui);
     const draft = await prepareV3Draft(ui, army, "V3E10");
     const [line] = await seedLines(ui, army, draft, "v3e10", [supply(`${army.runPrefix} X`, 1, 10000)]);
-    expect(line.line_total_ht_cents).toBe(13130);
+    expect(line.line_total_ht_cents).toBe(13260);
     await switchToExpertMode(ui);
     const propagation = () => screen.getByRole("alertdialog", /^Appliquer ce taux à toutes les lignes\s?\?$/);
     const persistedRates = async () => {
@@ -789,7 +789,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     expect(shortcutOpened, "Ctrl+S opens the VAT propagation question").toBe(true);
     await propagation().getByRole("button", "Non", { exact: true }).tap();
     await expect(propagation()).toBeHidden({ timeout: 30_000 });
-    await expect.poll(persistedRates, { timeout: 30_000 }).toEqual({ version: 1000, line: 2000, totals: [13130, 2626, 15756] });
+    await expect.poll(persistedRates, { timeout: 30_000 }).toEqual({ version: 1000, line: 2000, totals: [13260, 2652, 15912] });
 
     // Fermer le tiroir puis « Enregistrer » ouvre la même question ; « Oui » applique le taux à la ligne dans la même sauvegarde.
     await openSettings(ui, draft.versionId);
@@ -802,12 +802,12 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     await recordEvidence(army, "v3e10-close", { versionId: draft.versionId, opened: closeOpened, text: await pageText(ui) });
     expect(closeOpened, "saving on close opens the VAT propagation question").toBe(true);
     await propagation().getByRole("button", "Oui", { exact: true }).tap();
-    await expect.poll(persistedRates, { timeout: 30_000 }).toEqual({ version: 550, line: 550, totals: [13130, 722, 13852] });
+    await expect.poll(persistedRates, { timeout: 30_000 }).toEqual({ version: 550, line: 550, totals: [13260, 729, 13989] });
     await expect(settingsDialog(ui)).toBeHidden({ timeout: 30_000 });
     await expect(closeConfirm).toBeHidden({ timeout: 30_000 });
     await checkpoint(ui, army, "v3e10-vat", draft.versionId, {
-      api: { version: { totals: [13130, 722, 13852], taxRateBp: 550 }, lines: { [line.id]: { taxRateBp: 550 } } },
-      screen: { chips: chips([13130, 722, 13852], "5,5") },
+      api: { version: { totals: [13260, 729, 13989], taxRateBp: 550 }, lines: { [line.id]: { taxRateBp: 550 } } },
+      screen: { chips: chips([13260, 729, 13989], "5,5") },
     });
     await recordEvidence(army, "v3e10-end", { versionId: draft.versionId, nativeDialogs: dialogs });
   });
@@ -819,8 +819,8 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     const draft = await prepareV3Draft(ui, army, "V3E11");
     // X : 1 u, 100,10 € → PU 131,43 € ; 10 % → 118,29 € ; palier inférieur de 2,50 € → 130,00 € (arrondi 1,43 €).
     const [line] = await seedLines(ui, army, draft, "v3e11", [supply(`${army.runPrefix} X`, 1, 10010)]);
-    expect(line.line_total_ht_cents).toBe(13143);
-    const initial: Totals = [13143, 2629, 15772];
+    expect(line.line_total_ht_cents).toBe(13273);
+    const initial: Totals = [13273, 2655, 15928];
     await switchToExpertMode(ui);
     const status = () => screen.getByTestId("estimate-page-toolbar-autosave-status");
     const settingsOf = async () => {
@@ -833,7 +833,7 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     await openSettings(ui, draft.versionId);
     await fillCell(ui, "Remise (%)", "10");
     await clickSaveSettings(ui);
-    await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 1000, discountAmountCents: null, rounding: ["none", 1], totals: [11829, 2366, 14195] });
+    await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 1000, discountAmountCents: null, rounding: ["none", 1], totals: [11946, 2389, 14335] });
     await fillCell(ui, "Remise (%)", "0");
     await clickSaveSettings(ui);
     await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 0, discountAmountCents: null, rounding: ["none", 1], totals: initial });
@@ -844,7 +844,7 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     // F26-29 : un palier inférieur stocké hors de la liste (2,50 €, admis par l'API) s'affiche tel qu'il s'applique, et
     // « Aucun » est un vrai changement.
     await patchSettingsByApi(ui, army, draft, "v3e11-rounding", { rounding_mode: "down", rounding_step_cents: 250 });
-    await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 0, discountAmountCents: null, rounding: ["down", 250], totals: [13000, 2600, 15600] });
+    await expect.poll(settingsOf, { timeout: 30_000 }).toEqual({ discountBp: 0, discountAmountCents: null, rounding: ["down", 250], totals: [13250, 2650, 15900] });
     const dialog = await openSettings(ui, draft.versionId);
     const rounding = dialog.getByLabel("Arrondi", { exact: true });
     const roundingView = await browser.evaluate(() => {
@@ -924,7 +924,7 @@ armyTest("V3E15 the v3 editor offers the Excel, DPGF, CSV and BDC exports; Excel
     // X : 2 u à 100,00 € → PU 131,30 €, PT 262,60 € (provision FO 1,01, c_FO 1,30).
     const title = `${army.runPrefix} X`;
     const [line] = await seedLines(ui, army, draft, "v3e15", [supply(title, 2, 10000)]);
-    expect(line.line_total_ht_cents).toBe(26260);
+    expect(line.line_total_ht_cents).toBe(26520);
     await openV3Editor(ui, army, draft, "v3e15");
     await waitForDraftLease(ui);
 
@@ -983,7 +983,7 @@ armyTest("V3E15 the v3 editor offers the Excel, DPGF, CSV and BDC exports; Excel
     const header = (rows: WorkbookRow[], sheet: string) => rows.find(row => row.sheet === sheet && row.row === 1)?.cells ?? null;
     const field = (rows: WorkbookRow[], sheet: string, name: string) => rows.find(row => row.sheet === sheet && row.cells[0] === name)?.cells[1] ?? null;
     const hasLine = (rows: WorkbookRow[], sheet: string) => rows.some(row => row.sheet === sheet &&
-      row.cells.some(value => typeof value === "string" && normalized(value) === title) && [131.3, 262.6].every(amount => row.cells.includes(amount)));
+      row.cells.some(value => typeof value === "string" && normalized(value) === title) && [132.6, 265.2].every(amount => row.cells.includes(amount)));
     const exportsView = {
       standard: { status: standard.status, xlsx: /\.xlsx$/i.test(standard.filename), header: header(standard.rows, "Devis"),
         engine: field(standard.rows, "Resume", "Moteur de calcul"), line: hasLine(standard.rows, "Devis") },
@@ -1014,9 +1014,9 @@ armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the 
     // et « C » d'un même préfixe se seraient toutes appariées (premier passage rouge : « Examiner 3 suggestions »).
     const [lineA, lineB, lineC] = await seedLines(ui, army, draft, "v3e12", [
       withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("robinetterie"), 1, 5000), supply(title("C"), 1, 1000)]);
-    const initial: Totals = [43738, 8748, 52486];
+    const initial: Totals = [44076, 8815, 52891];
     // Règle K FO 1,3 sur le mot-clé de B (tenant dédié) : B = 50,00 € × 1,01 × 1,3 × 1,3 = 85,35 €.
-    const suggested: Totals = [45708, 9142, 54850];
+    const suggested: Totals = [45896, 9179, 55075];
     await lockVersion(browser, draft.versionId);
     const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
       { name: `${army.runPrefix} K FO B`, match_value: "robinetterie", k_fo: 1.3, is_active: true });
@@ -1043,16 +1043,16 @@ armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the 
       dialogText: (await suggestions.isVisible()) ? apostrophes(normalized(await suggestions.textContent())) : null, genericRefusal: await genericRefusalShown(ui) };
     await recordEvidence(army, "v3e12-applied", { versionId: draft.versionId, actual: appliedView });
     expect({ ...appliedView, dialogText: undefined }, "bulk suggestions are written to v3 lines by the v3 writer").toEqual({
-      kFo: 1.3, totals: suggested, lineB: { pu: 8535, net: 8535 }, dialogText: undefined, genericRefusal: false,
+      kFo: 1.3, totals: suggested, lineB: { pu: 8450, net: 8450 }, dialogText: undefined, genericRefusal: false,
     });
 
     await screen.getByTestId("estimate-editor-alert-undo-bulk-suggest-button").tap();
-    const undone = await waitState(ui, draft.versionId, (state) => kFo(state) === 1 && sameTotals(state, initial));
+    const undone = await waitState(ui, draft.versionId, (state) => kFo(state) === 1.02 && sameTotals(state, initial));
     const undoneView = { kFo: kFo(undone), totals: totalsOf(undone), genericRefusal: await genericRefusalShown(ui) };
     await recordEvidence(army, "v3e12-undone", { versionId: draft.versionId, actual: undoneView, nativeDialogs: dialogs });
-    expect(undoneView, "undoing bulk suggestions on v3 lines goes through the v3 writer").toEqual({ kFo: 1, totals: initial, genericRefusal: false });
+    expect(undoneView, "undoing bulk suggestions on v3 lines goes through the v3 writer").toEqual({ kFo: 1.02, totals: initial, genericRefusal: false });
     await checkpoint(ui, army, "v3e12-undone", draft.versionId, {
-      api: { version: { totals: initial }, lines: { [lineA.id]: { net: 35860 }, [lineB.id]: { net: 6565 }, [lineC.id]: { net: 1313 } } },
+      api: { version: { totals: initial }, lines: { [lineA.id]: { net: 36120 }, [lineB.id]: { net: 6630 }, [lineC.id]: { net: 1326 } } },
       screen: { chips: chips(initial) },
     });
   });
@@ -1068,7 +1068,7 @@ armyTest("V3E13 pasting rows into a v3 grid writes their v3 inputs through the v
     await openV3Editor(ui, army, draft, "v3e13");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
-    const initial: Totals = [1970, 394, 2364];
+    const initial: Totals = [1989, 398, 2387];
     const order = (state: ArmyEstimate) => state.items.filter((item) => item.item_type === "line")
       .sort((left, right) => Number(left.position) - Number(right.position)).map((item) => item.title);
 
@@ -1094,7 +1094,7 @@ armyTest("V3E13 pasting rows into a v3 grid writes their v3 inputs through the v
     await screen.getByTestId("paste-preview-dialog-confirm-button").tap();
     await expect(pasteDialog).toBeHidden({ timeout: 30_000 });
     const pasted = await waitState(ui, draft.versionId, (state) => lineByTitle(state, pastedTitle) !== null &&
-      sameTotals(state, [4596, 919, 5515]) && order(state)[1] === pastedTitle);
+      sameTotals(state, [4641, 928, 5569]) && order(state)[1] === pastedTitle);
     const pastedLine = lineByTitle(pasted, pastedTitle);
     const view = {
       line: pickLine(pastedLine, ["unit", "status", "quantity", "prFo", "hPerUnit", "hMo", "pu", "net", "taxRateBp", "roleId"]),
@@ -1104,8 +1104,8 @@ armyTest("V3E13 pasting rows into a v3 grid writes their v3 inputs through the v
     };
     await recordEvidence(army, "v3e13-paste", { versionId: draft.versionId, tsv, actual: view, nativeDialogs: dialogs });
     expect(view, "a paste into a v3 grid writes its v3 inputs through the v3 writer").toEqual({
-      line: { unit: "ml", status: "priced", quantity: 2, prFo: 1000, hPerUnit: null, hMo: 0, pu: 1313, net: 2626, taxRateBp: 2000, roleId: null },
-      description: null, order: [line.title, pastedTitle, tail.title], totals: [4596, 919, 5515], revisionBumped: true,
+      line: { unit: "ml", status: "priced", quantity: 2, prFo: 1000, hPerUnit: null, hMo: 0, pu: 1326, net: 2652, taxRateBp: 2000, roleId: null },
+      description: null, order: [line.title, pastedTitle, tail.title], totals: [4641, 928, 5569], revisionBumped: true,
       genericRefusal: false,
     });
 
@@ -1129,11 +1129,11 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
     // The lines of V3E12: B alone carries the rule's keyword.
     const [lineA, lineB, lineC] = await seedLines(ui, army, draft, "v3e14", [
       withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("robinetterie"), 1, 5000), supply(title("C"), 1, 1000)]);
-    expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents]).toEqual([35860, 6565, 1313]);
+    expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents]).toEqual([36120, 6630, 1326]);
     // Majoration 150 % on A: 406,60 € (V3E06). Then K FO 1,3 on B: 85,35 € (V3E12). Then « Oui » at 10 %: 50,51 € of VAT.
-    const majorated: Totals = [48538, 9708, 58246];
-    const acted: Totals = [50508, 10102, 60610];
-    const atTenPercent: Totals = [50508, 5051, 55559];
+    const majorated: Totals = [48876, 9775, 58651];
+    const acted: Totals = [50696, 10139, 60835];
+    const atTenPercent: Totals = [50696, 5070, 55766];
     await lockVersion(browser, draft.versionId);
     const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
       { name: `${army.runPrefix} K FO B`, match_value: "robinetterie", k_fo: 1.3, is_active: true });
@@ -1222,9 +1222,9 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
       api: {
         version: { totals: atTenPercent, taxRateBp: 1000 },
         lines: {
-          [lineA.id]: { net: 40660, tax: 4066, taxRateBp: 1000 },
-          [lineB.id]: { net: 8535, tax: 854, taxRateBp: 1000 },
-          [lineC.id]: { net: 1313, tax: 131, taxRateBp: 1000 },
+          [lineA.id]: { net: 40920, tax: 4092, taxRateBp: 1000 },
+          [lineB.id]: { net: 8450, tax: 845, taxRateBp: 1000 },
+          [lineC.id]: { net: 1326, tax: 133, taxRateBp: 1000 },
         },
       },
       screen: { chips: chips(atTenPercent, "10") },
@@ -1272,7 +1272,7 @@ armyTest("V3E16 included, for-memory and out-of-scope v3 lines at 0 € raise no
     ]);
     const statusIds = [lineInc.id, linePm.id, lineHl.id];
     const seeded = await readConsistent(ui, draft.versionId);
-    expect(totalsOf(seeded)).toEqual([13540, 2708, 16248]);
+    expect(totalsOf(seeded)).toEqual([13578, 2716, 16294]);
 
     // G1 : la porte d'envoi (celle de POST /send, lue par la fenêtre d'envoi) ne lève ni prix ni temps manquant sur un statut.
     // Sur main, l'émission v3 reste fermée jusqu'au 2.7 : seule l'absence de PDF bloque encore (no_pdf_generated).
@@ -1479,7 +1479,7 @@ armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code f
     const [line, outOfScope] = await seedLines(ui, army, draft, "v3e17", [
       { ...withLabor(`${army.runPrefix} mobile`, 2, 1000, 0, draft.tuyauteurId), unit_code: null },
       statusLine(`${army.runPrefix} mobile HL`, "out_of_scope")]);
-    const typed: Totals = [17026, 3405, 20431];
+    const typed: Totals = [17052, 3410, 20462];
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e17");
     await waitForDraftLease(ui);
@@ -1526,7 +1526,7 @@ armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code f
     await recordEvidence(army, "v3e17-mobile", { versionId: draft.versionId, lineId: line.id, actual: view, nativeDialogs: dialogs });
     expect(view, "the mobile line editor of a v3 writes unit_code and hours per unit through the v3 writer").toEqual({
       fields: { hoursPerUnit: true, lineHours: false },
-      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8513, net: 17026 },
+      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8526, net: 17052 },
       description: null, listBefore: { line: "2 × sans unité", status: "Hors lot" }, listMeta: "2 × ml", totals: typed, genericRefusal: false,
     });
 
@@ -1554,8 +1554,8 @@ armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs
     const draft = await prepareV3Draft(ui, army, "V3E18");
     // L : 2 u × (10,00 € × 1,01 × 1,30 + 1 h/u × 40 €/h × 1,20) = 122,26 € HT. Brouillon : « ml », 1,5 h/u → 2 × 85,13 = 170,26 €.
     const [line] = await seedLines(ui, army, draft, "v3e18", [withLabor(`${army.runPrefix} brouillon`, 2, 1000, 1, draft.tuyauteurId)]);
-    const initial: Totals = [12226, 2445, 14671];
-    const restored: Totals = [17026, 3405, 20431];
+    const initial: Totals = [12252, 2450, 14702];
+    const restored: Totals = [17052, 3410, 20462];
     // Mode Expert : le pied affiche les jetons TVA et TTC que le point de contrôle relit (comme V3E17 et V3E19).
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e18");
@@ -1606,12 +1606,12 @@ armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs
     };
     await recordEvidence(army, "v3e18-restored", { versionId: draft.versionId, lineId: line.id, actual: view, nativeDialogs: dialogs });
     expect(view, "a restored v3 draft writes its v3 inputs through the v3 writer, never the v2 margin").toEqual({
-      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8513, net: 17026 },
+      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8526, net: 17052 },
       description: null, totals: restored, version: { marginMultiplier: 1, saleCoefficients: [1.3, 1.2] }, genericRefusal: false,
       afterRestore: { notice: "Modifications locales restaurées. Les lignes restent en attente de synchronisation.", saveStatus: "En attente" },
     });
     await checkpoint(ui, army, "v3e18-restored", draft.versionId, {
-      api: { version: { totals: restored }, lines: { [line.id]: { unit: "ml", hPerUnit: 1.5, net: 17026 } } },
+      api: { version: { totals: restored }, lines: { [line.id]: { unit: "ml", hPerUnit: 1.5, net: 17052 } } },
       screen: { chips: chips(restored) },
     });
   });
@@ -1628,7 +1628,7 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
     const [lineG, lineT, lineH, lineK] = await seedLines(ui, army, draft, "v3e19", [
       { ...supply(title("gaine"), 2, 1000), unit_code: null }, { ...supply(title("fourreau"), 1, 500), unit_code: null },
       { ...supply(title("chemin"), 1, 0), unit_code: null }, supply(title("corniere"), 1, 0)]);
-    const totals: Totals = [3283, 657, 3940];
+    const totals: Totals = [3315, 663, 3978];
     await lockVersion(browser, draft.versionId);
     const rules: unknown[] = [];
     for (const [name, keyword, unit, extra] of [["G", "gaine", "ML", {}], ["T", "fourreau", "boite", {}], ["H", "chemin", "M2", {}],
@@ -1748,7 +1748,7 @@ armyTest("V3E20 a failed reorder after undo restores one line once and offers an
     await openV3Editor(ui, army, draft, "v3e20");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
-    const initial: Totals = [7878, 1576, 9454];
+    const initial: Totals = [7956, 1591, 9547];
     expect(totalsOf(before)).toEqual(initial);
     const placement = (state: ArmyEstimate) => state.items.map(item => ({
       id: item.id, type: item.item_type, parentId: item.parent_id, position: item.position,
@@ -1767,7 +1767,7 @@ armyTest("V3E20 a failed reorder after undo restores one line once and offers an
     await screen.getByRole("menuitem", "Supprimer", { exact: true }).tap();
     await confirmDeletion(ui);
     const deleted = await waitState(ui, draft.versionId, state => !lineIds(state).includes(lineB.id));
-    expect(totalsOf(deleted)).toEqual([5252, 1050, 6302]);
+    expect(totalsOf(deleted)).toEqual([5304, 1061, 6365]);
     const topBeforeUndo = await sectionTop();
     const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, app.baseUrl!).href;
     const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;
@@ -1944,7 +1944,7 @@ armyTest("V3E21 a bulk deletion undo recovers its two restored lines without rec
     await openV3Editor(ui, army, draft, "v3e21");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
-    const initial: Totals = [7878, 1576, 9454];
+    const initial: Totals = [7956, 1591, 9547];
     expect(totalsOf(before)).toEqual(initial);
     const placement = (state: ArmyEstimate) => state.items.map(item => ({
       id: item.id, type: item.item_type, parentId: item.parent_id, position: item.position,
@@ -1964,7 +1964,7 @@ armyTest("V3E21 a bulk deletion undo recovers its two restored lines without rec
     await screen.getByTestId("estimate-editor-bulk-delete-selection-button").tap();
     await confirmDeletion(ui);
     const deleted = await waitState(ui, draft.versionId, state => !lineIds(state).includes(lineA.id) && !lineIds(state).includes(lineB.id));
-    expect(totalsOf(deleted)).toEqual([3939, 788, 4727]);
+    expect(totalsOf(deleted)).toEqual([3978, 796, 4774]);
     const topBeforeUndo = await sectionTop();
     const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, app.baseUrl!).href;
     const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;

@@ -409,8 +409,8 @@ create function pg_temp.ro29_v3_line(p_prefix text, p_suffix text, p_parent text
   select jsonb_build_object('id', pg_temp.ro29_id(p_prefix, p_suffix), 'parent_id', pg_temp.ro29_id(p_prefix, p_parent),
     'item_type', 'line', 'position', p_position, 'title', p_title, 'description', 'u', 'quantity', 1,
     'unit_price_ht_cents', p_cents, 'tax_rate_bp', 2000, 'k_fo', 1, 'h_mo_per_unit', 0, 'h_mo_majoration', 1, 'k_mo', 1,
-    'pu_ht_cents', p_cents * 101 / 100, 'line_total_ht_cents', p_cents * 101 / 100,
-    'line_tax_cents', p_cents * 101 / 500, 'line_total_ttc_cents', p_cents * 606 / 500,
+    'pu_ht_cents', p_cents * 102 / 100, 'line_total_ht_cents', p_cents * 102 / 100,
+    'line_tax_cents', p_cents * 102 / 500, 'line_total_ttc_cents', p_cents * 612 / 500,
     'unit_code', 'u', 'pricing_status', 'priced')
 $$;
 create function pg_temp.ro29_version_v3(p_project uuid, p_id uuid, p_prefix text) returns text language plpgsql as $$
@@ -424,8 +424,8 @@ begin
       'discount_amount_cents', null, 'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1,
       'tax_rate_bp', 2000, 'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3,
       'contractor_role', 'principal', 'calc_engine_version', 3, 'sale_coefficient_fo', 1, 'sale_coefficient_mo', 1,
-      'gross_ht_cents', 6060, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
-      'total_ht_cents', 6060, 'total_tax_cents', 1212, 'total_ttc_cents', 7272),
+      'gross_ht_cents', 6120, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
+      'total_ht_cents', 6120, 'total_tax_cents', 1224, 'total_ttc_cents', 7344),
     jsonb_build_array(
       pg_temp.ro29_section(pg_temp.ro29_id(p_prefix, '000000000001'), null, 1, 'Lot X'),
       pg_temp.ro29_section(pg_temp.ro29_id(p_prefix, '000000000002'), null, 2, 'Lot Y'),

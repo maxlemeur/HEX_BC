@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EstimateItem } from "@/lib/estimates/editor-items";
-import { planEstimateV3ItemConversion } from "@/lib/estimates/v3-editor";
+import { planEstimateV3ItemConversion, buildEstimateV3ItemInsertPayload } from "@/lib/estimates/v3-editor";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -43,4 +43,9 @@ describe("planEstimateV3ItemConversion", () => {
     expect(planEstimateV3ItemConversion(VERSION_ID, items, [], "section"))
       .toEqual({ ok: false, message: "Aucun élément à convertir." });
   });
+});
+
+it("recreating a legacy line retains its effective supply coefficient once", () => {
+  const legacy = item("legacy", { item_type: "line", k_fo: 1, fo_provision: 1.03, k_fo_manual: null });
+  expect(buildEstimateV3ItemInsertPayload(VERSION_ID, legacy)).toMatchObject({ k_fo: 1.03, k_fo_manual: true });
 });

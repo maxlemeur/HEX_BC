@@ -19,8 +19,8 @@ export type EstimateLineNature = (typeof ESTIMATE_LINE_NATURES)[number];
 
 export const ESTIMATE_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures seules",
-  supply_and_labor: "Fournitures + main-d’œuvre",
-  labor_only: "Main-d’œuvre seule",
+  supply_and_labor: "Fournitures + pose",
+  labor_only: "Pose",
   pose_only: POSE_ONLY_MENTION,
 };
 
@@ -129,6 +129,7 @@ export function selectableEstimateLineNatures(input: {
   printsPoseOnly: boolean;
   current: EstimateLineNature;
 }): readonly EstimateLineNature[] {
+  if (input.printsPoseOnly) return ESTIMATE_LINE_NATURES.filter((nature) => nature !== "labor_only");
   return ESTIMATE_LINE_NATURES.filter(
     (nature) => nature !== "pose_only" || input.printsPoseOnly || input.current === "pose_only",
   );

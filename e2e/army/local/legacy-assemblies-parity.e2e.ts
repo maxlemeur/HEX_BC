@@ -1,4 +1,6 @@
 import { expect } from "e2e";
+import { ESTIMATE_PDF_PRESETS } from "@/lib/estimates/pdf-layout";
+import { generatePdf, storedPdfBytes, pdfText } from "./engine-v3-emission-support";
 
 import {
   apiRequest, armyTest, createEstimateViaWizard, readEstimate, recordEvidence, type ArmyItem,
@@ -124,7 +126,7 @@ armyTest("LEGASM01 a real library creation survives search and inserts its exact
       .toEqual([3085, 617, 3702]);
     expect(receipt.data.items.map(item => item.id).sort()).toEqual(inserted.items.map(item => item.id).sort());
     await expect(screen.getByTestId("estimate-section-title-input")).toHaveValue(name);
-    await expect(screen.getByTestId("estimate-line-title-input")).toHaveValue(lineTitle);
+    await expect(screen.getByTestId("estimate-line-title-input")).toHaveCount(0);
     await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(À jour|Sauvegardé)$/);
     await browser.reload();
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
@@ -133,7 +135,16 @@ armyTest("LEGASM01 a real library creation survives search and inserts its exact
     expect([reloaded.version.total_ht_cents, reloaded.version.total_tax_cents, reloaded.version.total_ttc_cents])
       .toEqual([3085, 617, 3702]);
     await expect(screen.getByTestId("estimate-section-title-input")).toHaveValue(name);
-    await expect(screen.getByTestId("estimate-line-title-input")).toHaveValue(lineTitle);
+    await expect(screen.getByTestId("estimate-line-title-input")).toHaveCount(0);
+    // The actual stored contract-1 PDF must retain the same hidden-kit presentation.
+    await app.open("/dashboard/affaires");
+    await generatePdf(browser, (label, data) => recordEvidence(army, label, data), "legacy-kit", ids.versionId,
+      { ...ESTIMATE_PDF_PRESETS.client_detailed, showSectionSubtotals: false, includeTerms: false });
+    const downloaded = await pdfText(await storedPdfBytes(browser, ids.versionId));
+    expect(downloaded.text).toContain(name);
+    expect(downloaded.text).not.toContain(lineTitle);
+    expect(downloaded.text).toContain("30,85 €");
+    await recordEvidence(army, "legacy-kit-pdf", downloaded);
     await recordEvidence(army, "legacy-assembly-created-searched-inserted", {
       ...ids, tenantId: owner.tenantId, assembly, creationRequests, receipt: receipt.data, inserted, reloaded,
       expected: { quantity: 2.5, unit: "ml", unitCostCents: 1234, totals: [3085, 617, 3702] },

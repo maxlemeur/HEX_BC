@@ -926,7 +926,7 @@ from (values
   ('quantity as a string', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100) || '{"quantity": "1"}'), pg_temp.v3_params(1, 1)),
   ('fractional unit price', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100) || '{"unit_price_ht_cents": 10.5}'), pg_temp.v3_params(1, 1)),
   ('negative unit price', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, -100)), pg_temp.v3_params(1, 1)),
-  ('k_fo with 4 decimals', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100, null, null, 2000, 'priced', 'u', 1.0001)), pg_temp.v3_params(1, 1)),
+  ('k_fo with 7 decimals', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100, null, null, 2000, 'priced', 'u', 1.0000001)), pg_temp.v3_params(1, 1)),
   ('hours per unit with 5 decimals', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100, 0.12345, 4000)), pg_temp.v3_params(1, 1)),
   ('negative labour rate', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100, 1, -4000)), pg_temp.v3_params(1, 1)),
   ('tax rate missing on a line', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100) || '{"tax_rate_bp": null}'), pg_temp.v3_params(1, 1)),

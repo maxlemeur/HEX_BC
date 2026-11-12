@@ -1,3 +1,4 @@
+import { kitComponentIds } from "@/lib/estimates/kit-presentation";
 import {
   Document, Image as PdfImage, Page, StyleSheet, Text, View,
 } from "@react-pdf/renderer";
@@ -57,7 +58,9 @@ function formatDate(value: string): string {
 function visibleRows({ contract, layout }: OfferPresentation): CommercialRow[] {
   const depth = layout.detailLevel;
   const rows: CommercialRow[] = contract.rows;
-  return rows.filter((row) => depth === "lines" || (row.kind === "section" && row.depth + 1 <= depth));
+  const hidden = kitComponentIds(rows.map(row => ({ id: row.id, parent_id: row.parentId,
+    source_metadata: "kitMetier" in row && row.kitMetier ? { kit_metier: true } : undefined })));
+  return rows.filter((row) => !hidden.has(row.id) && (depth === "lines" || (row.kind === "section" && row.depth + 1 <= depth)));
 }
 
 /**
@@ -67,7 +70,7 @@ function visibleRows({ contract, layout }: OfferPresentation): CommercialRow[] {
 function rowValuesV3(row: CommercialRow2, model: OfferPresentation): string[] {
   const { layout, contract } = model;
   const money = (cents: number) => formatCurrency(cents, contract.version.currency);
-  const amounts = row.kind === "line" || layout.showSectionSubtotals;
+  const amounts = row.kind === "line" || layout.showSectionSubtotals || ("kitMetier" in row && row.kitMetier === true);
   if (row.kind === "section") {
     const title = layout.showNumbering ? `${row.number}  ${row.title}` : row.title;
     const split = row as CommercialRow2 & { foSaleHtCents: number; moSaleHtCents: number };
@@ -90,7 +93,7 @@ function rowValues(row: CommercialRow, model: OfferPresentation): string[] {
   if (model.contract.schemaVersion === 2) return rowValuesV3(row as CommercialRow2, model);
   const { layout, contract } = model;
   const historical = row as CommercialRow1;
-  const amounts = historical.kind === "line" || layout.showSectionSubtotals;
+  const amounts = historical.kind === "line" || layout.showSectionSubtotals || (historical.kind === "section" && historical.kitMetier === true);
   const title = historical.kind === "section" && layout.showNumbering ? `${historical.number}  ${historical.title}` : historical.title;
   const values = [title, historical.kind === "line" ? quantityFormatter.format(historical.quantity) : "", historical.kind === "line" ? historical.unit : ""];
   if (layout.priceMode === "unit_and_total") values.push(historical.kind === "line" ? formatCurrency(historical.unitSaleHtCents, contract.version.currency) : "");

@@ -987,7 +987,8 @@ export function useEstimateEditorSuggestionsController({
       // est refusée par son nom et rien n'est écrit (aucune ligne de la sélection).
       const unitRefusals: string[] = [];
       const resolvedPatchById = new Map(selectedLines.map((item) => {
-        const patch = previewByItemId.get(item.id)?.patch ?? {};
+        const proposed = previewByItemId.get(item.id)?.patch ?? {};
+        const patch = v3Writer && "k_fo" in proposed ? { ...proposed, k_fo_manual: true } : proposed;
         if (!v3Writer || !("unit_code" in patch)) return [item.id, patch] as const;
         const unit = resolveEstimateV3RuleUnit(patch.unit_code ?? "");
         if (!unit.ok && !unitRefusals.includes(unit.message)) unitRefusals.push(unit.message);

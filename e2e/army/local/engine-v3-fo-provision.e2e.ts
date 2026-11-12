@@ -34,7 +34,7 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       offers[transport_mode === "included" ? 0 : 1] = offer;
     }
     await querySql(`insert into public.supply_types(tenant_id,code,name,default_fo_provision)
-      values ('${draft.owner.tenantId}', 'tube', 'Tube', 1.030);`);
+      values ('${draft.owner.tenantId}', 'tube', 'Tube', 1.130);`);
     const details = await connectedApi<{ supply_types: Array<{ id: string; code: string }> }>(ui, "GET", `/api/estimates/${draft.versionId}`);
     const tube = details.supply_types.find(type => type.code === "tube")?.id;
     expect(tube).toMatch(/^[0-9a-f-]{36}$/);
@@ -47,8 +47,8 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
       { ...base, title: `${ui.army.runPrefix} sans type`, quantity: 1 },
     ]);
     await recordEvidence(ui.army, "fo534-before-assertions", { product, offers, tube, rows });
-    expect(rows.map(row => [row.supply_type_id, Number(row.fo_provision), row.pu_ht_cents, row.line_total_ht_cents]))
-      .toEqual([[tube, 1.01, 15530, 155300], [tube, 1.03, 14451, 144510], [tube, 1.03, 15790, 157900], [null, 1.01, 15530, 15530]]);
+    expect(rows.map(row => [row.supply_type_id, Number(row.k_fo), row.pu_ht_cents, row.line_total_ht_cents]))
+      .toEqual([[tube, 1.1, 16700, 167000], [tube, 1.13, 15621, 156210], [tube, 1.13, 17090, 170900], [null, 1.02, 15660, 15660]]);
     await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
     await expect(ui.screen.getByText("Type FO à préciser", { exact: true })).toBeVisible();
@@ -70,9 +70,8 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
-      return [selected?.selected_supplier_price_id, selected?.supply_type_id, selected?.fo_provision, selected?.unit_price_ht_cents];
-    }).toEqual([offers[1].id, tube, 1.03, 9000]);
-    await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,03");
+      return [selected?.selected_supplier_price_id, selected?.supply_type_id, selected?.k_fo, selected?.unit_price_ht_cents, selected?.k_fo_manual];
+    }).toEqual([offers[1].id, tube, 1.13, 9000, false]);
     // Spreadsheet contract: a click selects the cell, a double click edits it
     // in place, which is what brings the catalogue suggestion back.
     await row.getByTestId("estimate-line-title-input").dblclick();
@@ -80,13 +79,12 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
-      return [selected?.selected_supplier_price_id, selected?.fo_provision, selected?.unit_price_ht_cents];
-    }).toEqual([offers[0].id, 1.01, 10000]);
-    await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,01");
+      return [selected?.selected_supplier_price_id, selected?.k_fo, selected?.unit_price_ht_cents];
+    }).toEqual([offers[0].id, 1.1, 10000]);
     await saveSettled(ui);
     await ui.browser.reload();
     await waitForDraftLease(ui);
-    expect((await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)?.fo_provision).toBe(1.01);
+    expect((await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)?.k_fo).toBe(1.1);
     // Real race: load the suggestion, then change the offer before selecting it.
     await row.getByTestId("estimate-line-title-input").dblclick();
     await expect(primary).toBeVisible();
@@ -99,13 +97,11 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     });
     await chooseOffer("included");
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
+    await recordEvidence(ui.army, "fo534-transport-race-saved", { selected: (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id) });
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
-      return [selected?.fo_provision, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
-    }).toEqual([1.03, "excluded"]);
-    await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`)).toHaveText("1,03");
-    await expect(ui.browser.locator(`[data-estimate-item-id="${rows[0].id}"] [data-estimate-column="fo_provision"]`))
-      .toHaveAttribute("title", /Transport FO : Hors transport/);
+      return [selected?.k_fo, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
+    }).toEqual([1.13, "excluded"]);
 
     // The article picker is also an explicit refresh of the same source and price.
     const refreshOffers = await connectedApi<{ items: Array<{ id: string; updated_at: string }> }>(ui, "GET",
@@ -121,8 +117,8 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     await ui.screen.getByLabel(`Prix d’achat unitaire HT pour ${designation}`, { exact: true }).press("ControlOrMeta+s");
     await expect.poll(async () => {
       const selected = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === rows[0].id);
-      return [selected?.fo_provision, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
-    }).toEqual([1.01, "included"]);
+      return [selected?.k_fo, (selected?.fo_price_origin as { transport_mode?: string } | null)?.transport_mode];
+    }).toEqual([1.1, "included"]);
 
     await saveSettled(ui);
     await ui.app.open("/dashboard/affaires");
@@ -133,14 +129,14 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
     }, { "if-match": before.version.updated_at });
     expect(update.status).toBe(200);
     const after = (await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === rows[0].id)!;
-    expect(after).toMatchObject({ product_id: product.id, fo_provision: 1.03, fo_price_origin: null, unit_price_ht_cents: 20000,
-      h_mo_per_unit: 0.5, pu_ht_cents: 29180, line_total_ht_cents: 291800 });
+    expect(after).toMatchObject({ product_id: product.id, fo_provision: 1, k_fo: 1.13, fo_price_origin: null, unit_price_ht_cents: 20000,
+      h_mo_per_unit: 0.5, pu_ht_cents: 31780, line_total_ht_cents: 317800 });
     const duplicated = await apiRequest(ui.browser, "POST", `/api/estimates/${draft.versionId}/sections/${draft.sectionId}/duplicate`, {});
     expect(duplicated.status).toBe(201);
     const manualCopies = (await readEstimate(ui.browser, draft.versionId)).items.filter(item => item.item_type === "line" && item.title === after.title);
     expect(manualCopies).toHaveLength(2);
-    expect(manualCopies.map(item => [item.unit_price_ht_cents, item.fo_provision, item.fo_price_origin]))
-      .toEqual([[20000, 1.03, null], [20000, 1.03, null]]);
+    expect(manualCopies.map(item => [item.unit_price_ht_cents, item.k_fo, item.fo_price_origin]))
+      .toEqual([[20000, 1.13, null], [20000, 1.13, null]]);
     await releaseVersion(ui.browser, draft.versionId);
     await recordEvidence(ui.army, "fo534-manual-origin-cleared", { after, manualCopies });
   });
@@ -149,8 +145,8 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
   async (ui) => {
     const draft = await prepareV3Draft(ui, ui.army, "FO534REF");
     await querySql(`insert into public.supply_types(tenant_id,code,name,default_fo_provision) values
-      ('${draft.owner.tenantId}','calorifuge','Calorifuge',1.030),
-      ('${draft.owner.tenantId}','isolant','Isolant',1.030);`);
+      ('${draft.owner.tenantId}','calorifuge','Calorifuge',1.020),
+      ('${draft.owner.tenantId}','isolant','Isolant',1.020);`);
     const designation = `${ui.army.runPrefix} isolant FO534`;
     const product = (await connectedApi<{ item: { id: string } }>(ui, "POST", "/api/products", {
       action: "create", item: { designation, product_type: "Isolant", unit: "u", unit_price_cents: 10000 },
@@ -175,8 +171,8 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const line = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id);
-      return [line?.supply_type_id, line?.fo_provision, line?.unit_price_ht_cents, line?.pu_ht_cents, line?.line_total_ht_cents];
-    }).toEqual([isolant, 1.01, 10000, 13130, 131300]);
+      return [line?.supply_type_id, line?.k_fo, line?.unit_price_ht_cents, line?.pu_ht_cents, line?.line_total_ht_cents];
+    }).toEqual([isolant, 1, 10000, 13000, 130000]);
     const saved = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id)!;
     expect(saved.fo_price_origin).toMatchObject({ kind: "reference", source_id: product.id, transport_mode: "included" });
     const csv = await ui.browser.evaluate(async versionId => {
@@ -190,8 +186,8 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     await ui.browser.reload();
     await waitForDraftLease(ui);
     const reopened = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id)!;
-    expect([reopened.fo_price_origin, reopened.fo_provision, reopened.unit_price_ht_cents])
-      .toEqual([saved.fo_price_origin, 1.01, 10000]);
+    expect([reopened.fo_price_origin, reopened.k_fo, reopened.unit_price_ht_cents])
+      .toEqual([saved.fo_price_origin, 1, 10000]);
     // An ordinary quantity edit keeps the saved included transport, although
     // the catalogue now says excluded; only a new explicit price pick refreshes it.
     await ui.screen.getByLabel(`Quantité pour ${designation}`, { exact: true }).fill("20");
@@ -199,8 +195,8 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, ui.army);
     await expect.poll(async () => {
       const line = (await readEstimate(ui.browser, draft.versionId)).items.find(item => item.id === blank.id);
-      return [line?.quantity, line?.fo_price_origin, line?.fo_provision, line?.pu_ht_cents, line?.line_total_ht_cents];
-    }).toEqual([20, saved.fo_price_origin, 1.01, 13130, 262600]);
+      return [line?.quantity, line?.fo_price_origin, line?.k_fo, line?.pu_ht_cents, line?.line_total_ht_cents];
+    }).toEqual([20, saved.fo_price_origin, 1, 13000, 260000]);
     await saveSettled(ui);
     await ui.app.open("/dashboard/affaires");
     await lockVersion(ui.browser, draft.versionId);
@@ -208,7 +204,7 @@ armyTest("FO53402 reference transport, exact insulation family, exports and sect
     expect(duplicate.status).toBe(201);
     const copied = (await readEstimate(ui.browser, draft.versionId)).items.filter(item => item.item_type === "line" && item.title === designation);
     expect(copied).toHaveLength(2);
-    expect(copied.map(item => [item.fo_provision, item.fo_price_origin])).toEqual(copied.map(() => [1.01, saved.fo_price_origin]));
+    expect(copied.map(item => [item.k_fo, item.fo_price_origin])).toEqual(copied.map(() => [1, saved.fo_price_origin]));
     await releaseVersion(ui.browser, draft.versionId);
     await recordEvidence(ui.army, "fo534-reference-snapshot-copy", { product, saved, reopened, copied, csv });
   });
