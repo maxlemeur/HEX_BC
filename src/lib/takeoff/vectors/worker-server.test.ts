@@ -123,7 +123,7 @@ function fakeRender(overrides: Partial<GroupDecisionsRender> = {}) {
   const render: GroupDecisionsRender = {
     legend: async (input) => {
       calls.legend += 1;
-      return overrides.legend ? overrides.legend(input) : { image: IMAGE, issue: null, duration_ms: 4 };
+      return overrides.legend ? overrides.legend(input) : { image: IMAGE, issue: null, dropped_images: 0, duration_ms: 4 };
     },
     sheets: async (plans) => {
       calls.sheets += 1;

@@ -85,6 +85,23 @@ export function quotedAmountCents(
   return Number((orderQuantityToMilliunits(quantity) * BigInt(cents) + divisor / BigInt(2)) / divisor);
 }
 
+/** A purchase order's status in words (as on the orders list); an unknown one is shown as the server wrote it. */
+const PURCHASE_ORDER_STATUS_LABELS: Record<string, string> = {
+  draft: "Brouillon",
+  sent: "Envoyée",
+  confirmed: "Confirmée",
+  received: "Reçue",
+  canceled: "Annulée",
+};
+
+export function purchaseOrderStatusLabel(status: string): string {
+  return PURCHASE_ORDER_STATUS_LABELS[status] ?? status;
+}
+
+export function purchaseOrderHref(orderId: string): string {
+  return `/dashboard/orders/${encodeURIComponent(orderId)}`;
+}
+
 const DAY = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
   month: "2-digit",
