@@ -823,8 +823,11 @@ function QuotePriceEntry({
   const saveLotOfShownPrice = async (lot: MaterialRequestPricePer) => {
     if (entry.unit_price_ht_cents === null) return;
     const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, lot);
-    if (result.ok) settle(lot);
-    else setError(result.message);
+    if (result.ok) {
+      // Saved, whoever sent it again (the select, or leaving the price field): its earlier refusal no longer holds.
+      setError(null);
+      settle(lot);
+    } else setError(result.message);
   };
 
   // Leaving the field saves what it shows. A lot chosen while the text could not be read waits for the price: sent
