@@ -380,13 +380,13 @@ function verdict(value: boolean | null, yes: string, no: string) {
   return value === null ? "–" : value ? yes : no;
 }
 
-function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyArray<string | number | null>>) {
+export function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyArray<string | number | null>>) {
   if (rows.length === 0) return ["_(aucune ligne)_"];
   return [`| ${headers.join(" | ")} |`, `| ${headers.map(() => "---").join(" | ")} |`,
     ...rows.map((row) => `| ${row.map((cell) => (cell === null ? "–" : String(cell))).join(" | ")} |`)];
 }
 
-function nearestRank(values: readonly number[], p: number) {
+export function nearestRank(values: readonly number[], p: number) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
