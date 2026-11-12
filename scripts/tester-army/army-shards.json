@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "Partition des parcours TesterArmy en jobs parallèles (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-journeys.ts. seconds : durée mesurée de chaque fichier (somme de ses tests), moyenne des runs de measured qui l'ont exécuté (suite critical : 40024057450, 40021949125 et 40012687149, les fichiers absents de ces runs gardant leur valeur précédente ; parcours du métré : leur valeur précédente et 40024057450, à parts égales) ; elle ne sert qu'à équilibrer les shards, jamais à choisir les parcours. Un fichier absent compte defaultSeconds. Un fichier n'est jamais coupé entre deux shards. workers : celui de chaque shard, contrôlé par l'agrégation. takeoff : les parcours du métré qu'une PR atteint (job army-takeoff de e2e-army-critical.yml), exécutés par la suite full à 1 worker, où ils sont qualifiés.",
+  "note": "Partition des parcours TesterArmy en jobs parallèles (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-journeys.ts. seconds : durée mesurée de chaque fichier (somme de ses tests), moyenne des runs de measured qui l'ont exécuté (suite critical : 40024057450, 40021949125 et 40012687149, les fichiers absents de ces runs gardant leur valeur précédente ; parcours du métré : leur valeur précédente et 40024057450, à parts égales) ; elle ne sert qu'à équilibrer les shards, jamais à choisir les parcours. Un fichier absent compte defaultSeconds. Un fichier n'est jamais coupé entre deux shards. workers : celui de chaque shard, contrôlé par l'agrégation. takeoff : les parcours du métré qu'une PR atteint (job army-takeoff de e2e-army-critical.yml), exécutés par la suite full à 1 worker, où ils sont qualifiés. secondsPerShard : charge de parcours mesurée qu'un job porte avant qu'un autre vaille sa pile et son build ; elle vaut ce qu'un shard porte quand la suite entière tourne (critical : environ 3 500 s en 5 shards), si bien qu'une sélection partielle remplit ses shards comme la suite complète.",
   "measured": [
     "42913532135 army-critical shard 1/5 (push main, c6b57c9b, vert, 2 workers, 10/11/2026) : chatgpt-local.e2e.ts y passe 56 s à démarrer et préchauffer son serveur de développement, puis 857 s dans ses 16 tests, exécutés en série : l'étape des parcours de son shard dure 1 140 s, celle des quatre autres 457 à 687 s. Le fichier est coupé en deux, chacun avec son propre serveur : chatgpt-local-takeoff (LOCAL01 à LOCAL06, les trois parcours « ChatGPT local » et V3C08) prend la somme de ses tests dans ce run, 449,4 s arrondies à 450, et chatgpt-local-decisions (DEC01, TRI01, VEC01, PRX02, INTRETRY01, INTWORD01) 407 s, démarrage du serveur non compris. neverTogether : les fichiers d'un même groupe ne partagent jamais un shard, quelles que soient les durées, car les deux workers d'un shard compileraient leurs deux serveurs de développement à froid en même temps sur un seul runner. Les autres durées, la sélection, les workers et les budgets sont inchangés.",
     "42686391381 army-critical shards 1 à 5 (push main, 6d33e58f, vert, Node 26.12.1, 2 workers, 09/11/2026) : les 71 fichiers exécutés prennent cette mesure, dont 11 qui comptaient les 20 s par défaut. chatgpt-local, exécuté en série avec son serveur de développement, y prend 607 s : il fixe à lui seul la durée du shard qui le porte (725 s de parcours mesurés avec l'ancienne répartition, les autres shards entre 327 et 400 s).",
@@ -22,7 +22,7 @@
   "suites": {
     "critical": {
       "maxShards": 5,
-      "secondsPerShard": 300,
+      "secondsPerShard": 715,
       "workers": 2
     },
     "full": {
@@ -32,16 +32,17 @@
     },
     "takeoff": {
       "maxShards": 2,
-      "secondsPerShard": 150,
+      "secondsPerShard": 400,
       "workers": 1
     }
   },
   "calcV3": {
-    "note": "Répartition des phases calc-v3 en groupes (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-calc-v3.ts : chaque groupe est un job qui exécute ses phases l'une après l'autre sur une seule pile. maxGroups : nombre maximal de jobs d'une campagne ; une sélection de moins de phases garde un groupe par phase. seconds : durée mesurée des parcours de chaque phase, sans la préparation que le groupe ne paie qu'une fois ; elle ne sert qu'à équilibrer les groupes, jamais à choisir les phases. Une phase absente compte defaultSeconds. Une phase n'est jamais coupée entre deux groupes.",
+    "note": "Répartition des phases calc-v3 en groupes (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-calc-v3.ts : chaque groupe est un job qui exécute ses phases l'une après l'autre sur une seule pile. maxGroups : nombre maximal de jobs d'une campagne. secondsPerGroup : secondes de parcours mesurées qu'un job porte avant qu'un autre vaille sa pile et son build ; une sélection compte autant de groupes que ses parcours en remplissent, jamais plus que de phases ni que maxGroups (les 19 phases, environ 1 800 s : quatre groupes). seconds : durée mesurée des parcours de chaque phase, sans la préparation que le groupe ne paie qu'une fois ; elle ne sert qu'à équilibrer les groupes, jamais à choisir les phases. Une phase absente compte defaultSeconds. Une phase n'est jamais coupée entre deux groupes.",
     "measured": [
       "Jobs verts « army-calc-v3 <phase> » du 3 au 10/11/2026 (API GitHub Actions des jobs, un job par phase) : médiane par phase de l'étape « Run native database and TesterArmy calc-v3 phases », moins les 133 s de préparation fixe (pile, contrôles de la base et build) qu'un groupe ne paie qu'une fois. Étape entière : offers-zero-price 403 s, source-coverage-decisions 383, source-coverage-edits 381, source-coverage-recovery 315, offers-purchase-unit 269, resend-portal 251, journeys 208, resume 207, emission 206, numeric 196, generated-recovery 188, components 184, emission-v3 181, assembly-totals 173, batch-client 171, navigation-lease 167, mobile 155, generated-atomic 149, access 146. defaultSeconds : moyenne des 19 phases (1806 s / 19)."
     ],
     "maxGroups": 5,
+    "secondsPerGroup": 480,
     "defaultSeconds": 95,
     "seconds": {
       "journeys": 75,
