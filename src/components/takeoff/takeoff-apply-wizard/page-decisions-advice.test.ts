@@ -124,7 +124,7 @@ describe("advice never names a disabled choice", () => {
     expect(advice).toContain("« WC suspendu »");
     expect(advice).toContain("« EF cuivre DN 22 (DPGF) »");
     expect(advice).toMatch(/écartez « WC suspendu » à la revue du métré/i);
-    expect(advice).toMatch(/liez à « EF cuivre DN 22 \(DPGF\) » une ligne de ce métré lue sur cette page, dans le rapprochement DPGF/);
+    expect(advice).toMatch(/liez à « EF cuivre DN 22 \(DPGF\) », dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure, de même unité, matériau et diamètre/);
     expect(advice).not.toMatch(/gardez les deux/i);
     expect(resolution.pages[0].advice.map((entry) => [entry.choose, entry.elsewhere])).toEqual([[[], ["exclude_at_review", "link_in_dpgf_review"]]]);
   });

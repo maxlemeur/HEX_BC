@@ -6,6 +6,7 @@ import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { excludeDpgfOutOfScope, plannedExclusions } from "@/lib/takeoff/apply-plan-exclusions";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
+import { dpgfTargetsFedAgain } from "@/lib/takeoff/dpgf-apply-quantities";
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
@@ -128,8 +129,9 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
     ? { mappingItems: mappingPreview.items, targetSectionId: applyRequest.target_section_id ?? null, engine: await readEngine(context, versionId) }
     : null;
   // The DPGF targets this takeoff's lines feed (its reconciliation), to refuse keeping both where one is fed again (D-6).
-  const fedTargets = comparisonContext ? new Map(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
-    .flatMap((row) => row.linked_takeoff_items.map((item) => [item.item_id, row.dpgf.estimate_item_id] as const))) : new Map<string, string>();
+  // By the application's own rule (buildDpgfApplyQuantityPolicy): a line linked to a DPGF line it cannot be compared
+  // with feeds nothing, and the page would be refused as « not fed » (dpgf_not_replaced).
+  const fedTargets = comparisonContext ? dpgfTargetsFedAgain(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows) : new Map<string, string>();
   return parseWithSchema(takeoffPageReplacementResponseSchema, buildPageReplacementProposal({ jobId: normalizedJobId, versionId, mergeRequired,
     ownLines, referencedLines, estimateRows, jobs, leftOut, merge, fedTargets }), "Proposition des pages déjà au devis invalide.");
 }

@@ -225,7 +225,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
         const exits = [
           ...(page.keep_both_refused === "merge_match" && merged.length > 0
             ? [`écartez ${merged.map((entry) => `« ${entry.newLine.designation} »`).join(", ")} à la revue du métré (vous pourrez alors garder les deux)`] : []),
-          `liez à ${targets} une ligne de ce métré lue sur cette page, dans le rapprochement DPGF (vous pourrez alors remplacer)`,
+          `liez à ${targets}, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure, de même unité, matériau et diamètre (vous pourrez alors remplacer)`,
         ];
         advice.push({ text: `${label} : ${targets}, ligne DPGF que ce métré n’alimente pas, ${why} : ni remplacer ni garder les deux ne se confirme ici. `
             + `${exits.join(", ou ").replace(/^./, (first) => first.toUpperCase())}.`,
