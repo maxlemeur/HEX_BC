@@ -792,9 +792,11 @@ function QuotePriceEntry({
   }, [field.unreadable, reportUnreadable]);
   useEffect(() => () => reportUnreadable(false), [reportUnreadable]);
 
+  // A saved lot is no longer a choice to keep, unless another was chosen while it travelled: that one still waits.
+  const settle = (lot: MaterialRequestPricePer) => setChoice((current) => (current === lot ? null : current));
   const saveFor = (lot: MaterialRequestPricePer) => async (cents: number | null) => {
     const result = await quotes.savePrice(quote.id, entry.line_id, cents, lot);
-    if (result.ok) setChoice(null);
+    if (result.ok) settle(lot);
     return result;
   };
 
@@ -816,7 +818,7 @@ function QuotePriceEntry({
     setChoice(next);
     if (entry.unit_price_ht_cents === null) return;
     const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, next);
-    if (result.ok) setChoice(null);
+    if (result.ok) settle(next);
     else setError(result.message);
   };
 

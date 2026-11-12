@@ -989,6 +989,54 @@ describe("consultation of suppliers", () => {
     expect(lot).toHaveValue("100");
   });
 
+  it("keeps a lot chosen while an earlier price save travels, and sends it with the corrected price (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    let releaseFirst: () => void = () => undefined;
+    let patches = 0;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: async (body) => {
+        patches += 1;
+        if (patches === 1) await new Promise<void>((resolve) => (releaseFirst = resolve));
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "20,00");
+    await user.tab();
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    await user.clear(price);
+    await user.type(price, "30,0x");
+    await user.selectOptions(lot, "100");
+    releaseFirst();
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" })).toHaveAccessibleDescription(
+      "Le prix de la ligne 1 n’est pas lisible.",
+    ));
+    expect(lot).toHaveValue("100");
+
+    await user.clear(price);
+    await user.type(price, "30,00");
+    await user.tab();
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 3000, price_per: 100 }] });
+  });
+
   it("gives back the saved lot with the saved price when an unreadable price is abandoned with Escape (18)", async () => {
     let stored = quote({
       status: "received",
