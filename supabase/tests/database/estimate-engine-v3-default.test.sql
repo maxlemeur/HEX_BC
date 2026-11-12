@@ -1,3 +1,4 @@
+-- TI-534: expected prices use the current untyped supply coefficient 1.02.
 -- Lot 2, sub-lot 2.10b (M8): engine 3 is the engine of new versions for a tenant without a policy row.
 -- Design: docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md §6.1 M8, D3, D17, P-02, P-07.
 -- Failure modes and contract: docs/testing/estimate-engine-v3-2.10.md (F210-01 to F210-09).
@@ -272,8 +273,8 @@ select is(
   pg_temp.def_try(array[
     'set local role service_role',
     pg_temp.def_create_sql(1,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000101', 'Défaut absent v3', 1313),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000101', 1313))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000101', 'Défaut absent v3', 1326),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000101', 1326))
   ]),
   'ok',
   'F210-01 without a policy row, a creation expecting engine 3 succeeds'
@@ -283,7 +284,7 @@ select is(
   (select concat_ws('|', calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents,
      total_ht_cents, total_tax_cents, total_ttc_cents)
    from public.estimate_versions where id = 'a32a0000-0000-4000-8000-000000000101'),
-  '3|1.3000|1.2000|1313|1313|263|1576',
+  '3|1.3000|1.2000|1326|1326|265|1591',
   'F210-01 the absent policy gives engine 3 with the documented defaults 1,30 FO and 1,20 MO (P-02)'
 );
 
@@ -359,8 +360,8 @@ select is(
   pg_temp.def_probe(array[
     'set local role service_role',
     pg_temp.def_create_sql(2,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000202', 'Attente 3 sous 2', 1313),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000202', 1313))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000202', 'Attente 3 sous 2', 1326),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000202', 1326))
   ]),
   '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
   'F210-05 under an explicit row 2, a creation expecting engine 3 is refused'
@@ -379,8 +380,8 @@ select is(
   pg_temp.def_try(array[
     'set local role service_role',
     pg_temp.def_create_sql(3,
-      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000301', 'Politique 3 explicite', 1111),
-      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000301', 1111))
+      pg_temp.def_v3_version('a32a0000-0000-4000-8000-000000000301', 'Politique 3 explicite', 1122),
+      pg_temp.def_v3_items('a32a0000-0000-4000-8000-000000000301', 1122))
   ]),
   'ok',
   'F210-06 under an explicit row 3, a creation expecting engine 3 succeeds'
@@ -389,7 +390,7 @@ select is(
 select is(
   (select concat_ws('|', calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, total_ht_cents)
    from public.estimate_versions where id = 'a32a0000-0000-4000-8000-000000000301'),
-  '3|1.1000|1.0500|1111',
+  '3|1.1000|1.0500|1122',
   'F210-06 an explicit row 3 keeps its own coefficients (1,10 / 1,05)'
 );
 

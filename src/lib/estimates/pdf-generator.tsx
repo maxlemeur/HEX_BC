@@ -1,3 +1,4 @@
+import { kitComponentIds, isKitSection } from "@/lib/estimates/kit-presentation";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -1051,6 +1052,7 @@ function PdfEstimateTable({
 }>) {
   const resolvedCurrency = currency ?? "EUR";
   const { layout } = prepared;
+  const hiddenKitComponents = kitComponentIds(prepared.rows.map(row => row.item));
   const widths = getPdfColumnWidths(layout.priceMode);
   const rowPadding =
     layout.density === "compact"
@@ -1093,7 +1095,7 @@ function PdfEstimateTable({
         </Text>
       </View>
 
-      {prepared.rows.map(({ item, depth }) => {
+      {prepared.rows.filter(({ item }) => !hiddenKitComponents.has(item.id)).map(({ item, depth }) => {
         const title = item.title?.trim() || "Sans titre";
         const titlePrefix =
           layout.showNumbering && prepared.numberingById[item.id]
@@ -1106,7 +1108,7 @@ function PdfEstimateTable({
 
         if (item.item_type === "section") {
           const totals = prepared.sectionTotalsById[item.id];
-          const subtotal = layout.showSectionSubtotals ? totals : null;
+          const subtotal = layout.showSectionSubtotals || isKitSection(item) ? totals : null;
           const levelStyle =
             depth === 0
               ? businessPdfStyles.sectionLevel1

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
 import { apiRequest, armyTest, readEstimate, recordEvidence, saveLineEditsWithShortcut } from "../critical/fixtures";
@@ -15,11 +16,11 @@ import { generatePdf, pdfText, storedPdfBytes } from "./engine-v3-emission-suppo
 //  - the supplier of that cost leaks onto the customer's PDF;
 //  - the user cannot read how the supply cost of a line is built, or a K FO change moves the labour or the catalogue.
 // Expected amounts, written by hand before the first run (sale coefficients FO 1,30 and MO 1,20, tuyauteur 40 €/h):
-//   tube seeded      : 10,00 × 1,03 × 1,30 = 13,39 ; + 0,5 h × 40 × 1,20 = 24,00 ; PU 37,39 ; × 10 = 373,90
-//   fitting seeded   : 10,00 × 1,01 × 1,30 = 13,13 ; × 4 = 52,52
-//   tube, site cost  : 9,00 × 1,01 (transport included) × 1,30 = 11,817 ; + 24,00 = 35,817, PU 35,82 ; × 10 = 358,20
-//   tube, K FO 0,90  : 9,00 × 1,01 × 0,90 = 8,181 ; × 1,30 = 10,6353 ; + 24,00, PU 34,64 ; × 10 = 346,40
-//   fitting, K FO 0,9: 10,00 × 1,01 × 0,90 = 9,09 (the ticket's example) ; × 1,30 = 11,817, PU 11,82 ; × 4 = 47,28
+//   tube seeded: 10.00 × K FO 1.13 × sale 1.30 + labour 24.00 = 38.69, total 386.90.
+//   fitting seeded: 10.00 × K FO 1.02 × sale 1.30 = 13.26, total 53.04.
+//   tube site/transport included: 9.00 × K FO 1.10 × sale 1.30 + 24.00 = 36.87, total 368.70.
+//   manual K FO 0.90: tube 9.00 × 0.90 × 1.30 + 24.00 = 34.53, total 345.30;
+//   fitting 10.00 × 0.90 × 1.30 = 11.70, total 46.80. Combined frozen net = 392.10.
 //   quote            : 346,40 + 47,28 = 393,68
 const options = { session: "army", tags: ["critical", "local", "site-cost"], timeout: 420_000 } as const;
 
@@ -53,7 +54,7 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
       offers.push(offer);
     }
     await querySql(`insert into public.supply_types(tenant_id,code,name,default_fo_provision)
-      values ('${draft.owner.tenantId}', 'tube', 'Tube', 1.030);`);
+      values ('${draft.owner.tenantId}', 'tube', 'Tube', 1.130);`);
     const details = await connectedApi<{ supply_types: Array<{ id: string; code: string }> }>(ui, "GET", `/api/estimates/${draft.versionId}`);
     const tube = details.supply_types.find((type) => type.code === "tube")?.id;
     expect(tube).toMatch(/^[0-9a-f-]{36}$/);
@@ -84,7 +85,7 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
       { ...base, title: title("raccord saisi"), quantity: 4, unit_price_ht_cents: 1000, h_mo_per_unit: 0 },
     ]);
     expect([tubeLine, fitting].map((row) => [Number(row.fo_provision), row.pu_ht_cents, row.line_total_ht_cents]))
-      .toEqual([[1.03, 3739, 37390], [1.01, 1313, 5252]]);
+      .toEqual([[1, 3869, 38690], [1, 1326, 5304]]);
 
     await app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
@@ -97,10 +98,10 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
       return group;
     };
 
-    // 3. The detail of the line reads the base it comes from, factor by factor.
+    // 3. The detail reads its saved base and the single effective K FO.
     let cost = await costOf(tubeLine.title!);
     await expect(cost.getByTestId("estimate-line-fo-cost-detail"))
-      .toHaveText("Offre fournisseur 10,00 € × provision FO 1,03 × K FO 1 = 10,30 € de coût FO ; × coef. de vente FO 1,3 = 13,39 €");
+      .toHaveText("Offre fournisseur 10,00 € × K FO 1,13 = 11,30 € de coût FO ; × coef. de vente FO 1,3 = 14,69 €");
     await expect(cost.getByTestId("estimate-line-site-cost-source")).toHaveCount(0);
 
     // 4. The offer negotiated for this job site is typed on the line, with its source.
@@ -122,18 +123,18 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
       return [line?.unit_price_ht_cents, line?.product_id, line?.selected_supplier_price_id, origin?.kind, origin?.transport_mode,
         origin?.site, Number(line?.fo_provision), line?.pu_ht_cents, line?.line_total_ht_cents];
     };
-    // Transport included in the offer: the tube takes 1,01, not a second transport provision.
+    // Transport included: the configured automatic K FO is 1.10 for the tube, with neutral retired provision.
     await expect.poll(async () => siteState(await lineOf(draft.versionId, tubeLine.id)))
-      .toEqual([900, product.id, null, "site", "included", site, 1.01, 3582, 35820]);
+      .toEqual([900, product.id, null, "site", "included", site, 1, 3687, 36870]);
     await saveSettled(ui);
     cost = await costOf(tubeLine.title!);
     await expect(cost.getByTestId("estimate-line-fo-cost-detail"))
-      .toHaveText("Coût chantier 9,00 € × provision FO 1,01 × K FO 1 = 9,09 € de coût FO ; × coef. de vente FO 1,3 = 11,82 €");
+      .toHaveText("Coût chantier 9,00 € × K FO 1,1 = 9,90 € de coût FO ; × coef. de vente FO 1,3 = 12,87 €");
     await expect(cost.getByTestId("estimate-line-site-cost-source")).toHaveText(`Source du coût chantier : ${sourceText}`);
     const siteScreenshot = await app.screenshot("SC54101-site-cost");
     await browser.keyboard.press("Escape");
 
-    // 5. K FO 0,90 on both lines: the supply cost moves, the labour, the provision and the source do not.
+    // 5. Manual K FO 0.90 replaces the whole supply factor; labour and saved source stay unchanged.
     for (const line of [tubeLine, fitting]) {
       await fillCell(ui, `Coefficient fourniture K FO pour ${line.title}`, "0,9");
       await saveLineEditsWithShortcut(ui, draft.versionId, line.title!, army);
@@ -143,13 +144,13 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
     const afterKfo = await readEstimate(browser, draft.versionId);
     const savedTube = afterKfo.items.find((item) => item.id === tubeLine.id);
     const savedFitting = afterKfo.items.find((item) => item.id === fitting.id);
-    expect(siteState(savedTube)).toEqual([900, product.id, null, "site", "included", site, 1.01, 3464, 34640]);
+    expect(siteState(savedTube)).toEqual([900, product.id, null, "site", "included", site, 1, 3453, 34530]);
     expect([Number(savedTube?.h_mo_per_unit), savedTube?.labor_role_id]).toEqual([0.5, draft.tuyauteurId]);
     expect([savedFitting?.unit_price_ht_cents, Number(savedFitting?.fo_provision), savedFitting?.pu_ht_cents, savedFitting?.line_total_ht_cents])
-      .toEqual([1000, 1.01, 1182, 4728]);
+      .toEqual([1000, 1, 1170, 4680]);
     cost = await costOf(fitting.title!);
     await expect(cost.getByTestId("estimate-line-fo-cost-detail"))
-      .toHaveText("Saisie manuelle 10,00 € × provision FO 1,01 × K FO 0,9 = 9,09 € de coût FO ; × coef. de vente FO 1,3 = 11,82 €");
+      .toHaveText("Saisie manuelle 10,00 € × K FO 0,9 = 9,00 € de coût FO ; × coef. de vente FO 1,3 = 11,70 €");
     await browser.keyboard.press("Escape");
 
     // 6. The catalogue is as it was: same product row, same offers, same suppliers, same proposed reference price.
@@ -162,7 +163,7 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
     await waitForDraftLease(ui);
     cost = await costOf(tubeLine.title!);
     await expect(cost.getByTestId("estimate-line-fo-cost-detail"))
-      .toHaveText("Coût chantier 9,00 € × provision FO 1,01 × K FO 0,9 = 8,18 € de coût FO ; × coef. de vente FO 1,3 = 10,64 €");
+      .toHaveText("Coût chantier 9,00 € × K FO 0,9 = 8,10 € de coût FO ; × coef. de vente FO 1,3 = 10,53 €");
     await expect(cost.getByTestId("estimate-line-site-cost-source")).toHaveText(`Source du coût chantier : ${sourceText}`);
     await expect(cost.getByRole("button", `Modifier le coût chantier pour ${tubeLine.title}`, { exact: true })).toBeVisible();
     const reopenedScreenshot = await app.screenshot("SC54101-site-cost-reopened");
@@ -172,10 +173,10 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
     await app.open("/dashboard/affaires");
     await generatePdf(browser, record, "sc541", draft.versionId);
     const frozen = await readEstimate(browser, draft.versionId);
-    expect([frozen.version.total_ht_cents, frozen.version.calc_snapshot_content_revision]).toEqual([39368, frozen.version.content_revision]);
-    expect(siteState(frozen.items.find((item) => item.id === tubeLine.id))).toEqual([900, product.id, null, "site", "included", site, 1.01, 3464, 34640]);
+    expect([frozen.version.total_ht_cents, frozen.version.calc_snapshot_content_revision]).toEqual([39210, frozen.version.content_revision]);
+    expect(siteState(frozen.items.find((item) => item.id === tubeLine.id))).toEqual([900, product.id, null, "site", "included", site, 1, 3453, 34530]);
     const pdf = await pdfText(await storedPdfBytes(browser, draft.versionId));
-    for (const printedRow of [`${tubeLine.title} 10 u 34,64 € 346,40 €`, `${fitting.title} 4 u 11,82 € 47,28 €`, "Total HT net 393,68 €"]) {
+    for (const printedRow of [`${tubeLine.title} 10 u 34,53 € 345,30 €`, `${fitting.title} 4 u 11,70 € 46,80 €`, "Total HT net 392,10 €"]) {
       expect(pdf.text).toContain(printedRow);
     }
     for (const internal of [siteSupplier, "OF-2611-07", "Coût chantier"]) expect(pdf.text).not.toContain(internal);
@@ -185,7 +186,7 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
     expect([duplicated.status, duplicated.body.ok]).toEqual([201, true]);
     const copy = await readEstimate(browser, duplicated.body.data.version_id);
     const copiedTube = copy.items.find((item) => item.title === tubeLine.title);
-    expect(siteState(copiedTube)).toEqual([900, product.id, null, "site", "included", site, 1.01, 3464, 34640]);
+    expect(siteState(copiedTube)).toEqual([900, product.id, null, "site", "included", site, 1, 3453, 34530]);
     expect(copiedTube?.fo_price_origin).toEqual(savedTube?.fo_price_origin);
     expect(await measureCatalogue()).toEqual(catalogueBefore);
     await record("sc541-outcome", { product, offers, catalogueBefore, catalogueAfter, savedTube, savedFitting, copiedTube,
@@ -200,10 +201,10 @@ armyTest("SC54101 a site cost replaces the catalogue base for one quote, keeps i
 //  - a site cost cannot be typed on a POSE SEULE line, or the provision does not come back when the line leaves it.
 // Expected amounts, written by hand before the first run (sale coefficients FO 1,30 and MO 1,20, tuyauteur 40 €/h,
 // 3 h of fitting = 3 × 40 × 1,20 = 144,00):
-//   seeded, supply and fitting : 10,00 × 1,01 × 1,30 = 13,13 ; + 144,00 = 157,13 ; × 14 = 2 199,82
+//   seeded: 10.00 × K FO 1.02 × 1.30 + 144.00 = 157.26, total 2201.64.
 //   POSE SEULE                 : 10,00 × 1 × 1,30 = 13,00 ; + 144,00 = 157,00 ; × 14 = 2 198,00
 //   POSE SEULE, site cost 8,00 : 8,00 × 1 × 1,30 = 10,40 ; + 144,00 = 154,40 ; × 14 = 2 161,60
-//   back to supply and fitting : 8,00 × 1,01 × 1,30 = 10,504 ; + 144,00 = 154,504, PU 154,50 ; × 14 = 2 163,00
+//   supplied again: 8.00 × K FO 1.02 × 1.30 + 144.00 = 154.608, PU 154.61, total 2164.54.
 armyTest("PS54102 a POSE SEULE line with a small supply takes no provision, accepts a site cost, and takes the provision back when it leaves POSE SEULE",
   options, async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser, army };
@@ -215,7 +216,7 @@ armyTest("PS54102 a POSE SEULE line with a small supply takes no provision, acce
       { unit_code: "ens", pricing_status: "priced", labor_role_id: draft.tuyauteurId, k_fo: 1, k_mo: 1, tax_rate_bp: 2000,
         title: title("pose WC avec supportage"), quantity: 14, unit_price_ht_cents: 1000, h_mo_per_unit: 3 },
     ]);
-    expect([wc.line_nature, Number(wc.fo_provision), wc.pu_ht_cents, wc.line_total_ht_cents]).toEqual(["supply_and_labor", 1.01, 15713, 219982]);
+    expect([wc.line_nature, Number(wc.fo_provision), wc.pu_ht_cents, wc.line_total_ht_cents]).toEqual(["supply_and_labor", 1, 15726, 220164]);
 
     await app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
@@ -267,9 +268,9 @@ armyTest("PS54102 a POSE SEULE line with a small supply takes no provision, acce
     expect([gating.status, gating.body.ok]).toEqual([200, true]);
     expect(gating.body.data.gating.blockingFlags.filter((flag) => flag.item_ids.includes(wc.id)).map((flag) => flag.key)).toEqual([]);
 
-    // 3. Back to a supplied and fitted line, the site cost stays and the provision of a supply comes back.
+    // 3. Back to a supplied and fitted line, the site cost stays and the automatic supply K FO comes back.
     await chooseNature("supply_and_labor");
-    await expect.poll(stateOf).toEqual(["supply_and_labor", 800, "site", 1.01, 15450, 216300, 216300]);
+    await expect.poll(stateOf).toEqual(["supply_and_labor", 800, "site", 1, 15461, 216454, 216454]);
     await saveSettled(ui);
 
     // 4. Reopened, the saved line is the one the screen showed.
@@ -277,8 +278,44 @@ armyTest("PS54102 a POSE SEULE line with a small supply takes no provision, acce
     await waitForDraftLease(ui);
     cost = await openDetails();
     await expect(cost.getByTestId("estimate-line-fo-cost-detail"))
-      .toHaveText("Coût chantier 8,00 € × provision FO 1,01 × K FO 1 = 8,08 € de coût FO ; × coef. de vente FO 1,3 = 10,50 €");
-    expect(await stateOf()).toEqual(["supply_and_labor", 800, "site", 1.01, 15450, 216300, 216300]);
+      .toHaveText("Coût chantier 8,00 € × K FO 1,02 = 8,16 € de coût FO ; × coef. de vente FO 1,3 = 10,61 €");
+    expect(await stateOf()).toEqual(["supply_and_labor", 800, "site", 1, 15461, 216454, 216454]);
     await record("ps541-outcome", { line: (await readEstimate(browser, draft.versionId)).items.find((item) => item.id === wc.id),
       screenshots: [poseScreenshot] });
+  });
+
+
+armyTest("SC54103 deleting then undoing a site-cost line preserves its source, manual K FO and price", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
+    const draft = await prepareV3Draft(ui, army, "SC541UNDO");
+    const title = `${army.runPrefix} site cost undo`;
+    const selectionId = randomUUID();
+    const origin = { selection_id: selectionId, source_id: selectionId, kind: "site", transport_mode: null,
+      site: { supplier: "Négoce Fictif", offer_reference: "UNDO-534", offer_date: "2026-11-03", document: null } };
+    await seedLines(ui, army, draft, "site-undo", [{ title, quantity: 2, unit_code: "u", pricing_status: "priced",
+      unit_price_ht_cents: 800, k_fo: 1, k_fo_manual: true, h_mo_per_unit: 0, k_mo: 1, fo_price_origin: origin }]);
+    await app.open(`/dashboard/estimates/${draft.versionId}/edit`);
+    await waitForDraftLease(ui);
+    const before = await readEstimate(browser, draft.versionId);
+    const original = before.items.find(row => row.title === title)!;
+    expect(original).toMatchObject({ fo_price_origin: origin, k_fo: 1, k_fo_manual: true, pu_ht_cents: 1040, line_total_ht_cents: 2080 });
+    await screen.getByRole("button", `Plus d'actions pour ${title}`, { exact: true }).click();
+    await screen.getByRole("menuitem", "Supprimer", { exact: true }).click();
+    const confirmation = screen.getByRole("dialog", "Confirmer la suppression", { exact: true });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", "Supprimer", { exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.some(row => row.title === title)).toBe(false);
+    const undo = screen.getByTestId("estimate-editor-undo-button", { visible: true });
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.some(row => row.title === title)).toBe(true);
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    const after = await readEstimate(browser, draft.versionId);
+    expect(after.items.find(row => row.title === title)).toMatchObject({ fo_price_origin: origin,
+      k_fo: 1, k_fo_manual: true, fo_provision: 1, unit_price_ht_cents: 800, pu_ht_cents: 1040, line_total_ht_cents: 2080 });
+    expect(after.version.total_ht_cents).toBe(before.version.total_ht_cents);
+    await recordEvidence(army, "site-cost-undo", { before, after });
   });

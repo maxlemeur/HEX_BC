@@ -58,7 +58,7 @@ function sectionPaths(items: readonly ItemRow[]) {
 }
 
 const priceKey = (item: ItemRow) =>
-  JSON.stringify(PRICE_REUSE_COPIED_FIELDS.map((field) => (typeof item[field] === "number" ? Number(item[field]) : item[field] ?? null)));
+  JSON.stringify([...PRICE_REUSE_COPIED_FIELDS, "fo_provision" as const].map((field) => (typeof item[field] === "number" ? Number(item[field]) : item[field] ?? null)));
 
 async function readRoles(context: Context, userId: string): Promise<PriceReuseRole[]> {
   const { data, error } = await context.supabase.from("labor_roles").select("id, name")

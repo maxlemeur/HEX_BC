@@ -80,7 +80,7 @@ export const estimateEditorItemSchema = z.object({
   version_id: uuid, parent_id: uuid.nullable(), item_type: z.enum(["section", "line"]),
   position: integer, title: z.string(), description: z.string().nullable(),
   quantity: number.nullable(), unit_price_ht_cents: integer.nullable(), pu_ht_cents: integer.nullable(),
-  tax_rate_bp: integer.nullable(), k_fo: number.nullable(), k_mo: number.nullable(),
+  tax_rate_bp: integer.nullable(), k_fo_manual: z.boolean().nullable().optional(), k_fo: number.nullable(), k_mo: number.nullable(),
   h_mo: number.nullable(), h_mo_majoration: number,
   h_mo_atelier: number.nullable(), h_mo_chantier: number.nullable(),
   k_mo_atelier: number.nullable(), k_mo_chantier: number.nullable(),
@@ -93,7 +93,7 @@ export const estimateEditorItemSchema = z.object({
   }).nullable().optional(),
   line_nature: z.enum(ESTIMATE_LINE_NATURES).nullable(),
   fo_price_origin: foPriceOriginSchema.nullable().default(null),
-  fo_provision: number.nullable(), aid: z.string().nullable(),
+  fo_provision: number.nullable().default(1), aid: z.string().nullable(),
   unit_code: z.string().nullable(), pricing_status: z.enum(ESTIMATE_LINE_PRICING_STATUSES),
   // TI-682, lot C: internal; the editor and the send window read them, the client never does.
   status_reason: estimateStatusReasonSchema.nullable().default(null), was_not_priced: z.boolean().default(false),

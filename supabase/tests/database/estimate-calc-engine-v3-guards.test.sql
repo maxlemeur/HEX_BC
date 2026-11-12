@@ -76,6 +76,7 @@ values
   ('public.atomic_create_estimate_item', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
   ('public.finalize_estimate_assembly_calculation', 'branches v1/v2 ; une v3 reçoit ses montants à l''insertion de l''ouvrage (M6), le contrat d''écrivain refuse ce finaliseur'),
   ('public.commit_generated_ouvrages', 'branches v1/v2 ; branche v3 sous contrat d''écrivain, h/u et montants du moteur v3 par le pont d''entrée (M6)'),
+  ('public.create_estimate_template_from_version', 'TI-534: snapshots the effective unified supply coefficient only for engine 3; historical model inputs unchanged'),
   ('public.insert_estimate_template_into_version', 'branche v3 sous contrat d''écrivain : h/u du modèle ou converti, refus nommé, montants par le pont d''entrée (M6)'),
   ('public.materialize_estimate_assembly_tree', 'branche v3 : h/u = h / quantité par défaut exact à 4 décimales, refus nommés (M6)'),
   ('public.insert_estimate_assembly_into_version', 'branche v3 sous contrat d''écrivain, montants par le pont d''entrée (M6)'),

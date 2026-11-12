@@ -1,3 +1,5 @@
+-- TI-534 11 November: one K FO; supersedes the October two-factor expectations.
+-- Historical engine-2 protection remains below, while new-draft behavior has explicit counterexamples.
 -- TI-534, lot 1 : provision FO automatique d'une ligne du moteur 3 (pertes, chutes, petites fournitures).
 -- FO_unitaire = P × provision FO × K FO. Décisions validées le 24/10/2026 (Linear TI-534), règles de calcul :
 -- docs/metier/regles-de-calcul.md ; miroir TS des projections : src/lib/estimates/fo-provision.ts.
@@ -47,11 +49,11 @@ $probe$;
 select col_type_is('public', 'estimate_items', 'fo_provision', 'numeric(4,3)', 'the line FO provision is numeric(4,3)');
 select col_hasnt_default('public', 'estimate_items', 'fo_provision',
   'the line FO provision has no column default: every new line goes through the derivation');
-select col_type_is('public', 'supply_types', 'default_fo_provision', 'numeric(4,3)',
-  'the supply type FO provision is numeric(4,3)');
+select col_type_is('public', 'supply_types', 'default_fo_provision', 'numeric(15,6)',
+  'the unified company K FO retains six decimals');
 select col_not_null('public', 'supply_types', 'default_fo_provision', 'a supply type always carries an FO provision');
-select col_default_is('public', 'supply_types', 'default_fo_provision', '1.010',
-  'a supply type created without provision gets 1,010');
+select col_hasnt_default('public', 'supply_types', 'default_fo_provision',
+  'the family trigger selects the current company coefficient');
 
 -- ---------------------------------------------------------------------------
 -- Fixture : un ingénieur, son entreprise, une affaire, un rôle à 40 €/h et trois types FO.
@@ -83,23 +85,23 @@ insert into public.labor_roles (id, tenant_id, user_id, name, hourly_rate_cents,
   ('53400000-0000-4000-8000-000000000020', current_setting('test.tenant_id')::uuid,
    '53400000-0000-4000-8000-000000000001', 'Tuyauteur', 4000, true, 1);
 insert into public.supply_types (id, tenant_id, code, name, default_fo_provision) values
-  ('53400000-0000-4000-8000-000000000041', current_setting('test.tenant_id')::uuid, 'tube', 'Tube', 1.030),
-  ('53400000-0000-4000-8000-000000000043', current_setting('test.tenant_id')::uuid, 'calorifuge', 'Calorifuge', 1.030);
+  ('53400000-0000-4000-8000-000000000041', current_setting('test.tenant_id')::uuid, 'tube', 'Tube', 1.130),
+  ('53400000-0000-4000-8000-000000000043', current_setting('test.tenant_id')::uuid, 'calorifuge', 'Calorifuge', 1.020);
 insert into public.supply_types (id, tenant_id, code, name) values
   ('53400000-0000-4000-8000-000000000042', current_setting('test.tenant_id')::uuid, 'raccord', 'Raccord');
 
 select is(
   array[
-    (select default_fo_provision::text from public.supply_types where id = '53400000-0000-4000-8000-000000000042'),
-    pg_temp.fp_probe(array[$s$update public.supply_types set default_fo_provision = 0.999
+    (select trim_scale(default_fo_provision)::text from public.supply_types where id = '53400000-0000-4000-8000-000000000042'),
+    pg_temp.fp_probe(array[$s$update public.supply_types set default_fo_provision = -0.000001
       where id = '53400000-0000-4000-8000-000000000042'$s$]),
-    pg_temp.fp_probe(array[$s$update public.supply_types set default_fo_provision = 2.001
+    pg_temp.fp_probe(array[$s$update public.supply_types set default_fo_provision = 999999999.999001
       where id = '53400000-0000-4000-8000-000000000042'$s$])
   ],
-  array['1.010',
+  array['1.02',
     '23514 new row for relation "supply_types" violates check constraint "supply_types_default_fo_provision_check"',
     '23514 new row for relation "supply_types" violates check constraint "supply_types_default_fo_provision_check"'],
-  'a supply type provision defaults to 1,010 and stays within 1 and 2'
+  'the company K FO defaults to 1.02 and refuses negative or overflowing coefficients'
 );
 
 create function pg_temp.fp_item(p_version uuid, p_index integer)
@@ -217,194 +219,36 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- Moteur 3, création canonique (import, modèle, nouveau devis) à c_FO = c_MO = 1 :
---   L1 sans type, provision 1,5 envoyée par le client (ignorée) : 1 × 1 000 × 1,010 = 1 010 ;
---   L2 Tube : 1 × 1 000 × 1,030 = 1 030 ; L3 Raccord (défaut du type) : 1 010 ;
---   L4 Calorifuge, K FO 2 : 3 × (500 × 1,030 × 2) = 3 × 1 030 = 3 090 ;
---   L5 Tube avec pose 0,5 h/u à 40 €/h : 2 × (1 030 + 2 000) = 6 060 (la provision ne touche que la FO).
---   HT 12 200, TVA 2 440, TTC 14 640.
--- ---------------------------------------------------------------------------
-select set_config('role', 'service_role', true);
-select public.set_tenant_calc_policy(p_tenant_id => current_setting('test.tenant_id')::uuid,
-  p_new_estimate_calc_engine => 3::smallint, p_default_sale_coefficient_fo => 1, p_default_sale_coefficient_mo => 1,
-  p_allowed_tax_rates_bp => null, p_change_reason => 'TI-534 v3', p_actor_user_id => '53400000-0000-4000-8000-000000000001');
-select set_config('role', 'none', true);
+-- Current v3 policy: no second provision, company/user/line precedence.
+select set_config('role','service_role',true);
+select public.set_tenant_calc_policy(p_tenant_id=>current_setting('test.tenant_id')::uuid,p_new_estimate_calc_engine=>3::smallint,p_default_sale_coefficient_fo=>1,p_default_sale_coefficient_mo=>1,p_allowed_tax_rates_bp=>null,p_change_reason=>'TI-534 current rule',p_actor_user_id=>'53400000-0000-4000-8000-000000000001');
+select set_config('role','none',true);
 
-create function pg_temp.fp_v3_items(p_version uuid, p_l1_pu integer)
-returns jsonb
-language sql
-immutable
-as $$
-  select jsonb_build_array(
-    jsonb_build_object('id', pg_temp.fp_item(p_version, 0), 'parent_id', null, 'item_type', 'section',
-      'position', 1, 'title', 'Lot'),
-    pg_temp.fp_line(pg_temp.fp_item(p_version, 1), pg_temp.fp_item(p_version, 0), 1, 'L1', 1, 1000, p_l1_pu,
-      '{"fo_provision":1.5}'::jsonb),
-    pg_temp.fp_line(pg_temp.fp_item(p_version, 2), pg_temp.fp_item(p_version, 0), 2, 'L2', 1, 1000, 1030,
-      '{"supply_type_id":"53400000-0000-4000-8000-000000000041"}'::jsonb),
-    pg_temp.fp_line(pg_temp.fp_item(p_version, 3), pg_temp.fp_item(p_version, 0), 3, 'L3', 1, 1000, 1010,
-      '{"supply_type_id":"53400000-0000-4000-8000-000000000042"}'::jsonb),
-    pg_temp.fp_line(pg_temp.fp_item(p_version, 4), pg_temp.fp_item(p_version, 0), 4, 'L4', 3, 500, 1030,
-      '{"supply_type_id":"53400000-0000-4000-8000-000000000043","k_fo":2}'::jsonb),
-    pg_temp.fp_line(pg_temp.fp_item(p_version, 5), pg_temp.fp_item(p_version, 0), 5, 'L5', 2, 1000, 3030,
-      '{"supply_type_id":"53400000-0000-4000-8000-000000000041","h_mo_per_unit":0.5,"labor_role_id":"53400000-0000-4000-8000-000000000020"}'::jsonb)
-  )
+create function pg_temp.current_lines(v uuid) returns jsonb language sql immutable as $$
+ select jsonb_build_array(
+ jsonb_build_object('id',pg_temp.fp_item(v,0),'item_type','section','parent_id',null,'position',1,'title','Lot'),
+ pg_temp.fp_line(pg_temp.fp_item(v,1),pg_temp.fp_item(v,0),1,'Tube',1,1000,1130,'{"supply_type_id":"53400000-0000-4000-8000-000000000041"}'),
+ pg_temp.fp_line(pg_temp.fp_item(v,2),pg_temp.fp_item(v,0),2,'Calorifuge',1,1000,1020,'{"supply_type_id":"53400000-0000-4000-8000-000000000043"}'),
+ pg_temp.fp_line(pg_temp.fp_item(v,3),pg_temp.fp_item(v,0),3,'Volume',1,10000,10170,'{"k_fo":1.017,"supply_type_id":"53400000-0000-4000-8000-000000000041"}'),
+ pg_temp.fp_line(pg_temp.fp_item(v,4),pg_temp.fp_item(v,0),4,'Sans type',1,1000,1020));
 $$;
-
-select is(
-  pg_temp.fp_create(
-    pg_temp.fp_version('53400000-0000-4000-8000-000000000120', 3, 12190, 2438),
-    pg_temp.fp_v3_items('53400000-0000-4000-8000-000000000120', 1000)
-  ),
-  '22023 ESTIMATE_V3_PROJECTION_MISMATCH',
-  'D12: a creation whose projection ignores the provision of a line without supply type (PU 1 000) is refused'
-);
-
-select is(
-  pg_temp.fp_create(
-    pg_temp.fp_version('53400000-0000-4000-8000-000000000110', 3, 12200, 2440),
-    pg_temp.fp_v3_items('53400000-0000-4000-8000-000000000110', 1010)
-  ),
-  'ok',
-  'a v3 creation passes D12 with FO = P × provision FO × K FO on every line'
-);
-
-select is(
-  (select concat_ws('|', pg_temp.fp_provisions(version.id),
-     (select string_agg(item.pu_ht_cents::text, ',' order by item.position) from public.estimate_items item
-      where item.version_id = version.id and item.item_type = 'line'),
-     version.total_ht_cents, version.total_tax_cents, version.total_ttc_cents)
-   from public.estimate_versions version where version.id = '53400000-0000-4000-8000-000000000110'),
-  'L1:1.010,L2:1.030,L3:1.010,L4:1.030,L5:1.030,Lot:1.000|1010,1030,1010,1030,3030|12200|2440|14640',
-  'each v3 line stores the provision of its supply type (1,010 without one, the client value ignored) and its amounts'
-);
-
-select is(
-  pg_temp.fp_probe(null, $a$
-    select string_agg(item ->> 'fo_provision', ',' order by item ->> 'id')
-    from jsonb_array_elements(private.estimate_v3_canonical_input('53400000-0000-4000-8000-000000000110') -> 'items') item
-    where item ->> 'item_type' = 'line'
-  $a$),
-  'ok:1.010,1.030,1.010,1.030,1.030',
-  'the canonical engine input of a stored v3 carries the provision of every line'
-);
-
-select is(
-  pg_temp.fp_probe(array[
-    $s$select private.estimate_v3_assert_draft('53400000-0000-4000-8000-000000000110')$s$
-  ]),
-  'ok',
-  'D12: the stored v3 amounts are those of the SQL engine with the provision'
-);
-
--- ---------------------------------------------------------------------------
--- Déclencheur, sous le contrat d'écrivain de la v3 (lot, création atomique, réglages).
--- ---------------------------------------------------------------------------
-create function pg_temp.fp_writer_probe(p_statement text, p_item uuid)
-returns text
-language sql
-as $$
-  select pg_temp.fp_probe(
-    array[
-      $s$select set_config('miaouffrage.estimate_v3_writer', '53400000-0000-4000-8000-000000000110', true)$s$,
-      p_statement
-    ],
-    format('select pg_temp.fp_provision_of(%L::uuid)', p_item)
-  )
-$$;
-
-select is(
-  array[
-    pg_temp.fp_writer_probe($s$update public.estimate_items set quantity = 2
-      where id = '53400000-0000-4000-8001-000000000111'$s$, '53400000-0000-4000-8001-000000000111'),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set supply_type_id = '53400000-0000-4000-8000-000000000041'
-      where id = '53400000-0000-4000-8001-000000000111'$s$, '53400000-0000-4000-8001-000000000111'),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set supply_type_id = '53400000-0000-4000-8000-000000000042'
-      where id = '53400000-0000-4000-8001-000000000112'$s$, '53400000-0000-4000-8001-000000000112'),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set supply_type_id = null
-      where id = '53400000-0000-4000-8001-000000000112'$s$, '53400000-0000-4000-8001-000000000112')
-  ],
-  array['ok:1.010', 'ok:1.030', 'ok:1.010', 'ok:1.010'],
-  'an edit keeps the provision; a supply type change derives it again (Tube 1,030, Raccord 1,010, no type 1,010)'
-);
-
-select is(
-  array[
-    pg_temp.fp_writer_probe($s$update public.estimate_items
-      set supply_type_id = '53400000-0000-4000-8000-000000000042', fo_provision = 1.050
-      where id = '53400000-0000-4000-8001-000000000112'$s$, '53400000-0000-4000-8001-000000000112'),
-    pg_temp.fp_writer_probe($s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type,
-        position, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo_majoration, k_mo, unit_code,
-        pricing_status, h_mo_per_unit, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents,
-        supply_type_id, fo_provision)
-      select '53400000-0000-4000-8001-000000000116', tenant_id, id, '53400000-0000-4000-8001-000000000110', 'line',
-        6, 'Copie', 1, 1000, 2000, 1, 1, 1, 'u', 'priced', 0, 1020, 1020, 204, 1224,
-        '53400000-0000-4000-8000-000000000041', 1.020
-      from public.estimate_versions where id = '53400000-0000-4000-8000-000000000110'$s$,
-      '53400000-0000-4000-8001-000000000116'),
-    pg_temp.fp_writer_probe($s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type,
-        position, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo_majoration, k_mo, unit_code,
-        pricing_status, h_mo_per_unit, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents,
-        supply_type_id)
-      select '53400000-0000-4000-8001-000000000117', tenant_id, id, '53400000-0000-4000-8001-000000000110', 'line',
-        7, 'Neuve', 1, 1000, 2000, 1, 1, 1, 'u', 'priced', 0, 1030, 1030, 206, 1236,
-        '53400000-0000-4000-8000-000000000043'
-      from public.estimate_versions where id = '53400000-0000-4000-8000-000000000110'$s$,
-      '53400000-0000-4000-8001-000000000117')
-  ],
-  array['ok:1.050', 'ok:1.020', 'ok:1.030'],
-  'a provision written by the writer is kept (with a type change, or on an insert such as a version copy); a new line without one takes its type'
-);
-
-select is(
-  array[
-    pg_temp.fp_probe(array[
-      $s$update public.supply_types set default_fo_provision = 1.050 where id = '53400000-0000-4000-8000-000000000041'$s$
-    ], $a$select pg_temp.fp_provisions('53400000-0000-4000-8000-000000000110')$a$),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set fo_provision = 1.010
-      where id = '53400000-0000-4000-8001-000000000110'$s$, '53400000-0000-4000-8001-000000000110'),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set fo_provision = 2.5
-      where id = '53400000-0000-4000-8001-000000000111'$s$, '53400000-0000-4000-8001-000000000111'),
-    pg_temp.fp_writer_probe($s$update public.estimate_items set fo_provision = 0.99
-      where id = '53400000-0000-4000-8001-000000000111'$s$, '53400000-0000-4000-8001-000000000111')
-  ],
-  array[
-    'ok:L1:1.010,L2:1.030,L3:1.010,L4:1.030,L5:1.030,Lot:1.000',
-    '0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED',
-    '23514 new row for relation "estimate_items" violates check constraint "estimate_items_fo_provision_check"',
-    '23514 new row for relation "estimate_items" violates check constraint "estimate_items_fo_provision_check"'
-  ],
-  'a new supply type provision changes no existing line; a section refuses a provision; a line stays within 1 and 2'
-);
-
-select is(
-  pg_temp.fp_probe(array[$s$update public.estimate_items set supply_type_id = '53400000-0000-4000-8000-000000000041'
-    where id = '53400000-0000-4000-8001-000000000111'$s$]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'outside the writer contract a supply type change of a v3 line is refused before any provision is derived'
-);
-
--- ---------------------------------------------------------------------------
--- Copie de version : chaque ligne garde sa provision, même après un changement de celle de son type.
--- ---------------------------------------------------------------------------
-select is(
-  pg_temp.fp_probe(
-    array[
-      $s$update public.supply_types set default_fo_provision = 1.050 where id = '53400000-0000-4000-8000-000000000041'$s$,
-      'set local role authenticated',
-      $s$select set_config('request.jwt.claim.sub', '53400000-0000-4000-8000-000000000001', true)$s$,
-      $s$select set_config('fp_test.duplicate_id',
-         public.duplicate_estimate_version('53400000-0000-4000-8000-000000000110', false)::text, true)$s$,
-      'reset role'
-    ],
-    $a$select concat_ws('|', pg_temp.fp_provisions(version.id), version.total_ht_cents)
-       from public.estimate_versions version where version.id = current_setting('fp_test.duplicate_id')::uuid$a$
-  ),
-  'ok:L1:1.010,L2:1.030,L3:1.010,L4:1.030,L5:1.030,Lot:1.000|12200',
-  'a duplicated v3 keeps the provision of each line and its amounts (no new derivation)'
-);
-
--- TI-534 remaining lot: source conditions are captured, never inferred again on a save.
+select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-000000000110',3,13340,2668),pg_temp.current_lines('53400000-0000-4000-8000-000000000110')),'ok','one unified coefficient passes the exact canonical projection check');
+select is((select string_agg(title||':'||trim_scale(k_fo)::text||':'||fo_provision::text,',' order by position) from public.estimate_items where version_id='53400000-0000-4000-8000-000000000110' and item_type='line'),'Tube:1.13:1.000,Calorifuge:1.02:1.000,Volume:1.017:1.000,Sans type:1.02:1.000','tube losses never spread to insulation or unknown families, and volume is included only once');
+select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-000000000120',3,13200,2640),pg_temp.current_lines('53400000-0000-4000-8000-000000000120')),'22023 ESTIMATE_VERSION_TOTALS_DO_NOT_MATCH_ITEMS','wrong monetary projections are still rejected');
+select ok((select k_fo_manual from public.estimate_items where title='Volume' and version_id='53400000-0000-4000-8000-000000000110'),'a supplied non-neutral line coefficient is preserved as manual');
+select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true);
+update public.estimate_items set k_fo=1,k_fo_manual=true where id='53400000-0000-4000-8001-000000000111';
+update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000042' where id='53400000-0000-4000-8001-000000000111';
+select is((select k_fo from public.estimate_items where id='53400000-0000-4000-8001-000000000111'),1::numeric,'a manual neutral coefficient survives family changes');
+insert into public.estimate_fo_preferences(tenant_id,user_id,supply_type_id,coefficient) values(current_setting('test.tenant_id')::uuid,'53400000-0000-4000-8000-000000000001','53400000-0000-4000-8000-000000000043',1.15);
+update public.estimate_items set k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000043' where id='53400000-0000-4000-8001-000000000114';
+select is((select k_fo from public.estimate_items where id='53400000-0000-4000-8001-000000000114'),1.15::numeric,'the project owner preference wins over the company default, also for collaborators');
+update public.estimate_items set k_fo=1.0735,k_fo_manual=true where id='53400000-0000-4000-8001-000000000113';
+select is((select k_fo from public.estimate_items where id='53400000-0000-4000-8001-000000000113'),1.0735::numeric,'a four-decimal volume adjustment is not rounded to three');
+select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','',true)$s$,$s$update public.estimate_items set k_fo=1.3 where id='53400000-0000-4000-8001-000000000113'$s$]),'0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED','coefficient writes outside the guarded writer remain refused');
+select ok(not has_function_privilege('anon','private.estimate_kfo_base(uuid,uuid,uuid,jsonb)','execute'),'anonymous callers cannot execute the private coefficient resolver');
+select ok(not has_table_privilege('anon','public.estimate_fo_preferences','insert'),'anonymous callers cannot write preferences');
+-- Catalogue transport conditions are admin-owned; restore the owning fixture's explicit admin context.
 update public.tenant_memberships set role='admin' where user_id='53400000-0000-4000-8000-000000000001';
 select set_config('request.jwt.claim.sub','53400000-0000-4000-8000-000000000001',true);
 insert into public.products(id,tenant_id,designation,unit,unit_price_cents,product_type,reference_transport_mode) values
@@ -421,20 +265,20 @@ select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id='53400000-0000-4000-8000-000000000053',unit_price_ht_cents=10000 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',supply_type_id,fo_provision,fo_price_origin->>'transport_mode',unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:53400000-0000-4000-8000-000000000041|1.010|included|10000','catalogue Tube is mapped by declared family and its included transport takes 1,01');
+'ok:53400000-0000-4000-8000-000000000041|1.000|included|10000','catalogue Tube is mapped by declared family and its included transport takes 1,01');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id='53400000-0000-4000-8000-000000000053',unit_price_ht_cents=10000 where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set unit_price_ht_cents=20000 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_provision,fo_price_origin is null,product_id) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:1.030|t|53400000-0000-4000-8000-000000000051','manual cost drops included transport even when product_id remains');
+'ok:1.000|t|53400000-0000-4000-8000-000000000051','manual cost drops included transport even when product_id remains');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id='53400000-0000-4000-8000-000000000053' where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.supplier_pricebook set transport_mode='excluded' where id='53400000-0000-4000-8000-000000000053'$s$,
  $s$update public.estimate_items set quantity=10 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_provision,fo_price_origin->>'transport_mode') from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:1.010|included','catalogue changes and quantity edits preserve the saved origin');
+'ok:1.000|included','catalogue changes and quantity edits preserve the saved origin');
 
 -- A sparse detach of the reference product clears its transport proof, as the TS writer does.
 select is(pg_temp.fp_probe(array[
@@ -442,7 +286,7 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id=null where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set product_id=null where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_provision,fo_price_origin is null,product_id is null) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:1.030|t|t','detaching a reference product clears included transport and rederives its tube provision');
+'ok:1.000|t|t','detaching a reference product clears included transport and rederives its tube provision');
 
 
 -- ---------------------------------------------------------------------------
@@ -454,12 +298,12 @@ select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.030|900','a site cost keeps its source and the provision of its supply type');
+'ok:site|Négoce Fictif|1.000|900','a site cost keeps its source and the provision of its supply type');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.010|900','a site offer with transport included takes no second transport provision');
+'ok:site|Négoce Fictif|1.000|900','a site offer with transport included takes no second transport provision');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id=null where id='53400000-0000-4000-8001-000000000111'$s$,
@@ -477,25 +321,25 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id='53400000-0000-4000-8000-000000000053' where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb,selected_supplier_price_id=null where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.030|900','a site cost replaces a retained catalogue offer');
+'ok:site|Négoce Fictif|1.000|900','a site cost replaces a retained catalogue offer');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set unit_price_ht_cents=910 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin is null,fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:t|1.030|910','retyping the cost by hand drops the site source and its included transport');
+'ok:t|1.000|910','retyping the cost by hand drops the site source and its included transport');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set quantity=10,k_fo=0.9 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.010|900','quantity and K FO edits keep the site source and its provision');
+'ok:site|Négoce Fictif|1.000|900','quantity and K FO edits keep the site source and its provision');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id='53400000-0000-4000-8000-000000000053',unit_price_ht_cents=10000 where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:supplier|1.010|10000','choosing a catalogue offer afterwards replaces the site cost');
+'ok:supplier|1.000|10000','choosing a catalogue offer afterwards replaces the site cost');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$
@@ -574,7 +418,7 @@ select is(
        from public.estimate_items copy
        where copy.version_id = current_setting('fp_test.duplicate_id')::uuid and copy.fo_price_origin is not null$a$
   ),
-  'ok:site|Négoce Fictif|2026-11-03|1.010|900|t',
+  'ok:site|Négoce Fictif|2026-11-03|1.000|900|t',
   'a duplicated version keeps the site cost, its source and its provision verbatim'
 );
 
@@ -585,7 +429,7 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set product_id=null where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents,product_id is null) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.010|900|t','detaching the article keeps the site source and its provision');
+'ok:site|Négoce Fictif|1.000|900|t','detaching the article keeps the site source and its provision');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set product_id='53400000-0000-4000-8000-000000000051',selected_supplier_price_id=null where id='53400000-0000-4000-8001-000000000111'$s$,
@@ -594,7 +438,7 @@ select is(pg_temp.fp_probe(array[
  $s$delete from public.supplier_catalog_items where product_id='53400000-0000-4000-8000-000000000051'$s$,
  $s$delete from public.products where id='53400000-0000-4000-8000-000000000051'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents,product_id is null) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.010|900|t','deleting the article from the catalogue keeps the site source and its provision');
+'ok:site|Négoce Fictif|1.000|900|t','deleting the article from the catalogue keeps the site source and its provision');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
@@ -606,18 +450,18 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000002","kind":"site","source_id":"54100000-0000-4000-8000-000000000002","transport_mode":"excluded","site":{"supplier":"Autre Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Autre Négoce Fictif|1.030|900','a site cost edited to another offer takes the new source and its transport');
+'ok:site|Autre Négoce Fictif|1.000|900','a site cost edited to another offer takes the new source and its transport');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set unit_price_ht_cents=880,fo_price_origin=jsonb_set(fo_price_origin,'{transport_mode}','"excluded"') where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,unit_price_ht_cents) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|Négoce Fictif|1.030|880','a site source changed under the same selection is a new site cost, not a manual price');
+'ok:site|Négoce Fictif|1.000|880','a site source changed under the same selection is a new site cost, not a manual price');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo_majoration, k_mo, unit_code, pricing_status, h_mo_per_unit, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, supply_type_id, product_id, selected_supplier_price_id, fo_price_origin) select '54100000-0000-4000-8001-000000000119', tenant_id, id, '53400000-0000-4000-8001-000000000110', 'line', 6, 'Coût chantier créé', 1, 900, 2000, 1, 1, 1, 'u', 'priced', 0, 909, 909, 182, 1091, '53400000-0000-4000-8000-000000000041', '53400000-0000-4000-8000-000000000051', null, '{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb from public.estimate_versions where id='53400000-0000-4000-8000-000000000110'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',fo_price_origin#>>'{site,supplier}',fo_provision,product_id) from public.estimate_items where id='54100000-0000-4000-8001-000000000119'$a$),
-'ok:site|Négoce Fictif|1.010|53400000-0000-4000-8000-000000000051','a line created with a site cost and an article keeps both and reads no catalogue price');
+'ok:site|Négoce Fictif|1.000|53400000-0000-4000-8000-000000000051','a line created with a site cost and an article keeps both and reads no catalogue price');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo_majoration, k_mo, unit_code, pricing_status, h_mo_per_unit, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, supply_type_id, product_id, selected_supplier_price_id, fo_price_origin) select '54100000-0000-4000-8001-000000000119', tenant_id, id, '53400000-0000-4000-8001-000000000110', 'line', 6, 'Coût chantier créé', 1, 900, 2000, 1, 1, 1, 'u', 'priced', 0, 909, 909, 182, 1091, '53400000-0000-4000-8000-000000000041', '53400000-0000-4000-8000-000000000051', '53400000-0000-4000-8000-000000000053', '{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb from public.estimate_versions where id='53400000-0000-4000-8000-000000000110'$s$
@@ -673,13 +517,13 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000112'$s$,
  $s$update public.estimate_items set line_nature='supply_and_labor' where id='53400000-0000-4000-8001-000000000112'$s$
 ],$a$select concat_ws('|',line_nature,fo_provision) from public.estimate_items where id='53400000-0000-4000-8001-000000000112'$a$),
-'ok:supply_and_labor|1.030','a line that leaves POSE SEULE takes back the provision of its supply type');
+'ok:supply_and_labor|1.000','a line that leaves POSE SEULE takes back the provision of its supply type');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set line_nature='supply_only' where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',line_nature,fo_provision) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:supply_only|1.010','a line without supply type that leaves POSE SEULE takes back 1,010');
+'ok:supply_only|1.000','a line without supply type that leaves POSE SEULE takes back 1,010');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000111'$s$,
@@ -698,7 +542,7 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":"included","site":{"supplier":"Négoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,
  $s$update public.estimate_items set line_nature='supply_and_labor' where id='53400000-0000-4000-8001-000000000111'$s$
 ],$a$select concat_ws('|',fo_price_origin->>'kind',line_nature,fo_provision) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),
-'ok:site|supply_and_labor|1.010','leaving POSE SEULE with a site offer, transport included, takes the losses only');
+'ok:site|supply_and_labor|1.000','leaving POSE SEULE with a site offer, transport included, takes the losses only');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000112'$s$,
@@ -710,7 +554,7 @@ select is(pg_temp.fp_probe(array[
  $s$update public.supply_types set default_fo_provision=1.050 where id='53400000-0000-4000-8000-000000000041'$s$,
  $s$update public.estimate_items set line_nature='supply_and_labor' where id='53400000-0000-4000-8001-000000000112'$s$
 ],$a$select concat_ws('|',line_nature,fo_provision) from public.estimate_items where id='53400000-0000-4000-8001-000000000112'$a$),
-'ok:supply_and_labor|1.030','a change between two other natures does not rederive the provision');
+'ok:supply_and_labor|1.000','a change between two other natures does not rederive the provision');
 select is(pg_temp.fp_probe(array[
  $s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,
  $s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo_majoration, k_mo, unit_code, pricing_status, h_mo_per_unit, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, supply_type_id, line_nature) select '54100000-0000-4000-8001-000000000129', tenant_id, id, '53400000-0000-4000-8001-000000000110', 'line', 6, 'Pose créée', 1, 900, 2000, 1, 1, 1, 'u', 'priced', 0, 900, 900, 180, 1080, '53400000-0000-4000-8000-000000000041', 'pose_only' from public.estimate_versions where id='53400000-0000-4000-8000-000000000110'$s$
@@ -736,7 +580,7 @@ select is(
     ],
     $a$select string_agg(concat_ws('|',copy.line_nature,copy.fo_provision),',')
        from public.estimate_items copy
-       where copy.version_id = current_setting('fp_test.duplicate_id')::uuid and copy.title = 'L2'$a$
+       where copy.version_id = current_setting('fp_test.duplicate_id')::uuid and copy.title = 'Calorifuge'$a$
   ),
   'ok:pose_only|1.000',
   'a duplicated version keeps a POSE SEULE line and its provision of 1,000'
@@ -753,5 +597,23 @@ select is(pg_temp.fp_probe(array[
  $s$update public.estimate_items set line_nature='supply_only' where id='53400000-0000-4000-8001-000000000101'$s$
 ],$a$select concat_ws('|',line_nature,fo_provision) from public.estimate_items where id='53400000-0000-4000-8001-000000000101'$a$),
 'ok:supply_only|1.000','an engine 2 line keeps 1,000 when it enters and leaves POSE SEULE');
+
+-- Combined trigger regressions: explicit arithmetic and saved origin, not source text.
+select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,$s$update public.estimate_items set k_fo=null,k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$],$a$select concat_ws('|',fo_price_origin->>'kind',trim_scale(k_fo),trim_scale(fo_provision),line_nature) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),'ok:site|1.13|1|supply_only','TI-534 plus TI-541: a site cost uses the configured unified K FO once');
+select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,$s$update public.estimate_items set k_fo=null,k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000111'$s$],$a$select concat_ws('|',fo_price_origin->>'kind',trim_scale(k_fo),trim_scale(fo_provision),line_nature) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),'ok:site|1|1|pose_only','POSE SEULE neutralizes automatic K FO even with a site small supply');
+select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,$s$update public.estimate_items set k_fo=null,k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='pose_only',k_fo=1.1,k_fo_manual=true where id='53400000-0000-4000-8001-000000000111'$s$],$a$select concat_ws('|',fo_price_origin->>'kind',trim_scale(k_fo),trim_scale(fo_provision),line_nature) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),'ok:site|1.1|1|pose_only','a manual POSE SEULE K FO remains editable');
+select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,$s$update public.estimate_items set k_fo=null,k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='supply_only' where id='53400000-0000-4000-8001-000000000111'$s$],$a$select concat_ws('|',fo_price_origin->>'kind',trim_scale(k_fo),trim_scale(fo_provision),line_nature) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),'ok:site|1.13|1|supply_only','leaving POSE SEULE restores the automatic family K FO');
+
+
+-- Canonical creation (model adapter): neither the explicit printed nature nor a manual neutral coefficient may drop.
+select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-000000000130',3,350,70),
+ jsonb_build_array(
+   jsonb_build_object('id',pg_temp.fp_item('53400000-0000-4000-8000-000000000130',0),'item_type','section','parent_id',null,'position',1,'title','Lot'),
+   pg_temp.fp_line(pg_temp.fp_item('53400000-0000-4000-8000-000000000130',1),pg_temp.fp_item('53400000-0000-4000-8000-000000000130',0),1,'Pose canonique',1,350,350,
+     jsonb_build_object('line_nature','pose_only','k_fo_manual',true,'supply_type_id','53400000-0000-4000-8000-000000000041','fo_price_origin','{"selection_id":"54100000-0000-4000-8000-000000000010","kind":"site","source_id":"54100000-0000-4000-8000-000000000010","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"POSE-SQL","offer_date":"2026-11-03","document":null}}'::jsonb)))),
+ 'ok','canonical creation preserves a manual neutral POSE SEULE with a site small supply');
+select is((select concat_ws('|',line_nature,trim_scale(k_fo),k_fo_manual,fo_price_origin->>'kind',pu_ht_cents) from public.estimate_items
+ where id='53400000-0000-4000-8001-000000000131'),'pose_only|1|t|site|350','canonical stored line keeps the explicit nature, manual mode, origin and amount');
+
 select * from finish();
 rollback;

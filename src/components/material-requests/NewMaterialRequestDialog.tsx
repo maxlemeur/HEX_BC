@@ -24,7 +24,7 @@ import {
   materialRequestErrorMessage,
 } from "@/lib/material-requests/client";
 import {
-  MATERIAL_REQUEST_FILE_MIME_TYPES,
+  MATERIAL_REQUEST_PICKER_ACCEPT,
   MATERIAL_REQUEST_SOURCE_TEXT_MAX,
   type CreateMaterialRequestInput,
   type MaterialRequestTechnician,
@@ -291,7 +291,7 @@ export function NewMaterialRequestDialog({
                   type="file"
                   multiple
                   hidden
-                  accept={MATERIAL_REQUEST_FILE_MIME_TYPES.join(",")}
+                  accept={MATERIAL_REQUEST_PICKER_ACCEPT}
                   onChange={(event) => {
                     const selection = Array.from(event.currentTarget.files ?? []);
                     event.currentTarget.value = "";

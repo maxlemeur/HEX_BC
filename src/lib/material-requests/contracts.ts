@@ -43,6 +43,17 @@ export type MaterialRequestProductMatch = (typeof MATERIAL_REQUEST_PRODUCT_MATCH
 /** Originals are photographs of paper or screenshots of messages. */
 export const MATERIAL_REQUEST_FILE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const MATERIAL_REQUEST_FILE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"] as const;
+/**
+ * What the photo pickers offer: the stored types, plus HEIC, which the screen converts to JPEG before
+ * sending (the server and the bucket only ever receive the stored types).
+ */
+export const MATERIAL_REQUEST_PICKER_ACCEPT = [
+  ...MATERIAL_REQUEST_FILE_MIME_TYPES,
+  "image/heic",
+  "image/heif",
+  ".heic",
+  ".heif",
+].join(",");
 export const MATERIAL_REQUEST_FILE_MAX_BYTES = 20 * 1024 * 1024;
 export const MATERIAL_REQUEST_MAX_FILES = 12;
 export const MATERIAL_REQUEST_MAX_LINES = 300;

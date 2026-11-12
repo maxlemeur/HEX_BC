@@ -18,8 +18,8 @@ armyTest("V3FRA01 fractional quantities reconcile in the editor, its duplicate a
     const draft = await prepareV3Draft(ui, army, "V3FRA01");
     const lines = await seedLines(ui, army, draft, "fractional", [
       { title: "Tube posé", quantity: 2, unit_code: "ml", unit_price_ht_cents: 1234, h_mo_per_unit: 0.375,
-        k_fo: 1.125, k_mo: 1.1, labor_role_id: draft.tuyauteurId, pricing_status: "priced", tax_rate_bp: 1000 },
-      { title: "Tube fourni", quantity: 3.555, unit_code: "ml", unit_price_ht_cents: 1000, pricing_status: "priced", tax_rate_bp: 2000 },
+        k_fo: 1.13625, k_fo_manual: true, k_mo: 1.1, labor_role_id: draft.tuyauteurId, pricing_status: "priced", tax_rate_bp: 1000 },
+      { title: "Tube fourni", k_fo: 1.01, k_fo_manual: true, quantity: 3.555, unit_code: "ml", unit_price_ht_cents: 1000, pricing_status: "priced", tax_rate_bp: 2000 },
       { title: "Pose seule", quantity: 0.125, unit_code: "ml", h_mo_per_unit: 0.25, labor_role_id: draft.tuyauteurId, pricing_status: "priced", tax_rate_bp: 2000 },
       { title: "Prestation incluse", quantity: 4.675, unit_code: "ml", pricing_status: "included", tax_rate_bp: 1000 },
     ]);

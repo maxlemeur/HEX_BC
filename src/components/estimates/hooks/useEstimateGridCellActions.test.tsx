@@ -124,8 +124,8 @@ describe("useEstimateGridCellActions", () => {
 
     expect(harness.onApplyCellPatches).toHaveBeenCalledTimes(1);
     expect(harness.onApplyCellPatches).toHaveBeenCalledWith([
-      { itemId: "b", patch: { k_fo: 1.02 } },
-      { itemId: "c", patch: { k_fo: 1.02 } },
+      { itemId: "b", patch: { k_fo: 1.02, k_fo_manual: true } },
+      { itemId: "c", patch: { k_fo: 1.02, k_fo_manual: true } },
     ]);
     expect(harness.onPatchItem).not.toHaveBeenCalled();
     expect(harness.onLeftovers).not.toHaveBeenCalled();
@@ -230,8 +230,8 @@ describe("useEstimateGridCellActions", () => {
     harness.view.result.current.onFillDown(range(["a", "b", "c"], ["k_fo"]));
 
     expect(harness.onPatchItem.mock.calls).toEqual([
-      ["b", { k_fo: 1.02 }, { persist: true }],
-      ["c", { k_fo: 1.02 }, { persist: true }],
+      ["b", { k_fo: 1.02, k_fo_manual: true }, { persist: true }],
+      ["c", { k_fo: 1.02, k_fo_manual: true }, { persist: true }],
     ]);
   });
 

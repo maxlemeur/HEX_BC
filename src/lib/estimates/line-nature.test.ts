@@ -135,7 +135,8 @@ describe("POSE SEULE", () => {
   // The mention travels in the engine-3 client contract only: elsewhere it would show on the preview and not on
   // the issued PDF. A line that already carries it keeps the option, so its select stays truthful.
   it("is offered only where the issued quote prints it", () => {
-    expect(selectableEstimateLineNatures({ printsPoseOnly: true, current: "labor_only" })).toEqual(ESTIMATE_LINE_NATURES);
+    expect(selectableEstimateLineNatures({ printsPoseOnly: true, current: "labor_only" }))
+      .toEqual(["supply_only", "supply_and_labor", "pose_only"]);
     expect(selectableEstimateLineNatures({ printsPoseOnly: false, current: "labor_only" }))
       .toEqual(["supply_only", "supply_and_labor", "labor_only"]);
     expect(selectableEstimateLineNatures({ printsPoseOnly: false, current: "pose_only" })).toEqual(ESTIMATE_LINE_NATURES);

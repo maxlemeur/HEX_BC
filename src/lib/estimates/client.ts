@@ -2583,6 +2583,8 @@ function toCreateEstimateItemBody(
         unit_price_ht_cents: item.unit_price_ht_cents,
         tax_rate_bp: item.tax_rate_bp,
         k_fo: item.k_fo,
+        ...(typeof item.k_fo_manual === "boolean" ? { k_fo_manual: item.k_fo_manual } : {}),
+        ...(item.fo_price_origin !== undefined ? { fo_price_origin: item.fo_price_origin } : {}),
         h_mo: item.h_mo,
         h_mo_majoration: itemWithSource.h_mo_majoration ?? undefined,
         h_mo_atelier: item.h_mo_atelier,

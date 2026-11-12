@@ -1,3 +1,4 @@
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 import { createHash } from "node:crypto";
 
 import type {
@@ -60,7 +61,7 @@ export type ClientContract2BuildInput = {
   project: ClientContract2["project"];
   issuer: ClientContract2["issuer"];
   company: ClientContract2["company"];
-  sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "quantity" | "line_nature">[];
+  sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "quantity" | "line_nature">[] & readonly { source_metadata?: unknown }[];
   prepared: Pick<EstimateDocumentV3PreparedData, "layout" | "numberingById" | "sectionTotalsById" | "v3">;
   exclusions: string | null;
 };
@@ -99,7 +100,7 @@ export function buildClientContract2(input: ClientContract2BuildInput): ClientCo
       if (entry.item_type === "section") {
         if (!Object.hasOwn(input.prepared.sectionTotalsById, entry.id) || !Object.hasOwn(input.prepared.numberingById, entry.id)) incomplete();
         const sale = input.prepared.sectionTotalsById[entry.id];
-        rows.push({ kind: "section", ...common, number: input.prepared.numberingById[entry.id], saleHtCents: sale.totalHtCents,
+        rows.push({ kind: "section", ...common, number: input.prepared.numberingById[entry.id], ...(isKitSection(entry) ? { kitMetier: true as const } : {}), saleHtCents: sale.totalHtCents,
           ...(showPortions ? { foSaleHtCents: sale.foTotalCents, moSaleHtCents: sale.moTotalCents } : {}) });
         walk(entry.id, depth + 1);
       } else {

@@ -1,3 +1,5 @@
+import { effectiveKfoValue } from "@/lib/estimates/unified-kfo";
+import { parseKfoDraft } from "@/lib/estimates/editor-values";
 import {
   SPREADSHEET_COLUMN_KEYS,
   formatMajorationPercentInput,
@@ -205,13 +207,14 @@ const COLUMN_DESCRIPTORS: Record<string, ColumnDescriptor> = {
     options: (context) => context.supplyTypeOptions,
     label: "Type FO",
   }),
-  [K.kFo]: numberColumn({
-    field: "k_fo",
-    read: (item) => item.k_fo,
-    parse: parseCoefficientDraft,
-    emptyValue: 1,
-    label: `${COEFFICIENT_LABEL} K FO`,
-  }),
+  [K.kFo]: {
+    read: (item, context) => formatDecimalInput(context.isV3 ? effectiveKfoValue(item.k_fo, item.fo_provision) : item.k_fo ?? 1),
+    parse: (text, _item, context) => {
+      const value = text.trim() === "" ? 1 : context.isV3 ? parseKfoDraft(text) : parseCoefficientDraft(text);
+      return value === null ? refuse("K FO : coefficient invalide.") : ok(context.isV3 ? { k_fo: value, k_fo_manual: true } : { k_fo: value });
+    },
+    fields: () => ["k_fo"],
+  },
   // The supplier cell opens the comparison panel: nothing to type, copy or paste.
   [K.supplier]: { read: () => "" },
   [K.hMo]: hoursColumn({ legacyField: "h_mo", perUnitField: "h_mo_per_unit", label: "Heures MO" }),
@@ -414,6 +417,10 @@ export function planEstimateGridFillDown(
     const refusal = descriptor.fillRefusal?.(source, context);
     if (refusal) {
       plan.rejected.push({ ...cell, message: refusal });
+      return;
+    }
+    if (cell.columnKey === K.kFo) {
+      pushResult(plan, cell, target, descriptor.parse(sourceDescriptor.read(source, context), target, context));
       return;
     }
     const sourceRecord = source as unknown as Record<string, unknown>;

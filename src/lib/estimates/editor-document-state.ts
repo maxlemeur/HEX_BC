@@ -604,6 +604,7 @@ export class EstimateEditorDocument {
       else next[key] = value;
       if (sameValue(preview[key], value)) delete preview[key];
     }
+    if ("k_fo" in next && typeof payload.k_fo_manual === "boolean") next.k_fo_manual = payload.k_fo_manual;
     if (Object.keys(next).length) this.pending.set(id, next as EstimateItemUpdatePayload);
     else this.pending.delete(id);
     if (Object.keys(preview).length) this.previews.set(id, preview as Partial<EditorEstimateItem>);
@@ -671,6 +672,9 @@ export class EstimateEditorDocument {
       if (!expected) continue;
       const next = Object.fromEntries(Object.entries(payload).filter(([key, value]) =>
         !(key in expected && Object.is(expected[key] ?? null, value ?? null))));
+      // K FO and its mode form one intention: omitting an unchanged false would
+      // turn an automatic recalculation into an explicit manual edit at the writer.
+      if ("k_fo" in next && typeof payload.k_fo_manual === "boolean") next.k_fo_manual = payload.k_fo_manual;
       if (Object.keys(next).length === Object.keys(payload).length) continue;
       changed = true;
       if (Object.keys(next).length) this.pending.set(id, next as EstimateItemUpdatePayload);

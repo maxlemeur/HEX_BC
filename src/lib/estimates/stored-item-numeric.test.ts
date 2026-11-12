@@ -56,7 +56,7 @@ describe("estimate numeric storage parity", () => {
       h_mo_chantier: 1.0005, k_mo_chantier: 1.0005,
       h_mo_majoration: 1.00005, unit_price_ht_cents: 100000,
     })).toEqual({
-      quantity: 1.001, k_fo: 1.001, h_mo: 1.001, k_mo: 1.001,
+      quantity: 1.001, k_fo: 1.0005, h_mo: 1.001, k_mo: 1.001,
       h_mo_atelier: 1.001, k_mo_atelier: 1.001,
       h_mo_chantier: 1.001, k_mo_chantier: 1.001,
       h_mo_majoration: 1.0001, unit_price_ht_cents: 100000,

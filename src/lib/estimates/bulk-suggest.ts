@@ -295,10 +295,15 @@ function isNeutralCategoryId(value: string | null | undefined) {
   return toNonEmptyText(value) === null;
 }
 
+function hasDefaultSupplyCoefficient(line: EstimateItemRow) {
+  return line.k_fo_manual === false ||
+    (line.k_fo_manual !== true && isNeutralCoefficient(line.k_fo));
+}
+
 function isLineNeutralForSuggestion(line: EstimateItemRow) {
   return (
     line.item_type === "line" &&
-    isNeutralCoefficient(line.k_fo) &&
+    hasDefaultSupplyCoefficient(line) &&
     isNeutralCoefficient(line.k_mo) &&
     isNeutralDescription(line.description) &&
     isNeutralCategoryId(line.category_id)
@@ -352,7 +357,7 @@ function buildApplicablePatchForLine(
     patch.description = toNonEmptyText(suggestedPatch.description ?? null);
   }
 
-  if ("k_fo" in suggestedPatch && isNeutralCoefficient(line.k_fo)) {
+  if ("k_fo" in suggestedPatch && hasDefaultSupplyCoefficient(line)) {
     const value = suggestedPatch.k_fo;
     if (typeof value === "number" && Number.isFinite(value)) {
       patch.k_fo = value;

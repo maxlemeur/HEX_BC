@@ -237,6 +237,14 @@ async function numericProvenanceUi(c: NumericContext, versionId: string) {
   const before = await readEstimate(c.ui.browser, versionId), ordinaryBefore = await c.p.versionRows(versionId), observations = [];
   for (const line of before.items.filter((row) => row.item_type === "line")) {
     const row = c.ui.browser.locator(`[data-estimate-item-id="${line.id}"]`);
+    const parent = before.items.find(item => item.id === line.parent_id);
+    if ((parent?.source_metadata as { kit_metier?: boolean } | null)?.kit_metier === true) {
+      // TI-534 hides kit decomposition; the retained source remains persisted and read-only.
+      await expect(row).toHaveCount(0);
+      expect(line.source_metadata).toMatchObject({ kind: "assembly_library" });
+      observations.push({ lineId: line.id, hiddenKitComponent: true });
+      continue;
+    }
     await row.getByTestId("estimate-line-more-trigger").click();
     const menu = c.ui.browser.locator(".estimate-line-more__menu"); await expect(menu).toHaveCount(1); await expect(menu).toBeVisible();
     const truth = c.ui.browser.locator(".estimate-line-more__menu .estimate-line-more__state .estimate-line-truth__badge");
