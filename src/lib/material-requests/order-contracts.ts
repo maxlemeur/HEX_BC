@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import type { MaterialRequestDeliveryPlace } from "./contracts";
-
 /**
  * Purchase orders from a material request (TI-691, lot 2 « l'achat », delivery 3a « bons de commande depuis les
  * demandes »). The office turns the lines that are ready into draft purchase orders, one per supplier, all imputed to
@@ -81,13 +79,8 @@ export const createMaterialRequestOrdersSchema = z
 export type CreateMaterialRequestOrdersInput = z.input<typeof createMaterialRequestOrdersSchema>;
 export type CreateMaterialRequestOrdersData = z.output<typeof createMaterialRequestOrdersSchema>;
 
-/** How an order made from a request is delivered: the request's delivery place, copied. */
-export type PurchaseOrderDeliveryMode = MaterialRequestDeliveryPlace;
-export const PURCHASE_ORDER_DELIVERY_MODE_LABELS: Record<PurchaseOrderDeliveryMode, string> = {
-  site: "Livraison sur chantier",
-  office: "Livraison au bureau",
-  counter: "Retrait au comptoir",
-};
+/** How an order made from a request is delivered: the request's delivery place, copied (line-kinds.ts). */
+export { PURCHASE_ORDER_DELIVERY_MODE_LABELS, type PurchaseOrderDeliveryMode } from "@/lib/purchase-orders/line-kinds";
 
 /** The tax rate of the lines of a draft made from a request, as the manual order form proposes it. */
 export const MATERIAL_REQUEST_ORDER_TAX_RATE_BP = 2000;

@@ -1,8 +1,3 @@
-import { MATERIAL_REQUEST_DELIVERY_PLACES } from "@/lib/material-requests/contracts";
-import {
-  PURCHASE_ORDER_DELIVERY_MODE_LABELS,
-  type PurchaseOrderDeliveryMode,
-} from "@/lib/material-requests/order-contracts";
 import { formatEUR } from "@/lib/money";
 import {
   computeLineTotals,
@@ -11,12 +6,16 @@ import {
   type LineTotals,
   type OrderTotals,
 } from "@/lib/order-calculations";
-import { orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
+// Dependency-free words only (no validation schema): this module is in the « orders » page bundle.
 import {
   PURCHASE_ORDER_AMOUNT_LINE_UNIT,
+  PURCHASE_ORDER_DELIVERY_MODE_LABELS,
+  PURCHASE_ORDER_DELIVERY_MODES,
   PURCHASE_ORDER_LINE_KINDS,
+  type PurchaseOrderDeliveryMode,
   type PurchaseOrderLineKind,
-} from "@/lib/purchase-orders/schemas";
+} from "@/lib/purchase-orders/line-kinds";
+import { orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
 
 /*
  * Wording of the purchase orders made from a material request (TI-691, lot 2 « l'achat », delivery 3a): how an
@@ -28,7 +27,7 @@ export { PURCHASE_ORDER_DELIVERY_MODE_LABELS, type PurchaseOrderDeliveryMode };
 
 /** The request's delivery place, copied on the order; null for an order that has a site. */
 export function deliveryModeOf(value: unknown): PurchaseOrderDeliveryMode | null {
-  return MATERIAL_REQUEST_DELIVERY_PLACES.find((mode) => mode === value) ?? null;
+  return PURCHASE_ORDER_DELIVERY_MODES.find((mode) => mode === value) ?? null;
 }
 
 export { PURCHASE_ORDER_AMOUNT_LINE_UNIT, type PurchaseOrderLineKind };

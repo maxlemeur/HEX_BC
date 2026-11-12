@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { isValidDateOnly } from "@/lib/date-only";
 import { MAX_ORDER_AMOUNT_CENTS } from "@/lib/order-calculations";
+import {
+  PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS,
+  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
+  PURCHASE_ORDER_DELIVERY_MODES,
+  PURCHASE_ORDER_IMPUTATIONS,
+  PURCHASE_ORDER_LINE_KINDS,
+  PURCHASE_ORDER_PRICE_PER,
+  type PurchaseOrderLineKind,
+  type PurchaseOrderPricePer,
+} from "@/lib/purchase-orders/line-kinds";
 import { isValidOrderQuantity, MAX_ORDER_QUANTITY } from "@/lib/purchase-orders/quantities";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
@@ -51,17 +61,16 @@ const expectedDeliveryDateSchema = z.string().trim().transform((value) =>
  * line keeps its kind, its lot when `pricePer` is left out, and what a material request gave it (request line,
  * imputation, affaire, category), which this payload never carries.
  */
-export const PURCHASE_ORDER_LINE_KINDS = ["article", "shipping", "discount"] as const;
-export type PurchaseOrderLineKind = (typeof PURCHASE_ORDER_LINE_KINDS)[number];
-export const PURCHASE_ORDER_PRICE_PER = [1, 10, 100, 1000] as const;
-export type PurchaseOrderPricePer = (typeof PURCHASE_ORDER_PRICE_PER)[number];
-/** What a shipping or discount line is called, and its unit, when the client leaves them empty. */
-export const PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS: Record<Exclude<PurchaseOrderLineKind, "article">, string> = {
-  shipping: "Port",
-  discount: "Remise",
+export {
+  PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS,
+  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
+  PURCHASE_ORDER_DELIVERY_MODES,
+  PURCHASE_ORDER_IMPUTATIONS,
+  PURCHASE_ORDER_LINE_KINDS,
+  PURCHASE_ORDER_PRICE_PER,
+  type PurchaseOrderLineKind,
+  type PurchaseOrderPricePer,
 };
-export const PURCHASE_ORDER_AMOUNT_LINE_UNIT = "forfait";
-export const PURCHASE_ORDER_IMPUTATIONS = ["project", "overhead"] as const;
 
 const pricePerSchema = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
 
@@ -167,8 +176,6 @@ export const purchaseOrderItemHistorySchema = z.object({
 export type PurchaseOrderLineInput = z.infer<typeof purchaseOrderLineSchema>;
 
 const orderLookupSchema = z.object({ id: z.string().uuid(), name: z.string() });
-/** TI-691: how an order made from a material request is delivered (the request's delivery place). */
-export const PURCHASE_ORDER_DELIVERY_MODES = ["site", "office", "counter"] as const;
 
 export const purchaseOrderDocumentHeaderSchema = z.object({
   id: z.string().uuid(), reference: z.string(), created_at: z.string(),
