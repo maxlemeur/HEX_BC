@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { TakeoffDpgfComparisonRow } from "@/lib/takeoff/types";
 
+import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
+
 import { buildRowsCsv, getDecisionImpactText, measuredQuantityLabel, retainedRoundingNote } from "./utils";
 
 // TI-696 (Codex review of PR 288): a DPGF line other takeoffs feed holds their sum. Every figure the review states for
@@ -93,9 +95,21 @@ describe("the quantity a review states for a DPGF line", () => {
     // Not linked (or not comparable): the line keeps the other takeoffs' 12 above its reference of 5.
     expect(getDecisionImpactText("keep_dpgf", row({ unit: "u", reference: 5, measured: null, earlier: 12, deltaPercent: 0 })))
       .toBe("Quantité retenue : 12 u");
-    // Decided out of scope: this takeoff's 10 does not enter it.
-    expect(getDecisionImpactText("keep_dpgf", row({ unit: "u", reference: 5, measured: 10, earlier: 12, deltaPercent: 340, outOfScope: true })))
-      .toBe("Quantité retenue : 12 u");
+    // Decided out of scope: this takeoff's 10 does not enter it (« Quantité proposée pour chiffrer »).
+    expect(dpgfRowRetainedQuantity(row({ unit: "u", reference: 5, measured: 10, earlier: 12, deltaPercent: 340, outOfScope: true }))).toBe(12);
+  });
+
+  it("follows the decision being chosen, not the one saved", () => {
+    // Saved out of scope; « Conserver métré » chosen now: once saved, the line is fed again and written 22.
+    const outOfScope = row({ unit: "u", reference: 5, measured: 10, earlier: 12, deltaPercent: 340, outOfScope: true });
+    expect(getDecisionImpactText("keep_takeoff", outOfScope)).toBe("Quantité retenue : 22 u (+340.0%)");
+  });
+
+  it("states the decimals the line is written with", () => {
+    // 1.2004 km, rounded up once to the metre: 1.201 km.
+    const kilometres = row({ unit: "km", reference: 1, measured: 1.2004, deltaPercent: 20, lengthFactor: 1000 });
+    expect([getDecisionImpactText("keep_takeoff", kilometres), retainedRoundingNote(kilometres)])
+      .toEqual(["Quantité retenue : 1,201 km (+20.0%)", "Longueur arrondie une fois à l’unité supérieure (1,2004 avant arrondi)."]);
   });
 
   it("exports the quantity retained as the database holds it, to four decimals", () => {

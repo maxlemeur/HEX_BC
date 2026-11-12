@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { excludeDpgfOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
+import { excludeDpgfOutOfScope, readAgainLeavingOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/types";
 
 // TI-696 (Codex review of PR 288): the DPGF reconciliation leaves out of a line's total the earlier parts of the pages
@@ -38,5 +38,28 @@ describe("the lines the application leaves out", () => {
     const input = context();
     excludeDpgfOutOfScope(preview([]), input as never);
     expect([...input.comparisonInput.readAgainItemIds]).toEqual([earlierOnPageOne]);
+  });
+});
+
+describe("the pages a review reads again (TI-696)", () => {
+  // Page 1's only line is linked to a DPGF line decided out of scope: the mapping plan skips it at the application, so the
+  // review does not read page 1 again either, and the earlier part on it stays in the totals it states.
+  it("leaves out the lines of a row decided out of scope", () => {
+    const target = id(300);
+    const input = { comparisonInput: { versionId: id(1), jobId: id(2), manualLinks: [],
+      dpgfLines: [{ estimate_item_id: target, title: "Regard de visite", description: null, quantity: 1, unit: "u", source_page: 1,
+        source_file_name: "dpgf.xlsx", position: 1 }],
+      takeoffLines: [{ item_id: onPageOne, designation: "Regard de visite", quantity: 1, unit: "u", confidence: 0.9, source_page: 1,
+        source_file_name: "plan.pdf", evidence: null, metadata: {} }],
+      reviewDecisions: [{ id: id(500), tenant_id: id(3), version_id: id(1), takeoff_job_id: id(2), estimate_item_id: target,
+        decision: "out_of_scope", reason: "Hors lot (fictif)", review_reference: "ref", line_label: "Regard de visite", line_position: 1,
+        source_file_name: "dpgf.xlsx", source_page: 1, decided_at: "2026-11-12T08:00:00Z", updated_at: "2026-11-12T08:00:00Z",
+        decided_by: id(4), quantity_snapshot: {}, source: "current_version", carried_over_from_version_id: null,
+        carried_over_from_version_number: null }],
+      readAgainItemIds: new Set([earlierOnPageOne]) as ReadonlySet<string> },
+      readAgainItemIdsOf: (leftOut: ReadonlySet<string>) => new Set(leftOut.has(onPageOne) ? [] : [earlierOnPageOne]),
+    };
+    readAgainLeavingOutOfScope(input as never);
+    expect([...input.comparisonInput.readAgainItemIds]).toEqual([]);
   });
 });

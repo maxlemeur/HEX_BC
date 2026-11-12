@@ -36,14 +36,15 @@ export function getDecisionImpactText(
 ): string | null {
   if (!decision || !row) return null;
   const unit = row.quantity_unit ?? "";
-  // TI-696: what the application writes, the sum the line holds (dpgfRowRetainedQuantity), whatever the decision.
-  const retained = dpgfRowRetainedQuantity(row);
+  // TI-696: what the application writes once this decision is saved (it replaces the one saved: « out of scope » leaves
+  // the line unfed, any other feeds it), the sum the line holds, with the decimals it is written with.
+  const retained = dpgfRowRetainedQuantity({ ...row, applied_decision: { decision } });
   switch (decision) {
     case "keep_dpgf":
-      return `Quantité retenue : ${formatNumber(retained ?? row.dpgf_quantity)} ${unit}`.trim();
+      return `Quantité retenue : ${formatNumber(retained ?? row.dpgf_quantity, 4)} ${unit}`.trim();
     case "keep_takeoff":
       if (row.takeoff_quantity === null) return "Quantité métrée non consolidée";
-      return `Quantité retenue : ${formatNumber(retained ?? row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
+      return `Quantité retenue : ${formatNumber(retained ?? row.takeoff_quantity, 4)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
     case "manual_fix":
       return "Vous devrez saisir la quantité corrigée manuellement.";
     case "out_of_scope":
@@ -54,7 +55,7 @@ export function getDecisionImpactText(
 /** TI-696: the review's note when a length's rounding moves the quantity retained, else an empty text. */
 export function retainedRoundingNote(row: TakeoffDpgfComparisonRow) {
   const before = dpgfRowUnroundedQuantity(row);
-  return before === null ? "" : `Longueur arrondie une fois à l’unité supérieure (${formatNumber(before, 3)} avant arrondi).`;
+  return before === null ? "" : `Longueur arrondie une fois à l’unité supérieure (${formatNumber(before, 4)} avant arrondi).`;
 }
 
 /**

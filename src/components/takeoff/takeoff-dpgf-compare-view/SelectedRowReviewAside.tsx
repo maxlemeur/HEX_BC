@@ -192,7 +192,7 @@ export function SelectedRowReviewAside({
             <div className="rounded-2xl border border-border bg-surface-subtle p-4 sm:col-span-2">
               <p className="text-sm font-semibold">Quantité proposée pour chiffrer</p>
               <p className="mt-1 text-lg font-semibold">
-                {dpgfRowRetainedQuantity(selectedRow)?.toLocaleString("fr-FR", { maximumFractionDigits: 3 }) ?? "À confirmer"} {selectedRow.quantity_unit}
+                {dpgfRowRetainedQuantity(selectedRow)?.toLocaleString("fr-FR", { maximumFractionDigits: 4 }) ?? "À confirmer"} {selectedRow.quantity_unit}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Valeur supérieure retenue. Référence DPGF et métré conservés séparément. Vérification au-delà de 1 % d’écarts cumulés sur cette ligne.

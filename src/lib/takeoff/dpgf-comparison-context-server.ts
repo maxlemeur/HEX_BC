@@ -30,6 +30,7 @@ import {
 import { loadDpgfDecisionAncestors, resolveDpgfDecisionLineage } from "@/lib/takeoff/dpgf-decision-lineage-server";
 import { loadDpgfTargetCompositions } from "@/lib/takeoff/dpgf-composition-server";
 import { readTakeoffJobPageReading } from "@/lib/takeoff/page-contributions-server";
+import { readAgainLeavingOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 export type TakeoffDpgfComparisonAuth = Pick<
@@ -141,7 +142,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     .flatMap((result) => result.details?.partners ?? [])
     .map((partner) => ({ item_id: partner.item_id, job_id: partner.job_id, overlap_m: partner.overlap_m, resolved: partner.resolved }))]));
 
-  return {
+  const context = {
     supabase,
     tenantId,
     userId,
@@ -163,6 +164,9 @@ export async function loadTakeoffDpgfComparisonContext(input: {
       overlapPartners,
     },
   };
+  // TI-696: a row decided out of scope brings nothing of its page, at the review as at the application.
+  if (pageReading) readAgainLeavingOutOfScope(context);
+  return context;
 }
 
 export type TakeoffDpgfComparisonContext = Awaited<
