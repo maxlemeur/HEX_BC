@@ -62,11 +62,17 @@ type BuildTakeoffDpgfComparisonInput = {
    * `readAgainItemIds`. The same set when absent.
    */
   decisionReadAgainItemIds?: ReadonlySet<string>;
+  /**
+   * TI-696: for a DPGF line decided out of scope (its lines left out of `readAgainItemIds`, as the application skips
+   * them), the earlier lines read again were it fed: its totals, its status and the snapshot a decision records read it,
+   * so that changing the decision does not make the one just recorded stale.
+   */
+  readAgainIfFed?: ReadonlyMap<string, ReadonlySet<string>>;
   overlapPartners?: ReadonlyMap<string, ReadonlyArray<{ item_id: string; job_id: string; overlap_m: number; resolved: boolean }>>;
 };
 
 type CompositionContext = Pick<BuildTakeoffDpgfComparisonInput, "jobId" | "dpgfCompositions" | "readAgainItemIds" | "decisionReadAgainItemIds"
-  | "overlapPartners">;
+  | "readAgainIfFed" | "overlapPartners">;
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   quantityIdentity: QuantityIdentity;
@@ -621,14 +627,23 @@ function buildRow(input: {
   });
   // TI-682 D4: the line sums the measures it keeps. Its gap, its review status and the quantity a decision retains are
   // judged on that total; a decision goes stale when what the line keeps of the other takeoffs changes.
-  const composition = buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
-    input.composition);
+  // TI-696: judged as it would be fed (a row decided out of scope included), with what its line keeps unfed beside.
+  const fedRead = input.composition.readAgainIfFed?.get(input.dpgf.estimate_item_id);
+  const fedComposition = buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
+    fedRead ? { ...input.composition, readAgainItemIds: fedRead } : input.composition);
+  const unfedComposition = fedRead && fedComposition
+    ? buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity, input.composition) : null;
+  const composition = fedComposition && unfedComposition && (unfedComposition.row.earlier_quantity !== fedComposition.row.earlier_quantity
+    || unfedComposition.row.earlier_protective !== fedComposition.row.earlier_protective)
+    ? { ...fedComposition, row: { ...fedComposition.row, unfed_quantity: unfedComposition.row.earlier_quantity,
+      unfed_protective: unfedComposition.row.earlier_protective } }
+    : fedComposition;
   const totalQuantity = aggregatedMetrics.quantity === null ? null : composition?.row.total_quantity ?? aggregatedMetrics.quantity;
   // A decision is current against the pages the review reads again, where it was recorded (TI-696).
   const decisionComposition = input.composition.decisionReadAgainItemIds
     && input.composition.decisionReadAgainItemIds !== input.composition.readAgainItemIds
     ? buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
-      { ...input.composition, readAgainItemIds: input.composition.decisionReadAgainItemIds })
+      { ...input.composition, readAgainItemIds: fedRead ?? input.composition.decisionReadAgainItemIds })
     : composition;
   const snapshot = dpgfReviewQuantitySnapshot({ dpgf_quantity: input.dpgf.quantity, dpgf: input.dpgf,
     linked_takeoff_items: input.linkedTakeoffItems, composition: decisionComposition?.row ?? null });

@@ -16,7 +16,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const LENGTHS: Record<string, number> = { m: 1, ml: 1, cm: 0.01, mm: 0.001 };
 
 function row(input: { unit: string; reference: number; measured: number | null; earlier?: number; earlierProtective?: number;
-  deltaPercent: number; lengthFactor?: number | null; sourceUnit?: string | null; outOfScope?: boolean }): TakeoffDpgfComparisonRow {
+  deltaPercent: number; lengthFactor?: number | null; sourceUnit?: string | null; outOfScope?: boolean; unfed?: number }): TakeoffDpgfComparisonRow {
   const total = Number(((input.measured ?? 0) + (input.earlier ?? 0)).toFixed(4));
   return {
     line_id: id(1), line_label: "Ligne fictive",
@@ -39,7 +39,7 @@ function row(input: { unit: string; reference: number; measured: number | null; 
       earlier: [{ job_id: id(9), job_created_at: "2026-11-10T09:00:00Z", job_level: "B", quantity: input.earlier, read_again: false,
         pages: [{ source_file_name: "plan.pdf", source_page: 1, quantity: input.earlier }] }],
       earlier_quantity: input.earlier, earlier_protective: input.earlierProtective ?? 0, earlier_printed_gap: 0, total_quantity: total,
-      double_counted: [] } }),
+      double_counted: [], ...(input.unfed === undefined ? {} : { unfed_quantity: input.unfed, unfed_protective: 0 }) } }),
   };
 }
 
@@ -103,6 +103,14 @@ describe("the quantity a review states for a DPGF line", () => {
     // Saved out of scope; « Conserver métré » chosen now: once saved, the line is fed again and written 22.
     const outOfScope = row({ unit: "u", reference: 5, measured: 10, earlier: 12, deltaPercent: 340, outOfScope: true });
     expect(getDecisionImpactText("keep_takeoff", outOfScope)).toBe("Quantité retenue : 22 u (+340.0%)");
+  });
+
+  it("reads, on a row decided out of scope, what its line keeps unfed and what it would hold fed", () => {
+    // This takeoff's only line on the page of another takeoff's 12 is this row's: unfed, the page is not read again (12
+    // stays); fed, it is (12 leaves), and the line holds max(5, 10).
+    const outOfScope = row({ unit: "u", reference: 5, measured: 10, earlier: 0, unfed: 12, deltaPercent: 100, outOfScope: true });
+    expect([dpgfRowRetainedQuantity(outOfScope), getDecisionImpactText("keep_takeoff", outOfScope)])
+      .toEqual([12, "Quantité retenue : 10 u (+100.0%)"]);
   });
 
   it("states the decimals the line is written with", () => {

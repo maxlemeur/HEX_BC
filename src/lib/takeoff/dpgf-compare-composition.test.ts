@@ -103,6 +103,25 @@ describe("the reconciliation of a DPGF line other takeoffs feed", () => {
     expect([excluded.composition?.total_quantity, excluded.applied_decision]).toEqual([28, null]);
   });
 
+  it("judges a row decided out of scope as it would be fed, and states what its line keeps unfed (TI-696)", () => {
+    // Reference 5. Another takeoff's 12 on page 1; this takeoff's only line on page 1 (10) is this row's, decided out of
+    // scope: the application skips it, so page 1 is not read again and the line keeps 12. Fed, its line would read page 1
+    // again and the line would hold 10.
+    const decided = (decision: "out_of_scope" | "keep_takeoff", n: number, snapshot: Record<string, unknown>) => ({ id: id(n), tenant_id: id(2),
+      version_id: versionId, takeoff_job_id: jobTwo, estimate_item_id: target, decision, reason: "Décision fictive", review_reference: "ref",
+      line_label: "EF cuivre DN 22", line_position: 1, source_file_name: "dpgf-fictif.xlsx", source_page: 1, decided_at: "2026-11-12T08:00:00Z",
+      updated_at: "2026-11-12T08:00:00Z", decided_by: id(1), quantity_snapshot: snapshot, source: "current_version",
+      carried_over_from_version_id: null, carried_over_from_version_number: null }) as TakeoffDpgfReviewDecisionRecord;
+    const [unfed] = computeTakeoffDpgfRows({ ...input({ reference: 5, current: [takeoffLine(201, 10, 1)], earlier: [part(101, 12)], readAgain: [],
+      decision: decided("out_of_scope", 502, {}) }), readAgainIfFed: new Map([[target, new Set([id(101)])]]) }).rows;
+    expect([unfed.composition?.total_quantity, unfed.composition?.unfed_quantity]).toEqual([10, 12]);
+    // « Conserver métré » recorded on it, with the snapshot it reads there; once saved, its line reads page 1 again.
+    const kept = decided("keep_takeoff", 503, dpgfReviewQuantitySnapshot(unfed));
+    const [fed] = computeTakeoffDpgfRows(input({ reference: 5, current: [takeoffLine(201, 10, 1)], earlier: [part(101, 12)],
+      readAgain: [id(101)], decision: kept })).rows;
+    expect([fed.applied_decision?.id, fed.composition?.total_quantity, fed.composition?.unfed_quantity]).toEqual([id(503), 10, undefined]);
+  });
+
   it("shows a count fed by two takeoffs with its composition, whatever the unit", () => {
     const [row] = computeTakeoffDpgfRows(input({ reference: 7, title: "WC suspendu", unit: "u",
       current: [takeoffLine(201, 3, 2, "WC suspendu", "u")], earlier: [part(101, 4)] })).rows;

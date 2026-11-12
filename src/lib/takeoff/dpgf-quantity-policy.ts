@@ -58,23 +58,29 @@ function rowLengthFactor(row: ReviewedRow) {
  * maximum with its reference), or its DPGF reference when no other takeoff feeds it. Every figure the review states as
  * retained reads it.
  */
-export function dpgfRowRetainedQuantity(row: ReviewedRow) {
-  const factor = rowLengthFactor(row);
+/** Before a length's rounding: fed, the protective maximum on the total; unfed, what the line keeps with its reference. */
+function rowUnrounded(row: ReviewedRow) {
   const fed = row.linked_takeoff_items.length > 0 && row.applied_decision?.decision !== "out_of_scope";
   const policy = fed ? dpgfRowQuantityPolicy(row) : null;
-  if (policy) return roundedMeasure(round4(policy.priced), factor);
+  if (policy) return round4(policy.priced);
   if (fed && row.takeoff_quantity === null && !row.composition) return null;
   if (row.composition) {
-    return roundedMeasure(round4(Math.max(row.dpgf_quantity ?? 0, row.composition.earlier_quantity + row.composition.earlier_protective)), factor);
+    const kept = (row.composition.unfed_quantity ?? row.composition.earlier_quantity)
+      + (row.composition.unfed_protective ?? row.composition.earlier_protective);
+    return round4(Math.max(row.dpgf_quantity ?? 0, kept));
   }
-  return row.dpgf_quantity;
+  return undefined;
+}
+
+export function dpgfRowRetainedQuantity(row: ReviewedRow) {
+  const before = rowUnrounded(row);
+  if (before === undefined) return row.dpgf_quantity;
+  return before === null ? null : roundedMeasure(before, rowLengthFactor(row));
 }
 
 /** TI-696: the value before a length's rounding, when rounding moves it (the review says so); null otherwise. */
 export function dpgfRowUnroundedQuantity(row: ReviewedRow) {
+  const before = rowUnrounded(row);
   const retained = dpgfRowRetainedQuantity(row);
-  const policy = row.linked_takeoff_items.length > 0 && row.applied_decision?.decision !== "out_of_scope" ? dpgfRowQuantityPolicy(row) : null;
-  const before = policy ? round4(policy.priced) : row.composition
-    ? round4(Math.max(row.dpgf_quantity ?? 0, row.composition.earlier_quantity + row.composition.earlier_protective)) : null;
-  return retained !== null && before !== null && retained !== before ? before : null;
+  return typeof before === "number" && retained !== null && retained !== before ? before : null;
 }

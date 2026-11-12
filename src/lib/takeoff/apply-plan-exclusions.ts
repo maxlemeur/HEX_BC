@@ -10,29 +10,40 @@ type ComparisonContext = {
   readAgainItemIdsOf?: (leftOut: ReadonlySet<string>) => ReadonlySet<string>;
 };
 
+/** The lines of each row the reconciliation decided out of scope (an out-of-scope decision stands whatever the totals). */
+function outOfScopeLinesByRow(comparisonContext: ComparisonContext) {
+  return new Map(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
+    .filter(row => row.applied_decision?.decision === "out_of_scope")
+    .map(row => [row.line_id, new Set(row.linked_takeoff_items.map(item => item.item_id))] as const));
+}
+
+function outOfScopeItemIds(comparisonContext: ComparisonContext) {
+  return new Set([...outOfScopeLinesByRow(comparisonContext).values()].flatMap(ids => [...ids]));
+}
+
+/**
+ * TI-696: at the review, the pages read again by the lines the application would bring: the lines of every row decided
+ * out of scope are left out, as the mapping plan skips them at the application (its other exclusions are known only
+ * there). Each such row is judged as it would be fed (`readAgainIfFed`: its own lines back), so that a decision changed
+ * from « hors périmètre » stays current once saved. Nothing changes without an out-of-scope decision. Mutates the input.
+ */
+export function readAgainLeavingOutOfScope(comparisonContext: ComparisonContext) {
+  const readAgainOf = comparisonContext.readAgainItemIdsOf;
+  const input = comparisonContext.comparisonInput;
+  if (!readAgainOf || ![...(input.reviewDecisions ?? []), ...(input.carriedReviewDecisions?.values() ?? [])]
+    .some(decision => decision.decision === "out_of_scope")) return;
+  const byRow = outOfScopeLinesByRow(comparisonContext);
+  if (byRow.size === 0) return;
+  const all = new Set([...byRow.values()].flatMap(ids => [...ids]));
+  input.readAgainItemIds = readAgainOf(all);
+  input.readAgainIfFed = new Map([...byRow].map(([lineId, ids]) => [lineId, readAgainOf(new Set([...all].filter(id => !ids.has(id))))]));
+}
+
 /**
  * On a DPGF version, the lines of a row the reconciliation decided out of scope are skipped by the mapping plan, and the
  * lines the plan skips or folds into an assembly leave the reconciliation, and read no page again. Mutates both, as the
  * application always did.
  */
-/** The lines of the rows the reconciliation decided out of scope (an out-of-scope decision stands whatever the totals). */
-function outOfScopeItemIds(comparisonContext: ComparisonContext) {
-  return new Set(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
-    .filter(row => row.applied_decision?.decision === "out_of_scope")
-    .flatMap(row => row.linked_takeoff_items.map(item => item.item_id)));
-}
-
-/**
- * TI-696: at the review, the pages read again by the lines the application would bring: the lines of a row decided out of
- * scope are left out, as the mapping plan skips them at the application (the plan's other exclusions are known only
- * there). Mutates the comparison input.
- */
-export function readAgainLeavingOutOfScope(comparisonContext: ComparisonContext) {
-  if (!comparisonContext.readAgainItemIdsOf) return;
-  const outOfScope = outOfScopeItemIds(comparisonContext);
-  if (outOfScope.size > 0) comparisonContext.comparisonInput.readAgainItemIds = comparisonContext.readAgainItemIdsOf(outOfScope);
-}
-
 export function excludeDpgfOutOfScope(mappingPreview: TakeoffPreviewConversionResponse, comparisonContext: ComparisonContext | null) {
   if (!comparisonContext) return;
   const outOfScope = outOfScopeItemIds(comparisonContext);
@@ -46,6 +57,8 @@ export function excludeDpgfOutOfScope(mappingPreview: TakeoffPreviewConversionRe
     const input = comparisonContext.comparisonInput;
     input.decisionReadAgainItemIds = input.decisionReadAgainItemIds ?? input.readAgainItemIds ?? new Set<string>();
     input.readAgainItemIds = comparisonContext.readAgainItemIdsOf(excluded);
+    // At the application an out-of-scope row is not fed: no view of it fed (its decision stands whatever the totals).
+    input.readAgainIfFed = undefined;
   }
 }
 

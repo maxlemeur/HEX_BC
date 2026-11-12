@@ -88,6 +88,12 @@ export const takeoffDpgfCompositionSchema = z.object({
   earlier_printed_gap: quantity,
   total_quantity: quantity,
   double_counted: z.array(z.object({ item_id: uuid, partner_item_id: uuid, partner_job_id: uuid, overlap_m: quantity })),
+  /**
+   * TI-696: on a row decided out of scope, what the line keeps of the other takeoffs while this one does not feed it (its
+   * lines skipped, they read no page again); the fields above are what it would hold fed. Absent when both are the same.
+   */
+  unfed_quantity: quantity.optional(),
+  unfed_protective: quantity.optional(),
 });
 
 export const takeoffDpgfComparisonRowSchema = z.object({

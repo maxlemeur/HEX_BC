@@ -60,6 +60,7 @@ describe("the pages a review reads again (TI-696)", () => {
       readAgainItemIdsOf: (leftOut: ReadonlySet<string>) => new Set(leftOut.has(onPageOne) ? [] : [earlierOnPageOne]),
     };
     readAgainLeavingOutOfScope(input as never);
-    expect([...input.comparisonInput.readAgainItemIds]).toEqual([]);
+    const read = input.comparisonInput as typeof input.comparisonInput & { readAgainIfFed?: ReadonlyMap<string, ReadonlySet<string>> };
+    expect([[...read.readAgainItemIds], [...(read.readAgainIfFed?.get(target) ?? [])]]).toEqual([[], [earlierOnPageOne]]);
   });
 });
