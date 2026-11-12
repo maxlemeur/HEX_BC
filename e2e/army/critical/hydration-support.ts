@@ -49,5 +49,42 @@ export async function signIn(ui: Ui, origin: string, email: string) {
   await ui.screen.getByLabel("Email", { exact: true }).fill(account.username);
   await ui.screen.getByLabel(/Mot de passe/).fill(account.password);
   await ui.screen.getByRole("button", "Se connecter", { exact: true }).tap();
-  await expect(ui.browser).toHaveURL(/\/dashboard/);
+  try {
+    await expect(ui.browser).toHaveURL(/\/dashboard/);
+  } catch (error) {
+    throw new Error(`The sign-in did not reach the dashboard: ${JSON.stringify(await readStalledNavigation(ui.browser))}.`, { cause: error });
+  }
+}
+
+/**
+ * What the page is doing when a sign-in stays on /login. LOCAL03 stayed there twice on its development server
+ * (runs 43102369999 and 43158298104) after that server had answered /dashboard, the form still filled and Next's
+ * indicator on « Rendering… », and nothing retained said why; 150 sign-ins in a row on an owned development server
+ * did not reproduce it. Three readings tell the cases apart: the lanes React still has to render and those it
+ * waits on, whether its scheduler keeps posting tasks (a render that never settles posts hundreds in half a
+ * second), and which requests of the sign-in the browser has finished. Paths only: a query may carry a token.
+ */
+async function readStalledNavigation(browser: Browser) {
+  return browser.evaluate(async () => {
+    const host: Element = document.querySelector("main") ?? document.body;
+    const key = Object.keys(host).find((name) => name.startsWith("__reactFiber$"));
+    let fiber = key ? (host as unknown as Record<string, { return: unknown; stateNode: unknown } | undefined>)[key] : undefined;
+    while (fiber?.return) fiber = fiber.return as typeof fiber;
+    const root = fiber?.stateNode as Record<string, unknown> | undefined;
+    const lanes = root ? Object.fromEntries(["pendingLanes", "suspendedLanes", "pingedLanes", "expiredLanes"]
+      .map((name) => [name, Number(root[name]).toString(2)])) : null;
+    let schedulerTasks = 0;
+    const post = MessagePort.prototype.postMessage as (this: MessagePort, ...args: unknown[]) => void;
+    MessagePort.prototype.postMessage = function (this: MessagePort, ...args: unknown[]) {
+      schedulerTasks += 1;
+      post.apply(this, args);
+    } as typeof MessagePort.prototype.postMessage;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    MessagePort.prototype.postMessage = post as typeof MessagePort.prototype.postMessage;
+    const requests = (performance.getEntriesByType("resource") as PerformanceResourceTiming[])
+      .map((entry) => ({ entry, url: new URL(entry.name) }))
+      .filter(({ url }) => url.pathname.startsWith("/dashboard") || url.pathname.startsWith("/auth/v1/"))
+      .map(({ entry, url }) => `${url.pathname}${url.searchParams.has("_rsc") ? " (RSC)" : ""} ${Math.round(entry.startTime)}-${Math.round(entry.responseEnd)} ms, status ${entry.responseStatus}`);
+    return { path: location.pathname, now: Math.round(performance.now()), lanes, schedulerTasksInHalfASecond: schedulerTasks, requests };
+  });
 }
