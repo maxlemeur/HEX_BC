@@ -34,10 +34,12 @@
 --    doubt and the duplicate acknowledgement stay editable. There is no way back in this delivery: no reopening of a
 --    retained quote, no unpricing of a line (only the quote's deletion by the service role clears it).
 --    private.enforce_material_request_line_write() is copied from 20261112152357_purchase_line_suppliers.sql; only the
---    price block and the freeze of a priced line are new.
+--    price block (with the presumed material the retaining writes) and the freeze of a priced line are new.
 -- 4. public.retain_material_request_quote(uuid), SECURITY INVOKER, one transaction: the quote received, every line
 --    priced, none already retained (coded refusals, positions in DETAIL); it becomes retained, its lines take its
---    supplier, price and id, and every other requested or received quote of the request sharing a line is closed.
+--    supplier, price and id, a project line without its own material takes the request's presumed material (which must
+--    be confirmed: the quote was asked in it, and the freeze of a priced line then keeps it), and every other
+--    requested or received quote of the request sharing a line is closed.
 --    The same marker lets only this function set a quote retained. public.create_material_request_quote and
 --    public.update_material_request_quote write a quote with its lines in one statement each (all or nothing), as
 --    the caller.
@@ -330,6 +332,8 @@ returns trigger language plpgsql security invoker set search_path = '' as $$
 declare
   parent record;
   presumed record;
+  -- The retaining writes the request's presumed material on a project line that had none (see below).
+  materialized boolean := false;
 begin
   if tg_op = 'INSERT' then
     select request.tenant_id, request.project_id into parent
@@ -410,6 +414,11 @@ begin
       or pg_catalog.current_setting('app.material_request_quote_retaining', true) is distinct from new.price_quote_id::text
     then
       raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_LINE_PRICE_FROM_QUOTE_ONLY';
+    else
+      -- The retaining itself. A project line without its own material was consulted and validated in the request's
+      -- confirmed presumed material, which the retaining now writes on it: that is not an edit of what it says.
+      materialized := old.imputation = 'project' and btrim(coalesce(old.material, '')) = ''
+        and new.material is distinct from old.material;
     end if;
   elsif old.price_quote_id is not null and new.supplier_id is distinct from old.supplier_id then
     raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE';
@@ -437,7 +446,8 @@ begin
   -- its link, not what it says, and it only changes with product_id, which is compared.
   if tg_op = 'UPDATE' and old.status = 'validated' and new.status = 'validated' and pg_trigger_depth() = 1 and (
     (new.original_text, new.quantity, new.quantity_doubtful, new.unit, new.dimension, new.no_dimension,
-      new.product_type, new.material, new.material_precision, new.reference, new.zone,
+      new.product_type, case when materialized then old.material else new.material end, new.material_precision,
+      new.reference, new.zone,
       new.imputation, new.overhead_category, new.product_id, new.product_match)
     is distinct from
     (old.original_text, old.quantity, old.quantity_doubtful, old.unit, old.dimension, old.no_dimension,
@@ -856,7 +866,11 @@ comment on function public.update_material_request_quote(uuid, jsonb) is
 --     retained quote (coded refusals; DETAIL holds the positions of the lines concerned, as a JSON array);
 --  3. it becomes retained (dated and signed by the database);
 --  4. its lines, locked in id order, take its supplier, their price and the quantity it is for, and the quote's id; a
---     validated line stays validated;
+--     project line without a material of its own was consulted, and validated, in the request's presumed material:
+--     it takes that material, which must be confirmed now (MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED, DETAIL: the
+--     positions), so that the price stays tied to it once the freeze of a priced line holds it (a later change of the
+--     header's material no longer reaches the line); an overhead line is not touched; a validated line stays
+--     validated. The request row is shared-locked before the lines, against a change of that material meanwhile;
 --  5. every other requested or received quote of the request that shares a line with it is closed.
 -- Answers the quotes closed in step 5.
 create function public.retain_material_request_quote(p_quote_id uuid)
@@ -867,6 +881,7 @@ set search_path = ''
 as $$
 declare
   target record;
+  presumed record;
   positions integer[];
   line_count integer;
   priced integer;
@@ -903,6 +918,10 @@ begin
       detail = pg_catalog.array_to_json(positions)::text;
   end if;
 
+  -- The request first (as a validation of its lines does, and before them, like a change of its header): its
+  -- presumed material stays as read here until this retaining commits.
+  select request.presumed_material, request.material_confirmed into presumed
+  from public.material_requests request where request.id = target.request_id for share;
   perform 1 from public.material_request_lines line
   where line.id in (
     select quote_line.line_id from public.material_request_quote_lines quote_line where quote_line.quote_id = target.id
@@ -917,6 +936,16 @@ begin
     raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED',
       detail = pg_catalog.array_to_json(positions)::text;
   end if;
+  select pg_catalog.array_agg(line.position order by line.position) into positions
+  from public.material_request_quote_lines quote_line
+  join public.material_request_lines line on line.id = quote_line.line_id
+  where quote_line.quote_id = target.id and line.imputation = 'project' and pg_catalog.btrim(coalesce(line.material, '')) = '';
+  if positions is not null
+    and (pg_catalog.btrim(coalesce(presumed.presumed_material, '')) = '' or not coalesce(presumed.material_confirmed, false))
+  then
+    raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED',
+      detail = pg_catalog.array_to_json(positions)::text;
+  end if;
 
   perform pg_catalog.set_config('app.material_request_quote_retaining', target.id::text, true);
   update public.material_request_quotes q set status = 'retained' where q.id = target.id;
@@ -924,7 +953,9 @@ begin
   set supplier_id = target.supplier_id,
       unit_price_ht_cents = quote_line.unit_price_ht_cents,
       price_per = quote_line.price_per,
-      price_quote_id = target.id
+      price_quote_id = target.id,
+      material = case when line.imputation = 'project' and pg_catalog.btrim(coalesce(line.material, '')) = ''
+        then presumed.presumed_material else line.material end
   from public.material_request_quote_lines quote_line
   where quote_line.quote_id = target.id and line.id = quote_line.line_id and line.price_quote_id is null;
   get diagnostics priced = row_count;
@@ -955,7 +986,7 @@ end;
 $$;
 
 comment on function public.retain_material_request_quote(uuid) is
-  'TI-691: retains a received quote whose lines are all priced, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, unit price and id (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED and _LINES_ALREADY_RETAINED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
+  'TI-691: retains a received quote whose lines are all priced, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, price, price quantity and id, and a project line without its own material takes the request''s confirmed presumed material (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED, _LINES_ALREADY_RETAINED and _MATERIAL_UNCONFIRMED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
 
 -- The first step of a request's deletion: every file of the request is withdrawn (hidden from every reader, no upload
 -- lands at its path any more), those of retained or closed quotes included, and their paths answered so that the

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Check, CheckCheck, Copy, FileText, Paperclip, Send, Users, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,7 @@ import {
   supplierAlreadyConsulted,
   useMaterialRequestQuotes,
   type MaterialRequestQuotesApi,
+  type QuotesStatus,
 } from "./useMaterialRequestQuotes";
 
 /*
@@ -78,18 +79,30 @@ function liveQuoteOf(quotes: readonly MaterialRequestQuote[], supplierId: string
   );
 }
 
-/** Where a supplier stands for these lines: asked for all of them, busy with others, or free to ask. */
-type SupplierConsultation = { sent: MaterialRequestQuote | null; busyElsewhere: boolean };
+/**
+ * Where a supplier stands for these lines: asked for all of them, busy with others, or free to ask. `unread`: the
+ * consultations already recorded are not read yet (or could not be): nothing may be recorded until they are, or a
+ * consultation recorded meanwhile elsewhere would be offered again.
+ */
+type SupplierConsultation = { sent: MaterialRequestQuote | null; busyElsewhere: boolean; unread: string | null };
+
+const QUOTES_UNREAD: Record<Exclude<QuotesStatus, "ready">, string> = {
+  loading: "Lecture des consultations déjà envoyées…",
+  error: "Les consultations déjà envoyées n’ont pas pu être lues : rechargez les devis plus bas.",
+};
 
 function consultationOf(
-  quotes: readonly MaterialRequestQuote[],
+  quotes: Pick<MaterialRequestQuotesApi, "items" | "status">,
   supplierId: string,
   lineIds: readonly string[],
 ): SupplierConsultation {
-  const live = liveQuoteOf(quotes, supplierId);
-  if (!live) return { sent: null, busyElsewhere: false };
+  const unread = quotes.status === "ready" ? null : QUOTES_UNREAD[quotes.status];
+  const live = liveQuoteOf(quotes.items, supplierId);
+  if (!live) return { sent: null, busyElsewhere: false, unread };
   const asked = new Set(live.lines.map((line) => line.line_id));
-  return lineIds.every((id) => asked.has(id)) ? { sent: live, busyElsewhere: false } : { sent: null, busyElsewhere: true };
+  return lineIds.every((id) => asked.has(id))
+    ? { sent: live, busyElsewhere: false, unread }
+    : { sent: null, busyElsewhere: true, unread };
 }
 
 /** Where a supplier's consultation stands, in one sentence. */
@@ -118,7 +131,20 @@ function quoteDates(quote: MaterialRequestQuote): string {
 }
 
 /** Why « Retenir ce devis » is not offered yet; null when it is. */
-function retainBlocker(quote: MaterialRequestQuote, refusedPrices: number): string | null {
+/** « Le prix de la ligne 2 n’est pas lisible. », « Les prix des lignes 1 et 3 ne sont pas lisibles. » */
+function unreadableSentence(positions: readonly number[]): string {
+  if (positions.length === 1) return `Le prix de la ligne ${positions[0]} n’est pas lisible.`;
+  const named = `${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`;
+  return `Les prix des lignes ${named} ne sont pas lisibles.`;
+}
+
+function retainBlocker(
+  quote: MaterialRequestQuote,
+  refusedPrices: number,
+  unreadablePositions: readonly number[],
+): string | null {
+  // What the fields show comes first: a retain applies the saved prices, never a text that cannot be read.
+  if (unreadablePositions.length > 0) return unreadableSentence(unreadablePositions);
   if (refusedPrices > 0) return QUOTE_PRICE_HELD;
   const unpriced = quote.lines.filter((line) => line.unit_price_ht_cents === null).length;
   const missing = unpriced === 1 ? "il en manque 1" : `il en manque ${unpriced}`;
@@ -184,6 +210,7 @@ function MessageBlock({
   consultation: SupplierConsultation;
   onSend: (message: string) => Promise<SaveResult>;
 }>) {
+  const unreadId = useId();
   const { stateFor, copyText } = useCopy();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,7 +251,9 @@ function MessageBlock({
             type="button"
             size="sm"
             loading={busy}
+            disabled={consultation.unread !== null}
             aria-label={`Consultation envoyée à ${supplierName}`}
+            aria-describedby={consultation.unread ? unreadId : undefined}
             onClick={() => void send()}
           >
             <Send aria-hidden="true" />
@@ -232,6 +261,11 @@ function MessageBlock({
           </Button>
         )}
       </div>
+      {consultation.unread && !consultation.sent && !consultation.busyElsewhere ? (
+        <p id={unreadId} className="text-xs text-muted-foreground">
+          {consultation.unread}
+        </p>
+      ) : null}
       {consultation.busyElsewhere ? (
         <p className="text-sm text-foreground">{supplierAlreadyConsulted(supplierName, true)}</p>
       ) : null}
@@ -293,7 +327,7 @@ function CompetitionPanel({
   /** Lines whose only words would leak a reference, or name nothing: a type is needed before competing. */
   needType: readonly MaterialRequestLine[];
   options: readonly MaterialRequestSupplierOption[];
-  quotes: readonly MaterialRequestQuote[];
+  quotes: Pick<MaterialRequestQuotesApi, "items" | "status">;
   message: string;
   onSend: (supplierId: string, supplierName: string, message: string) => Promise<SaveResult>;
 }>) {
@@ -434,7 +468,7 @@ function SupplierGroupCard({
             <MessageBlock
               supplierName={group.supplierName}
               message={message(true)}
-              consultation={consultationOf(quotes.items, group.supplierId, lineIds)}
+              consultation={consultationOf(quotes, group.supplierId, lineIds)}
               onSend={(text) => send(group.supplierId, group.supplierName, true, text)}
             />
           ) : (
@@ -462,7 +496,7 @@ function SupplierGroupCard({
               lineIds={lineIds}
               needType={needType}
               options={data.supplierOptions}
-              quotes={quotes.items}
+              quotes={quotes}
               message={message(false)}
               onSend={(supplierId, supplierName, text) => send(supplierId, supplierName, false, text)}
             />
@@ -500,6 +534,7 @@ function CentsInput({
   value,
   onCommit,
   onAbandon,
+  onUnreadableChange,
 }: Readonly<{
   /** Given when a visible <label> points at the field; `label` stays its accessible name. */
   id?: string;
@@ -507,6 +542,8 @@ function CentsInput({
   value: number | null;
   onCommit: (next: number | null) => Promise<SaveResult>;
   onAbandon?: () => void;
+  /** Told whenever the field starts or stops showing text that cannot be read, and false when it goes away. */
+  onUnreadableChange?: (unreadable: boolean) => void;
 }>) {
   const messagesId = useId();
   const [draft, setDraft] = useState<string | null>(null);
@@ -514,6 +551,11 @@ function CentsInput({
   const writes = usePendingWrites<number | null>(value);
   const unreadable = draft !== null && readCents(draft) === undefined;
   const shownError = unreadable ? AMOUNT_UNREADABLE : error;
+
+  useEffect(() => {
+    onUnreadableChange?.(unreadable);
+  }, [onUnreadableChange, unreadable]);
+  useEffect(() => () => onUnreadableChange?.(false), [onUnreadableChange]);
 
   const commit = async () => {
     if (draft === null) return;
@@ -696,6 +738,11 @@ function QuotePriceEntry({
   const [error, setError] = useState<string | null>(null);
   const per = choice ?? stored;
   const supplier = quote.supplier_name;
+  const { setPriceUnreadable } = quotes;
+  const reportUnreadable = useCallback(
+    (unreadable: boolean) => setPriceUnreadable(quote.id, entry.line_id, unreadable),
+    [entry.line_id, quote.id, setPriceUnreadable],
+  );
 
   const choose = async (next: MaterialRequestPricePer) => {
     if (next === stored && error) {
@@ -730,6 +777,7 @@ function QuotePriceEntry({
               return result;
             }}
             onAbandon={() => quotes.forgetPriceFailure(quote.id, entry.line_id)}
+            onUnreadableChange={reportUnreadable}
           />
         </div>
         <NativeSelect
@@ -769,7 +817,13 @@ function QuoteCard({
   const [error, setError] = useState<string | null>(null);
   const editable = editor.canWrite && (quote.status === "requested" || quote.status === "received");
   const linesById = new Map(editor.data.lines.map((line) => [line.id, line]));
-  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id));
+  const unreadable = new Set(quotes.unreadablePrices(quote.id));
+  const unreadablePositions = quote.lines
+    .filter((entry) => unreadable.has(entry.line_id))
+    .map((entry) => linesById.get(entry.line_id)?.position)
+    .filter((position): position is number => position !== undefined)
+    .sort((left, right) => left - right);
+  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadablePositions);
   const amounts = quote.lines.map((entry) =>
     lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per),
   );

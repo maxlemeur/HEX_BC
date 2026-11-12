@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,6 +46,12 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  *     reason is said in code words;
  * 14. a sub-cent price (0,034 €) cannot be entered, or is entered for 1 unit when the supplier gave it for 100, or a
  *     total multiplies the price for 100 by the quantity.
+ * Review of PR #279:
+ * 15. a saved price replaced by text that cannot be read (« 12,505 ») leaves « Retenir ce devis » offered: the
+ *     retain would apply the saved price while the field shows another one;
+ * 16. the first read of the quotes answers after a consultation was recorded and erases it from the screen, which
+ *     then offers « Consultation envoyée » again; or « Consultation envoyée » is offered before the screen knows
+ *     which consultations exist.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -59,6 +65,8 @@ vi.mock("@/lib/supabase/client", () => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
 
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
+import type { MaterialRequestEditorApi } from "@/components/material-requests/useMaterialRequestEditor";
+import { useMaterialRequestQuotes } from "@/components/material-requests/useMaterialRequestQuotes";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "22222222-2222-4222-8222-222222222222";
@@ -613,6 +621,110 @@ describe("consultation of suppliers", () => {
     await waitFor(() => expect(writes()).toHaveLength(3));
     expect(writes()[2].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 10 }] });
     expect(await within(card).findByText(`Total des lignes : ${euros(2500 + 14)} HT`)).toBeVisible();
+  });
+
+  it("holds « Retenir ce devis » while a price on screen cannot be read, until it is corrected or given up (15)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const retain = await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const first = screen.getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const second = screen.getByRole("textbox", { name: "Prix unitaire HT, ligne 2, Négoce Alpha" });
+    expect(retain).toBeEnabled();
+
+    await user.clear(first);
+    await user.type(first, "12,505");
+    await user.tab();
+    expect(retain).toBeDisabled();
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 1 n’est pas lisible.");
+    expect(writes()).toEqual([]);
+
+    // Corrected: saved, and the quote may be retained on what the field shows.
+    await user.clear(first);
+    await user.type(first, "12,60");
+    await user.tab();
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(writes()).toEqual([
+      { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 1260, price_per: 1 }] } },
+    ]);
+
+    // Given up: Escape shows the saved price again, which is the one a retain applies.
+    await user.clear(second);
+    await user.type(second, "4,0x");
+    expect(retain).toBeDisabled();
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 2 n’est pas lisible.");
+    await user.keyboard("{Escape}");
+    expect(second).toHaveValue("4,00");
+    expect(retain).toBeEnabled();
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("offers « Consultation envoyée » only once the consultations already recorded are read (16)", async () => {
+    let answer!: (reply: Reply) => void;
+    await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: () => new Promise<Reply>((resolve) => (answer = resolve)),
+    });
+
+    const send = await screen.findByRole("button", { name: "Consultation envoyée à Négoce Alpha" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription("Lecture des consultations déjà envoyées…");
+
+    // Recorded meanwhile, from another tab: once read, the screen shows it instead of offering it again.
+    answer({ data: { items: [quote({ lines: [{ line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 }] })] } });
+    expect(await screen.findByText("Consultation envoyée le 12/11/2026.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Consultation envoyée à Négoce Alpha" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a consultation just recorded when the first read of the quotes answers after it (16)", async () => {
+    let answer!: (reply: Reply) => void;
+    mockApi({
+      [`GET ${QUOTES}`]: () => new Promise<Reply>((resolve) => (answer = resolve)),
+      [`POST ${QUOTES}`]: { status: 201, data: { item: quote() } },
+    });
+    // The editor's queue of writes, as it runs them: one after the other, in the order they were asked.
+    let tail: Promise<unknown> = Promise.resolve();
+    const queueWrite = <T,>(call: () => Promise<T>): Promise<T> => {
+      const next = tail.then(call, call);
+      tail = next.catch(() => undefined);
+      return next;
+    };
+    const editor = { projectId: PROJECT_ID, requestId: REQUEST_ID, queueWrite, mergeServerLines: vi.fn() };
+    const { result } = renderHook(() => useMaterialRequestQuotes(editor as unknown as MaterialRequestEditorApi));
+
+    let created!: Promise<unknown>;
+    act(() => {
+      created = result.current.createQuote(
+        { supplier_id: ALPHA, line_ids: [LINE_A, LINE_B], with_references: true, message: "Bonjour" },
+        "Négoce Alpha",
+      );
+    });
+    // The read started first answers last, without the quote it could not know about.
+    await waitFor(() => expect(answer).toBeTypeOf("function"));
+    await act(async () => answer({ data: { items: [] } }));
+    await act(async () => {
+      await created;
+    });
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.items.map((item) => item.id)).toEqual([QUOTE_A]);
   });
 
   it("saves a typed price in cents, keeps one the server refuses, and sends nothing unreadable (6, 7)", async () => {

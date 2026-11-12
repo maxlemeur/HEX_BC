@@ -4482,7 +4482,7 @@
           "Demandes de matériel"
         ],
         "summary": "Retenir un devis",
-        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
+        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; une ligne d'affaire sans matière propre, consultée dans la matière présumée de la demande, reçoit cette matière (qui doit être confirmée), une ligne de frais généraux n'est pas touchée ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
         "parameters": [
           {
             "name": "projectId",
@@ -4574,7 +4574,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. Rien n'est écrit.",
+            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). Rien n'est écrit.",
             "content": {
               "application/json": {
                 "schema": {

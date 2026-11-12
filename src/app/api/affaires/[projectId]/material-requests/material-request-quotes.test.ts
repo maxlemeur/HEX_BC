@@ -64,6 +64,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     quote was open), and the leftover stays; a quote's PDF (a supplier's document) is served inline.
  * 13. A deadlock during a quote write answers a bare 400 instead of « réessayez »; a message of 300 lines (more
  *     than 4 000 characters) is refused.
+ * 14. (Codex review of #279) A project line without its own material, quoted in the request's presumed material, is
+ *     retained without it (a later header change would turn it into another material at the same price), or retained
+ *     while that material is not confirmed; an overhead line takes the request's material.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -212,10 +215,20 @@ function retainQuoteInDatabase(actor: string): FakeRpcHandler {
     if (unpriced.length > 0) {
       return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_LINES_UNPRICED", details: JSON.stringify(unpriced) } };
     }
+    // A project line without its own material takes the request's presumed material, which must be confirmed.
+    const request = (tables.material_requests ?? []).find((row) => row.id === target.request_id);
+    const unmaterialized = mine.map((row) => lines.find((entry) => entry.id === row.line_id))
+      .filter((entry) => entry?.imputation === "project" && !String(entry.material ?? "").trim());
+    if (unmaterialized.length > 0 && (!String(request?.presumed_material ?? "").trim() || request?.material_confirmed !== true)) {
+      return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED",
+        details: JSON.stringify(unmaterialized.map((entry) => Number(entry?.position)).sort((a, b) => a - b)) } };
+    }
     Object.assign(target, { status: "retained", retained_at: now(), retained_by: actor });
     for (const row of mine) {
-      Object.assign(lines.find((entry) => entry.id === row.line_id) ?? {}, {
+      const entry = lines.find((candidate) => candidate.id === row.line_id);
+      Object.assign(entry ?? {}, {
         supplier_id: target.supplier_id, unit_price_ht_cents: row.unit_price_ht_cents, price_per: row.price_per, price_quote_id: target.id,
+        ...(unmaterialized.includes(entry) ? { material: request?.presumed_material } : {}),
       });
     }
     const shared = new Set(mine.map((row) => row.line_id));
@@ -626,6 +639,41 @@ describe("retaining a quote", () => {
     fake.supabase.rpc = (async () => ({ data: null, error: { code: "40P01", message: "deadlock detected", details: null, hint: null } })) as typeof fake.supabase.rpc;
     const { status, error } = await run();
     expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_QUOTE_BUSY", "Une autre modification était en cours : réessayez."]);
+  });
+
+  const inPresumedMaterial = (confirmed: boolean, presumed: string | null = "Inox 304L") => seed(OWNER, "engineer", {
+    tables: {
+      material_requests: [{
+        id: REQUEST, tenant_id: TENANT, project_id: PROJECT, technician_id: null, requested_on: "2026-11-10", needed_on: null,
+        delivery_place: null, is_urgent: false, presumed_material: presumed, material_confirmed: confirmed, presumed_supplier_id: null,
+        supplier_confirmed: false, source_text: null, note: null, created_by: OWNER,
+        created_at: "2026-11-10T09:00:00.000Z", updated_at: "2026-11-10T09:00:00.000Z",
+      }],
+      material_request_lines: [
+        line(LINE_ELBOW, REQUEST, 1, { material: null, status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER }),
+        line(LINE_TEE, REQUEST, 2, { material: null, imputation: "overhead", overhead_category: "EPI" }),
+      ],
+    },
+  });
+
+  it("writes the request's confirmed material on a project line priced without one, never on an overhead line", async () => {
+    inPresumedMaterial(true);
+    const { status, data } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect(status).toBe(200);
+    expect((data as MaterialRequestQuoteRetained).lines.map((entry) => [entry.id, entry.material, entry.status, entry.unit_price_ht_cents]))
+      .toEqual([[LINE_ELBOW, "Inox 304L", "validated", 1250], [LINE_TEE, null, "draft", 3400]]);
+  });
+
+  it.each<[string, string | null]>([
+    ["not confirmed", "Inox 304L"],
+    ["missing", null],
+  ])("refuses to retain a quote asked in the request's material while that material is %s", async (_label, presumed) => {
+    const fake = inPresumedMaterial(false, presumed);
+    const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED",
+      "La ligne 1 n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
+      { positions: [1], line_ids: [LINE_ELBOW] }]);
+    expect(fake.rpcCalls).toEqual([]);
   });
 
   it("names every unpriced line when there are several", async () => {
