@@ -26,6 +26,7 @@ import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-reposit
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
 import { buildDpgfApplyQuantityPolicy } from "@/lib/takeoff/dpgf-apply-quantities";
+import { dpgfApplyCompositions } from "@/lib/takeoff/dpgf-composition-server";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
 import { excludeDpgfOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
@@ -301,6 +302,8 @@ export async function applyTakeoffJob(
           estimateVersionId: jobRow.estimate_version_id,
           summary: dpgfComparison.summary,
           quantityPolicy: buildDpgfApplyQuantityPolicy(comparisonContext, dpgfComparison.rows),
+          // TI-682 D4: the version 1 policies the application keeps when it sums or takes a page out.
+          compositions: dpgfApplyCompositions(comparisonContext.compositions),
           quantitySources: comparisonContext.takeoffItems.map(item => ({ id: item.id, updated_at: item.updated_at,
             quantity: item.quantity, designation: item.designation, unit: item.unit, is_excluded: item.is_excluded })),
           quantityComparisonStamp,

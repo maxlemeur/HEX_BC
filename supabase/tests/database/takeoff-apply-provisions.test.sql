@@ -336,7 +336,8 @@ values
      'reference_quantity', 30, 'measured_quantity', 30, 'priced_quantity', 30, 'absolute_gap', 0, 'reviewed', false,
      'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
      'source_metadata', jsonb_build_object('dpgf_source_quantity', 30, 'dpgf_source_unit', 'ml', 'fixture', 'preserve'),
-     'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at)
+     'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at,
+       'measured', ti.quantity, 'protective', 0, 'printed_gap', 0)
        order by ti.id) from public.takeoff_items ti where ti.id in ('c3000000-0000-4000-8000-000000000341',
          'c3000000-0000-4000-8000-000000000342'))))),
    now() + interval '5 minutes'),
@@ -782,7 +783,8 @@ values (current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000
     'reference_quantity', 30, 'measured_quantity', 30, 'priced_quantity', 30, 'absolute_gap', 0, 'reviewed', false,
     'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
     'source_metadata', jsonb_build_object('dpgf_source_quantity', 30, 'dpgf_source_unit', 'ml', 'fixture', 'preserve'),
-    'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
+    'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at,
+       'measured', ti.quantity, 'protective', 0, 'printed_gap', 0))
       from public.takeoff_items ti where ti.id = 'c3000000-0000-4000-8000-000000000351')))),
   now() + interval '5 minutes');
 select pg_temp.prov_page_decision('c3000000-0000-4000-8000-000000000206', null, null);
@@ -813,7 +815,8 @@ values (current_setting('test.tenant_id')::uuid, 'c3000000-0000-4000-8000-000000
     'reference_quantity', 30, 'measured_quantity', 30, 'priced_quantity', 30, 'absolute_gap', 0, 'reviewed', false,
     'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
     'source_metadata', jsonb_build_object('dpgf_source_quantity', 30, 'dpgf_source_unit', 'ml', 'fixture', 'preserve'),
-    'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
+    'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at,
+       'measured', ti.quantity, 'protective', 0, 'printed_gap', 0))
       from public.takeoff_items ti where ti.id = 'c3000000-0000-4000-8000-000000000352')))),
   now() + interval '5 minutes');
 select pg_temp.prov_page_decision('c3000000-0000-4000-8000-000000000208', null, null);

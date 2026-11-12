@@ -1,8 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 
+import ExcelJS from "exceljs";
 import { expect } from "e2e";
 
 import {
@@ -26,7 +25,8 @@ import { localSqlTransport } from "./generated-prerequisites";
 //
 // Codex reviews of 708c7fbf and 251a98a1: the screen and the proposal must never offer what the database refuses. The
 // situations are derived from the database rather than from the cases thought of: every refusal reason the decisions'
-// functions can raise is read from the migration, and each one is either reached by a naive decision in some situation
+// functions can raise is read from their definitions in the database (TI-682 D4: two migrations define them now), and
+// each one is either reached by a naive decision in some situation
 // (what a page-by-page screen, or a careless one, would send: the database must refuse it with exactly that reason) or
 // named below with why the contract leaves it out. A reason added to the migration without a situation fails this
 // journey.
@@ -72,19 +72,14 @@ type Situation = {
   /** Edit the line after the proposal is read: the route refuses (STALE), the proposal read again is accepted. */
   staleAfterProposal?: string;
   /**
-   * No state of the screen confirms here, by rule: what the screen must say instead, done outside it (its advice's
-   * `elsewhere`), and each way out proved after the walk.
+   * What the estimator sees in the wizard itself, after the walk; when it confirms the application there, the route
+   * application of the walk's state is left out.
    */
-  deadEnd?: { elsewhere: string[]; text: RegExp; exits: (input: ExitInput) => Promise<unknown> };
+  wizard?: (input: WizardInput) => Promise<{ applied: boolean } & Record<string, unknown>>;
 };
-type ExitInput = {
+type WizardInput = {
   ui: Parameters<Parameters<typeof armyTest>[2]>[0];
   ids: { projectId: string; versionId: string; sectionId: string; jobId: string };
-  strategy: string;
-  relaunchItem: (designation: string) => { id: string };
-  readProposal: () => Promise<TakeoffPageReplacementResponse>;
-  /** The confirmable states of a proposal, each applied by the database as the estimator and rolled back. */
-  confirmable: (proposal: TakeoffPageReplacementResponse) => Promise<{ states: number; verdicts: string[]; misadvised: string[] }>;
   problem: (problem: string, detail: unknown) => void;
 };
 
@@ -150,30 +145,54 @@ const GENERIC: Naive[] = [
   } },
 ];
 
-/**
- * A DPGF target an earlier takeoff fed from page 1 of the situation's plan: its source line, written into the applied
- * takeoff, and the DPGF line naming it (takeoff_quantity_policy), as the DPGF reconciliation of that takeoff left it.
- */
-async function feedDpgfTargetFromPage({ versionId, earlierJobId, plan, source }: { versionId: string; earlierJobId: string;
-  plan: (doc?: "A" | "B") => string; source: (doc?: "A" | "B") => string }) {
-  const item = randomUUID();
-  // The earlier takeoff is applied, so its lines are frozen: the fixture line is written with triggers off.
+type Prepare = { versionId: string; earlierJobId: string; plan: (doc?: "A" | "B") => string; source: (doc?: "A" | "B") => string };
+
+/** Lines of the applied (frozen) earlier takeoff, written with triggers off: run lines of the DPGF line, one per page. */
+async function frozenRuns({ earlierJobId, plan, source }: Prepare, runs: Array<{ quantity: number; page: number }>) {
+  const items = runs.map((run) => ({ ...run, id: randomUUID() }));
   await sql(`begin;
 set local session_replication_role = replica;
-insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
-metadata, is_excluded, is_verified)
-select '${item}', job_item.tenant_id, job_item.job_id, job_item.result_id, 'EF cuivre DN 22', 30, 'ml', 0.95, 'ARMY localized fixture: EF cuivre DN 22',
-'${source()}', 1, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', '${plan()}')), false, false
-from public.takeoff_items job_item where job_item.job_id = '${earlierJobId}' limit 1;
-set local session_replication_role = origin;
+${items.map((run) => `insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence,
+source_file_name, source_page, metadata, is_excluded, is_verified)
+select '${run.id}', job_item.tenant_id, job_item.job_id, job_item.result_id, 'EF cuivre DN 22', ${run.quantity}, 'ml', 0.95,
+'ARMY localized fixture: EF cuivre DN 22', '${source()}', ${run.page},
+jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', '${plan()}')), false, false
+from public.takeoff_items job_item where job_item.job_id = '${earlierJobId}' limit 1;`).join("\n")}
+commit;`);
+  return items;
+}
+
+/** The DPGF line holds a policy (TI-682 D4: version 2, a composition; version 1, one takeoff written before D4). */
+async function writeDpgfPolicy({ versionId, earlierJobId, source }: Prepare, quantity: number, policy: Record<string, unknown>) {
+  await sql(`begin;
 select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
-update public.estimate_items set source_job_id = '${earlierJobId}', source_file_name = '${source()}', source_page = 1,
-source_metadata = source_metadata || jsonb_build_object('takeoff_quantity_policy', jsonb_build_object('version', 1, 'job_id', '${earlierJobId}',
-  'item_ids', jsonb_build_array('${item}')))
+update public.estimate_items set quantity = ${quantity}, source_job_id = '${earlierJobId}', source_file_name = '${source()}', source_page = 1,
+source_metadata = source_metadata || jsonb_build_object('takeoff_quantity_policy', ${literal(policy)})
 where version_id = '${versionId}' and source_provider = 'dpgf';
 select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items
 where version_id = '${versionId}' and source_provider = 'dpgf'));
 commit;`);
+}
+
+/**
+ * A DPGF target an earlier takeoff fed from page 1 of the situation's plan: its run (40 ml, the DPGF reference being 30)
+ * written into the applied takeoff, and the DPGF line holding it in its composition, as an application since D4 leaves it.
+ */
+async function feedDpgfTargetFromPage(input: Prepare) {
+  const [run] = await frozenRuns(input, [{ quantity: 40, page: 1 }]);
+  await writeDpgfPolicy(input, 40, { version: 2, job_id: input.earlierJobId, reference_quantity: 30, measured_quantity: 40,
+    priced_quantity: 40, absolute_gap: 10, reviewed: false, item_ids: [run.id],
+    contributions: [{ job_id: input.earlierJobId, item_ids: [run.id], quantity: 40, protective: 0, printed_gap: 0 }] });
+}
+
+/**
+ * The same, applied before D4 over pages 1 and 2 (a version 1 policy) by a calculation its frozen lines no longer give
+ * back (30 + 10 measured 45): its part per page is unknown, and the service reads it as one block.
+ */
+async function feedDpgfTargetBeforeD4(input: Prepare) {
+  const runs = await frozenRuns(input, [{ quantity: 30, page: 1 }, { quantity: 10, page: 2 }]);
+  await writeDpgfPolicy(input, 45, { version: 1, job_id: input.earlierJobId, reference_quantity: 30, measured_quantity: 45,
+    priced_quantity: 45, absolute_gap: 15, reviewed: false, item_ids: runs.map((run) => run.id).sort() });
 }
 
 const SITUATIONS: Situation[] = [
@@ -287,8 +306,8 @@ commit;`);
         lines: decision.lines.map((line) => (line.estimate_item_id === valve ? { ...line, action: "update" as const } : line.estimate_item_id === wc ? { ...line, action: "keep" as const } : line)),
         pairs: decision.pairs.map((pair) => ({ ...pair, estimate_item_id: valve })) })) };
     } }] },
-  // A DPGF target an earlier takeoff fed from the page, which the relaunch does not feed again: replacing the page would
-  // leave its earlier measure beside the new lines; it is kept both.
+  // A DPGF target an earlier takeoff fed from the page, which the relaunch does not feed again (TI-682 D4): replacing the
+  // page takes its part out of the target (40 ml down to its DPGF reference, 30), keeping both keeps it.
   // Its own titles: « Fusionner » matches by title across the section, which the other DPGF situation shares.
   { name: "a DPGF target the earlier takeoff fed from the page", dpgf: true, earlier: [read("Lavabo", 4, "u", 1)],
     relaunch: [read("Lavabo (relevé)", 5, "u", 1)],
@@ -302,105 +321,85 @@ commit;`);
         return { payload: chosen.payload.map((decision) => ({ ...decision, decision: "replace" as const, reason_code: null, note: null,
           lines: decision.lines.map((line) => ({ ...line, action: line.estimate_item_id === target.id ? "remove" as const : "keep" as const })) })) };
       } },
-      // The screen's own « replace » here, confirmed although it says to keep both.
-      { reason: "dpgf_not_replaced", build: (context) => {
-        const replaced = context.reached.find((resolution) => resolution.pages.every((page) => page.choice.decision === "replace")
-          && resolution.lines.every((entry) => entry.missing.length === 0));
-        return replaced ? { payload: replaced.payload } : null;
-      } },
     ] },
-  // The DPGF line the earlier takeoff fed from the page is not fed again, and « Fusionner », required with a DPGF,
-  // imposes the washbasin onto its earlier line: replacing would leave the DPGF line's earlier measure beside the new
-  // one (dpgf_not_replaced) and keeping both meets the merge (refused until the DPGF accumulation, D4). The screen says
-  // what to do instead; both ways out are proved: excluding the merged line at review, or linking a line of the page to
-  // the DPGF line in the DPGF reconciliation.
+  // TI-682 D4: a DPGF line a policy applied before D4 holds over pages 1 and 2, by a calculation its lines no longer give
+  // back. The relaunch reads page 1 only: the screen never cuts that part (it asks to keep both), and a replacement is
+  // refused for it (dpgf_part_unknown). The service reads it in the permit as one block.
+  { name: "a DPGF line of a policy applied before D4, its part per page unknown", dpgf: true, earlier: [read("Siphon de cour", 2, "u", 1)],
+    relaunch: [read("Siphon de cour (relevé)", 3, "u", 1)],
+    prepare: feedDpgfTargetBeforeD4,
+    expect: (proposal) => expect(proposal.dpgf_targets.map((target) => target.earlier.map((part) => [part.quantity, part.item_ids.length])))
+      .toEqual([[[45, 2]]]),
+    naive: [{ reason: "dpgf_part_unknown", build: (context) => {
+      const replaced = context.reached.find((resolution) => resolution.payload.some((decision) => decision.decision === "replace")
+        && resolution.lines.every((entry) => entry.line.dpgf_target || entry.missing.length === 0));
+      return replaced ? { payload: replaced.payload } : null;
+    } }] },
+  // TI-696 (Codex review of PR 288): the same part, both its pages read again. The application counts the pages replaced
+  // together: replacing both takes the part out whole (the screen recommends it, the database accepts it); replacing one
+  // while keeping the other both still cuts it (dpgf_part_unknown), and the line says to replace that page too or keep both.
+  // Its own titles: « Fusionner » matches by title across the section the DPGF situations share.
+  { name: "a DPGF line of a policy applied before D4, both its pages read again", dpgf: true, earlier: [read("Grille de sol", 2, "u", 1)],
+    relaunch: [read("Grille de sol (relevé)", 3, "u", 1), read("Tampon de regard", 1, "u", 2)],
+    prepare: feedDpgfTargetBeforeD4,
+    expect: (proposal) => {
+      const initial = resolveConfirmation(proposal, initialConfirmationDraft(proposal));
+      expect([proposal.pages.length, proposal.dpgf_targets.map((target) => target.earlier.map((part) => [part.quantity, part.item_ids.length])),
+        initial.dpgf.map((outcome) => outcome.indivisible), initial.pages.map((page) => page.recommended)])
+        .toEqual([2, [[[45, 2]]], [[]], [true, true]]);
+    },
+    naive: [{ reason: "dpgf_part_unknown", build: (context) => {
+      const mixed = context.reached.find((resolution) => resolution.payload.some((decision) => decision.decision === "replace")
+        && resolution.payload.some((decision) => decision.decision === "keep_both")
+        && resolution.pages.every((page) => page.missing.length === 0)
+        && resolution.lines.every((entry) => entry.line.dpgf_target || entry.missing.length === 0));
+      return mixed ? { payload: mixed.payload } : null;
+    } }] },
+  // TI-682 D4 (C1): the DPGF line the earlier takeoff fed from the page (40 ml, DPGF reference 30) is not fed again,
+  // and « Fusionner », required with a DPGF, imposes the washbasin onto its earlier line, so keeping both is refused.
+  // Until D4 neither choice confirmed (#259's dead end). Replacing now takes the page's part out of the DPGF line, which
+  // falls to its reference: the wizard says so on the line, with why and where the page's new run went, and applies it.
   { name: "a DPGF line not fed again beside a line « Fusionner » imposes", dpgf: true, earlier: [read("Lavabo double vasque", 4, "u", 1)],
-    // The run of the DPGF line, read again but not linked by the reconciliation (its title differs too much): the
-    // estimator can link it by hand.
+    // The run of the DPGF line, read again but not linked by the reconciliation (its title differs too much).
     relaunch: [read("Lavabo double vasque", 5, "u", 1), read("EF cuivre DN 22", 30, "ml", 1)],
     prepare: feedDpgfTargetFromPage,
-    expect: (proposal) => expect([proposal.pages.map((page) => [page.keep_both_refused, page.dpgf_fed_again]), proposal.pairs.map((pair) => pair.locked)])
-      .toEqual([[["merge_match", []]], [true]]),
-    deadEnd: { elsewhere: ["exclude_at_review", "link_in_dpgf_review"],
-      text: /« Réseau de distribution sanitaire EF en tube cuivre DN 22, [^»]* » est une ligne DPGF que ce métré n’alimente pas, et la fusion, obligatoire avec un DPGF, met « Lavabo double vasque » sur une ligne de la page : ni remplacer ni garder les deux ne se confirme ici\.$/,
-      exits: async ({ ui, ids, relaunchItem, readProposal, confirmable, problem }) => {
-        // What the estimator sees: the wizard of the takeoff's review, up to its confirmation.
-        const openConfirmation = async () => {
-          await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
-          await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-          const opened = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-          await opened.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
-          await opened.getByRole("button", "Suivant", { exact: true }).click();
-          await opened.getByRole("radio", /^Fusionner/).check();
-          await opened.getByRole("button", "Suivant", { exact: true }).click();
-          await expect(opened).toContainText("EF cuivre DN 22");
-          await opened.getByRole("button", "Suivant", { exact: true }).click();
-          return opened;
-        };
-        // Way out 1, first (the journey's draft lease still held, as the estimator's would be): the merged line excluded
-        // at the takeoff's review. The page is then confirmed (keeping both); included again, the dead end is back.
-        const washbasin = relaunchItem("Lavabo double vasque");
-        const exclude = async (excluded: boolean) => {
-          const detail = await apiRequest<Envelope<{ items: { data: Array<{ id: string; updated_at: string }> } }>>(ui.browser, "GET", `/api/takeoff/jobs/${ids.jobId}`);
-          const row = detail.body.data.items.data.find((item) => item.id === washbasin.id)!;
-          const patched = await apiRequest<Envelope<{ results: Array<{ success: boolean }> }>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/items`,
-            { items: [{ item_id: row.id, updated_at: row.updated_at, fields: excluded
-              ? { is_excluded: true, exclusion_reason: "Lavabo déjà compté sur la ligne précédente (fixture ARMY)." }
-              : { is_excluded: false, exclusion_reason: null } }] });
-          if (patched.status !== 200 || !patched.body.data.results[0]?.success) problem(`the review ${excluded ? "excludes" : "includes"} the merged line`, patched.body);
-        };
-        await exclude(true);
-        const excluded = await confirmable(await readProposal());
-        if (excluded.states === 0 || excluded.verdicts.some((verdict) => verdict !== "ok") || excluded.misadvised.length > 0) {
-          problem("excluding the merged line at review does not unblock the confirmation", excluded);
-        }
-        await exclude(false);
-        const again = await confirmable(await readProposal());
-        if (again.states !== 0) problem("the dead end is not back once the merged line is included again", again);
-
-        // The draft lease this journey's API calls hold (from the page they run in, before any navigation) is released,
-        // as closing that editor would: the wizard of the review takes its own.
-        const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
-        if (released.status >= 300) problem("the journey's draft lease is released", released.body);
-        const wizard = await openConfirmation();
-        const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
-        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici.");
-        // One sentence for what blocks, then each way out with what it opens; nothing recommended here.
-        const exitList = region.getByRole("list", /^Pour débloquer /);
-        await expect(exitList).toContainText("Écarter « Lavabo double vasque » à la revue du métré : garder les deux redevient possible.");
-        await expect(exitList).toContainText("Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure (même unité, matériau et diamètre) : remplacer redevient possible.");
-        await expect(region.getByRole("radio", "Remplacer la mesure précédente", { exact: true })).toBeVisible();
-        await expect(region).not.toContainText("(recommandé)");
-        await expect(region).not.toContainText("remplacez leur mesure précédente");
-        await expect(region).toContainText("aucune ne se confirme ici, la suite se fait hors de cette étape, comme chaque page l’indique.");
-        await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
-        // Nowhere on this screen is « keep both » advised: no page offers it.
-        await expect(region).not.toContainText("gardez les deux");
-        await expect(region).not.toContainText("Gardez les deux");
-        await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
-        const screenshot = await ui.app.screenshot("ti682-dpgf-dead-end");
-        await wizard.getByRole("button", "Annuler", { exact: true }).click();
-
-        // Way out 2: a line of the page linked to the DPGF line in the DPGF reconciliation. The page is then replaced,
-        // confirmed in the wizard itself (the route's DPGF authorization feeds the DPGF line).
-        const target = (await readProposal()).lines.find((line) => line.dpgf_target)!;
-        const linked = await apiRequest<Envelope<unknown>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/dpgf-link`,
-          { version_id: ids.versionId, estimate_item_id: target.id, takeoff_item_ids: [relaunchItem("EF cuivre DN 22").id] });
-        if (linked.status !== 200) problem("the DPGF reconciliation links the line", linked.body);
-        const fed = await readProposal();
-        const resolution = resolveConfirmation(fed, initialConfirmationDraft(fed));
-        if (!resolution.complete) problem("linking a line of the page to the DPGF line does not unblock the confirmation", resolution.missing);
-        const unblocked = await openConfirmation();
-        await expect(unblocked.getByRole("region", "Pages déjà au devis", { exact: true })).not.toContainText("ne se confirme ici");
-        // Replacing confirms now: it is recommended again.
-        await expect(unblocked.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
-        const confirm = unblocked.getByRole("button", "Confirmer l'application", { exact: true });
-        await expect(confirm).toBeEnabled();
-        const [response] = await Promise.all([ui.browser.waitForResponse(`**/api/takeoff/jobs/${ids.jobId}/apply`), confirm.click()]);
-        if (response.status !== 200) problem("the wizard's confirmation is refused once the DPGF line is fed", await response.json());
-        await expect(unblocked).toBeHidden();
-        return { screenshot, excluded, again: again.states, fed: fed.pages.map((page) => page.dpgf_fed_again), applied: response.status };
-      } } },
+    expect: (proposal) => expect([proposal.pages.map((page) => [page.keep_both_refused, page.dpgf_fed_again]), proposal.pairs.map((pair) => pair.locked),
+      proposal.dpgf_targets.map((target) => [target.quantity, target.reference, target.fed.length])])
+      .toEqual([[["merge_match", []]], [true], [[40, 30, 0]]]),
+    wizard: async ({ ui, ids, problem }) => {
+      // The draft lease this journey's API calls hold (from the page they run in, before any navigation) is released, as
+      // closing that editor would: the wizard of the review takes its own.
+      const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+      if (released.status >= 300) problem("the journey's draft lease is released", released.body);
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
+      await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+      const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      await wizard.getByRole("radio", /^Fusionner/).check();
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      await expect(wizard).toContainText("EF cuivre DN 22");
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
+      await expect(region.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
+      await expect(region).not.toContainText("ne se confirme ici");
+      // The fall, said on the line: never as an unchanged line.
+      const fall = /Baisse : 40 → 30 \(−10\)\. [^,]+, page 1 n’alimente plus cette ligne DPGF ; sa nouvelle mesure est entrée hors DPGF : « EF cuivre DN 22 » \(30 ml\)\./;
+      await expect(region).toContainText(fall);
+      const targets = wizard.getByRole("region", "Lignes DPGF", { exact: true });
+      const line = targets.getByRole("group", /^Ligne DPGF Réseau de distribution sanitaire EF en tube cuivre DN 22/);
+      await expect(line.getByRole("status")).toContainText(fall);
+      await expect(line).toContainText("40 → 30 (−10)");
+      const screenshot = await ui.app.screenshot("ti682-dpgf-fall");
+      const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+      await expect(confirm).toBeEnabled();
+      const [response] = await Promise.all([ui.browser.waitForResponse(`**/api/takeoff/jobs/${ids.jobId}/apply`), confirm.click()]);
+      if (response.status !== 200) problem("the wizard's confirmation of the fall is refused", await response.json());
+      await expect(wizard).toBeHidden();
+      const held = (await readEstimate(ui.browser, ids.versionId)).items.find((item) => item.source_provider === "dpgf")!;
+      if (Number(held.quantity) !== 30) problem("the DPGF line does not hold what the wizard said (30)", held.quantity);
+      return { applied: response.status === 200, screenshot, held: held.quantity };
+    } },
 ];
 
 /**
@@ -410,17 +409,21 @@ commit;`);
 const OUTSIDE_THE_CONTRACT: Record<string, string> = {
   decided_by_another: "the route records the signed-in estimator's own decisions, in the application's own transaction: no screen state sends another person's (pgTAP case 19)",
   decisions_not_of_this_application: "the route never records apart from the application (race test, scenario 1)",
-  dpgf_keep_both: "needs the relaunch's DPGF reconciliation to feed again a target another takeoff fed, which only the DPGF review of real quantities sets up (pgTAP case 17)",
   shape: "the decisions' shape is the contract's schema: the route's parser refuses a malformed payload before the database (Vitest apply-server)",
   job_not_completed: "the wizard applies a completed takeoff only; an applied one is frozen (TAKEOFF_PAGE_DECISIONS_FROZEN, Vitest apply-errors, pgTAP)",
 };
 
-/** Every refusal reason the decisions' functions raise, read from the migration itself. */
-function refusalReasons() {
-  const directory = path.join(process.cwd(), "supabase/migrations");
-  const file = fs.readdirSync(directory).find((name) => name.endsWith("_takeoff_page_decisions.sql"));
-  if (!file) throw new Error("The page decisions migration is missing.");
-  const text = fs.readFileSync(path.join(directory, file), "utf8");
+/**
+ * Every refusal reason the decisions' functions raise, read from their definitions in the database (TI-682 D4: the page
+ * decisions' migration and the DPGF accumulation's define them).
+ */
+async function refusalReasons() {
+  const text = (await sql(`select string_agg(procedure.prosrc, E'\n' order by procedure.proname) from pg_catalog.pg_proc procedure
+join pg_catalog.pg_namespace namespace on namespace.oid = procedure.pronamespace
+where namespace.nspname in ('public', 'private') and procedure.proname in ('record_takeoff_page_decisions', 'takeoff_prepare_page_decisions',
+  'takeoff_replace_pages', 'assert_takeoff_pages_once', 'takeoff_compose_dpgf_targets', 'takeoff_page_refusal_detail',
+  'takeoff_page_decisions_frozen', 'apply_takeoff_job_guarded_atomic', 'apply_takeoff_job_with_page_decisions');`)).join("\n");
+  if (!text.includes("page_already_applied")) throw new Error("The page decisions' functions are missing.");
   const reasons = new Set<string>();
   for (const pattern of [/'reason', '([a-z_]+)'/g, /refusal_detail\('([a-z_]+)'/g, /select '([a-z_]+)'(?:,| as reason)/g, /(?:then|else) '([a-z_]+)'(?: end\))?/g]) {
     for (const match of text.matchAll(pattern)) reasons.add(match[1]);
@@ -449,7 +452,7 @@ const literal = (value: unknown) => `$contract$${JSON.stringify(value)}$contract
 
 /** An engine 3 draft in the estimator's project, beside the one the wizard created; a DPGF price line in it if asked. */
 async function engineThreeVersion(army: ArmyState, browser: Parameters<typeof createLineViaApi>[0], projectId: string, fromVersionId: string,
-  dpgf: boolean) {
+  dpgf: boolean, line = { title: "Réseau de distribution sanitaire EF en tube cuivre DN 22, y compris raccords, supports et essais", reference: 30 }) {
   const versionId = randomUUID();
   await sql(`begin;
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, title, calc_engine_version, max_section_depth, currency, status,
@@ -469,8 +472,9 @@ select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
 insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description, quantity, unit_code,
   unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_provider,
   source_file_name, source_page, source_metadata, fo_provision)
-select gen_random_uuid(), version.tenant_id, version.id, '${target.parent_id}', 'line', 100, 'Réseau de distribution sanitaire EF en tube cuivre DN 22, y compris raccords, supports et essais', 'ml', 30, 'ml', 1000,
-  2000, 1, 0, 1, 1000, 30000, 6000, 36000, 'dpgf', 'dpgf-fictif.xlsx', 7, '{"dpgf_source_quantity":30,"dpgf_source_unit":"ml"}', 1
+select gen_random_uuid(), version.tenant_id, version.id, '${target.parent_id}', 'line', 100, '${line.title}', 'ml', ${line.reference}, 'ml', 1000,
+  2000, 1, 0, 1, 1000, ${line.reference * 1000}, ${line.reference * 200}, ${line.reference * 1200}, 'dpgf', 'dpgf-fictif.xlsx', 7,
+  jsonb_build_object('dpgf_source_quantity', ${line.reference}, 'dpgf_source_unit', 'ml'), 1
 from public.estimate_versions version where version.id = '${versionId}';
 select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items where version_id = '${versionId}'
   and source_provider = 'dpgf'));
@@ -604,7 +608,17 @@ $fn$;
 grant execute on function pg_temp.contract_try(jsonb, text) to authenticated;
 ${input.dpgf ? `insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
   review_summary, expires_at) values ('${input.tenantId}', '${input.jobId}', '${input.versionId}', '${input.userId}',
-  encode(sha256(convert_to('${token}', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '10 minutes');` : ""}
+  encode(sha256(convert_to('${token}', 'UTF8')), 'hex'),
+  -- TI-682 D4: as the service mints it, the version 1 policies read as compositions (here as one block each, their part
+  -- per page unknown, as the service reads one its lines no longer give back).
+  jsonb_build_object('dpgf_compositions', coalesce((select jsonb_agg(jsonb_build_object('target_id', item.id,
+    'expected_updated_at', item.updated_at, 'job_id', item.source_metadata #> '{takeoff_quantity_policy,job_id}',
+    'item_ids', item.source_metadata #> '{takeoff_quantity_policy,item_ids}',
+    'contributions', jsonb_build_array(jsonb_build_object('job_id', item.source_metadata #> '{takeoff_quantity_policy,job_id}',
+      'item_ids', item.source_metadata #> '{takeoff_quantity_policy,item_ids}',
+      'quantity', item.source_metadata #> '{takeoff_quantity_policy,measured_quantity}', 'protective', 0, 'printed_gap', 0))))
+    from public.estimate_items item where item.version_id = '${input.versionId}' and item.source_provider = 'dpgf'
+      and item.source_metadata #>> '{takeoff_quantity_policy,version}' = '1'), '[]'::jsonb)), now() + interval '10 minutes');` : ""}
 select set_config('request.jwt.claims', '{"role":"authenticated","sub":"${input.userId}"}', true) is not null;
 select set_config('request.jwt.claim.sub', '${input.userId}', true) is not null;
 set local role authenticated;
@@ -617,7 +631,7 @@ const reasonOf = (verdict: string) => /"reason": "([a-z_]+)"/.exec(verdict)?.[1]
 armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows is accepted by the database, and every refusal it can raise has a situation", options,
   async (ui) => {
     const { browser, army } = ui;
-    const reasons = refusalReasons();
+    const reasons = await refusalReasons();
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY contrat des pages" }, army);
     const fixture = await localTakeoffFixture(army, base);
     const userId = (await fixture.client.auth.getUser()).data.user!.id;
@@ -719,34 +733,15 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       const unconfirmable = new Set(walk.resolutions.flatMap((resolution) => recommendations(resolution).flatMap((choice) =>
         accepted.some((controls) => controls.get(choice.control) === choice.value) ? [] : [`${choice.control}=${String(choice.value)}, by ${choice.by}`])));
       if (unconfirmable.size > 0) problems.push({ situation: situation.name, problem: "the screen recommends a choice no accepted state holds", detail: [...unconfirmable] });
-      if (situation.deadEnd) {
-        // No state confirms here, by rule: the screen says what to do instead, and only that.
-        const shown = initial.pages.flatMap((page) => page.advice);
-        const deadEnd = shown.find((advice) => advice.elsewhere.length > 0);
-        if (confirmable.length > 0) problems.push({ situation: situation.name, problem: "a dead end by rule is confirmable", detail: confirmable.length });
-        if (!deadEnd || JSON.stringify(deadEnd.elsewhere) !== JSON.stringify(situation.deadEnd.elsewhere) || !situation.deadEnd.text.test(deadEnd.text)) {
-          problems.push({ situation: situation.name, problem: "the screen does not say what to do instead", detail: shown });
-        }
-      } else if (confirmable.length === 0) problems.push({ situation: situation.name, problem: "no state can be confirmed", detail: initial.missing });
+      if (confirmable.length === 0) problems.push({ situation: situation.name, problem: "no state can be confirmed", detail: initial.missing });
       if (!walk.exhausted) problems.push({ situation: situation.name, problem: "the walk did not exhaust the screen's states", detail: walk.resolutions.length });
 
       // Through the route: a stale proposal is refused and read again; then the default when the screen offers it as
       // complete, else the first complete state reached.
-      let exits: unknown = null;
-      if (situation.deadEnd) {
-        exits = await situation.deadEnd.exits({ ui, ids: { projectId: base.projectId, versionId, sectionId, jobId: relaunch.jobId }, strategy,
-          relaunchItem: (designation) => relaunch.items.find((item) => item.designation === designation)!,
-          readProposal,
-          confirmable: async (next) => {
-            const walked = reachableStates(next);
-            const states = walked.resolutions.filter((resolution) => resolution.complete);
-            const verdicts = await databaseVerdicts({ userId, tenantId: scoped.tenantId, versionId, jobId: relaunch.jobId, sectionId,
-              dpgf: Boolean(situation.dpgf), calls: states.map((resolution) => ({ payload: resolution.payload, strategy })) });
-            return { states: states.length, verdicts: [...new Set(verdicts)], misadvised: walked.misadvised };
-          },
-          problem: (problem, detail) => problems.push({ situation: situation.name, problem, detail }) });
-      }
-      let chosen = context.base;
+      // What the estimator sees in the wizard itself; when it applies there, the route application below is left out.
+      const wizard = situation.wizard ? await situation.wizard({ ui, ids: { projectId: base.projectId, versionId, sectionId, jobId: relaunch.jobId },
+        problem: (problem, detail) => problems.push({ situation: situation.name, problem, detail }) }) : null;
+      let chosen = wizard?.applied ? null : context.base;
       let stale: unknown = null;
       if (situation.staleAfterProposal && chosen) {
         const estimate = await readEstimate(browser, versionId);
@@ -769,7 +764,7 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       report.push({ situation: situation.name, versionId, earlier: earlier.jobId, relaunch: relaunch.jobId, pages: proposal.pages.length,
         states: walk.resolutions.length, exhausted: walk.exhausted, confirmable: confirmable.length, refused: refused.length,
         withheld: walk.withheld.length, unjustified: unjustified.length,
-        naive: naive.map((entry, at) => [entry.reason, reasonOf(naiveVerdicts[at])]), defaultComplete: initial.complete, stale, exits });
+        naive: naive.map((entry, at) => [entry.reason, reasonOf(naiveVerdicts[at])]), defaultComplete: initial.complete, stale, wizard });
     }
 
     // The refusals the migration can raise, each met by a naive decision or named as outside the contract.
@@ -780,4 +775,121 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
     await recordEvidence(army, "TKD03-contract", { base, plain, dpgf, reasons: [...reasons].sort(), reached: Object.fromEntries(reached),
       outside: OUTSIDE_THE_CONTRACT, report, problems });
     expect(problems).toEqual([]);
+  });
+
+// TI-682 lot D4: a DPGF line two takeoffs of two pages feed holds their sum. Until D4 the second takeoff overwrote the
+// first (the line held 20, its DPGF reference, instead of 12.4 + 10.2). An engine 3 version whose DPGF line « EF cuivre
+// DN 22 » (reference 20 ml) the reconciliation links by its title: the first takeoff feeds it from page 1 (12.4 ml), the
+// second from page 2 (10.2 ml), its run seeded as drawn again over 2.5 m of the first one's (zone_overlap). Fictional.
+armyTest("TKD04 a DPGF line two takeoffs of two pages feed holds their sum, shown in the reconciliation, the confirmation and the client export",
+  options, async (ui) => {
+    const { browser, army } = ui;
+    const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY cumul DPGF" }, army);
+    const { versionId, sectionId, target: helper } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
+      { title: "EF cuivre DN 22", reference: 20 });
+    // The client export refuses a priced line without a unit (ESTIMATE_V3_UNIT_REQUIRED): the line that gives the section
+    // gets one.
+    await sql(`begin;
+select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+update public.estimate_items set unit_code = 'u' where id = '${helper.id}' and version_id = '${versionId}';
+select public.estimate_v3_complete_entry_for_writer('${versionId}', array['${helper.id}'::uuid]);
+commit;`);
+    const scoped = await localTakeoffFixture(army, { projectId: base.projectId, versionId });
+    const plan = randomUUID();
+    const seed = (level: "B" | "C", quantity: number, page: number) => scoped.seed(level, [{ designation: "EF cuivre DN 22", quantity,
+      unit: "ml", confidence: 0.95, source_page: page, is_excluded: false, metadata: { source_document: { kind: "plan_file", plan_file_id: plan } } }],
+      "cumul-dpgf.pdf");
+    const dpgfLine = async () => (await readEstimate(browser, versionId)).items.find((item) => item.source_provider === "dpgf")!;
+    const composition = async () => (await sql(`select jsonb_build_array(item.quantity, item.source_metadata #> '{takeoff_quantity_policy,contributions}')
+from public.estimate_items item where item.version_id = '${versionId}' and item.source_provider = 'dpgf';`))[0];
+
+    const first = await seed("C", 12.4, 1);
+    const applied = await applyOwnedTakeoff(browser, versionId, first.jobId, { strategy: "merge", target_section_id: sectionId });
+    expect(applied.status, "the first takeoff applies").toBe(200);
+    expect(Number((await dpgfLine()).quantity), "the first takeoff alone: the DPGF reference").toBe(20);
+
+    // The second takeoff, its run seeded as drawn again over 2.5 m of the first one's (the zone rules' result).
+    const second = await seed("B", 10.2, 2);
+    await sql(`begin;
+update public.takeoff_items set rule_results = jsonb_build_array(jsonb_build_object('rule', 'zone_overlap', 'status', 'fail',
+  'code', 'ZONE_OVERLAP_DUPLICATE', 'version', 1, 'acceptable', true, 'reason', 'Tronçon dessiné aussi sur une autre page (fixture ARMY).',
+  'details', jsonb_build_object('partners', jsonb_build_array(jsonb_build_object('item_id', '${first.items[0].id}', 'job_id', '${first.jobId}',
+    'zone', null, 'designation', 'EF cuivre DN 22', 'overlap_m', 2.5, 'resolved', false)))))
+where id = '${second.items[0].id}';
+commit;`);
+    const compared = await apiRequest<Envelope<{ rows: Array<{ line_label: string; delta_absolute: number | null;
+      composition?: { earlier: Array<{ job_id: string; quantity: number; read_again: boolean }>; total_quantity: number;
+        double_counted: Array<{ overlap_m: number }> } }> }>>(browser, "GET",
+      `/api/takeoff/jobs/${second.jobId}/dpgf-compare?version_id=${versionId}&view=all`);
+    const row = compared.body.data.rows.find((entry) => entry.line_label === "EF cuivre DN 22")!;
+    expect([row.composition?.earlier.map((entry) => [entry.job_id, entry.quantity, entry.read_again]), row.composition?.total_quantity,
+      row.composition?.double_counted.map((entry) => entry.overlap_m), row.delta_absolute], "the reconciliation judges the total")
+      .toEqual([[[first.jobId, 12.4, false]], 22.6, [2.5], 2.6]);
+
+    // The draft lease this journey's API calls hold is released from the page they ran in, before any navigation (its
+    // session lives in that page), as closing that editor would: the wizard of the review takes its own.
+    const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+    expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
+
+    // The reconciliation, as the estimator reads it.
+    await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${second.jobId}/review?versionId=${versionId}&reviewMode=production&view=dpgf`);
+    await expect(ui.screen.getByRole("heading", "Comparaison DPGF explicable", { exact: true })).toBeVisible();
+    const note = ui.screen.getByRole("group", "Composition de EF cuivre DN 22", { exact: true }).first();
+    await expect(note).toContainText("Alimentée par 2 métrés : total 22,6 ml");
+    await expect(note).toContainText("Déjà alimentée par le métré du");
+    await expect(note.getByRole("status")).toContainText("Peut-être compté deux fois, à vérifier : 2,5 m");
+    const reconciliation = await ui.app.screenshot("ti682-dpgf-composition");
+
+    // The confirmation: before and after, its composition; no page already in the estimate (two pages).
+    await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${second.jobId}/review/targeted?versionId=${versionId}`);
+    await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+    const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+    await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    await wizard.getByRole("radio", /^Fusionner/).check();
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    await expect(wizard).toContainText("EF cuivre DN 22");
+    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    const target = wizard.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("group", "Ligne DPGF EF cuivre DN 22", { exact: true });
+    await expect(target).toContainText("EF cuivre DN 22 : 20 → 23 (+3) — alimentée par 2 métrés");
+    await expect(target.getByRole("list", "Composition de EF cuivre DN 22", { exact: true })).toContainText("Ce métré : 10,2 (cumul-dpgf.pdf, page 2 : 10,2)");
+    await expect(wizard.getByRole("region", "Pages déjà au devis", { exact: true })).toHaveCount(0);
+    const confirmation = await ui.app.screenshot("ti682-dpgf-confirmation");
+    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    await expect(confirm).toBeEnabled();
+    const [response] = await Promise.all([browser.waitForResponse(`**/api/takeoff/jobs/${second.jobId}/apply`), confirm.click()]);
+    expect(response.status, "the confirmation applies").toBe(200);
+    await expect(wizard).toBeHidden();
+
+    // The line holds the sum, rounded once, and its composition names both takeoffs (stored in the order of their
+    // identifiers, random here: read by takeoff).
+    const held = JSON.parse(await composition()) as [number, Array<{ job_id: string; quantity: number }>];
+    const byTakeoff = new Map(held[1].map((part) => [part.job_id, Number(part.quantity)]));
+    expect([Number(held[0]), held[1].length, byTakeoff.get(first.jobId), byTakeoff.get(second.jobId)], "the DPGF line holds the sum")
+      .toEqual([23, 2, 12.4, 10.2]);
+
+    // The client export (DPGF): its quantity column carries the sum, and nothing of the composition.
+    const exported = await browser.evaluate(async (input) => {
+      const result = await fetch(`/api/estimates/${input.versionId}/export?format=xlsx&mode=dpgf`, { credentials: "same-origin", redirect: "error" });
+      const bytes = new Uint8Array(await result.arrayBuffer());
+      let binary = "";
+      for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      return { status: result.status, base64: btoa(binary) };
+    }, { versionId });
+    expect(exported.status, "the DPGF export").toBe(200);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.from(exported.base64, "base64") as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const sheet = workbook.getWorksheet("Données")!;
+    const header: string[] = [];
+    sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, column) => { header[column - 1] = String(cell.value ?? ""); });
+    const rows: Array<Record<string, unknown>> = [];
+    sheet.eachRow((entry, number) => {
+      if (number > 1) rows.push(Object.fromEntries(header.map((name, index) => [name, entry.getCell(index + 1).value])));
+    });
+    const exportedLine = rows.find((entry) => String(entry["Désignation"] ?? "").trim() === "EF cuivre DN 22");
+    expect(exportedLine?.["Quantité"], "the client DPGF export carries the sum").toBe(23);
+    const words = rows.flatMap((entry) => Object.values(entry).map((value) => String(value ?? ""))).join(" ");
+    expect(words, "the client export carries nothing of the composition").not.toMatch(/métré du|alimentée|composition/i);
+    await recordEvidence(army, "TKD04-dpgf-accumulation", { versionId, first: first.jobId, second: second.jobId, row, held, reconciliation,
+      confirmation, exported: exportedLine });
   });

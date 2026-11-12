@@ -340,6 +340,7 @@
     "20261112173255_material_request_quotes.sql": "dafe23748578cd3bf3cbba66a247d69761903f5ecb3a0612cf5c57e05a07680b",
     "20261112192815_material_request_quote_files_and_message.sql": "3c50337edff1a9543ada538e859ee96bb8c645638522450a8fa89c02f201678b",
     "20261112202147_material_request_purchase_orders.sql": "745126a44252f116bc14726725274d5527c3c9ca5de6408f39fcc419f1174690",
-    "20261112221835_assistant_threads.sql": "36aec96f1f15ec7c67d301fb3a941003cde3a7de77160a12a2cbed845d9efbb6"
+    "20261112221835_assistant_threads.sql": "36aec96f1f15ec7c67d301fb3a941003cde3a7de77160a12a2cbed845d9efbb6",
+    "20261112230829_takeoff_dpgf_accumulation.sql": "9e71d8e089e0af0aec8b817965ef284c94f67a80950d7353a70180fb04975002"
   }
 }

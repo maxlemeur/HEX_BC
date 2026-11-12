@@ -6,6 +6,7 @@ import { mapSupabaseError } from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
+import { earlierLinesTakenOutByDefault } from "@/lib/takeoff/dpgf-composition";
 import {
   estimateLineTakeoffItemIds,
   findPagesAlreadyInEstimate,
@@ -36,12 +37,13 @@ import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links
 type Supabase = AuthenticatedTakeoffContext["supabase"];
 type Context = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId">;
 
-type TakeoffLineRow = { id: string; job_id: string; source_file_name: string | null; source_page: number | null; source_document: unknown };
+type TakeoffLineRow = { id: string; job_id: string; source_file_name: string | null; source_page: number | null; source_document: unknown;
+  is_excluded: boolean };
 type EstimateLineRow = Omit<EstimateLineProvenance, "source_metadata"> & { takeoff_item_id: unknown; rounding_item_ids: unknown; rounding_job_id: unknown;
   policy_item_ids: unknown; policy_job_id: unknown; replacement_item_ids: unknown; replacement_job_id: unknown };
 type JobRow = { id: string; estimate_version_id: string; created_at: string; source_file_name: string | null; sources: unknown };
 
-const TAKEOFF_LINE_SELECT = "id,job_id,source_file_name,source_page,source_document:metadata->source_document";
+const TAKEOFF_LINE_SELECT = "id,job_id,source_file_name,source_page,is_excluded,source_document:metadata->source_document";
 // Only the provenance keys estimateLineTakeoffItemIds reads, never the whole source_metadata.
 const ESTIMATE_LINE_SELECT = "id,source_provider,source_job_id,source_file_name,source_page,"
   + "takeoff_item_id:source_metadata->>takeoff_item_id,"
@@ -107,12 +109,8 @@ const sourcesOf = (job: JobRow | undefined): PageDocumentSource[] | null => {
   return parsed.success ? parsed.data : null;
 };
 
-async function readPagesAlreadyInEstimate(context: Context, input: {
-  jobId: string | null;
-  versionId: string;
-  ownLines: readonly TakeoffLineRow[];
-  launchLines?: readonly NewTakeoffLine[];
-}): Promise<TakeoffPageContributionsResponse> {
+/** What « pages already in the estimate » compares a takeoff's lines with, read once (the version's provenance, the earlier lines, their takeoffs). */
+async function readPageInputs(context: Context, input: { jobId: string | null; versionId: string; ownLines: readonly TakeoffLineRow[] }) {
   const estimateLines = await readEstimateProvenance(context, input.versionId);
   // The source lines the estimate names, read by id (chunked): this takeoff's own are already read.
   const own = new Set(input.ownLines.map((line) => line.id));
@@ -125,8 +123,20 @@ async function readPagesAlreadyInEstimate(context: Context, input: {
   const earlierItems = new Map<string, EarlierTakeoffLine>(sourceRows.map((line) => [line.id, { id: line.id, job_id: line.job_id,
     identity: takeoffLinePageIdentity(line, sourcesOf(jobs.get(line.job_id))) }]));
   const ownSources = input.jobId ? sourcesOf(jobs.get(input.jobId)) : null;
-  const newLines = input.launchLines ?? input.ownLines.map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
   const jobSources = new Map([...jobs.values()].map((job) => [job.id.toLowerCase(), sourcesOf(job)]));
+  return { estimateLines, earlierItems, jobs, jobSources, ownSources };
+}
+
+async function readPagesAlreadyInEstimate(context: Context, input: {
+  jobId: string | null;
+  versionId: string;
+  ownLines: readonly TakeoffLineRow[];
+  launchLines?: readonly NewTakeoffLine[];
+}): Promise<TakeoffPageContributionsResponse> {
+  const { estimateLines, earlierItems, jobs, jobSources, ownSources } = await readPageInputs(context, input);
+  // Every line of the takeoff, excluded or not: the review's notice hides a page once its lines are all excluded
+  // (pagesToShow), without reading again at each inclusion.
+  const newLines = input.launchLines ?? input.ownLines.map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
   const result = findPagesAlreadyInEstimate({ jobId: input.jobId, newLines, estimateLines, earlierItems, jobSources });
   const named = new Set(result.pages.flatMap((page) => page.earlier.map((earlier) => earlier.job_id)));
   return parseWithSchema(takeoffPageContributionsResponseSchema, {
@@ -168,13 +178,47 @@ export async function getTakeoffJobPageContributions(jobId: string, versionId: u
   const normalizedJobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant job invalide.");
   const normalizedVersionId = parseWithSchema(versionIdSchema, versionId, "version_id invalide.");
   await assertTakeoffJobOfVersion(context, normalizedJobId, normalizedVersionId);
+  const [read, decisions] = await Promise.all([readTakeoffJobPagesAlreadyInEstimate(context, normalizedJobId, normalizedVersionId),
+    readPageDecisions(context, normalizedJobId)]);
+  return decisions.length ? { ...read, decisions } : read;
+}
+
+async function readJobLines(context: Context, jobId: string) {
   const { data, error } = await readAllRows(() => context.supabase.from("takeoff_items" as never)
     .select(TAKEOFF_LINE_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, normalizedJobId as never) as never, { pageSize: 1000 });
-  if (error) readFailed(error, "Impossible de lire les lignes du métré.", normalizedJobId);
-  const [read, decisions] = await Promise.all([readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: normalizedVersionId,
-    ownLines: (data ?? []) as unknown as TakeoffLineRow[] }), readPageDecisions(context, normalizedJobId)]);
-  return decisions.length ? { ...read, decisions } : read;
+    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never) as never, { pageSize: 1000 });
+  if (error) readFailed(error, "Impossible de lire les lignes du métré.", jobId);
+  return (data ?? []) as unknown as TakeoffLineRow[];
+}
+
+/** The pages of a takeoff the version already holds from another, every line of it read (the review's notice). */
+async function readTakeoffJobPagesAlreadyInEstimate(context: Context, jobId: string, versionId: string) {
+  return readPagesAlreadyInEstimate(context, { jobId, versionId, ownLines: await readJobLines(context, jobId) });
+}
+
+/**
+ * TI-682 D4, TI-696: the earlier takeoff lines on the pages a takeoff's application brings again, for a caller that already
+ * checked the takeoff is part of the version (the DPGF reconciliation leaves their part out of a line's total). Read
+ * once; `readAgainItemIds(leftOut)` reads them for the lines the application brings: not excluded at the review, nor left
+ * out by the mapping plan (skipped, folded into an assembly, decided out of scope), as the database does
+ * (private.takeoff_prepare_page_decisions), with the same reader (findPagesAlreadyInEstimate, the twin of
+ * private.takeoff_pages_already_in_estimate). An excluded line reads no page again.
+ */
+export async function readTakeoffJobPageReading(context: Context, jobId: string, versionId: string) {
+  const ownLines = await readJobLines(context, jobId);
+  const { estimateLines, earlierItems, jobSources, ownSources } = await readPageInputs(context, { jobId, versionId, ownLines });
+  return {
+    /**
+     * `blocks`: the parts of unknown share the DPGF targets hold (their lines); the pages they link to a page not read
+     * again stay kept both by default (earlierLinesTakenOutByDefault), as the confirmation keeps them.
+     */
+    readAgainItemIds(leftOut: ReadonlySet<string> = new Set(), blocks: ReadonlyArray<ReadonlyArray<string>> = []): ReadonlySet<string> {
+      const newLines = ownLines.filter((line) => !line.is_excluded && !leftOut.has(line.id))
+        .map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
+      const result = findPagesAlreadyInEstimate({ jobId, newLines, estimateLines, earlierItems, jobSources });
+      return earlierLinesTakenOutByDefault(result.pages.map((page) => page.earlier.flatMap((earlier) => earlier.takeoff_item_ids)), blocks);
+    },
+  };
 }
 
 /** PR 2: the decisions recorded for this takeoff's pages (RLS: the members of its tenant who read its version). */

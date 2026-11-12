@@ -28,6 +28,10 @@ import {
 } from "@/lib/takeoff/dpgf-comparison-preparation";
 
 import { loadDpgfDecisionAncestors, resolveDpgfDecisionLineage } from "@/lib/takeoff/dpgf-decision-lineage-server";
+import { loadDpgfTargetCompositions } from "@/lib/takeoff/dpgf-composition-server";
+import { readTakeoffJobPageReading } from "@/lib/takeoff/page-contributions-server";
+import { readAgainLeavingOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
+import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 export type TakeoffDpgfComparisonAuth = Pick<
   AuthenticatedTakeoffContext,
@@ -118,14 +122,35 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     versions, versionId, linkedFromVersionId,
     linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
   });
+  // TI-682 D4: what each DPGF target holds of the takeoffs applied, the earlier lines on pages this takeoff reads again,
+  // and the duplicates the zone rules found between this takeoff's lines and others.
+  const compositions = await loadDpgfTargetCompositions({ supabase, tenantId }, allEstimateItems
+    .filter((item) => item.item_type === "line" && item.source_provider === "dpgf")
+    .map((item) => ({ id: item.id, updated_at: item.updated_at, source_metadata: item.source_metadata ?? null })));
+  // Only a target that keeps another takeoff's measure has pages this takeoff may read again. TI-696: read again only
+  // through the lines the application brings (not excluded; at the application and its « Pages déjà au devis » step, nor
+  // left out by the mapping plan: excludeDpgfOutOfScope reads them again with `readAgainItemIdsOf`).
+  const fedByAnother = [...compositions.targets.values()].some((target) => target.contributions.some((part) => part.job_id !== jobId));
+  const pageReading = fedByAnother ? await readTakeoffJobPageReading({ supabase, tenantId }, jobId, versionId) : null;
+  // The parts of unknown share (policies applied before D4) that link pages, replaced together or kept together.
+  const blocks = [...compositions.targets.values()].flatMap((entry) => entry.contributions.filter((part) => part.job_id !== jobId
+    && part.item_ids.length > 1).map((part) => part.item_ids));
+  const readAgainItemIdsOf = (leftOut: ReadonlySet<string>): ReadonlySet<string> => pageReading?.readAgainItemIds(leftOut, blocks)
+    ?? new Set<string>();
+  const overlapPartners = new Map(takeoffItems.map((item) => [item.id, ((item.rule_results ?? []) as TakeoffRuleResult[])
+    .filter((result) => result.status === "fail" && result.code === "ZONE_OVERLAP_DUPLICATE")
+    .flatMap((result) => result.details?.partners ?? [])
+    .map((partner) => ({ item_id: partner.item_id, job_id: partner.job_id, overlap_m: partner.overlap_m, resolved: partner.resolved }))]));
 
-  return {
+  const context = {
     supabase,
     tenantId,
     userId,
     projectId,
     estimateItems,
     takeoffItems,
+    compositions,
+    readAgainItemIdsOf,
     comparisonInput: {
       versionId,
       jobId,
@@ -134,8 +159,14 @@ export async function loadTakeoffDpgfComparisonContext(input: {
       manualLinks,
       reviewDecisions,
       carriedReviewDecisions,
+      dpgfCompositions: compositions,
+      readAgainItemIds: readAgainItemIdsOf(new Set()),
+      overlapPartners,
     },
   };
+  // TI-696: a row decided out of scope brings nothing of its page, at the review as at the application.
+  if (pageReading) readAgainLeavingOutOfScope(context);
+  return context;
 }
 
 export type TakeoffDpgfComparisonContext = Awaited<

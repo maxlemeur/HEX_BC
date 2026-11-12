@@ -10,10 +10,12 @@ import {
   STATUS_LABELS,
   STATUS_PANEL_CSS,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/constants";
+import { DpgfCompositionNote } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfCompositionNote";
 import {
   formatConfidence,
   formatNumber,
   formatPercent,
+  measuredQuantityLabel,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 
 type DpgfRowListProps = {
@@ -41,10 +43,7 @@ export function DpgfRowList({
     <section className="min-w-0 space-y-3" aria-label="Lignes DPGF">
       {filteredRows.map((row) => {
         const isSelected = row.line_id === selectedRowId;
-        const quantityLabel =
-          row.takeoff_quantity === null
-            ? "Quantité métrée non consolidée"
-            : `${formatNumber(row.takeoff_quantity)} ${row.quantity_unit ?? ""}`.trim();
+        const quantityLabel = measuredQuantityLabel(row);
 
         return (
           <button
@@ -123,6 +122,8 @@ export function DpgfRowList({
                 </p>
               </div>
             </div>
+
+            {row.composition ? <div className="mt-4"><DpgfCompositionNote row={row} /></div> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               {row.linked_takeoff_items.length > 0 ? (

@@ -20,6 +20,7 @@ import {
   type ConfirmationDraft,
   type ResolvedLine,
 } from "./page-decisions";
+import { dpgfChange, dpgfFall } from "./dpgf-outcome-text";
 
 // TI-682 lot D, PR 2: « Pages déjà au devis », at the application's confirmation. Codex review of 708c7fbf: the screen is
 // organised as the database decides. Each page re-measured is decided once (replace its earlier measure, recommended, or
@@ -65,7 +66,9 @@ function outcomeText(entry: ResolvedLine) {
     case "kept":
       return `${quantity(entry.before)}, gardée avec ses pages`;
     case "dpgf":
-      return `${quantity(entry.before)}, sa quantité suit le rapprochement DPGF`;
+      // TI-682 D4: what it will hold, the takeoffs it keeps summed; a fall says why and where the page's measure went.
+      return entry.dpgf ? dpgfFall(entry.dpgf) ?? `${dpgfChange(entry.dpgf)}, ligne DPGF (somme des métrés qu’elle garde)`
+        : `${quantity(entry.before)}, ligne DPGF`;
   }
 }
 
