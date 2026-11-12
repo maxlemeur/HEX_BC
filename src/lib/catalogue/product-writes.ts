@@ -43,7 +43,10 @@ function getWriterClient() {
   return getCatalogueWriterClient(PRODUCT_WRITE_REFUSAL);
 }
 
-/** Refusals of the trigger validate_product_catalogue_status, as sentences. */
+/** Refusal of the trigger protect_product_catalogue_validation (TI-689): a draft is validated by an admin. */
+const PRODUCT_VALIDATION_ADMIN_ONLY = "PRODUCT_VALIDATION_ADMIN_ONLY";
+
+/** Refusals of the triggers that guard an item's catalogue status, as sentences. */
 function catalogueStatusError(error: { message: string; details?: string | null }) {
   if (error.message.includes(PRODUCT_VALIDATION_INCOMPLETE)) {
     const missing = productValidationFieldsFromDetail(error.details);
@@ -52,6 +55,9 @@ function catalogueStatusError(error: { message: string; details?: string | null 
       { missing },
       PRODUCT_VALIDATION_INCOMPLETE,
     );
+  }
+  if (error.message.includes(PRODUCT_VALIDATION_ADMIN_ONLY)) {
+    return forbidden("La validation d’un article en brouillon est réservée aux administrateurs.");
   }
   if (error.message.includes(PRODUCT_SUPPLY_TYPE_INVALID)) {
     return badRequest("Ce type de fourniture n’existe pas dans votre référentiel.");

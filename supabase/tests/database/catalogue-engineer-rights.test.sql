@@ -2,13 +2,14 @@
 -- changes or deletes the ones they added; the admin decides, through public.set_tenant_catalogue_policy, whether
 -- engineers also change the shared base. Validating a reference price stays an admin act.
 --
--- Covers the migration 20261111211901_catalogue_engineer_rights.sql (written with it, not seen red first). Failure modes:
+-- Covers the migration 20261112004040_catalogue_engineer_rights.sql (written with it, not seen red first). Failure modes:
 --   C1 an engineer cannot add a supplier or an item, or a viewer can;
 --   C2 the author of a row is chosen or rewritten by the caller;
 --   C3 an engineer changes or deletes a row of the shared base while the setting is off, or cannot once it is on;
 --   C4 the setting is written by someone other than an admin of the tenant, or reaches another tenant;
 --   C5 an engineer changes a reference price without a validation, or validates one;
 --   C6 a supplier or an item is moved to another tenant by a member holding a write role in both.
+--   C7 an engineer validates a draft item (TI-690: draft -> validated is an admin act).
 -- Every statement goes through pg_temp.ce_run (role and JWT subject switched in a sub-block), so a red assertion
 -- fails on its own reason and the suite runs to the end. Fixtures rolled back at the end.
 
@@ -447,6 +448,63 @@ select is(
      and supplier.tenant_id = pg_temp.fx('tenant_a')),
   2,
   'C6 both suppliers are still in tenant A'
+);
+
+-- ---------------------------------------------------------------------------
+-- C7: validating a draft item (TI-690, draft -> validated) stays an admin act, whoever may update the item.
+-- ---------------------------------------------------------------------------
+insert into public.supply_types (id, tenant_id, code, name) values
+  ('ce689000-0000-4000-8000-0000000000d1', pg_temp.fx('tenant_a'), 'TI689', 'TI689 Type de fourniture');
+
+select is(
+  pg_temp.ce_run('engineer_1', $$update public.products
+    set catalogue_status = 'draft', product_type = 'Tube', material = 'Acier',
+        supply_type_id = 'ce689000-0000-4000-8000-0000000000d1'
+    where id = 'ce689000-0000-4000-8000-0000000000c2'$$),
+  'ok 1',
+  'C7 an engineer puts the item they added back to draft and completes it'
+);
+select matches(
+  pg_temp.ce_run('engineer_1', $$update public.products set catalogue_status = 'validated'
+    where id = 'ce689000-0000-4000-8000-0000000000c2'$$),
+  '^42501 PRODUCT_VALIDATION_ADMIN_ONLY',
+  'C7 an engineer cannot validate the draft they added, even complete'
+);
+select matches(
+  pg_temp.ce_run('admin_a', format(
+    'select public.set_tenant_catalogue_policy(%L, true)', pg_temp.fx('tenant_a'))),
+  '^ok ',
+  'C7 the admin opens the shared base again'
+);
+select matches(
+  pg_temp.ce_run('engineer_2', $$update public.products set catalogue_status = 'validated'
+    where id = 'ce689000-0000-4000-8000-0000000000c2'$$),
+  '^42501 PRODUCT_VALIDATION_ADMIN_ONLY',
+  'C7 nor can an engineer allowed to change the shared base'
+);
+select is(
+  (select product.catalogue_status from public.products product
+   where product.id = 'ce689000-0000-4000-8000-0000000000c2'),
+  'draft',
+  'C7 the item is still a draft'
+);
+select is(
+  pg_temp.ce_run('admin_a', $$update public.products set catalogue_status = 'validated'
+    where id = 'ce689000-0000-4000-8000-0000000000c2'$$),
+  'ok 1',
+  'C7 an admin validates it'
+);
+select is(
+  (select row(product.catalogue_status, product.catalogue_validated_by)::text from public.products product
+   where product.id = 'ce689000-0000-4000-8000-0000000000c2'),
+  format('(validated,%s)', pg_temp.fx('admin_a')),
+  'C7 the validation carries the admin as its author'
+);
+select is(
+  pg_temp.ce_run('engineer_1', $$update public.products set designation = 'TI689 Article ingénieur 1 bis'
+    where id = 'ce689000-0000-4000-8000-0000000000c2'$$),
+  'ok 1',
+  'C7 the engineer still changes the validated item they added'
 );
 
 select is(

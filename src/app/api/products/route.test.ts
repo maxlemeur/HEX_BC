@@ -234,6 +234,23 @@ describe("POST /api/products", () => {
     });
   });
 
+  // TI-689. Failure mode: the refusal of a validation by someone other than an admin reaches them as a 500.
+  it("tells who is not an admin that validating a draft is an admin act", async () => {
+    const { supabase } = createProductsSupabase({
+      updateResult: { data: null, error: { code: "42501", message: "PRODUCT_VALIDATION_ADMIN_ONLY" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "validated" } })
+    );
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe(
+      "La validation d’un article en brouillon est réservée aux administrateurs."
+    );
+  });
+
   it("refuses a supply type that is not in the tenant's referential", async () => {
     const { supabase } = createProductsSupabase({
       updateResult: { data: null, error: { code: "23514", message: "PRODUCT_SUPPLY_TYPE_INVALID" } },

@@ -9,7 +9,11 @@
 --   public.set_tenant_catalogue_policy;
 -- - validating a reference price stays an admin act: public.validate_product_reference_price and the trigger
 --   protect_product_reference_price (20260906145000) are untouched, so an engineer who may update an item still
---   cannot change its price without a validation.
+--   cannot change its price without a validation;
+-- - validating a draft item (TI-690, products.catalogue_status draft -> validated) stays an admin act too: until
+--   now only the admin-only update policy kept it so, and the trigger validate_product_catalogue_status
+--   (20261111224927) checks completeness, not the role. A trigger of this migration now refuses it to anyone else
+--   (PRODUCT_VALIDATION_ADMIN_ONLY).
 -- Rows that exist keep created_by null: they are the shared base. viewer and director gain nothing.
 -- Regression: supabase/tests/database/catalogue-engineer-rights.test.sql.
 begin;
@@ -20,6 +24,7 @@ begin
     or to_regclass('public.products') is null
     or to_regclass('public.suppliers') is null
     or to_regprocedure('public.suggest_product_reference()') is null
+    or to_regprocedure('private.enforce_product_catalogue_status()') is null
   then
     raise exception 'TI689_PREREQUISITE_MISSING';
   end if;
@@ -235,7 +240,38 @@ create policy "Catalogue editors can delete products"
   using ((select public.can_edit_catalogue_record(tenant_id, created_by)));
 
 -- ---------------------------------------------------------------------------
--- 5. The reference suggestion of the item form follows the insert right. Body from
+-- 5. Validating a draft item stays an admin act. Named to fire before validate_product_catalogue_status, so the
+--    refusal does not depend on what the draft still misses. A server writer without a user is not concerned.
+-- ---------------------------------------------------------------------------
+create function public.protect_product_catalogue_validation()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if auth.uid() is not null
+    and old.catalogue_status = 'draft'
+    and new.catalogue_status = 'validated'
+    and not public.has_tenant_role(old.tenant_id, array['admin'::public.tenant_role])
+  then
+    raise exception using errcode = '42501', message = 'PRODUCT_VALIDATION_ADMIN_ONLY';
+  end if;
+  return new;
+end;
+$$;
+
+comment on function public.protect_product_catalogue_validation() is
+  'TI-689: only a tenant admin turns a draft item into a validated one (PRODUCT_VALIDATION_ADMIN_ONLY).';
+
+revoke all on function public.protect_product_catalogue_validation() from public, anon, authenticated;
+
+create trigger protect_product_catalogue_validation
+  before update on public.products
+  for each row execute function public.protect_product_catalogue_validation();
+
+-- ---------------------------------------------------------------------------
+-- 6. The reference suggestion of the item form follows the insert right. Body from
 --    20261002155954_product_internal_reference_auto.sql; only the role list and its message change.
 -- ---------------------------------------------------------------------------
 create or replace function public.suggest_product_reference()

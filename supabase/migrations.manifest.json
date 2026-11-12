@@ -326,7 +326,7 @@
     "20261111181152_estimate_site_cost_origin.sql": "44f20db82a1ba37b4cca6d4956ee383cfdc21499dbc8f30b436f01beeb4f38e6",
     "20261111193950_estimate_line_offer_choice.sql": "4818a1ef1a14812305e2bc91310f1cb9717fab297178b6fd722113cda4c560f3",
     "20261111195141_optional_dossier_documents_policy.sql": "d564ce476d4f2ee4daef3cae09bf351690f2a72297c37704ab6220b429476de6",
-    "20261111211901_catalogue_engineer_rights.sql": "fbdbec667f0219d4440e8906e538a3738491ebf75974cd85c245e83a7ce98dac",
-    "20261111224927_product_catalogue_status.sql": "4cce7b0895d4eddf950ab8301b4ebf009c88e71261c8e8df603b1b52b9420a02"
+    "20261111224927_product_catalogue_status.sql": "4cce7b0895d4eddf950ab8301b4ebf009c88e71261c8e8df603b1b52b9420a02",
+    "20261112004040_catalogue_engineer_rights.sql": "bb0066a3b94a5a676a8cc9ae85976bc984985df71070603809fd4cb7aa18ec62"
   }
 }
