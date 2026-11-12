@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 
-// The explicit local entrypoint binds the listener to loopback. A deployed build
-// cannot activate this personal integration via an environment variable alone.
-const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", ...process.argv.slice(2)], {
+// Compatibility alias for next dev. ChatGPT is enabled by development mode;
+// production builds never enable the personal integration.
+const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", ...process.argv.slice(2)], {
   stdio: "inherit",
   env: { ...process.env, MERGEONE_CHATGPT_LOCAL: "1" },
 });

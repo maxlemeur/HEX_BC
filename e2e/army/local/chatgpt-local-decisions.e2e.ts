@@ -348,12 +348,12 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   await expect(screen.getByLabel("Tâche", { exact: true })).toContainText("Classe de calque (groupes de tracés)");
   await expect(screen.getByRole("article", "Élément à juger")).toContainText(decisions.layer);
 
-  // The vectors page and its API refuse another host than 127.0.0.1, a non-admin member and an anonymous request.
+  // Development aliases work; non-admin members and anonymous requests remain refused.
   const otherHost = await rawLabRequest(port, { method: "GET", path: vectorsApi, host: `localhost:${port}`, cookie: admin.header });
-  expect([otherHost.status, JSON.parse(otherHost.body).error?.code]).toEqual([403, "TAKEOFF_LAB_LOCAL_ONLY"]);
+  expect(otherHost.status).toBe(200);
   const otherHostPage = await rawLabRequest(port, { method: "GET", path: `${lab}/vectors`, host: `localhost:${port}`, cookie: admin.header });
-  expect(otherHostPage.body).toContain("Labo métré indisponible");
-  expect(otherHostPage.body).not.toContain("Classer avec Decisions");
+  expect(otherHostPage.body).not.toContain("Labo métré indisponible");
+  expect(otherHostPage.body).toContain("Classer avec Decisions");
   const member = await createLocalChatGptOwner();
   await querySql(`update public.tenant_memberships set role='engineer' where user_id='${member.userId}';`);
   const engineer = await labSessionCookies(member.email);

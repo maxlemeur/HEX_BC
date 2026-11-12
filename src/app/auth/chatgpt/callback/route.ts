@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { assertLocalChatGptHost, CHATGPT_CALLBACK, CHATGPT_COOKIE, finishLocalChatGptSignIn } from "@/lib/ai/chatgpt-local-auth";
+import { assertLocalChatGptHost, CHATGPT_CALLBACK, CHATGPT_COOKIE, relayLocalChatGptCallback, finishLocalChatGptSignIn } from "@/lib/ai/chatgpt-local-auth";
 import { chatGptSignInFailure, type ChatGptSignInFailure } from "@/lib/ai/chatgpt-sign-in-errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
@@ -8,17 +8,25 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   let origin: string;
-  try { origin = assertLocalChatGptHost(request.headers.get("host")); }
+  try { origin = assertLocalChatGptHost(request.headers.get("host"), request.headers.get("x-forwarded-proto")); }
   catch { return new NextResponse(null, { status: 404 }); }
   let outcome = "connected";
   let reason: ChatGptSignInFailure = "session";
   try {
-    const owner = await getAuthenticatedContext();
     reason = "unknown";
-    // Next.js can normalize request.url to localhost even for a 127.0.0.1 Host.
-    // Rebuild from the strictly checked local Host, preserving the OAuth query.
+    // Next may normalize request.url: preserve the browser-facing origin.
     const callback = new URL(CHATGPT_CALLBACK, origin);
     callback.search = new URL(request.url).search;
+    const relay = await relayLocalChatGptCallback(callback);
+    if (relay) {
+      const response = NextResponse.redirect(relay, 303);
+      response.headers.set("Cache-Control", "no-store");
+      response.headers.set("Referrer-Policy", "no-referrer");
+      return response;
+    }
+    reason = "session";
+    const owner = await getAuthenticatedContext();
+    reason = "unknown";
     await finishLocalChatGptSignIn(owner, callback, request.cookies.get(CHATGPT_COOKIE)?.value);
   } catch (error) {
     // OAuth query parameters and provider exceptions can contain credentials.
