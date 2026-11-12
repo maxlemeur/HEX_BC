@@ -60,7 +60,8 @@ function mergeOrders(known: readonly MaterialRequestOrder[], created: readonly M
     }),
     ...created
       .filter((order) => !known.some((entry) => entry.id === order.id))
-      .map((order) => ({ ...order, status: "draft" })),
+      // Made by the caller (a replay answers only its author or an admin): it may open them.
+      .map((order) => ({ ...order, status: "draft", can_open: true })),
   ];
 }
 

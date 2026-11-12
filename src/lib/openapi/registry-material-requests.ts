@@ -172,10 +172,12 @@ const quoteRetained: z.ZodType<MaterialRequestQuoteRetained> = z.object({
 const ordersSummary: z.ZodType<MaterialRequestOrdersSummary> = z.object({
   ready_line_ids: z.array(uuid),
   not_ready: z.array(z.object({ line_id: uuid, reason: z.enum(MATERIAL_REQUEST_ORDER_NOT_READY_REASONS) })),
-  ordered: z.array(z.object({ line_id: uuid, purchase_order_id: uuid, purchase_order_reference: z.string(), status: z.string() })),
+  ordered: z.array(z.object({
+    line_id: uuid, purchase_order_id: uuid, purchase_order_reference: z.string(), status: z.string(), can_open: z.boolean(),
+  })),
   orders: z.array(z.object({
     id: uuid, reference: z.string(), supplier_name: z.string(), status: z.string(), total_ht_cents: z.number().int(),
-    line_count: z.number().int().min(0),
+    line_count: z.number().int().min(0), can_open: z.boolean(),
   })),
   can_create: z.boolean(),
 });

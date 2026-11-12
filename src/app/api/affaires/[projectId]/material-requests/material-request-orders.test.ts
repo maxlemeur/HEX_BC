@@ -118,19 +118,24 @@ function summaryInDatabase(actor: string): FakeRpcHandler {
   const mine = new Set(lines.map((row) => row.id));
   const orders = (tables.purchase_orders ?? []).filter((order) => (tables.purchase_order_items ?? [])
     .some((item) => item.purchase_order_id === order.id && mine.has(item.material_request_line_id)));
+  // An order is read by its author and the admins.
+  const admin = (tables.tenant_memberships ?? []).find((row) => row.user_id === actor)?.role === "admin";
+  const canOpen = (order: FakeRow) => admin || order.user_id === actor;
   return {
     data: {
       ready_line_ids: lines.filter((row) => !held.has(String(row.id)) && isReady(row)).map((row) => row.id),
       not_ready: lines.filter((row) => !held.has(String(row.id)) && !isReady(row)).map((row) => ({ line_id: row.id, reason: reason(row) })),
       ordered: lines.filter((row) => held.has(String(row.id))).map((row) => {
         const order = held.get(String(row.id)) as FakeRow;
-        return { line_id: row.id, purchase_order_id: order.id, purchase_order_reference: order.reference, status: order.status };
+        return { line_id: row.id, purchase_order_id: order.id, purchase_order_reference: order.reference, status: order.status,
+          can_open: canOpen(order) };
       }),
       orders: orders.map((order) => ({
         id: order.id, reference: order.reference, supplier_name: suppliers.get(order.supplier_id) ?? "", status: order.status,
         total_ht_cents: order.total_ht_cents,
         line_count: (tables.purchase_order_items ?? []).filter((item) => item.purchase_order_id === order.id
           && mine.has(item.material_request_line_id)).length,
+        can_open: canOpen(order),
       })),
       can_create: canCreate(actor, tables, args.p_request_id),
     },
@@ -172,7 +177,7 @@ function createInDatabase(actor: string): FakeRpcHandler {
       const id = `e0000000-0000-4000-8000-${String(created).padStart(12, "0")}`;
       const lines = ready.filter((row) => row.supplier_id === supplier.id);
       const total = lines.reduce((sum, row) => sum + amountOf(row), 0);
-      (tables.purchase_orders ??= []).push({ id, tenant_id: TENANT, reference: `C-2611-${String(100 + created)}`,
+      (tables.purchase_orders ??= []).push({ id, tenant_id: TENANT, user_id: actor, reference: `C-2611-${String(100 + created)}`,
         supplier_id: supplier.id, project_id: PROJECT, status: "draft", total_ht_cents: total });
       (tables.purchase_order_items ??= []).push(...lines.map((row) => ({ purchase_order_id: id, material_request_line_id: row.id })));
       return { id, reference: `C-2611-${String(100 + created)}`, supplier_id: supplier.id, supplier_name: supplier.name, status: "draft",
