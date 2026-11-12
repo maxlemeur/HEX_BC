@@ -328,6 +328,7 @@
     "20261111195141_optional_dossier_documents_policy.sql": "d564ce476d4f2ee4daef3cae09bf351690f2a72297c37704ab6220b429476de6",
     "20261111224927_product_catalogue_status.sql": "4cce7b0895d4eddf950ab8301b4ebf009c88e71261c8e8df603b1b52b9420a02",
     "20261111233221_takeoff_zone_coverage_warning.sql": "12b42337e78cabcd947f0ae242bff066371c5ff91293526b1a580ebf1db6b4e3",
-    "20261112004040_catalogue_engineer_rights.sql": "bb0066a3b94a5a676a8cc9ae85976bc984985df71070603809fd4cb7aa18ec62"
+    "20261112004040_catalogue_engineer_rights.sql": "bb0066a3b94a5a676a8cc9ae85976bc984985df71070603809fd4cb7aa18ec62",
+    "20261112014046_material_requests.sql": "805b542789bdb16a2363005a27c6aabdac6ed642245451c293f17b0ffa9af2f5"
   }
 }
