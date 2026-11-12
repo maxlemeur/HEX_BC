@@ -3,6 +3,7 @@
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import {
   GitCompareArrowsIcon,
+  ClipboardListIcon,
   CopyIcon,
   DownloadIcon,
   EllipsisIcon,
@@ -141,6 +142,13 @@ export function AffaireHubActionBar({
           ) : null}
           <DropdownMenuItem
             className="min-h-10 px-2"
+            render={<Link href={`/dashboard/affaires/${summary.project.id}/demandes-materiel`} />}
+          >
+            <ClipboardListIcon aria-hidden="true" />
+            Demandes de matériel
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="min-h-10 px-2"
             disabled={pendingAction !== null}
             onClick={onDuplicate}
           >
@@ -185,6 +193,13 @@ export function AffaireHubFirstVersionActionBar({ projectId }: { projectId: stri
       >
         <PlusIcon aria-hidden="true" />
         Créer un premier devis manuel
+      </Link>
+      <Link
+        href={`/dashboard/affaires/${projectId}/demandes-materiel`}
+        className={buttonVariants({ variant: "outline", size: "md" })}
+      >
+        <ClipboardListIcon aria-hidden="true" />
+        Demandes de matériel
       </Link>
     </div>
   );

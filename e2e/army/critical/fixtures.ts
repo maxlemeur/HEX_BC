@@ -105,6 +105,12 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
       (army?.ownedIntakeCopies ?? []).some((copy) =>
         army?.ownedEstimates.some((estimate) => estimate.projectId === copy.projectId) &&
         url.pathname === `/storage/v1/object/sign/affaire-intake/${copy.storagePath.split("/").map(encodeURIComponent).join("/")}`);
+    // A material request original (TI-690) goes straight to storage through a signed upload URL: bodies are
+    // capped by the proxy and by the hosting platform. Only the bucket path of a campaign affaire is allowed.
+    const materialRequestUpload = /^\/storage\/v1\/object\/upload\/sign\/material-requests\/[0-9a-f-]{36}\/([0-9a-f-]{36})\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[^/]+$/i.exec(url.pathname);
+    const ownedMaterialRequestUpload = localBackend && ["PUT", "OPTIONS"].includes(route.request.method) &&
+      materialRequestUpload !== null &&
+      (army?.ownedEstimates ?? []).some((estimate) => estimate.projectId === materialRequestUpload[1]);
     const ownedPurchaseRead = localBackend && allowsOwnedPurchaseRead(
       url, route.request.method, army?.ownedEstimates ?? [], army?.ownedPurchaseOrders ?? [],
     );
@@ -115,7 +121,7 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
       (army?.ownedEstimates ?? []).some(estimate =>
         estimate.projectId === pdfObject[2] && estimate.versionId === pdfObject[3]);
     const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
-    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPlanRead && !ownedTakeoffUploadRead && !ownedPurchaseRead && !ownedPdfRead && !ownedIntakeRead) || forbiddenMutation) {
+    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedMaterialRequestUpload && !ownedPlanRead && !ownedTakeoffUploadRead && !ownedPurchaseRead && !ownedPdfRead && !ownedIntakeRead) || forbiddenMutation) {
       await route.abort();
       const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");
       throw new Error(`Critical campaign blocked ${route.request.method} ${url.hostname}${safePath}; external request or email/status mutation.`);
