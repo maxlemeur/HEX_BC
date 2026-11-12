@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { takeoffLinePageIdentity, type PageDocumentSource } from "@/lib/takeoff/page-contributions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import { prepareRuleResultWrite } from "@/lib/takeoff/rules/result-identity";
@@ -46,7 +47,7 @@ const AnchorsSchema: z.ZodType<PageAnchors> = z.object({
   lines: z.array(z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()])),
 });
 
-type JobRow = { id: string; status: string; created_at: string };
+type JobRow = { id: string; status: string; created_at: string; sources?: unknown };
 type ItemRow = {
   id: string; job_id: string; designation: string; unit: string; quantity: number; is_excluded: boolean; exclusion_reason: string | null; updated_at: string;
   metadata: unknown; source_file_name: string | null; source_page: number | null; rule_results: unknown; rules_stale: boolean;
@@ -56,6 +57,12 @@ type ItemRow = {
 type PageRow = { id: string; job_id: string; plan_file_id: string | null; source_file_name: string | null; source_page: number; reading: unknown;
   rule_anchors: unknown };
 type GeometryRow = { takeoff_item_id: string; job_id: string; vector_page_id: string; geometry: unknown };
+
+/** The documents of a takeoff's preparation (content hash, plan reference), as the page decision reads them. */
+const SourcesSchema = z.array(z.object({
+  document_id: z.string(), document_name: z.string().nullish(), kind: z.string().nullish(), active: z.boolean().nullish(),
+  content_hash: z.string().nullish(), logical_document_id: z.string().nullish(),
+}));
 
 function failed(message: string, error: { message?: string } | null): never {
   throw new Error(`${message} (${error?.message ?? "erreur inconnue"})`);
@@ -119,7 +126,7 @@ export async function recomputeTakeoffRulesForVersion(input: {
   } as never);
   if (stampError || typeof stamp !== "string") failed("Impossible de lire l’état de la version pour les règles.", stampError);
   const { data: jobData, error: jobError } = await supabase.from("takeoff_jobs" as never)
-    .select("id, status, created_at" as never)
+    .select("id, status, created_at, sources:preparation_snapshot->preparation->sources" as never)
     .eq("tenant_id" as never, input.tenantId as never).eq("estimate_version_id" as never, input.estimateVersionId as never)
     .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
   if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
@@ -137,6 +144,10 @@ export async function recomputeTakeoffRulesForVersion(input: {
 
   const jobOrder = new Map(jobs.map((job, index) => [job.id, index]));
   const status = new Map(jobs.map((job) => [job.id, job.status]));
+  const sources = new Map(jobs.map((job): [string, PageDocumentSource[] | null] => {
+    const parsed = SourcesSchema.safeParse(job.sources);
+    return [job.id, parsed.success ? parsed.data : null];
+  }));
   const vectorJobs = [...new Set(items.filter(({ inputs }) => inputs !== null).map(({ item }) => item.job_id))];
   const { data: pageData, error: pageError } = await readAllRows(() => supabase.from("takeoff_vector_pages" as never)
     .select("id, job_id, plan_file_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
@@ -157,6 +168,10 @@ export async function recomputeTakeoffRulesForVersion(input: {
       level: reading.success ? reading.data.location.level : null, zone: reading.success ? reading.data.location.zone : null,
       scale: reading.success ? { status: reading.data.scale.status, reason: reading.data.scale.reason } : null,
       denominator: reading.success ? reading.data.scale.denominator : null, anchors: anchors.success ? anchors.data : null,
+      // TI-682 (lot D): the plan page it reads, by its document (a plan file, or the job's upload) and its job's preparation.
+      identity: takeoffLinePageIdentity({ source_file_name: row.source_file_name, source_page: row.source_page,
+        source_document: row.plan_file_id ? { kind: "plan_file", plan_file_id: row.plan_file_id } : { kind: "job_upload", job_id: row.job_id } },
+      sources.get(row.job_id)),
     });
     candidates.push({ id: row.id, job_id: row.job_id, plan_file_id: row.plan_file_id ?? null, source_file_name: row.source_file_name,
       source_page: row.source_page, scale_mismatch: reading.success && reading.data.scale.reason === "dimension_mismatch" });

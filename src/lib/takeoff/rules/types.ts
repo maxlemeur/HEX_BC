@@ -39,8 +39,10 @@ export const TAKEOFF_RULE_CODES = {
       "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION", "DN_NETWORK_MATERIAL_BLOCKED",
     ],
   },
+  // ZONE_OVERLAP_SAME_PAGE (TI-682, lot D): two readings of one plan page by two takeoffs, which the page decision of the
+  // application settles; no duplicate between zones.
   zone_overlap: {
-    pass: ["ZONE_OVERLAP_NONE", "ZONE_OVERLAP_RESOLVED"],
+    pass: ["ZONE_OVERLAP_NONE", "ZONE_OVERLAP_RESOLVED", "ZONE_OVERLAP_SAME_PAGE"],
     fail: ["ZONE_OVERLAP_DUPLICATE", "ZONE_OVERLAP_UNREGISTERED"],
   },
   // Coverage of an overview by its enlarged plans (TI-684, D14): a rule of its own, so that a line carries a duplicate
