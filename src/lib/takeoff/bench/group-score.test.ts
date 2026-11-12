@@ -28,6 +28,10 @@ import { GroupTruthFileSchema, ManifestDocumentSchema, type GroupTruthFile, type
 //   proposals;
 // - calls, tokens and latency are taken over the truth pages only, instead of
 //   every page the run read (the cost is the run's).
+// Review (written before the fix): with --repeat 2, a second pass stopped
+// before a truth document silently drops its groups instead of counting them
+// not read; the candidates recorded are called « sent » although a stopped
+// run never asks some of them.
 // Truth directory:
 // - its files are not checked as truth/groups is (unknown class, a group listed
 //   twice, a document outside the manifest, a file not named after its
@@ -81,12 +85,12 @@ const PASS: GroupScorePassInput = {
         answer(NET.N1, "HW-S", 0.9), answer(NET.N2, "HW", 0.85), answer(NET.N3, "CHW-S", 0.6), answer(NET.N4, "autre", 0.91),
         answer(NET.N5, "fond", 0.3), answer(OTHER.O2, "EU", 0.85), answer(OTHER.O3, "CHW", 0.4), answer(OTHER.O4, "autre", 0.95),
       ] },
-      candidates: { sent: [NET.N1, NET.N2, NET.N3, NET.N4, NET.N5, OTHER.O2, OTHER.O3, OTHER.O4], eligible: 8, left_out: 0,
+      candidates: { selected: [NET.N1, NET.N2, NET.N3, NET.N4, NET.N5, OTHER.O2, OTHER.O3, OTHER.O4], eligible: 8, left_out: 0,
         filtered: [{ group: NET.N6, reason: "grey" }, { group: OTHER.O1, reason: "grey" }] },
     }] },
     { id: "b-plan-02", pages: [{ page: 1, status: "failed", reading: null }] },
     { id: "d-plan-04", pages: [{ page: 1, status: "ok", reading: { groups: [g(NET.N1)] }, decisions: { calls: [call("batch", 2000, 4000)], answers: [] },
-      candidates: { sent: [NET.N1], eligible: 1, left_out: 0, filtered: [] } }] },
+      candidates: { selected: [NET.N1], eligible: 1, left_out: 0, filtered: [] } }] },
   ],
 };
 
@@ -100,7 +104,7 @@ describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)"
     const a = pass.documents.find((entry) => entry.document === "a-plan-01");
     expect(a).toMatchObject({
       groups: 12, networks: 8, non_networks: 4, not_read: 1,
-      candidates: { sent: 8, networks_sent: 5, networks_filtered: 1, non_networks_sent: 3, non_networks_filtered: 1, unrecorded: 0,
+      candidates: { selected: 8, networks_selected: 5, networks_filtered: 1, non_networks_selected: 3, non_networks_filtered: 1, unrecorded: 0,
         filtered_by_reason: { grey: 2 } },
       networks_found: { exact: 2, parent: 3 },
       networks_proposed: { exact: 0, parent: 1 },
@@ -111,7 +115,7 @@ describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)"
     });
     const b = pass.documents.find((entry) => entry.document === "b-plan-02");
     expect(b).toMatchObject({ groups: 2, networks: 1, non_networks: 1, not_read: 2, to_review: { networks: 0, non_networks: 0 },
-      candidates: { sent: 0, unrecorded: 0 }, precision: { classified: 0, exact: null, parent: null } });
+      candidates: { selected: 0, unrecorded: 0 }, precision: { classified: 0, exact: null, parent: null } });
     expect(pass.total).toMatchObject({ groups: 14, networks: 9, non_networks: 5, not_read: 3, networks_found: { exact: 2, parent: 3 },
       candidates: { networks_filtered: 1, filtered_by_reason: { grey: 2 } }, precision: { classified: 4, exact: 0.5, parent: 0.75 } });
     // Only truth documents count: d-plan-04 has no truth.
@@ -128,6 +132,14 @@ describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)"
     expect(pass.bands[4]).toMatchObject({ answers: 5, network_proposals: 3, exact: 1, parent: 2, on_non_networks: 1, true_networks: 3,
       true_networks_answered_non_network: 1, true_networks_answered_autre: 1 });
     expect(pass.bands[4].precision_exact).toBeCloseTo(1 / 3, 6);
+  });
+
+  it("counts as not read, in a later pass, the truth groups of a document that pass stopped before", () => {
+    const stopped: GroupScorePassInput = { pass: 2, documents: PASS.documents.filter((document) => document.id !== "a-plan-01") };
+    const score = scoreGroupTruth({ passes: [PASS, stopped], truth: SET });
+    expect(score.truth.documents_not_run).toEqual(["c-plan-03"]);
+    expect(score.passes[1].documents.find((entry) => entry.document === "a-plan-01")).toMatchObject({ groups: 12, not_read: 12, networks_found: { exact: 0 } });
+    expect(score.passes[1].total).toMatchObject({ groups: 14, not_read: 14 });
   });
 
   it("takes calls, tokens and latency over every page the run read, per page", () => {

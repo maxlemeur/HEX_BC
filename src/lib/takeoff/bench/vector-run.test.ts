@@ -535,9 +535,9 @@ describe("Decisions candidates recorded per page (TI-704)", () => {
       extract: async (_bytes, pageNumber) => (pageNumber === 1 ? withGrey(1) : withGrey(2, 0.95)),
     });
     const [vector, raster] = result.vector.passes[0].documents[0].pages;
-    expect(vector.candidates).toEqual({ sent: [RED_ID, BLUE_ID], eligible: 2, left_out: 0, filtered: [{ group: GREY_ID, reason: "grey" }] });
+    expect(vector.candidates).toEqual({ selected: [RED_ID, BLUE_ID], eligible: 2, left_out: 0, filtered: [{ group: GREY_ID, reason: "grey" }] });
     expect(vector.decisions).toBeUndefined();
-    expect(raster.candidates).toEqual({ sent: [], eligible: 0, left_out: 0, filtered: [] });
+    expect(raster.candidates).toEqual({ selected: [], eligible: 0, left_out: 0, filtered: [] });
     const failed = await runVectorBench({
       documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1,
       extract: async () => { throw new VectorExtractionError("timeout", "Fictional timeout."); },

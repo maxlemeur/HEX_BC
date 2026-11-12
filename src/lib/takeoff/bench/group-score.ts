@@ -24,13 +24,14 @@ import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 //   class taken by the measure (any source; Decisions at 0.8 or more) is
 //   « found », a Decisions network under 0.8 « proposed » (never measured);
 //   exact, or at parent level (HW for HW-S, and HW-R for HW-S: both are HW). It
-//   is « à revoir » when it has no class, or a Decisions class under 0.8 (as
-//   classify.ts groupsToReview counts it; a Decisions « autre » at 0.8 or more
-//   is decided). A group of a page that failed, or that the reading no longer
-//   has, is « not read ».
-// - The candidates the run recorded for each page (vector-run.ts): sent to
-//   Decisions or filtered with its reason (candidate-filter.ts); a network
-//   filtered is lost to Decisions.
+//   is « à revoir » when it has no class (a legend colour shared by networks
+//   included, which the review leaves to the labels), or a Decisions class
+//   under 0.8; a Decisions « autre » at 0.8 or more is decided. A group of a
+//   page that failed, of a document a pass did not reach (another pass read
+//   it), or that the reading no longer has, is « not read ».
+// - The candidates the run recorded for each page (vector-run.ts): selected
+//   for Decisions (a stopped run may not ask them all) or filtered with its
+//   reason (candidate-filter.ts); a network filtered is lost to Decisions.
 // - The Decisions answers on truth groups, by confidence band: network
 //   proposals, exact and parent-level, on non-networks, the true networks of
 //   the band and those answered a non-network class (« autre » apart). The
@@ -57,7 +58,7 @@ type ScoredPage = {
     calls: ReadonlyArray<{ usage: { total_tokens: number } | null; latency_ms: number }>;
     answers: ReadonlyArray<{ group: string; class: string | null; confidence: number | null; status: string }>;
   } | null;
-  candidates?: { sent: readonly string[]; eligible: number; left_out: number; filtered: ReadonlyArray<{ group: string; reason: CandidateFilterReason }> } | null;
+  candidates?: { selected: readonly string[]; eligible: number; left_out: number; filtered: ReadonlyArray<{ group: string; reason: CandidateFilterReason }> } | null;
 };
 /** What the score reads of a vector pass (VectorBenchPass). */
 export type GroupScorePassInput = { pass: number; documents: ReadonlyArray<{ id: string; pages: readonly ScoredPage[] }> };
@@ -69,7 +70,7 @@ export type GroupScoreCounts = {
   /** Truth groups of a page that failed or was not read, or that the reading no longer has. */
   not_read: number;
   candidates: {
-    sent: number; networks_sent: number; networks_filtered: number; non_networks_sent: number; non_networks_filtered: number;
+    selected: number; networks_selected: number; networks_filtered: number; non_networks_selected: number; non_networks_filtered: number;
     filtered_by_reason: Partial<Record<CandidateFilterReason, number>>;
     /** Truth groups read on a page without a candidate record. */
     unrecorded: number;
@@ -129,7 +130,7 @@ type Judgment = {
   status: Status;
   predicted: NetworkCode | null;
   answer: { class: string; confidence: number } | null;
-  candidate: { sent: boolean; reason: CandidateFilterReason | null } | "unrecorded" | null;
+  candidate: { selected: boolean; reason: CandidateFilterReason | null } | "unrecorded" | null;
 };
 
 function statusOf(entry: ScoredGroup | undefined): Status {
@@ -140,23 +141,29 @@ function statusOf(entry: ScoredGroup | undefined): Status {
   return decided ? "other" : "to_review";
 }
 
-function judge(pass: GroupScorePassInput, truth: GroupTruthSet): Judgment[] {
+/** `run`: the documents some pass of the run read; one of them that this pass did not reach has its groups not read. */
+function judge(pass: GroupScorePassInput, truth: GroupTruthSet, run: ReadonlySet<string>): Judgment[] {
   const judgments: Judgment[] = [];
   for (const [document, file] of truth.documents) {
-    const run = pass.documents.find((entry) => entry.id === document);
-    if (!run) continue;
+    if (!run.has(document)) continue;
+    const read = pass.documents.find((entry) => entry.id === document);
+    if (!read) {
+      for (const entry of file.groups) judgments.push({ document, truth: asNetwork(entry.class), status: "not_read", predicted: null, answer: null, candidate: null });
+      continue;
+    }
+    const pages = read.pages;
     for (const entry of file.groups) {
-      const page = run.pages.find((candidate) => candidate.page === entry.page);
-      const read = page?.status === "ok" ? page.reading?.groups.find((group) => group.id === entry.group) : undefined;
-      const status = statusOf(read);
+      const page = pages.find((candidate) => candidate.page === entry.page);
+      const group = page?.status === "ok" ? page.reading?.groups.find((value) => value.id === entry.group) : undefined;
+      const status = statusOf(group);
       const found = page?.decisions?.answers.find((answer) => answer.group === entry.group);
       const answer = found && found.status === "answered" && found.class !== null && found.confidence !== null
         ? { class: found.class, confidence: found.confidence } : null;
       const record = page?.candidates;
       const reason = record?.filtered.find((filtered) => filtered.group === entry.group)?.reason ?? null;
       judgments.push({
-        document, truth: asNetwork(entry.class), status, predicted: read ? asNetwork(read.class) : null, answer: status === "not_read" ? null : answer,
-        candidate: status === "not_read" ? null : !record ? "unrecorded" : { sent: record.sent.includes(entry.group), reason },
+        document, truth: asNetwork(entry.class), status, predicted: group ? asNetwork(group.class) : null, answer: status === "not_read" ? null : answer,
+        candidate: status === "not_read" ? null : !record ? "unrecorded" : { selected: record.selected.includes(entry.group), reason },
       });
     }
   }
@@ -187,10 +194,10 @@ function countsOf(judgments: readonly Judgment[]): GroupScoreCounts {
     groups: judgments.length, networks: networks.length, non_networks: others.length,
     not_read: judgments.length - read.length,
     candidates: {
-      sent: recorded.filter((entry) => entry.candidate.sent).length,
-      networks_sent: recorded.filter((entry) => entry.truth !== null && entry.candidate.sent).length,
+      selected: recorded.filter((entry) => entry.candidate.selected).length,
+      networks_selected: recorded.filter((entry) => entry.truth !== null && entry.candidate.selected).length,
       networks_filtered: recorded.filter((entry) => entry.truth !== null && entry.candidate.reason !== null).length,
-      non_networks_sent: recorded.filter((entry) => entry.truth === null && entry.candidate.sent).length,
+      non_networks_selected: recorded.filter((entry) => entry.truth === null && entry.candidate.selected).length,
       non_networks_filtered: recorded.filter((entry) => entry.truth === null && entry.candidate.reason !== null).length,
       filtered_by_reason,
       unrecorded: read.filter((entry) => entry.candidate === "unrecorded").length,
@@ -236,7 +243,7 @@ function bandsOf(judgments: readonly Judgment[]): GroupScoreBand[] {
 function costOf(pass: GroupScorePassInput) {
   const pages: GroupScorePageCost[] = pass.documents.flatMap((document) => document.pages.map((page) => {
     const calls = page.decisions?.calls ?? [];
-    return { document: document.id, page: page.page, candidates: page.candidates ? page.candidates.sent.length : null, calls: calls.length,
+    return { document: document.id, page: page.page, candidates: page.candidates ? page.candidates.selected.length : null, calls: calls.length,
       tokens: calls.reduce((total, call) => total + (call.usage?.total_tokens ?? 0), 0), latency_ms: calls.reduce((total, call) => total + call.latency_ms, 0) };
   }));
   const latencies = pass.documents.flatMap((document) => document.pages.flatMap((page) => (page.decisions?.calls ?? []).map((call) => call.latency_ms)));
@@ -256,7 +263,7 @@ export function scoreGroupTruth(input: { passes: readonly GroupScorePassInput[];
     truth: { sha256: input.truth.sha256, files: input.truth.files, groups: input.truth.groups,
       documents_not_run: [...input.truth.documents.keys()].filter((id) => !run.has(id)).sort() },
     passes: input.passes.map((pass) => {
-      const judgments = judge(pass, input.truth);
+      const judgments = judge(pass, input.truth, run);
       const documents = [...new Set(judgments.map((entry) => entry.document))]
         .map((document) => ({ document, ...countsOf(judgments.filter((entry) => entry.document === document)) }));
       return { pass: pass.pass, documents, total: countsOf(judgments), bands: bandsOf(judgments), ...costOf(pass) };
@@ -277,19 +284,20 @@ export function renderGroupScoreSection(score: GroupScore): string[] {
   const lines = [`## Score par groupe (vérité à part, TI-704)`, "",
     `Vérité des groupes hors du jeu, jamais appliquée comme correspondances : empreinte \`${score.truth.sha256}\` (${score.truth.files} fichiers, `
     + `${score.truth.groups} groupes). Seuil de classement ${decimal(score.threshold)}. « Parent » : même réseau au niveau parent (un aller ou un retour pour son réseau), exact compris. `
-    + "Trouvé : réseau pris par la mesure ; proposé : réseau Decisions sous le seuil ; à revoir : sans classe ou réponse Decisions sous le seuil.", ""];
+    + "Trouvé : réseau pris par la mesure ; proposé : réseau Decisions sous le seuil ; à revoir : sans classe ou réponse Decisions sous le seuil. "
+    + "Retenus : choisis pour Decisions (un run arrêté ne les interroge pas tous) ; écartés : jamais envoyés (filtre des candidats).", ""];
   if (score.truth.documents_not_run.length > 0) lines.push(`Documents de la vérité non lus par ce run : ${score.truth.documents_not_run.join(", ")}.`, "");
   for (const pass of score.passes) {
     lines.push(`### Passe ${pass.pass}`, "");
     const row = (name: string, counts: GroupScoreCounts) => [name, `${counts.groups} (${counts.networks} / ${counts.non_networks})`, counts.not_read,
-      `${counts.candidates.sent} (${counts.candidates.networks_sent} / ${counts.candidates.non_networks_sent})`,
+      `${counts.candidates.selected} (${counts.candidates.networks_selected} / ${counts.candidates.non_networks_selected})`,
       `${counts.candidates.networks_filtered} / ${counts.candidates.non_networks_filtered}`,
       `${counts.networks_found.exact} / ${counts.networks_found.parent}`, `${counts.networks_proposed.exact} / ${counts.networks_proposed.parent}`,
       `${counts.decisions_on_networks.autre} / ${counts.decisions_on_networks.answers}`,
       `${counts.non_networks_as_network.classified} / ${counts.non_networks_as_network.proposed}`,
       `${counts.to_review.networks} / ${counts.to_review.non_networks}`,
       `${counts.precision.classified} (${percent(counts.precision.exact)} / ${percent(counts.precision.parent)})`];
-    lines.push(...table(["Document", "Groupes (réseaux / autres)", "Non lus", "Envoyés à Decisions (réseaux / autres)", "Écartés (réseaux / autres)",
+    lines.push(...table(["Document", "Groupes (réseaux / autres)", "Non lus", "Retenus pour Decisions (réseaux / autres)", "Écartés (réseaux / autres)",
       "Réseaux trouvés (exacts / parent)", "Réseaux proposés (exacts / parent)", "Réseaux répondus « autre » / réponses", "Non-réseaux pris pour réseau (classés / proposés)",
       "À revoir (réseaux / autres)", "Réseaux classés (précision exacte / parent)"],
     [...pass.documents.map((entry) => row(entry.document, entry)), row("**Total**", pass.total)]), "");
@@ -301,7 +309,7 @@ export function renderGroupScoreSection(score: GroupScore): string[] {
       band.exact, band.parent, band.on_non_networks, band.true_networks, `${band.true_networks_answered_non_network} (${band.true_networks_answered_autre})`,
       percent(band.precision_exact)])), "");
     const { cost } = pass;
-    lines.push(`Coût du run (${cost.pages} pages lues) : ${cost.calls} appels Decisions (${decimal(cost.calls_per_page)} par page), ${cost.tokens} jetons `
+    lines.push(`Coût du run (${cost.pages} pages, échecs compris) : ${cost.calls} appels Decisions (${decimal(cost.calls_per_page)} par page), ${cost.tokens} jetons `
       + `(${decimal(cost.tokens_per_page, 0)} par page), latence ${decimal(cost.latency_ms / 1000, 2)} s (${decimal(cost.latency_ms_per_page === null ? null : cost.latency_ms_per_page / 1000, 2)} s `
       + `par page), appel p50 / p95 ${decimal(cost.call_latency_ms.p50 === null ? null : cost.call_latency_ms.p50 / 1000, 2)} / `
       + `${decimal(cost.call_latency_ms.p95 === null ? null : cost.call_latency_ms.p95 / 1000, 2)} s.`, "");

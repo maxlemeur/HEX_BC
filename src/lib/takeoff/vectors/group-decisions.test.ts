@@ -63,6 +63,14 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 //   straight pipe beside its label, a layer coloured like an air duct;
 // - a filtered group gets a class instead of staying « à revoir », or is not
 //   counted, so the review cannot tell why it was not asked.
+// Review of the filter (written before its fix):
+// - a plumbing legend row « EA » (softened water, EFA) reads as an air row, and
+//   its unclassed pipes are filtered; one lone air code on a page (an
+//   equipment tag « AS » with a stroke after it) is taken for an air legend;
+// - the network guard protects a tint of a network colour, not the base colour
+//   of a network drawn as a tint: a band pipe's outline in an air colour, whose
+//   tinted fill the labels class, is filtered;
+// - a short pipe run beside its own label (« QRS DN 22 ») is a legend sample.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const MAGENTA = "#ff00ff";
@@ -368,10 +376,10 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
       { id: "4R", name: "FICTIF_MENUISERIES" }, { id: "5R", name: "FICTIF_EQUIPEMENT" }, { id: "6R", name: "FICTIF_QRS-S" },
       { id: "7R", name: "FICTIF_LMN" }, { id: "8R", name: "FICTIF_TUV" },
     ];
-    const air = legendRow("AS", 0, [MAGENTA]);
+    const air = [legendRow("AS", 0, [MAGENTA]), legendRow("AN", 1, [TEAL])];
     const sample = text("LMN - Réseau fictif", 900, 743, 11.4);
     const strokes: Stroke[] = [
-      ...air.strokes,
+      ...air.flatMap((row) => row.strokes),
       ...long(RED, 300, 900, { layer: "1R" }), ...long(GREEN, 340, 600, { layer: "2R" }), ...long("#0037dd", 380, 700, { layer: "3R" }),
       ...long(BLUE, 420, 650, { layer: "4R" }), ...long("#000000", 460, 800, { layer: "5R" }), ...long(GREY, 470, 300, { layer: "5R" }),
       // A straight vertical pipe, 12 pt wide and 650 pt long, in a pale colour, beside its label.
@@ -381,7 +389,7 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
       // A network layer drawn in the air legend's magenta.
       ...long(MAGENTA, 600, 700, { layer: "8R" }),
     ];
-    const { model, reading } = prepared(page(strokes, [...air.texts, text("QRS-S DN 50", 520, 300), sample], { layers }));
+    const { model, reading } = prepared(page(strokes, [...air.flatMap((row) => row.texts), text("QRS-S DN 50", 520, 300), sample], { layers }));
     expect(reading.mode).toBe("layers");
     const selection = selectDecisionCandidates(model, reading);
     expect(selection.candidates.map((candidate) => candidate.id).sort()).toEqual(["oc:6R", "oc:8R"]);
@@ -403,5 +411,34 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
     expect(selection.candidates).toHaveLength(10);
     expect(selection.filtered).toHaveLength(380);
     expect(new Set(selection.filtered.map((entry) => entry.reason))).toEqual(new Set(["grey"]));
+  });
+
+  it("needs two air codes on the page, never reads a plumbing code as one, and keeps a network's outline or a pipe beside its label", () => {
+    const shortPipe = (color: string, y: number) => [line(color, 300, y, 380, y), line(color, 300, y + 1, 380, y + 1), line(color, 300, y + 2, 380, y + 2)];
+    // A plumbing row « EA » and one air row « AN »: one air code only, no air colour.
+    const lone = [legendRow("EA", 0, ["#33aa77"]), legendRow("AN", 1, [AIR_BLUE])];
+    const lonePage = page([...lone.flatMap((row) => row.strokes), ...long("#33aa77", 300, 800), ...long(AIR_BLUE, 340, 700, { width: 0.57 })],
+      lone.flatMap((row) => row.texts));
+    const first = prepared(lonePage);
+    const loneSelection = selectDecisionCandidates(first.model, first.reading);
+    const loneSent = new Set(loneSelection.candidates.map((candidate) => candidate.id));
+    expect(loneSent.has(first.model.groups[groupIndex(first.model, "#33aa77")].id)).toBe(true);
+    expect(loneSent.has(first.model.groups[groupIndex(first.model, AIR_BLUE, 0.57)].id)).toBe(true);
+    expect(loneSelection.filtered.some((entry) => entry.reason === "air_duct")).toBe(false);
+
+    // Two air codes (AN, AEX): a band pipe classed on its tinted fill keeps its outline in the air blue; a short run of
+    // pipe beside its label is no legend sample; the duct in the air red is filtered.
+    const rows = [legendRow("AN", 0, [AIR_BLUE]), legendRow("AEX", 1, [AIR_RED])];
+    const fill = "#8080ff";
+    const strokes: Stroke[] = [...rows.flatMap((row) => row.strokes), ...long(fill, 300, 700, { width: 2 }), ...long(AIR_BLUE, 305, 700, { width: 0.3 }),
+      ...shortPipe(NETWORK_TEAL, 500), ...long(AIR_RED, 600, 800, { width: 0.57 })];
+    const extraction = page(strokes, [...rows.flatMap((row) => row.texts), text("QRS DN 22", 300, 508, 6)]);
+    const fillId = buildPageModel(extraction).groups.find((group) => group.key.color === fill)?.id as string;
+    const { model, reading } = prepared(extraction, new Map<string, VectorClass>([[fillId, "EF"]]));
+    const selection = selectDecisionCandidates(model, reading);
+    const sent = new Set(selection.candidates.map((candidate) => candidate.id));
+    expect(sent.has(model.groups[groupIndex(model, AIR_BLUE, 0.3)].id)).toBe(true);
+    expect(sent.has(model.groups[groupIndex(model, NETWORK_TEAL)].id)).toBe(true);
+    expect(filteredReasons(model, selection).get(model.groups[groupIndex(model, AIR_RED, 0.57)].id)).toBe("air_duct");
   });
 });

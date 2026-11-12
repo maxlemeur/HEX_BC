@@ -108,9 +108,10 @@ export function nonNetworkLayerKind(name: string): "frame" | "architecture" | nu
   return null;
 }
 
-// Air-duct codes of a ventilation legend (TI-704): fresh, supply, return, rejected and extract air, smoke extraction
-// and its make-up air, mechanical ventilation, and their English forms. None is a network code (NETWORK_TOKENS).
-const AIR_DUCT_TOKENS = new Set(["AN", "AS", "AR", "ARJ", "AREJ", "AE", "AEX", "AX", "AT", "VMC", "EXD", "AND", "OA", "SA", "RA", "EA"]);
+// Air-duct codes of a French ventilation legend (TI-704): fresh, supply, return, rejected and extract air, smoke
+// extraction and its make-up air, mechanical ventilation. None is a network code (NETWORK_TOKENS), and none a
+// plumbing code: « EA » (softened water), « AE » or « AT » are left out, as the English forms are.
+const AIR_DUCT_TOKENS = new Set(["AN", "AS", "AR", "ARJ", "AREJ", "AEX", "AX", "VMC", "EXD", "AND"]);
 
 /**
  * The air-duct code a legend entry names (« AN », « AEX »), or null: the code alone, written in capitals, so that a

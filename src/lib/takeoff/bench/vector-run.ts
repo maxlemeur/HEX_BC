@@ -53,8 +53,8 @@ import {
 // step 5) — a raster page the baseline did not read fails, it is never scored
 // as read with no item — otherwise it has none.
 // Each page read records the Decisions candidates of its keyword reading, with
-// or without a hook (TI-704): the groups sent, and those filtered with their
-// reason, so that a keywords-only run shows what the filter keeps.
+// or without a hook (TI-704): the groups selected, and those filtered with
+// their reason, so that a keywords-only run shows what the filter keeps.
 // With a Decisions hook (--max-decisions-tokens, TI-662 L3c), each page read by
 // keywords is given to it (group-decisions-server.ts classifyVectorGroups) and
 // read again with its answers. A stop of the provider or the ceiling ends the
@@ -113,9 +113,10 @@ export type VectorPageDecisions = {
 
 /**
  * The Decisions candidates of the keyword reading of a page (group-decisions.ts selectDecisionCandidates, the limits of
- * a page), with or without a hook: the group ids sent, longest first, and those never sent with their reason (TI-704).
+ * a page), with or without a hook: the group ids selected, longest first (a stopped run may not ask them all), and those
+ * never sent with their reason (TI-704).
  */
-export type VectorPageCandidates = { sent: string[]; eligible: number; left_out: number; filtered: Array<{ group: string; reason: CandidateFilterReason }> };
+export type VectorPageCandidates = { selected: string[]; eligible: number; left_out: number; filtered: Array<{ group: string; reason: CandidateFilterReason }> };
 
 export type VectorPageSummary = {
   page: number;
@@ -395,7 +396,7 @@ export async function runVectorBench(input: {
           let reading = readVectorPage(extraction, options);
           // The groups the keyword reading would send (the hook selects the same ones), recorded with or without it.
           const selection = selectDecisionCandidates(buildPageModel(extraction), reading);
-          const candidates: VectorPageCandidates = { sent: selection.candidates.map((candidate) => candidate.id), eligible: selection.eligible,
+          const candidates: VectorPageCandidates = { selected: selection.candidates.map((candidate) => candidate.id), eligible: selection.eligible,
             left_out: selection.left_out, filtered: selection.filtered.map((entry) => ({ group: entry.id, reason: entry.reason })) };
           let decided: GroupDecisionsOutcome | null = null;
           if (input.decisions) {

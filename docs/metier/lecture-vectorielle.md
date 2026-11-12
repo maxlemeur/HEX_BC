@@ -133,15 +133,21 @@ est une constante nommée et versionnée dans le code.
      - calque de cadre ou de cartouche, ou d'architecture (mobilier, calepinage,
        menuiseries), par les mots de son nom ;
      - échantillon de légende : tous ses traits visibles dans le cadre de la légende, ou
-       le groupe entier en bande courte et fine à côté d'un texte (25 hauteurs de ce texte
-       de long au plus, 1,5 d'épaisseur, à une hauteur au plus) ;
+       le groupe entier en bande courte et fine à côté d'un texte qui n'est pas un libellé
+       de tuyau (25 hauteurs de ce texte de long au plus, 1,5 d'épaisseur, à une hauteur
+       au plus) ;
      - couleur de gaine d'air : un groupe de couleur (jamais un calque) dont chaque couleur
        est celle d'une ligne de légende aéraulique (« AN », « AS », « AR », « AEX »… seuls,
-       en capitales, lus comme la légende des réseaux) ou une teinte de celle-ci (mêlée de
-       blanc), et aucune celle d'un réseau classé sur la page, ni sa teinte ou son ombre.
-       Une ombre d'une couleur d'air est gardée : le rouge foncé d'un tuyau de chauffage
-       est une ombre du rouge d'une gaine d'extraction.
-     - Sur les 8 plans de développement : 59 candidats au lieu de 171, les 36 réseaux
+       en capitales, lus comme la légende des réseaux, au moins deux codes sur la page)
+       ou une teinte de celle-ci (mêlée de blanc), et aucune liée à un réseau classé sur
+       la page : sa couleur, sa teinte ou son ombre, ou la couleur dont il est la teinte
+       (le contour d'un tuyau en bande dont le remplissage est classé). Une ombre d'une
+       couleur d'air est gardée : le rouge foncé d'un tuyau de chauffage est une ombre du
+       rouge d'une gaine d'extraction.
+     - Un groupe gris n'est donc plus demandé comme mur : un « mur » ou une « cloison »
+       de Decisions à 0,8 ou plus ferme les pièces (voir Surfaces). Aucune des 89
+       réponses sur des groupes gris des runs du 5/11 ne l'était.
+     - Sur les 8 plans de développement : 61 candidats au lieu de 171, les 36 réseaux
        gardés (mesure du 12/11/2026, banc par mots-clés avec la vérité des groupes).
    - Limites par page du document : 10 appels groupés de 36 groupes, soit 360 groupes au
      plus ; au-delà, les groupes restent « à revoir » et leur nombre est compté. Dans le
@@ -423,8 +429,10 @@ même une classe parfaite de chaque candidat ne gagne aucune clé. `--group-trut
   appliqué ; le rapport garde l'empreinte de ses fichiers, jamais leur contenu ;
 - par document et au total : réseaux trouvés avec la classe exacte et au niveau parent
   (HW pour HW-S), réseaux proposés sous 0,8, réseaux répondus « autre », non-réseaux pris
-  pour un réseau, groupes laissés « à revoir », candidats envoyés et écartés (un réseau
-  écarté est perdu pour Decisions), précision des réseaux classés ;
+  pour un réseau, groupes laissés « à revoir » (sans classe, ou réponse Decisions sous
+  0,8), candidats retenus et écartés (un réseau écarté est perdu pour Decisions),
+  précision des réseaux classés. Un groupe d'une page en échec, ou d'un document qu'une
+  passe n'a pas atteint, est « non lu » ;
 - par tranche de confiance des réponses Decisions : propositions de réseau, exactes, au
   niveau parent, sur des non-réseaux, et précision ;
 - le coût du run sur toutes ses pages : appels, jetons et latence par page.
