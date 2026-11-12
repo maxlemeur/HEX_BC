@@ -17,7 +17,9 @@ import { compareSizes, readSize } from "./size-keys";
  *     multilayer, as each trade writes it.
  *  7. (Codex review of PR #263) a bare size of a material whose tubes have no DN (PVC, PEHD, PP, PER) is
  *     dropped: « 32 » and « 40 » in PVC are both unreadable, so a size-40 article is not told apart from a
- *     size-32 line, single or reducing.
+ *     size-32 line, single or reducing;
+ *  8. (Codex review of PR #263) a reducing size marked with the diameter sign (« Ø 40 x 32 ») keeps only its
+ *     first diameter, so « Ø 40 x 32 » and « Ø 40 x 25 » compare as the same size.
  */
 
 const dnOf = (text: string, material: string | null = null) => readSize(text, material)?.dn ?? null;
@@ -75,6 +77,14 @@ describe("readSize", () => {
     expect(compareSizes(readSize("32", "PVC"), readSize("Ø 32", "PVC"))).toBe("same");
     expect(compareSizes(readSize("40-32", "PEHD"), readSize("40-25", "PEHD"))).toBe("different");
     expect(compareSizes(readSize("40-32", "PEHD"), readSize("40 x 32", "PEHD"))).toBe("same");
+  });
+
+  it("keeps both diameters of a reducing size marked with the diameter sign", () => {
+    expect(readSize("Ø 40 x 32", "PVC")).toMatchObject({ od: 40, reduceOd: 32 });
+    expect(readSize("Ø40/Ø32", "PEHD")).toMatchObject({ od: 40, reduceOd: 32 });
+    expect(compareSizes(readSize("Ø 40 x 32", "PVC"), readSize("Ø 40 x 25", "PVC"))).toBe("different");
+    expect(compareSizes(readSize("Ø 40 x 32", "PVC"), readSize("40-32", "PVC"))).toBe("same");
+    expect(readSize("Ø 35 x 28", "Cuivre")).toMatchObject({ dn: 32, reduce: 25, od: 35, reduceOd: 28 });
   });
 
   it("reads nothing in a text without a size", () => {

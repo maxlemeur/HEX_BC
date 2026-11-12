@@ -65,7 +65,6 @@ type PreparedArticle = {
   sizeLabel: string | null;
   references: ReadonlySet<string>;
   aliases: ReadonlySet<string>;
-  unitCode: string | null;
 };
 
 export type PreparedCatalogue = readonly PreparedArticle[];
@@ -104,6 +103,20 @@ function words(text: string | null | undefined): Set<string> {
     out.add(word.length > 3 && /[sx]$/.test(word) ? word.slice(0, -1) : word);
   }
   return out;
+}
+
+/**
+ * Whether two written units differ: by their codes in the shared referential when both are known
+ * (« pcs » and « pièce » are both « u »), by their folded text otherwise (« barres » is not « ml »). One
+ * rule for the matcher's warning and for the server, which marks the quantity doubtful when a link
+ * replaces the unit.
+ */
+export function unitsDiffer(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left?.trim() || !right?.trim()) return false;
+  const leftCode = normalizeMeasurementUnit(left).unitCode;
+  const rightCode = normalizeMeasurementUnit(right).unitCode;
+  if (leftCode && rightCode) return leftCode !== rightCode;
+  return foldText(left).trim() !== foldText(right).trim();
 }
 
 /** Words of a grade or a standard, numbers included: « 316 », « PN16 », « EN 10255 ». */
@@ -207,7 +220,6 @@ export function prepareCatalogue(articles: readonly MatchArticle[]): PreparedCat
       sizeLabel: sizeLabel(size),
       references: new Set([article.reference, ...article.supplier_skus].map(referenceKey).filter(Boolean)),
       aliases: new Set(article.aliases.map(aliasKey).filter(Boolean)),
-      unitCode: normalizeMeasurementUnit(article.unit).unitCode,
     };
   });
 }
@@ -256,7 +268,6 @@ export function matchLine(
   const lineSizeLabel = sizeLabel(lineSize);
   const lineReference = referenceKey(line.reference);
   const lineAlias = aliasKey(line.product_type);
-  const lineUnit = normalizeMeasurementUnit(line.unit).unitCode;
 
   const candidates: Array<MatchCandidate & { mismatches: number }> = [];
   for (const entry of catalogue) {
@@ -337,7 +348,7 @@ export function matchLine(
       if (precision === "same" && entry.gradeLabel) reasons.push(`Même nuance (${entry.gradeLabel})`);
       if (material === "family") reasons.push(`Matière de la famille « ${line.material?.trim()} »`);
     }
-    if (lineUnit && entry.unitCode && lineUnit !== entry.unitCode) {
+    if (unitsDiffer(line.unit, entry.article.unit)) {
       score -= 10;
       warnings.push(`Unité de l’article : ${entry.article.unit} (ligne : ${line.unit}).`);
     }

@@ -3,8 +3,6 @@ import { canAddToCatalogue } from "@/lib/catalogue/access";
 import { PRODUCT_REFERENCE_TAKEN, PRODUCT_WRITE_REFUSAL, catalogueStatusError } from "@/lib/catalogue/product-writes";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
-import { foldText } from "@/lib/text/fold";
-import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 import type {
   CreateMaterialRequestLineArticleData,
@@ -25,6 +23,7 @@ import {
   type MatchOptions,
   type MatchRequestLine,
   type PreparedCatalogue,
+  unitsDiffer,
 } from "./matching";
 import {
   DUPLICATE_KEYS,
@@ -347,14 +346,6 @@ function wordingOf(line: MaterialRequestLine, article: ArticleRow) {
  * The quantity was counted in the line's unit: another unit (« 3 barres » becoming « 3 ml ») makes it
  * doubtful. Units are compared by their code, or as written when one of them has none.
  */
-function unitChanges(before: string | null, after: string | null): boolean {
-  if (!before?.trim() || !after?.trim()) return false;
-  const left = normalizeMeasurementUnit(before).unitCode;
-  const right = normalizeMeasurementUnit(after).unitCode;
-  if (left && right) return left !== right;
-  return foldText(before).trim() !== foldText(after).trim();
-}
-
 /** The technician's type words, as a usual name of the article, unless the article already says them. */
 function aliasToLearn(words: string | null, article: ArticleRow): { alias: string; alias_key: string } | null {
   const alias = words?.trim() ?? "";
@@ -451,7 +442,7 @@ async function linkLine(
     const words = [own.product_type, own.dimension, own.material].map((part) => part?.trim()).filter(Boolean).join(" ");
     if (words) next.original_text = words.slice(0, 500);
   }
-  if (!line.quantity_doubtful && unitChanges(line.unit, wording.unit)) next.quantity_doubtful = true;
+  if (!line.quantity_doubtful && unitsDiffer(line.unit, wording.unit)) next.quantity_doubtful = true;
 
   const learned = aliasToLearn(own.product_type, article);
   const written = await writeLine(access, stored, next);

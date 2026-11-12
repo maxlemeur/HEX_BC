@@ -71,6 +71,19 @@ function dnOfOuterDiameter(od: number, material: string | null, code: MaterialCo
   return values.size === 1 ? [...values][0] : null;
 }
 
+/** Two outer diameters of a reducing piece: a DN pair only when both resolve, the diameters always. */
+function outerPair(main: number, second: number | null, material: string | null, code: MaterialCode | null): SizeReading {
+  const reduce = second === null ? null : dnOfOuterDiameter(second, material, code);
+  const dn = dnOfOuterDiameter(main, material, code);
+  return {
+    dn: dn !== null && (second === null || reduce !== null) ? dn : null,
+    reduce: dn !== null ? reduce : null,
+    metric: null,
+    od: main,
+    reduceOd: second,
+  };
+}
+
 /**
  * A bare number, read as each trade writes it: a DN in steel, an outer diameter in copper, multilayer, PER,
  * plastics and press-fit stainless. The outer diameter is kept even when no DN corresponds to it (PVC, PEHD,
@@ -81,16 +94,7 @@ function bareSizes(values: number[], material: string | null, code: MaterialCode
   if (!namesByOuterDiameter(material, code)) {
     return { dn: main, reduce: second, metric: null, od: null, reduceOd: null };
   }
-  const reduce = second === null ? null : dnOfOuterDiameter(second, material, code);
-  const dn = dnOfOuterDiameter(main, material, code);
-  // A DN pair only when both sizes resolve, otherwise the outer diameters alone say the piece.
-  return {
-    dn: dn !== null && (second === null || reduce !== null) ? dn : null,
-    reduce: dn !== null ? reduce : null,
-    metric: null,
-    od: main,
-    reduceOd: second,
-  };
+  return outerPair(main, second, material, code);
 }
 
 export function readSize(raw: string | null | undefined, material: string | null): SizeReading | null {
@@ -118,6 +122,10 @@ export function readSize(raw: string | null | undefined, material: string | null
     const values = new Set(threads.map((entry) => entry.nominal_dn).filter((value): value is number => value !== null));
     if (values.size === 1) return { ...empty, dn: [...values][0] };
   }
+
+  // A reducing size marked with the diameter sign (« Ø 40 x 32 », « Ø40/Ø32 ») keeps both diameters.
+  const outerReducing = new RegExp(String.raw`\bo\s*${NUMBER}\s*(?:-|x|/|>)\s*(?:o\s*)?${NUMBER}\b`).exec(text);
+  if (outerReducing) return outerPair(numberOf(outerReducing[1]), numberOf(outerReducing[2]), material, code);
 
   const outer = new RegExp(String.raw`\bo\s*${NUMBER}`).exec(text) ?? new RegExp(String.raw`(?<![\d.,x/])${NUMBER}\s*mm\b`).exec(text);
   if (outer) {

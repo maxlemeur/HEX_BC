@@ -31,7 +31,9 @@ import { matchLine, prepareCatalogue, type MatchArticle, type MatchRequestLine }
  *     304L comes out as the same material, unwarned through a usual name, and the bulk link writes 304L;
  * 17. a reference that names another material or another angle than the line's comes out without a
  *     warning (only another size was warned), so the bulk link takes it;
- * 18. a usual name proposes an article whose size cannot be compared with the line's, without a warning.
+ * 18. a usual name proposes an article whose size cannot be compared with the line's, without a warning;
+ * 19. (Codex review of PR #263) a unit outside the shared referential (« barres ») is never compared, so an
+ *     article sold in « ml » comes out without a warning and the bulk link takes it.
  */
 
 let next = 0;
@@ -261,5 +263,14 @@ describe("matchLine", () => {
     const [candidate] = matchLine(line({ product_type: "manchon colle", material: "PVC", dimension: "32" }), odOnly);
     expect(candidate.via).toBe("alias");
     expect(candidate.warnings).toContain("Dimension de la ligne (Ø 32) et de l’article (DN 32) à rapprocher : vérifiez.");
+  });
+
+  it("compares written units when the referential does not know one of them", () => {
+    const tubes = prepareCatalogue([article({ id: "tube-pvc-32", product_type: "Tube", material: "PVC", dimensions: "Ø32", unit: "ml", aliases: ["tube evac"] })]);
+    const [candidate] = matchLine(line({ product_type: "tube evac", material: "PVC", dimension: "32", unit: "barres" }), tubes);
+    expect(candidate.via).toBe("alias");
+    expect(candidate.warnings).toContain("Unité de l’article : ml (ligne : barres).");
+    const same = matchLine(line({ product_type: "tube evac", material: "PVC", dimension: "32", unit: "ML" }), tubes);
+    expect(same[0].warnings).toEqual([]);
   });
 });
