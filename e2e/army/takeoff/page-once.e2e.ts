@@ -132,7 +132,8 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     const decision = notice.getByRole("group", `Page ${relaunchName}, page 1`, { exact: true });
     await expect(decision).toContainText(/Déjà au devis par le métré du \d{2}\/\d{2}\/\d{4} \(niveau C\), 1 ligne\./);
     await expect(decision.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
-    await expect(decision).toContainText(`${network.designation} : `);
+    // Each estimate line once, with the quantity it will hold (Codex review of 708c7fbf: organised by estimate line).
+    await expect(notice.getByRole("list", "Lignes du devis sur ces pages", { exact: true })).toContainText(`${network.designation} : `);
     await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeEnabled();
     screenshots.push(await ui.app.screenshot("ti682-apply-wizard-page-already-in-estimate"));
     await wizard.getByRole("button", "Annuler", { exact: true }).click();
@@ -276,15 +277,17 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     const wizard = await openWizardConfirmation(ui, String(target.parent_id), network.designation);
     const page = wizard.getByRole("group", `Page ${relaunchName}, page 1`, { exact: true });
     await expect(page.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
-    const updated = page.getByRole("list", `Quantités mises à jour, ${relaunchName}, page 1`, { exact: true });
+    const panel = wizard.getByRole("region", REGION, { exact: true });
+    const updated = panel.getByRole("list", "Lignes du devis sur ces pages", { exact: true });
     await expect(updated).toContainText(`Réseau EF chiffré : ${measuredRun} → ${measuredRun}`);
     await expect(updated).toContainText("Robinet d'arrêt : 4 → 5 (+1)");
-    await expect(page.getByLabel("Remplace, pour WC suspendu", { exact: true })).toHaveValue("");
-    // The vanished line has no default: the confirmation waits; one click settles every such line.
+    await expect(panel.getByLabel("Remplace, pour WC suspendu", { exact: true })).toHaveValue("");
+    // The vanished line has no default: the confirmation waits for « remove » or « keep ».
     const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
     await expect(confirm).toBeDisabled();
-    await page.getByRole("button", "Retirer les 1 ligne", { exact: true }).click();
-    await expect(page.getByLabel("Choix pour Vanne de purge", { exact: true })).toHaveValue("remove");
+    await panel.getByLabel("Choix pour Vanne de purge", { exact: true }).selectOption({ value: "remove" });
+    await expect(panel.getByLabel("Choix pour Vanne de purge", { exact: true })).toHaveValue("remove");
+    await expect(updated).toContainText("Vanne de purge : 3 → retirée du devis");
     // On an engine 1/2 version, a count line names no source line: whether its quantity was changed by hand cannot be
     // seen, so the estimator chooses (engine 3 knows its sources and asks nothing here).
     const versionRow = await client.from("estimate_versions").select("calc_engine_version").eq("id", ids.versionId).single();
@@ -292,7 +295,7 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     const engine = Number((versionRow.data as { calc_engine_version: number }).calc_engine_version);
     if (engine !== 3) {
       await expect(confirm).toBeDisabled();
-      await page.getByRole("radiogroup", "Quantité de Robinet d'arrêt", { exact: true })
+      await panel.getByRole("radiogroup", "Quantité de Robinet d'arrêt", { exact: true })
         .getByRole("radio", "Prendre la nouvelle mesure", { exact: true }).check();
     }
     const screenshot = await ui.app.screenshot("ti682-apply-wizard-replace-page");

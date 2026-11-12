@@ -105,6 +105,7 @@
       "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
       "e2e/army/takeoff/import-format-completion.e2e.ts",
       "e2e/army/takeoff/intake-dossier.e2e.ts",
+      "e2e/army/takeoff/page-decisions-contract.e2e.ts",
       "e2e/army/takeoff/page-once.e2e.ts",
       "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
@@ -1069,7 +1070,7 @@
     },
     {
       "id": "takeoff-page-once",
-      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues et notice du lancement (TKD01) ; remplacer la mesure précédente ou garder les deux à la confirmation, refus sans décision (TKD02) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
+      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues et notice du lancement (TKD01) ; remplacer la mesure précédente ou garder les deux à la confirmation, refus sans décision (TKD02) ; contrat de l'écran avec la base, chaque confirmation permise acceptée, sur une matrice de situations (TKD03) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
       "paths": [
         "src/lib/takeoff/page-contributions*.ts",
         "src/app/api/takeoff/page-contributions/**",
@@ -1087,6 +1088,7 @@
         "e2e/army/takeoff/vector-plan-fixture.ts"
       ],
       "journeys": [
+        "e2e/army/takeoff/page-decisions-contract.e2e.ts",
         "e2e/army/takeoff/page-once.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts"
       ]
