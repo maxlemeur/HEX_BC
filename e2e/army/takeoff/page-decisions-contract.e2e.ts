@@ -841,10 +841,12 @@ commit;`);
     expect(response.status, "the confirmation applies").toBe(200);
     await expect(wizard).toBeHidden();
 
-    // The line holds the sum, rounded once, and its composition names both takeoffs.
+    // The line holds the sum, rounded once, and its composition names both takeoffs (stored in the order of their
+    // identifiers, random here: read by takeoff).
     const held = JSON.parse(await composition()) as [number, Array<{ job_id: string; quantity: number }>];
-    expect([Number(held[0]), held[1].map((part) => [part.job_id, Number(part.quantity)])].toString(), "the DPGF line holds the sum")
-      .toBe([23, [first.jobId, 12.4], [second.jobId, 10.2]].toString());
+    const byTakeoff = new Map(held[1].map((part) => [part.job_id, Number(part.quantity)]));
+    expect([Number(held[0]), held[1].length, byTakeoff.get(first.jobId), byTakeoff.get(second.jobId)], "the DPGF line holds the sum")
+      .toEqual([23, 2, 12.4, 10.2]);
 
     // The client export (DPGF): its quantity column carries the sum, and nothing of the composition.
     const exported = await browser.evaluate(async (input) => {
