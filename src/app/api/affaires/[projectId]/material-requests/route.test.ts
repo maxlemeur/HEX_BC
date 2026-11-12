@@ -54,6 +54,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     their bytes pile up without bound.
  * 17. Completing a batch removes the bytes of photos it has just made visible, because another session
  *     cancelled one of them in the meantime: listed photos whose bytes answer 500.
+ * 18. A confirmation lands on a value its author never saw: the request records « Cuivre », another
+ *     session changes it to « Inox », and the confirmation that followed « Cuivre » confirms « Inox »
+ *     (review of pull request 252); same for the presumed supplier, and for a confirmation sent alone
+ *     that says which value it confirms.
  * 11. A photo is listed, counted or served before its bytes are stored (found by the end-to-end journey:
  *     the request listed the photo while GET of its bytes answered 500), stays listed after an upload that
  *     failed or was interrupted, or keeps its bytes when its request is deleted; a storage error reaches
@@ -491,6 +495,94 @@ describe("material requests of an affaire: the request", () => {
       { presumed_material: "Cuivre", material_confirmed: false },
       { material_confirmed: true },
     ]);
+  });
+
+  it("does not confirm a material another session recorded between its own two writes", async () => {
+    const fake = seed(OWNER, "engineer", {
+      // Session A has recorded « Cuivre »; before its confirmation arrives, session B records « Inox 316L ».
+      beforeUpdate: (table, values, tables) => {
+        if (table !== "material_requests" || JSON.stringify(values) !== JSON.stringify({ material_confirmed: true })) return;
+        tables.material_requests = tables.material_requests.map((row) =>
+          row.id === REQUEST ? { ...row, presumed_material: "Inox 316L", material_confirmed: false } : row);
+      },
+    });
+    const { status, error } = await call(requestRoute.PATCH, "PATCH", inRequest, { presumed_material: "Cuivre", material_confirmed: true });
+    expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_PRESUMPTION_CHANGED"]);
+    expect(error?.message).toBe("La matière présumée a été modifiée entre-temps : rechargez la demande, puis confirmez la matière affichée.");
+    expect(fake.tables.material_requests.find((row) => row.id === REQUEST)).toMatchObject({ presumed_material: "Inox 316L", material_confirmed: false });
+    // The confirmation was sent for « Cuivre » only, and reached no row.
+    expect(fake.writes.map((write) => write.ids)).toEqual([[REQUEST], []]);
+  });
+
+  it("does not confirm a supplier another session recorded between its own two writes", async () => {
+    const fake = seed(OWNER, "engineer", {
+      beforeUpdate: (table, values, tables) => {
+        if (table !== "material_requests" || JSON.stringify(values) !== JSON.stringify({ supplier_confirmed: true })) return;
+        tables.material_requests = tables.material_requests.map((row) =>
+          row.id === REQUEST ? { ...row, presumed_supplier_id: INACTIVE_SUPPLIER, supplier_confirmed: false } : row);
+      },
+    });
+    const { status, error } = await call(requestRoute.PATCH, "PATCH", inRequest, { presumed_supplier_id: SUPPLIER, supplier_confirmed: true });
+    expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_PRESUMPTION_CHANGED"]);
+    expect(error?.message).toBe("Le fournisseur présumé a été modifié entre-temps : rechargez la demande, puis confirmez le fournisseur affiché.");
+    expect(fake.tables.material_requests.find((row) => row.id === REQUEST)).toMatchObject({ presumed_supplier_id: INACTIVE_SUPPLIER, supplier_confirmed: false });
+    expect(fake.writes.map((write) => write.ids)).toEqual([[REQUEST], []]);
+  });
+
+  it("still confirms a supplier given in the same request, after it is recorded", async () => {
+    const fake = seed(OWNER, "engineer");
+    const { status, data } = await call(requestRoute.PATCH, "PATCH", inRequest, { presumed_supplier_id: SUPPLIER, supplier_confirmed: true });
+    expect(status).toBe(200);
+    expect((data as { request: FakeRow }).request).toMatchObject({ presumed_supplier_id: SUPPLIER, supplier_confirmed: true });
+    expect(fake.writes.map((write) => write.values)).toEqual([
+      { presumed_supplier_id: SUPPLIER, supplier_confirmed: false },
+      { supplier_confirmed: true },
+    ]);
+  });
+
+  it("confirms alone the value the caller says it has on screen, and nothing else", async () => {
+    const fake = seed(OWNER, "engineer", {
+      tables: { material_requests: [request(REQUEST, PROJECT, { presumed_material: "Inox 304L", presumed_supplier_id: SUPPLIER })] },
+    });
+    // The screen still shows « Cuivre » and another supplier: both were changed meanwhile.
+    const stale = await call(requestRoute.PATCH, "PATCH", inRequest, { material_confirmed: true, expected_presumed_material: "Cuivre", note: "Urgent" });
+    expect([stale.status, stale.error?.code, stale.error?.message]).toEqual([
+      409, "MATERIAL_REQUEST_PRESUMPTION_CHANGED", "La matière présumée a été modifiée entre-temps : rechargez la demande, puis confirmez la matière affichée.",
+    ]);
+    const staleSupplier = await call(requestRoute.PATCH, "PATCH", inRequest, { supplier_confirmed: true, expected_presumed_supplier_id: INACTIVE_SUPPLIER });
+    expect([staleSupplier.status, staleSupplier.error?.code]).toEqual([409, "MATERIAL_REQUEST_PRESUMPTION_CHANGED"]);
+    // Nothing of a refused change is written, not even its note.
+    expect(fake.writes.flatMap((write) => write.ids)).toEqual([]);
+    expect(fake.tables.material_requests[0]).toMatchObject({ material_confirmed: false, supplier_confirmed: false, note: null });
+
+    const exact = await call(requestRoute.PATCH, "PATCH", inRequest, {
+      material_confirmed: true, expected_presumed_material: "Inox 304L", supplier_confirmed: true, expected_presumed_supplier_id: SUPPLIER,
+    });
+    expect(exact.status).toBe(200);
+    expect((exact.data as { request: FakeRow }).request).toMatchObject({ material_confirmed: true, supplier_confirmed: true });
+    expect((exact.data as { request: FakeRow }).request).not.toHaveProperty("expected_presumed_material");
+    // What the caller expected is a condition of the write, never a column.
+    expect(fake.writes.at(-1)?.values).toEqual({ material_confirmed: true, supplier_confirmed: true });
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["an expected material without a confirmation", { expected_presumed_material: "Cuivre", note: "x" }],
+    ["an expected material with a confirmation withdrawn", { expected_presumed_material: "Cuivre", material_confirmed: false }],
+    ["an expected material beside a new material", { presumed_material: "Cuivre", material_confirmed: true, expected_presumed_material: "Inox 304L" }],
+    ["a blank expected material", { material_confirmed: true, expected_presumed_material: "  " }],
+    ["an expected supplier without a confirmation", { expected_presumed_supplier_id: SUPPLIER }],
+    ["an expected supplier beside a new supplier", { presumed_supplier_id: SUPPLIER, supplier_confirmed: true, expected_presumed_supplier_id: SUPPLIER }],
+  ])("refuses a change that carries %s", async (_label, body) => {
+    const fake = seed(OWNER, "engineer");
+    const { status, error } = await call(requestRoute.PATCH, "PATCH", inRequest, body);
+    expect([status, error?.code]).toEqual([400, "VALIDATION_ERROR"]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("does not accept an expected value when a request is created", async () => {
+    seed(OWNER, "engineer");
+    const { status } = await call(requestsRoute.POST, "POST", inProject, { presumed_material: "Cuivre", material_confirmed: true, expected_presumed_material: "Cuivre" });
+    expect(status).toBe(400);
   });
 
   it("deletes a request with the bytes of its originals", async () => {

@@ -12,6 +12,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { blockingAlertCodes, type AlertContext, type MaterialRequestLineAlertCode } from "./alerts";
 import {
   MATERIAL_REQUEST_MAX_LINES,
+  MATERIAL_REQUEST_PRESUMPTION_CHANGED,
   type BulkUpdateMaterialRequestLinesData,
   type CreateMaterialRequestData,
   type MaterialRequest,
@@ -170,22 +171,48 @@ export async function getMaterialRequestDetail(projectId: string, requestId: str
   return { request, technician, files, lines, canWrite: access.canWrite, materialOptions, supplierOptions };
 }
 
+type RequestPatch = Partial<Omit<UpdateMaterialRequestData, "expected_presumed_material" | "expected_presumed_supplier_id">>;
+/** The presumed values a write is conditional on: it reaches the request only while they are the ones stored. */
+type Presumption = { material?: string; supplierId?: string };
+
+/**
+ * One statement. With a presumption, the condition is part of it: the request is written only if it
+ * still presumes exactly that, whatever another session did since it was read. Null when it does not.
+ */
 async function writeRequest(
   access: MaterialRequestAccess,
   requestId: string,
-  patch: Partial<UpdateMaterialRequestData>,
-): Promise<MaterialRequest> {
-  const { data, error } = await access.context.supabase
+  patch: RequestPatch,
+  presumption: Presumption = {},
+): Promise<MaterialRequest | null> {
+  let statement = access.context.supabase
     .from("material_requests")
     .update(patch)
     .eq("id", requestId)
     .eq("tenant_id", access.context.tenantId)
-    .eq("project_id", access.project.id)
-    .select(REQUEST_COLUMNS)
-    .maybeSingle();
+    .eq("project_id", access.project.id);
+  if (presumption.material !== undefined) statement = statement.eq("presumed_material", presumption.material);
+  if (presumption.supplierId !== undefined) statement = statement.eq("presumed_supplier_id", presumption.supplierId);
+  const { data, error } = await statement.select(REQUEST_COLUMNS).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible d'enregistrer la demande de matériel.");
-  if (!data) throw notFound("Demande de matériel introuvable.");
   return data;
+}
+
+/** Why a conditional write reached nothing: the request is gone (404), or it presumes something else (409). */
+async function presumptionChanged(access: MaterialRequestAccess, requestId: string, presumption: Presumption): Promise<ApiError> {
+  const stored = await requireRequest(access, requestId);
+  // An unconditional write that reached nothing: the request can no longer be written by this caller.
+  if (presumption.material === undefined && presumption.supplierId === undefined) {
+    return notFound("Demande de matériel introuvable.");
+  }
+  const material = presumption.material !== undefined && stored.presumed_material !== presumption.material;
+  return conflict(
+    material
+      ? "La matière présumée a été modifiée entre-temps : rechargez la demande, puis confirmez la matière affichée."
+      : "Le fournisseur présumé a été modifié entre-temps : rechargez la demande, puis confirmez le fournisseur affiché.",
+    { field: material ? "presumed_material" : "presumed_supplier_id" },
+    MATERIAL_REQUEST_PRESUMPTION_CHANGED,
+  );
 }
 
 /** A line that is validated in the request's presumed material: no material of its own, not overhead. */
@@ -210,18 +237,30 @@ export async function updateMaterialRequest(
     assertSuppliersInTenant(access.context, [input.presumed_supplier_id]),
   ]);
 
-  // A confirmation never outlives the value it was given for (the database withdraws it too). One given
-  // together with a new value is recorded after that value, in a second statement.
-  const patch = sent(input);
-  const confirmAfter: Partial<UpdateMaterialRequestData> = {};
+  // A confirmation never outlives the value it was given for (the database withdraws it too), and it
+  // is bound to the value its author saw:
+  //  - given with a new value, it is recorded after that value, in a second statement that only
+  //    reaches the request while it still presumes exactly what this request has just written;
+  //  - given alone with `expected_...`, the write is conditional on that value being the one stored;
+  //  - given alone without it, it confirms what is stored (what the caller last read).
+  const { expected_presumed_material: expectedMaterial, expected_presumed_supplier_id: expectedSupplierId, ...fields } = input;
+  const patch: RequestPatch = sent(fields);
+  const confirmAfter: RequestPatch = {};
+  const confirmedFor: Presumption = {};
   const materialChanges = next.material !== current.presumed_material;
   if (materialChanges) {
     patch.material_confirmed = false;
-    if (input.material_confirmed === true) confirmAfter.material_confirmed = true;
+    if (input.material_confirmed === true && next.material !== null) {
+      confirmAfter.material_confirmed = true;
+      confirmedFor.material = next.material;
+    }
   }
   if (next.supplierId !== current.presumed_supplier_id) {
     patch.supplier_confirmed = false;
-    if (input.supplier_confirmed === true) confirmAfter.supplier_confirmed = true;
+    if (input.supplier_confirmed === true && next.supplierId !== null) {
+      confirmAfter.supplier_confirmed = true;
+      confirmedFor.supplierId = next.supplierId;
+    }
   }
 
   // The database returns to draft, in the statement that withdraws a presumed material, the validated
@@ -232,8 +271,14 @@ export async function updateMaterialRequest(
     ? (await readRequestLines(access, current.id)).filter((line) => line.status === "validated" && reliesOnPresumedMaterial(line))
     : [];
 
-  let request = await writeRequest(access, current.id, patch);
-  if (Object.keys(confirmAfter).length > 0) request = await writeRequest(access, current.id, confirmAfter);
+  const expected: Presumption = { material: expectedMaterial, supplierId: expectedSupplierId };
+  let request = await writeRequest(access, current.id, patch, expected);
+  if (!request) throw await presumptionChanged(access, current.id, expected);
+  if (Object.keys(confirmAfter).length > 0) {
+    request = await writeRequest(access, current.id, confirmAfter, confirmedFor);
+    // Another session changed the value in between: nothing more is written, and nothing is confirmed.
+    if (!request) throw await presumptionChanged(access, current.id, confirmedFor);
+  }
   if (relying.length === 0) return { request, reopened_line_ids: [] };
 
   const wasValidated = new Set(relying.map((line) => line.id));

@@ -40,7 +40,14 @@ import type {
  * 16. changing the presumed material silently returns validated lines to draft: nothing said before,
  *     nothing said after, or the lines still shown as validated;
  * 17. a pasted message longer than a request accepts loses its last lines without a word;
- * 18. a line that left the drafts comes back already selected when it is reopened.
+ * 18. a line that left the drafts comes back already selected when it is reopened;
+ * 19. on a slow connection, a correction made while a save is on its way is compared with the value
+ *     still shown as saved and dropped: the pending save then wins and the operator's last value is
+ *     lost without a word (text, quantity); or the error of an earlier choice stays on a select whose
+ *     later choice was saved;
+ * 20. a validated line, or any line shown to a reader, shows no material or supplier when they come from
+ *     the request's confirmed presumption, so the reviewed table reads as if they were missing; or an
+ *     unconfirmed presumption is shown as applying.
  */
 
 const { splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -130,7 +137,7 @@ function file(partial: Partial<MaterialRequestFile> = {}): MaterialRequestFile {
 const TECHNICIAN = { id: TECHNICIAN_ID, name: "Alpha", current_project_id: null, is_active: true };
 
 type Reply = { status?: number; data?: unknown; error?: { code: string; message: string; details?: unknown } };
-type Route = Reply | ((body: unknown) => Reply);
+type Route = Reply | ((body: unknown) => Reply | Promise<Reply>);
 type Call = { method: string; path: string; body: unknown };
 
 let calls: Call[] = [];
@@ -153,7 +160,7 @@ function mockApi(routes: Record<string, Route>) {
         route === undefined
           ? { status: 404, error: { code: "NOT_FOUND", message: `Route absente du test : ${method} ${path}` } }
           : typeof route === "function"
-            ? route(body)
+            ? await route(body)
             : route;
       const status = reply.status ?? 200;
       const payload = reply.error ? { ok: false, error: reply.error } : { ok: true, data: reply.data };
@@ -1044,5 +1051,181 @@ describe("MaterialRequestEditor", () => {
 
     await waitFor(() => expect(writes()).toHaveLength(3));
     expect(writes()[2].body).toEqual({ ids: [LINE_B], patch: { zone: "Local technique B" } });
+  });
+  describe("a correction made while a save is on its way", () => {
+    /** Holds the first save of the line until `release` is called; later ones answer at once. */
+    function heldLineSaves(first: (body: unknown) => Reply = (body) => ({ data: { line: line(body as Partial<MaterialRequestLine>) } })) {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let count = 0;
+      const route: Route = async (body) => {
+        count += 1;
+        if (count > 1) return { data: { line: line(body as Partial<MaterialRequestLine>) } };
+        await held;
+        return first(body);
+      };
+      return { route, release: () => release() };
+    }
+
+    it("queues a text cell put back to its saved value, so the last write carries it (19)", async () => {
+      const saves = heldLineSaves();
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: saves.route,
+      });
+
+      const dimension = screen.getByLabelText("DN / dimension, ligne 1");
+      await user.clear(dimension);
+      await user.type(dimension, "DN 40{Enter}");
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      await user.clear(dimension);
+      await user.type(dimension, "DN 32");
+      await user.tab();
+      saves.release();
+
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes().map((call) => call.body)).toEqual([{ dimension: "DN 40" }, { dimension: "DN 32" }]);
+      await waitFor(() => expect(screen.getByLabelText("DN / dimension, ligne 1")).toHaveValue("DN 32"));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("queues a quantity put back to its saved value, so the last write carries it (19)", async () => {
+      const saves = heldLineSaves();
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: saves.route,
+      });
+
+      const quantity = screen.getByLabelText("Quantité, ligne 1");
+      await user.clear(quantity);
+      await user.type(quantity, "12{Enter}");
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      await user.clear(quantity);
+      await user.type(quantity, "10");
+      await user.tab();
+      expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("10");
+      saves.release();
+
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes().map((call) => call.body)).toEqual([{ quantity: 12 }, { quantity: 10 }]);
+      await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("10"));
+    });
+
+    it("does not leave the error of an earlier choice on a select whose later choice was saved (19)", async () => {
+      const saves = heldLineSaves(() => ({
+        status: 500,
+        error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." },
+      }));
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: saves.route,
+      });
+
+      const imputation = screen.getByLabelText("Imputation, ligne 1");
+      await user.selectOptions(imputation, "Frais généraux");
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      await user.selectOptions(imputation, "Affaire");
+      saves.release();
+
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes().map((call) => call.body)).toEqual([
+        { imputation: "overhead" },
+        { imputation: "project", overhead_category: null },
+      ]);
+      await waitFor(() => expect(screen.getByLabelText("Imputation, ligne 1")).toHaveDisplayValue("Affaire"));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+  });
+
+  it("queues a date of the request put back to empty while its save is on its way (19)", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let count = 0;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`PATCH ${BASE}`]: async (body) => {
+        count += 1;
+        if (count === 1) await held;
+        return { data: { request: request(body as Partial<MaterialRequest>), reopened_line_ids: [] } };
+      },
+    });
+
+    const needed = screen.getByLabelText("Date de besoin");
+    await user.type(needed, "2026-11-20");
+    await user.tab();
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    await user.clear(needed);
+    await user.tab();
+    release();
+
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes().map((call) => call.body)).toEqual([{ needed_on: "2026-11-20" }, { needed_on: null }]);
+    await waitFor(() => expect(screen.getByLabelText("Date de besoin")).toHaveValue(""));
+  });
+
+  describe("material and supplier that come from the request, on rows that are not edited", () => {
+    const SUPPLIER_ID = "99999999-9999-4999-8999-999999999999";
+    const confirmed = {
+      presumed_material: "Laiton brut",
+      material_confirmed: true,
+      presumed_supplier_id: SUPPLIER_ID,
+      supplier_confirmed: true,
+    };
+    const validated = (partial: Partial<MaterialRequestLine> = {}) =>
+      line({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z", ...partial });
+
+    it("shows on a validated line what the confirmed request gives it, apart from what it names itself (20)", async () => {
+      await openEditor({
+        [`GET ${BASE}`]: {
+          data: detail({
+            request: confirmed,
+            lines: [
+              validated({ material: null }),
+              validated({ id: LINE_B, position: 2, product_type: "Réduction", material: "PVC pression", supplier_id: SUPPLIER_ID }),
+              validated({ id: LINE_C, position: 3, product_type: "Gants", material: null, imputation: "overhead" }),
+            ],
+          }),
+        },
+      });
+
+      const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+      expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
+      expect(within(rows[0]).getByText("Négoce Exemple (demande)")).toBeVisible();
+      expect(within(rows[1]).getByText("PVC pression")).toBeVisible();
+      expect(within(rows[1]).getByText("Négoce Exemple")).toBeVisible();
+      expect(within(rows[1]).queryByText(/\(demande\)/)).not.toBeInTheDocument();
+      // Overhead is not ordered in the sheet's material.
+      expect(within(rows[2]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
+    });
+
+    it("shows it to a reader without write access too, on lines still in draft (20)", async () => {
+      await openEditor({
+        [`GET ${BASE}`]: { data: detail({ canWrite: false, request: confirmed, lines: [line({ material: null })] }) },
+      });
+
+      expect(screen.getByText("Laiton brut (demande)")).toBeVisible();
+      expect(screen.getByText("Négoce Exemple (demande)")).toBeVisible();
+    });
+
+    it("does not show an unconfirmed presumption as applying (20)", async () => {
+      await openEditor({
+        [`GET ${BASE}`]: {
+          data: detail({
+            canWrite: false,
+            request: { ...confirmed, material_confirmed: false, supplier_confirmed: false },
+            lines: [line({ material: null })],
+          }),
+        },
+      });
+
+      expect(screen.queryByText(/\(demande\)/)).not.toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "Points à régler, ligne 1" })).toHaveTextContent(
+        "Matière présumée « Laiton brut » à confirmer.",
+      );
+    });
   });
 });

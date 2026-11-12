@@ -1834,7 +1834,7 @@
           "Demandes de matériel"
         ],
         "summary": "Modifier l'en-tête d'une demande",
-        "description": "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Changer, vider ou ne plus confirmer la matière présumée ramène en brouillon les lignes validées qui s'appuyaient sur elle (sans matière propre, hors frais généraux) : reopened_line_ids les nomme, tableau vide sinon.",
+        "description": "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Une confirmation porte sur la valeur vue par son auteur : envoyée avec la valeur, elle ne confirme que celle-ci ; envoyée seule, elle confirme la valeur enregistrée, sauf si expected_presumed_material ou expected_presumed_supplier_id (facultatifs) précise la valeur affichée, auquel cas rien n'est écrit si elle a changé. Changer, vider ou ne plus confirmer la matière présumée ramène en brouillon les lignes validées qui s'appuyaient sur elle (sans matière propre, hors frais généraux) : reopened_line_ids les nomme, tableau vide sinon.",
         "parameters": [
           {
             "name": "projectId",
@@ -1918,11 +1918,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "MATERIAL_REQUEST_PRESUMPTION_CHANGED : la matière ou le fournisseur présumé a été modifié entre-temps ; la confirmation n'est pas enregistrée, recharger la demande.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -29069,6 +29069,16 @@
                 "type": "null"
               }
             ]
+          },
+          "expected_presumed_material": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "expected_presumed_supplier_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "additionalProperties": false

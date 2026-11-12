@@ -46,7 +46,10 @@ export function NewMaterialRequestDialog({
   projectId,
   technicians,
   onTechnicianCreated,
+  onRequestCreated,
 }: Readonly<{
+  /** A request now exists although the dialog did not open it (its photos failed): the list shows it. */
+  onRequestCreated: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
@@ -133,6 +136,7 @@ export function NewMaterialRequestDialog({
       if (!result.ok) {
         // The request exists: it is not created a second time, the photos are added from its page.
         setCreatedWithoutPhotos({ requestId, message: result.message });
+        onRequestCreated();
         setCreating(false);
         return;
       }

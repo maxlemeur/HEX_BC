@@ -14,7 +14,7 @@ import {
 } from "@/lib/material-requests/contracts";
 import { cn } from "@/lib/utils";
 
-import { ChoiceCell, TextCell } from "./cells";
+import { ChoiceCell, TextCell, usePendingWrites } from "./cells";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 
 const LABEL = "mb-1 block text-xs font-medium text-muted-foreground";
@@ -48,17 +48,27 @@ function DateField({
 }>) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const writes = usePendingWrites(value ?? "");
 
   const commit = async () => {
     if (draft === null) return;
-    if (draft === (value ?? "") || (draft === "" && required)) {
+    const next = draft;
+    if (next === "" && required) {
       setDraft(null);
       setError(null);
       return;
     }
-    const result = await onCommit(draft === "" ? null : draft);
+    if (next === writes.expected()) {
+      if (writes.idle()) {
+        setDraft(null);
+        setError(null);
+      }
+      return;
+    }
+    const result = await writes.send(next, () => onCommit(next === "" ? null : next));
+    if (result === null) return;
     if (result.ok) {
-      setDraft(null);
+      setDraft((current) => (current === next ? null : current));
       setError(null);
     } else {
       setError(result.message);
@@ -102,6 +112,7 @@ function NoteField({
 }>) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const writes = usePendingWrites((value ?? "").trim());
 
   return (
     <>
@@ -117,14 +128,17 @@ function NoteField({
         onBlur={async () => {
           if (draft === null) return;
           const next = draft.trim();
-          if (next === (value ?? "").trim()) {
-            setDraft(null);
-            setError(null);
+          if (next === writes.expected()) {
+            if (writes.idle()) {
+              setDraft(null);
+              setError(null);
+            }
             return;
           }
-          const result = await onCommit(next.length > 0 ? next : null);
+          const result = await writes.send(next, () => onCommit(next.length > 0 ? next : null));
+          if (result === null) return;
           if (result.ok) {
-            setDraft(null);
+            setDraft((current) => (current !== null && current.trim() === next ? null : current));
             setError(null);
           } else {
             setError(result.message);

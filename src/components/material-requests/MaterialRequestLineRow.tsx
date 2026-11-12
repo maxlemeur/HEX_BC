@@ -58,7 +58,7 @@ const CELL = "px-2 py-2 align-top";
 type LineRowProps = Readonly<{
   line: MaterialRequestLine;
   alerts: readonly MaterialRequestLineAlert[];
-  request: Pick<MaterialRequest, "presumed_material" | "material_confirmed" | "presumed_supplier_id" | "supplier_confirmed">;
+  request: RequestPresumptions;
   supplierOptions: readonly MaterialRequestSupplierOption[];
   canWrite: boolean;
   selected: boolean;
@@ -78,6 +78,34 @@ function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRe
 function supplierName(options: readonly MaterialRequestSupplierOption[], id: string | null): string | null {
   if (!id) return null;
   return options.find((option) => option.id === id)?.name ?? "Fournisseur retiré de la liste";
+}
+
+type RequestPresumptions = Pick<
+  MaterialRequest,
+  "presumed_material" | "material_confirmed" | "presumed_supplier_id" | "supplier_confirmed"
+>;
+
+/**
+ * What a line that names no material of its own is ordered in: the request's presumed material, once the
+ * operator has confirmed it (an unconfirmed presumption applies to nothing), and never for overhead.
+ */
+function materialFromRequest(line: MaterialRequestLine, request: RequestPresumptions): string | null {
+  if (line.imputation !== "project") return null;
+  const effective = effectiveLineMaterial({ material: null }, request);
+  return effective.source === "presumed" ? effective.material : null;
+}
+
+/** The supplier named at the top of the sheet, once confirmed: proposed on lines that name none. */
+function supplierFromRequest(
+  request: RequestPresumptions,
+  options: readonly MaterialRequestSupplierOption[],
+): string | null {
+  return request.supplier_confirmed ? supplierName(options, request.presumed_supplier_id) : null;
+}
+
+/** A value that comes from the request, shown apart from one typed on the line. */
+function fromRequest(value: string): string {
+  return `${value} (demande)`;
 }
 
 function AlertSummary({ position, alerts }: Readonly<{ position: number; alerts: readonly MaterialRequestLineAlert[] }>) {
@@ -112,10 +140,16 @@ function ReadCell({ children, alerts, id }: Readonly<{ children: ReactNode; aler
   );
 }
 
-function SettledLineRow({ line, alerts, supplierOptions, canWrite, onReopen }: LineRowProps) {
+function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onReopen }: LineRowProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
+  // A settled row says what the line is really ordered in and from whom, as the editable row does:
+  // an empty cell here would read as « no material » on the table that was reviewed.
+  const ownMaterial = line.material?.trim() ? line.material : null;
+  const requestMaterial = ownMaterial ? null : materialFromRequest(line, request);
+  const ownSupplier = supplierName(supplierOptions, line.supplier_id);
+  const requestSupplier = ownSupplier ? null : supplierFromRequest(request, supplierOptions);
   const rowId = `material-request-line-${line.id}`;
 
   return (
@@ -131,10 +165,14 @@ function SettledLineRow({ line, alerts, supplierOptions, canWrite, onReopen }: L
           {line.dimension ?? (line.no_dimension ? "Sans dimension" : null)}
         </ReadCell>
         <ReadCell id={`${rowId}-type`} alerts={alertsOf(alerts, "product_type")}>{line.product_type}</ReadCell>
-        <ReadCell id={`${rowId}-material`} alerts={alertsOf(alerts, "material")}>{line.material}</ReadCell>
+        <ReadCell id={`${rowId}-material`} alerts={alertsOf(alerts, "material")}>
+          {ownMaterial ?? (requestMaterial ? fromRequest(requestMaterial) : null)}
+        </ReadCell>
         <ReadCell id={`${rowId}-precision`}>{line.material_precision}</ReadCell>
         <ReadCell id={`${rowId}-reference`}>{line.reference}</ReadCell>
-        <ReadCell id={`${rowId}-supplier`}>{supplierName(supplierOptions, line.supplier_id)}</ReadCell>
+        <ReadCell id={`${rowId}-supplier`}>
+          {ownSupplier ?? (requestSupplier ? fromRequest(requestSupplier) : null)}
+        </ReadCell>
         <ReadCell id={`${rowId}-zone`}>{line.zone}</ReadCell>
         <ReadCell id={`${rowId}-imputation`}>
           {MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}
@@ -209,8 +247,8 @@ function EditableLineRow({
   const n = line.position;
   const blocking = alerts.filter((alert) => alert.blocking);
   const duplicate = alerts.some((alert) => alert.code === "possible_duplicate");
-  const presumed = line.imputation === "project" ? effectiveLineMaterial({ material: null }, request) : null;
-  const requestSupplier = request.supplier_confirmed ? supplierName(supplierOptions, request.presumed_supplier_id) : null;
+  const requestMaterial = materialFromRequest(line, request);
+  const requestSupplier = supplierFromRequest(request, supplierOptions);
   const summaryId = `material-request-line-${line.id}-summary`;
 
   const act = async (action: () => Promise<SaveResult>) => {
@@ -276,7 +314,7 @@ function EditableLineRow({
             value={line.material}
             list={materialListId}
             maxLength={120}
-            placeholder={presumed?.material ? `${presumed.material} (demande)` : undefined}
+            placeholder={requestMaterial ? fromRequest(requestMaterial) : undefined}
             alerts={alertsOf(alerts, "material")}
             onCommit={(material) => onSave({ material })}
           />
@@ -302,7 +340,7 @@ function EditableLineRow({
             label={`Fournisseur, ligne ${n}`}
             value={line.supplier_id}
             options={supplierOptions.map((option) => ({ value: option.id, label: option.name }))}
-            emptyLabel={requestSupplier ? `${requestSupplier} (demande)` : "—"}
+            emptyLabel={requestSupplier ? fromRequest(requestSupplier) : "—"}
             unknownLabel="Fournisseur retiré de la liste"
             onCommit={(supplier_id) => onSave({ supplier_id })}
           />

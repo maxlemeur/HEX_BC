@@ -57,6 +57,13 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState(false);
+  /**
+   * One dialog instance per opening. The dialog stays mounted once closed, and what it holds (the form,
+   * a request created without its photos, the guard against a double submit) must never greet the next
+   * request: a new key gives the next opening a blank dialog. The closed instance cannot be creating,
+   * since the dialog refuses to close while it is.
+   */
+  const [opening, setOpening] = useState(0);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -97,7 +104,13 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
   if (!list) return <LoadingState label="Chargement des demandes de matériel…" />;
 
   const newRequest = list.canWrite ? (
-    <Button type="button" onClick={() => setCreating(true)}>
+    <Button
+      type="button"
+      onClick={() => {
+        setOpening((current) => current + 1);
+        setCreating(true);
+      }}
+    >
       <Plus aria-hidden="true" />
       Nouvelle demande
     </Button>
@@ -135,7 +148,9 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
       )}
       {list.canWrite ? (
         <NewMaterialRequestDialog
+          key={opening}
           open={creating}
+          onRequestCreated={() => setAttempt((current) => current + 1)}
           onOpenChange={setCreating}
           projectId={projectId}
           technicians={list.technicians}

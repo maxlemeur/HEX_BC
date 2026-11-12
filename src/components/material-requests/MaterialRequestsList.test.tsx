@@ -14,7 +14,9 @@ import type { MaterialRequestSummary, MaterialRequestTechnician } from "@/lib/ma
  *  4. the photos chosen at creation go to storage before the request exists or before the server prepared
  *     them, the request is opened before the server checked them, or the form is sent twice; or their
  *     refusal hides that the request itself exists and creates it a second time;
- *  5. a reader without write access is offered « Nouvelle demande ».
+ *  5. a reader without write access is offered « Nouvelle demande »;
+ *  6. after a request was created without its photos, reopening « Nouvelle demande » shows that old
+ *     request again instead of a form, until the page is reloaded.
  */
 
 const { pushMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -308,6 +310,57 @@ describe("MaterialRequestsList", () => {
     expect(pushMock).not.toHaveBeenCalled();
     expect(within(dialog).getByRole("link", { name: "Ouvrir la demande" })).toHaveAttribute("href", REQUEST_HREF);
     expect(within(dialog).queryByRole("button", { name: "Créer la demande" })).not.toBeInTheDocument();
+  });
+
+  it("opens a blank form again after a request was created without its photos, and creates a distinct one (6)", async () => {
+    const SECOND_ID = "44444444-4444-4444-8444-444444444444";
+    let created = 0;
+    const dialog = await createWithPhotos({
+      [`POST ${BASE}`]: () => {
+        created += 1;
+        return {
+          status: 201,
+          data: {
+            request: summary(created === 1 ? {} : { id: SECOND_ID, technician_id: BRAVO }),
+            technician: technician(),
+            files: [],
+            lines: [],
+          },
+        };
+      },
+      [`POST ${FILES}`]: {
+        status: 422,
+        error: { code: "UNSUPPORTED_FILE", message: "Format HEIC refusé : envoyez la photo en JPEG." },
+      },
+    });
+    await within(dialog).findByText("La demande est créée, mais sans ses photos.");
+    const user = userEvent.setup();
+
+    await user.click(within(dialog).getByRole("button", { name: "Fermer" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "Nouvelle demande" })[0]);
+
+    const reopened = await screen.findByRole("dialog", { name: "Nouvelle demande" });
+    expect(within(reopened).queryByText("La demande est créée, mais sans ses photos.")).not.toBeInTheDocument();
+    expect(within(reopened).getByLabelText("Technicien")).toHaveValue("");
+    expect(within(reopened).getByLabelText(/Message reçu/)).toHaveValue("");
+    expect(within(reopened).queryByRole("list", { name: "Photos choisies" })).not.toBeInTheDocument();
+    expect(within(reopened).getByRole("button", { name: "Créer la demande" })).toBeDisabled();
+
+    await user.selectOptions(within(reopened).getByLabelText("Technicien"), "Bravo");
+    await user.click(within(reopened).getByRole("button", { name: "Créer la demande" }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/dashboard/affaires/${PROJECT_ID}/demandes-materiel/${SECOND_ID}`));
+    expect(events).toEqual([
+      `POST ${BASE}`,
+      `POST ${FILES}`,
+      `POST ${BASE}`,
+      `open /dashboard/affaires/${PROJECT_ID}/demandes-materiel/${SECOND_ID}`,
+    ]);
+    expect(writes().filter((call) => call.path === BASE).map((call) => call.body)).toEqual([
+      { technician_id: ALPHA },
+      { technician_id: BRAVO },
+    ]);
   });
 
   it("does not offer « Nouvelle demande » to a reader without write access (5)", async () => {

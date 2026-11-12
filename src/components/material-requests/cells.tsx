@@ -81,6 +81,35 @@ function describedBy(id: string, alerts: CellAlerts, error: string | null | unde
 }
 
 /**
+ * The writes of one field that have not been answered yet. Writes of a request go to the server one
+ * after the other, so what the server will hold once they settle is the last value sent, not the value
+ * still shown as saved. Comparing a new entry with the saved value alone would drop a correction made
+ * while a save is on its way (« DN 20 » → « DN 40 », then back to « DN 20 » before the answer).
+ */
+export function usePendingWrites<T>(stored: T) {
+  const state = useRef<{ count: number; ticket: number; last: T | null }>({ count: 0, ticket: 0, last: null });
+  return {
+    /** No write of this field is on its way. */
+    idle: () => state.current.count === 0,
+    /** What the server will hold for this field once the writes on their way have settled. */
+    expected: (): T => (state.current.count > 0 ? (state.current.last as T) : stored),
+    /**
+     * Sends `value`. Answers the result when it is the last value sent for the field, and null when a
+     * later one followed: only the answer to the last write speaks for what the field shows.
+     */
+    send: async (value: T, write: () => Promise<SaveResult>): Promise<SaveResult | null> => {
+      const pending = state.current;
+      const ticket = (pending.ticket += 1);
+      pending.count += 1;
+      pending.last = value;
+      const result = await write();
+      pending.count -= 1;
+      return pending.ticket === ticket ? result : null;
+    },
+  };
+}
+
+/**
  * A text column edited in place. Leaving the cell or Enter saves it, Escape gives back the saved value.
  * When the save fails, the typing stays in the cell with the reason under it; leaving the cell again retries.
  */
@@ -112,21 +141,23 @@ export function TextCell({
   const messagesId = useId();
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const inFlight = useRef<string | null>(null);
   const stored = (value ?? "").trim();
+  const writes = usePendingWrites(stored);
 
   const commit = async (raw: string | null) => {
     if (raw === null) return;
     const next = raw.trim();
-    if (next === stored) {
-      setDraft(null);
-      setError(null);
+    if (next === writes.expected()) {
+      // Nothing to send. With no write on its way the cell shows the saved value again; otherwise the
+      // answer on its way settles it (Enter then leaving the cell commits the same value twice).
+      if (writes.idle()) {
+        setDraft(null);
+        setError(null);
+      }
       return;
     }
-    if (inFlight.current === next) return;
-    inFlight.current = next;
-    const result = await onCommit(next.length > 0 ? next : null);
-    inFlight.current = null;
+    const result = await writes.send(next, () => onCommit(next.length > 0 ? next : null));
+    if (result === null) return;
     if (result.ok) {
       setError(null);
       setDraft((current) => (current !== null && current.trim() === next ? null : current));
@@ -190,10 +221,12 @@ export function QuantityCell({
 }>) {
   const messagesId = useId();
   const [failed, setFailed] = useState<{ value: number | null; message: string } | null>(null);
+  /** The quantity on its way to the server: shown instead of the saved one until the answer. */
+  const [sending, setSending] = useState<{ value: number | null } | null>(null);
   const [unreadable, setUnreadable] = useState(false);
   const [mountKey, setMountKey] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const sent = useRef<{ value: number | null } | null>(null);
+  const writes = usePendingWrites(value);
   const cancelled = useRef(false);
   const error = unreadable ? QUANTITY_UNREADABLE : (failed?.message ?? null);
 
@@ -205,14 +238,15 @@ export function QuantityCell({
 
   const commit = async (next: number | null) => {
     if (cancelled.current) return;
-    if (sent.current?.value === next) return;
-    if (next === value) {
-      setFailed(null);
+    if (next === writes.expected()) {
+      if (writes.idle()) setFailed(null);
       return;
     }
-    sent.current = { value: next };
-    const result = await onCommit(next);
-    sent.current = null;
+    setSending({ value: next });
+    setFailed(null);
+    const result = await writes.send(next, () => onCommit(next));
+    if (result === null) return;
+    setSending(null);
     setFailed(result.ok ? null : { value: next, message: result.message });
   };
 
@@ -226,7 +260,7 @@ export function QuantityCell({
         aria-invalid={cellTone(alerts) === "blocking" || Boolean(error) || undefined}
         aria-describedby={describedBy(messagesId, alerts, error)}
         autoComplete="off"
-        value={failed ? failed.value : value}
+        value={failed ? failed.value : sending ? sending.value : value}
         emptyValue={0}
         parseValue={readQuantityDraft}
         onValueChange={() => undefined}
@@ -283,6 +317,7 @@ export function ChoiceCell({
   const messagesId = useId();
   const [pending, setPending] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ value: string; message: string } | null>(null);
+  const writes = usePendingWrites(value ?? "");
   const shown = pending ?? failed?.value ?? value ?? "";
   const known = shown === "" || options.some((option) => option.value === shown);
 
@@ -301,7 +336,9 @@ export function ChoiceCell({
           const next = event.currentTarget.value;
           setPending(next);
           setFailed(null);
-          const result = await onCommit(next === "" ? null : next);
+          const result = await writes.send(next, () => onCommit(next === "" ? null : next));
+          // An earlier choice answered after a later one was made: the later answer settles the cell.
+          if (result === null) return;
           setPending(null);
           if (!result.ok) setFailed({ value: next, message: result.message });
         }}

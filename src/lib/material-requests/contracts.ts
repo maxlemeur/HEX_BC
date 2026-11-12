@@ -186,12 +186,39 @@ export const createMaterialRequestSchema = z.object(requestFields).strict();
 export type CreateMaterialRequestInput = z.input<typeof createMaterialRequestSchema>;
 export type CreateMaterialRequestData = z.output<typeof createMaterialRequestSchema>;
 
+/**
+ * A confirmation is about the value its author saw. Sent with the value (`presumed_material` and
+ * `material_confirmed: true` together), the server confirms that value and no other. Sent alone, it
+ * confirms what is stored, unless the caller says which value it has on screen with `expected_...`:
+ * the server then confirms only if that is still the one stored, and answers 409
+ * MATERIAL_REQUEST_PRESUMPTION_CHANGED otherwise. Both `expected_...` keys are optional.
+ */
+export const MATERIAL_REQUEST_PRESUMPTION_CHANGED = "MATERIAL_REQUEST_PRESUMPTION_CHANGED";
+
 export const updateMaterialRequestSchema = z
-  .object(requestFields)
+  .object({
+    ...requestFields,
+    expected_presumed_material: z.string().trim().min(1, "Matière attendue requise.").max(120).optional(),
+    expected_presumed_supplier_id: uuid.optional(),
+  })
   .strict()
-  .refine((payload) => Object.values(payload).some((value) => value !== undefined), {
-    message: "Aucun champ à mettre à jour.",
-  });
+  // What the caller expects is a condition, not a change: alone, it updates nothing.
+  .refine(
+    (payload) => Object.entries(payload).some(([key, value]) => value !== undefined && !key.startsWith("expected_")),
+    { message: "Aucun champ à mettre à jour." },
+  )
+  .refine(
+    (payload) =>
+      payload.expected_presumed_material === undefined
+      || (payload.material_confirmed === true && payload.presumed_material === undefined),
+    { message: "expected_presumed_material accompagne une confirmation seule de la matière.", path: ["expected_presumed_material"] },
+  )
+  .refine(
+    (payload) =>
+      payload.expected_presumed_supplier_id === undefined
+      || (payload.supplier_confirmed === true && payload.presumed_supplier_id === undefined),
+    { message: "expected_presumed_supplier_id accompagne une confirmation seule du fournisseur.", path: ["expected_presumed_supplier_id"] },
+  );
 export type UpdateMaterialRequestInput = z.input<typeof updateMaterialRequestSchema>;
 export type UpdateMaterialRequestData = z.output<typeof updateMaterialRequestSchema>;
 

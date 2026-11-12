@@ -170,10 +170,14 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "patch", path: one, summary: "Modifier l'en-tête d'une demande",
-    description: "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Changer, vider ou ne plus confirmer la matière présumée ramène en brouillon les lignes validées qui s'appuyaient sur elle (sans matière propre, hors frais généraux) : reopened_line_ids les nomme, tableau vide sinon.",
+    description: "Seuls les champs envoyés changent. Changer ou vider la matière ou le fournisseur présumé retire sa confirmation ; une confirmation envoyée avec la nouvelle valeur est enregistrée après elle. Renvoyer la même valeur conserve la confirmation. Une confirmation porte sur la valeur vue par son auteur : envoyée avec la valeur, elle ne confirme que celle-ci ; envoyée seule, elle confirme la valeur enregistrée, sauf si expected_presumed_material ou expected_presumed_supplier_id (facultatifs) précise la valeur affichée, auquel cas rien n'est écrit si elle a changé. Changer, vider ou ne plus confirmer la matière présumée ramène en brouillon les lignes validées qui s'appuyaient sur elle (sans matière propre, hors frais généraux) : reopened_line_ids les nomme, tableau vide sinon.",
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestUpdate", description: "Au moins un champ.", schema: updateMaterialRequestSchema }),
-    responses: { "200": success("ApiMaterialRequestUpdated", "Demande enregistrée et lignes ramenées en brouillon.", updateResult), ...writeRefusals },
+    responses: {
+      "200": success("ApiMaterialRequestUpdated", "Demande enregistrée et lignes ramenées en brouillon.", updateResult),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_PRESUMPTION_CHANGED : la matière ou le fournisseur présumé a été modifié entre-temps ; la confirmation n'est pas enregistrée, recharger la demande."),
+    },
   },
   {
     tags, method: "delete", path: one, summary: "Supprimer une demande",
