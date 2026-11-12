@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import type { ImportFlowLinesPreview } from "@/app/dashboard/affaires/_actions/import-flow";
 import type { InvalidImportFlowLineReason } from "@/lib/affaires/import-flow";
@@ -78,6 +78,7 @@ function SaleCoefficientsFields({
   const [mo, setMo] = useState(() => formatDecimalInput(coefficients.mo));
   const parsedFo = readSaleCoefficient(fo);
   const parsedMo = readSaleCoefficient(mo);
+  const errorId = useId();
   const commit = () => {
     if (parsedFo === null || parsedMo === null) return;
     if (parsedFo === coefficients.fo && parsedMo === coefficients.mo) return;
@@ -100,6 +101,7 @@ function SaleCoefficientsFields({
             className="w-28"
             value={value}
             aria-invalid={parsed === null || undefined}
+            aria-describedby={parsed === null ? errorId : undefined}
             onChange={(event) => setValue(event.target.value)}
             onBlur={commit}
             onKeyDown={(event) => {
@@ -109,7 +111,7 @@ function SaleCoefficientsFields({
         </div>
       ))}
       {parsedFo === null || parsedMo === null ? (
-        <p className="text-xs text-danger" role="alert">
+        <p id={errorId} className="text-xs text-danger" role="alert">
           Coefficient de vente : nombre positif jusqu’à 10, quatre décimales au plus.
         </p>
       ) : null}
@@ -336,6 +338,7 @@ export function ImportLinesPreview({
             wrapperClassName="max-w-md"
             value={roleSelectValue}
             aria-invalid={roleChoiceRequired || undefined}
+            aria-describedby={roleChoiceRequired ? "import-labor-role-error" : undefined}
             onChange={(event) => {
               const value = event.target.value;
               if (value === "") return;
@@ -360,7 +363,7 @@ export function ImportLinesPreview({
             </p>
           ) : null}
           {roleChoiceRequired ? (
-            <p className="text-xs text-danger" role="alert">
+            <p id="import-labor-role-error" className="text-xs text-danger" role="alert">
               {laborRole.matchingRoleIds.length === 0
                 ? "Aucun rôle actif n’a le taux horaire du classeur : choisissez le rôle qui valorise ces heures, ou « Aucun rôle »."
                 : "Plusieurs rôles actifs ont le taux horaire du classeur : choisissez celui qui valorise ces heures, ou « Aucun rôle »."}

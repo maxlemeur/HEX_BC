@@ -20,6 +20,15 @@ armyTest(
     const line = await createLineViaApi(browser, ids.versionId, title);
     const grid = screen.getByRole("grid", "Lignes de devis", { exact: true });
     const lineOf = async () => (await readEstimate(browser, ids.versionId)).items.find((item) => item.id === line.id);
+    // What a screen reader reads with a refused field: the text of the ids its aria-describedby lists
+    // (MWG « Error Link »). Empty when nothing is listed, so a valid field must not keep the reason.
+    const describedReason = (selector: string) => browser.evaluate((css) => {
+      const fields = document.querySelectorAll(css);
+      if (fields.length !== 1) return `<${fields.length} fields match ${css}>`;
+      const ids = (fields[0].getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+      return ids.map((id) => document.getElementById(id)?.textContent ?? `<missing #${id}>`).join(" ").trim();
+    }, selector);
+    const byLabel = (label: string) => `input[aria-label=${JSON.stringify(label)}]`;
     await browser.reload();
     await expect(grid).toBeVisible();
 
@@ -30,6 +39,7 @@ armyTest(
     await expect(price).toHaveAttribute("aria-invalid", "true");
     const refusal = (await price.getAttribute("title")) ?? "";
     expect(refusal).toMatch(/^Nombre invalide/);
+    await expect.poll(() => describedReason(byLabel(`Prix d’achat unitaire HT pour ${title}`))).toBe(refusal);
     await browser.reload();
     await expect(grid).toBeVisible();
     expect((await lineOf())?.unit_price_ht_cents).toBe(1000);
@@ -50,9 +60,11 @@ armyTest(
     await discount.press("Tab");
     await expect(discount).toHaveAttribute("aria-invalid", "true");
     await expect(discount).toHaveAttribute("title", refusal);
+    await expect.poll(() => describedReason("#estimate-discount")).toBe(refusal);
     await discount.fill("1 000");
     await discount.press("Tab");
     await expect(discount).not.toHaveAttribute("aria-invalid", "true");
+    await expect.poll(() => describedReason("#estimate-discount")).toBe("");
     await screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).click();
     await expect.poll(async () => (await readEstimate(browser, ids.versionId)).version.discount_amount_cents).toBe(100000);
     await browser.reload();
@@ -140,6 +152,7 @@ armyTest(
     await gridMajoration.fill("1 001");
     await gridMajoration.press("Tab");
     await expect(gridMajoration).toHaveAttribute("aria-invalid", "true");
+    await expect.poll(() => describedReason(byLabel(`Majoration de main-d’œuvre en pourcentage pour ${title}`))).toMatch(/^Nombre invalide/);
     await browser.reload();
     await expect(grid).toBeVisible();
     await expect(gridMajoration).toHaveValue("100");
