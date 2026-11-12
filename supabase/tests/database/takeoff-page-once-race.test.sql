@@ -37,7 +37,7 @@ insert into public.estimate_items (id, tenant_id, version_id, item_type, positio
 select 'd2900000-0000-4000-8000-000000000201', m.tenant_id, 'd2900000-0000-4000-8000-000000000101', 'section', 0, 'Lot fictif'
 from public.tenant_memberships m where m.user_id = 'd2900000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
-select 'd2900000-0000-4000-8000-000000000101', m.user_id, m.tenant_id, now() + interval '30 minutes', gen_random_uuid()
+select 'd2900000-0000-4000-8000-000000000101', m.user_id, m.tenant_id, now() + interval '30 minutes', 'd2900000-0000-4000-8000-000000000501'
 from public.tenant_memberships m where m.user_id = 'd2900000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
 select job.id, m.tenant_id, 'd2900000-0000-4000-8000-000000000101', 'B', 'completed', 'plan-fictif.pdf', m.user_id
@@ -195,6 +195,48 @@ select is(pg_temp.lines_of_the_page(), jsonb_build_array(jsonb_build_array(6, 'd
 select is((select array_agg(job.status::text order by job.id) from public.takeoff_jobs job
     where job.id in ('d2900000-0000-4000-8000-000000000303', 'd2900000-0000-4000-8000-000000000304')),
   array['applied', 'completed'], 'the second relaunch stays to apply, to be decided again');
+
+-- 4. Codex review of 708c7fbf: an estimator's save in flight while a relaunch is applied. The editor's save
+-- (public.commit_estimate_batch) locks the version's row, not the version's advisory lock. The application must read the
+-- earlier lines after that save, never before: it waits for the save, then finds the line changed (STALE) instead of
+-- writing over the saved title and quantity from what it read before. Red on 708c7fbf: the relaunch prepared its
+-- decisions first, waited in the writer, then restored the title it had read and set its own quantity.
+create or replace function pg_temp.editor_save(p_title text, p_quantity numeric)
+returns text language sql as $$
+  select format($save$select public.commit_estimate_batch('d2900000-0000-4000-8000-000000000101', gen_random_uuid(),
+    (select updated_at from public.estimate_versions where id = 'd2900000-0000-4000-8000-000000000101'),
+    'd2900000-0000-4000-8000-000000000501',
+    (select jsonb_agg(jsonb_build_object('op', 'update', 'id', item.id, 'data', jsonb_build_object('title', %1$L, 'quantity', %2$s)))
+      from public.estimate_items item where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'),
+    '[]'::jsonb,
+    (select jsonb_agg(jsonb_build_object('id', item.id, 'pu_ht_cents', 0, 'line_total_ht_cents', 0, 'line_tax_cents', 0,
+        'line_total_ttc_cents', 0)) from public.estimate_items item
+      where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'),
+    '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0}'::jsonb,
+    '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb, null) ->> 'committed'$save$, p_title, p_quantity)
+$$;
+create or replace function pg_temp.the_saved_line()
+returns jsonb language sql as $$
+  select jsonb_agg(jsonb_build_array(item.title, item.quantity, item.source_job_id) order by item.id) from public.estimate_items item
+  where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'
+$$;
+select is(extensions.dblink_exec('page_b', 'begin'), 'BEGIN', 'the editor''s save starts');
+select is((select x.committed from extensions.dblink('page_b', pg_temp.editor_save('WC suspendu (posé)', 9)) as x(committed text)),
+  'true', 'the estimator saves a new title and quantity for the line, not yet committed');
+select is(extensions.dblink_send_query('page_a', (select query from page_race_apply where label = 'm4 replace')), 1,
+  'a relaunch of the page is applied meanwhile');
+select pg_sleep(0.3);
+select is(extensions.dblink_is_busy('page_a'), 1, 'the relaunch waits for the save');
+select is(extensions.dblink_exec('page_b', 'commit'), 'COMMIT', 'the save commits');
+select is((select count(*)::integer from extensions.dblink_get_result('page_a', false) as x(applied integer)), 0,
+  'the relaunch writes nothing');
+select ok(extensions.dblink_error_message('page_a') like '%TAKEOFF_PAGE_DECISION_STALE%',
+  'the relaunch is refused: the line it was to replace changed under it');
+select is((select count(*)::integer from extensions.dblink_get_result('page_a', false) as x(applied integer)), 0, 'the relaunch is done');
+select is(pg_temp.the_saved_line(), jsonb_build_array(jsonb_build_array('WC suspendu (posé)', 9, 'd2900000-0000-4000-8000-000000000303')),
+  'the estimator''s saved title and quantity stay');
+select is((select job.status::text from public.takeoff_jobs job where job.id = 'd2900000-0000-4000-8000-000000000304'), 'completed',
+  'the relaunch stays to apply, to be decided again on the saved line');
 
 -- Clean the committed synthetic fixtures of this disposable database, as takeoff-rule-peers-race.test.sql does: every
 -- tenant-scoped row of the fixture's own tenant removed with triggers off, then the tenant, its profile and its user.
