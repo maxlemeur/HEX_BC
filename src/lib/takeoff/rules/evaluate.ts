@@ -952,8 +952,9 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       if (line.is_excluded) continue;
       const own = pages.get(line.page_key) as RulePage;
       // The enlarged plans that draw the line's network, each with its perimeter brought into the line's page metres.
+      // Its own page read again by another takeoff at a finer scale is none (TI-682, lot D): its copies are no pair.
       const enlarged = levelPages.flatMap((plan) => {
-        if (plan.key === own.key || !isEnlargedPlan(plan.denominator, own.denominator) || !together(own.key, plan.key)) return [];
+        if (plan.key === own.key || readAgain(own, plan) || !isEnlargedPlan(plan.denominator, own.denominator) || !together(own.key, plan.key)) return [];
         const perimeter = perimeterOn(plan.key, line);
         if (!perimeter) return [];
         const [frame, planFrame] = framesOf(own.key, plan.key);

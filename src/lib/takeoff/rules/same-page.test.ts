@@ -168,6 +168,29 @@ describe("a page measured again by a second takeoff (TI-682, lot D PR 3)", () =>
     expect(zone(evaluate(7, 5, true, true), "m2-o")).toMatchObject({ ...DUPLICATE, details: { partners: [{ item_id: "e-d", plan: "enlarged" }] } });
   });
 
+  it("never reads a page measured again at another scale as an enlarged plan of itself (review)", () => {
+    // The two readings of one page carry the scale each takeoff read: 1/100 then 1/50, or the reverse. The finer one is
+    // no enlarged plan of the coarser: its copy is no pair, so the coverage rule found the whole run undrawn there.
+    for (const [first, second] of [[100, 50], [50, 100]]) {
+      const { results } = measuredTwice(at({ plan_file_id: PLAN }), at({ plan_file_id: PLAN }), { m1: { denominator: first }, m2: { denominator: second } });
+      for (const id of ["m1-ef", "m2-ef"]) {
+        expect(zone(results, id), `${id} at 1/${first} then 1/${second}`).toMatchObject(SAME_PAGE);
+        expect(results.get(id)?.filter((entry) => entry.rule === "zone_coverage"), `${id} at 1/${first} then 1/${second}`).toEqual([]);
+      }
+    }
+    // A real enlarged plan still controls both readings of the overview: it draws 2 m of their 5 m inside its perimeter.
+    const pages = [page("m1#1", at({ plan_file_id: PLAN }), { order: 1, denominator: 100 }),
+      page("e#1", at({ plan_file_id: OTHER_PLAN, file_name: "Détail R+1.pdf" }), { order: 5_001, denominator: 50 }),
+      page("m2#1", at({ plan_file_id: PLAN }), { order: 10_001, denominator: 100 })];
+    const detail = run("e-d", "e#1", { quantity: 7, inputs: inputs({ model_quantity: 7 }),
+      geometry: { segments_m: [[0, 1, 2, 1], [0, 3, 5, 3]], polygon_m: null, length_m: 7, area_m2: null } });
+    const beside = evaluateTakeoffRules({ pages, lines: [run("m1-ef", "m1#1"), detail, run("m2-ef", "m2#1")] }).results;
+    for (const id of ["m1-ef", "m2-ef"]) {
+      expect(beside.get(id)?.find((entry) => entry.rule === "zone_coverage"), id)
+        .toMatchObject({ status: "fail", code: "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN", details: { uncovered_m: 3 } });
+    }
+  });
+
   it("compares an excluded reading with the included one, and never counts an excluded first reading", () => {
     const excludedAgain = measuredTwice(at({ plan_file_id: PLAN }), at({ plan_file_id: PLAN }), { line: { is_excluded: true } });
     expect(zone(excludedAgain.results, "m2-ef")).toMatchObject(SAME_PAGE);
