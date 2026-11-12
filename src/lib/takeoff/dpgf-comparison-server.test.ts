@@ -14,9 +14,10 @@ import { buildSupplierPriceEvidenceByEstimateItemId, syncAndHydrateTakeoffLinePr
 function context(): TakeoffDpgfComparisonContext {
   return {
     supabase: {} as TakeoffDpgfComparisonContext["supabase"], tenantId: "tenant", userId: "owner", projectId: "project",
-    estimateItems: [], takeoffItems: [],
+    estimateItems: [], takeoffItems: [], compositions: { targets: new Map(), lines: new Map(), jobs: new Map() },
     comparisonInput: {
       versionId: "version", jobId: "job", takeoffLines: [], manualLinks: [], reviewDecisions: [], carriedReviewDecisions: new Map(),
+      dpgfCompositions: { targets: new Map(), lines: new Map(), jobs: new Map() }, readAgainItemIds: new Set(), overlapPartners: new Map(),
       dpgfLines: Array.from({ length: 1301 }, (_, index) => ({
         estimate_item_id: `line-${index}`, title: `Tube ${index}`, description: null, quantity: index + 1,
         unit: "ml", position: index, source_file_name: "dpgf.xlsx", source_page: index + 1,

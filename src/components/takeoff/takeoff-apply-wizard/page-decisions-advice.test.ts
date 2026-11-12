@@ -38,7 +38,7 @@ const newLine = (n: number, designation: string, candidates: Array<[number, numb
   candidates: candidates.map(([pageNumber, lines]) => ({ key: key(pageNumber), line_ids: lines.map(id) })),
 });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], ...extra,
 });
 
 /** The situations of TKD03 where a choice is disabled, as their proposals read. */
@@ -49,9 +49,9 @@ const SITUATIONS: Array<[string, TakeoffPageReplacementResponse]> = [
     lines: [line(201, "WC suspendu"), line(202, "EF cuivre DN 22 (DPGF)", { unit_key: "ml", dpgf_target: true, measured_quantity: null })],
     new_lines: [newLine(101, "WC suspendu", [[1, [201]]])],
     pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }] })],
-  // The same page, whose new lines feed again another DPGF line another takeoff fed (D-6).
+  // The same page, whose new lines feed again another DPGF line another takeoff fed (D-6 until D4).
   ["a DPGF line not fed again on a page that feeds another one again", proposal({ merge_required: true,
-    pages: [page(1, [202, 203], [101], { keep_both_refused: "dpgf_target", dpgf_fed_again: [id(203)] })],
+    pages: [page(1, [202, 203], [101], { dpgf_fed_again: [id(203)] })],
     lines: [line(202, "EF cuivre DN 22 (DPGF)", { unit_key: "ml", dpgf_target: true }), line(203, "EU PVC 100 (DPGF)", { unit_key: "ml", dpgf_target: true })],
     new_lines: [newLine(101, "EU PVC 100", [[1, []]], "ml")] })],
   ["a vanished line carrying a page the relaunch does not read", proposal({
@@ -153,24 +153,20 @@ describe("advice never names a disabled choice", () => {
     expect([...new Set(named)]).toEqual([]);
   });
 
-  it("says what to do on a page where neither replacing nor keeping both is possible: exclude the merged line, or feed the DPGF line", () => {
+  // TI-682 D4: the two dead ends of #259 are gone. Replacing the page takes its part out of the DPGF line (C1); keeping
+  // both counts both (D-6 falls).
+  it("replaces the page of a DPGF line not fed again beside a line « Fusionner » imposes: complete and recommended", () => {
     const resolution = resolveConfirmation(SITUATIONS[0][1], initialConfirmationDraft(SITUATIONS[0][1]));
-    expect(resolution.complete).toBe(false);
-    const advice = resolution.pages[0].missing.join(" ");
-    expect(advice).toContain("« WC suspendu »");
-    expect(advice).toContain("« EF cuivre DN 22 (DPGF) »");
-    expect(advice).toMatch(/Écarter « WC suspendu » à la revue du métré : garder les deux redevient possible\./);
-    expect(advice).toMatch(/Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure \(même unité, matériau et diamètre\) : remplacer redevient possible\./);
-    expect(advice).not.toMatch(/gardez les deux/i);
-    expect(resolution.pages[0].advice.map((entry) => [entry.choose, entry.elsewhere, entry.exits.length])).toEqual([[[], ["exclude_at_review", "link_in_dpgf_review"], 2]]);
-    expect(resolution.pages[0].recommended).toBe(false);
-    expect(resolution.introduction.choose).toEqual([]);
+    expect([resolution.complete, resolution.pages[0].recommended, resolution.pages[0].missing]).toEqual([true, true, []]);
+    expect(resolution.payload[0].lines.find((line) => line.estimate_item_id === id(202))).toMatchObject({ action: "keep", item_ids: [id(1203)] });
+    expect(resolution.introduction.text).toBe("Une page n’entre qu’une fois : remplacez leur mesure précédente.");
   });
 
-  it("on a page feeding another DPGF line again, the only way out is to feed the line not fed", () => {
-    const resolution = resolveConfirmation(SITUATIONS[1][1], initialConfirmationDraft(SITUATIONS[1][1]));
-    expect(resolution.pages[0].advice.map((entry) => entry.elsewhere)).toEqual([["link_in_dpgf_review"]]);
-    expect(resolution.pages[0].missing.join(" ")).not.toMatch(/écarter/i);
+  it("offers keeping both on a page that feeds another DPGF line again: the line sums both", () => {
+    const data = SITUATIONS[1][1];
+    const control = confirmationControls(resolveConfirmation(data, initialConfirmationDraft(data))).find((entry) => entry.id === `page:${key(1)}`)!;
+    expect(control.options.find((option) => option.value === "keep_both")?.disabled).toBeNull();
+    expect(resolveConfirmation(data, initialConfirmationDraft(data)).complete).toBe(true);
   });
 
   it("where nothing on the page can be replaced, the page advises keeping both, and the vanished line advises nothing", () => {

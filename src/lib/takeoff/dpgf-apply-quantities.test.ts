@@ -17,7 +17,9 @@ describe("TI-680 immutable apply snapshot", () => {
     expect(buildDpgfApplyQuantityPolicy(context, rows)).toEqual([expect.objectContaining({
       target_id: comparisonInput.dpgfLines[0].estimate_item_id, expected_updated_at: "2026-11-08T12:00:00Z",
       reference_quantity: 3000, measured_quantity: 2980, priced_quantity: 3000,
-      takeoff_items: [{ id: comparisonInput.takeoffLines[0].item_id, quantity: 2980, updated_at: "2026-11-08T12:01:00Z" }],
+      // TI-682 D4: with what the line brings to the target, the composition's new part.
+      takeoff_items: [{ id: comparisonInput.takeoffLines[0].item_id, quantity: 2980, updated_at: "2026-11-08T12:01:00Z",
+        measured: 2980, protective: 0, printed_gap: 0 }],
     })]);
     const wrongDiameter = { ...rows[0], linked_takeoff_items: rows[0].linked_takeoff_items.map(item => ({ ...item, designation: "EF cuivre DN 28" })) };
     expect(() => buildDpgfApplyQuantityPolicy(context, [wrongDiameter])).toThrow(/comparables/);

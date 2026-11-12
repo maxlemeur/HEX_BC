@@ -41,6 +41,7 @@ import {
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
 import { TakeoffPageDecisionsPanel } from "./takeoff-apply-wizard/TakeoffPageDecisionsPanel";
+import { TakeoffDpgfTargetsPanel } from "./takeoff-apply-wizard/TakeoffDpgfTargetsPanel";
 import { initialConfirmationDraft, resolveConfirmation, type ConfirmationDraft } from "./takeoff-apply-wizard/page-decisions";
 import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
@@ -479,6 +480,11 @@ export function TakeoffApplyWizard({
                 <TakeoffPageDecisionsPanel proposal={pageRead?.data ?? null} error={pageRead?.error ?? null}
                   loading={pageRequest !== null && pageRead === null} draft={pageDraft} strategyNotice={pageStrategyNotice}
                   disabled={isSubmitting} onDraftChange={setPageChoices} />
+              )}
+
+              {step === 4 && (
+                // TI-682 D4: what each DPGF line the application touches will hold, under the page decisions.
+                <TakeoffDpgfTargetsPanel proposal={pageRead?.data ?? null} resolution={pageResolution} />
               )}
 
               {step === 4 && (

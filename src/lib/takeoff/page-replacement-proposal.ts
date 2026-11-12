@@ -26,6 +26,7 @@ import {
   type RuleIdentity,
 } from "@/lib/takeoff/page-replacement";
 import type {
+  TakeoffPageReplacementDpgfTarget,
   TakeoffPageReplacementLine,
   TakeoffPageReplacementPage,
   TakeoffPageReplacementResponse,
@@ -82,6 +83,11 @@ export type PageReplacementInput = {
   merge: { mappingItems: Parameters<typeof mergeSources>[1]; targetSectionId: string | null; engine: EstimateEngineVersion } | null;
   /** The DPGF target each of this takeoff's lines feeds (its reconciliation). */
   fedTargets: ReadonlyMap<string, string>;
+  /**
+   * TI-682 D4: per DPGF target of the version, its DPGF reference, what it holds of the other takeoffs and what this one
+   * brings (dpgf-composition-server and the reconciliation).
+   */
+  dpgfTargets?: ReadonlyMap<string, Pick<TakeoffPageReplacementDpgfTarget, "reference" | "earlier" | "fed">>;
 };
 
 /** What applying this takeoff would replace, page by page. */
@@ -200,7 +206,7 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
       new_line_ids: newLines.map((line) => line.id),
       dpgf_fed_again: dpgfFedAgain,
       ambiguous_document: nameOnly && identifiedDocuments.size > 1,
-      keep_both_refused: dpgfFedAgain.length > 0 ? "dpgf_target" as const : forced.length > 0 ? "merge_match" as const : null,
+      keep_both_refused: forced.length > 0 ? "merge_match" as const : null,
     };
   });
 
@@ -224,7 +230,17 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
       sources: allSources, length_factor: lengthFactor(line) };
   });
 
-  const named = new Set(pages.flatMap((page) => page.earlier_job_ids));
+  // TI-682 D4: the DPGF targets the application touches: those this takeoff feeds, those with a part of a page it reads again.
+  const touched = new Set([...input.fedTargets.values(),
+    ...pages.flatMap((page) => page.lines.map((entry) => entry.id).filter((id) => estimateById.get(id)?.source_provider === "dpgf"))]);
+  const dpgfTargets: TakeoffPageReplacementDpgfTarget[] = [...touched].flatMap((id) => {
+    const line = estimateById.get(id);
+    const known = input.dpgfTargets?.get(id);
+    return line && known ? [{ id, title: line.title, unit_key: estimateLineUnitKey(line), quantity: number(line.quantity),
+      reference: known.reference, length_factor: lengthFactor(line), earlier: known.earlier, fed: known.fed }] : [];
+  }).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+
+  const named = new Set([...pages.flatMap((page) => page.earlier_job_ids), ...dpgfTargets.flatMap((target) => target.earlier.map((part) => part.job_id))]);
   return {
     job_id: normalizedJobId,
     version_id: input.versionId,
@@ -239,5 +255,6 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
     }).sort((left, right) => left.created_at.localeCompare(right.created_at)),
     unidentified_count: result.unidentified_item_ids.length,
     merge_required: mergeRequired,
+    dpgf_targets: dpgfTargets,
   };
 }

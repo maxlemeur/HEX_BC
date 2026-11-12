@@ -6,7 +6,7 @@ import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { excludeDpgfOutOfScope, plannedExclusions } from "@/lib/takeoff/apply-plan-exclusions";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
-import { dpgfTargetsFedAgain } from "@/lib/takeoff/dpgf-apply-quantities";
+import { dpgfTargetFeeds, dpgfTargetsFedAgain } from "@/lib/takeoff/dpgf-apply-quantities";
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
@@ -121,17 +121,22 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
   const sourceIds = sourceItemIdsOf(estimateRows);
   const own = new Set(ownLines.map((line) => line.id));
   const referencedLines = await readTakeoffLines(context, { ids: [...new Set([...sourceIds.values()].flat())].filter((id) => !own.has(id)) });
+  // TI-682 D4: the takeoffs a DPGF target's composition names, too.
+  const composedJobs = comparisonContext ? [...comparisonContext.compositions.targets.values()]
+    .flatMap((target) => target.contributions.map((part) => part.job_id)) : [];
   const jobs = await readJobs(context, [...new Set([normalizedJobId, ...[...ownLines, ...referencedLines].map((line) => line.job_id),
-    ...estimateRows.flatMap((line) => (line.source_job_id ? [line.source_job_id] : []))])]);
+    ...estimateRows.flatMap((line) => (line.source_job_id ? [line.source_job_id] : [])), ...composedJobs])]);
   // « Fusionner » on a DPGF version: the lines its writer matches by title in the target section are imposed, replayed
   // from the writer of the version's engine on what it is handed (renamed designations, its source order).
   const merge = mergeRequired && applyRequest.strategy === "merge"
     ? { mappingItems: mappingPreview.items, targetSectionId: applyRequest.target_section_id ?? null, engine: await readEngine(context, versionId) }
     : null;
-  // The DPGF targets this takeoff's lines feed (its reconciliation), to refuse keeping both where one is fed again (D-6).
-  // By the application's own rule (buildDpgfApplyQuantityPolicy): a line linked to a DPGF line it cannot be compared
-  // with feeds nothing, and the page would be refused as « not fed » (dpgf_not_replaced).
-  const fedTargets = comparisonContext ? dpgfTargetsFedAgain(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows) : new Map<string, string>();
+  // The DPGF targets this takeoff's lines feed (its reconciliation), by the application's own rule
+  // (buildDpgfApplyQuantityPolicy): a line linked to a DPGF line it cannot be compared with feeds nothing. TI-682 D4:
+  // with what each target holds of the other takeoffs, so that the step shows what it will hold.
+  const rows = comparisonContext ? computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows : [];
+  const fedTargets = dpgfTargetsFedAgain(rows);
+  const dpgfTargets = comparisonContext ? dpgfTargetFeeds(normalizedJobId, rows, comparisonContext.compositions) : new Map();
   return parseWithSchema(takeoffPageReplacementResponseSchema, buildPageReplacementProposal({ jobId: normalizedJobId, versionId, mergeRequired,
-    ownLines, referencedLines, estimateRows, jobs, leftOut, merge, fedTargets }), "Proposition des pages déjà au devis invalide.");
+    ownLines, referencedLines, estimateRows, jobs, leftOut, merge, fedTargets, dpgfTargets }), "Proposition des pages déjà au devis invalide.");
 }

@@ -66,6 +66,22 @@ export const takeoffDpgfLineRiskSummarySchema = z.object({
   causes: z.array(z.string()), status: z.enum(["to_process", "assumed", "false_positive"]).nullable(),
 });
 
+/**
+ * TI-682 D4: what the DPGF line holds of the other takeoffs applied to the version, by takeoff and page. `read_again`: on
+ * a page this takeoff reads again (replaced, or kept with it, by that page's decision); `earlier_quantity` sums the
+ * others, and `total_quantity` adds this takeoff's measure: the total the line will hold if the pages read again are
+ * replaced. `double_counted`: lines of this takeoff the zone rules find drawn again in a line the target keeps.
+ */
+export const takeoffDpgfCompositionSchema = z.object({
+  earlier: z.array(z.object({
+    job_id: uuid, job_created_at: timestamp.nullable(), job_level: z.string().nullable(), quantity, read_again: z.boolean(),
+    pages: z.array(z.object({ source_file_name: z.string().nullable(), source_page: page, quantity: quantity.nullable() })),
+  })),
+  earlier_quantity: quantity,
+  total_quantity: quantity,
+  double_counted: z.array(z.object({ item_id: uuid, partner_item_id: uuid, partner_job_id: uuid, overlap_m: quantity })),
+});
+
 export const takeoffDpgfComparisonRowSchema = z.object({
   line_id: uuid, line_label: z.string(), dpgf: takeoffDpgfComparisonDpgfLineSchema,
   linked_takeoff_items: z.array(takeoffDpgfComparisonTakeoffLineSchema), dpgf_quantity: quantity.nullable(),
@@ -74,6 +90,7 @@ export const takeoffDpgfComparisonRowSchema = z.object({
   suggested_decision: takeoffDpgfReviewDecisionSchema.nullable(), applied_decision: takeoffDpgfReviewDecisionRecordSchema.nullable(),
   delta_absolute: quantity.nullable(), delta_percent: quantity.nullable(), is_exception: z.boolean(), manual_link_count: count,
   matched_by: z.enum(["auto", "manual"]).nullable(), risk: takeoffDpgfLineRiskSummarySchema.nullable(),
+  composition: takeoffDpgfCompositionSchema.nullable().optional(),
 }).superRefine((row, context) => {
   if (!sameUuid(row.line_id, row.dpgf.estimate_item_id)) {
     context.addIssue({ code: "custom", path: ["dpgf", "estimate_item_id"], message: "Identité de ligne incohérente." });
@@ -156,6 +173,7 @@ export type TakeoffDpgfReviewDecisionRecord = z.infer<typeof takeoffDpgfReviewDe
 export type TakeoffDpgfComparisonUnusedTakeoffItem = z.infer<typeof takeoffDpgfComparisonUnusedTakeoffItemSchema>;
 export type TakeoffDpgfLineRiskSummary = z.infer<typeof takeoffDpgfLineRiskSummarySchema>;
 export type TakeoffDpgfComparisonRow = z.infer<typeof takeoffDpgfComparisonRowSchema>;
+export type TakeoffDpgfComposition = z.infer<typeof takeoffDpgfCompositionSchema>;
 export type TakeoffDpgfComparisonSummary = z.infer<typeof takeoffDpgfComparisonSummarySchema>;
 export type TakeoffDpgfComparisonResponse = z.infer<typeof takeoffDpgfComparisonResponseSchema>;
 

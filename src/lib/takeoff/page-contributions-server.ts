@@ -168,13 +168,21 @@ export async function getTakeoffJobPageContributions(jobId: string, versionId: u
   const normalizedJobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant job invalide.");
   const normalizedVersionId = parseWithSchema(versionIdSchema, versionId, "version_id invalide.");
   await assertTakeoffJobOfVersion(context, normalizedJobId, normalizedVersionId);
+  const [read, decisions] = await Promise.all([readTakeoffJobPagesAlreadyInEstimate(context, normalizedJobId, normalizedVersionId),
+    readPageDecisions(context, normalizedJobId)]);
+  return decisions.length ? { ...read, decisions } : read;
+}
+
+/**
+ * The pages of a takeoff the version already holds from another, for a caller that already checked the takeoff is part
+ * of the version (TI-682 D4: the DPGF reconciliation reads which earlier lines are on pages this takeoff reads again).
+ */
+export async function readTakeoffJobPagesAlreadyInEstimate(context: Context, jobId: string, versionId: string) {
   const { data, error } = await readAllRows(() => context.supabase.from("takeoff_items" as never)
     .select(TAKEOFF_LINE_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, normalizedJobId as never) as never, { pageSize: 1000 });
-  if (error) readFailed(error, "Impossible de lire les lignes du métré.", normalizedJobId);
-  const [read, decisions] = await Promise.all([readPagesAlreadyInEstimate(context, { jobId: normalizedJobId, versionId: normalizedVersionId,
-    ownLines: (data ?? []) as unknown as TakeoffLineRow[] }), readPageDecisions(context, normalizedJobId)]);
-  return decisions.length ? { ...read, decisions } : read;
+    .eq("tenant_id" as never, context.tenantId as never).eq("job_id" as never, jobId as never) as never, { pageSize: 1000 });
+  if (error) readFailed(error, "Impossible de lire les lignes du métré.", jobId);
+  return readPagesAlreadyInEstimate(context, { jobId, versionId, ownLines: (data ?? []) as unknown as TakeoffLineRow[] });
 }
 
 /** PR 2: the decisions recorded for this takeoff's pages (RLS: the members of its tenant who read its version). */

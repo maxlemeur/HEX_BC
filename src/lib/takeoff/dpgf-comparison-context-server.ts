@@ -28,6 +28,9 @@ import {
 } from "@/lib/takeoff/dpgf-comparison-preparation";
 
 import { loadDpgfDecisionAncestors, resolveDpgfDecisionLineage } from "@/lib/takeoff/dpgf-decision-lineage-server";
+import { loadDpgfTargetCompositions } from "@/lib/takeoff/dpgf-composition-server";
+import { readTakeoffJobPagesAlreadyInEstimate } from "@/lib/takeoff/page-contributions-server";
+import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 export type TakeoffDpgfComparisonAuth = Pick<
   AuthenticatedTakeoffContext,
@@ -118,6 +121,21 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     versions, versionId, linkedFromVersionId,
     linkedFromVersionNumber: accessibleJob.linked_from_version_number ?? null,
   });
+  // TI-682 D4: what each DPGF target holds of the takeoffs applied, the earlier lines on pages this takeoff reads again,
+  // and the duplicates the zone rules found between this takeoff's lines and others.
+  const compositions = await loadDpgfTargetCompositions({ supabase, tenantId }, allEstimateItems
+    .filter((item) => item.item_type === "line" && item.source_provider === "dpgf")
+    .map((item) => ({ id: item.id, updated_at: item.updated_at, source_metadata: item.source_metadata ?? null })));
+  // Only a target that keeps another takeoff's measure has pages this takeoff may read again.
+  const fedByAnother = [...compositions.targets.values()].some((target) => target.contributions.some((part) => part.job_id !== jobId));
+  const readAgainItemIds = new Set(fedByAnother
+    ? (await readTakeoffJobPagesAlreadyInEstimate({ supabase, tenantId }, jobId, versionId)).pages
+      .flatMap((page) => page.earlier.flatMap((earlier) => earlier.takeoff_item_ids))
+    : []);
+  const overlapPartners = new Map(takeoffItems.map((item) => [item.id, ((item.rule_results ?? []) as TakeoffRuleResult[])
+    .filter((result) => result.status === "fail" && result.code === "ZONE_OVERLAP_DUPLICATE")
+    .flatMap((result) => result.details?.partners ?? [])
+    .map((partner) => ({ item_id: partner.item_id, job_id: partner.job_id, overlap_m: partner.overlap_m, resolved: partner.resolved }))]));
 
   return {
     supabase,
@@ -126,6 +144,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     projectId,
     estimateItems,
     takeoffItems,
+    compositions,
     comparisonInput: {
       versionId,
       jobId,
@@ -134,6 +153,9 @@ export async function loadTakeoffDpgfComparisonContext(input: {
       manualLinks,
       reviewDecisions,
       carriedReviewDecisions,
+      dpgfCompositions: compositions,
+      readAgainItemIds,
+      overlapPartners,
     },
   };
 }
