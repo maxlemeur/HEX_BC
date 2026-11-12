@@ -87,6 +87,9 @@ proposer des modifications du devis, fonctionner sur le site hébergé.
 - `assistant_threads` : une conversation, rattachée à une affaire et à son
   auteur. `assistant_messages` : les messages, écrits une seule fois (la
   question à l'envoi, la réponse à sa fin, complète, interrompue ou en échec).
+  Chaque réponse désigne sa question (`reply_to`) : quand deux onglets répondent
+  en même temps, la conversation se relit question par question, chacune suivie
+  de ses réponses, et le modèle reçoit l'historique dans ce même ordre.
 - Envoi au fournisseur : la question, l'historique récent de la conversation et
   le résultat des lectures de l'affaire ouverte, avec `store: false`. Rien
   d'autre ne quitte l'application, et rien n'est conservé chez le fournisseur.
