@@ -75,6 +75,8 @@ const FILE_NOT_FOUND_MESSAGE = "Original introuvable dans cette demande.";
 const PREPARE_FAILED_MESSAGE = "Impossible de préparer l’envoi des photos. Réessayez.";
 const COMPLETE_FAILED_MESSAGE = "Impossible d’enregistrer les photos : aucune n’a été conservée. Réessayez.";
 const REJECTED_MESSAGE = "Les photos reçues ne sont pas celles annoncées : aucune n’a été conservée. Déposez-les à nouveau.";
+/** Paths per storage removal call: a request's deletion removes its files' bytes in batches of this size. */
+const STORAGE_REMOVE_BATCH = 100;
 /** A signed upload is valid for two hours: an unstored row older than this belongs to nobody's upload. */
 const ABANDONED_AFTER_MS = 3 * 60 * 60 * 1000;
 
@@ -249,9 +251,16 @@ export async function removeRequestOriginals(access: MaterialRequestAccess, requ
     p_request_id: requestId,
   });
   if (error) throw mapSupabaseError(error, "Impossible de retirer les originaux.");
-  const paths = (data ?? []).map((row) => row.storage_path);
-  if (paths.length === 0) return;
-  const { error: storageError } = await access.context.supabase.storage.from(MATERIAL_REQUESTS_BUCKET).remove(paths);
+  // One array, every path of the request (a row per path would stop at the Data API's 1 000 rows); its bytes are
+  // removed in bounded batches. A failed batch stops the deletion: the files stay withdrawn, and the next attempt
+  // removes again what is left (removing a path already gone is no error).
+  const paths = data ?? [];
+  let storageError: unknown = null;
+  for (let start = 0; start < paths.length && !storageError; start += STORAGE_REMOVE_BATCH) {
+    ({ error: storageError } = await access.context.supabase.storage
+      .from(MATERIAL_REQUESTS_BUCKET)
+      .remove(paths.slice(start, start + STORAGE_REMOVE_BATCH)));
+  }
   if (storageError) {
     console.error("Material request originals could not be removed", { requestId, error: storageError });
     throw internalError("Impossible de supprimer les originaux de la demande.");

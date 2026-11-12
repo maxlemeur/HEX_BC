@@ -53,7 +53,8 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 // - the first failed or unavailable result, an exception, the ceiling or a
 //   server without canvas stops Decisions for the rest of the job, never
 //   retried: the later pages keep their keyword reading, « à revoir », and say
-//   why;
+//   why. A page's calls run in bounded parallel (GROUP_DECISIONS_CONCURRENCY):
+//   none starts after the stop, those in flight end, their answers unused;
 // - any error of this step keeps the page's keyword reading and stops
 //   Decisions for the job: it never fails the page nor the job. Only the job's
 //   own check before each call (its lease, its tenant) stops the job, as
@@ -147,9 +148,9 @@ const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value
  */
 const STOP_MESSAGES: Partial<Record<PageStop["reason"], string>> = {
   budget_reached: "Le plafond de jetons Decisions de ce métré est atteint : les groupes restants sont à revoir.",
-  call_failed: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.",
-  decisions_unavailable: "Decisions est indisponible, aucun autre appel n’a été envoyé : les groupes restants sont à revoir.",
-  exception: "Le classement Decisions a échoué, aucun autre appel n’a été envoyé : les groupes restants sont à revoir.",
+  call_failed: "Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.",
+  decisions_unavailable: "Decisions est indisponible, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.",
+  exception: "Le classement Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.",
   call_limit: "Le plafond d’appels Decisions de ce document est atteint : les groupes restants sont à revoir.",
 };
 const stopOf = (reason: PageStop["reason"], message: string): PageStop => ({ reason, message: STOP_MESSAGES[reason] ?? message });
@@ -165,18 +166,19 @@ type DecisionsRun = {
 };
 
 function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | null): VectorPageDecisions {
+  // Every call sent, those still in flight at a stop included: their tokens are spent (TI-704).
   const calls = { batch: 0, dedicated: 0, failed: 0 };
-  let tokens = 0, latency = 0;
+  let tokens = 0;
   for (const call of outcome.calls) {
     calls[call.kind] += 1;
     if (call.status === "failed" || call.status === "unavailable" || call.status === "exception") calls.failed += 1;
     tokens += call.usage?.total_tokens ?? 0;
-    latency += call.latency_ms;
   }
   const answered = [...outcome.answers.values()].filter((answer) => answer.status === "answered" && answer.class !== null).length;
   return {
     prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
-    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: Math.round(latency),
+    // The time the page spent in its calls, run in parallel: not the sum of their latencies.
+    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: outcome.calls_ms ?? 0,
     stop: stop === null ? null : { reason: stop.reason, message: stop.message, from_earlier_page: false },
   };
 }

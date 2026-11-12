@@ -7,12 +7,20 @@
  * reserve per call in flight and per new call, stay within the ceiling. The
  * reserve is the largest `total_tokens` observed so far, or the initial
  * estimate before the first answer. A failed call (`usage: null`) counts as a
- * call with no known tokens.
+ * call with no known tokens. A caller that sends calls in parallel (TI-704)
+ * asks `fits` while calls are in flight and waits for one to finish rather
+ * than refuse a start the next finish could allow; its `floor` counts the
+ * calls in flight at a size the reserve may not have seen yet.
  */
 export type DecisionsTokenBudget = {
   readonly maxTokens: number;
   /** Reserves a slot; false means the next call could exceed the ceiling. */
   tryStart(): boolean;
+  /**
+   * Whether one more call fits now, each call in flight and the new one counted at the reserve or `floor`, the
+   * larger; reserves nothing and counts no refusal. Without `floor`, whether tryStart would reserve a slot.
+   */
+  fits(floor?: number): boolean;
   /** Releases the slot of a started call and records its usage. */
   finish(usage: { total_tokens: number } | null): void;
   snapshot(): DecisionsTokenBudgetSnapshot;
@@ -37,10 +45,12 @@ export function createDecisionsTokenBudget(maxTokens: number, initialEstimate: n
   let refused = 0;
   let largest = 0;
   const reserve = () => Math.max(largest, initialEstimate);
+  const fits = (floor = 0) => spent + (inFlight + 1) * Math.max(reserve(), floor) <= maxTokens;
   return {
     maxTokens,
+    fits,
     tryStart() {
-      if (spent + (inFlight + 1) * reserve() > maxTokens) {
+      if (!fits()) {
         refused += 1;
         return false;
       }
