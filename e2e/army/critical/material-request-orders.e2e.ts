@@ -80,7 +80,7 @@ armyTest(
       const response = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", "/api/suppliers", {
         action: "create", item: { name, is_active: true },
       });
-      expect(response.status).toBe(201);
+      expect(response.status, JSON.stringify(response.body.error ?? null)).toBe(201);
       return response.body.data.item.id;
     };
     const alphaName = `${army.runPrefix} Négoce Alpha`;
@@ -92,7 +92,7 @@ armyTest(
     const created = await apiRequest<Envelope<Detail>>(browser, "POST", base, {
       source_text: "Demande inventée", delivery_place: "site",
     });
-    expect(created.status).toBe(201);
+    expect(created.status, JSON.stringify(created.body.error ?? null)).toBe(201);
     const requestId = created.body.data.request.id;
     const requestedOn = created.body.data.request.requested_on;
     const one = `${base}/${requestId}`;
@@ -103,7 +103,7 @@ armyTest(
         { original_text: "10 paires de gants", quantity: 10, unit: "paire", product_type: "Gants de manutention", no_dimension: true, imputation: "overhead", overhead_category: "EPI" },
       ],
     });
-    expect(added.status).toBe(201);
+    expect(added.status, JSON.stringify(added.body.error ?? null)).toBe(201);
     const [elbows, screws, gloves] = added.body.data.lines.map((line) => line.id);
     const validated = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "POST", `${one}/lines/validate`, {
       ids: [elbows, screws, gloves],
@@ -115,12 +115,12 @@ armyTest(
       const asked = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", `${one}/quotes`, {
         supplier_id: supplierId, line_ids: lineIds, with_references: false, message: "Demande de prix inventée",
       });
-      expect(asked.status).toBe(201);
+      expect(asked.status, JSON.stringify(asked.body.error ?? null)).toBe(201);
       const quoteId = asked.body.data.item.id;
       const priced = await apiRequest<Envelope<unknown>>(browser, "PATCH", `${one}/quotes/${quoteId}`, { received: true, lines: prices });
-      expect(priced.status).toBe(200);
+      expect(priced.status, JSON.stringify(priced.body.error ?? null)).toBe(200);
       const retained = await apiRequest<Envelope<unknown>>(browser, "POST", `${one}/quotes/${quoteId}/retain`);
-      expect(retained.status).toBe(200);
+      expect(retained.status, JSON.stringify(retained.body.error ?? null)).toBe(200);
       return quoteId;
     };
     await quote(alpha, [elbows, gloves], [
@@ -130,7 +130,7 @@ armyTest(
     await quote(beta, [screws], [{ line_id: screws, unit_price_ht_cents: 342, price_per: 100 }]);
     const summary = async () => {
       const response = await apiRequest<Envelope<Summary>>(browser, "GET", `${one}/orders`);
-      expect(response.status).toBe(200);
+      expect(response.status, JSON.stringify(response.body.error ?? null)).toBe(200);
       return response.body.data;
     };
     expect(await summary()).toEqual({ ready_line_ids: [elbows, screws, gloves], not_ready: [], ordered: [], orders: [] });
@@ -181,7 +181,7 @@ armyTest(
       const response = await apiRequest<Envelope<{ orders: OrderHeader[]; items: Item[] }>>(
         browser, "GET", `/api/orders?view=items&order_id=${orderId}`,
       );
-      expect(response.status).toBe(200);
+      expect(response.status, JSON.stringify(response.body.error ?? null)).toBe(200);
       return response.body.data;
     };
     const alphaItems = (await items(alphaOrder.id)).items;

@@ -387,7 +387,9 @@ export async function createMaterialRequestLines(
         project_id: access.project.id,
         request_id: request.id,
         position: last + 1 + index,
-      })))
+        // A field one line leaves out takes its column's default (imputation « project »), not the NULL the Data API
+        // writes for a key another line of the batch sends (an overhead line among project lines).
+      })), { defaultToNull: false })
       .select(LINE_COLUMNS);
     if (!error) return { lines: [...(data ?? [])].sort(byPosition) };
     // The database refused the whole batch for the cap: another session appended since the count above.
