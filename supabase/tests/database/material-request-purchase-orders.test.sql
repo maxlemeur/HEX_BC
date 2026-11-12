@@ -37,7 +37,8 @@
 --     it, or skips an old draft affaire without orders;
 -- 15. a canceled order is reopened with a line that changed since (reopened, validated again with another imputation,
 --     priced or supplied otherwise), or is refused once the line says again what was ordered;
--- 16. the summary offers to open an order its reader may not open (orders are read by their author and the admins).
+-- 16. the summary offers to open an order its reader may not open (orders are read by their author and the admins);
+-- 17. (9) a shipping or discount line, new or kept, takes a quantity other than 1 (a lump sum): its amount would change.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
 -- red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -629,6 +630,20 @@ select set_config('test.item_l2', (select id::text from public.purchase_order_it
   where material_request_line_id = 'a9310000-0000-4000-8000-000000000702'), true);
 select set_config('test.item_l3', (select id::text from public.purchase_order_items
   where material_request_line_id = 'a9310000-0000-4000-8000-000000000703'), true);
+-- (Codex review of #291) Shipping and discounts are lump sums: a quantity other than 1 is refused, on a new line here
+-- and on a line kept without its kind below (section 8).
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000001',
+  $$select public.replace_purchase_order_draft(current_setting('test.order_alpha')::uuid, '{}'::jsonb, jsonb_build_array(
+      jsonb_build_object('id', current_setting('test.item_l1'), 'designation', 'Coude 90°, DN 50, Inox 304L', 'quantity', 5,
+        'unit_price_ht_cents', 1234, 'tax_rate_bp', 2000),
+      jsonb_build_object('id', current_setting('test.item_l2'), 'designation', 'Vis, M6x20, Inox 304L', 'quantity', 1500,
+        'unit_price_ht_cents', 340, 'tax_rate_bp', 2000),
+      jsonb_build_object('id', current_setting('test.item_l3'), 'designation', 'Gants', 'quantity', 5,
+        'unit_price_ht_cents', 5, 'tax_rate_bp', 2000),
+      jsonb_build_object('designation', 'Port', 'quantity', 2, 'unit', 'forfait', 'unit_price_ht_cents', 1500,
+        'tax_rate_bp', 2000, 'line_kind', 'shipping')),
+    (select edit_revision from public.purchase_orders where id = current_setting('test.order_alpha')::uuid))$$),
+  '22023 PURCHASE_ORDER_ITEMS_INVALID', '9 a shipping line is a lump sum: a new one of quantity 2 is refused');
 select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000001',
   $$select public.replace_purchase_order_draft(current_setting('test.order_alpha')::uuid,
     jsonb_build_object('delivery_site_id', 'a9310000-0000-4000-8000-000000000801'), jsonb_build_array(
@@ -773,6 +788,15 @@ select results_eq(
   '6 and writes nothing');
 
 -- ---------------------------------------------------------------------------
+-- (Codex review of #291) The shipping line kept, sent without its kind as an API client may, cannot take a quantity 3.
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000001',
+  $$select public.replace_purchase_order_draft(current_setting('test.order_alpha')::uuid, '{}'::jsonb, (
+      select jsonb_agg(jsonb_build_object('id', id, 'designation', designation,
+        'quantity', case when line_kind = 'shipping' then 3 else quantity end,
+        'unit_price_ht_cents', unit_price_ht_cents, 'tax_rate_bp', tax_rate_bp) order by position)
+      from public.purchase_order_items where purchase_order_id = current_setting('test.order_alpha')::uuid),
+    (select edit_revision from public.purchase_orders where id = current_setting('test.order_alpha')::uuid))$$),
+  '22023 PURCHASE_ORDER_ITEMS_INVALID', '9 an existing shipping line stays a lump sum: a quantity of 3 is refused');
 -- 8. Removing a line from a draft frees it; a request whose orders are canceled is deleted.
 -- ---------------------------------------------------------------------------
 select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000001',

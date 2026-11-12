@@ -123,6 +123,18 @@ describe("draft edit of an order made from a material request", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it("2 refuses a shipping or discount line of a quantity other than 1: a lump sum (Codex review)", async () => {
+    const rpc = supabaseMock();
+    for (const lineKind of ["shipping", "discount"] as const) {
+      const answer = await put({ expectedRevision: 1, items: [
+        requestLine,
+        { productId: null, reference: null, designation: "Port", quantity: 2, unit: "forfait", unitPriceCents: 1500, taxRateBp: 2000, lineKind },
+      ] });
+      expect(answer.status).toBe(400);
+    }
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("4 leaves an existing line sent without its lot to the database, instead of counting it for 1 unit (review)", async () => {
     // 100 000 units at 250 € the 1 000 are 25 000 €; counted for 1 unit they would be 25 M€, past an order's capacity.
     const rpc = supabaseMock();

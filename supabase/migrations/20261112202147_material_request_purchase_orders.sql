@@ -259,6 +259,16 @@ begin
   if new.status = 'canceled' and old.status <> 'canceled' then
     delete from private.material_request_line_orders where purchase_order_id = new.id;
   elsif old.status = 'canceled' and new.status <> 'canceled' then
+    -- Its lines are share-locked first, in id order, as the creation does: a reopening or an edit of one of them that
+    -- has not committed is waited for, then the check below reads the line as it now stands (a new statement), and
+    -- the lock holds until the lines are taken back.
+    perform 1 from public.material_request_lines line
+    where line.id in (
+      select oi.material_request_line_id from public.purchase_order_items oi
+      where oi.purchase_order_id = new.id and oi.material_request_line_id is not null
+    )
+    order by line.id
+    for share;
     select pg_catalog.array_agg(line.position order by line.position) into changed
     from public.purchase_order_items oi
     join public.material_request_lines line on line.id = oi.material_request_line_id
@@ -453,8 +463,9 @@ begin
     or new.price_per is null or new.price_per not in (1,10,100,1000) then
     raise exception using errcode='22023',message='PURCHASE_ORDER_INPUT_INVALID';
   end if;
-  -- 3a: shipping and discounts are no article.
-  if new.line_kind<>'article' and new.product_id is not null then
+  -- 3a: shipping and discounts are no article, and a lump sum: a quantity of 1, so that their amount is their price
+  -- (also for a line kept without its kind).
+  if new.line_kind<>'article' and (new.product_id is not null or new.quantity<>1) then
     raise exception using errcode='22023',message='PURCHASE_ORDER_ITEMS_INVALID';
   end if;
   new.unit:=nullif(btrim(new.unit),'');

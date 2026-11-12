@@ -102,6 +102,10 @@ function checkLine(item: Omit<LineObject, "id"> & { id?: string | null }, contex
     if (item.productId) context.addIssue({
       code: z.ZodIssueCode.custom, path: ["productId"], message: "Un port ou une remise ne porte pas d'article.",
     });
+    // A lump sum: its amount is its price. The database holds the same rule for a line kept without its kind.
+    if (item.quantity !== 1) context.addIssue({
+      code: z.ZodIssueCode.custom, path: ["quantity"], message: "Un port ou une remise est un forfait : sa quantité est 1.",
+    });
     return;
   }
   if (item.designation.length === 0) context.addIssue({
