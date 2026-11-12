@@ -145,8 +145,11 @@ commit;`);
 function forcedPayload(proposal: TakeoffPageReplacementResponse, draft: ConfirmationDraft, control: ReturnType<typeof confirmationControls>[number],
   value: unknown): TakeoffPageDecision[] | null {
   if (control.kind === "vanished" && value === "remove") {
+    // From « keep », every other choice made: the pages of the line may then replace nothing, which the removal changes.
     const kept = resolveConfirmation(proposal, { ...draft, vanished: { ...draft.vanished, [control.lineId]: "keep" } });
-    if (!kept.complete) return null;
+    const linePages = new Set(kept.lines.find((entry) => entry.line.id === control.lineId)?.pages.map((page) => page.key) ?? []);
+    if (kept.lines.some((entry) => entry.missing.length > 0)
+      || kept.pages.some((page) => page.missing.some((message) => !(linePages.has(page.page.key) && message.includes("rien n’y est remplacé"))))) return null;
     return kept.payload.map((decision) => decision.decision !== "replace" ? decision : { ...decision,
       lines: decision.lines.map((line) => (line.estimate_item_id === control.lineId ? { ...line, action: "remove" as const } : line)) });
   }
