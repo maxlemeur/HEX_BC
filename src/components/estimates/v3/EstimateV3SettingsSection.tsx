@@ -17,6 +17,7 @@ import {
 } from "@/hooks/useEstimateV3Settings";
 import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
+import { InfoPopover } from "@/components/ui/info-popover";
 import { cn } from "@/lib/utils";
 
 type EstimateV3SettingsSectionProps = {
@@ -29,10 +30,18 @@ type EstimateV3SettingsSectionProps = {
   onSave: () => unknown;
   /** Régime de TVA, commun à tous les moteurs, rendu par le panneau. */
   contractorRoleField?: ReactNode;
+  /** Sections communes (informations du devis, précisions) rendues sous les réglages, dans la colonne des champs. */
+  commonSections?: ReactNode;
+  /** Rendu à droite du titre « Prix et taxes » (bascule du glossaire) ; un enfant `basis-full` passe dessous. */
+  headingAside?: ReactNode;
 };
 
 const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
-const GROUP_TITLE_CLASS = "text-sm font-medium text-foreground";
+/** Titre d'une section du paramétrage : un cran au-dessus des libellés de champ (14 px, medium). */
+export const SETTINGS_SECTION_TITLE_CLASS = "text-lg font-semibold tracking-tight text-foreground";
+/** Colonne des champs : les libellés s'effacent devant les titres de section et les valeurs saisies. */
+export const SETTINGS_FIELDS_COLUMN_CLASS = "min-w-0 lg:col-span-2 [&_[data-slot=field-label]]:text-foreground-secondary";
+export const SETTINGS_SECTION_HEADER_CLASS = "flex flex-wrap items-center justify-between gap-x-4 gap-y-2";
 const INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full");
 /** Paliers inférieurs proposés en v3 (D7) : aucun arrondi supérieur, au plus proche ni « Réglage conservé ». */
 const ROUNDING_STEPS_CENTS = [100, 1000, 5000, 10000] as const;
@@ -130,7 +139,8 @@ function DiscountAppliedText({ controller, currency }: Readonly<{ controller: Es
   let text: string;
   switch (discount.kind) {
     case "none":
-      text = "Aucune remise commerciale.";
+      // Champs vides : rien à dire. La région reste montée pour annoncer la remise dès qu'elle est saisie.
+      text = "";
       break;
     case "amount":
       text = `Remise : demandé ${formatCurrency(discount.amount_cents, currency)} / appliqué ${applied ?? "indisponible (aperçu)"}`;
@@ -147,7 +157,11 @@ function DiscountAppliedText({ controller, currency }: Readonly<{ controller: Es
     }
   }
   return (
-    <p className="text-sm text-muted-foreground" data-testid="estimate-v3-discount-applied" aria-live="polite">
+    <p
+      className={cn("text-sm text-muted-foreground", text === "" && "sr-only")}
+      data-testid="estimate-v3-discount-applied"
+      aria-live="polite"
+    >
       {text}
     </p>
   );
@@ -198,6 +212,8 @@ export function EstimateV3SettingsSection({
   isSaving,
   onSave,
   contractorRoleField,
+  commonSections,
+  headingAside,
 }: Readonly<EstimateV3SettingsSectionProps>) {
   const { draft } = controller;
   const currency = draft?.currency ?? fallbackCurrency;
@@ -215,24 +231,42 @@ export function EstimateV3SettingsSection({
   return (
     <>
       <div
-        className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3"
+        className="estimate-settings-grid flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3 lg:gap-8"
         data-testid="estimate-v3-settings-section"
       >
-        <div className="min-w-0 space-y-6 lg:col-span-2">
+        <div className={SETTINGS_FIELDS_COLUMN_CLASS}>
+          <section aria-labelledby="estimate-v3-pricing-section-title" className="space-y-5">
+          <div className={SETTINGS_SECTION_HEADER_CLASS}>
+          <div className="flex items-center gap-1">
+            <h3 id="estimate-v3-pricing-section-title" className={SETTINGS_SECTION_TITLE_CLASS}>Prix et taxes</h3>
+            <InfoPopover label="Aide : prix et taxes" title="Prix et taxes" className="size-8 sm:size-7">
+              <p>
+                <strong>Coefficients.</strong> PU = déboursé fourniture × coefficient FO + déboursé
+                main-d&apos;œuvre × coefficient MO.
+              </p>
+              <p>
+                <strong>Remise.</strong> En montant ou en pourcentage : une saisie dans un champ remplace
+                l&apos;autre. Champ vidé : plus de remise.
+              </p>
+              <p>
+                <strong>TVA.</strong> Chaque ligne garde son propre taux (colonne « TVA % ») ; le pied
+                additionne la TVA par taux.
+              </p>
+              <p>
+                <strong>Arrondi.</strong> Le HT net est arrondi au palier inférieur ; l’écart est une remise HT
+                et la TVA est calculée après lui.
+              </p>
+            </InfoPopover>
+          </div>
+          {headingAside}
+          </div>
           {controller.unavailableMessage ? (
             <Alert variant="danger">
               Réglages du moteur de calcul 3 illisibles : {controller.unavailableMessage}
             </Alert>
           ) : null}
 
-          <div role="group" aria-labelledby="estimate-v3-sale-coefficients-label" className="space-y-3">
-            <p id="estimate-v3-sale-coefficients-label" className={GROUP_TITLE_CLASS}>
-              Coefficients de vente
-            </p>
-            <p className="text-xs text-muted-foreground">
-              PU = déboursé fourniture × coefficient FO + déboursé main-d&apos;œuvre × coefficient MO. Nombre
-              supérieur à 0 et au plus 10, 4 décimales au plus.
-            </p>
+          <div role="group" aria-label="Coefficients de vente" className="space-y-3">
             <div className="grid gap-4 sm:grid-cols-2">
               <V3TextField
                 controller={controller}
@@ -259,13 +293,7 @@ export function EstimateV3SettingsSection({
             ) : null}
           </div>
 
-          <div role="group" aria-labelledby="estimate-v3-discount-label" className="space-y-3">
-            <p id="estimate-v3-discount-label" className={GROUP_TITLE_CLASS}>
-              Remise commerciale
-            </p>
-            <p className="text-xs text-muted-foreground">
-              En montant ou en pourcentage : une saisie dans un champ remplace l&apos;autre. Champ vidé : plus de remise.
-            </p>
+          <div role="group" aria-label="Remise commerciale" className="space-y-3">
             <div className="grid gap-4 sm:grid-cols-2">
               <V3TextField
                 controller={controller}
@@ -289,6 +317,7 @@ export function EstimateV3SettingsSection({
 
           {contractorRoleField}
 
+          <div className="grid items-start gap-4 sm:grid-cols-2">
           <V3TextField
             controller={controller}
             field="tax_rate"
@@ -297,7 +326,6 @@ export function EstimateV3SettingsSection({
             disabled={disabled}
             currency={currency}
             suffix="%"
-            description="Chaque ligne garde son propre taux (colonne « TVA % ») ; le pied additionne la TVA par taux."
           />
 
           <div className={FIELD_CLASS}>
@@ -306,7 +334,7 @@ export function EstimateV3SettingsSection({
               id="estimate-v3-rounding"
               value={roundingValue}
               disabled={disabled}
-              aria-describedby="estimate-v3-rounding-hint"
+              aria-describedby={roundingValue === "none" ? undefined : "estimate-v3-rounding-hint"}
               onChange={(event) => {
                 const step = Number(event.target.value);
                 controller.updateDraft(event.target.value === "none"
@@ -321,17 +349,21 @@ export function EstimateV3SettingsSection({
                 </option>
               ))}
             </NativeSelect>
-            <FieldDescription id="estimate-v3-rounding-hint" className="text-xs">
-              Le HT net est arrondi au palier inférieur ; l’écart est une remise HT et la TVA est calculée
-              après lui.
-            </FieldDescription>
+            {roundingValue === "none" ? null : (
+              <FieldDescription id="estimate-v3-rounding-hint" className="text-xs">
+                L’écart est une remise HT ; la TVA est calculée après lui.
+              </FieldDescription>
+            )}
           </div>
+          </div>
+          </section>
+          {commonSections}
         </div>
 
-        <div className="estimate-summary lg:sticky lg:top-8 lg:self-start">
+        <div className="estimate-summary">
           <div className="estimate-summary__header">
             <h3>Résumé</h3>
-            <p>Aperçu du moteur de calcul 3, recalculé par le serveur à l’enregistrement</p>
+            <p>Aperçu avant enregistrement</p>
           </div>
           {breakdown ? (
             <V3Summary breakdown={breakdown} currency={currency} />
