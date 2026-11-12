@@ -314,12 +314,14 @@ commit;`);
   // what to do instead; both ways out are proved: excluding the merged line at review, or linking a line of the page to
   // the DPGF line in the DPGF reconciliation.
   { name: "a DPGF line not fed again beside a line « Fusionner » imposes", dpgf: true, earlier: [read("Lavabo double vasque", 4, "u", 1)],
-    relaunch: [read("Lavabo double vasque", 5, "u", 1), read("Calorifuge", 30, "ml", 1)],
+    // The run of the DPGF line, read again but not linked by the reconciliation (its title differs too much): the
+    // estimator can link it by hand.
+    relaunch: [read("Lavabo double vasque", 5, "u", 1), read("EF cuivre DN 22", 30, "ml", 1)],
     prepare: feedDpgfTargetFromPage,
     expect: (proposal) => expect([proposal.pages.map((page) => [page.keep_both_refused, page.dpgf_fed_again]), proposal.pairs.map((pair) => pair.locked)])
       .toEqual([[["merge_match", []]], [true]]),
     deadEnd: { elsewhere: ["exclude_at_review", "link_in_dpgf_review"],
-      text: /ni remplacer ni garder les deux ne se confirme ici\. Écartez « Lavabo double vasque » à la revue du métré .*, ou liez à « EF cuivre DN 22 \(DPGF\) » une ligne de ce métré lue sur cette page, dans le rapprochement DPGF/,
+      text: /ni remplacer ni garder les deux ne se confirme ici\. Écartez « Lavabo double vasque » à la revue du métré .*, ou liez à « Réseau de distribution sanitaire EF en tube cuivre DN 22, [^»]* », dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure/,
       exits: async ({ ui, ids, relaunchItem, readProposal, confirmable, problem }) => {
         // What the estimator sees: the wizard of the takeoff's review, up to its confirmation.
         const openConfirmation = async () => {
@@ -330,7 +332,7 @@ commit;`);
           await opened.getByRole("button", "Suivant", { exact: true }).click();
           await opened.getByRole("radio", /^Fusionner/).check();
           await opened.getByRole("button", "Suivant", { exact: true }).click();
-          await expect(opened).toContainText("Calorifuge");
+          await expect(opened).toContainText("EF cuivre DN 22");
           await opened.getByRole("button", "Suivant", { exact: true }).click();
           return opened;
         };
@@ -374,7 +376,7 @@ commit;`);
         // confirmed in the wizard itself (the route's DPGF authorization feeds the DPGF line).
         const target = (await readProposal()).lines.find((line) => line.dpgf_target)!;
         const linked = await apiRequest<Envelope<unknown>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/dpgf-link`,
-          { version_id: ids.versionId, estimate_item_id: target.id, takeoff_item_ids: [relaunchItem("Calorifuge").id] });
+          { version_id: ids.versionId, estimate_item_id: target.id, takeoff_item_ids: [relaunchItem("EF cuivre DN 22").id] });
         if (linked.status !== 200) problem("the DPGF reconciliation links the line", linked.body);
         const fed = await readProposal();
         const resolution = resolveConfirmation(fed, initialConfirmationDraft(fed));
@@ -456,7 +458,7 @@ select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
 insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description, quantity, unit_code,
   unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_provider,
   source_file_name, source_page, source_metadata, fo_provision)
-select gen_random_uuid(), version.tenant_id, version.id, '${target.parent_id}', 'line', 100, 'EF cuivre DN 22 (DPGF)', 'ml', 30, 'ml', 1000,
+select gen_random_uuid(), version.tenant_id, version.id, '${target.parent_id}', 'line', 100, 'Réseau de distribution sanitaire EF en tube cuivre DN 22, y compris raccords, supports et essais', 'ml', 30, 'ml', 1000,
   2000, 1, 0, 1, 1000, 30000, 6000, 36000, 'dpgf', 'dpgf-fictif.xlsx', 7, '{"dpgf_source_quantity":30,"dpgf_source_unit":"ml"}', 1
 from public.estimate_versions version where version.id = '${versionId}';
 select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items where version_id = '${versionId}'
