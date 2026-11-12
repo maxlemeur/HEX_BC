@@ -26,6 +26,11 @@ import {
   type UpdateMaterialRequestInput,
 } from "./contracts";
 import type {
+  MaterialRequestOrderLine,
+  MaterialRequestOrdersCreated,
+  MaterialRequestOrdersSummary,
+} from "./order-contracts";
+import type {
   CreateQuoteInput,
   MaterialRequestQuote,
   MaterialRequestQuoteRetained,
@@ -530,6 +535,49 @@ export async function closeMaterialRequestQuote(
     "Le devis n’a pas pu être clos.",
   );
   return item;
+}
+
+/* Purchase orders from a request (TI-691, lot 2 « l'achat », delivery 3a): one draft per supplier. */
+
+export type MaterialRequestOrderLink = MaterialRequestOrderLine;
+export type MaterialRequestOrder = MaterialRequestOrdersSummary["orders"][number];
+
+export async function fetchMaterialRequestOrders(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestOrdersSummary> {
+  const answer = await read<Partial<MaterialRequestOrdersSummary>>(
+    requestsPath(projectId, requestId, "orders"),
+    "Les commandes de la demande n’ont pas pu être chargées.",
+    signal,
+  );
+  return {
+    ready_line_ids: answer.ready_line_ids ?? [],
+    not_ready: answer.not_ready ?? [],
+    ordered: answer.ordered ?? [],
+    orders: answer.orders ?? [],
+    can_create: answer.can_create === true,
+  };
+}
+
+/**
+ * Creates one draft purchase order per supplier from the lines ready to order. The same key sent again (an answer
+ * that never came) creates nothing twice: the server answers the drafts it made under it (`replayed`). 422 when
+ * nothing is ready.
+ */
+export async function createMaterialRequestOrders(
+  projectId: string,
+  requestId: string,
+  idempotencyKey: string,
+): Promise<MaterialRequestOrdersCreated> {
+  const answer = await write<Partial<MaterialRequestOrdersCreated>>(
+    requestsPath(projectId, requestId, "orders"),
+    "POST",
+    { idempotency_key: idempotencyKey },
+    "Les brouillons de commande n’ont pas pu être créés.",
+  );
+  return { orders: answer.orders ?? [], replayed: answer.replayed === true };
 }
 
 export type MaterialRequestSupplyType = { id: string; code: string; name: string };

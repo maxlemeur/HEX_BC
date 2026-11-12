@@ -43,18 +43,74 @@ const expectedDeliveryDateSchema = z.string().trim().transform((value) =>
   message: "Date de livraison invalide (YYYY-MM-DD ou TBD attendu).",
 }).nullable();
 
-export const purchaseOrderLineSchema = z.object({
+/**
+ * TI-691, delivery 3a: a line is an article (the default), the supplier's shipping or a global discount. Shipping and
+ * discounts are amounts of the order, not articles (no productId): their unit price is the amount, kept >= 0, and a
+ * discount is subtracted (the database stores its totals negative). A price may be given for 10, 100 or 1 000 units
+ * (`pricePer`); the line total is quantity x price / pricePer, rounded half away from zero to the cent. An existing
+ * line keeps its kind, its lot when `pricePer` is left out, and what a material request gave it (request line,
+ * imputation, affaire, category), which this payload never carries.
+ */
+export const PURCHASE_ORDER_LINE_KINDS = ["article", "shipping", "discount"] as const;
+export type PurchaseOrderLineKind = (typeof PURCHASE_ORDER_LINE_KINDS)[number];
+export const PURCHASE_ORDER_PRICE_PER = [1, 10, 100, 1000] as const;
+export type PurchaseOrderPricePer = (typeof PURCHASE_ORDER_PRICE_PER)[number];
+/** What a shipping or discount line is called, and its unit, when the client leaves them empty. */
+export const PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS: Record<Exclude<PurchaseOrderLineKind, "article">, string> = {
+  shipping: "Port",
+  discount: "Remise",
+};
+export const PURCHASE_ORDER_AMOUNT_LINE_UNIT = "forfait";
+export const PURCHASE_ORDER_IMPUTATIONS = ["project", "overhead"] as const;
+
+const pricePerSchema = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
+
+const purchaseOrderLineObject = z.object({
   id: z.string().uuid(UUID_ERROR_MESSAGE).nullable().optional(),
   productId: z.string().uuid(UUID_ERROR_MESSAGE).nullable().optional(),
   reference: z.string().nullable().optional(),
-  designation: z.string().trim().min(1, "La désignation est requise."),
+  designation: z.string().trim(),
   quantity: z.number().finite().positive().max(MAX_ORDER_QUANTITY).refine(isValidOrderQuantity, {
     message: "La quantité doit avoir au plus trois décimales.",
   }).describe("Quantité positive, au plus trois décimales effectives, sans arrondi implicite."),
   unit: z.string().refine((value) => value.trim().length > 0, "L'unité est requise.").nullable().optional(),
   unitPriceCents: z.number().int().min(0).max(MAX_ORDER_AMOUNT_CENTS),
   taxRateBp: z.number().int().min(0).max(10000),
+  lineKind: z.enum(PURCHASE_ORDER_LINE_KINDS).optional()
+    .describe("article (défaut), shipping (port) ou discount (remise, soustraite) ; ne change pas sur une ligne existante."),
+  pricePer: pricePerSchema.optional()
+    .describe("Le prix HT s'entend pour 1 (défaut), 10, 100 ou 1 000 unités ; laissé absent, une ligne existante garde le sien."),
 }).strict();
+
+type LineObject = z.infer<typeof purchaseOrderLineObject>;
+
+function isAmountLine(item: Pick<LineObject, "lineKind">): item is { lineKind: "shipping" | "discount" } {
+  return item.lineKind === "shipping" || item.lineKind === "discount";
+}
+
+function checkLine(item: Omit<LineObject, "id"> & { id?: string | null }, context: z.RefinementCtx) {
+  if (isAmountLine(item)) {
+    if (item.productId) context.addIssue({
+      code: z.ZodIssueCode.custom, path: ["productId"], message: "Un port ou une remise ne porte pas d'article.",
+    });
+    return;
+  }
+  if (item.designation.length === 0) context.addIssue({
+    code: z.ZodIssueCode.custom, path: ["designation"], message: "La désignation est requise.",
+  });
+}
+
+/** Shipping and discounts get their usual name and a lump-sum unit when the client leaves them empty. */
+function withAmountDefaults<T extends Omit<LineObject, "id"> & { id?: string | null }>(item: T): T {
+  if (!isAmountLine(item)) return item;
+  return {
+    ...item,
+    designation: item.designation || PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS[item.lineKind],
+    ...(!item.id && !item.unit?.trim() ? { unit: PURCHASE_ORDER_AMOUNT_LINE_UNIT } : {}),
+  };
+}
+
+export const purchaseOrderLineSchema = purchaseOrderLineObject.superRefine(checkLine).transform(withAmountDefaults);
 
 const headerShape = {
   supplierId: z.string().uuid(UUID_ERROR_MESSAGE),
@@ -73,14 +129,15 @@ function requireNewLineUnit(items: z.infer<typeof purchaseOrderLineSchema>[], co
 
 export const createPurchaseOrderSchema = z.object({
   ...headerShape,
-  items: z.array(purchaseOrderLineSchema.omit({ id: true }).extend({
-    unit: z.string().trim().min(1, "L'unité est requise pour une nouvelle ligne."),
-  })).min(1).max(1000),
-}).strict();
+  items: z.array(purchaseOrderLineObject.omit({ id: true }).superRefine(checkLine).transform(withAmountDefaults))
+    .min(1).max(1000),
+}).strict().superRefine((payload, context) => requireNewLineUnit(payload.items, context));
 
 export const updatePurchaseOrderSchema = z.object({
   ...headerShape,
   supplierId: headerShape.supplierId.optional(),
+  // An order made from a material request may have no site (its delivery mode says how it is delivered): left out,
+  // the order keeps what it has.
   deliverySiteId: headerShape.deliverySiteId.optional(),
   items: z.array(purchaseOrderLineSchema).min(1).max(1000).optional(),
   expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
@@ -110,13 +167,21 @@ export const purchaseOrderItemHistorySchema = z.object({
 export type PurchaseOrderLineInput = z.infer<typeof purchaseOrderLineSchema>;
 
 const orderLookupSchema = z.object({ id: z.string().uuid(), name: z.string() });
+/** TI-691: how an order made from a material request is delivered (the request's delivery place). */
+export const PURCHASE_ORDER_DELIVERY_MODES = ["site", "office", "counter"] as const;
+
 export const purchaseOrderDocumentHeaderSchema = z.object({
   id: z.string().uuid(), reference: z.string(), created_at: z.string(),
   status: z.enum(["draft", "sent", "confirmed", "received", "canceled"]),
   expected_delivery_date: z.string().nullable(),
   edit_revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
+  // An order made from a material request may have no site.
   suppliers: orderLookupSchema.nullable(), delivery_sites: orderLookupSchema.nullable(),
+  /** TI-691: the affaire of an order made from a material request (project: null when the caller cannot read it). */
+  project_id: z.string().uuid().nullable(),
+  project: orderLookupSchema.nullable(),
+  delivery_mode: z.enum(PURCHASE_ORDER_DELIVERY_MODES).nullable(),
 });
 
 export const purchaseOrderStoredItemSchema = z.object({
@@ -125,8 +190,22 @@ export const purchaseOrderStoredItemSchema = z.object({
   unit: z.string().nullable(), price_unit: z.string().nullable(), product_id: z.string().uuid().nullable(),
   is_source_linked: z.boolean(), source_estimate_item_id: z.string().uuid().nullable(),
   source_selected_supplier_price_id: z.string().uuid().nullable(), tax_rate_bp: z.number().int(),
-  unit_price_ht_cents: z.number().int(), line_total_ht_cents: z.number().int(),
+  unit_price_ht_cents: z.number().int(),
+  // A discount's totals are negative: it is subtracted.
+  line_total_ht_cents: z.number().int(),
   line_tax_cents: z.number().int(), line_total_ttc_cents: z.number().int(),
+  /** TI-691: article, shipping or discount; the lot the unit price is for. */
+  line_kind: z.enum(PURCHASE_ORDER_LINE_KINDS),
+  price_per: pricePerSchema,
+  /** TI-691: the material request line it orders (its request: material_request_id, when the caller reads it). */
+  material_request_line_id: z.string().uuid().nullable(),
+  material_request_id: z.string().uuid().nullable(),
+  /** TI-691: what its cost is imputed to (null on orders without an affaire), and the article's supply type. */
+  project_id: z.string().uuid().nullable(),
+  imputation: z.enum(PURCHASE_ORDER_IMPUTATIONS).nullable(),
+  overhead_category: z.string().nullable(),
+  supply_type_id: z.string().uuid().nullable(),
+  supply_type_name: z.string().nullable(),
 });
 
 export const purchaseOrderDocumentsSchema = z.object({

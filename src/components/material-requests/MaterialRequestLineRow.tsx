@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Check, RotateCcw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Check, RotateCcw, ShoppingCart, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { effectiveLineMaterial, type MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
-import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
+import type { MaterialRequestOrderLink, MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import {
   MATERIAL_REQUEST_IMPUTATION_LABELS,
   MATERIAL_REQUEST_IMPUTATIONS,
@@ -31,7 +32,7 @@ import {
   type CellAlerts,
   type ChoiceOption,
 } from "./cells";
-import { formatQuantity } from "./format";
+import { formatQuantity, purchaseOrderHref } from "./format";
 import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
 import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
 import type {
@@ -100,6 +101,8 @@ type LineRowProps = Readonly<{
   /** The article's reference at the line's own supplier, when the catalogue knows it. */
   supplierReference: LineSupplierReference | null;
   onRetainSupplier: (supplierId: string) => Promise<RetainResult>;
+  /** The purchase order the line went into (TI-691, delivery 3a); null while it is not ordered. */
+  ordered?: MaterialRequestOrderLink | null;
 }>;
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
@@ -218,7 +221,7 @@ function SupplierColumn(props: LineRowProps) {
 }
 
 function SettledLineRow(props: LineRowProps) {
-  const { line, alerts, request, canWrite, onReopen } = props;
+  const { line, alerts, request, canWrite, onReopen, ordered } = props;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
@@ -263,7 +266,8 @@ function SettledLineRow(props: LineRowProps) {
             ) : (
               <Badge variant="neutral">Brouillon</Badge>
             )}
-            {validated && canWrite ? (
+            {/* An ordered line is bought: it is no longer reopened from the request. */}
+            {validated && canWrite && !ordered ? (
               <Button
                 type="button"
                 variant="outline"
@@ -282,6 +286,15 @@ function SettledLineRow(props: LineRowProps) {
               </Button>
             ) : null}
           </div>
+          {ordered ? (
+            <Link
+              href={purchaseOrderHref(ordered.purchase_order_id)}
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <ShoppingCart aria-hidden="true" className="size-3.5 shrink-0" />
+              {`Commandé : ${ordered.purchase_order_reference}`}
+            </Link>
+          ) : null}
         </td>
       </tr>
       {line.original_text || line.quantity_doubtful || alerts.length > 0 || error ? (

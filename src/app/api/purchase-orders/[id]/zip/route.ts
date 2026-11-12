@@ -39,6 +39,9 @@ type OrderRow = {
   currency: string;
   suppliers: { name: string } | null;
   delivery_sites: { name: string } | null;
+  // TI-691: an order made from a material request may have no site; it says how it is delivered, and its affaire.
+  delivery_mode: "site" | "office" | "counter" | null;
+  project: { name: string } | null;
   purchase_order_items: OrderItemRow[];
 };
 
@@ -53,6 +56,14 @@ type OrderItemRow = {
   line_total_ttc_cents: number;
   unit_price_ht_cents: number;
   line_total_ht_cents: number;
+  // TI-691: a price for 10, 100 or 1 000 units; a discount's totals are negative.
+  price_per: number;
+};
+
+const DELIVERY_MODE_LABELS: Record<NonNullable<OrderRow["delivery_mode"]>, string> = {
+  site: "Livraison sur chantier",
+  office: "Livraison au bureau",
+  counter: "Retrait au comptoir",
 };
 
 type DevisRow = {
@@ -102,7 +113,10 @@ function sanitizeFilename(value: string) {
 
 function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
   const supplierName = order.suppliers?.name ?? "Fournisseur";
-  const siteName = order.delivery_sites?.name ?? "Chantier";
+  const siteName = order.delivery_sites?.name
+    ?? (order.delivery_mode ? DELIVERY_MODE_LABELS[order.delivery_mode] : null)
+    ?? "Chantier";
+  const affaireName = order.project?.name?.trim() ?? "";
   const reference = order.reference || String(order.order_number);
   const orderDate = formatDate(order.order_date);
   const expectedDelivery = formatDate(order.expected_delivery_date);
@@ -118,7 +132,7 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
           <td>${referenceItem}</td>
           <td class="num">${formatOrderQuantity(item.quantity)}</td>
           <td>${escapeHtml(item.unit?.trim() || "Unité à confirmer")}</td>
-          <td class="num">${formatEUR(item.unit_price_ht_cents)} / ${escapeHtml(item.price_unit?.trim() || "unité à confirmer")}</td>
+          <td class="num">${formatEUR(item.unit_price_ht_cents)} / ${item.price_per > 1 ? `${item.price_per} ` : ""}${escapeHtml(item.price_unit?.trim() || "unité à confirmer")}</td>
           <td class="num">${formatEUR(item.line_total_ht_cents)}</td>
           <td class="num">${formatEUR(item.line_tax_cents)}</td>
           <td class="num">${formatEUR(item.line_total_ttc_cents)}</td>
@@ -218,9 +232,13 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
         <div class="value">${escapeHtml(supplierName)}</div>
       </div>
       <div class="card">
-        <div class="label">Chantier</div>
+        <div class="label">${order.delivery_sites ? "Chantier" : "Livraison"}</div>
         <div class="value">${escapeHtml(siteName)}</div>
       </div>
+      ${affaireName ? `<div class="card">
+        <div class="label">Affaire</div>
+        <div class="value">${escapeHtml(affaireName)}</div>
+      </div>` : ""}
       <div class="card">
         <div class="label">Date commande</div>
         <div class="value">${escapeHtml(orderDate)}</div>
@@ -301,7 +319,7 @@ export async function GET(
   const order = await getAccessiblePurchaseOrderOrNull<OrderRow>(
     supabase,
     id,
-    "id, reference, order_number, edit_revision, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name ), purchase_order_items ( designation, reference, position, quantity, unit, price_unit, unit_price_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents )"
+    "id, reference, order_number, edit_revision, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name ), delivery_mode, project:estimate_projects!purchase_orders_project_id_fkey ( name ), purchase_order_items ( designation, reference, position, quantity, unit, price_unit, price_per, unit_price_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents )"
   );
 
   if (!order) {

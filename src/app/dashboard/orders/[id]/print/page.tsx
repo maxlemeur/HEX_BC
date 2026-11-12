@@ -10,6 +10,12 @@ import {
   type DeliverySiteData,
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
+import {
+  deliveryModeOf,
+  storedLineDocumentFields,
+  storedOrderAffaire,
+  type StoredOrderLineFields,
+} from "@/components/purchase-orders/order-lines";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
@@ -64,10 +70,14 @@ type PurchaseOrder = {
   suppliers: Supplier | null;
   delivery_sites: DeliverySite | null;
   profiles: UserProfile | null;
+  /** TI-691: the affaire of an order made from a material request, and how it is delivered without a site. */
+  project_id: string | null;
+  delivery_mode: string | null;
+  estimate_projects: { name: string; site_address: string | null } | null;
   purchase_order_items: PurchaseOrderItem[];
 };
 
-type PurchaseOrderItem = {
+type PurchaseOrderItem = StoredOrderLineFields & {
   id: string;
   designation: string;
   reference: string | null;
@@ -115,7 +125,7 @@ export default async function OrderPrintPage({
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
-      "id, edit_revision, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email ), purchase_order_items(id, designation, reference, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, position)"
+      "id, edit_revision, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, project_id, delivery_mode, estimate_projects ( name, site_address ), suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email ), purchase_order_items(id, designation, reference, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, position, line_kind, price_per)"
     )
     .eq("id", id)
     .single();
@@ -180,6 +190,8 @@ export default async function OrderPrintPage({
     priceUnit: item.price_unit,
     unitPriceHtCents: item.unit_price_ht_cents,
     lineTotalHtCents: item.line_total_ht_cents,
+    // The supplier's copy: the price for the lot and the kind of line, never our request links or imputations.
+    ...storedLineDocumentFields(item, { fromRequest: order.project_id !== null, onScreen: false }),
   }));
 
   const supplierName = supplier?.name ?? "fournisseur";
@@ -221,6 +233,8 @@ export default async function OrderPrintPage({
           reference={order.reference}
           supplier={supplier}
           deliverySite={deliverySite}
+          affaire={storedOrderAffaire(order.estimate_projects)}
+          deliveryMode={deliveryModeOf(order.delivery_mode)}
           expectedDeliveryDate={order.expected_delivery_date}
           notes={order.notes}
           items={orderItems}
