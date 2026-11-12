@@ -21,7 +21,7 @@ values ('29200000-0000-4000-8000-000000000301', current_setting('test.tenant_id'
   '29200000-0000-4000-8000-000000000001', 'LB29 public workbook MO', 4000);
 -- TI-534: the workbook oracle (HT 6 729 803 at 1,30 / 1,20) predates the FO provision. Every line of a created version
 -- carries this neutral supply type (provision 1,000), so it matches private.estimate_v3_compute_items without the key.
--- The copied lines have no supply type: their projection carries the default provision 1,010, as prepareEstimateBatch
+-- The copied lines have no supply type: their projection carries the unified default K FO 1,020, as prepareEstimateBatch
 -- derives it (a supply type on each operation would grow the receipt of the 1 000-operation copy by about 90 kB).
 insert into public.supply_types (id, tenant_id, code, name, default_fo_provision)
 values ('29200000-0000-4000-8000-000000000302', current_setting('test.tenant_id')::uuid, 'lb29_neutral',
@@ -300,7 +300,7 @@ begin
   computed := private.estimate_v3_compute_items((select jsonb_agg(item order by (item ->> 'id')::uuid)
     from jsonb_array_elements((canonical -> 'items') || (select jsonb_agg(jsonb_build_object('id', line_ids[n],
       'item_type', 'line', 'parent_id', section_id, 'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'ml',
-      'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'k_fo', 1, 'fo_provision', 1.01, 'h_mo_per_unit', 0,
+      'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'k_fo', 1.02, 'fo_provision', 1, 'h_mo_per_unit', 0,
       'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
       'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
       'labor_rate_chantier_cents', null)) from generate_series(1, p_size - 1) n)) item), canonical -> 'params');
@@ -431,7 +431,7 @@ begin
   computed := private.estimate_v3_compute_items((select jsonb_agg(item order by (item ->> 'id')::uuid)
     from jsonb_array_elements((canonical -> 'items') || jsonb_build_array(jsonb_build_object('id', line_id,
       'item_type', 'line', 'parent_id', parent, 'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'u',
-      'quantity', 1, 'unit_price_ht_cents', 0, 'k_fo', 1, 'fo_provision', 1.01, 'h_mo_per_unit', 0,
+      'quantity', 1, 'unit_price_ht_cents', 0, 'k_fo', 1.02, 'fo_provision', 1, 'h_mo_per_unit', 0,
       'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
       'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
       'labor_rate_chantier_cents', null))) item), canonical -> 'params');

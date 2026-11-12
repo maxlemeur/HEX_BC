@@ -364,8 +364,8 @@ select results_eq(
     from public.estimate_items item
     where item.source_job_id = '8d000000-0000-4000-8000-000000000201'
     order by item.position$$,
-  $$values ('M2 Tube cuivre 22'::text, 0, 0), ('M2 Coude cuivre', 328, 1312), ('M2 Robinetterie existante', null::integer, 0)$$,
-  'a line without price stays at 0 €, the mapping price is sold through the FO provision and coefficient (2,50 € × 1,010 × 1,3 = 3,28 €, × 4), a « PM » line has no PU'
+  $$values ('M2 Tube cuivre 22'::text, 0, 0), ('M2 Coude cuivre', 332, 1328), ('M2 Robinetterie existante', null::integer, 0)$$,
+  'a line without price stays at 0 €, the mapping price is sold through the FO provision and coefficient (2,50 € × 1,020 × 1,3 = 3,32 €, × 4), a « PM » line has no PU'
 );
 
 select lives_ok(

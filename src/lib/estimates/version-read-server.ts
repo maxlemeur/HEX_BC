@@ -360,6 +360,7 @@ export async function getEstimateVersionDetails(
     .eq("tenant_id", tenantId)
     .eq("user_id", project.user_id)
     .order("position", { ascending: true });
+  const foPreferencesQuery = supabase.from("estimate_fo_preferences").select("supply_type_id, coefficient").eq("tenant_id", tenantId).eq("user_id", project.user_id);
   const supplyTypesQuery = supabase
     .from("supply_types")
     .select("*")
@@ -399,6 +400,7 @@ export async function getEstimateVersionDetails(
     rawItems,
     categoriesResult,
     supplyTypesResult,
+    foPreferencesResult,
     laborRolesResult,
     rulesResult,
     marginTiersResult,
@@ -409,6 +411,7 @@ export async function getEstimateVersionDetails(
       options?.includeItems === false ? Promise.resolve([]) : readAllEstimateItems({ supabase, tenantId, versionId }),
       categoriesQuery,
       supplyTypesQuery,
+      foPreferencesQuery,
       laborRolesQuery,
       rulesQuery,
       marginTiersQuery,
@@ -427,6 +430,7 @@ export async function getEstimateVersionDetails(
     );
   }
 
+  if (foPreferencesResult.error) throw mapSupabaseError(foPreferencesResult.error, "Impossible de charger les préférences fourniture.");
   if (supplyTypesResult.error) {
     throw mapSupabaseError(
       supplyTypesResult.error,
@@ -486,7 +490,7 @@ export async function getEstimateVersionDetails(
     },
     items: itemsWithSelectedSuppliers,
     categories: (categoriesResult.data ?? []) as EstimateCategoryRow[],
-    supply_types: (supplyTypesResult.data ?? []) as SupplyTypeRow[],
+    supply_types: (supplyTypesResult.data ?? []).map(row => ({ ...row, user_fo_coefficient: foPreferencesResult.data?.find(pref => pref.supply_type_id === row.id)?.coefficient ?? null })) as SupplyTypeRow[],
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
     suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
     margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],

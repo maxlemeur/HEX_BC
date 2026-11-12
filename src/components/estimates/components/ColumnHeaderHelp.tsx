@@ -1,4 +1,5 @@
 "use client";
+import { KFO_HELP } from "@/lib/estimates/unified-kfo";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -9,7 +10,7 @@ export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "Qté": "Quantité d'unités. Elle multiplie la fourniture, pas les heures MO, qui sont les heures totales de la ligne.",
   "U": "Unité de mesure (m, m², ml, u, etc.)",
   "PR FO": "Prix unitaire fourniture HT (prix catalogue fournisseur)",
-  "K FO": "Coefficient fourniture — multiplie uniquement le prix de revient FO et ne modifie jamais la MO. Ex : K = 1.20 → +20% sur le prix FO",
+  "K FO": KFO_HELP,
   "h MO": "Heures de main d'œuvre : heures totales de la ligne, et non par unité. Changer la quantité ne change pas ces heures. L'import d'un classeur OPTIMA convertit ses heures par unité en h/u × Q.",
   "Majoration MO (%)": "Majoration appliquée au coût MO, en plus du K MO : 100 % = neutre, 115 % = +15 %. Stockée en coefficient (115 % → ×1,15), entre 0 % et 1 000 %.",
   "K MO": "Coefficient de rendement main d'œuvre, propre à l'ouvrage — majore le coût MO selon la difficulté d'exécution. Ex : travail en hauteur → K = 1.30, soit +30% de temps MO",
@@ -42,15 +43,14 @@ export const ESTIMATE_V3_COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "Statut": "Statut de chiffrage : seule une ligne « Chiffrée » entre au HT et à la TVA. Une ligne « Hors lot », « Inclus », « Pour mémoire », « Non chiffrée » ou « Sans objet » garde ses saisies, à 0 €.",
   "TVA %": "Taux de TVA de la ligne. La TVA se calcule par taux sur la somme des nets de ligne, puis se répartit entre les lignes du taux.",
   "PR FO": "Prix d'achat unitaire fourniture HT (prix catalogue fournisseur)",
-  "Provision FO": "Provision pour pertes, chutes et petites fournitures, fixée par le type FO : 1,03 pour un tube ou un calorifuge, 1,01 sinon. Elle multiplie le PR FO avant le K FO et se redérive quand le type FO change ; une ligne antérieure garde 1,00.",
-  "K FO": "Coefficient de coût fourniture — multiplie uniquement le prix de revient FO, après la provision FO. Ex : K = 1.20 → +20% sur le prix FO",
+  "K FO": KFO_HELP,
   "h MO / u": "Heures de main d'œuvre par unité. Le total d'heures de la ligne (h MO total, en lecture seule) vaut Qté × h MO / u.",
   "Majoration MO (%)": "Majoration appliquée au coût MO, en plus du K MO : 100 % = neutre, 115 % = +15 %. Stockée en coefficient (115 % → ×1,15), entre 0 % et 1 000 %.",
   "K MO": "Coefficient de coût main d'œuvre (difficulté d'exécution). Ex : travail en hauteur → K = 1.30",
   "Type MO": "Rôle de main d'œuvre et son taux horaire, celui du propriétaire du devis.",
-  "PU": "PU = arrondi au centime de (PR FO × provision FO × K FO × coefficient de vente FO + h MO / u × Majoration MO × K MO × taux horaire × coefficient de vente MO), un seul arrondi.",
+  "PU": "PU = arrondi au centime de (PR FO × K FO × coefficient de vente FO + h MO / u × Majoration MO × K MO × taux horaire × coefficient de vente MO), un seul arrondi.",
   "Prix total": "Prix total HT brut de la ligne = arrondi au centime de Qté × PU. La remise et l'arrondi commercial se répartissent ensuite entre les lignes pour donner le HT net.",
-  "Deboursé sec": "Coût direct de la ligne : Qté × (PR FO × provision FO × K FO + h MO / u × Majoration MO × K MO × taux horaire), avant les coefficients de vente.",
+  "Deboursé sec": "Coût direct de la ligne : Qté × (PR FO × K FO + h MO / u × Majoration MO × K MO × taux horaire), avant les coefficients de vente.",
   "Marge €": "Prix total HT brut − déboursé sec, avant la remise et l'arrondi commercial du pied.",
   "Marque %": "Taux de marque = marge / prix de vente.",
 };

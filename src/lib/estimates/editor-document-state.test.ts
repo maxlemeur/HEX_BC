@@ -657,6 +657,20 @@ describe("operation-owned optimistic changes", () => {
   });
 });
 
+it("keeps the automatic mode coupled to a changed K FO in a sparse save", () => {
+  const { document, id } = setup();
+  document.acknowledgeItems([{ id, updates: { k_fo: 1.13, k_fo_manual: false } }]);
+  document.enqueueItem(id, { k_fo: 1.1, k_fo_manual: false });
+  document.acknowledgeItems([{ id, updates: { title: "Unrelated server acknowledgement" } }]);
+  expect(document.captureSave().entries[0].updates).toEqual({ k_fo: 1.1, k_fo_manual: false });
+});
+it("does not create an intention for an unchanged automatic coefficient", () => {
+  const { document, id } = setup();
+  document.acknowledgeItems([{ id, updates: { k_fo: 1.13, k_fo_manual: false } }]);
+  document.enqueueItem(id, { k_fo: 1.13, k_fo_manual: false });
+  expect(document.captureSave().entries).toEqual([]);
+});
+
 // TI-682, lot C, PR 4: the database clears the written reserve of a line whose status leaves « Non chiffrée »; the
 // editor never sends that column, so it clears its own copy when the save of such a status is acknowledged.
 describe("the written reserve follows the saved status", () => {

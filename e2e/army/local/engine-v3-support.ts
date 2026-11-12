@@ -84,11 +84,11 @@ BEGIN
   FROM public.estimate_versions v WHERE v.id = (ctx->>'versionId')::uuid;
   INSERT INTO public.estimate_items (
     id, tenant_id, version_id, parent_id, item_type, position, title, description,
-    quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
+    quantity, unit_price_ht_cents, tax_rate_bp, k_fo, k_fo_manual, h_mo, h_mo_majoration, k_mo,
     pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents
   )
   SELECT (ctx->>'lineId')::uuid, v.tenant_id, v.id, (ctx->>'sectionId')::uuid, 'line', 1, 'Ligne ' || (ctx->>'title'), 'u',
-    2, 2250, 2000, 1, 0, 1, 1, 0, 0, 0, 0
+    2, 2250, 2000, 1.01, true, 0, 1, 1, 0, 0, 0, 0
   FROM public.estimate_versions v WHERE v.id = (ctx->>'versionId')::uuid;
   PERFORM set_config('miaouffrage.estimate_v3_writer', '', true);
 END ${delimiter};

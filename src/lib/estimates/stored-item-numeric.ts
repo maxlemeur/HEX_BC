@@ -14,7 +14,7 @@ function parseJsonDecimal(value: number): JsonDecimal {
   };
 }
 
-function roundStoredDecimal(value: JsonDecimal, scale: 3 | 4): number {
+function roundStoredDecimal(value: JsonDecimal, scale: 3 | 4 | 6): number {
   const negative = value.coefficient < BigInt(0);
   const digits = negative ? -value.coefficient : value.coefficient;
   const shift = value.exponent + scale;
@@ -26,7 +26,7 @@ function roundStoredDecimal(value: JsonDecimal, scale: 3 | 4): number {
     stored = digits / divisor;
     if ((digits % divisor) * BigInt(2) >= divisor) stored += BigInt(1);
   }
-  if (stored >= BigInt("1000000000000")) {
+  if (stored >= (scale === 6 ? BigInt("1000000000000000") : BigInt("1000000000000"))) {
     throw badRequest("La valeur décimale dépasse la précision de stockage.");
   }
   // Avoid retaining negative zero after rounding a small negative value.
@@ -34,12 +34,12 @@ function roundStoredDecimal(value: JsonDecimal, scale: 3 | 4): number {
 }
 
 /** Match numeric(12, scale) on the decimal representation sent in JSON. */
-export function toStoredEstimateNumeric(value: number, scale: 3 | 4): number {
+export function toStoredEstimateNumeric(value: number, scale: 3 | 4 | 6): number {
   return roundStoredDecimal(parseJsonDecimal(value), scale);
 }
 
 /** Round once after multiplying the JSON decimals, without a floating product. */
-export function multiplyToStoredEstimateNumeric(left: number, right: number, scale: 3 | 4): number {
+export function multiplyToStoredEstimateNumeric(left: number, right: number, scale: 3 | 4 | 6): number {
   const a = parseJsonDecimal(left);
   const b = parseJsonDecimal(right);
   return roundStoredDecimal({
@@ -50,7 +50,7 @@ export function multiplyToStoredEstimateNumeric(left: number, right: number, sca
 
 const ITEM_DECIMAL_SCALES = {
   quantity: 3,
-  k_fo: 3,
+  k_fo: 6,
   h_mo: 3,
   k_mo: 3,
   h_mo_atelier: 3,

@@ -56,9 +56,12 @@ export const MATERIAL_REQUEST_UPLOAD_CHANGED = "MATERIAL_REQUEST_UPLOAD_CHANGED"
  * bound, and the cap of twelve listed originals, in the file trigger.
  */
 export const MATERIAL_REQUEST_MAX_PENDING_FILES = 2 * MATERIAL_REQUEST_MAX_FILES;
-/** A licence decision is pending: until then a HEIC photo is refused, with what to do instead. */
+/**
+ * The screen converts a HEIC photo to JPEG before sending it, so only a caller that skipped that step
+ * (the API used directly) meets this refusal: the bucket stores JPEG, PNG and WebP only.
+ */
 export const MATERIAL_REQUEST_HEIC_MESSAGE =
-  "Les photos HEIC ne sont pas encore prises en charge : enregistrez la photo en JPEG, puis déposez-la à nouveau.";
+  "Les photos HEIC doivent être converties en JPEG avant l’envoi : l’écran des demandes le fait de lui-même.";
 
 const FILE_NOT_FOUND_MESSAGE = "Original introuvable dans cette demande.";
 const PREPARE_FAILED_MESSAGE = "Impossible de préparer l’envoi des photos. Réessayez.";

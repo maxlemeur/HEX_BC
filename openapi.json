@@ -2149,7 +2149,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_HEIC_UNSUPPORTED : photo HEIC, à enregistrer en JPEG. MATERIAL_REQUEST_FILE_LIMIT : la demande garderait plus de 12 originaux. MATERIAL_REQUEST_UPLOADS_PENDING : plus de 24 photos attendraient leurs octets sur cette demande.",
+            "description": "MATERIAL_REQUEST_HEIC_UNSUPPORTED : photo HEIC, à convertir en JPEG avant l'envoi (l'écran le fait). MATERIAL_REQUEST_FILE_LIMIT : la demande garderait plus de 12 originaux. MATERIAL_REQUEST_UPLOADS_PENDING : plus de 24 photos attendraient leurs octets sur cette demande.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34007,6 +34007,12 @@
                         }
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "k_fo": {
                       "type": [
                         "number",
@@ -34344,6 +34350,7 @@
                       ]
                     },
                     "fo_provision": {
+                      "default": 1,
                       "type": [
                         "number",
                         "null"
@@ -36054,6 +36061,12 @@
                         }
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "k_fo": {
                       "type": [
                         "number",
@@ -36391,6 +36404,7 @@
                       ]
                     },
                     "fo_provision": {
+                      "default": 1,
                       "type": [
                         "number",
                         "null"
@@ -37421,6 +37435,9 @@
                               "type": "number",
                               "minimum": 0
                             },
+                            "k_fo_manual": {
+                              "type": "boolean"
+                            },
                             "h_mo": {
                               "type": "number",
                               "minimum": 0
@@ -37931,6 +37948,9 @@
                         "k_fo": {
                           "type": "number",
                           "minimum": 0
+                        },
+                        "k_fo_manual": {
+                          "type": "boolean"
                         },
                         "h_mo": {
                           "type": "number",
@@ -38712,6 +38732,9 @@
                                           "type": "number",
                                           "minimum": 0
                                         },
+                                        "k_fo_manual": {
+                                          "type": "boolean"
+                                        },
                                         "h_mo": {
                                           "type": "number",
                                           "minimum": 0
@@ -39169,6 +39192,9 @@
                                     "k_fo": {
                                       "type": "number",
                                       "minimum": 0
+                                    },
+                                    "k_fo_manual": {
+                                      "type": "boolean"
                                     },
                                     "h_mo": {
                                       "type": "number",
@@ -40116,6 +40142,9 @@
                                           "type": "number",
                                           "minimum": 0
                                         },
+                                        "k_fo_manual": {
+                                          "type": "boolean"
+                                        },
                                         "h_mo": {
                                           "type": "number",
                                           "minimum": 0
@@ -40573,6 +40602,9 @@
                                     "k_fo": {
                                       "type": "number",
                                       "minimum": 0
+                                    },
+                                    "k_fo_manual": {
+                                      "type": "boolean"
                                     },
                                     "h_mo": {
                                       "type": "number",
@@ -42635,6 +42667,12 @@
                         "null"
                       ]
                     },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "h_mo": {
                       "type": [
                         "number",
@@ -43061,6 +43099,9 @@
               "k_fo": {
                 "type": "number",
                 "minimum": 0
+              },
+              "k_fo_manual": {
+                "type": "boolean"
               },
               "h_mo": {
                 "type": "number",
@@ -43595,6 +43636,12 @@
                       }
                     ]
                   },
+                  "k_fo_manual": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "k_fo": {
                     "type": [
                       "number",
@@ -43932,6 +43979,7 @@
                     ]
                   },
                   "fo_provision": {
+                    "default": 1,
                     "type": [
                       "number",
                       "null"
@@ -44584,6 +44632,9 @@
             "type": "number",
             "minimum": 0
           },
+          "k_fo_manual": {
+            "type": "boolean"
+          },
           "h_mo": {
             "type": "number",
             "minimum": 0
@@ -45106,6 +45157,12 @@
                       }
                     ]
                   },
+                  "k_fo_manual": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "k_fo": {
                     "type": [
                       "number",
@@ -45443,6 +45500,7 @@
                     ]
                   },
                   "fo_provision": {
+                    "default": 1,
                     "type": [
                       "number",
                       "null"
@@ -46681,6 +46739,9 @@
                 "k_fo": {
                   "type": "number",
                   "minimum": 0
+                },
+                "k_fo_manual": {
+                  "type": "boolean"
                 },
                 "h_mo": {
                   "type": "number",
@@ -65239,6 +65300,9 @@
                   "type": "number",
                   "minimum": 0
                 },
+                "k_fo_manual": {
+                  "type": "boolean"
+                },
                 "k_mo": {
                   "type": "number",
                   "minimum": 0
@@ -65790,6 +65854,9 @@
                   "type": "number",
                   "minimum": 0
                 },
+                "k_fo_manual": {
+                  "type": "boolean"
+                },
                 "k_mo": {
                   "type": "number",
                   "minimum": 0
@@ -66088,6 +66155,12 @@
                     "k_fo": {
                       "type": [
                         "number",
+                        "null"
+                      ]
+                    },
+                    "k_fo_manual": {
+                      "type": [
+                        "boolean",
                         "null"
                       ]
                     },
@@ -66950,6 +67023,15 @@
                             "number",
                             "null"
                           ]
+                        },
+                        "k_fo_manual": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "kit_metier": {
+                          "type": "boolean"
                         },
                         "h_mo": {
                           "type": [

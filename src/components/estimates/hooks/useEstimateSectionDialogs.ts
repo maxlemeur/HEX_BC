@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
+
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -171,7 +173,8 @@ export function useEstimateSectionDialogs({
       const assemblyItems = lines.map((line, index) => ({
         title: line.title ?? "Ligne",
         unit: line.description ?? undefined,
-        k_fo: line.k_fo ?? undefined,
+        k_fo: multiplyToStoredEstimateNumeric(line.k_fo ?? 1, line.fo_provision ?? 1, 6),
+        source_metadata: { k_fo_manual: true },
         k_mo: line.k_mo ?? undefined,
         labor_role_id: line.labor_role_id ?? undefined,
         default_quantity: line.quantity ?? undefined,

@@ -126,6 +126,8 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       await fillCell(ui, `Unité pour ${title}`, row.typedUnit);
       await fillCell(ui, `Quantité pour ${title}`, row.quantity);
       await fillCell(ui, `Prix d’achat unitaire HT pour ${title}`, row.pr);
+      // Fixed financial-ledger corpus: explicit coefficient, independent of company defaults.
+      await fillCell(ui, `Coefficient fourniture K FO pour ${title}`, "1,01");
       await fillCell(ui, `Heures de main-d’œuvre par unité pour ${title}`, row.h);
       await fillCell(ui, `Rôle de main-d'œuvre pour ${title}`, "Tuyauteur");
       await saveLineEditsWithShortcut(ui, draft.versionId, title, army);
@@ -411,14 +413,14 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
       { line_nature: "supply_and_labor", title: `${army.runPrefix} B`, description: "u", unit_code: "u", pricing_status: "priced", quantity: 1,
         unit_price_ht_cents: 20000, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 5, h_mo_majoration: 1, k_mo: 1, labor_role_id: draft.tuyauteurId, source_provider: "manual" },
     ]);
-    expect([lineA.pu_ht_cents, lineA.line_total_ht_cents, lineB.pu_ht_cents, lineB.line_total_ht_cents]).toEqual([10100, 40400, 50260, 50260]);
+    expect([lineA.pu_ht_cents, lineA.line_total_ht_cents, lineB.pu_ht_cents, lineB.line_total_ht_cents]).toEqual([10200, 40800, 50520, 50520]);
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e02");
     const rowB = (status: string, pt?: string): RowExpectation => ({ id: lineB.id, title: lineB.title, status, ...(pt ? { pt } : {}) });
-    const priced = { totals: [90660, 18132, 108792] as Totals };
+    const priced = { totals: [91320, 18264, 109584] as Totals };
     await checkpoint(ui, army, "tstat-initial", draft.versionId, {
-      api: { version: { totals: priced.totals, gross: 90660 }, lines: { [lineB.id]: { status: "priced", net: 50260 } } },
-      screen: { chips: chips(priced.totals, [["20", 18132]]), rows: [rowB("Chiffrée", eur(50260))] },
+      api: { version: { totals: priced.totals, gross: 91320 }, lines: { [lineB.id]: { status: "priced", net: 50520 } } },
+      screen: { chips: chips(priced.totals, [["20", 18264]]), rows: [rowB("Chiffrée", eur(50520))] },
     });
 
     // V3E-06 (T-STAT) : B « Hors lot » → HT −502,60 €, ses saisies conservées ; retour à « Chiffrée » → restaurée.
@@ -430,18 +432,18 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
         snapshot.items.find(item => item.id === lineB.id)?.pricing_status === value, army);
     };
     await setStatus("out_of_scope");
-    const outOfScope = { totals: [40400, 8080, 48480] as Totals };
+    const outOfScope = { totals: [40800, 8160, 48960] as Totals };
     await checkpoint(ui, army, "tstat-out", draft.versionId, {
-      api: { version: { totals: outOfScope.totals, gross: 40400 },
+      api: { version: { totals: outOfScope.totals, gross: 40800 },
         lines: { [lineB.id]: { status: "out_of_scope", net: 0, tax: 0, quantity: 1, prFo: 20000, hPerUnit: 5 } } },
-      screen: { chips: chips(outOfScope.totals, [["20", 8080]]), rows: [rowB("Hors lot")] },
+      screen: { chips: chips(outOfScope.totals, [["20", 8160]]), rows: [rowB("Hors lot")] },
     });
-    expect(priced.totals[0] - outOfScope.totals[0]).toBe(50260);
+    expect(priced.totals[0] - outOfScope.totals[0]).toBe(50520);
     await setStatus("priced");
     await checkpoint(ui, army, "tstat-back", draft.versionId, {
-      api: { version: { totals: priced.totals, gross: 90660 },
-        lines: { [lineB.id]: { status: "priced", net: 50260, quantity: 1, prFo: 20000, hPerUnit: 5, pu: 50260 } } },
-      screen: { chips: chips(priced.totals, [["20", 18132]]), rows: [rowB("Chiffrée", eur(50260))] },
+      api: { version: { totals: priced.totals, gross: 91320 },
+        lines: { [lineB.id]: { status: "priced", net: 50520, quantity: 1, prFo: 20000, hPerUnit: 5, pu: 50520 } } },
+      screen: { chips: chips(priced.totals, [["20", 18264]]), rows: [rowB("Chiffrée", eur(50520))] },
     });
 
     // V3E-04 (CAP) : B hors lot, assiette 404 € ; remise demandée 500 € → appliquée 404 €.
@@ -449,17 +451,17 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
     await openSettings(ui, draft.versionId);
     await fillCell(ui, "Remise (EUR HT)", "500");
     await clickSaveSettings(ui);
-    const capVersion = { totals: [0, 0, 0] as Totals, gross: 40400, applied: 40400, discountAmountCents: 50000, discountBp: 0 };
+    const capVersion = { totals: [0, 0, 0] as Totals, gross: 40800, applied: 40800, discountAmountCents: 50000, discountBp: 0 };
     await waitSettingsSaved(ui, army, "cap", draft.versionId, { version: capVersion });
     await checkpoint(ui, army, "cap", draft.versionId, {
-      api: { version: capVersion }, screen: { chips: chips([0, 0, 0], [["20", 0]], [discountChip(40400)]) },
+      api: { version: capVersion }, screen: { chips: chips([0, 0, 0], [["20", 0]], [discountChip(40800)]) },
     });
     await openSettings(ui, draft.versionId);
     const applied = await settingsText(ui, "estimate-v3-discount-applied");
     const amountField = await inputValue(settingsDialog(ui).getByLabel("Remise (EUR HT)", { exact: true }));
     // The requested amount stays the intention (never replaced by the applied one); its field format is free.
     await recordEvidence(army, "v3e-cap-text", { versionId: draft.versionId, applied, amountField, nativeDialogs: dialogs });
-    expect(applied).toContain("demandé 500,00 € / appliqué 404,00 €");
+    expect(applied).toContain("demandé 500,00 € / appliqué 408,00 €");
   });
 
 armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier preselection either recomputes and persists or is refused by name",
@@ -471,7 +473,7 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
       { line_nature: "supply_only", title: `${army.runPrefix} L`, description: "ml", unit_code: "ml", pricing_status: "priced", quantity: 2,
         unit_price_ht_cents: 1500, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual" },
     ]);
-    expect([line.unit_code, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", 1970, 3940]);
+    expect([line.unit_code, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", 1989, 3978]);
     // Article du catalogue en « ML » (alias de ml) et son offre A à 15,00 €, par les API du catalogue
     // (même chemin que bulk-edit-sync-sources) ; seules les deux lectures catalogue de cette affaire passent.
     army.ownedPriceLookupProjects = [draft.projectId];
@@ -503,13 +505,13 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, army);
     await waitForAutoSave(ui, draft.versionId, (snapshot) => snapshot.items.find(item => item.id === line.id)?.product_id === productId, army);
     const linkedApi: ApiExpectation = {
-      version: { totals: [3940, 788, 4728] },
-      lines: { [line.id]: { title: designation, unit: "ml", productId, offerId: offerA.id, prFo: 1500, pu: 1970, net: 3940 } },
+      version: { totals: [3978, 796, 4774] },
+      lines: { [line.id]: { title: designation, unit: "ml", productId, offerId: offerA.id, prFo: 1500, pu: 1989, net: 3978 } },
     };
     await checkpoint(ui, army, "suggestion", draft.versionId, {
       api: linkedApi,
-      screen: { chips: chips([3940, 788, 4728], [["20", 788]]),
-        rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "19,70", pt: eur(3940) }] },
+      screen: { chips: chips([3978, 796, 4774], [["20", 796]]),
+        rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "19,89", pt: eur(3978) }] },
     });
 
     // V3E-11 : une offre B à 12,40 € ; appliquer la présélection recalcule et persiste (contrat F26-17), ou est
@@ -541,8 +543,8 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     if (!refusedBeforeApply) await applyButton.tap();
 
     const recomputedApi: ApiExpectation = {
-      version: { totals: [3256, 651, 3907] },
-      lines: { [line.id]: { unit: "ml", productId, offerId: offerB.id, prFo: 1240, pu: 1628, net: 3256 } },
+      version: { totals: [3288, 658, 3946] },
+      lines: { [line.id]: { unit: "ml", productId, offerId: offerB.id, prFo: 1240, pu: 1644, net: 3288 } },
     };
     const target = (expected: ApiExpectation) => JSON.stringify({ version: expected.version, lines: expected.lines ?? {} });
     const unchanged = (state: ArmyEstimate) => state.version.content_revision === before.version.content_revision &&
@@ -572,8 +574,8 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     expect([outcome.refused, outcome.recomputed].filter(Boolean)).toHaveLength(1);
     if (outcome.refused) expect(applyDisabledOnRefusal, "the refused preselection cannot be applied").toBe(true);
     const settled = outcome.recomputed
-      ? { api: recomputedApi, chips: chips([3256, 651, 3907], [["20", 651]]), pu: "16,28", pt: eur(3256) }
-      : { api: linkedApi, chips: chips([3940, 788, 4728], [["20", 788]]), pu: "19,70", pt: eur(3940) };
+      ? { api: recomputedApi, chips: chips([3288, 658, 3946], [["20", 658]]), pu: "16,44", pt: eur(3288) }
+      : { api: linkedApi, chips: chips([3978, 796, 4774], [["20", 796]]), pu: "19,89", pt: eur(3978) };
     await openGrid(ui, draft.versionId);
     await checkpoint(ui, army, outcome.recomputed ? "preselection-recomputed" : "preselection-refused", draft.versionId, {
       api: settled.api,
@@ -594,7 +596,7 @@ armyTest("V3E04 the per-line supplier comparison of a v3 line reads its unit_cod
       { line_nature: "supply_only", title: designation, unit_code: "ml", pricing_status: "priced", quantity: 2,
         unit_price_ht_cents: 1500, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual" },
     ]);
-    expect([line.unit_code, line.description ?? null, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", null, 1970, 3940]);
+    expect([line.unit_code, line.description ?? null, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", null, 1989, 3978]);
     // Catalogue by its API (same path as V3E03): one offer in the line unit, one in another unit, no conversion.
     army.ownedPriceLookupProjects = [draft.projectId];
     const created = async <T>(label: string, pathname: string, body: unknown) => {
@@ -658,8 +660,8 @@ armyTest("V3E04 the per-line supplier comparison of a v3 line reads its unit_cod
     });
     expect(review, "the v3 line unit is unit_code for the supplier comparison and is never written to description").toEqual(expected);
     await checkpoint(ui, army, "v3e04-retained", draft.versionId, {
-      api: { version: { totals: [3256, 651, 3907] }, lines: { [line.id]: { unit: "ml", offerId: offerMl.id, prFo: 1240, pu: 1628, net: 3256 } } },
-      screen: { chips: chips([3256, 651, 3907], [["20", 651]]),
-        rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "16,28", pt: eur(3256) }] },
+      api: { version: { totals: [3288, 658, 3946] }, lines: { [line.id]: { unit: "ml", offerId: offerMl.id, prFo: 1240, pu: 1644, net: 3288 } } },
+      screen: { chips: chips([3288, 658, 3946], [["20", 658]]),
+        rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "16,44", pt: eur(3288) }] },
     });
   });

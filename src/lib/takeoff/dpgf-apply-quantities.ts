@@ -20,14 +20,28 @@ export type DpgfApplyQuantityLine = {
   takeoff_items: Array<{ id: string; quantity: number; updated_at: string }>;
 };
 
+/**
+ * Whether the application feeds this DPGF row from the takeoff: linked lines, a quantity the reconciliation can compare
+ * (same unit and quantity identity), not decided out of scope. TI-682 lot D: « Pages déjà au devis » reads the DPGF
+ * lines a takeoff feeds again with this very rule (dpgfTargetsFedAgain), so that it never offers a page as replaced that
+ * the application leaves unfed.
+ */
+function feedsDpgfRow(row: TakeoffDpgfComparisonRow) {
+  return row.linked_takeoff_items.length > 0 && row.applied_decision?.decision !== "out_of_scope" && dpgfQuantityPolicy(row) !== null;
+}
+
+/** The DPGF line each takeoff line feeds again (by the application's rule), keyed by takeoff line. */
+export function dpgfTargetsFedAgain(rows: readonly TakeoffDpgfComparisonRow[]) {
+  return new Map(rows.filter(feedsDpgfRow).flatMap(row => row.linked_takeoff_items.map(item => [item.item_id, row.dpgf.estimate_item_id] as const)));
+}
+
 export function buildDpgfApplyQuantityPolicy(context: TakeoffDpgfComparisonContext, rows: readonly TakeoffDpgfComparisonRow[]): DpgfApplyQuantityLine[] {
   const targets = new Map(context.estimateItems.map(item => [item.id, item]));
   const sources = new Map(context.takeoffItems.map(item => [item.id, item]));
   return rows.flatMap(row => {
     const policy = dpgfQuantityPolicy(row);
     const target = targets.get(row.line_id);
-    if (!target || !policy || row.applied_decision?.decision === "out_of_scope") return [];
-    if (row.linked_takeoff_items.length === 0) return [];
+    if (!target || !policy || !feedsDpgfRow(row)) return [];
     if (row.linked_takeoff_items.some(item => !haveComparableQuantities(
       { designation: row.dpgf.title, description: row.dpgf.description, quantity: row.dpgf_quantity ?? 0, unit: row.dpgf.unit ?? "" }, item
     ))) throw new Error("Les quantités reliées ne sont pas comparables : vérifiez matériau, diamètre et base de surface.");

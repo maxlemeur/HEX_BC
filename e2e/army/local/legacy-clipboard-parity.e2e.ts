@@ -1,13 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 
 import {
-  apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence,
+  apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence, saveLineEditsWithShortcut,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
 import { waitForDraftLease } from "./engine-v3-editor-support";
 import { connectedEstimate } from "../extended/connected-support";
 import { signUpDedicatedOwner } from "./dedicated-owner";
+import { querySql } from "./calculation-gate-support";
 
 type Ui = { app: App; browser: Browser; screen: Screen };
 const options = { session: "army", tags: ["critical", "local", "legacy-clipboard"], timeout: 240_000 } as const;
@@ -21,7 +23,7 @@ const previewName = "Aperçu du collage";
 // row and close the dialog without help. No application function or clipboard
 // implementation is replaced. Only the second input uses a real DOM paste event,
 // as the existing Army paste journeys do; CLIP01 uses the browser clipboard.
-async function prepare(ui: Ui, army: ArmyState, suffix: string) {
+async function prepare(ui: Ui, army: ArmyState, suffix: string, manualKfo?: number) {
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix,
     { tag: suffix === "copie TSV" ? "LGCLIP1" : "LGCLIP2", uiMode: "expert", calcPolicy: "absent" });
@@ -45,6 +47,7 @@ async function prepare(ui: Ui, army: ArmyState, suffix: string) {
   const seed = await createLineViaApi(ui.browser, ids.versionId, title, {
     quantity: 2.5, unit_price_ht_cents: 1250, unit_code: "u", pricing_status: "priced",
     description: null, h_mo_per_unit: null, h_mo: 0, k_fo: 1, k_mo: 1, h_mo_majoration: 1,
+    ...(manualKfo === undefined ? {} : { k_fo: manualKfo, k_fo_manual: true }),
   });
   const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
   expect(released.status).toBe(200);
@@ -142,7 +145,8 @@ async function previewTable(browser: Browser) {
 armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields and the persisted copy", options,
   async ({ app, browser, screen, army }) => {
     const ui = { app, browser, screen };
-    const draft = await prepare(ui, army, "copie TSV");
+    // Pin the manual K FO to retain the odd-cent VAT allocation counterexample below.
+    const draft = await prepare(ui, army, "copie TSV", 1.01);
     const copyObservation = await observeNativeCopy(browser);
     const checkbox = screen.getByLabel(`Sélectionner la ligne ${draft.seed.title}`, { exact: true });
     await checkbox.check();
@@ -155,7 +159,7 @@ armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields 
       return state.asyncFulfilled + state.fallbackSucceeded;
     }, { message: "The real async clipboard write or native copy fallback must finish before Ctrl+V" }).toBe(1);
     const copied = await copyObservation();
-    expect(copied.text).toBe([headers.join("\t"), [draft.seed.title, "2,5", "u", "12,5", "", "1", "", "1", "100"].join("\t")].join("\n"));
+    expect(copied.text).toBe([headers.join("\t"), [draft.seed.title, "2,5", "u", "12,5", "", "1,01", "", "1", "100"].join("\t")].join("\n"));
     await recordEvidence(army, "legacy-native-copy-ack", { versionId: draft.versionId, sourceLineId: draft.seed.id, copied });
     await browser.keyboard.press("Escape");
     await focusGridCell(ui, draft.seed.id);
@@ -167,7 +171,7 @@ armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields 
     const table = await previewTable(browser);
     expect(table).toEqual({
       columns: headers,
-      rows: [[draft.seed.title, "2,5", "u", "12,5", "", "1", "", "1", "100"]],
+      rows: [[draft.seed.title, "2,5", "u", "12,5", "", "1,01", "", "1", "100"]],
     });
     await expect(dialog.getByLabel("Inclure la ligne 2", { exact: true })).toBeChecked();
     await expect(dialog.getByTestId("paste-preview-dialog-confirm-button")).toBeEnabled();
@@ -190,7 +194,7 @@ armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields 
     // V3 rounds VAT once for the full rate group, then allocates its remainder
     // by ascending UUID. A copied row preserves inputs, not the old allocation:
     // 20% of 8206 rounds to 1641, so two independently rounded 821s are wrong.
-    // Both rows carry the 1.01 FO provision of an untyped v3 line (TI-534).
+    // Both rows carry the explicit unified K FO 1.01 (TI-534).
     const byUuid = [...lines].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
     expect(byUuid.map(amounts)).toEqual([[4103, 821, 4924], [4103, 820, 4923]]);
     expect(after.version).toMatchObject({ total_ht_cents: 8206, total_tax_cents: 1641, total_ttc_cents: 9847,
@@ -199,7 +203,7 @@ armyTest("LEGCLIP01 real clipboard Ctrl+C and Ctrl+V preserve all v3 TSV fields 
     await recordEvidence(army, "legacy-clipboard-real-copy", {
       ids: { projectId: draft.projectId, versionId: draft.versionId }, owner: draft.owner, clipboard: "real ControlOrMeta+c then ControlOrMeta+v",
       observedCopy: copied, observedPreview: table, before: draft.before, after, originalId: original.id, copiedId: copiedLine.id,
-      expectedByAscendingUuid: { ids: byUuid.map((item) => item.id), amounts: [[4063, 813, 4876], [4063, 812, 4875]], document: [8126, 1625, 9751] },
+      expectedByAscendingUuid: { ids: byUuid.map((item) => item.id), amounts: [[4103, 821, 4924], [4103, 820, 4923]], document: [8206, 1641, 9847] },
     });
   });
 
@@ -258,8 +262,106 @@ armyTest("LEGCLIP02 duplicate mapping and included invalid rows block paste; exc
     expect(amounts(lines.find((item) => item.id === draft.seed.id)!)).toEqual(amounts(draft.before.items.find((item) => item.id === draft.seed.id)!));
     const pasted = lines.find((item) => item.title === valid)!;
     expect([pasted.quantity, pasted.unit_code, pasted.pricing_status, pasted.unit_price_ht_cents]).toEqual([2, "u", "priced", 12550]);
+    expect(pasted).toMatchObject({ k_fo: 1, k_fo_manual: true, fo_provision: 1 });
     await recordEvidence(army, "legacy-clipboard-mapping-exclusion", {
       ids: { projectId: draft.projectId, versionId: draft.versionId }, input: tsv, preview, before: draft.before, after,
       expected: { inserted: 1, quantity: 2, unit: "u", priceCents: 12550, excludedTitle: invalid, originalId: draft.seed.id },
     });
+  });
+
+
+armyTest("LEGCLIP03 real clipboard preserves the six-decimal precision of a manual K FO", options,
+  async ({ app, browser, screen, army }) => {
+    const ui = { app, browser, screen };
+    const draft = await prepare(ui, army, "précision K FO", 1.073501);
+    const observeCopy = await observeNativeCopy(browser);
+    await screen.getByLabel(`Sélectionner la ligne ${draft.seed.title}`, { exact: true }).check();
+    await browser.keyboard.press("ControlOrMeta+c");
+    await expect.poll(async () => {
+      const copied = await observeCopy();
+      return copied.asyncFulfilled + copied.fallbackSucceeded;
+    }).toBe(1);
+    expect((await observeCopy()).text).toContain("\t1,073501\t");
+    await browser.keyboard.press("Escape");
+    await focusGridCell(ui, draft.seed.id);
+    await browser.keyboard.press("ControlOrMeta+v");
+    const dialog = screen.getByRole("dialog", previewName, { exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Inclure la ligne 2", { exact: true })).toBeChecked();
+    await expect(dialog.getByTestId("paste-preview-dialog-confirm-button")).toBeEnabled();
+    await dialog.getByTestId("paste-preview-dialog-confirm-button").click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items
+      .filter((item) => item.item_type === "line").length).toBe(2);
+    await browser.reload();
+    await expect(screen.getByRole("grid", gridName, { exact: true })).toBeVisible();
+    const after = await readEstimate(browser, draft.versionId);
+    const lines = after.items.filter((item) => item.item_type === "line");
+    expect(lines).toHaveLength(2);
+    expect(lines.map((item) => ({ k_fo: item.k_fo, k_fo_manual: item.k_fo_manual, fo_provision: item.fo_provision })))
+      .toEqual([{ k_fo: 1.073501, k_fo_manual: true, fo_provision: 1 }, { k_fo: 1.073501, k_fo_manual: true, fo_provision: 1 }]);
+    expect(inputs(lines.find((item) => item.id !== draft.seed.id)!)).toEqual(inputs(draft.before.items.find((item) => item.id === draft.seed.id)!));
+    await recordEvidence(army, "clipboard-six-decimal-kfo", { before: draft.before, after });
+  });
+
+
+armyTest("LEGCLIP04 copying a historical effective K FO and a manual one preserves their prices", options,
+  async ({ app, browser, screen, army }) => {
+    const ui = { app, browser, screen };
+    const draft = await prepare(ui, army, "historique K FO", 1);
+    const legacyId = randomUUID();
+    const legacyTitle = `${army.runPrefix} historical supply`;
+    // Owned legacy fixture: the old factors must stay unchanged on the source.
+    await querySql(`select set_config('miaouffrage.estimate_v3_writer','${draft.versionId}',false);
+      insert into public.estimate_items(id,version_id,parent_id,item_type,position,title,quantity,unit_price_ht_cents,k_fo,fo_provision,unit_code,pricing_status,tax_rate_bp,k_mo,h_mo_per_unit,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents)
+      values('${legacyId}','${draft.versionId}','${draft.seed.parent_id}','line',2,'${legacyTitle}',2.5,1250,1.003,1.03,'u','priced',2000,1,0,0,0,0,0);`);
+    const manualTitle = draft.seed.title;
+    await browser.reload();
+    await expect(screen.getByRole("grid", gridName, { exact: true })).toBeVisible();
+    await waitForDraftLease(ui);
+    // Reprice through the ordinary writer; a title-only save intentionally leaves cached money unchanged.
+    const quantity = screen.getByLabel(`Quantité pour ${legacyTitle}`, { exact: true });
+    for (const value of ["2,6", "2,5"]) {
+      await quantity.fill(value);
+      await quantity.press("Tab");
+      await saveLineEditsWithShortcut(ui, draft.versionId, legacyTitle, army);
+      await expect.poll(async () => {
+        const line = (await readEstimate(browser, draft.versionId)).items.find(row => row.id === legacyId)!;
+        return [line.quantity, line.pu_ht_cents, line.line_total_ht_cents];
+      }).toEqual(value === "2,6" ? [2.6, 1679, 4365] : [2.5, 1679, 4198]);
+    }
+    const before = await readEstimate(browser, draft.versionId);
+    expect(before.items.find(row => row.id === legacyId)).toMatchObject({ pu_ht_cents: 1679, line_total_ht_cents: 4198 });
+    expect(before.version).toMatchObject({ total_ht_cents: 8261, total_tax_cents: 1652, total_ttc_cents: 9913 });
+    const observeCopy = await observeNativeCopy(browser);
+    for (const title of [manualTitle, legacyTitle]) await screen.getByLabel(`Sélectionner la ligne ${title}`, { exact: true }).check();
+    await browser.keyboard.press("ControlOrMeta+c");
+    await expect.poll(async () => {
+      const copied = await observeCopy(); return copied.asyncFulfilled + copied.fallbackSucceeded;
+    }).toBe(1);
+    const tsv = (await observeCopy()).text!;
+    expect(tsv.split("\n").find(row => row.startsWith(`${legacyTitle}\t`))?.split("\t")[5]).toBe("1,03309");
+    expect(tsv.split("\n").find(row => row.startsWith(`${manualTitle}\t`))?.split("\t")[5]).toBe("1");
+    await browser.keyboard.press("Escape");
+    await focusGridCell(ui, draft.seed.id);
+    await browser.keyboard.press("ControlOrMeta+v");
+    const dialog = screen.getByRole("dialog", previewName, { exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("paste-preview-dialog-confirm-button")).toBeEnabled();
+    await dialog.getByTestId("paste-preview-dialog-confirm-button").click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.filter(row => row.item_type === "line").length).toBe(4);
+    await browser.reload();
+    await expect(screen.getByRole("grid", gridName, { exact: true })).toBeVisible();
+    const after = await readEstimate(browser, draft.versionId);
+    expect(after.items.find(row => row.id === legacyId)).toMatchObject({ k_fo: 1.003, fo_provision: 1.03, k_fo_manual: null });
+    for (const [title, id, kfo] of [[manualTitle, draft.seed.id, 1], [legacyTitle, legacyId, 1.03309]] as const) {
+      const source = before.items.find(row => row.id === id)!;
+      const copied = after.items.find(row => row.item_type === "line" && row.title === title && row.id !== id)!;
+      expect(copied).toMatchObject({ k_fo: kfo, fo_provision: 1, k_fo_manual: true,
+        quantity: source.quantity, unit_price_ht_cents: source.unit_price_ht_cents,
+        pu_ht_cents: source.pu_ht_cents, line_total_ht_cents: source.line_total_ht_cents });
+    }
+    expect(after.version.total_ht_cents).toBe(before.version.total_ht_cents * 2);
+    await recordEvidence(army, "clipboard-historical-and-neutral-kfo", { before, after, tsv });
   });

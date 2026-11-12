@@ -1,3 +1,4 @@
+import { isKitSection, kitComponentIds } from "@/lib/estimates/kit-presentation";
 import {
   EMPTY_SECTION_TOTALS,
   type EstimateDocumentRow,
@@ -83,7 +84,7 @@ function EstimateDocumentSectionRow({
       : layout.density === "comfortable"
         ? "py-3.5"
         : "py-2.5";
-  const subtotal = layout.showSectionSubtotals ? totals : null;
+  const subtotal = layout.showSectionSubtotals || isKitSection(item) ? totals : null;
 
   return (
     <tr className={sectionRowClassName}>
@@ -205,9 +206,10 @@ export function EstimateDocumentTableRows({
   layout,
   v3LinesById,
 }: EstimateDocumentTableRowsProps) {
+  const hiddenKitComponents = kitComponentIds(rows.map(row => row.item));
   return (
     <>
-      {rows.map(({ item, depth }) =>
+      {rows.filter(({ item }) => !hiddenKitComponents.has(item.id)).map(({ item, depth }) =>
         item.item_type === "section" ? (
           <EstimateDocumentSectionRow
             key={item.id}

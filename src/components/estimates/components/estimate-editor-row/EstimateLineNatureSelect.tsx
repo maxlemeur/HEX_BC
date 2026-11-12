@@ -26,8 +26,8 @@ type EstimateLineNatureSelectProps = {
 
 const COMPACT_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
   supply_only: "Fournitures",
-  supply_and_labor: "Fournitures + MO",
-  labor_only: "Main-d’œuvre",
+  supply_and_labor: "Fournitures + pose",
+  labor_only: "Pose",
   pose_only: POSE_ONLY_MENTION,
 };
 
@@ -40,8 +40,9 @@ export function EstimateLineNatureSelect({
   const selectedNature = resolveEstimateLineNature(item);
   const printsPoseOnly = useEstimateV3Grid() !== null;
   const descriptionId = `estimate-line-nature-description-${item.id}`;
-  const fullLabel = ESTIMATE_LINE_NATURE_LABELS[selectedNature];
-  const compactLabel = COMPACT_LINE_NATURE_LABELS[selectedNature];
+  const needsChoice = printsPoseOnly && selectedNature === "labor_only" && !isReadOnly;
+  const fullLabel = needsChoice ? "Choisir la nature" : ESTIMATE_LINE_NATURE_LABELS[selectedNature];
+  const compactLabel = needsChoice ? "Choisir la nature" : COMPACT_LINE_NATURE_LABELS[selectedNature];
   const lineLabel = item.title || "sans titre";
 
   if (isReadOnly) {
@@ -94,6 +95,7 @@ export function EstimateLineNatureSelect({
           )
         }
       >
+        {needsChoice ? <option value="labor_only" hidden disabled>Choisir la nature</option> : null}
         {selectableEstimateLineNatures({ printsPoseOnly, current: selectedNature }).map((nature) => (
           <option key={nature} value={nature}>
             {ESTIMATE_LINE_NATURE_LABELS[nature]}
@@ -102,7 +104,7 @@ export function EstimateLineNatureSelect({
       </select>
       <span hidden id={descriptionId}>
         La désignation reste libre. La nature détermine les données de
-        fournitures et de main-d’œuvre attendues avant publication.
+        fournitures et de pose attendues avant publication. Le choix POSE SEULE ajoute cette mention sur le devis.
       </span>
     </label>
   );

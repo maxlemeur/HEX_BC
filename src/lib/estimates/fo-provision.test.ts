@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_FO_PROVISION,
+  automaticKfoRefreshPatches,
+  projectUnifiedKfo,
+  unifiedKfoValue,
   deriveFoProvision,
   foProvisionsBySupplyType,
   supplyTypeChanged,
@@ -9,6 +12,9 @@ import {
   withRederivedFoProvision,
   withServerFoProvisions,
 } from "@/lib/estimates/fo-provision";
+
+import { computeEstimateV3Breakdown } from "@/lib/estimates/engine-v3";
+import { supplyLineInput } from "@/lib/estimates/engine-v3/oracle.fixtures";
 
 const TUBE = "8f9a1b2c-0000-4000-8000-000000000041";
 const RACCORD = "8f9a1b2c-0000-4000-8000-000000000042";
@@ -114,3 +120,95 @@ describe("TI-534 FO provision mirror", () => {
       .toEqual(new Map([[TUBE, 1.03]]));
   });
 });
+
+describe("unified K FO and changed preferences", () => {
+  const current = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13, user_fo_coefficient: 1.15 }]);
+  it("preserves a stored automatic coefficient on quantity-only edits until explicit refresh", () => {
+    const before = { supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false, fo_provision: 1, quantity: 2 };
+    expect(projectUnifiedKfo({ ...before, quantity: 3 }, current, before)).toMatchObject({ k_fo: 1.13, quantity: 3 });
+    expect(projectUnifiedKfo({ ...before, k_fo: 1.15 }, current, before)).toMatchObject({ k_fo: 1.15, k_fo_manual: false });
+  });
+  it("preserves unknown legacy neutrality and folds legacy provision only on a pricing edit", () => {
+    const before = { supply_type_id: TUBE, k_fo: 1, k_fo_manual: null, fo_provision: 1.03, unit_price_ht_cents: 100 };
+    expect(projectUnifiedKfo({ ...before }, current, before)).toMatchObject({ k_fo: 1, k_fo_manual: null, fo_provision: 1.03 });
+    expect(projectUnifiedKfo({ ...before, unit_price_ht_cents: 200 }, current, before)).toMatchObject({ k_fo: 1.03, k_fo_manual: true, fo_provision: 1 });
+    expect(projectUnifiedKfo({ ...before, k_fo: 1, k_fo_manual: true }, current, before)).toMatchObject({ k_fo: 1, k_fo_manual: true, fo_provision: 1 });
+  });
+});
+
+it("reconciles an automatic server K FO without overwriting a pending manual input", () => {
+  const automatic = { id: "line", item_type: "line", supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false, fo_provision: 1 };
+  const result = [{ op: "update", index: 0, status: "ok", data: { item: { ...automatic, k_fo: 1.15 } } }] as Parameters<typeof withServerFoProvisions>[1];
+  expect(withServerFoProvisions([automatic], result)[0].k_fo).toBe(1.15);
+  const pending = { ...automatic, k_fo: 1.0735, k_fo_manual: true };
+  expect(withServerFoProvisions([pending], result)[0]).toMatchObject({ k_fo: 1.0735, k_fo_manual: true });
+});
+
+it("keeps custom and personal unified coefficients authoritative for included transport", () => {
+  const included = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "reference", source_id: TUBE, transport_mode: "included" };
+  const map = new Map([[TUBE, { value: 1.0735, transportSensitive: true, unified: true, tube: true }]]);
+  expect(unifiedKfoValue(TUBE, map, included)).toBe(1.0735);
+  expect(unifiedKfoValue(null, map, included)).toBe(1.02);
+  map.set(TUBE, { value: 0.95, transportSensitive: true, unified: true, tube: true });
+  expect(unifiedKfoValue(TUBE, map, included)).toBe(0.95);
+  expect(unifiedKfoValue(TUBE, new Map([[TUBE, { value: 1.13, transportSensitive: true, unified: true, tube: true, user: 0 }]]), included)).toBe(0);
+});
+
+it("reconciles an automatic K FO from a compact neutral-provision receipt", () => {
+  const item = { id: "line-1", item_type: "line", supply_type_id: TUBE, k_fo: 1.1, k_fo_manual: false, fo_provision: 1 };
+  const results = [{ index: 0, op: "update" as const, status: "ok" as const,
+    data: { item: { id: item.id, supply_type_id: TUBE, k_fo: 1.13, k_fo_manual: false } } }];
+  expect(withServerFoProvisions([item], results, true)[0]).toMatchObject({ k_fo: 1.13, fo_provision: 1 });
+});
+
+// POSE SEULE storage/UI is supplied by TI-539/TI-541. Exercise its pricing
+// projection now without inventing that missing enum in the current database.
+describe("Maxime 11/11 — configurable K FO and POSE SEULE", () => {
+  const bases = foProvisionsBySupplyType([
+    { id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13 },
+    { id: RACCORD, code: "robinet", name: "Robinet", default_fo_provision: 1.02 },
+  ]);
+  it.each([
+    ["Tube fonte Ø100", TUBE, "supply_and_labor", 14243, 1.13, 16095],
+    ["Robinet DN 25", RACCORD, "supply_only", 5843, 1.02, 5960],
+    ["Pose seule WC avec supportage", TUBE, "pose_only", 17550, 1, 17550],
+  ] as const)("applies the validated pre-margin amount for %s", (_label, typeId, nature, purchase, coefficient, expected) => {
+    const projected = projectUnifiedKfo({ supply_type_id: typeId, line_nature: nature, k_fo: 1, k_fo_manual: false }, bases);
+    expect(projected.k_fo).toBe(coefficient);
+    const input = supplyLineInput(1, purchase, 1);
+    Object.assign(input.items[0], { k_fo: projected.k_fo, fo_provision: projected.fo_provision });
+    expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(expected);
+  });
+  it("uses a changed tube setting while POSE SEULE remains neutral despite its supply family", () => {
+    const settings = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.2, user_fo_coefficient: 1.25 }]);
+    const automatic = { id: "tube", item_type: "line", supply_type_id: TUBE, line_nature: "supply_and_labor", k_fo: 1.13, k_fo_manual: false, fo_provision: 1 };
+    const pose = { ...automatic, id: "pose", line_nature: "pose_only" };
+    expect(automaticKfoRefreshPatches([automatic, pose, { ...pose, id: "manual", k_fo: 1.05, k_fo_manual: true }], settings))
+      .toEqual([{ id: "tube", patch: { k_fo: 1.25, k_fo_manual: false } }, { id: "pose", patch: { k_fo: 1, k_fo_manual: false } }]);
+    const changed = projectUnifiedKfo(pose, settings, automatic);
+    expect(changed).toMatchObject({ k_fo: 1, k_fo_manual: false });
+    expect(projectUnifiedKfo({ ...changed, line_nature: "supply_and_labor" }, settings, changed)).toMatchObject({ k_fo: 1.25 });
+    expect(projectUnifiedKfo({ ...pose, k_fo: 1.05, k_fo_manual: true }, settings)).toMatchObject({ k_fo: 1.05 });
+    const company = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.2 }]);
+    expect(unifiedKfoValue(TUBE, company)).toBe(1.2);
+  });
+});
+
+it("leaves WC labour unchanged when its small supply coefficient is overridden", () => {
+  const settings = foProvisionsBySupplyType([{ id: TUBE, code: "tube", name: "Tube", default_fo_provision: 1.13 }]);
+  const row = { supply_type_id: TUBE, line_nature: "pose_only", k_fo: 1, k_fo_manual: false };
+  const input = supplyLineInput(1, 350, 1, { sale_coefficient_mo: 1 });
+  Object.assign(input.items[0], projectUnifiedKfo(row, settings), { h_mo_per_unit: 1, labor_rate_cents: 17200 });
+  expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(17550);
+  Object.assign(input.items[0], projectUnifiedKfo({ ...row, k_fo: 1.1, k_fo_manual: true }, settings));
+  expect(computeEstimateV3Breakdown(input).lines[0].pu_ht_cents).toBe(17585);
+});
+
+// A pricing edit of a historical two-factor line must match SQL round(product,6),
+// including floating-point noise and a real half-up boundary.
+it.each([[1.003, 1.03, 1.03309], [1.13625, 1.03, 1.170338]])(
+  "folds legacy K FO %s and provision %s to the stored six-decimal value", (kFo, provision, expected) => {
+    const before = { supply_type_id: TUBE, k_fo: kFo, k_fo_manual: null, fo_provision: provision, unit_price_ht_cents: 10000 };
+    const updated = projectUnifiedKfo({ ...before, unit_price_ht_cents: 11000 }, new Map(), before);
+    expect(updated).toMatchObject({ k_fo: expected, k_fo_manual: true, fo_provision: 1 });
+  });

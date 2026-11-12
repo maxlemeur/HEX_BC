@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Textarea } from "@/components/ui/textarea";
 import { fetchMaterialRequestFileBlob } from "@/lib/material-requests/client";
 import {
-  MATERIAL_REQUEST_FILE_MIME_TYPES,
+  MATERIAL_REQUEST_PICKER_ACCEPT,
   MATERIAL_REQUEST_MAX_FILES,
   MATERIAL_REQUEST_MAX_LINES,
   MATERIAL_REQUEST_SOURCE_TEXT_MAX,
@@ -166,7 +166,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
             type="file"
             multiple
             hidden
-            accept={MATERIAL_REQUEST_FILE_MIME_TYPES.join(",")}
+            accept={MATERIAL_REQUEST_PICKER_ACCEPT}
             aria-label="Photos à ajouter"
             disabled={progress !== null}
             onChange={(event) => {

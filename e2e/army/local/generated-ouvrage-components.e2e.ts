@@ -62,6 +62,14 @@ async function inspectLibraryProvenanceUi(ui: Ui, p: PreparedComponents, version
   const before = await readEstimate(ui.browser, versionId), ordinaryBefore = await p.versionRows(versionId), observations = [];
   for (const line of before.items.filter((item) => item.item_type === "line")) {
     const row = ui.browser.locator(`[data-estimate-item-id="${line.id}"]`);
+    const parent = before.items.find(item => item.id === line.parent_id);
+    if ((parent?.source_metadata as { kit_metier?: boolean } | null)?.kit_metier === true) {
+      // Kit components retain their stored provenance, but are intentionally absent from the editor.
+      await expect(row).toHaveCount(0);
+      expect(line.source_metadata).toMatchObject({ kind: "assembly_library" });
+      observations.push({ lineId: line.id, hiddenKitComponent: true });
+      continue;
+    }
     await row.getByTestId("estimate-line-more-trigger").click();
     const menu = ui.browser.locator(".estimate-line-more__menu"); await expect(menu).toHaveCount(1); await expect(menu).toBeVisible();
     const truth = ui.browser.locator(".estimate-line-more__menu .estimate-line-more__state .estimate-line-truth__badge");

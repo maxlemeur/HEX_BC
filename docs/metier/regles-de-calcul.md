@@ -74,35 +74,63 @@ brut_ligne = arrondi(Q × PU_vente)
 déboursé_ligne = arrondi(Q × (FO_unitaire + MO_unitaire))
 ```
 
-La **provision FO** (TI-534 : pertes, chutes, transport des tubes) est stockée
-sur la ligne (`estimate_items.fo_provision`, 3 décimales, entre 1 et 2). Une ligne
-v3 la reçoit à sa création depuis son type FO (`supply_types.default_fo_provision`) :
-1,030 pour les types FO Tube, Calorifuge et Isolant (valeurs posées par la
-migration), 1,010 pour tout autre type, pour un type créé ensuite et pour une
-ligne sans type. Une offre ou référence dont le transport est inclus donne
-1,010 aux tubes, calorifuges et isolants. Le prix choisi conserve sur la ligne
-sa provenance et son traitement du transport (`fo_price_origin`) : une mise à
-jour ultérieure du catalogue ne le remplace pas. Le Type FO est prérempli par
-le type de produit déclaré, indépendamment du matériau ; Isolant prend d'abord
-le type exact, puis Calorifuge si celui-ci est seul disponible. Une famille
-absente ou ambiguë reste à préciser, avec un avertissement non bloquant.
+Le **K FO unique** (TI-534) intègre les pertes, le transport et l’ajustement de
+volume ; l’utilisateur peut y intégrer d’autres éléments prévus pour son
+chiffrage. Les nouvelles lignes v3 portent `fo_provision = 1` : aucun second
+coefficient visible ne double ces frais. Les bases entreprise initiales, paramétrables par type de fourniture, sont 1,13 pour les
+tubes (10 % de pertes + 3 % de transport), 1,02 pour les autres familles et
+les lignes sans type. Les pertes des tubes ne se reportent pas aux raccords,
+supports ou calorifuges. La préférence du propriétaire de l’affaire remplace
+la base entreprise ; une saisie manuelle sur la ligne est prioritaire, même
+si elle vaut 1. La provenance est persistée dans `k_fo_manual`.
 
-Changer le Type FO, choisir un prix ou remplacer le coût à la main redérive
-la provision concernée. Un prix manuel ou repris d'un autre devis perd l'ancienne
-preuve de transport, même si le lien produit reste présent. Sauvegarde,
-réouverture, duplication et copie ne cumulent jamais la provision. Une copie de
-section conserve le snapshot de transport de sa source, ainsi que son absence
-connue ; une duplication de version conserve aussi la provision exacte. Modifier la valeur d'un type ne change aucune ligne
-existante. Les lignes antérieures, les sections et les lignes v1/v2 gardent 1,000 :
-aucun montant existant ne change. Le déclencheur
-`private.derive_estimate_item_fo_provision` pose la valeur ; les projections
-calculées avant l'écriture (lot, création atomique, création de devis, éditeur)
-appliquent le même miroir ([fo-provision.ts](../../src/lib/estimates/fo-provision.ts)).
-La provision fait partie de l'entrée canonique et du gel ; elle figure dans les
-exports DPGF (« Données ») et CSV, avant K FO. La colonne « Transport FO »
-indique les conditions enregistrées du prix choisi. Le contrôle D11 de l'import
-compare le PU du classeur à la lecture de ses colonnes, avant provision : il
-vérifie l'interprétation du fichier, pas le prix créé.
+**POSE SEULE** (`line_nature = 'pose_only'`, TI-539/TI-541) : le K FO
+initial automatique vaut **1**, sans pertes ni transport, y compris avec une
+petite fourniture de supportage. Ce défaut neutre prime sur la base de famille
+et la préférence utilisateur ; un choix manuel sur la ligne reste prioritaire.
+Le nom reste **K FO**. La transition vers/depuis POSE SEULE et l’actualisation
+des lignes automatiques doivent respecter cette règle.
+
+Exemples de fourniture validés par Maxime le 11/11/2026, avant marge et
+arrondis au centime : tube fonte Ø100 **142,43 × 1,13 = 160,95 €** ;
+robinet DN 25 **58,43 × 1,02 = 59,60 €** ; pose seule WC
+**175,50 × 1 = 175,50 €**. Le 1,13 est une base configurée, pas un
+coefficient imposé au calcul quand le réglage du type de fourniture change.
+
+Le volume est intégré dans ce coefficient : 1,13 × 0,90 = 1,017 et
+1,13 × 0,95 = 1,0735. K FO conserve jusqu’à six décimales. Les pertes portent
+sur la quantité arrondie : 100,40 m → 101 m → 111,10 m avec 10 % de pertes.
+Cette dernière quantité reste interne ; la quantité facturée ne reçoit pas
+les pertes. K FO ajuste uniquement la fourniture, avant marge.
+
+« Actualiser les K FO automatiques » applique les bases courantes aux lignes
+automatiques du brouillon. Les coefficients manuels restent conservés.
+Les anciennes lignes dont la provenance est inconnue sont conservées par
+prudence, y compris un coefficient neutre ; elles ne sont pas sélectionnées
+par cette actualisation. Leur ancien produit K FO × provision reste affiché
+comme un seul coefficient. La saisie explicite d’un nouveau K FO le remplace.
+Les devis émis/scellés, leurs snapshots et leurs moteurs restent inchangés.
+
+Les réglages se trouvent dans le profil : base entreprise administrateur et
+préférence personnelle. Pour une affaire partagée, la préférence utilisée
+est celle du propriétaire, quel que soit le collaborateur qui la modifie.
+Le prix choisi conserve sa provenance et son traitement du transport
+(`fo_price_origin`) : une mise à jour du catalogue ne remplace pas ce snapshot.
+Un prix dont le transport est inclus ne le recompte pas ; ce cas reste
+secondaire. Une copie de section conserve le snapshot de transport et son
+absence connue ; la duplication d’une version conserve ses valeurs exactes.
+
+Un **kit métier** est un ensemble d’articles et de quantités prédéfinies.
+Chaque composant conserve son calcul et sa famille, mais sa décomposition
+reste masquée dans le chiffrage et les documents client. Le total du kit
+reste visible. Les assemblages insérés portent `source_metadata.kit_metier`.
+Les exports de données internes conservent les composants.
+
+Les projections TypeScript et le déclencheur SQL appliquent le même contrat
+([fo-provision.ts](../../src/lib/estimates/fo-provision.ts)). Les exports de
+données et CSV affichent un seul K FO, y compris pour les anciennes lignes.
+Le contrôle D11 d’import compare les colonnes du classeur avant application
+des paramètres courants ; il vérifie l’interprétation du fichier.
 
 **Coût chantier** (TI-541) : une offre négociée pour un chantier se saisit sur la
 ligne du devis, depuis son menu « … », avec sa source : fournisseur, référence de

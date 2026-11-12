@@ -80,6 +80,7 @@ type EstimateItemPatchKeys =
   | "unit_price_ht_cents"
   | "tax_rate_bp"
   | "k_fo"
+  | "k_fo_manual"
   | "h_mo"
   | "h_mo_majoration"
   | "k_mo"

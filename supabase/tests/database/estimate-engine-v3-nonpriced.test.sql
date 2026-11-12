@@ -1,3 +1,4 @@
+-- TI-534: expected prices use the current untyped supply coefficient 1.02.
 -- Lot 2, sous-lot 2.5 : ligne v3 non chiffrée (D9, 2.4 R-08, décisions d'implémentation de M4).
 -- Contrat : docs/testing/estimate-engine-v3-2.5.md, « Implémentation SQL (M4) », F25-21 et F25-22.
 -- Écrite rouge avant M4 (mêmes sondes que estimate-engine-v3-persistence.test.sql : chaque
@@ -80,10 +81,10 @@ as $$
     (select tenant_id from np_fx),
     'a3260000-0000-4000-8000-000000000001',
     'a3260000-0000-4000-8000-000000000010',
-    '{"id":"a3260000-0000-4000-8000-000000000100","title":"Non chiffrée","date_devis":"2026-10-17","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_amount_cents":null,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"contractor_role":"principal","calc_engine_version":3,"sale_coefficient_fo":1.30,"sale_coefficient_mo":1.20,"gross_ht_cents":1313,"discount_applied_cents":0,"commercial_rounding_cents":0,"total_ht_cents":1313,"total_tax_cents":263,"total_ttc_cents":1576}'::jsonb,
+    '{"id":"a3260000-0000-4000-8000-000000000100","title":"Non chiffrée","date_devis":"2026-10-17","validite_jours":30,"margin_multiplier":1,"margin_mode":"fixed","currency":"EUR","margin_bp":0,"discount_bp":0,"discount_amount_cents":null,"discount_mode":"simple","discount_steps":[],"global_coefficient":1,"tax_rate_bp":2000,"rounding_mode":"none","rounding_step_cents":1,"max_section_depth":3,"contractor_role":"principal","calc_engine_version":3,"sale_coefficient_fo":1.30,"sale_coefficient_mo":1.20,"gross_ht_cents":1326,"discount_applied_cents":0,"commercial_rounding_cents":0,"total_ht_cents":1326,"total_tax_cents":265,"total_ttc_cents":1591}'::jsonb,
     jsonb_build_array(
       '{"id":"a3260000-0000-4000-8001-000000000100","parent_id":null,"item_type":"section","position":1,"title":"Lot"}'::jsonb,
-      '{"id":"a3260000-0000-4000-8001-000000000101","parent_id":"a3260000-0000-4000-8001-000000000100","item_type":"line","position":1,"title":"Chiffrée","quantity":1,"unit_price_ht_cents":1000,"tax_rate_bp":2000,"k_fo":1,"h_mo_majoration":1,"k_mo":1,"h_mo_per_unit":0,"unit_code":"u","pricing_status":"priced","pu_ht_cents":1313,"line_total_ht_cents":1313,"line_tax_cents":263,"line_total_ttc_cents":1576}'::jsonb || p_priced,
+      '{"id":"a3260000-0000-4000-8001-000000000101","parent_id":"a3260000-0000-4000-8001-000000000100","item_type":"line","position":1,"title":"Chiffrée","quantity":1,"unit_price_ht_cents":1000,"tax_rate_bp":2000,"k_fo":1,"h_mo_majoration":1,"k_mo":1,"h_mo_per_unit":0,"unit_code":"u","pricing_status":"priced","pu_ht_cents":1326,"line_total_ht_cents":1326,"line_tax_cents":265,"line_total_ttc_cents":1591}'::jsonb || p_priced,
       '{"id":"a3260000-0000-4000-8001-000000000102","parent_id":"a3260000-0000-4000-8001-000000000100","item_type":"line","position":2,"title":"Incluse","quantity":3,"unit_price_ht_cents":1000,"tax_rate_bp":2000,"k_fo":1,"h_mo_majoration":1,"k_mo":1,"h_mo_per_unit":2,"labor_role_id":"a3260000-0000-4000-8000-000000000020","unit_code":"u","pricing_status":"included","pu_ht_cents":null,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}'::jsonb
         || p_nonpriced
     )
@@ -107,7 +108,7 @@ select is(
     join public.estimate_versions version on version.id = item.version_id
     where item.id = 'a3260000-0000-4000-8001-000000000102'
   $a$),
-  'ok:included|null|0.000|0|0|1313|1313',
+  'ok:included|null|0.000|0|0|1326|1326',
   'F25-21 a non-priced v3 line stores no PU, h_mo 0.000 (hours per unit kept), zero amounts, and stays out of the gross'
 );
 
@@ -133,7 +134,7 @@ select is(
       ),
       pg_temp.np_create_sql(
         '{"line_total_ht_cents":1,"line_total_ttc_cents":1}'::jsonb,
-        '{"line_total_ht_cents":1312,"line_total_ttc_cents":1575}'::jsonb
+        '{"line_total_ht_cents":1325,"line_total_ttc_cents":1590}'::jsonb
       )
     ])
   ],
@@ -159,10 +160,10 @@ select is(
       'a3260000-0000-4000-8000-000000000100',
       (select tenant_id from np_fx),
       'a3260000-0000-4000-8000-000000000001',
-      '{"engine":3,"labor_split_enabled":false,"labor_roles":[{"id":"a3260000-0000-4000-8000-000000000020","hourly_rate_cents":4000}],"sale_coefficients":{"fo":1.3,"mo":1.2},"discount":{"kind":"none","requested_cents":null,"rate_bp":null,"base_cents":1313,"applied_cents":0},"commercial_rounding":{"mode":"none","step_cents":1,"applied_cents":0},"cost_subtotal_cents":1010,"realized_sale_coefficient":1.3,"tax_breakdown":[{"rate_bp":2000,"base_cents":1313,"tax_cents":263}]}',
-      '[{"id":"a3260000-0000-4000-8001-000000000101","snapshot_pu_ht_cents":1313,"snapshot_gross_ht_cents":1313,"snapshot_gross_fo_ht_cents":1313,"snapshot_fo_ht_cents":1313,"snapshot_mo_ht_cents":0,"snapshot_mo_atelier_ht_cents":0,"snapshot_mo_chantier_ht_cents":0,"line_total_ht_cents":1313,"line_tax_cents":263,"line_total_ttc_cents":1576},'
+      '{"engine":3,"labor_split_enabled":false,"labor_roles":[{"id":"a3260000-0000-4000-8000-000000000020","hourly_rate_cents":4000}],"sale_coefficients":{"fo":1.3,"mo":1.2},"discount":{"kind":"none","requested_cents":null,"rate_bp":null,"base_cents":1326,"applied_cents":0},"commercial_rounding":{"mode":"none","step_cents":1,"applied_cents":0},"cost_subtotal_cents":1020,"realized_sale_coefficient":1.3,"tax_breakdown":[{"rate_bp":2000,"base_cents":1326,"tax_cents":265}]}',
+      '[{"id":"a3260000-0000-4000-8001-000000000101","snapshot_pu_ht_cents":1326,"snapshot_gross_ht_cents":1326,"snapshot_gross_fo_ht_cents":1326,"snapshot_fo_ht_cents":1326,"snapshot_mo_ht_cents":0,"snapshot_mo_atelier_ht_cents":0,"snapshot_mo_chantier_ht_cents":0,"line_total_ht_cents":1326,"line_tax_cents":265,"line_total_ttc_cents":1591},'
         '{"id":"a3260000-0000-4000-8001-000000000102","snapshot_pu_ht_cents":null,"snapshot_gross_ht_cents":0,"snapshot_gross_fo_ht_cents":0,"snapshot_fo_ht_cents":0,"snapshot_mo_ht_cents":0,"snapshot_mo_atelier_ht_cents":0,"snapshot_mo_chantier_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]',
-      '{"gross_ht_cents":1313,"discount_applied_cents":0,"commercial_rounding_cents":0,"total_ht_cents":1313,"total_tax_cents":263,"total_ttc_cents":1576,"rounding_adjustment_cents":0}'
+      '{"gross_ht_cents":1326,"discount_applied_cents":0,"commercial_rounding_cents":0,"total_ht_cents":1326,"total_tax_cents":265,"total_ttc_cents":1591,"rounding_adjustment_cents":0}'
     )
   ], $a$
     select concat_ws('|', (version.calc_snapshot_content_revision = version.content_revision)::text,

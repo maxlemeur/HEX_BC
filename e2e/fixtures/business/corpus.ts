@@ -14,8 +14,8 @@ type Lot = {
 
 /**
  * Public inputs always exist in a fresh clone. Private replay is an explicit separate campaign.
- * The sums are those of the imported v3 (IO01, IO03): TI-534 gives every imported line the FO provision 1,01 (no
- * supply type), so the public ones are the README's integer oracle with PR FO × 101/100. The private ones predate
+ * The sums are those of the imported v3 (IO01, IO03): TI-534 gives every automatic imported line the unified K FO 1,02 (no
+ * supply type), so the public ones are the README's integer oracle with PR FO × 102/100. The private ones predate
  * TI-534 and must be replayed with the originals before a private campaign.
  */
 export function businessCorpus() {
@@ -30,18 +30,18 @@ export function businessCorpus() {
     lots: {
       HYDRAULIQUE: lot("HYDRAULIQUE", {
         priced: 785,
-        sumAtWorkbookCoefficientsCents: mode === "public" ? 7_176_891 : 164_420_761,
-        sumAtOfferCoefficientsCents: mode === "public" ? 6_745_141 : 157_232_099,
-        costCents: mode === "public" ? 5_520_631 : 126_474_907,
-        realizedSaleCoefficient: mode === "public" ? "1.221806" : "1.243188",
+        sumAtWorkbookCoefficientsCents: mode === "public" ? 7_192_374 : 164_420_761,
+        sumAtOfferCoefficientsCents: mode === "public" ? 6_760_624 : 157_232_099,
+        costCents: mode === "public" ? 5_532_521 : 126_474_907,
+        realizedSaleCoefficient: mode === "public" ? "1.221979" : "1.243188",
         statuses: { out_of_scope: 61, included: 10, not_priced: 7, for_memory: 1 },
       }),
       PLOMBERIE: lot("PLOMBERIE", {
         priced: 656,
-        sumAtWorkbookCoefficientsCents: mode === "public" ? 5_987_528 : 102_765_561,
-        sumAtOfferCoefficientsCents: mode === "public" ? 5_627_228 : 98_188_792,
-        costCents: mode === "public" ? 4_605_747 : 79_049_005,
-        realizedSaleCoefficient: mode === "public" ? "1.221784" : "1.242126",
+        sumAtWorkbookCoefficientsCents: mode === "public" ? 6_000_428 : 102_765_561,
+        sumAtOfferCoefficientsCents: mode === "public" ? 5_640_128 : 98_188_792,
+        costCents: mode === "public" ? 4_615_652 : 79_049_005,
+        realizedSaleCoefficient: mode === "public" ? "1.221957" : "1.242126",
         statuses: { out_of_scope: 74, not_priced: 4, not_applicable: 3, for_memory: 1 },
       }),
     },

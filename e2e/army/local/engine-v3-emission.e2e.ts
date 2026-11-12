@@ -583,7 +583,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await app.open("/dashboard/affaires");
       await expectOfferGuardInstalled(record);
       const ids = await createV3(browser, army, record, "V3M05");
-      // 1 u, PR FO 10,00 €, provision FO 1,01, c_FO 1,30 : PU 13,13 €, HT 13,13 €, TVA 20 % 2,63 €, TTC 15,76 € (sous toute
+      // TI-534: pin the manual K FO of this document oracle instead of using the configurable automatic default.
+      // 1 u, PR FO 10,00 €, K FO 1,01, c_FO 1,30 : PU 13,13 €, HT 13,13 €, TVA 20 % 2,63 €, TTC 15,76 € (sous toute
       // règle d'approbation).
       const settled = await settleOneLineV3(browser, army, record, "V3M05", ids, { unitCode: "u", pricingStatus: "priced" });
       expect([settled.version.total_ht_cents, settled.version.total_tax_cents, settled.version.total_ttc_cents]).toEqual([1313, 263, 1576]);

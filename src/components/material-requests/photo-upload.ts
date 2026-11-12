@@ -13,14 +13,19 @@ import {
 } from "@/lib/material-requests/contracts";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
+import { convertHeicToJpeg, isHeicPhoto } from "./heic-to-jpeg";
+
 /**
  * Sending the photos of an original (TI-690). The application never carries the bytes: the server
  * prepares one signed upload per photo, the browser sends each photo to storage itself, and the server
  * then checks what arrived. A photo is listed on the request only after that last answer; anything
  * short of it leaves no photo behind, and the operator is told so.
+ * A HEIC photo (iPhone) is converted to JPEG in the browser first: the JPEG is what is announced, sent
+ * and kept.
  */
 
 export type PhotoUploadStep =
+  | { step: "converting"; index: number; total: number; fileName: string }
   | { step: "preparing"; total: number }
   | { step: "sending"; index: number; total: number; fileName: string }
   | { step: "checking"; total: number };
@@ -33,6 +38,11 @@ const NOTHING_KEPT = "Aucune photo n’a été gardée : vous pouvez réessayer.
 
 /** Where the upload is, in words the operator reads while it runs. */
 export function photoUploadStepLabel(progress: PhotoUploadStep): string {
+  if (progress.step === "converting") {
+    return progress.total > 1
+      ? `Conversion en JPEG de la photo ${progress.index} sur ${progress.total} : ${progress.fileName}…`
+      : `Conversion en JPEG de la photo ${progress.fileName}…`;
+  }
   if (progress.step === "preparing") return "Préparation de l’envoi…";
   if (progress.step === "sending") {
     return `Envoi de la photo ${progress.index} sur ${progress.total} : ${progress.fileName}…`;
@@ -58,7 +68,7 @@ function rejectionMessage(
 export async function uploadMaterialRequestPhotos({
   projectId,
   requestId,
-  files,
+  files: picked,
   onStep,
   signal,
 }: {
@@ -72,6 +82,35 @@ export async function uploadMaterialRequestPhotos({
    */
   signal?: AbortSignal;
 }): Promise<PhotoUploadResult> {
+  const abandoned: PhotoUploadResult = {
+    ok: false,
+    abandoned: true,
+    message: "Envoi interrompu. Aucune photo n’a été gardée.",
+  };
+
+  // HEIC photos first, one after the other (a 12-megapixel photo takes a moment and a lot of memory).
+  // A photo that cannot be converted stops the batch before anything is prepared: a batch is all or nothing.
+  const heicCount = picked.filter(isHeicPhoto).length;
+  const files: File[] = [];
+  let converted = 0;
+  for (const file of picked) {
+    if (!isHeicPhoto(file)) {
+      files.push(file);
+      continue;
+    }
+    converted += 1;
+    onStep?.({ step: "converting", index: converted, total: heicCount, fileName: file.name });
+    try {
+      files.push(await convertHeicToJpeg(file));
+    } catch {
+      return {
+        ok: false,
+        message: `« ${file.name} » n’a pas pu être convertie en JPEG. Aucune photo n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.`,
+      };
+    }
+    if (signal?.aborted) return abandoned;
+  }
+
   const total = files.length;
   onStep?.({ step: "preparing", total });
 
@@ -89,11 +128,6 @@ export async function uploadMaterialRequestPhotos({
   const ids = uploads.map((upload) => upload.file.id);
   const discardAll = () =>
     Promise.all(ids.map((id) => discardPreparedMaterialRequestFile(projectId, requestId, id)));
-  const abandoned: PhotoUploadResult = {
-    ok: false,
-    abandoned: true,
-    message: "Envoi interrompu. Aucune photo n’a été gardée.",
-  };
 
   let settled = false;
   const left = () => signal?.aborted === true;

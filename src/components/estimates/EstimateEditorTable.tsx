@@ -1,5 +1,6 @@
 "use client";
 
+import { foProvisionsBySupplyType, automaticKfoRefreshPatches } from "@/lib/estimates/fo-provision";
 import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 
 import dynamic from "next/dynamic";
@@ -713,8 +714,10 @@ export function resolveEstimateEditorGridStyle(
   isLaborSplitEnabled: boolean,
   customWidths: Readonly<EstimateColumnWidths> = {},
   order: readonly EstimateColumnId[] = DEFAULT_ESTIMATE_COLUMN_ORDER,
-  isV3 = false,
+  _isV3 = false,
 ): CSSProperties | undefined {
+  // Retained for callers that also render historical engines. K FO is now one column in every mode.
+  void _isV3;
   const columnIds: EstimateColumnId[] = [];
   const desktopColumns: string[] = [];
   const tabletColumns: string[] = [];
@@ -770,7 +773,6 @@ export function resolveEstimateEditorGridStyle(
     // la fonction retournait `undefined` et laissait le CSS statique decider.
     // Ce second regime empechait toute colonne optionnelle en mode split.
     pushFixed("supply_type", 112, 100); // Type FO
-    if (isV3) pushFixed("fo_provision", 64, 60); // Provision FO (TI-534)
     pushFixed("k_fo", 60, 56); // K FO
     addOptionalColumn("supplier", 180, 160);
     pushFixed("h_mo_majoration", 96, 88); // Majoration MO
@@ -782,8 +784,6 @@ export function resolveEstimateEditorGridStyle(
     pushFixed("k_mo_site", 60, 56); // K MO chantier
   } else {
     addOptionalColumn("supply_type", 112, 100);
-    // TI-534 : la provision FO d'une ligne v3 s'affiche avec son K FO.
-    if (isV3 && visibleColumns.has("k_fo")) pushFixed("fo_provision", 64, 60);
     addOptionalColumn("k_fo", 56, 56);
     addOptionalColumn("supplier", 180, 160);
     pushFixed("labor_hours", 56, 56); // h MO
@@ -1177,7 +1177,7 @@ export function EstimateEditorTable({
     const foSpan =
       1 + supplierSpan +
       (viewportVisibleColumns.has("supply_type") ? 1 : 0) +
-      (viewportVisibleColumns.has("k_fo") ? (isV3Grid ? 2 : 1) : 0);
+      (viewportVisibleColumns.has("k_fo") ? 1 : 0);
     const moStart = foStart + foSpan;
     const moSpan =
       1 +
@@ -1789,7 +1789,10 @@ export function EstimateEditorTable({
           }
         }
       }
-      if (suggestion.rule.k_fo !== null) patch.k_fo = suggestion.rule.k_fo;
+      if (suggestion.rule.k_fo !== null) {
+        patch.k_fo = suggestion.rule.k_fo;
+        if (v3Grid) patch.k_fo_manual = true;
+      }
       if (suggestion.rule.k_mo !== null) patch.k_mo = suggestion.rule.k_mo;
       if (suggestion.rule.labor_role_id) {
         patch.labor_role_id = suggestion.rule.labor_role_id;
@@ -2410,6 +2413,11 @@ export function EstimateEditorTable({
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
+          {isV3Grid ? <button type="button" disabled={isReadOnly} className="mb-2 rounded-md border border-border px-3 py-2 text-sm" onClick={() => {
+            for (const { id, patch } of automaticKfoRefreshPatches(items, foProvisionsBySupplyType(supplyTypes))) {
+              onPatchItem(id, patch, { persist: true });
+            }
+          }}>Actualiser les K FO automatiques</button> : null}
           <EstimateEditorTableChrome
             tableCardRef={tableCardRef}
             headerRight={headerRight}

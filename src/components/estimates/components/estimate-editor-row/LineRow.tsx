@@ -23,7 +23,6 @@ import {
 
 import { EditableCell } from "@/components/estimates/EditableCell";
 import { computeEstimateLineMargin, formatMarkupRatio } from "@/lib/estimates/line-margin";
-import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { hasTakeoffSourceBadge } from "@/lib/takeoff/source-badge";
 import { Popover } from "@/components/ui-legacy/Popover";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
@@ -47,8 +46,8 @@ import {
   type SpreadsheetEditorProps,
   type SpreadsheetNavigationResult,
 } from "@/hooks/useSpreadsheetNavigation";
+import { KfoDraftInput } from "@/components/estimates/components/estimate-editor-row/KfoDraftInput";
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
-import { FoProvisionCell } from "@/components/estimates/components/estimate-editor-row/FoProvisionCell";
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
@@ -65,7 +64,6 @@ import {
   formatCentsInput,
   formatNumberDisplay,
   getQualityFlagCellTarget,
-  parseCoefficientDraft,
   parseQuantityInput,
   readLaborSplitFields,
   toCellClassName,
@@ -976,7 +974,6 @@ export function LineRow({
           />
         </div>
       ) : null}
-      {v3Grid && isFoColumnVisible("k_fo") ? <FoProvisionCell value={item.fo_provision} origin={item.fo_price_origin} /> : null}
       {isFoColumnVisible("k_fo") ? (
         <div
           {...kFoCellProps}
@@ -989,20 +986,19 @@ export function LineRow({
             "estimate-cell estimate-col--fo",
           )}
         >
-          <DecimalDraftInput
+          <KfoDraftInput
             className="estimate-input estimate-input--compact-number"
             ref={kFoEditorProps.ref}
             tabIndex={kFoEditorProps.tabIndex}
             value={kFoValue}
-            emptyValue={1}
-            parseValue={parseCoefficientDraft}
+            isV3={Boolean(v3Grid)}
+            foProvision={item.fo_provision}
             aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
-            title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
             onFocus={kFoEditorProps.onFocus}
             onKeyDown={kFoEditorProps.onKeyDown}
-            onValueChange={(value) => onPatchItem(item.id, { k_fo: value }, { persist: false })}
+            onValueChange={(value) => onPatchItem(item.id, { k_fo: value, ...(v3Grid ? { k_fo_manual: true } : {}) }, { persist: false })}
             onBlur={kFoEditorProps.onBlur}
-            onValueCommit={(value) => onPatchItem(item.id, { k_fo: value }, { persist: true })}
+            onValueCommit={(value) => onPatchItem(item.id, { k_fo: value, ...(v3Grid ? { k_fo_manual: true } : {}) }, { persist: true })}
             placeholder="1.00"
             disabled={isReadOnly}
           />

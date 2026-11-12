@@ -178,7 +178,7 @@ const totalsOf = (state: ArmyEstimate) => [state.version.total_ht_cents, state.v
 const CURRENCY_FORMATS = { EUR: "#,##0.00 \"€\"", USD: "\"$\"#,##0.00", GBP: "\"£\"#,##0.00" } as const;
 type Currency = keyof typeof CURRENCY_FORMATS;
 const dpgfHeader = (currency: Currency) => ["Type", "AID", "Désignation", "Quantité", "Unité", "Statut", "TVA (%)",
-  `Prix unitaire HT ${currency}`, "Type FO", "Provision FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
+  `Prix unitaire HT ${currency}`, "Type FO", "K FO", "h MO / unité", "K MO", "Majoration MO (%)", "Rôle MO", "Catégorie",
   "h MO Atelier / unité", "K MO Atelier", "Rôle MO Atelier", "h MO Chantier / unité", "K MO Chantier", "Rôle MO Chantier",
   `PU vente HT ${currency}`, `Total HT brut ${currency}`, "Transport FO"];
 const FOOTER_FIELD = /^(Total HT brut|Remise commerciale|Arrondi commercial|Total HT net|TVA |Total TVA|Total TTC)/u;
@@ -257,9 +257,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       try {
         const draft = await prepareV3Draft(ui, army, "V3X01");
         Object.assign(ids, { projectId: draft.projectId, versionId: draft.versionId });
-        await seedLines(ui, army, draft, "v3x01", ROUND_TRIP.map((line) => line.hPerUnit > 0
-          ? withLabor(title(line.ref), line.unit, line.quantity, line.prFo, line.status, line.hPerUnit, draft.tuyauteurId)
-          : supply(title(line.ref), line.unit, line.quantity, line.prFo, line.status)));
+        await seedLines(ui, army, draft, "v3x01", ROUND_TRIP_LINES(draft, title));
         const settled = await readEstimate(browser, draft.versionId);
         const v3 = { engine: settled.version.calc_engine_version, totals: totalsOf(settled),
           lines: settled.items.filter((item) => item.item_type === "line").sort((a, b) => a.position - b.position)
@@ -416,7 +414,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       await seedLines(ui, army, draft, "v3x02", [withLabor(`${army.runPrefix} X`, "ml", 2, 1500, "priced", 1, draft.tuyauteurId)]);
       await patchSettings(ui, "discount", draft, { discount_amount_cents: null, discount_bp: 1000 }, record);
       const settled = await readEstimate(browser, draft.versionId);
-      expect([settled.version.calc_engine_version, settled.version.currency, ...totalsOf(settled)]).toEqual([3, "EUR", 12186, 2437, 14623]);
+      expect([settled.version.calc_engine_version, settled.version.currency, ...totalsOf(settled)]).toEqual([3, "EUR", 12220, 2444, 14664]);
       const actual: Record<string, unknown> = {};
       for (const currency of ["EUR", "USD", "GBP"] as const) {
         if (currency !== "EUR") await patchSettings(ui, currency.toLowerCase(), draft, { currency }, record);
@@ -428,7 +426,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
           dpgf: { sha256: dpgf.sha256, bytes: dpgf.bytes.length }, actual: actual[currency] });
       }
       const expected = Object.fromEntries((["EUR", "USD", "GBP"] as const).map((currency) =>
-        [currency, { currency, totals: [12186, 2437, 14623], ...expectedCurrencyFacts(currency) }]));
+        [currency, { currency, totals: [12220, 2444, 14664], ...expectedCurrencyFacts(currency) }]));
       await record("currency-formats", { versionId: draft.versionId, projectId: draft.projectId, expected, actual });
       expect(actual).toEqual(expected);
     });
@@ -492,7 +490,7 @@ async function downloadFrom(browser: Browser, url: RegExp, trigger: () => Promis
 }
 
 const V3_CSV_HEADER = ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", "Prix unitaire HT (EUR)", "Type FO",
-  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "Provision FO", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
+  "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
   "Total HT (EUR)", "TVA (%)", "Transport FO"];
 // TI-682 lot C : colonne interne ajoutée après toutes les autres, ventilation atelier/chantier comprise.
 const V3_CSV_PROVISION_HEADER = "Provision métré";
@@ -524,7 +522,7 @@ function expectedBdcLine(line: (typeof ROUND_TRIP)[number], supplier: { name: st
   const split = ROUND_TRIP_SPLIT[line.ref];
   return {
     "Type": "line", "Unité": line.unit, "Quantité": line.quantity, "Type FO": "", "PU FO HT EUR": priced ? line.prFo / 100 : null,
-    "PR FO HT EUR": priced ? line.prFo / 100 : null, "K FO": 1, "h MO": null, "K MO": 1, "Taux horaire MO EUR": null,
+    "PR FO HT EUR": priced ? line.prFo / 100 : null, "K FO": 1.01, "h MO": null, "K MO": 1, "Taux horaire MO EUR": null,
     "Rôle MO": line.hPerUnit > 0 ? "Tuyauteur" : "", "Catégorie": "", "Total FO HT EUR": split.fo / 100, "Total MO HT EUR": split.mo / 100,
     "Total HT EUR": line.gross / 100, "Fournisseur 1 Nom": supplier?.name ?? "", "Fournisseur 1 Prix EUR": supplier?.price ?? null,
     "Fournisseur 1 Ref": supplier?.ref ?? "", "Statut": label, "h MO / unité": priced ? line.hPerUnit : null,
@@ -557,9 +555,9 @@ function standardFooter(standard: Workbook) {
 }
 
 const ROUND_TRIP_LINES = (draft: V3Draft, title: (ref: string) => string, lines: ReadonlyArray<(typeof ROUND_TRIP)[number]> = ROUND_TRIP) =>
-  lines.map((line) => line.hPerUnit > 0
+  lines.map((line) => ({ ...(line.hPerUnit > 0
     ? withLabor(title(line.ref), line.unit, line.quantity, line.prFo, line.status, line.hPerUnit, draft.tuyauteurId)
-    : supply(title(line.ref), line.unit, line.quantity, line.prFo, line.status));
+    : supply(title(line.ref), line.unit, line.quantity, line.prFo, line.status)), k_fo: 1.01, k_fo_manual: true }));
 
 if (process.env.E2E_ARMY_SUITE === "critical") {
   armyTest("V3X03 the v3 editor's CSV export is written by the server from the v3 document: unit, status, sale unit price and gross of each line, the status label instead of any price on a non-priced line, and the document footer",
@@ -593,10 +591,10 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         const priced = line.status === "priced";
         const label = STATUS_LABELS[line.status];
         return [draft.sectionTitle, posteOf(title(line.ref)), line.ref === "P1" ? "'=1+1" : title(line.ref), line.unit, String(line.quantity), label,
-          priced ? String(line.prFo / 100) : label, "", "", "", "", "1.01", "1", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
+          priced ? String(line.prFo / 100) : label, "", "", "", "", "1.01", priced ? String(line.hPerUnit) : "", priced ? "100" : "",
           line.hPerUnit > 0 ? "Tuyauteur" : "", "1", priced ? String(line.pu! / 100) : "", priced ? String(line.gross / 100) : label, "20", "", "", "", "", ""];
       };
-      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, "", "", "", "", "", ""];
+      const footerRow = (label: string, value: string) => ["", "", label, "", "", "", "", "", "", "", "", "", "", "", "", "", "", value, "", "", "", "", "", ""];
       const actual = {
         status: csv.status, filename: /\.csv$/i.test(csv.filename), bom: csv.bytes.subarray(0, 3).toString("hex"),
         header: rows[0] ?? null,
@@ -823,7 +821,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       ];
       await seedLines(ui, army, draft, "v3x07", lines);
       const settled = await readEstimate(browser, draft.versionId);
-      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 45623, 9125, 54748]);
+      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 45693, 9139, 54832]);
       const standard = await exportWorkbook(browser, draft.versionId, "standard");
       const posteOf = (lineTitle: string) => String(standard.sheets.Devis?.rows.find((row) =>
         normalized(row.cells["Désignation"]?.value) === lineTitle)?.cells.Poste?.value ?? "");
@@ -835,16 +833,16 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       // Ligne ventilée : h/u, rôle et K MO de la ligne vides (le moteur ne les lit pas), colonnes atelier/chantier remplies.
       const csvLine = (ref: string, unit: string, quantity: number, pr: number, legacy: [string, string, string], pu: number, gross: number,
         split: string[]) => [draft.sectionTitle, posteOf(title(ref)), title(ref), unit, String(quantity), "Chiffrée", String(pr), "", "", "", "",
-        "1.01", "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", "", ...split, "", "", "", ""];
-      const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 18 ? value : ""));
+        "1.02", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", "", ...split, "", "", "", ""];
+      const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 17 ? value : ""));
       const csvActual = { status: csv.status, error: csv.error, header: rows[0] ?? null,
         lines: rows.slice(1, 4).map((row) => row.map((cell) => normalized(cell))),
         footer: rows.slice(4).map((row) => row.map((cell) => normalized(cell))) };
       const csvExpected = { status: 200, error: null, header,
         lines: [
-          csvLine("S1", "u", 2, 10, ["", "", ""], 133.13, 266.26, ["1", "Tuyauteur", "1.5", "1", "Tuyauteur", "1"]),
-          csvLine("S2", "ml", 1, 20, ["", "", ""], 26.26, 26.26, ["", "Tuyauteur", "1", "", "", "1"]),
-          csvLine("P1", "u", 3, 5, ["1", "Tuyauteur", "1"], 54.57, 163.71, ["", "", "", "", "", ""]),
+          csvLine("S1", "u", 2, 10, ["", "", ""], 133.26, 266.52, ["1", "Tuyauteur", "1.5", "1", "Tuyauteur", "1"]),
+          csvLine("S2", "ml", 1, 20, ["", "", ""], 26.52, 26.52, ["", "Tuyauteur", "1", "", "", "1"]),
+          csvLine("P1", "u", 3, 5, ["1", "Tuyauteur", "1"], 54.63, 163.89, ["", "", "", "", "", ""]),
         ],
         footer: [footerRow("Moteur de calcul", "3"), footerRow("Montants", "Aperçu du brouillon (non figé)"),
           ...standardFooter(standard).map(([label, amount]) => footerRow(label, String(amount)))] };
@@ -854,18 +852,18 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       const view = bdc.status === 200 ? bdcView(await readSheets(bdc.bytes), titles) : null;
       const bdcLine = (unit: string, quantity: number, pr: number, kMo: number, roleMo: string, fo: number, mo: number, hoursPerUnit: number,
         pu: number) => ({
-        "Type": "line", "Unité": unit, "Quantité": quantity, "Type FO": "", "PU FO HT EUR": pr, "PR FO HT EUR": pr, "K FO": 1, "h MO": null,
+        "Type": "line", "Unité": unit, "Quantité": quantity, "Type FO": "", "PU FO HT EUR": pr, "PR FO HT EUR": pr, "K FO": 1.02, "h MO": null,
         "K MO": kMo, "Taux horaire MO EUR": null, "Rôle MO": roleMo, "Catégorie": "", "Total FO HT EUR": fo, "Total MO HT EUR": mo,
         "Total HT EUR": Math.round((fo + mo) * 100) / 100, "Fournisseur 1 Nom": "", "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": "",
         "Statut": "Chiffrée", "h MO / unité": hoursPerUnit, "PU vente HT EUR": pu });
       const bdcActual = { status: bdc.status, error: bdc.error, header: view?.header ?? null, lines: view?.lines ?? null, sums: view?.sums ?? null };
       const bdcExpected = { status: 200, error: null, header: [...BDC_V11_HEADER, ...BDC_V3_COLUMNS],
         lines: {
-          S1: bdcLine("u", 2, 10, 1.25, "Atelier: Tuyauteur / Chantier: Tuyauteur", 26.26, 240, 2, 133.13),
-          S2: bdcLine("ml", 1, 20, 1, "Atelier: Tuyauteur", 26.26, 0, 0, 26.26),
-          P1: bdcLine("u", 3, 5, 1, "Tuyauteur", 19.7, 144.01, 1, 54.57),
+          S1: bdcLine("u", 2, 10, 1.25, "Atelier: Tuyauteur / Chantier: Tuyauteur", 26.52, 240, 2, 133.26),
+          S2: bdcLine("ml", 1, 20, 1, "Atelier: Tuyauteur", 26.52, 0, 0, 26.52),
+          P1: bdcLine("u", 3, 5, 1, "Tuyauteur", 19.89, 144, 1, 54.63),
         },
-        sums: { fo: 2626 + 2626 + 1970, mo: 24000 + 14401, ht: 45623 } };
+        sums: { fo: 2652 + 2652 + 1989, mo: 24000 + 14400, ht: 45693 } };
       await record("exports", { versionId: draft.versionId, projectId: draft.projectId,
         csv: { sha256: csv.sha256, bytes: csv.bytes.length, expected: csvExpected, actual: csvActual },
         bdc: { sha256: bdc.sha256, bytes: bdc.bytes.length, expected: bdcExpected, actual: bdcActual },

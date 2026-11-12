@@ -40,7 +40,9 @@ type Detail = {
 // - deleting an original or a request leaves bytes behind or fails against the storage guards;
 // - the stored photo is not the photo that was dropped (it goes straight to storage, never through the
 //   application: request bodies are capped by the proxy and the hosting platform), it is listed before its
-//   bytes are there, its rotation is not kept, or a HEIC photo is accepted and then cannot be displayed.
+//   bytes are there, or its rotation is not kept;
+// - an iPhone HEIC photo is refused, stored as HEIC (unreadable in most browsers), or converted into
+//   something other than the photo; an unreadable HEIC is stored anyway or blocks the screen silently.
 
 // A 1x1 PNG, generated here: no real photograph in a public repository.
 const PNG = Buffer.from(
@@ -202,11 +204,11 @@ armyTest(
     expect(unconfirmed.status).toBe(422);
     expect(unconfirmed.body.error?.details?.blocked).toEqual([{ id: id(4), codes: ["material_unconfirmed"] }]);
 
-    // The original: the stored photo is the dropped photo, its rotation is kept, HEIC is refused in words.
+    // The original: the stored photo is the dropped photo, its rotation is kept, HEIC is converted to JPEG.
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
     await mkdir(directory, { recursive: true });
     const photo = path.join(directory, "demande-papier.png");
-    const heic = path.join(directory, "demande-papier.heic");
+    const heic = path.join(directory, "demande-abimee.heic");
     await writeFile(photo, PNG);
     await writeFile(heic, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypheic"), Buffer.alloc(12)]));
     const picker = browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first();
@@ -242,12 +244,38 @@ armyTest(
     }, `${base}/${requestId}/files/${largeStored.id}`);
     expect(largeSha).toEqual([200, createHash("sha256").update(largeBytes).digest("hex")]);
 
+    // An iPhone photo: a real HEIC (e2e/fixtures/material-requests/papier-carreaux.heic, 160 x 120, an invented
+    // sheet of squared paper made with macOS `sips -s format heic`). The screen converts it to JPEG in the
+    // browser; the JPEG is what is announced, stored and served.
+    await picker.setInputFiles([path.resolve("e2e/fixtures/material-requests/papier-carreaux.heic")]);
+    await expect.poll(async () => (await read()).files.length, { timeout: 120_000 }).toBe(3);
+    const converted = (await read()).files.find((file) => file.file_name === "papier-carreaux.jpg")!;
+    expect(converted.mime_type).toBe("image/jpeg");
+    const convertedRead = await browser.evaluate(async (url) => {
+      const response = await fetch(url, { credentials: "same-origin" });
+      const blob = await response.blob();
+      const head = Array.from(new Uint8Array(await blob.slice(0, 3).arrayBuffer()));
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d")!;
+      context.drawImage(bitmap, 0, 0);
+      // A blue "written" band of the invented sheet, and its paper: the JPEG shows the photo.
+      const ink = Array.from(context.getImageData(60, 24, 1, 1).data.slice(0, 3));
+      const paper = Array.from(context.getImageData(5, 5, 1, 1).data.slice(0, 3));
+      return { status: response.status, type: response.headers.get("content-type"), head, width: bitmap.width, height: bitmap.height, ink, paper };
+    }, `${base}/${requestId}/files/${converted.id}`);
+    expect([convertedRead.status, convertedRead.type, convertedRead.head, convertedRead.width, convertedRead.height])
+      .toEqual([200, "image/jpeg", [0xff, 0xd8, 0xff], 160, 120]);
+    expect(convertedRead.ink[2]).toBeGreaterThan(convertedRead.ink[0] + 50);
+    expect(Math.min(...convertedRead.paper)).toBeGreaterThan(220);
+
+    // A HEIC that cannot be read is refused in words, and nothing of it is stored.
     await picker.setInputFiles([heic]);
     await expect(screen.getByText(
-      "Les photos HEIC ne sont pas encore prises en charge : enregistrez la photo en JPEG, puis déposez-la à nouveau.",
+      "« demande-abimee.heic » n’a pas pu être convertie en JPEG. Aucune photo n’a été gardée : enregistrez-la en JPEG sur le téléphone, puis déposez-la à nouveau.",
       { exact: true },
-    ).first()).toBeVisible({ timeout: 30_000 });
-    expect((await read()).files).toHaveLength(2);
+    ).first()).toBeVisible({ timeout: 60_000 });
+    expect((await read()).files).toHaveLength(3);
 
     const final = await read();
 
@@ -258,7 +286,7 @@ armyTest(
     );
     expect([removed.status, removed.body.data?.deleted]).toEqual([200, true]);
     expect((await apiRequest(browser, "GET", `${base}/${requestId}/files/${stored.id}`)).status).toBe(404);
-    expect((await read()).files.map((file) => file.id)).toEqual([largeStored.id]);
+    expect((await read()).files.map((file) => file.id)).toEqual([largeStored.id, converted.id]);
     const requestRemoved = await apiRequest<Envelope<{ deleted: boolean }>>(browser, "DELETE", `${base}/${requestId}`);
     expect([requestRemoved.status, requestRemoved.body.data?.deleted]).toEqual([200, true]);
     expect((await apiRequest(browser, "GET", `${base}/${requestId}`)).status).toBe(404);

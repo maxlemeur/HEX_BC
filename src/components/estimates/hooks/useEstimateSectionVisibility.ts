@@ -1,4 +1,5 @@
 "use client";
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -22,7 +23,7 @@ export function useEstimateSectionVisibility({
   qualityFilter, onQualityFilterChange, onSearchChange,
 }: Options) {
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(items.filter(isKitSection).map(item => item.id))
   );
   const scrollTargetVisibility = useMemo(() => {
     const ancestorIds: string[] = [];
@@ -44,7 +45,7 @@ export function useEstimateSectionVisibility({
     return { ancestorIds, isFilteredOut };
   }, [getVisibleItems, itemById, revealScrollTarget, scrollToItemId]);
   const needsSectionExpansion = scrollTargetVisibility.ancestorIds.some(
-    (id) => collapsedSectionIds.has(id)
+    (id) => collapsedSectionIds.has(id) && !isKitSection(itemById.get(id) ?? {})
   );
   const needsScrollTargetReveal = scrollTargetVisibility.isFilteredOut || needsSectionExpansion;
   const isSearchFilteredOut = Boolean(revealScrollTarget && scrollToItemId &&
@@ -59,29 +60,33 @@ export function useEstimateSectionVisibility({
     if (needsSectionExpansion) {
       setCollapsedSectionIds((previous) => {
         const next = new Set(previous);
-        scrollTargetVisibility.ancestorIds.forEach((id) => next.delete(id));
+        scrollTargetVisibility.ancestorIds.forEach((id) => {
+          if (!isKitSection(itemById.get(id) ?? {})) next.delete(id);
+        });
         return next;
       });
     }
-  }, [isSearchFilteredOut, needsSectionExpansion, onQualityFilterChange, onSearchChange, qualityFilter, scrollTargetVisibility]);
+  }, [isSearchFilteredOut, needsSectionExpansion, onQualityFilterChange, onSearchChange, qualityFilter, scrollTargetVisibility, itemById]);
 
   useEffect(() => {
     const sectionIdSet = new Set(
       items.filter((item) => item.item_type === "section").map((item) => item.id)
     );
     setCollapsedSectionIds((previous) => {
-      if (previous.size === 0) return previous;
-      const next = new Set<string>();
+      const kits = items.filter(isKitSection).map(item => item.id);
+      if (previous.size === 0 && kits.length === 0) return previous;
+      const next = new Set<string>(kits);
       previous.forEach((sectionId) => {
         if (sectionIdSet.has(sectionId)) {
           next.add(sectionId);
         }
       });
-      return next.size === previous.size ? previous : next;
+      return next.size === previous.size && [...next].every(id => previous.has(id)) ? previous : next;
     });
   }, [items]);
 
   const toggleSectionCollapsed = useCallback((sectionId: string) => {
+    if (items.some(item => item.id === sectionId && isKitSection(item))) return;
     setCollapsedSectionIds((previous) => {
       const next = new Set(previous);
       if (next.has(sectionId)) {
@@ -91,11 +96,11 @@ export function useEstimateSectionVisibility({
       }
       return next;
     });
-  }, []);
+  }, [items]);
 
   const handleExpandAllSections = useCallback(() => {
-    setCollapsedSectionIds(new Set());
-  }, []);
+    setCollapsedSectionIds(new Set(items.filter(isKitSection).map(item => item.id)));
+  }, [items]);
 
   const handleCollapseAllSections = useCallback(() => {
     setCollapsedSectionIds(

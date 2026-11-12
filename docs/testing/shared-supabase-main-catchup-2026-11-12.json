@@ -1,0 +1,898 @@
+{
+  "project_id": "ijropnynpwjbllievrip",
+  "project_name": "bon_de_commande",
+  "environment": "shared production",
+  "source_revision": "757224ee880a294d41110a684bf512d879af3019",
+  "source_migration_count": 331,
+  "cutoff": "20261111195141",
+  "date": "2026-11-12",
+  "status": "applied_and_verified_with_acl_caveat",
+  "authorization": {
+    "scope": "Apply missing origin/main SQL only, one migration per file, timestamp order; verify historical fragment equivalence; create ready-for-review receipt PR. No deployment or extra SQL.",
+    "source": "Explicit owner request in the task; historical equivalence continuation authorized."
+  },
+  "comparison": {
+    "full_or_legacy_suffix_names": true,
+    "historical_split_equivalence": [
+      {
+        "file": "20261012030743_atomic_estimate_batch.sql",
+        "equivalent": true,
+        "fragments": [
+          {
+            "name": "atomic_estimate_batch_part_1",
+            "version": "20261015222147",
+            "source_offset": 0,
+            "body_characters": 14141,
+            "body_sha256": "66873c104163105b72cfe82b5f255c835c15753e5e514348bb8954ac9f5650da",
+            "exact_source_substring": true
+          },
+          {
+            "name": "atomic_estimate_batch_part_2",
+            "version": "20261015222301",
+            "source_offset": 14143,
+            "body_characters": 26766,
+            "body_sha256": "ad96dbd34f3e357200a3dc2057b2557686381a8d1e0ea457fdbae4a40f04d80f",
+            "exact_source_substring": true
+          }
+        ],
+        "method": "Remove only the complete first top-level BEGIN line (after leading comments) and last COMMIT line from each file/fragment; trim outer whitespace. Every fragment body must be an exact contiguous substring of the canonical source in order; only whitespace may occur between fragment boundaries. No function-body whitespace or literal is normalized.",
+        "source_sha256": "c9f02f6a2f769209a6908fc6b2481ccc622f44ac2a77a3a774b331b88ca250ec",
+        "nonblank_lines": 371
+      },
+      {
+        "file": "20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql",
+        "equivalent": true,
+        "fragments": [
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_1",
+            "version": "20261015222315",
+            "source_offset": 0,
+            "body_characters": 20864,
+            "body_sha256": "30e23cb647b1c62888c38ca6e2e3ca42902cc16052ff343345743a1cfd2d3c8d",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_2",
+            "version": "20261015222318",
+            "source_offset": 20866,
+            "body_characters": 3915,
+            "body_sha256": "c62b68e65afe0fa7bfdca81f39240733eccef4415a1eef3f102d0fac80500732",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_3",
+            "version": "20261015222322",
+            "source_offset": 24783,
+            "body_characters": 18579,
+            "body_sha256": "f7557f2bf41c12b0b7b0fc3d092166ed396826b1267115aa096a0d2a85b04e91",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_4",
+            "version": "20261015222326",
+            "source_offset": 43364,
+            "body_characters": 9243,
+            "body_sha256": "7e9c9fc83ef1ae19b2717a54078cf23c3c989498553b9c2b02ba7f9095173c3e",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_5",
+            "version": "20261015222337",
+            "source_offset": 52609,
+            "body_characters": 3836,
+            "body_sha256": "70acc3f59779765b9e07e3ff9700a8ac338523f4a7f944db55d67626f6badb84",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_6",
+            "version": "20261015222341",
+            "source_offset": 56447,
+            "body_characters": 3801,
+            "body_sha256": "be5e59b3038b03bfd94fbaac3647bd8388658738bc132024f2e94e0faf2e576f",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_7",
+            "version": "20261015222348",
+            "source_offset": 60250,
+            "body_characters": 16320,
+            "body_sha256": "4b4f068ff9ec5554f411b5b216cec0de25c79850c94220ceb8088a42b84bd8f9",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_8",
+            "version": "20261015222352",
+            "source_offset": 76572,
+            "body_characters": 27851,
+            "body_sha256": "560601a34d9729f9598f2d4a5625cbee9dbb3d37c3367544e33ada0a0fa56aca",
+            "exact_source_substring": true
+          },
+          {
+            "name": "estimate_fixed_discount_and_template_parent_integrity_part_9",
+            "version": "20261015233534",
+            "source_offset": 104425,
+            "body_characters": 6425,
+            "body_sha256": "13943a226be6421701ea19e3bcbe33530b2a1ef60956c3ad341197b0f50d85c7",
+            "exact_source_substring": true
+          }
+        ],
+        "method": "Remove only the complete first top-level BEGIN line (after leading comments) and last COMMIT line from each file/fragment; trim outer whitespace. Every fragment body must be an exact contiguous substring of the canonical source in order; only whitespace may occur between fragment boundaries. No function-body whitespace or literal is normalized.",
+        "source_sha256": "3741032da87f06688ecabe5e6f76ba90049839e6f783719693b35acce537bafe",
+        "nonblank_lines": 2880
+      }
+    ],
+    "uncovered_source_files_after": [],
+    "newer_than_last_authorized_file": []
+  },
+  "history": {
+    "before_count": 380,
+    "after_count": 386,
+    "previous_rows_unchanged": true,
+    "before_sha256": "c38889f9ce73137dbcdc38aca29eaaafb3294afda2e10fffb0e860aa6f1f9f48",
+    "previous_rows_after_sha256": "c38889f9ce73137dbcdc38aca29eaaafb3294afda2e10fffb0e860aa6f1f9f48",
+    "fingerprint_method": "SHA-256 of UTF-8 jsonb_agg(jsonb_build_object(version,name,statements) ordered by version); after excludes the six new names."
+  },
+  "migrations": [
+    {
+      "order": 1,
+      "file": "20261111224927_product_catalogue_status.sql",
+      "pr": 247,
+      "source_bytes": 18424,
+      "source_sha256": "4cce7b0895d4eddf950ab8301b4ebf009c88e71261c8e8df603b1b52b9420a02",
+      "status": "applied",
+      "remote_version": "20261112094813",
+      "stored_statement_count": 1,
+      "stored_bytes": 18424,
+      "stored_sha256": "4cce7b0895d4eddf950ab8301b4ebf009c88e71261c8e8df603b1b52b9420a02",
+      "sql_exact": true,
+      "verification": {
+        "columns": [
+          {
+            "name": "catalogue_status",
+            "type": "text",
+            "default": "'validated'::text",
+            "nullable": "NO"
+          },
+          {
+            "name": "catalogue_validated_at",
+            "type": "timestamp with time zone",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "name": "catalogue_validated_by",
+            "type": "uuid",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "name": "reliability_score",
+            "type": "smallint",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "name": "supply_type_id",
+            "type": "uuid",
+            "default": null,
+            "nullable": "YES"
+          }
+        ],
+        "trigger": true,
+        "functions": [
+          {
+            "acl": [
+              "postgres=X/postgres",
+              "authenticated=X/postgres",
+              "service_role=X/postgres"
+            ],
+            "anon": false,
+            "args": 11,
+            "name": "catalogue_products_page",
+            "config": [
+              "search_path=\"\""
+            ],
+            "definer": false,
+            "arg_defaults": 11,
+            "service_role": true,
+            "authenticated": true
+          },
+          {
+            "acl": [
+              "postgres=X/postgres",
+              "authenticated=X/postgres",
+              "service_role=X/postgres"
+            ],
+            "anon": false,
+            "args": 1,
+            "name": "create_supply_type",
+            "config": [
+              "search_path=\"\""
+            ],
+            "definer": true,
+            "arg_defaults": 0,
+            "service_role": true,
+            "authenticated": true
+          }
+        ],
+        "constraints": [
+          "products_catalogue_status_check",
+          "products_reliability_score_check"
+        ],
+        "draft_products": 0
+      }
+    },
+    {
+      "order": 2,
+      "file": "20261111233221_takeoff_zone_coverage_warning.sql",
+      "pr": 250,
+      "source_bytes": 2024,
+      "source_sha256": "12b42337e78cabcd947f0ae242bff066371c5ff91293526b1a580ebf1db6b4e3",
+      "status": "applied",
+      "remote_version": "20261112094855",
+      "stored_statement_count": 1,
+      "stored_bytes": 2024,
+      "stored_sha256": "12b42337e78cabcd947f0ae242bff066371c5ff91293526b1a580ebf1db6b4e3",
+      "sql_exact": true,
+      "verification": {
+        "function": {
+          "acl": [
+            "postgres=X/postgres",
+            "service_role=X/postgres"
+          ],
+          "config": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "has_code": true
+        },
+        "stale_blocking": true,
+        "unknown_failure_blocking": true,
+        "quantity_warning_nonblocking": true
+      }
+    },
+    {
+      "order": 3,
+      "file": "20261112004040_catalogue_engineer_rights.sql",
+      "pr": 225,
+      "source_bytes": 13434,
+      "source_sha256": "bb0066a3b94a5a676a8cc9ae85976bc984985df71070603809fd4cb7aa18ec62",
+      "status": "applied",
+      "remote_version": "20261112100123",
+      "stored_statement_count": 1,
+      "stored_bytes": 13434,
+      "stored_sha256": "bb0066a3b94a5a676a8cc9ae85976bc984985df71070603809fd4cb7aa18ec62",
+      "sql_exact": true,
+      "verification": {
+        "triggers": [
+          {
+            "name": "protect_product_catalogue_validation",
+            "table": "products",
+            "enabled": "O"
+          },
+          {
+            "name": "stamp_products_author",
+            "table": "products",
+            "enabled": "O"
+          },
+          {
+            "name": "stamp_suppliers_author",
+            "table": "suppliers",
+            "enabled": "O"
+          }
+        ],
+        "functions": [
+          {
+            "anon": false,
+            "args": 2,
+            "name": "can_edit_catalogue_record",
+            "config": [
+              "search_path=\"\""
+            ],
+            "authenticated": true
+          },
+          {
+            "anon": false,
+            "args": 2,
+            "name": "set_tenant_catalogue_policy",
+            "config": [
+              "search_path=\"\""
+            ],
+            "authenticated": true
+          }
+        ],
+        "new_policies": [
+          {
+            "cmd": "DELETE",
+            "name": "Catalogue editors can delete products",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "products"
+          },
+          {
+            "cmd": "INSERT",
+            "name": "Catalogue editors can insert products",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "products"
+          },
+          {
+            "cmd": "UPDATE",
+            "name": "Catalogue editors can update products",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "products"
+          },
+          {
+            "cmd": "DELETE",
+            "name": "Catalogue editors can delete suppliers",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "suppliers"
+          },
+          {
+            "cmd": "INSERT",
+            "name": "Catalogue editors can insert suppliers",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "suppliers"
+          },
+          {
+            "cmd": "UPDATE",
+            "name": "Catalogue editors can update suppliers",
+            "roles": [
+              "authenticated"
+            ],
+            "table": "suppliers"
+          }
+        ],
+        "old_policies": 0,
+        "policy_table": {
+          "rls": true,
+          "force_rls": false
+        },
+        "created_by_columns": [
+          {
+            "type": "uuid",
+            "table": "products",
+            "nullable": "YES"
+          },
+          {
+            "type": "uuid",
+            "table": "suppliers",
+            "nullable": "YES"
+          }
+        ],
+        "existing_products_with_author": 0,
+        "existing_suppliers_with_author": 0
+      }
+    },
+    {
+      "order": 4,
+      "file": "20261112014046_material_requests.sql",
+      "pr": 252,
+      "source_bytes": 43574,
+      "source_sha256": "805b542789bdb16a2363005a27c6aabdac6ed642245451c293f17b0ffa9af2f5",
+      "status": "applied",
+      "remote_version": "20261112100150",
+      "stored_statement_count": 1,
+      "stored_bytes": 43574,
+      "stored_sha256": "805b542789bdb16a2363005a27c6aabdac6ed642245451c293f17b0ffa9af2f5",
+      "sql_exact": true,
+      "verification": {
+        "bucket": {
+          "id": "material-requests",
+          "public": false,
+          "file_size_limit": 20971520,
+          "allowed_mime_types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+          ]
+        },
+        "tables": [
+          {
+            "rls": true,
+            "name": "material_request_files",
+            "anon_any": false,
+            "force_rls": true
+          },
+          {
+            "rls": true,
+            "name": "material_request_lines",
+            "anon_any": false,
+            "force_rls": true
+          },
+          {
+            "rls": true,
+            "name": "material_request_technicians",
+            "anon_any": false,
+            "force_rls": true
+          },
+          {
+            "rls": true,
+            "name": "material_requests",
+            "anon_any": false,
+            "force_rls": true
+          }
+        ],
+        "triggers": [
+          {
+            "name": "enforce_material_request_file_write",
+            "table": "material_request_files",
+            "enabled": "O"
+          },
+          {
+            "name": "enforce_material_request_line_write",
+            "table": "material_request_lines",
+            "enabled": "O"
+          },
+          {
+            "name": "enforce_material_request_technician_write",
+            "table": "material_request_technicians",
+            "enabled": "O"
+          },
+          {
+            "name": "enforce_material_request_write",
+            "table": "material_requests",
+            "enabled": "O"
+          },
+          {
+            "name": "guard_material_request_storage_delete",
+            "table": "storage.objects",
+            "enabled": "O"
+          },
+          {
+            "name": "guard_material_request_storage_write",
+            "table": "storage.objects",
+            "enabled": "O"
+          },
+          {
+            "name": "reopen_material_request_lines_without_material",
+            "table": "material_requests",
+            "enabled": "O"
+          }
+        ],
+        "row_counts": {
+          "material_requests": 0,
+          "material_request_files": 0,
+          "material_request_lines": 0,
+          "material_request_technicians": 0
+        },
+        "options_rpc": {
+          "anon": false,
+          "config": [
+            "search_path=\"\""
+          ],
+          "definer": false,
+          "service_role": true,
+          "authenticated": true
+        },
+        "storage_policies": [
+          {
+            "cmd": "DELETE",
+            "name": "Affaire operators delete material request storage",
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "cmd": "INSERT",
+            "name": "Affaire operators insert material request storage",
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "cmd": "SELECT",
+            "name": "Affaire readers view material request storage",
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "order": 5,
+      "file": "20261112021509_material_request_line_cap.sql",
+      "pr": 253,
+      "source_bytes": 5443,
+      "source_sha256": "108159253f7935b89d7a8f9e2899f2adc2376b9de3466ad774b955bd71358a4d",
+      "status": "applied",
+      "remote_version": "20261112100216",
+      "stored_statement_count": 1,
+      "stored_bytes": 5443,
+      "stored_sha256": "108159253f7935b89d7a8f9e2899f2adc2376b9de3466ad774b955bd71358a4d",
+      "sql_exact": true,
+      "verification": {
+        "config": [
+          "search_path=\"\""
+        ],
+        "definer": false,
+        "has_line_limit": true
+      }
+    },
+    {
+      "order": 6,
+      "file": "20261112025548_takeoff_page_decisions.sql",
+      "pr": 248,
+      "source_bytes": 104771,
+      "source_sha256": "2559e8634c45f8891ec8fb7a8bb6139463330f1865b76b0bb2b986572db5b325",
+      "status": "applied",
+      "remote_version": "20261112100256",
+      "stored_statement_count": 1,
+      "stored_bytes": 104771,
+      "stored_sha256": "2559e8634c45f8891ec8fb7a8bb6139463330f1865b76b0bb2b986572db5b325",
+      "sql_exact": true,
+      "verification": {
+        "table": {
+          "rls": true,
+          "anon_any": false,
+          "force_rls": true,
+          "authenticated_select": true,
+          "authenticated_any_other": false
+        },
+        "trigger": true,
+        "policies": [
+          {
+            "cmd": "SELECT",
+            "name": "Current tenant can select takeoff page decisions",
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "row_count": 0,
+        "public_functions": [
+          {
+            "anon": false,
+            "name": "apply_takeoff_job_guarded_atomic",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "definer": true,
+            "arg_count": 4,
+            "signature": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb",
+            "authenticated": true,
+            "prepares_page_decisions": true
+          },
+          {
+            "anon": false,
+            "name": "apply_takeoff_job_guarded_atomic",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "definer": true,
+            "arg_count": 5,
+            "signature": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_dpgf_authorization_token text",
+            "authenticated": true,
+            "prepares_page_decisions": true
+          },
+          {
+            "anon": false,
+            "name": "apply_takeoff_job_with_page_decisions",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "definer": false,
+            "arg_count": 6,
+            "signature": "p_job_id uuid, p_strategy text, p_target_section_id uuid, p_mapping_plan jsonb, p_page_decisions jsonb, p_dpgf_authorization_token text",
+            "authenticated": true,
+            "prepares_page_decisions": false
+          },
+          {
+            "anon": false,
+            "name": "record_takeoff_page_decisions",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "definer": true,
+            "arg_count": 2,
+            "signature": "p_job_id uuid, p_decisions jsonb",
+            "authenticated": true,
+            "prepares_page_decisions": true
+          }
+        ],
+        "private_functions": [
+          {
+            "anon": false,
+            "name": "assert_takeoff_pages_once",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 2,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_estimate_line_item_ids",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 2,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_line_page_identity",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 4,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_normalized_name",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 1,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_page_conflicts",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 3,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_page_contributions",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 3,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_page_decisions_frozen",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 0,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_page_refusal_detail",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 2,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_page_writer_plan",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 1,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_pages_already_in_estimate",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 5,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_prepare_page_decisions",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 5,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_replace_pages",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 5,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_same_document",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 2,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_same_page",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 2,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_text_or_null",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 1,
+            "service_role": false,
+            "authenticated": false
+          },
+          {
+            "anon": false,
+            "name": "takeoff_uuid_or_null",
+            "config": [
+              "search_path=pg_catalog"
+            ],
+            "arg_count": 1,
+            "service_role": false,
+            "authenticated": false
+          }
+        ]
+      }
+    }
+  ],
+  "security_advisors": {
+    "before": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "count": 24
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "count": 70
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "count": 1
+      }
+    ],
+    "after": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "count": 24
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "count": 73
+      },
+      {
+        "name": "auth_leaked_password_protection",
+        "level": "WARN",
+        "count": 1
+      }
+    ],
+    "added": [
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.create_supply_type(p_name text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/create_supply_type`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "create_supply_type",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_name text",
+          "security_definer": true
+        },
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.record_takeoff_page_decisions(p_job_id uuid, p_decisions jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/record_takeoff_page_decisions`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "record_takeoff_page_decisions",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_job_id uuid, p_decisions jsonb",
+          "security_definer": true
+        },
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.set_tenant_catalogue_policy(p_tenant_id uuid, p_engineers_can_edit_shared boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_tenant_catalogue_policy`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "set_tenant_catalogue_policy",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_tenant_id uuid, p_engineers_can_edit_shared boolean",
+          "security_definer": true
+        },
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ],
+    "removed": []
+  },
+  "acl_caveat": {
+    "function": "public.catalogue_products_page(text,text[],text[],text[],text[],text[],text,text,integer,integer,text[])",
+    "authenticated_execute": true,
+    "anon_execute": false,
+    "service_role_execute": true,
+    "classification": "Literal authenticated-only expectation is not met for service_role. Exact migration revokes PUBLIC/anon only, preserving the existing service_role default grant. No unauthorized revoke or SQL rewrite was made."
+  },
+  "application_attempts": {
+    "expired_confirmations": [
+      {
+        "file": "20261111224927_product_catalogue_status.sql",
+        "history_reread_count": 380,
+        "entry_absent": true
+      },
+      {
+        "file": "20261112004040_catalogue_engineer_rights.sql",
+        "history_reread_count": 382,
+        "entry_absent": true
+      }
+    ],
+    "retry_policy": "History reread before retry; only absent migration retried. All successful migrations applied once."
+  },
+  "review": {
+    "independent_read_only": true,
+    "source_revision": "757224ee880a294d41110a684bf512d879af3019",
+    "finding": "No execution-time destructive data operation in migration 6; migration 4 bucket UPSERT and storage triggers reviewed. ACL caveat retained.",
+    "source_or_sql_edits": false,
+    "receipt_review": "No findings: source and stored identities, links, ACL caveat, advisor delta, documentation-only scope and no-private-data boundary checked independently. Historical SQL-token equivalence also confirmed preserving literals and dollar-quoted bodies."
+  },
+  "deployment": {
+    "performed": false,
+    "compatibility": "After migration 6, the currently deployed application refuses remeasuring a page already entered into an estimate with TAKEOFF_PAGE_ALREADY_APPLIED until main is deployed. Deployment remains the owner's separate decision.",
+    "evidence_limit": "Compatibility consequence derived from the reviewed SQL/application contract; no authenticated production write journey or deployment was executed."
+  },
+  "verification": {
+    "environment": "MCP Supabase, production project; catalog and aggregate readbacks plus three pure rule calls.",
+    "local_application_suites": "Not run: repository diff is documentation only, existing merged SQL unchanged.",
+    "queries": {
+      "preflight": "select jsonb_build_object(\n 'history_count',(select count(*) from supabase_migrations.schema_migrations),\n 'products_count',(select count(*) from public.products),\n 'suppliers_count',(select count(*) from public.suppliers),\n 'new_tables',(select coalesce(jsonb_agg(c.relname),'[]') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('tenant_catalogue_policies','material_request_technicians','material_requests','material_request_files','material_request_lines','takeoff_page_decisions')),\n 'bucket_present',exists(select 1 from storage.buckets where id='material-requests'),\n 'required_private_functions',(select jsonb_agg(jsonb_build_object('name',p.proname,'args',pg_get_function_identity_arguments(p.oid),'config',p.proconfig)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('finalize_takeoff_lengths','takeoff_mark_provisions')),\n 'functions_before',(select jsonb_agg(jsonb_build_object('name',p.proname,'args',pg_get_function_identity_arguments(p.oid),'definer',p.prosecdef,'config',p.proconfig,'acl',p.proacl,'body_sha256',encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex'))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('catalogue_products_page','takeoff_item_rule_blocked','apply_takeoff_job_guarded_atomic')),\n 'catalogue_admin_policies',(select jsonb_agg(jsonb_build_object('table',tablename,'name',policyname)) from pg_policies where schemaname='public' and tablename in ('products','suppliers') and policyname like 'Admins can %')\n) as preflight;",
+      "after_each": {
+        "20261111224927_product_catalogue_status.sql": "\nselect jsonb_build_object(\n'columns',(select jsonb_agg(jsonb_build_object('name',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) order by column_name) from information_schema.columns where table_schema='public' and table_name='products' and column_name in ('catalogue_status','supply_type_id','reliability_score','catalogue_validated_at','catalogue_validated_by')),\n'constraints',(select jsonb_agg(conname order by conname) from pg_constraint where conrelid='public.products'::regclass and conname in ('products_catalogue_status_check','products_reliability_score_check')),\n'trigger',exists(select 1 from pg_trigger where tgrelid='public.products'::regclass and tgname='validate_product_catalogue_status' and not tgisinternal and tgenabled='O'),\n'draft_products',(select count(*) from public.products where catalogue_status='draft'),\n'functions',(select jsonb_agg(jsonb_build_object('name',p.proname,'args',p.pronargs,'arg_defaults',p.pronargdefaults,'config',p.proconfig,'definer',p.prosecdef,'acl',p.proacl,'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'service_role',has_function_privilege('service_role',p.oid,'EXECUTE'))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('catalogue_products_page','create_supply_type'))\n) as verification;",
+        "20261111233221_takeoff_zone_coverage_warning.sql": "\nselect jsonb_build_object(\n'quantity_warning_nonblocking',not public.takeoff_item_rule_blocked('[{\"rule_id\":\"zone_coverage\",\"status\":\"fail\",\"code\":\"ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN\",\"acceptable\":true}]'::jsonb,false,false),\n'unknown_failure_blocking',public.takeoff_item_rule_blocked('[{\"rule_id\":\"x\",\"status\":\"fail\",\"code\":\"CODE_INCONNU\",\"acceptable\":false}]'::jsonb,false,false),\n'stale_blocking',public.takeoff_item_rule_blocked('[]'::jsonb,true,false),\n'function',(select jsonb_build_object('config',p.proconfig,'acl',p.proacl,'has_code',position('ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN' in pg_get_functiondef(p.oid))>0) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='takeoff_item_rule_blocked')\n) as verification;",
+        "20261112004040_catalogue_engineer_rights.sql": "\nselect jsonb_build_object(\n'policy_table',(select jsonb_build_object('rls',relrowsecurity,'force_rls',relforcerowsecurity) from pg_class where oid='public.tenant_catalogue_policies'::regclass),\n'created_by_columns',(select jsonb_agg(jsonb_build_object('table',table_name,'type',data_type,'nullable',is_nullable)) from information_schema.columns where table_schema='public' and table_name in ('suppliers','products') and column_name='created_by'),\n'existing_suppliers_with_author',(select count(*) from public.suppliers where created_by is not null),\n'existing_products_with_author',(select count(*) from public.products where created_by is not null),\n'triggers',(select jsonb_agg(jsonb_build_object('table',tgrelid::regclass::text,'name',tgname,'enabled',tgenabled) order by tgname) from pg_trigger where not tgisinternal and tgrelid in ('public.products'::regclass,'public.suppliers'::regclass) and tgname in ('stamp_suppliers_author','stamp_products_author','protect_product_catalogue_validation')),\n'functions',(select jsonb_agg(jsonb_build_object('name',p.proname,'args',p.pronargs,'config',p.proconfig,'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'anon',has_function_privilege('anon',p.oid,'EXECUTE'))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('set_tenant_catalogue_policy','can_edit_catalogue_record')),\n'old_policies',(select count(*) from pg_policies where schemaname='public' and tablename in ('suppliers','products') and policyname like 'Admins can %' and cmd in ('INSERT','UPDATE','DELETE')),\n'new_policies',(select jsonb_agg(jsonb_build_object('table',tablename,'name',policyname,'cmd',cmd,'roles',roles) order by tablename,cmd) from pg_policies where schemaname='public' and tablename in ('suppliers','products') and policyname like 'Catalogue editors can %')\n) as verification;",
+        "20261112014046_material_requests.sql": "\nselect jsonb_build_object(\n'tables',(select jsonb_agg(jsonb_build_object('name',c.relname,'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity,'anon_any',has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) order by c.relname) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('material_request_technicians','material_requests','material_request_files','material_request_lines')),\n'row_counts',jsonb_build_object('material_request_technicians',(select count(*) from public.material_request_technicians),'material_requests',(select count(*) from public.material_requests),'material_request_files',(select count(*) from public.material_request_files),'material_request_lines',(select count(*) from public.material_request_lines)),\n'triggers',(select jsonb_agg(jsonb_build_object('table',tgrelid::regclass::text,'name',tgname,'enabled',tgenabled) order by tgname) from pg_trigger where not tgisinternal and tgname in ('enforce_material_request_technician_write','enforce_material_request_write','reopen_material_request_lines_without_material','enforce_material_request_file_write','enforce_material_request_line_write','guard_material_request_storage_write','guard_material_request_storage_delete')),\n'options_rpc',(select jsonb_build_object('definer',p.prosecdef,'config',p.proconfig,'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'service_role',has_function_privilege('service_role',p.oid,'EXECUTE')) from pg_proc p where p.oid='public.material_request_material_options()'::regprocedure),\n'bucket',(select jsonb_build_object('id',id,'public',public,'file_size_limit',file_size_limit,'allowed_mime_types',allowed_mime_types) from storage.buckets where id='material-requests'),\n'storage_policies',(select jsonb_agg(jsonb_build_object('name',policyname,'cmd',cmd,'roles',roles) order by cmd) from pg_policies where schemaname='storage' and tablename='objects' and policyname like '% material request storage')\n) as verification;",
+        "20261112021509_material_request_line_cap.sql": "\nselect jsonb_build_object('has_line_limit',position('MATERIAL_REQUEST_LINE_LIMIT' in pg_get_functiondef(p.oid))>0,'config',p.proconfig,'definer',p.prosecdef) as verification from pg_proc p where p.oid='private.enforce_material_request_line_write()'::regprocedure;",
+        "20261112025548_takeoff_page_decisions.sql": "\nselect jsonb_build_object(\n'table',(select jsonb_build_object('rls',relrowsecurity,'force_rls',relforcerowsecurity,'authenticated_select',has_table_privilege('authenticated',oid,'SELECT'),'authenticated_any_other',has_table_privilege('authenticated',oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'),'anon_any',has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) from pg_class where oid='public.takeoff_page_decisions'::regclass),\n'row_count',(select count(*) from public.takeoff_page_decisions),\n'policies',(select jsonb_agg(jsonb_build_object('name',policyname,'cmd',cmd,'roles',roles)) from pg_policies where schemaname='public' and tablename='takeoff_page_decisions'),\n'trigger',exists(select 1 from pg_trigger where tgrelid='public.takeoff_page_decisions'::regclass and tgname='takeoff_page_decisions_frozen' and not tgisinternal and tgenabled='O'),\n'public_functions',(select jsonb_agg(jsonb_build_object('name',p.proname,'arg_count',p.pronargs,'signature',pg_get_function_identity_arguments(p.oid),'definer',p.prosecdef,'config',p.proconfig,'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'prepares_page_decisions',position('takeoff_prepare_page_decisions' in pg_get_functiondef(p.oid))>0)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('record_takeoff_page_decisions','apply_takeoff_job_with_page_decisions','apply_takeoff_job_guarded_atomic')),\n'private_functions',(select jsonb_agg(jsonb_build_object('name',p.proname,'arg_count',p.pronargs,'config',p.proconfig,'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'),'service_role',has_function_privilege('service_role',p.oid,'EXECUTE')) order by p.proname) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('takeoff_uuid_or_null','takeoff_text_or_null','takeoff_normalized_name','takeoff_same_document','takeoff_same_page','takeoff_line_page_identity','takeoff_estimate_line_item_ids','takeoff_pages_already_in_estimate','takeoff_page_contributions','takeoff_page_conflicts','takeoff_page_decisions_frozen','takeoff_page_refusal_detail','takeoff_prepare_page_decisions','takeoff_page_writer_plan','takeoff_replace_pages','assert_takeoff_pages_once'))\n) as verification;"
+      },
+      "final_history": "select jsonb_build_object('history_count',(select count(*) from supabase_migrations.schema_migrations),'previous_history_sha256',(select encode(sha256(convert_to(jsonb_agg(jsonb_build_object('version',version,'name',name,'statements',statements) order by version)::text,'UTF8')),'hex') from supabase_migrations.schema_migrations where name not in ('20261111224927_product_catalogue_status','20261111233221_takeoff_zone_coverage_warning','20261112004040_catalogue_engineer_rights','20261112014046_material_requests','20261112021509_material_request_line_cap','20261112025548_takeoff_page_decisions')),'applied',(select jsonb_agg(jsonb_build_object('version',version,'name',name,'statement_count',cardinality(statements),'bytes',octet_length(statements[1]),'sha256',encode(sha256(convert_to(statements[1],'UTF8')),'hex')) order by version) from supabase_migrations.schema_migrations where name in ('20261111224927_product_catalogue_status','20261111233221_takeoff_zone_coverage_warning','20261112004040_catalogue_engineer_rights','20261112014046_material_requests','20261112021509_material_request_line_cap','20261112025548_takeoff_page_decisions'))) as final_history;"
+    },
+    "primary_evidence": "outputs/shared-supabase-20261112/ (local, ignored; no customer data or secrets committed)",
+    "local_readback_command": "python3 /Users/timax/Projects/mergeone/outputs/shared-supabase-20261112/verify-equivalence.py"
+  },
+  "delivery_base_revision": "d1dd8153d32810b394268d40ef7e8ac910747163",
+  "delivery_base_migration_diff": "No change to supabase/migrations/ or migrations.manifest.json between the application source revision and the refreshed delivery base."
+}

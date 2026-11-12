@@ -1,3 +1,4 @@
+import { readFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 import { createFoPriceResolver } from "@/lib/estimates/fo-price-origin-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
@@ -27,7 +28,7 @@ import {
   assertTemplateLaborRolesOwnedForV3,
   templateHoursWithoutQuantityMessage,
 } from "@/lib/estimates/estimate-template-helpers";
-import { deriveFoProvision, loadSupplyTypeFoProvisions } from "@/lib/estimates/fo-provision";
+import { projectUnifiedKfo, loadSupplyTypeFoProvisions } from "@/lib/estimates/fo-provision";
 import {
   buildHierarchyIndex,
   DEFAULT_MAX_SECTION_DEPTH,
@@ -127,6 +128,10 @@ export type CanonicalV2TemplateItem = Pick<
   h_mo_majoration: number | null;
   k_mo_atelier: number | null;
   k_mo_chantier: number | null;
+  k_fo_manual?: boolean | null;
+  kit_metier?: boolean;
+  line_nature?: EstimateItemInsert["line_nature"];
+  fo_price_origin?: unknown;
 } & Partial<Pick<
   EstimateItemInsert,
   "unit_code" | "pricing_status" | "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit"
@@ -375,6 +380,7 @@ function cloneTemplateItems(
             position: item.position ?? 0,
             title: item.title,
           }),
+          source_metadata: item.kit_metier ? { kit_metier: true } : {},
           description: item.description ?? null,
           quantity: item.quantity ?? null,
           unit_price_ht_cents: item.unit_price_ht_cents ?? null,
@@ -463,6 +469,9 @@ function toV3TemplateLine(
     quantity: source.quantity ?? 1,
     unit_price_ht_cents: source.unit_price_ht_cents ?? 0,
     k_fo: source.k_fo ?? 1,
+    line_nature: source.line_nature ?? null,
+    fo_price_origin: readFoPriceOrigin(source.fo_price_origin),
+    ...(source.k_fo_manual !== null && source.k_fo_manual !== undefined ? { k_fo_manual: source.k_fo_manual } : {}),
     h_mo: source.h_mo ?? 0,
     k_mo: source.k_mo ?? 1,
     unit_code: source.unit_code ?? unit?.unitCode ?? null,
@@ -787,7 +796,7 @@ function resolveV3VersionPayload(input: {
   };
 }
 
-function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRecord {
+function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRecord & Pick<CanonicalEstimateCreationItem, "k_fo_manual" | "line_nature" | "fo_price_origin"> {
   return {
     id: item.id!,
     parent_id: item.parent_id ?? null,
@@ -799,6 +808,9 @@ function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRec
     unit_price_ht_cents: item.unit_price_ht_cents ?? null,
     tax_rate_bp: item.tax_rate_bp ?? null,
     k_fo: item.k_fo ?? null,
+    k_fo_manual: item.k_fo_manual,
+    line_nature: item.line_nature ?? null,
+    fo_price_origin: item.fo_price_origin ?? null,
     h_mo: item.h_mo ?? null,
     h_mo_majoration: item.h_mo_majoration ?? 1,
     k_mo: item.k_mo ?? null,
@@ -1025,13 +1037,12 @@ export async function persistCanonicalEstimateV2(
       v3Items = await Promise.all(v3Items.map(item => item.item_type === "line" ? resolveFoPrice(item) : item));
       // TI-534 : provision FO que le déclencheur donne à chaque ligne créée, selon son type FO.
       const { provisions: foProvisions, error: foProvisionError } = await loadSupplyTypeFoProvisions(
-        input.supabase, input.tenantId, v3Items.map((item) => item.supply_type_id));
+        input.supabase, input.tenantId, v3Items.map((item) => item.supply_type_id), projectUserId);
       if (foProvisionError) throw mapSupabaseError(foProvisionError, "Impossible de lire les types de fourniture.");
       const lineItems = v3Items
         .filter((item) => item.item_type === "line")
         .map((item) => ({
-          ...toCalculationItem(item),
-          fo_provision: deriveFoProvision(item.supply_type_id, foProvisions, item.fo_price_origin),
+          ...projectUnifiedKfo(toCalculationItem(item), foProvisions),
           unit_code: item.unit_code ?? null,
           pricing_status: item.pricing_status ?? "priced",
           h_mo_per_unit: item.h_mo_per_unit ?? null,

@@ -1414,5 +1414,7 @@ select diag(format('full IO01 contract validator, 7 samples ms: %s; median: %s',
   (select string_agg(round(elapsed_ms,2)::text,', ' order by run) from c2_large_timings),
   (select percentile_cont(0.5) within group(order by elapsed_ms) from c2_large_timings)));
 
+select is(pg_temp.c2_valid(jsonb_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120','S2'),'{rows,0,kitMetier}','true'::jsonb)),'ok:true','a kit presentation marker preserves the complete financial contract');
+select is(pg_temp.c2_valid(jsonb_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120','S2'),'{rows,0,kitMetier}','false'::jsonb)),'ok:false','invalid kit presentation markers remain refused');
 select * from finish();
 rollback;
