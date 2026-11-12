@@ -5,8 +5,11 @@
  * most browsers read JPEG, PNG and WebP only, so the screen converts a HEIC photo to JPEG first and sends
  * that. Only the JPEG is kept: it shows what the photo showed, which is what the office needs.
  *
- * The decoder is libheif (libheif-js, LGPL-3.0, used unmodified from npm), about 2 MB of WebAssembly: it
- * is fetched on the first HEIC photo, never with the page.
+ * The decoder is libheif (libheif-js 1.23.5, LGPL-3.0, used unmodified from npm), about 2 MB of WebAssembly:
+ * it is fetched on the first HEIC photo, in a chunk of its own, never with the page. Licence text in
+ * `LICENSES/LGPL-3.0.txt`; the notices of libheif and of the codecs it bundles ship with the package
+ * (`libheif-js/libheif-wasm/LICENSE`); sources at https://github.com/strukturag/libheif and
+ * https://github.com/catdad-experiments/libheif-js.
  */
 
 const HEIC_EXTENSIONS = new Set(["heic", "heif", "heics", "heifs"]);
