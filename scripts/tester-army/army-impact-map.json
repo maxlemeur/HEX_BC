@@ -769,7 +769,8 @@
         "src/lib/material-requests/**",
         "src/app/api/affaires/[projectId]/material-requests/**",
         "src/app/api/material-request-technicians/**",
-        "e2e/army/critical/material-requests.e2e.ts"
+        "e2e/army/critical/material-requests.e2e.ts",
+        "e2e/fixtures/material-requests/**"
       ],
       "journeys": [
         "e2e/army/critical/material-requests.e2e.ts"
