@@ -36,7 +36,8 @@ type CheckedColumns = CheckedColumnSpec<{
   measurement_units: { dimension: "count" | "set" | "lump_sum" | "length" | "area" | "volume" | "mass" | "time" | "inch" };
   suggestion_corrections: { field_name: "description" | "category_id" | "k_fo" | "k_mo" | "labor_role_id" | "supply_type_id" };
   material_requests: { delivery_place: "site" | "office" | "counter" | null };
-  material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated" };
+  material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated";
+    product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null };
   material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp"; rotation: 0 | 90 | 180 | 270 };
 }>;
 

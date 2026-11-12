@@ -209,6 +209,11 @@ export function ProductsTable({
                             Brouillon
                           </Badge>
                         ) : null}
+                        {isDraft && product.created_from_material_request ? (
+                          <Badge variant="info" size="sm" title="Créé depuis une demande de matériel">
+                            Nouveau
+                          </Badge>
+                        ) : null}
                         {!product.is_active ? <Badge size="sm">Archivé</Badge> : null}
                       </div>
                     ) : null}

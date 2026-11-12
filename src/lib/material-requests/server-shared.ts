@@ -22,9 +22,12 @@ import type {
 export const REQUEST_COLUMNS =
   "id, project_id, technician_id, requested_on, needed_on, delivery_place, is_urgent, presumed_material, material_confirmed, presumed_supplier_id, supplier_confirmed, source_text, note, created_at, updated_at";
 export const LINE_COLUMNS =
-  "id, request_id, position, original_text, quantity, quantity_doubtful, unit, dimension, no_dimension, product_type, material, material_precision, reference, supplier_id, zone, imputation, overhead_category, duplicate_acknowledged, status, validated_at";
+  "id, request_id, position, original_text, quantity, quantity_doubtful, unit, dimension, no_dimension, product_type, material, material_precision, reference, supplier_id, zone, imputation, overhead_category, duplicate_acknowledged, status, validated_at, product_id, product_match";
 export const FILE_COLUMNS = "id, request_id, file_name, mime_type, byte_size, rotation, created_at";
 export const TECHNICIAN_COLUMNS = "id, name, current_project_id, is_active";
+
+/** What makes two lines the same piece (alerts.ts): once one of these changes, a kept duplicate is asked again. */
+export const DUPLICATE_KEYS = ["product_type", "dimension", "material", "zone", "imputation"] as const satisfies ReadonlyArray<keyof MaterialRequestLine>;
 
 export type MaterialRequestContext = AuthenticatedTenantContext;
 

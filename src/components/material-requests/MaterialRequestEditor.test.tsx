@@ -105,6 +105,8 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     duplicate_acknowledged: false,
     status: "draft",
     validated_at: null,
+    product_id: null,
+    product_match: null,
     ...partial,
   };
 }
@@ -189,6 +191,7 @@ function detail(options: {
     technician: TECHNICIAN,
     files: options.files ?? [],
     lines: options.lines ?? [],
+    articles: {},
     canWrite: options.canWrite ?? true,
     materialOptions: ["Laiton brut", "PVC pression"],
     supplierOptions: [{ id: "99999999-9999-4999-8999-999999999999", name: "Négoce Exemple" }],
@@ -200,7 +203,12 @@ function writes(): Call[] {
 }
 
 async function openEditor(routes: Record<string, Route>) {
-  mockApi({ "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } }, ...routes });
+  // The article proposals of delivery 3 are read once per page; these journeys have none.
+  mockApi({
+    "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+    [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+    ...routes,
+  });
   const user = userEvent.setup();
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
   await screen.findByRole("heading", { name: "Lignes" });

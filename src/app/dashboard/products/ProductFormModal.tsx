@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { AlertTriangleIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { ProductAliases } from "@/components/products/ProductAliases";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -682,6 +683,8 @@ export function ProductFormModal({
                 </div>
               </div>
             </details>
+
+            {product ? <ProductAliases productId={product.id} /> : null}
 
             {isEditing ? (
               <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">

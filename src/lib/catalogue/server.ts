@@ -847,10 +847,29 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
   }
 
+  // TI-690: the « Nouveau » mark of an article created from a material request. Read beside the page rather
+  // than added to catalogue_products_page, whose explicit columns would need the function dropped and copied
+  // again: one indexed read of at most 100 ids.
+  const pageIds = pageRows.map((row) => row.id).filter((id): id is string => typeof id === "string");
+  const createdFromRequest = new Set<string>();
+  if (pageIds.length > 0) {
+    const { data: origins, error: originsError } = await supabase
+      .from(CATALOGUE_TABLE)
+      .select("id, created_from_material_request")
+      .in("id", pageIds);
+    if (originsError) {
+      throw mapSupabaseError(originsError, "Impossible de charger la page du catalogue.");
+    }
+    for (const origin of (origins ?? []) as Array<{ id: string; created_from_material_request: boolean | null }>) {
+      if (origin.created_from_material_request === true) createdFromRequest.add(origin.id);
+    }
+  }
+
   const items = pageRows.map((row) => {
     const normalized = normalizeCatalogueRecord(row);
     return {
       ...normalized,
+      created_from_material_request: typeof row.id === "string" && createdFromRequest.has(row.id),
       _status: normalized.is_active === false ? "archived" : "active",
       _supplyTypeName:
         typeof row.supply_type_name === "string" ? row.supply_type_name : null,

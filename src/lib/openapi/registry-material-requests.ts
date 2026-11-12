@@ -9,11 +9,14 @@ import {
   MATERIAL_REQUEST_LINE_STATUSES,
   MATERIAL_REQUEST_MAX_FILES,
   MATERIAL_REQUEST_MAX_LINES,
+  MATERIAL_REQUEST_PRODUCT_MATCHES,
   bulkUpdateMaterialRequestLinesSchema,
+  createMaterialRequestLineArticleSchema,
   completeMaterialRequestFilesSchema,
   createMaterialRequestLinesSchema,
   createMaterialRequestSchema,
   createMaterialRequestTechnicianSchema,
+  linkMaterialRequestLineArticleSchema,
   materialRequestLineIdsSchema,
   prepareMaterialRequestFilesSchema,
   updateMaterialRequestFileSchema,
@@ -21,9 +24,12 @@ import {
   updateMaterialRequestSchema,
   updateMaterialRequestTechnicianSchema,
   type MaterialRequest,
+  type MaterialRequestArticleCandidate,
+  type MaterialRequestArticleSummary,
   type MaterialRequestFile,
   type MaterialRequestFileUploads,
   type MaterialRequestLine,
+  type MaterialRequestLineArticleResult,
   type MaterialRequestSummary,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
@@ -69,6 +75,20 @@ const line: z.ZodType<MaterialRequestLine> = z.object({
   supplier_id: uuid.nullable(), zone: z.string().nullable(), imputation: z.enum(MATERIAL_REQUEST_IMPUTATIONS),
   overhead_category: z.string().nullable(), duplicate_acknowledged: z.boolean(),
   status: z.enum(MATERIAL_REQUEST_LINE_STATUSES), validated_at: timestamp.nullable(),
+  product_id: uuid.nullable(), product_match: z.enum(MATERIAL_REQUEST_PRODUCT_MATCHES).nullable(),
+});
+const articleSummary: z.ZodType<MaterialRequestArticleSummary> = z.object({
+  id: uuid, reference: z.string().nullable(), designation: z.string(), product_type: z.string().nullable(),
+  material: z.string().nullable(), dimensions: z.string().nullable(), unit: z.string().nullable(),
+  catalogue_status: z.enum(["draft", "validated"]), created_from_material_request: z.boolean(),
+  supply_type_name: z.string().nullable(),
+});
+const candidate: z.ZodType<MaterialRequestArticleCandidate> = z.object({
+  article: articleSummary, score: z.number().int().min(0).max(100), via: z.enum(["reference", "alias", "ranked"]),
+  reasons: z.array(z.string()), warnings: z.array(z.string()),
+});
+const articleResult: z.ZodType<MaterialRequestLineArticleResult> = z.object({
+  line, article: articleSummary, alias_learned: z.string().nullable(),
 });
 const uploads: z.ZodType<MaterialRequestFileUploads> = z.object({
   uploads: z.array(z.object({
@@ -78,7 +98,10 @@ const uploads: z.ZodType<MaterialRequestFileUploads> = z.object({
   })),
 });
 const updateResult: z.ZodType<MaterialRequestUpdateResult> = z.object({ request, reopened_line_ids: z.array(uuid) });
-const detailShape = { request, technician: technician.nullable(), files: z.array(file), lines: z.array(line) };
+const detailShape = {
+  request, technician: technician.nullable(), files: z.array(file), lines: z.array(line),
+  articles: z.record(z.string(), articleSummary),
+};
 const deleted = z.object({ deleted: z.literal(true) });
 
 // Every alert code, by construction: a code added to alerts.ts fails to compile here until it is listed.
@@ -130,6 +153,8 @@ const project = pathParameter({ name: "projectId", description: "Affaire du tena
 const requestId = pathParameter({ name: "requestId", description: "Demande de cette affaire.", schemaName: "MaterialRequestId", schema: uuid });
 const lineId = pathParameter({ name: "lineId", description: "Ligne de cette demande.", schemaName: "MaterialRequestLineId", schema: uuid });
 const fileId = pathParameter({ name: "fileId", description: "Original de cette demande.", schemaName: "MaterialRequestFileId", schema: uuid });
+const productId = pathParameter({ name: "productId", description: "Article du tenant actif.", schemaName: "MaterialRequestProductId", schema: uuid });
+const aliasId = pathParameter({ name: "aliasId", description: "Nom usuel de cet article.", schemaName: "ProductAliasId", schema: uuid });
 const technicianId = pathParameter({ name: "technicianId", description: "Technicien du tenant actif.", schemaName: "MaterialRequestTechnicianId", schema: uuid });
 
 const base = "/api/affaires/{projectId}/material-requests";
@@ -137,6 +162,8 @@ const one = `${base}/{requestId}`;
 const technicians = "/api/material-request-technicians";
 const tags = ["Demandes de matériel"];
 const linesData = z.object({ lines: z.array(line) });
+const articleRule = "Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.";
+const lineChanged = refusal("MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande.");
 const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
 
 export const materialRequestOperations: OpenApiOperationDefinition[] = [
@@ -158,7 +185,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "get", path: one, summary: "Ouvrir une demande de matériel",
-    description: "La demande, son technicien, ses originaux, ses lignes dans l'ordre, les matières connues du catalogue du tenant et ses fournisseurs actifs.",
+    description: "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs.",
     parameters: [project, requestId],
     responses: {
       "200": success("ApiMaterialRequestDetail", "Demande et listes de choix.", z.object({
@@ -280,6 +307,76 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesReopen", description: "Lignes à rouvrir.", schema: materialRequestLineIdsSchema }),
     responses: { "200": success("ApiMaterialRequestLinesReopened", "Lignes désignées, en brouillon.", linesData), ...writeRefusals },
+  },
+  {
+    tags, method: "get", path: `${one}/candidates`, summary: "Proposer des articles pour les lignes d'une demande",
+    description: "Pour chaque ligne sans article (brouillon ou validée), jusqu'à cinq articles actifs du catalogue du tenant, brouillons compris : par référence (interne ou fournisseur), puis par nom usuel appris, puis par proximité du type, de la matière et de la dimension. La matière de la ligne, sinon la matière présumée de la demande (confirmée ou non ; hors frais généraux), guide les propositions. Rien n'est rattaché sans le geste du bureau.",
+    parameters: [project, requestId],
+    responses: {
+      "200": success("ApiMaterialRequestCandidates", "Propositions par identifiant de ligne ; une ligne sans proposition a une liste vide.", z.object({ lines: z.record(z.string(), z.array(candidate)) })),
+      ...readRefusals,
+    },
+  },
+  {
+    tags, method: "get", path: `${one}/lines/{lineId}/candidates`, summary: "Chercher des articles pour une ligne",
+    description: "Propositions pour une ligne, rattachée ou non. q remplace, le temps de la recherche, les mots du type de la ligne ; sa dimension, sa matière et sa référence guident toujours la recherche. Avec q, un article d'une autre dimension, matière ou angle est aussi proposé, avec un avertissement, après ceux qui concordent. Un q vide équivaut à son absence.",
+    parameters: [
+      project, requestId, lineId,
+      queryParameter({ name: "q", description: "Mots cherchés à la main (200 caractères au plus).", schemaName: "MaterialRequestLineCandidatesQuery", schema: z.string().min(1).max(200) }),
+    ],
+    responses: {
+      "200": success("ApiMaterialRequestLineCandidates", "Propositions, la plus sûre d'abord.", z.object({ candidates: z.array(candidate).max(10) })),
+      ...readRefusals,
+    },
+  },
+  {
+    tags, method: "put", path: `${one}/lines/{lineId}/article`, summary: "Rattacher une ligne à un article",
+    description: `Le libellé du catalogue devient celui de la ligne : type, matière, précision (nuance et norme), dimension et unité viennent de l'article ; une colonne vide de l'article garde la valeur de la ligne. Une dimension donnée par l'article décoche « sans dimension ». Une autre unité que celle de la ligne marque la quantité à vérifier (quantity_doubtful). Les mots du technicien (original_text, rempli à partir d'eux s'il était vide) et sa référence restent. Le libellé de la ligne avant son premier rattachement est conservé côté serveur ; ses mots de type deviennent un nom usuel de l'article, sauf s'ils disent déjà son type ou sa désignation, y compris lors d'un nouveau rattachement ; le rattachement tient même si ce nom ne peut être enregistré. ${articleRule}`,
+    parameters: [project, requestId, lineId],
+    requestBody: jsonBody({ name: "MaterialRequestLineArticleLink", description: "Article actif du tenant et voie par laquelle il a été choisi.", schema: linkMaterialRequestLineArticleSchema }),
+    responses: {
+      "200": success("ApiMaterialRequestLineArticleLinked", "Ligne rattachée, article et nom usuel appris (null si rien de nouveau).", articleResult),
+      ...writeRefusals,
+      "404": refusal("NOT_FOUND : affaire, demande ou ligne d'ailleurs, ou article absent, archivé ou d'un autre tenant."),
+      "409": lineChanged,
+    },
+  },
+  {
+    tags, method: "post", path: `${one}/lines/{lineId}/article`, summary: "Créer l'article d'une ligne et l'y rattacher",
+    description: `Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created ». ${articleRule}`,
+    parameters: [project, requestId, lineId],
+    requestBody: jsonBody({ name: "MaterialRequestLineArticleCreate", description: "Article à créer.", schema: createMaterialRequestLineArticleSchema }),
+    responses: {
+      "201": success("ApiMaterialRequestLineArticleCreated", "Article créé et ligne rattachée.", articleResult),
+      ...writeRefusals,
+      "400": refusal("BAD_REQUEST : type de fourniture absent du référentiel du tenant."),
+      "409": refusal("CONFLICT : « Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide. » MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps ; l'article créé est retiré."),
+    },
+  },
+  {
+    tags, method: "delete", path: `${one}/lines/{lineId}/article`, summary: "Détacher l'article d'une ligne",
+    description: `La ligne retrouve le libellé qu'elle avait avant son premier rattachement (les propositions sont recalculées sur lui) ; une ligne rattachée sans libellé conservé garde ses colonnes. ${articleRule}`,
+    parameters: [project, requestId, lineId],
+    responses: { "200": success("ApiMaterialRequestLineArticleUnlinked", "Ligne sans article.", z.object({ line })), ...writeRefusals, "409": lineChanged },
+  },
+  {
+    tags: ["Catalogue"], method: "get", path: "/api/products/{productId}/aliases", summary: "Lister les noms usuels d'un article",
+    description: "Noms appris par le bureau en rattachant des lignes de demandes de matériel, du plus ancien au plus récent. Lisible par tout membre du tenant actif.",
+    parameters: [productId],
+    responses: {
+      "200": success("ApiProductAliases", "Noms usuels de l'article.", z.object({ items: z.array(z.object({ id: uuid, alias: z.string(), created_at: timestamp })) })),
+      "404": refusal("NOT_FOUND : article d'un autre tenant ou inconnu."),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "delete", path: "/api/products/{productId}/aliases/{aliasId}", summary: "Retirer un nom usuel d'un article",
+    description: "Un administrateur retire tout nom usuel ; un autre membre, ceux qu'il a appris.",
+    parameters: [productId, aliasId],
+    responses: {
+      "200": success("ApiProductAliasDeleted", "Nom usuel retiré.", deleted),
+      "403": refusal("FORBIDDEN : ni administrateur, ni auteur du nom usuel."),
+      "404": refusal("NOT_FOUND : article ou nom usuel d'un autre tenant, ou d'un autre article."),
+    },
   },
   {
     tags, method: "get", path: technicians, summary: "Lister les techniciens du tenant",
