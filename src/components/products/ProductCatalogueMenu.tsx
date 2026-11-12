@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  BookOpenIcon,
   DownloadIcon,
   EllipsisIcon,
   FileSpreadsheetIcon,
@@ -33,10 +34,13 @@ export function ProductCatalogueMenu({
   stats,
   onTemplateImport,
   onCsvImport,
+  onCostingWorkbookImport,
 }: {
   stats: ProductCatalogueCounters;
   onTemplateImport: () => void;
   onCsvImport: () => void;
+  /** The office's costing workbook (« bible de chiffrage »), imported as drafts (TI-690). */
+  onCostingWorkbookImport: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -98,6 +102,10 @@ export function ProductCatalogueMenu({
           <DropdownMenuItem className="min-h-10 px-2" onClick={onCsvImport}>
             <FileSpreadsheetIcon aria-hidden="true" />
             Importer un CSV produits
+          </DropdownMenuItem>
+          <DropdownMenuItem className="min-h-10 px-2" onClick={onCostingWorkbookImport}>
+            <BookOpenIcon aria-hidden="true" />
+            Importer le classeur de chiffrage
           </DropdownMenuItem>
           <DropdownMenuItem className="min-h-10 px-2" render={<a download href={TEMPLATE_FILE_URL} />}>
             <DownloadIcon aria-hidden="true" />

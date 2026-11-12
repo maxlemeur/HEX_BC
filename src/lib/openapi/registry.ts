@@ -124,6 +124,13 @@ import {
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
+import {
+  COSTING_WORKBOOK_FORMAT,
+  COSTING_WORKBOOK_IMPORT_INCOMPLETE,
+  COSTING_WORKBOOK_MAX_ROWS,
+  costingWorkbookImportSchema,
+  type CostingWorkbookImportReport,
+} from "@/lib/catalogue/costing-workbook-contract";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
 import { estimateItemV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
@@ -2957,6 +2964,19 @@ const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
   "output"
 );
 
+// TI-690: restates the contract type; the annotation fails to compile if they drift.
+const costingWorkbookImportReportSchema: z.ZodType<CostingWorkbookImportReport> = z.object({
+  confirmed: z.boolean(),
+  articles: z.number().int().min(0),
+  new_articles: z.number().int().min(0),
+  already_in_catalogue: z.number().int().min(0),
+  without_supply_type: z.number().int().min(0),
+  supplier_references_not_imported: z.number().int().min(0),
+  issues: z.array(z.object({ row: z.number().int().positive(), reference: z.string().nullable(), message: z.string() })),
+  issue_count: z.number().int().min(0),
+  sections: z.number().int().min(0),
+});
+
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   ...sourceCoverageOperations,
   ...materialRequestOperations,
@@ -3009,6 +3029,23 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "403": jsonResponse("Responsable autorisé requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "409": jsonResponse("La proposition ou l’offre a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/catalogue/workbook-import",
+    summary: "Importer le classeur de chiffrage en articles brouillons",
+    description: `Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, ${COSTING_WORKBOOK_MAX_ROWS} au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Aucun fournisseur, aucune référence ni aucun prix fournisseur n’est écrit (ils viennent avec les achats, lot 2) : le rapport compte les références fournisseurs des nouveaux articles. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code ${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report (ce qui a été créé). Relancer le même classeur crée le reste.`,
+    tags: ["Catalogue"],
+    requestBody: jsonBody({ name: "CostingWorkbookImport", description: "Lignes de l’onglet All_data et confirmation.", schema: costingWorkbookImportSchema }),
+    responses: {
+      "200": jsonResponse("Rapport de l’aperçu ou de l’import.", successResponseSchemaDefinition("ApiCostingWorkbookImportReport", costingWorkbookImportReportSchema)),
+      "400": jsonResponse(`Corps invalide, ou lot de brouillons refusé par la base (${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report quand des lots précédents ont créé des brouillons).`, openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse(`Administrateur ou ingénieur requis, ou lot refusé par les droits du catalogue (${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report quand des lots précédents ont créé des brouillons).`, openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse(`Un article du classeur a été ajouté au catalogue entre-temps, ou un calcul de devis est en cours (${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report quand des lots précédents ont créé des brouillons).`, openApiSharedSchemaDefinitions.apiFailureResponse),
+      "413": jsonResponse("Corps de plus de 4 Mio.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "422": jsonResponse(`Onglet d’une autre forme que celle du classeur de chiffrage (${COSTING_WORKBOOK_FORMAT}).`, openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {

@@ -12,6 +12,7 @@
       "e2e/army/critical/bulk-edit-sync.e2e.ts",
       "e2e/army/critical/bulk-move.e2e.ts",
       "e2e/army/critical/catalogue-draft-status.e2e.ts",
+      "e2e/army/critical/catalogue-workbook-import.e2e.ts",
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/dashboard-workspace.e2e.ts",
@@ -1195,6 +1196,24 @@
       ],
       "journeys": [
         "e2e/army/critical/catalogue-draft-status.e2e.ts"
+      ]
+    },
+    {
+      "id": "catalogue-workbook-import",
+      "note": "CAT02 : le classeur de chiffrage (onglet All_data) devient des brouillons du catalogue après un aperçu ; les articles déjà au catalogue restent inchangés et un second import ne crée rien.",
+      "paths": [
+        "src/lib/catalogue/costing-workbook.ts",
+        "src/lib/catalogue/costing-workbook-contract.ts",
+        "src/lib/catalogue/costing-workbook-file.ts",
+        "src/lib/catalogue/costing-workbook-server.ts",
+        "src/app/api/catalogue/workbook-import/**",
+        "src/components/products/CostingWorkbookImport.tsx",
+        "src/components/products/ProductCatalogueMenu.tsx",
+        "src/app/dashboard/products/page.tsx",
+        "e2e/army/critical/catalogue-workbook-import.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/catalogue-workbook-import.e2e.ts"
       ]
     }
   ]

@@ -26,22 +26,43 @@ describe("conservative catalogue preflight for estimate exports", () => {
     expect(mayMatchSupplierExportSearch(null, "Ligne fictive 1036")).toBe(true);
   });
 
-  function clientWithProducts(count: number, lastTitle: string) {
+  /** `count` validated articles, the last one titled `lastTitle`, then `drafts` draft articles, the last one titled `draftTitle`. */
+  function clientWithProducts(count: number, lastTitle: string, options: { drafts?: number; draftTitle?: string } = {}) {
     const pages: Array<{ table: string; start: number; end: number; tenant: string | null }> = [];
+    const drafts = options.drafts ?? 0;
     const client = {
       from: (table: string) => {
         let tenant: string | null = null;
+        const filters: Array<[string, unknown]> = [];
         const query = {
           select: () => query,
-          eq: (column: string, value: string) => { if (column === "tenant_id") tenant = value; return query; },
+          eq: (column: string, value: unknown) => {
+            if (column === "tenant_id") tenant = String(value);
+            else filters.push([column, value]);
+            return query;
+          },
           order: () => query,
           range: async (start: number, end: number) => {
             pages.push({ table, start, end, tenant });
-            const all = table === "products" ? Array.from({ length: count }, (_, index) => ({
-              id: `product-${index}`, designation: index === count - 1 ? lastTitle : `Catalogue ${index}`, reference: null,
-            })) : table === "suppliers" ? [{ id: "supplier", name: "Fournisseur témoin" }]
-              : [{ id: "offer", supplier_sku: "SKU-01" }];
-            return { data: all.slice(start, Math.min(end + 1, start + 1000)), count: all.length, error: null };
+            const rows: Array<Record<string, unknown>> = table === "products" ? [
+              ...Array.from({ length: count }, (_, index) => ({
+                id: `product-${index}`, designation: index === count - 1 ? lastTitle : `Catalogue ${index}`, reference: null,
+                is_active: true, catalogue_status: "validated",
+              })),
+              ...Array.from({ length: drafts }, (_, index) => ({
+                id: `draft-${index}`, designation: index === drafts - 1 ? (options.draftTitle ?? "Brouillon") : `Brouillon ${index}`,
+                reference: null, is_active: true, catalogue_status: "draft",
+              })),
+            ] : table === "suppliers" ? [{ id: "supplier", name: "Fournisseur témoin" }]
+              : [{ id: "offer", supplier_sku: "SKU-01", is_active: true }];
+            // The filters apply to the stored row; the projection returns only the indexed columns.
+            const all = rows.filter((row) => filters.every(([column, value]) => row[column] === value));
+            return {
+              data: all.slice(start, Math.min(end + 1, start + 1000)).map((row) =>
+                Object.fromEntries(Object.entries(row).filter(([column]) => column !== "is_active" && column !== "catalogue_status"))),
+              count: all.length,
+              error: null,
+            };
           },
         };
         return query;
@@ -50,6 +71,26 @@ describe("conservative catalogue preflight for estimate exports", () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue({ supabase: client, tenantId: "owned-tenant" } as never);
     return pages;
   }
+
+  // TI-690: the export compares a line only with validated articles (suggestEstimateCataloguePrices without
+  // drafts), so a draft's words can never be the line's match. Counted, the ~2,600 drafts of the costing
+  // workbook would push the company past the cap and cost it the index.
+  it("indexes validated articles only: a draft's words are no candidate, a validated article's still are", async () => {
+    clientWithProducts(2, "Écrou M12", { drafts: 1, draftTitle: "Vanne fictive 0042" });
+    const search = await loadSupplierExportSearch();
+    expect(mayMatchSupplierExportSearch(search, "ecrou m12")).toBe(true);
+    expect(mayMatchSupplierExportSearch(search, "Vanne fictive 0042")).toBe(false);
+  });
+
+  it("computes the cap on validated articles only", async () => {
+    clientWithProducts(1000, "Écrou M12", { drafts: 2600 });
+    const kept = await loadSupplierExportSearch();
+    expect(kept).not.toBeNull();
+    expect(mayMatchSupplierExportSearch(kept, "ecrou m12")).toBe(true);
+
+    clientWithProducts(2001, "Écrou M12", { drafts: 10 });
+    expect(await loadSupplierExportSearch()).toBeNull();
+  });
 
   it("keeps a candidate beyond the provider's 1,000-row page and scopes every read", async () => {
     const pages = clientWithProducts(1255, "ÉCROU M12");
