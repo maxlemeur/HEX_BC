@@ -15,6 +15,7 @@
 // replaces it per takeoff. A new line known only by its file name is not paired on a page where two identified documents
 // of that name meet: the database refuses to replace across two documents.
 
+import { assertNever, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { normalizeMeasurementUnit, measurementUnitToken } from "@/lib/units/normalize";
 import { isSameDocument, isSamePage, type TakeoffPageDocument, type TakeoffPageIdentity } from "@/lib/takeoff/page-contributions";
 
@@ -205,6 +206,19 @@ export function mergeSources(lines: ReadonlyArray<{ id: string; designation: str
     .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
 }
 
+/** Engine 3's writer keys a merge on the referential's unit code; engines 1 and 2 on the unit as written. */
+function mergesByUnitCode(engine: EstimateEngineVersion) {
+  switch (engine) {
+    case 3:
+      return true;
+    case 1:
+    case 2:
+      return false;
+    default:
+      return assertNever(engine);
+  }
+}
+
 /**
  * What « Fusionner » (merge) does on the target section, replayed from the writer of the version's engine: a new line
  * and an existing line of the section with the same key, at the same rank (new lines by their source order, existing
@@ -216,8 +230,8 @@ export function mergeSources(lines: ReadonlyArray<{ id: string; designation: str
  */
 export function mergeMatches(newLines: readonly MergeSource[],
   sectionLines: ReadonlyArray<{ id: string; title: string; unit_code: string | null; description: string | null; pricing_status: string; position: number }>,
-  engine: number) {
-  const v3 = engine === 3;
+  engine: EstimateEngineVersion) {
+  const v3 = mergesByUnitCode(engine);
   const title = (value: string) => (v3 ? normalizedDesignation(value) : value.trim().toLowerCase());
   const existingKey = (line: (typeof sectionLines)[number]) =>
     `${title(line.title)}\u0000${v3 ? line.unit_code ?? `status:${line.pricing_status}` : (line.description ?? "").trim().toLowerCase()}`;

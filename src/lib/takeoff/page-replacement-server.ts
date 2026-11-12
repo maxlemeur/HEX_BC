@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
+import { requireEstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { excludeDpgfOutOfScope, plannedExclusions } from "@/lib/takeoff/apply-plan-exclusions";
@@ -114,7 +115,7 @@ async function readEngine(context: Context, versionId: string) {
   const { data, error } = await context.supabase.from("estimate_versions" as never).select("calc_engine_version" as never)
     .eq("tenant_id" as never, context.tenantId as never).eq("id" as never, versionId as never).single();
   if (error) readFailed(error, "Impossible de lire la version du devis.");
-  return Number((data as unknown as { calc_engine_version: number }).calc_engine_version);
+  return requireEstimateEngineVersion(data as object | null);
 }
 
 async function readJobs(context: Context, ids: readonly string[]) {
