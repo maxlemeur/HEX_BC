@@ -58,7 +58,7 @@ describe("the review banner", () => {
     const banner = screen.getByRole("region", { name: "Pages déjà au devis" });
     expect(banner).toHaveTextContent("plan-fictif-R+1.pdf, page 1 : déjà au devis par le métré du 10/11/2026 (plan-fictif-R+1.pdf), 3 lignes");
     expect(within(banner).getByRole("link", { name: "Ouvrir le métré" })).toHaveAttribute("href", `/review/${EARLIER_JOB}?versionId=${EARLIER_VERSION}`);
-    expect(banner).toHaveTextContent("Appliquer ce métré ajouterait ces pages une seconde fois");
+    expect(banner).toHaveTextContent("À l’application, choisissez pour chaque page de remplacer sa mesure précédente ou de garder les deux");
     expect(banner).toHaveTextContent("1 ligne de ce métré sans plan ni page : non comparée.");
     // Nothing to decide here: the banner holds no button.
     expect(within(banner).queryByRole("button")).toBeNull();
@@ -69,6 +69,17 @@ describe("the review banner", () => {
     const twice = { ...READ, pages: [{ ...READ.pages[0], own_line_count: 1 }] };
     render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: twice, error: null }} items={[item(1)]} applied jobHref={href} />);
     expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("ces pages sont au devis deux fois");
+  });
+
+  // TI-682 lot D, PR 2: a page kept both by a reasoned decision is no double count; the banner says the decision and its
+  // reason, read again after a reload, instead of the alarm. Written before the decisions existed.
+  it("says both measures were kept, with the reason, when the estimator decided so", () => {
+    const kept = { ...READ, pages: [{ ...READ.pages[0], own_line_count: 1 }],
+      decisions: [{ file_name: "plan-fictif-R+1.pdf", source_page: 1, decision: "keep_both" as const, reason_code: "other_zone" as const, note: null }] };
+    render(<TakeoffPagesAlreadyInEstimateBanner read={{ data: kept, error: null }} items={[item(1)]} applied jobHref={href} />);
+    const banner = screen.getByRole("region", { name: "Pages déjà au devis" });
+    expect(banner).toHaveTextContent("Mesures gardées toutes les deux à l’application : Autre zone de la même feuille.");
+    expect(banner).not.toHaveTextContent("deux fois");
   });
 
   it("says nothing of a page an applied takeoff no longer has in the estimate (its lines were removed or replaced)", () => {
@@ -140,7 +151,7 @@ describe("the review banner", () => {
       return <TakeoffPagesAlreadyInEstimateBanner read={read} items={[item(1)]} applied={applied} jobHref={href} />;
     }
     const { rerender } = render(<Review applied={false} />);
-    expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("Appliquer ce métré ajouterait ces pages une seconde fois");
+    expect(await screen.findByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("À l’application, choisissez pour chaque page de remplacer sa mesure précédente ou de garder les deux");
     rerender(<Review applied />);
     await waitFor(() => expect(screen.getByRole("region", { name: "Pages déjà au devis" })).toHaveTextContent("ces pages sont au devis deux fois"));
     expect(fetchTakeoffJobPageContributions).toHaveBeenCalledTimes(2);
@@ -196,7 +207,7 @@ describe("the launch notice", () => {
     ]} />);
     const notice = await screen.findByRole("region", { name: "Pages déjà au devis" });
     expect(notice).toHaveTextContent("plan-fictif-R+1.pdf, page 1 : déjà au devis par le métré du 10/11/2026");
-    expect(notice).toHaveTextContent("Vous pouvez lancer ce métré");
+    expect(notice).toHaveTextContent("Vous pouvez lancer ce métré ; à l’application, vous choisirez pour chaque page de remplacer sa mesure précédente ou de garder les deux.");
     expect(fetchLaunchPageContributions).toHaveBeenCalledWith({ estimate_version_id: VERSION_ID, documents: [
       { plan_file_id: PLAN, content_hash: null, logical_document_id: "PLB-R1", file_name: "plan-fictif-R+1.pdf", pages: [1] }] }, expect.anything());
   });

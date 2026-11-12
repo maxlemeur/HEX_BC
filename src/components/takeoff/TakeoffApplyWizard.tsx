@@ -40,7 +40,10 @@ import {
   type WizardStep,
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
-import { TakeoffPagesAlreadyInEstimateNotice, useTakeoffJobPageContributions } from "./review/TakeoffPagesAlreadyInEstimate";
+import { TakeoffPageDecisionsPanel } from "./takeoff-apply-wizard/TakeoffPageDecisionsPanel";
+import { initialConfirmationDraft, resolveConfirmation, type ConfirmationDraft } from "./takeoff-apply-wizard/page-decisions";
+import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
+import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forced-drafts";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -61,6 +64,8 @@ type TakeoffApplyWizardProps = {
   excludedCount: number;
   isSubmitting: boolean;
   submitError: string | null;
+  /** The guard of the last refusal: a page decision refused (TI-682 lot D) reads the proposal again. */
+  submitErrorGuard?: string | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: (payload: TakeoffApplyWizardSubmitPayload) => Promise<void>;
   items?: TakeoffJobItem[];
@@ -84,6 +89,7 @@ export function TakeoffApplyWizard({
   excludedCount,
   isSubmitting,
   submitError,
+  submitErrorGuard = null,
   onOpenChange,
   onConfirm,
   items: externalItems,
@@ -110,8 +116,12 @@ export function TakeoffApplyWizard({
   // TI-686 D10: each blocked line's coded reason and justification, written in the guard panel.
   const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
-  // TI-682 lot D: read when the wizard opens, shown before the last click. A notice only: nothing to decide yet.
-  const pagesInEstimate = useTakeoffJobPageContributions(open ? jobId : null, versionId);
+  // TI-682 lot D: the pages of this takeoff the estimate already holds from another takeoff, decided before the last click.
+  const [pageProposal, setPageProposal] = useState<{ key: string; data: TakeoffPageReplacementResponse | null; error: string | null } | null>(null);
+  // The estimator's choices at « Pages déjà au devis », one draft for the whole application; kept when the proposal is
+  // read again, over the pairs the new proposal makes.
+  const [pageChoices, setPageChoices] = useState<ConfirmationDraft>({ pages: {}, pairs: {}, vanished: {}, parts: {}, takes: {} });
+  const [pageReadCount, setPageReadCount] = useState(0);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
@@ -239,27 +249,59 @@ export function TakeoffApplyWizard({
     return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });
   }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, step, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
-  // The lines the mapping plan skips or folds into an assembly bring no page to the estimate, as for the guard.
-  const noticeItems = useMemo(() => {
-    if (!externalItems || !hasPreviewReady || !previewData) return externalItems;
-    const leftOut = new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
-    return externalItems.map((item) => (leftOut.has(item.id) ? { ...item, is_excluded: true } : item));
-  }, [externalItems, hasPreviewReady, previewData]);
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
   const canGoBack = isPreset ? step === 4 : step > 1;
+  // TI-682 lot D: read at the confirmation, with the preview's overrides (the lines that reach the estimate), the section
+  // and the strategy; read again after the application refused a page decision (the estimate changed meanwhile).
+  const pageRequest = step === 4 && open && (isPreset || hasPreviewReady)
+    ? JSON.stringify([strategy, targetSectionId, serializedOverrides, pageReadCount]) : null;
+  useEffect(() => {
+    if (!pageRequest) return;
+    const [requestStrategy, sectionId, overrides] = JSON.parse(pageRequest) as [TakeoffApplyStrategy, string | null, TakeoffMappingOverride[]];
+    const controller = new AbortController();
+    void fetchTakeoffPageReplacement(jobId, { strategy: requestStrategy, target_section_id: sectionId,
+      overrides: overrides.length > 0 ? overrides : undefined }, { signal: controller.signal }).then(
+      (data) => setPageProposal({ key: pageRequest, data, error: null }),
+      (error: unknown) => {
+        if (!controller.signal.aborted) setPageProposal({ key: pageRequest, data: null,
+          error: error instanceof Error ? error.message : "Impossible de proposer le remplacement des pages déjà au devis." });
+      });
+    return () => controller.abort();
+  }, [jobId, pageRequest]);
+  useEffect(() => {
+    if (submitErrorGuard === "page_already_applied" || submitErrorGuard === "page_decision") setPageReadCount((count) => count + 1);
+  }, [submitError, submitErrorGuard]);
+  const pageRead = pageProposal && pageProposal.key === pageRequest ? pageProposal : null;
+  const pageDraft = useMemo(() => {
+    if (!pageRead?.data) return null;
+    const initial = initialConfirmationDraft(pageRead.data);
+    return { ...pageChoices, pairs: { ...initial.pairs, ...pageChoices.pairs } };
+  }, [pageRead, pageChoices]);
+  const pageResolution = useMemo(() => (pageRead?.data && pageDraft ? resolveConfirmation(pageRead.data, pageDraft) : null), [pageRead, pageDraft]);
+  const pageCount = pageRead?.data?.pages.length ?? 0;
+  const pagesReady = pageRequest !== null && pageRead !== null && pageRead.error === null && (pageResolution?.complete ?? true);
+  // Outside a DPGF version, a page measured again is applied with « Ajouter »: each earlier line is updated in place,
+  // and « Fusionner » by title would replace or move lines the estimator did not see paired.
+  const appliedStrategy: TakeoffApplyStrategy = pageCount > 0 && !pageRead?.data?.merge_required ? "append" : strategy;
+  const pageStrategyNotice = appliedStrategy !== strategy
+    ? "« Ajouter » est retenu : chaque ligne précédente est mise à jour à sa place ; la fusion par désignation ou le remplacement de section ne s’appliquent pas à des pages déjà au devis."
+    : null;
+
   const canConfirm =
     includedCount > 0 &&
     !isSubmitting &&
     hasPreviewReady &&
     step === 4 &&
-    !guardBlocking;
+    !guardBlocking &&
+    pagesReady;
   const canAdminOverride =
     isAdmin &&
     guardBlocking &&
     includedCount > 0 &&
     !isSubmitting &&
     hasPreviewReady &&
-    step === 4;
+    step === 4 &&
+    pagesReady;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting && !nextOpen) return;
@@ -272,8 +314,9 @@ export function TakeoffApplyWizard({
     await onConfirm({
       targetSectionId,
       targetSectionLabel: selectedSectionLabel,
-      strategy,
+      strategy: appliedStrategy,
       overrides: serializedOverrides,
+      pageDecisions: pageResolution?.payload ?? [],
     });
   };
 
@@ -286,10 +329,11 @@ export function TakeoffApplyWizard({
     await onConfirm({
       targetSectionId,
       targetSectionLabel: selectedSectionLabel,
-      strategy,
+      strategy: appliedStrategy,
       overrides: serializedOverrides,
       override: true,
       forced,
+      pageDecisions: pageResolution?.payload ?? [],
     });
   };
 
@@ -431,7 +475,11 @@ export function TakeoffApplyWizard({
                 />
               )}
 
-              {step === 4 && <TakeoffPagesAlreadyInEstimateNotice read={pagesInEstimate} items={noticeItems} strategy={strategy} />}
+              {step === 4 && (
+                <TakeoffPageDecisionsPanel proposal={pageRead?.data ?? null} error={pageRead?.error ?? null}
+                  loading={pageRequest !== null && pageRead === null} draft={pageDraft} strategyNotice={pageStrategyNotice}
+                  disabled={isSubmitting} onDraftChange={setPageChoices} />
+              )}
 
               {step === 4 && (
                 <TakeoffApplyWizardConfirmationStep

@@ -411,6 +411,7 @@ export default function TakeoffJobMonitor({
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [applyState, setApplyState] = useState<ActionState>("idle");
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyErrorGuard, setApplyErrorGuard] = useState<string | null>(null);
   const [isApplyWizardOpen, setIsApplyWizardOpen] = useState(false);
   // Every line of the job, read when the wizard opens: its guard reads them all, as the server does (TI-664).
   const [applyItems, setApplyItems] = useState<TakeoffJobItem[] | null>(null);
@@ -541,6 +542,7 @@ export default function TakeoffJobMonitor({
           override: payload.override,
           forced_justifications: payload.forced?.forced_justifications,
           forced_items: payload.forced?.forced_items,
+          page_decisions: payload.pageDecisions,
         }, versionId);
         setApplyState("idle");
         setIsApplyWizardOpen(false);
@@ -559,6 +561,10 @@ export default function TakeoffJobMonitor({
         setApplyError(
           resolveErrorMessage(err, "Impossible d'appliquer les lignes extraites au devis.")
         );
+        // TI-682 lot D: a page decision refused reads the wizard's proposal again.
+        const details = err && typeof err === "object" ? (err as { details?: unknown }).details : null;
+        const guard = details && typeof details === "object" ? (details as { guard?: unknown }).guard : null;
+        setApplyErrorGuard(typeof guard === "string" ? guard : null);
       } finally {
         if (shouldReleaseDraftLock) {
           void releaseEstimateDraftLock(versionId).catch(() => false);
@@ -800,6 +806,7 @@ export default function TakeoffJobMonitor({
         excludedCount={excludedItemsCount}
         isSubmitting={applyState === "loading"}
         submitError={applyError}
+        submitErrorGuard={applyErrorGuard}
         onOpenChange={handleApplyWizardOpenChange}
         onConfirm={handleApplyConfirm}
         items={applyItems ?? undefined}

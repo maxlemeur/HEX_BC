@@ -14,6 +14,11 @@ import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
 // Shared by the takeoff review and its targeted review (TI-664 L5c): the low confidence threshold the guard reads,
 // and the application of a job through the version's draft lock.
 
+const errorGuardOf = (details: unknown) => {
+  const guard = details && typeof details === "object" ? (details as { guard?: unknown }).guard : null;
+  return typeof guard === "string" ? guard : null;
+};
+
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */
 export function useTakeoffLowConfidenceThreshold() {
   const { enabled, value } = useFeatureFlag(TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY);
@@ -32,9 +37,12 @@ export function useTakeoffApplyConfirm(input: {
   const { jobId, versionId, onApplied } = input;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // TI-682 lot D: the guard of a refusal (a page decision refused): the wizard reads its proposal again.
+  const [errorGuard, setErrorGuard] = useState<string | null>(null);
   const confirm = useCallback(async (payload: TakeoffApplyWizardSubmitPayload) => {
     setSubmitting(true);
     setError(null);
+    setErrorGuard(null);
     let shouldReleaseDraftLock = false;
     try {
       const lockResult = await ensureTakeoffApplyDraftLock(versionId);
@@ -50,10 +58,12 @@ export function useTakeoffApplyConfirm(input: {
         override: payload.override,
         forced_justifications: payload.forced?.forced_justifications,
         forced_items: payload.forced?.forced_items,
+        page_decisions: payload.pageDecisions,
       }, versionId);
       onApplied(response, payload);
     } catch (err) {
       setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'application.");
+      setErrorGuard(isTakeoffApiError(err) ? errorGuardOf(err.details) : null);
     } finally {
       if (shouldReleaseDraftLock) {
         void releaseEstimateDraftLock(versionId).catch(() => false);
@@ -61,5 +71,5 @@ export function useTakeoffApplyConfirm(input: {
       setSubmitting(false);
     }
   }, [jobId, onApplied, versionId]);
-  return { submitting, error, setError, confirm };
+  return { submitting, error, errorGuard, setError, confirm };
 }
