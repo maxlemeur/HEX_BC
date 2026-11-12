@@ -17,8 +17,11 @@ type Detail = { request: { id: string; requested_on: string }; lines: Line[] };
 type Summary = {
   ready_line_ids: string[];
   not_ready: Array<{ line_id: string; reason: string }>;
-  ordered: Array<{ line_id: string; purchase_order_id: string; purchase_order_reference: string; status: string }>;
-  orders: Array<{ id: string; reference: string; supplier_name: string; status: string; total_ht_cents: number; line_count: number }>;
+  ordered: Array<{ line_id: string; purchase_order_id: string; purchase_order_reference: string; status: string; can_open: boolean }>;
+  orders: Array<{
+    id: string; reference: string; supplier_name: string; status: string; total_ht_cents: number; line_count: number; can_open: boolean;
+  }>;
+  can_create: boolean;
 };
 type Created = { orders: Array<{ id: string; reference: string; supplier_name: string; line_count: number; total_ht_cents: number }>; replayed: boolean };
 type Item = {
@@ -133,7 +136,8 @@ armyTest(
       expect(response.status, JSON.stringify(response.body.error ?? null)).toBe(200);
       return response.body.data;
     };
-    expect(await summary()).toEqual({ ready_line_ids: [elbows, screws, gloves], not_ready: [], ordered: [], orders: [] });
+    // The owner of the affaire, an engineer, may order the request's lines.
+    expect(await summary()).toEqual({ ready_line_ids: [elbows, screws, gloves], not_ready: [], ordered: [], orders: [], can_create: true });
 
     // One double click: one creation, under one key.
     const page = `/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`;
@@ -163,6 +167,8 @@ armyTest(
     expect(after.ordered.map((entry) => [entry.line_id, entry.purchase_order_id])).toEqual([
       [elbows, alphaOrder.id], [screws, betaOrder.id], [gloves, alphaOrder.id],
     ]);
+    // Their author opens them: the summary links them.
+    expect([...after.orders.map((order) => order.can_open), ...after.ordered.map((entry) => entry.can_open)]).toEqual(Array(5).fill(true));
     await expect(list.getByRole("link", alphaOrder.reference, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${alphaOrder.id}`);
     await expect(screen.getByRole("link", `Commandé : ${alphaOrder.reference}`, { exact: true })).toHaveCount(2);
     await expect(screen.getByRole("link", `Commandé : ${betaOrder.reference}`, { exact: true })).toBeVisible();
