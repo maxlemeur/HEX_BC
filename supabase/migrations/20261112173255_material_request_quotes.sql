@@ -36,7 +36,8 @@
 --    private.enforce_material_request_line_write() is copied from 20261112152357_purchase_line_suppliers.sql; only the
 --    price block (with the presumed material the retaining writes) and the freeze of a priced line are new.
 -- 4. public.retain_material_request_quote(uuid), SECURITY INVOKER, one transaction: the quote received, every line
---    priced, none already retained (coded refusals, positions in DETAIL); it becomes retained, its lines take its
+--    priced, validated (its blocking alerts settled: retaining freezes what it orders) and none already retained
+--    (coded refusals, positions in DETAIL); a quote may still be asked and priced for drafts; it becomes retained, its lines take its
 --    supplier, price and id, a project line without its own material takes the request's presumed material (which must
 --    be confirmed: the quote was asked in it, and the freeze of a priced line then keeps it), and every other
 --    requested or received quote of the request sharing a line is closed.
@@ -863,7 +864,10 @@ comment on function public.update_material_request_quote(uuid, jsonb) is
 --  1. every quote of the request still requested or received is locked for update, in id order: retainings, price
 --     changes and closings of one request wait for each other, and two retainings cannot both pass;
 --  2. the quote must be received, ask for at least one line, every one priced, none already priced by another
---     retained quote (coded refusals; DETAIL holds the positions of the lines concerned, as a JSON array);
+--     retained quote, every one validated under the lock of the lines (MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED:
+--     retaining freezes what a line orders, so it is complete first) (coded refusals; DETAIL holds the positions of
+--     the lines concerned, as a JSON array). A priced line may later be reopened to draft and validated again: its
+--     status is not what it orders, and what it orders is complete;
 --  3. it becomes retained (dated and signed by the database);
 --  4. its lines, locked in id order, take its supplier, their price and the quantity it is for, and the quote's id; a
 --     project line without a material of its own was consulted, and validated, in the request's presumed material:
@@ -939,6 +943,16 @@ begin
   select pg_catalog.array_agg(line.position order by line.position) into positions
   from public.material_request_quote_lines quote_line
   join public.material_request_lines line on line.id = quote_line.line_id
+  where quote_line.quote_id = target.id and line.status <> 'validated';
+  if positions is not null then
+    raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED',
+      detail = pg_catalog.array_to_json(positions)::text;
+  end if;
+  -- A backstop since the rule above: a validated line relying on the presumed material is reopened when it is
+  -- withdrawn, and the request is shared-locked since.
+  select pg_catalog.array_agg(line.position order by line.position) into positions
+  from public.material_request_quote_lines quote_line
+  join public.material_request_lines line on line.id = quote_line.line_id
   where quote_line.quote_id = target.id and line.imputation = 'project' and pg_catalog.btrim(coalesce(line.material, '')) = '';
   if positions is not null
     and (pg_catalog.btrim(coalesce(presumed.presumed_material, '')) = '' or not coalesce(presumed.material_confirmed, false))
@@ -986,7 +1000,7 @@ end;
 $$;
 
 comment on function public.retain_material_request_quote(uuid) is
-  'TI-691: retains a received quote whose lines are all priced, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, price, price quantity and id, and a project line without its own material takes the request''s confirmed presumed material (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED, _LINES_ALREADY_RETAINED and _MATERIAL_UNCONFIRMED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
+  'TI-691: retains a received quote whose lines are all priced and validated, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, price, price quantity and id, and a project line without its own material takes the request''s confirmed presumed material (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED, _LINES_ALREADY_RETAINED, _LINES_NOT_VALIDATED and _MATERIAL_UNCONFIRMED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
 
 -- The first step of a request's deletion: every file of the request is withdrawn (hidden from every reader, no upload
 -- lands at its path any more), those of retained or closed quotes included, and their paths answered so that the

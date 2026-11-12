@@ -43,6 +43,9 @@
 --     is retained with no material: changing and confirming the header material afterwards turns a line priced for
 --     Inox into Cuivre at its Inox price; or a quote is retained while that presumed material is not confirmed; or an
 --     overhead line takes the request's material; or a validated line returns to draft when its material is written.
+-- 16. (Codex review of #279) a quote whose lines are not all validated (a quantity, unit, type or dimension may still
+--     be missing) is retained, which would freeze them incomplete for good while validation keeps refusing them; or a
+--     priced line, reopened to draft, cannot be validated again (its frozen fields are complete), or its price moves.
 -- Every member statement goes through pg_temp.pls_run, pg_temp.pls_rows or pg_temp.pls_detail (role and JWT switched
 -- in a sub-block), so a red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -446,10 +449,21 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000005',
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000004',
   $$select * from public.retain_material_request_quote(current_setting('test.alpha')::uuid)$$),
   'P0002 MATERIAL_REQUEST_QUOTE_NOT_FOUND', '8 nor a member of another tenant');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_quote(current_setting('test.alpha')::uuid)$$),
+  '23514 MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED', '16 a quote is not retained while one of its lines is a draft');
+select is(pg_temp.pls_detail('a9300000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_quote(current_setting('test.alpha')::uuid)$$),
+  '[2]', '16 the refusal names the draft line by its number');
+select is((select status from public.material_request_quotes where id = current_setting('test.alpha')::uuid),
+  'received', '16 nothing was retained');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000702'$$),
+  'ok 1', '16 the owner validates line 2');
 select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000001',
   $$select closed_quote_id from public.retain_material_request_quote(current_setting('test.alpha')::uuid)$$),
   jsonb_build_array(jsonb_build_object('closed_quote_id', current_setting('test.beta'))),
-  '8 the owner retains Alpha: Beta, which shares line 2 with it, is closed and named');
+  '8 the owner retains Alpha once its lines are validated: Beta, which shares line 2 with it, is closed and named');
 select ok((select status = 'retained' and retained_at is not null and retained_by = 'a9300000-0000-4000-8000-000000000001'
     and received_at is not null and closed_at is null
   from public.material_request_quotes where id = current_setting('test.alpha')::uuid),
@@ -581,6 +595,16 @@ select ok((select dimension = 'DN 50' and quantity = 4 and status = 'validated' 
   from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000701'),
   '10 line 1 still orders what Alpha priced, validated, at Alpha''s price');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'draft' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  'ok 1', '16 a priced line can be reopened to draft (lines/reopen): its status is not what it orders');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  'ok 1', '16 and validated again, since what it orders is complete and frozen');
+select ok((select status = 'validated' and unit_price_ht_cents = 1250 and price_quote_id = current_setting('test.alpha')::uuid
+    and dimension = 'DN 50' and quantity = 4
+  from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000701'),
+  '16 through both, the line keeps its price, its quote and what it orders');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$delete from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000702'$$),
   '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line is not deleted alone');
 
@@ -691,6 +715,9 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.update_material_request_quote(current_setting('test.beta2')::uuid,
     '{"received": true, "lines": [{"line_id": "a9300000-0000-4000-8000-000000000703", "unit_price_ht_cents": 1890}]}')$$),
   'ok 1', '13 fixture: Beta answers its second quote');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000703'$$),
+  'ok 1', '13 fixture: the owner validates line 3');
 select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000001',
   $$select closed_quote_id from public.retain_material_request_quote(current_setting('test.beta2')::uuid)$$),
   jsonb_build_array(jsonb_build_object('closed_quote_id', current_setting('test.alpha2'))),
@@ -754,6 +781,9 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
     pg_temp.open_quote('a9300000-0000-4000-8000-000000000603', 'a9300000-0000-4000-8000-000000000303'))),
   'ok 1', '14 fixture: Gamma answers, the sleeves are offered (a price of zero is a price)');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000705'$$),
+  'ok 1', '14 fixture: the owner validates the sleeves');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   format($$select * from public.retain_material_request_quote(%L)$$,
     pg_temp.open_quote('a9300000-0000-4000-8000-000000000603', 'a9300000-0000-4000-8000-000000000303'))),
   'ok 0', '14 fixture: the owner retains it, closing nothing');
@@ -793,9 +823,16 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
       {"line_id": "a9300000-0000-4000-8000-000000000713", "unit_price_ht_cents": 640}]}')$$),
   'ok 1', '15 fixture: Delta answers');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated'
+    where id in ('a9300000-0000-4000-8000-000000000712', 'a9300000-0000-4000-8000-000000000713')$$),
+  'ok 2', '15 fixture: the overhead line and the line with its own material are validated');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9300000-0000-4000-8000-000000000711'$$),
+  '23514 MATERIAL_REQUEST_LINE_MATERIAL_UNCONFIRMED', '15 line 1 is not validated in a presumed material not confirmed yet');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select * from public.retain_material_request_quote(current_setting('test.delta604')::uuid)$$),
-  '23514 MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED',
-  '15 a quote asked in the presumed material is not retained while that material is not confirmed');
+  '23514 MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED',
+  '15 so a quote asked in the presumed material is not retained while that material is not confirmed');
 select is(pg_temp.pls_detail('a9300000-0000-4000-8000-000000000001',
   $$select * from public.retain_material_request_quote(current_setting('test.delta604')::uuid)$$),
   '[1]', '15 the refusal names the line that has no material of its own (not the overhead one)');
@@ -816,8 +853,8 @@ select is((select jsonb_agg(jsonb_build_array(position, material, status, unit_p
     from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000604'),
   jsonb_build_array(
     jsonb_build_array(1, 'Inox 304L', 'validated', 2150),
-    jsonb_build_array(2, null, 'draft', 390),
-    jsonb_build_array(3, 'PVC pression', 'draft', 640),
+    jsonb_build_array(2, null, 'validated', 390),
+    jsonb_build_array(3, 'PVC pression', 'validated', 640),
     jsonb_build_array(4, null, 'validated', null)),
   '15 the retaining writes the presumed material on the project line priced without one; the overhead line, the line with its own material and the line not quoted keep theirs');
 select ok((select validated_at = current_setting('test.validated_711')::timestamptz and validated_by = 'a9300000-0000-4000-8000-000000000001'

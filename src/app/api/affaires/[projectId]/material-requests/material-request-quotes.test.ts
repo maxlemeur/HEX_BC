@@ -10,7 +10,9 @@ import * as fileRoute from "@/app/api/affaires/[projectId]/material-requests/[re
 import * as filesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/route";
 import * as lineArticleRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/article/route";
 import * as lineRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/route";
+import * as reopenRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/reopen/route";
 import * as linesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/route";
+import * as validateRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/validate/route";
 import * as closeRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/close/route";
 import * as retainRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/retain/route";
 import * as quoteRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/route";
@@ -67,6 +69,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 14. (Codex review of #279) A project line without its own material, quoted in the request's presumed material, is
  *     retained without it (a later header change would turn it into another material at the same price), or retained
  *     while that material is not confirmed; an overhead line takes the request's material.
+ * 15. (Codex review of #279) A quote is retained while one of its lines is a draft (it may lack a quantity, unit, type
+ *     or dimension, which the freeze would then lock for good), or the refusal does not name it; a priced line reopened
+ *     to draft cannot be validated again.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -215,6 +220,12 @@ function retainQuoteInDatabase(actor: string): FakeRpcHandler {
     if (unpriced.length > 0) {
       return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_LINES_UNPRICED", details: JSON.stringify(unpriced) } };
     }
+    // Every line of the quote is validated (its blocking alerts settled) before its price is frozen on it.
+    const drafts = mine.map((row) => lines.find((entry) => entry.id === row.line_id)).filter((entry) => entry?.status !== "validated");
+    if (drafts.length > 0) {
+      return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED",
+        details: JSON.stringify(drafts.map((entry) => Number(entry?.position)).sort((a, b) => a - b)) } };
+    }
     // A project line without its own material takes the request's presumed material, which must be confirmed.
     const request = (tables.material_requests ?? []).find((row) => row.id === target.request_id);
     const unmaterialized = mine.map((row) => lines.find((entry) => entry.id === row.line_id))
@@ -276,7 +287,7 @@ function seed(actor: string, role: Role, overrides: { tables?: Partial<FakeTable
       ],
       material_request_lines: [
         line(LINE_ELBOW, REQUEST, 1, { status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER }),
-        line(LINE_TEE, REQUEST, 2, { product_type: "Té égal" }),
+        line(LINE_TEE, REQUEST, 2, { product_type: "Té égal", status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER }),
         line(LINE_TUBE, REQUEST, 3, { product_type: "Tube", unit: "m" }),
         line(LINE_VALVE, REQUEST, 4, { product_type: "Vanne" }),
         line(OTHER_LINE, OTHER_REQUEST, 1),
@@ -594,7 +605,7 @@ describe("retaining a quote", () => {
     expect(answer.lines.map((entry) => [entry.id, entry.supplier_id, entry.unit_price_ht_cents, entry.price_quote_id, entry.status, entry.validated_at]))
       .toEqual([
         [LINE_ELBOW, ALPHA, 1250, QUOTE_ALPHA, "validated", VALIDATED_AT],
-        [LINE_TEE, ALPHA, 3400, QUOTE_ALPHA, "draft", null],
+        [LINE_TEE, ALPHA, 3400, QUOTE_ALPHA, "validated", VALIDATED_AT],
       ]);
     // Beta shares the tee; Gamma asked only the tube; the closed one was already closed.
     expect(answer.closed_quote_ids).toEqual([QUOTE_BETA]);
@@ -651,7 +662,8 @@ describe("retaining a quote", () => {
       }],
       material_request_lines: [
         line(LINE_ELBOW, REQUEST, 1, { material: null, status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER }),
-        line(LINE_TEE, REQUEST, 2, { material: null, imputation: "overhead", overhead_category: "EPI" }),
+        line(LINE_TEE, REQUEST, 2, { material: null, imputation: "overhead", overhead_category: "EPI", status: "validated",
+          validated_at: VALIDATED_AT, validated_by: OWNER }),
       ],
     },
   });
@@ -661,7 +673,7 @@ describe("retaining a quote", () => {
     const { status, data } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
     expect(status).toBe(200);
     expect((data as MaterialRequestQuoteRetained).lines.map((entry) => [entry.id, entry.material, entry.status, entry.unit_price_ht_cents]))
-      .toEqual([[LINE_ELBOW, "Inox 304L", "validated", 1250], [LINE_TEE, null, "draft", 3400]]);
+      .toEqual([[LINE_ELBOW, "Inox 304L", "validated", 1250], [LINE_TEE, null, "validated", 3400]]);
   });
 
   it.each<[string, string | null]>([
@@ -674,6 +686,30 @@ describe("retaining a quote", () => {
       "La ligne 1 n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
       { positions: [1], line_ids: [LINE_ELBOW] }]);
     expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it.each<[string, string[], string, number[]]>([
+    ["one draft line", [LINE_TEE], "La ligne 2 n’est pas validée : validez-la avant de retenir ce devis.", [2]],
+    ["two draft lines", [LINE_ELBOW, LINE_TEE], "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.", [1, 2]],
+  ])("refuses to retain a quote with %s, naming them", async (_label, drafts, message, positions) => {
+    const fake = seed(OWNER, "engineer");
+    for (const row of fake.tables.material_request_lines) {
+      if (drafts.includes(String(row.id))) Object.assign(row, { status: "draft", validated_at: null, validated_by: null });
+    }
+    const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED", message,
+      { positions, line_ids: [LINE_ELBOW, LINE_TEE].filter((lineId) => drafts.includes(lineId)) }]);
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("still records and prices a quote for lines not validated yet", async () => {
+    seed(OWNER, "engineer");
+    // The valve and the tube are drafts: a consultation may go out before the lines are settled.
+    const created = await call(quotesRoute.POST, "POST", inRequest, createBody());
+    expect(created.status).toBe(201);
+    const id = (created.data as { item: MaterialRequestQuote }).item.id;
+    const priced = await call(quoteRoute.PATCH, "PATCH", ofQuote(id), { received: true, lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: 1890 }] });
+    expect(priced.status).toBe(200);
   });
 
   it("names every unpriced line when there are several", async () => {
@@ -906,7 +942,7 @@ describe("lines priced by a retained quote", () => {
       material_request_lines: [
         line(LINE_ELBOW, REQUEST, 1, { status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER, supplier_id: ALPHA,
           unit_price_ht_cents: 1250, price_quote_id: QUOTE_ALPHA, product_id: ELBOW_ARTICLE, product_match: "manual" }),
-        line(LINE_TEE, REQUEST, 2),
+        line(LINE_TEE, REQUEST, 2, { product_type: "Té égal" }),
       ],
       products: [{ id: ELBOW_ARTICLE, tenant_id: TENANT, reference: null, designation: "Coude 90° inox DN 65", product_type: "Coude 90°",
         material: "Inox 304L", dimensions: "DN 65", unit: "u", is_active: true, catalogue_status: "validated", supply_type_id: null,
@@ -969,6 +1005,16 @@ describe("lines priced by a retained quote", () => {
     const { status, data } = await call(lineRoute.PATCH, "PATCH", { ...inRequest, lineId: LINE_ELBOW }, { zone: "R+1", supplier_id: ALPHA });
     expect(status).toBe(200);
     expect((data as { line: FakeRow }).line).toMatchObject({ zone: "R+1", supplier_id: ALPHA, unit_price_ht_cents: 1250, price_quote_id: QUOTE_ALPHA });
+  });
+
+  it("reopens a priced line to draft and validates it again, its price and what it orders unchanged", async () => {
+    priced();
+    const reopened = await call(reopenRoute.POST, "POST", inRequest, { ids: [LINE_ELBOW] });
+    expect([reopened.status, (reopened.data as { lines: FakeRow[] }).lines.map((entry) => [entry.status, entry.unit_price_ht_cents])])
+      .toEqual([200, [["draft", 1250]]]);
+    const validated = await call(validateRoute.POST, "POST", inRequest, { ids: [LINE_ELBOW] });
+    expect([validated.status, (validated.data as { lines: FakeRow[] }).lines.map((entry) => [entry.status, entry.unit_price_ht_cents, entry.price_quote_id, entry.dimension])])
+      .toEqual([200, [["validated", 1250, QUOTE_ALPHA, "DN 50"]]]);
   });
 
   it("refuses to delete a priced line alone", async () => {

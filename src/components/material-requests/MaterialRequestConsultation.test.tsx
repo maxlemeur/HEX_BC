@@ -52,6 +52,8 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 16. the first read of the quotes answers after a consultation was recorded and erases it from the screen, which
  *     then offers « Consultation envoyée » again; or « Consultation envoyée » is offered before the screen knows
  *     which consultations exist.
+ * 17. a quote is retained while one of its lines is a draft (what is bought would not be what was checked): at the
+ *     gesture, or at its turn in the queue after the line was reopened; or the server's refusal is not said.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -129,6 +131,8 @@ function line(partial: Partial<Line> = {}): Line {
 }
 
 const TEE = { id: LINE_B, position: 2, original_text: "4 tés inox 50", quantity: 4, product_type: "Té égal", product_id: ARTICLE_2 };
+/** A quote is retained only on validated lines (review of PR #279). */
+const VALIDATED = { status: "validated" as const, validated_at: "2026-11-13T09:00:00.000Z" };
 
 function request(partial: Partial<MaterialRequest> = {}): MaterialRequest {
   return {
@@ -527,7 +531,8 @@ describe("consultation of suppliers", () => {
 
     const group = await screen.findByRole("group", { name: "Négoce Alpha" });
     expect(within(group).getByText("2 lignes · 1 au prix retenu")).toBeVisible();
-    expect(within(group).getByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
+    // The message waits for the references at Alpha.
+    expect(await within(group).findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 4 u Té égal, DN 50, Inox 316L\nMerci !",
     );
     await user.click(within(group).getByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
@@ -633,7 +638,7 @@ describe("consultation of suppliers", () => {
       ],
     });
     const user = await openEditor({
-      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
       [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
@@ -727,6 +732,122 @@ describe("consultation of suppliers", () => {
     expect(result.current.items.map((item) => item.id)).toEqual([QUOTE_A]);
   });
 
+  it("holds « Retenir ce devis » while a line of the quote is a draft, and offers it once validated (17)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({
+              status: "received",
+              received_at: "2026-11-13T10:00:00.000Z",
+              lines: [
+                { line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 },
+                { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+              ],
+            }),
+          ],
+        },
+      },
+      [`POST ${BASE}/lines/validate`]: (body) => {
+        const [id] = (body as { ids: string[] }).ids;
+        return { data: { lines: [id === LINE_A ? line(VALIDATED) : line({ ...TEE, ...VALIDATED })] } };
+      },
+    });
+    const retain = await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    expect(retain).toBeDisabled();
+    expect(retain).toHaveAccessibleDescription(
+      "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
+    await waitFor(() =>
+      expect(retain).toHaveAccessibleDescription("La ligne 2 n’est pas validée : validez-la avant de retenir ce devis."),
+    );
+    await user.click(screen.getByRole("button", { name: "Valider la ligne 2" }));
+
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+      `POST ${BASE}/lines/validate`,
+      `POST ${BASE}/lines/validate`,
+    ]);
+  });
+
+  it("does not retain on a line reopened just before, when its turn comes (17)", async () => {
+    let reopened!: () => void;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({
+              status: "received",
+              received_at: "2026-11-13T10:00:00.000Z",
+              lines: [
+                { line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 },
+                { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+              ],
+            }),
+          ],
+        },
+      },
+      [`POST ${BASE}/lines/reopen`]: () =>
+        new Promise<Reply>((resolve) => (reopened = () => resolve({ data: { lines: [line()] } }))),
+      [`POST ${QUOTES}/${QUOTE_A}/retain`]: { status: 500, error: { code: "UNEXPECTED", message: "Ne devait pas être appelé." } },
+    });
+    const retain = await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+
+    // The reopen is on its way: the line still reads validated, and the retain is queued behind it.
+    await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
+    await user.click(retain);
+    reopened();
+
+    expect(
+      await screen.findByText("Non enregistré : La ligne 1 n’est pas validée : validez-la avant de retenir ce devis."),
+    ).toBeVisible();
+    expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([`POST ${BASE}/lines/reopen`]);
+    expect(retain).toBeDisabled();
+  });
+
+  it("says the server's sentence when it still refuses a retain for a line not validated (17)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({
+              status: "received",
+              received_at: "2026-11-13T10:00:00.000Z",
+              lines: [
+                { line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 },
+                { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+              ],
+            }),
+          ],
+        },
+      },
+      // Reopened from another tab meanwhile.
+      [`POST ${QUOTES}/${QUOTE_A}/retain`]: {
+        status: 422,
+        error: {
+          code: "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED",
+          message: "La ligne 2 n’est pas validée : validez-la avant de retenir ce devis.",
+          details: { positions: [2], line_ids: [LINE_B] },
+        },
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" }));
+
+    expect(
+      await screen.findByText("Non enregistré : La ligne 2 n’est pas validée : validez-la avant de retenir ce devis."),
+    ).toBeVisible();
+    expect(within(quoteCard("Négoce Alpha")).getByText("Reçu")).toBeVisible();
+  });
+
   it("saves a typed price in cents, keeps one the server refuses, and sends nothing unreadable (6, 7)", async () => {
     let stored = quote({ status: "received", received_at: "2026-11-13T10:00:00.000Z" });
     const user = await openEditor({
@@ -784,7 +905,7 @@ describe("consultation of suppliers", () => {
   it("offers « Retenir ce devis » once the quote is received and every line priced, and says why until then (7)", async () => {
     let stored = quote({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: null, price_per: 1 }] });
     const user = await openEditor({
-      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
       [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
@@ -840,7 +961,7 @@ describe("consultation of suppliers", () => {
     const retainedAt = "2026-11-14T08:00:00.000Z";
     let items = [alpha, beta];
     const user = await openEditor({
-      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: () => ({ data: { items } }),
       [`POST ${QUOTES}/${QUOTE_B}/retain`]: () => {
@@ -852,8 +973,8 @@ describe("consultation of suppliers", () => {
           data: {
             item: items[1],
             lines: [
-              line({ supplier_id: BETA, unit_price_ht_cents: 1100, price_quote_id: QUOTE_B }),
-              line({ ...TEE, supplier_id: BETA, unit_price_ht_cents: 380, price_per: 100, price_quote_id: QUOTE_B }),
+              line({ ...VALIDATED, supplier_id: BETA, unit_price_ht_cents: 1100, price_quote_id: QUOTE_B }),
+              line({ ...TEE, ...VALIDATED, supplier_id: BETA, unit_price_ht_cents: 380, price_per: 100, price_quote_id: QUOTE_B }),
             ],
             closed_quote_ids: [QUOTE_A],
           },

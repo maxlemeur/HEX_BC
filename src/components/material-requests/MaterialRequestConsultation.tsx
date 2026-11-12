@@ -44,6 +44,7 @@ import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 import {
   QUOTE_PRICE_HELD,
+  linesNotValidated,
   supplierAlreadyConsulted,
   useMaterialRequestQuotes,
   type MaterialRequestQuotesApi,
@@ -142,6 +143,7 @@ function retainBlocker(
   quote: MaterialRequestQuote,
   refusedPrices: number,
   unreadablePositions: readonly number[],
+  draftPositions: readonly number[],
 ): string | null {
   // What the fields show comes first: a retain applies the saved prices, never a text that cannot be read.
   if (unreadablePositions.length > 0) return unreadableSentence(unreadablePositions);
@@ -153,7 +155,8 @@ function retainBlocker(
       ? `Pour retenir ce devis, marquez-le reçu et saisissez le prix de chaque ligne (${missing}).`
       : "Pour retenir ce devis, marquez-le reçu.";
   }
-  return unpriced > 0 ? `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).` : null;
+  if (unpriced > 0) return `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).`;
+  return draftPositions.length > 0 ? linesNotValidated(draftPositions) : null;
 }
 
 function lineAmount(
@@ -823,7 +826,13 @@ function QuoteCard({
     .map((entry) => linesById.get(entry.line_id)?.position)
     .filter((position): position is number => position !== undefined)
     .sort((left, right) => left - right);
-  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadablePositions);
+  // As the lines table shows them now; checked again by the hook at the retain's turn in the queue.
+  const draftPositions = quote.lines
+    .map((entry) => linesById.get(entry.line_id))
+    .filter((line): line is MaterialRequestLine => line !== undefined && line.status !== "validated")
+    .map((line) => line.position)
+    .sort((left, right) => left - right);
+  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadablePositions, draftPositions);
   const amounts = quote.lines.map((entry) =>
     lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per),
   );
@@ -950,7 +959,9 @@ function QuoteCard({
               disabled={blocker !== null || busy !== null}
               aria-label={`Retenir ce devis (${supplier})`}
               aria-describedby={blocker ? blockerId : undefined}
-              onClick={() => void act("retain", () => quotes.retainQuote(quote.id))}
+              onClick={() =>
+                void act("retain", () => quotes.retainQuote(quote.id, quote.lines.map((entry) => entry.line_id)))
+              }
             >
               <Check aria-hidden="true" />
               Retenir ce devis

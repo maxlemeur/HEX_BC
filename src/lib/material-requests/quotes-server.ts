@@ -15,6 +15,7 @@ import type { MaterialRequest, MaterialRequestFile, MaterialRequestLine } from "
 import {
   MATERIAL_REQUEST_QUOTE_BUSY,
   MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED,
+  MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
   MATERIAL_REQUEST_QUOTE_LINES_UNPRICED,
   MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
   MATERIAL_REQUEST_QUOTE_NOT_RECEIVED,
@@ -416,6 +417,19 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
   }
   const priced = asked.filter((line) => line.price_quote_id !== null && line.price_quote_id !== quote.id);
   if (priced.length > 0) return alreadyRetained(priced);
+  // Retaining freezes what each line orders: every one is validated first, its blocking alerts settled (a quote may
+  // still be asked and priced for drafts).
+  const drafts = asked.filter((line) => line.status !== "validated");
+  if (drafts.length > 0) {
+    const { positions, line_ids } = positionsOf(drafts);
+    return unprocessableEntity(
+      positions.length === 1
+        ? `La ligne ${linePositionsLabel(positions)} n’est pas validée : validez-la avant de retenir ce devis.`
+        : `Les lignes ${linePositionsLabel(positions)} ne sont pas validées : validez-les avant de retenir ce devis.`,
+      { positions, line_ids },
+      MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
+    );
+  }
   // A project line without its own material was consulted in the request's presumed material: the retaining writes
   // that material on it, so that its price stays tied to it, and only once the office has confirmed it.
   const unconfirmed = asked.filter((line) => line.imputation === "project" && !(line.material ?? "").trim());

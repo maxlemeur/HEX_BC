@@ -16,6 +16,7 @@ import {
   type CreateQuoteInput,
   type MaterialRequestPricePer,
   type MaterialRequestQuote,
+  type MaterialRequestQuoteRetained,
 } from "@/lib/material-requests/quote-contracts";
 
 import { uploadMaterialRequestQuoteFiles, type PhotoUploadStep } from "./photo-upload";
@@ -26,6 +27,18 @@ export type QuotesStatus = "loading" | "ready" | "error";
 /** A price typed on the quote was refused and is still on screen: the quote is not retained on another one. */
 export const QUOTE_PRICE_HELD =
   "Un prix saisi sur ce devis n’est pas enregistré : corrigez-le, ou appuyez sur Échap pour revenir au prix enregistré.";
+
+/**
+ * A quote is retained only on validated lines: what is bought is what was checked. « La ligne 2 n’est pas validée :
+ * validez-la avant de retenir ce devis. », or the plural.
+ */
+export function linesNotValidated(positions: readonly number[]): string {
+  if (positions.length === 1) {
+    return `La ligne ${positions[0]} n’est pas validée : validez-la avant de retenir ce devis.`;
+  }
+  const named = `${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`;
+  return `Les lignes ${named} ne sont pas validées : validez-les avant de retenir ce devis.`;
+}
 
 /** A price on screen cannot be read: a retain would apply the saved price, not the one shown. */
 export const QUOTE_PRICE_UNREADABLE = "Un prix saisi sur ce devis n’est pas lisible : corrigez-le, ou appuyez sur Échap.";
@@ -64,14 +77,20 @@ export type MaterialRequestQuotesApi = {
   unreadablePrices: (quoteId: string) => readonly string[];
   saveDetails: (quoteId: string, patch: { amount_ht_cents?: number | null; notes?: string | null }) => Promise<SaveResult>;
   markReceived: (quoteId: string) => Promise<SaveResult>;
-  /** Prices the request's lines from the quote; the competing quotes are closed by the server. */
-  retainQuote: (quoteId: string) => Promise<SaveResult>;
+  /**
+   * Prices the request's lines from the quote; the competing quotes are closed by the server. Refused, here and at
+   * its turn in the queue, while a price is unsaved or unreadable or one of `lineIds` is not validated.
+   */
+  retainQuote: (quoteId: string, lineIds: readonly string[]) => Promise<SaveResult>;
   closeQuote: (quoteId: string) => Promise<SaveResult>;
   /** Outside the queue of writes, as the request's photos: the quote stays editable while its files travel. */
   addFiles: (quoteId: string, files: readonly File[], onStep?: (progress: PhotoUploadStep) => void) => Promise<SaveResult>;
 };
 
 type PriceWrites = { pending: number; value: number | null; per: MaterialRequestPricePer };
+
+/** At its turn in the queue, a retain is either held back, with why, or sent and answered. */
+type RetainTurn = { held: string } | { retained: MaterialRequestQuoteRetained };
 
 /** The server changed or refused on a state the screen no longer matches: the list is read again. */
 function isStale(error: unknown): boolean {
@@ -83,7 +102,7 @@ function isStale(error: unknown): boolean {
  * editor's queue, so that a quote is retained only after the prices and line changes made before it.
  */
 export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): MaterialRequestQuotesApi {
-  const { projectId, requestId, queueWrite, mergeServerLines } = editor;
+  const { projectId, requestId, queueWrite, mergeServerLines, unvalidatedPositions } = editor;
   const [status, setStatus] = useState<QuotesStatus>("loading");
   const [items, setItems] = useState<MaterialRequestQuote[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -294,27 +313,32 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   );
 
   const retainQuote = useCallback(
-    async (quoteId: string): Promise<SaveResult> => {
-      // A refused or unreadable price is on screen now; one on its way is answered before the retain's turn.
+    async (quoteId: string, lineIds: readonly string[]): Promise<SaveResult> => {
+      // A refused or unreadable price, or a draft line, is on screen now; a price or a validation on its way is
+      // answered before the retain's turn.
       if (holdsUnreadablePrice(quoteId)) return { ok: false, message: QUOTE_PRICE_UNREADABLE };
       if ((failed.current.get(quoteId)?.size ?? 0) > 0) return { ok: false, message: QUOTE_PRICE_HELD };
+      const drafts = unvalidatedPositions(lineIds);
+      if (drafts.length > 0) return { ok: false, message: linesNotValidated(drafts) };
       try {
-        // Read at its turn: every price saved before the gesture has answered by now.
-        const outcome = await queueWrite(async () =>
-          holdsUnsavedPrice(quoteId) || holdsUnreadablePrice(quoteId)
-            ? null
-            : retainMaterialRequestQuote(projectId, requestId, quoteId),
-        );
-        if (outcome === null) {
-          return { ok: false, message: holdsUnreadablePrice(quoteId) ? QUOTE_PRICE_UNREADABLE : QUOTE_PRICE_HELD };
-        }
-        mergeServerLines(outcome.lines);
-        const closed = new Set(outcome.closed_quote_ids);
+        // Read again at its turn: every price saved and every line validated or reopened before the gesture has
+        // answered by now.
+        const outcome = await queueWrite(async (): Promise<RetainTurn> => {
+          if (holdsUnreadablePrice(quoteId)) return { held: QUOTE_PRICE_UNREADABLE };
+          if (holdsUnsavedPrice(quoteId)) return { held: QUOTE_PRICE_HELD };
+          const draftsNow = unvalidatedPositions(lineIds);
+          if (draftsNow.length > 0) return { held: linesNotValidated(draftsNow) };
+          return { retained: await retainMaterialRequestQuote(projectId, requestId, quoteId) };
+        });
+        if ("held" in outcome) return { ok: false, message: outcome.held };
+        const { retained } = outcome;
+        mergeServerLines(retained.lines);
+        const closed = new Set(retained.closed_quote_ids);
         setItems((current) =>
           current.map((quote) => {
-            if (quote.id === outcome.item.id) return outcome.item;
+            if (quote.id === retained.item.id) return retained.item;
             if (!closed.has(quote.id)) return quote;
-            return { ...quote, status: "closed", closed_at: quote.closed_at ?? outcome.item.retained_at };
+            return { ...quote, status: "closed", closed_at: quote.closed_at ?? retained.item.retained_at };
           }),
         );
         // The closing dates as the server wrote them.
@@ -325,7 +349,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         return { ok: false, message: materialRequestErrorMessage(error, "Le devis n’a pas pu être retenu.") };
       }
     },
-    [holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId],
+    [holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId, unvalidatedPositions],
   );
 
   const closeQuote = useCallback(
