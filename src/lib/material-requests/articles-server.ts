@@ -231,10 +231,16 @@ type LineWording = {
   quantity_doubtful: boolean;
 };
 
-/** A line as the link reads it: the contract, its version for the compare-and-set, its remembered wording. */
-type StoredLine = { line: MaterialRequestLine; updatedAt: string; preLinkWording: LineWording | null };
+/**
+ * The remembered wording, with the quantity as it stood in the technician's unit. The quantity is not given
+ * back by an unlink (the office may have corrected it since), it only tells whether it changed.
+ */
+type LineSnapshot = LineWording & { quantity: number | null | undefined };
 
-function wordingFromLine(line: MaterialRequestLine): LineWording {
+/** A line as the link reads it: the contract, its version for the compare-and-set, its remembered wording. */
+type StoredLine = { line: MaterialRequestLine; updatedAt: string; preLinkWording: LineSnapshot | null };
+
+function wordingFromLine(line: MaterialRequestLine): LineSnapshot {
   return {
     product_type: line.product_type,
     material: line.material,
@@ -243,10 +249,11 @@ function wordingFromLine(line: MaterialRequestLine): LineWording {
     no_dimension: line.no_dimension,
     unit: line.unit,
     quantity_doubtful: line.quantity_doubtful,
+    quantity: line.quantity,
   };
 }
 
-function readWording(value: unknown): LineWording | null {
+function readWording(value: unknown): LineSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const stored = value as Record<string, unknown>;
   const text = (entry: unknown) => (typeof entry === "string" ? entry : null);
@@ -258,6 +265,8 @@ function readWording(value: unknown): LineWording | null {
     no_dimension: stored.no_dimension === true,
     unit: text(stored.unit),
     quantity_doubtful: stored.quantity_doubtful === true,
+    // Absent from a snapshot that never held it: unknown, so a change of unit asks to check the quantity.
+    quantity: typeof stored.quantity === "number" || stored.quantity === null ? stored.quantity : undefined,
   };
 }
 
@@ -383,7 +392,7 @@ async function learnAlias(context: MaterialRequestContext, article: ArticleRow, 
 type LineWrite = Partial<Pick<MaterialRequestLine,
   | "product_type" | "material" | "material_precision" | "dimension" | "no_dimension" | "unit" | "quantity_doubtful"
   | "original_text" | "product_id" | "product_match" | "status" | "duplicate_acknowledged">> & {
-  pre_link_wording?: LineWording | null;
+  pre_link_wording?: LineSnapshot | null;
 };
 
 /**
@@ -506,7 +515,16 @@ export async function unlinkMaterialRequestLineArticle(
   const request = await requireRequest(access, requestId);
   const stored = await requireLine(access, request.id, lineId);
   if (stored.line.product_id === null) return { line: stored.line };
-  const restored: LineWrite = stored.preLinkWording ? { ...stored.preLinkWording, pre_link_wording: null } : {};
+  let restored: LineWrite = {};
+  if (stored.preLinkWording) {
+    const { quantity: askedQuantity, ...wording } = stored.preLinkWording;
+    restored = { ...wording, pre_link_wording: null };
+    // Back to the technician's unit: a quantity the office changed since the link was counted in the
+    // article's unit (« 18 ml » is not « 18 barres »), so it is to be checked again.
+    if (unitsDiffer(stored.line.unit, wording.unit) && stored.line.quantity !== askedQuantity) {
+      restored.quantity_doubtful = true;
+    }
+  }
   const written = await writeLine(access, stored, { ...restored, product_id: null, product_match: null });
   return { line: written };
 }
