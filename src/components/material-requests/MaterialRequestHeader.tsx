@@ -173,7 +173,15 @@ function Proposal({
   onChange,
   consequence,
   consequenceId,
+  unsaved,
+  unsavedHelp,
 }: Readonly<{
+  /**
+   * The field shows a value that is not saved yet (typed, on its way or refused). Confirming then would
+   * bear on something else than what the operator sees: the confirmation waits for the save.
+   */
+  unsaved: boolean;
+  unsavedHelp: string;
   /** What withdrawing or changing the confirmed value will do, said before the operator does it. */
   consequence?: string | null;
   consequenceId?: string;
@@ -188,11 +196,19 @@ function Proposal({
   canWrite: boolean;
   onChange: (confirmed: boolean) => Promise<SaveResult>;
 }>) {
+  const noteId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!hasValue) return null;
+  // The server's sentence, as is: it says the value changed elsewhere and what to do.
+  const refusal = error ? (
+    <p role="alert" className="mt-1 text-xs font-medium text-danger">
+      {error}
+    </p>
+  ) : null;
+  if (!hasValue) return refusal;
 
   const change = async (next: boolean) => {
+    if (next && unsaved) return;
     setBusy(true);
     const result = await onChange(next);
     setBusy(false);
@@ -211,7 +227,15 @@ function Proposal({
           {confirmed ? confirmedLabel : pendingLabel}
         </Badge>
         {canWrite && !confirmed ? (
-          <Button type="button" size="sm" loading={busy} onClick={() => void change(true)}>
+          <Button
+            type="button"
+            size="sm"
+            loading={busy}
+            // Not `disabled`: pressing it must still take the focus out of the field, which saves it.
+            aria-disabled={unsaved || undefined}
+            aria-describedby={unsaved ? noteId : undefined}
+            onClick={() => void change(true)}
+          >
             {confirmAction}
           </Button>
         ) : null}
@@ -230,12 +254,17 @@ function Proposal({
         ) : null}
       </div>
       <p className="mt-1 text-xs text-foreground-secondary">{confirmed ? confirmedHelp : pendingHelp}</p>
+      {unsaved && !confirmed ? (
+        <p id={noteId} className="mt-1 text-xs font-medium text-warning">
+          {unsavedHelp}
+        </p>
+      ) : null}
       {consequence ? (
         <p id={consequenceId} className="mt-1 text-xs font-medium text-warning">
           {consequence}
         </p>
       ) : null}
-      <FieldError message={error} />
+      {refusal}
     </div>
   );
 }
@@ -251,6 +280,8 @@ export function MaterialRequestHeader({
 }>) {
   const ids = useId();
   const [urgentError, setUrgentError] = useState<string | null>(null);
+  const [materialUnsaved, setMaterialUnsaved] = useState(false);
+  const [supplierUnsaved, setSupplierUnsaved] = useState(false);
   const { data, canWrite, updateRequest } = editor;
   const { request } = data;
   const readOnly = !canWrite;
@@ -340,6 +371,7 @@ export function MaterialRequestHeader({
             placeholder="Si la demande est toute dans une même matière"
             hintId={materialConsequence ? `${ids}-material-consequence` : undefined}
             disabled={readOnly}
+            onUnsavedChange={setMaterialUnsaved}
             onCommit={(presumed_material) => updateRequest({ presumed_material, material_confirmed: false })}
           />
           <Proposal
@@ -354,7 +386,17 @@ export function MaterialRequestHeader({
             canWrite={canWrite}
             consequence={materialConsequence}
             consequenceId={`${ids}-material-consequence`}
-            onChange={(material_confirmed) => updateRequest({ material_confirmed })}
+            unsaved={materialUnsaved}
+            unsavedHelp="La matière saisie n’est pas encore enregistrée : confirmez-la une fois qu’elle l’est."
+            // The confirmation names the material shown here: if it was changed elsewhere since, the
+            // server confirms nothing and says so.
+            onChange={(material_confirmed) =>
+              updateRequest(
+                material_confirmed && request.presumed_material
+                  ? { material_confirmed, expected_presumed_material: request.presumed_material }
+                  : { material_confirmed },
+              )
+            }
           />
         </div>
         <div className="sm:col-span-2">
@@ -368,6 +410,7 @@ export function MaterialRequestHeader({
             emptyLabel="Aucun"
             unknownLabel="Fournisseur retiré de la liste"
             disabled={readOnly}
+            onUnsavedChange={setSupplierUnsaved}
             onCommit={(presumed_supplier_id) => updateRequest({ presumed_supplier_id, supplier_confirmed: false })}
           />
           <Proposal
@@ -380,7 +423,15 @@ export function MaterialRequestHeader({
             hasValue={Boolean(request.presumed_supplier_id)}
             confirmed={request.supplier_confirmed}
             canWrite={canWrite}
-            onChange={(supplier_confirmed) => updateRequest({ supplier_confirmed })}
+            unsaved={supplierUnsaved}
+            unsavedHelp="Le fournisseur choisi n’est pas encore enregistré : confirmez-le une fois qu’il l’est."
+            onChange={(supplier_confirmed) =>
+              updateRequest(
+                supplier_confirmed && request.presumed_supplier_id
+                  ? { supplier_confirmed, expected_presumed_supplier_id: request.presumed_supplier_id }
+                  : { supplier_confirmed },
+              )
+            }
           />
         </div>
         <div className="sm:col-span-2 2xl:col-span-3">

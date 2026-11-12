@@ -13,7 +13,7 @@ import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { lineTitle, plural } from "./format";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMNS, LINE_TABLE_COLUMN_COUNT, MaterialRequestLineRow } from "./MaterialRequestLineRow";
-import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
+import type { MaterialRequestEditorApi, SaveResult, WithheldLines } from "./useMaterialRequestEditor";
 
 const COLUMN_TITLES: Partial<Record<(typeof LINE_COLUMNS)[number]["key"], string>> = {
   position: "Numéro de ligne",
@@ -49,6 +49,39 @@ function BlockedReport({
         </ul>
         <Button type="button" variant="outline" size="sm" className="mt-3" onClick={editor.dismissBlocked}>
           Fermer
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** Which lines an action left out because a change typed on them is not saved, in one sentence. */
+function WithheldNotice({
+  withheld,
+  editor,
+}: Readonly<{ withheld: WithheldLines; editor: MaterialRequestEditorApi }>) {
+  const positions = editor.data.lines
+    .filter((line) => withheld.lineIds.includes(line.id))
+    .map((line) => String(line.position));
+  if (positions.length === 0) return null;
+  const several = positions.length > 1;
+  const named = several
+    ? `Les lignes ${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`
+    : `La ligne ${positions[0]}`;
+  const sentence =
+    withheld.action === "validate"
+      ? several
+        ? `${named} n’ont pas été validées : leur dernière modification n’a pas été enregistrée.`
+        : `${named} n’a pas été validée : sa dernière modification n’a pas été enregistrée.`
+      : several
+        ? `${named} n’ont pas été modifiées : une valeur saisie dans cette colonne n’y est pas enregistrée.`
+        : `${named} n’a pas été modifiée : une valeur saisie dans cette colonne n’y est pas enregistrée.`;
+  return (
+    <Alert variant="warning">
+      <AlertDescription>
+        <p>{sentence}</p>
+        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={editor.dismissWithheld}>
+          Compris
         </Button>
       </AlertDescription>
     </Alert>
@@ -99,13 +132,22 @@ export function MaterialRequestLines({
   // One gesture validates only the lines that carry no alert at all. A remark that does not block (a
   // material that differs from the request's) still asks for a look: such a line is validated by its
   // own button.
+  // A line whose last change is not saved (on its way, or refused) is left out as well: what would be
+  // validated is not what its row shows.
+  const lineChanges = editor.lineChanges;
   const clearIds = useMemo(
-    () => drafts.filter((line) => (alertsByLine.get(line.id) ?? []).length === 0).map((line) => line.id),
-    [alertsByLine, drafts],
+    () =>
+      drafts
+        .filter((line) => (alertsByLine.get(line.id) ?? []).length === 0 && !lineChanges.has(line.id))
+        .map((line) => line.id),
+    [alertsByLine, drafts, lineChanges],
   );
   const validatedCount = lines.length - drafts.length;
   const heldCount = drafts.filter((line) => (alertsByLine.get(line.id) ?? []).some((alert) => alert.blocking)).length;
-  const remarkCount = drafts.length - clearIds.length - heldCount;
+  const remarkCount = drafts.filter((line) => {
+    const alerts = alertsByLine.get(line.id) ?? [];
+    return alerts.length > 0 && !alerts.some((alert) => alert.blocking);
+  }).length;
   const allSelected = drafts.length > 0 && selectedIds.length === drafts.length;
 
   const report = (result: SaveResult) => {
@@ -120,8 +162,12 @@ export function MaterialRequestLines({
   };
   const validate = async (ids: string[]) => {
     if (ids.length === 0) return;
-    if (await guarded(() => editor.validateLines(ids))) {
-      toast.success({ title: plural(ids.length, "ligne validée", "lignes validées") });
+    setBusy(true);
+    const result = await editor.validateLines(ids);
+    setBusy(false);
+    report(result);
+    if (result.ok && result.validated) {
+      toast.success({ title: plural(result.validated, "ligne validée", "lignes validées") });
     }
   };
   const addLine = async () => {
@@ -179,6 +225,7 @@ export function MaterialRequestLines({
         </Alert>
       ) : null}
       {editor.blocked ? <BlockedReport blocked={editor.blocked} editor={editor} /> : null}
+      {editor.withheld ? <WithheldNotice withheld={editor.withheld} editor={editor} /> : null}
       {editor.reopenedByRequestChange ? (
         <Alert variant="warning">
           <AlertDescription>
@@ -268,7 +315,9 @@ export function MaterialRequestLines({
                 canWrite={canWrite}
                 selected={selection.has(line.id)}
                 onSelectedChange={(selected) => toggle(line, selected)}
+                change={lineChanges.get(line.id)}
                 onSave={(patch) => editor.saveLine(line.id, patch)}
+                onForget={(fields) => editor.forgetLineFailure(line.id, fields)}
                 onDelete={() => editor.removeLine(line.id)}
                 onValidate={() => editor.validateLines([line.id])}
                 onReopen={() => editor.reopenLines([line.id])}

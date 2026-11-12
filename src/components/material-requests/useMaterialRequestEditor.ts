@@ -13,6 +13,7 @@ import {
   deleteMaterialRequestFile,
   deleteMaterialRequestLine,
   fetchMaterialRequest,
+  isPresumptionChanged,
   materialRequestErrorMessage,
   readBlockedLines,
   reopenMaterialRequestLines,
@@ -33,8 +34,18 @@ import type {
 
 import { uploadMaterialRequestPhotos, type PhotoUploadStep } from "./photo-upload";
 
-/** `blocked`: the server held lines back and validated nothing; the report is in the editor state. */
-export type SaveResult = { ok: true } | { ok: false; message: string; blocked?: true };
+/**
+ * `validated`: how many lines a validation really validated (lines held back are not counted).
+ * `blocked`: nothing was done and the editor state already says why (lines refused by the server, or
+ * held back because their last change is not saved); the caller adds no message of its own.
+ */
+export type SaveResult = { ok: true; validated?: number } | { ok: false; message: string; blocked?: true };
+
+/** A line whose last change is on its way to the server, or was refused by it and is still on screen. */
+export type LineChangeState = "saving" | "failed";
+
+/** Lines an action left out because a change typed on them is not saved. */
+export type WithheldLines = { action: "validate" | "apply"; lineIds: string[] };
 
 export type MaterialRequestEditorApi = {
   projectId: string;
@@ -52,6 +63,13 @@ export type MaterialRequestEditorApi = {
    */
   reopenedByRequestChange: number | null;
   dismissReopened: () => void;
+  /** Lines with a change that is not saved yet, or that could not be saved: they cannot be validated. */
+  lineChanges: ReadonlyMap<string, LineChangeState>;
+  /** The operator dropped a change that could not be saved: these columns of the line are clean again. */
+  forgetLineFailure: (lineId: string, fields: readonly string[]) => void;
+  /** Lines the last validation or bulk change left out, until the operator has read it. */
+  withheld: WithheldLines | null;
+  dismissWithheld: () => void;
   updateRequest: (patch: UpdateMaterialRequestInput) => Promise<SaveResult>;
   saveLine: (lineId: string, patch: MaterialRequestLineInput) => Promise<SaveResult>;
   addLines: (lines: MaterialRequestLineInput[]) => Promise<SaveResult>;
@@ -98,6 +116,14 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
   const [blocked, setBlocked] = useState<MaterialRequestBlockedLine[] | null>(null);
   const [reopenedByRequestChange, setReopenedByRequestChange] = useState<number | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
+  /**
+   * Per line: the saves not answered yet and the columns whose last save failed. Kept in a ref because a
+   * validation queued behind a save must read that save's outcome the moment its own turn comes, before
+   * any render; `lineChanges` is the same thing for the screen.
+   */
+  const lineWrites = useRef(new Map<string, { pending: number; failed: Set<string> }>());
+  const [lineChanges, setLineChanges] = useState<ReadonlyMap<string, LineChangeState>>(new Map());
+  const [withheld, setWithheld] = useState<WithheldLines | null>(null);
   const leaving = useRef<AbortController | null>(null);
 
   // Leaving the request while photos are on their way drops what was prepared for them.
@@ -159,6 +185,25 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
     }
   }, [enqueue, projectId, requestId]);
 
+  const publishLineChanges = useCallback(() => {
+    const next = new Map<string, LineChangeState>();
+    for (const [lineId, record] of lineWrites.current) {
+      if (record.failed.size > 0) next.set(lineId, "failed");
+      else if (record.pending > 0) next.set(lineId, "saving");
+    }
+    setLineChanges(next);
+  }, []);
+
+  const forgetLineFailure = useCallback(
+    (lineId: string, fields: readonly string[]) => {
+      const record = lineWrites.current.get(lineId);
+      if (!record) return;
+      for (const field of fields) record.failed.delete(field);
+      publishLineChanges();
+    },
+    [publishLineChanges],
+  );
+
   const actions = useMemo(
     () => ({
       updateRequest: async (patch: UpdateMaterialRequestInput): Promise<SaveResult> => {
@@ -180,15 +225,38 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           if (reopened.size > 0) setReopenedByRequestChange(reopened.size);
           return { ok: true };
         } catch (error) {
+          // The value about to be confirmed is no longer the one stored: nothing was written. The request
+          // is read again first, so the operator sees what is stored now beside the server's sentence.
+          if (isPresumptionChanged(error)) await resync();
           return { ok: false, message: materialRequestErrorMessage(error, "La demande n’a pas pu être enregistrée.") };
         }
       },
-      saveLine: (lineId: string, patch: MaterialRequestLineInput) =>
-        run(
-          () => updateMaterialRequestLine(projectId, requestId, lineId, patch),
+      saveLine: (lineId: string, patch: MaterialRequestLineInput) => {
+        const fields = Object.keys(patch);
+        const record = lineWrites.current.get(lineId) ?? { pending: 0, failed: new Set<string>() };
+        lineWrites.current.set(lineId, record);
+        record.pending += 1;
+        publishLineChanges();
+        return run(
+          async () => {
+            // The outcome is recorded inside the queued call itself: whatever was queued behind this
+            // save (a validation, a bulk change) reads it before it is sent.
+            try {
+              const line = await updateMaterialRequestLine(projectId, requestId, lineId, patch);
+              for (const field of fields) record.failed.delete(field);
+              return line;
+            } catch (error) {
+              for (const field of fields) record.failed.add(field);
+              throw error;
+            } finally {
+              record.pending -= 1;
+              publishLineChanges();
+            }
+          },
           (current, line) => mergeLines(current, [line]),
           "La ligne n’a pas pu être enregistrée.",
-        ),
+        );
+      },
       addLines: (lines: MaterialRequestLineInput[]) =>
         run(() => createMaterialRequestLines(projectId, requestId, lines), mergeLines, "Les lignes n’ont pas pu être ajoutées."),
       removeLine: async (lineId: string) => {
@@ -197,22 +265,65 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           (current) => ({ ...current, lines: current.lines.filter((line) => line.id !== lineId) }),
           "La ligne n’a pas pu être supprimée.",
         );
-        if (result.ok) void resync();
+        if (result.ok) {
+          lineWrites.current.delete(lineId);
+          publishLineChanges();
+          void resync();
+        }
         return result;
       },
-      applyToLines: (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]) =>
-        run(
-          () => bulkUpdateMaterialRequestLines(projectId, requestId, { ids, patch }),
-          mergeLines,
-          "La modification n’a pas pu être appliquée à la sélection.",
-        ),
+      applyToLines: async (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]): Promise<SaveResult> => {
+        setWithheld(null);
+        const fields = Object.keys(patch);
+        try {
+          const outcome = await enqueue(async () => {
+            // A value typed in one of these columns and not saved is still on screen with its message:
+            // the bulk change leaves that line alone instead of slipping another value under it.
+            const held = ids.filter((id) => {
+              const record = lineWrites.current.get(id);
+              return record !== undefined && fields.some((field) => record.failed.has(field));
+            });
+            const ready = ids.filter((id) => !held.includes(id));
+            const lines =
+              ready.length > 0 ? await bulkUpdateMaterialRequestLines(projectId, requestId, { ids: ready, patch }) : [];
+            return { held, ready, lines };
+          });
+          setData((current) => (current ? mergeLines(current, outcome.lines) : current));
+          if (outcome.held.length > 0) setWithheld({ action: "apply", lineIds: outcome.held });
+          return outcome.ready.length > 0
+            ? { ok: true }
+            : { ok: false, blocked: true, message: "Aucune ligne n’a été modifiée." };
+        } catch (error) {
+          return {
+            ok: false,
+            message: materialRequestErrorMessage(error, "La modification n’a pas pu être appliquée à la sélection."),
+          };
+        }
+      },
       validateLines: async (ids: string[]): Promise<SaveResult> => {
         setBlocked(null);
+        setWithheld(null);
+        // Lines left out are reported even when the server then refuses the others.
+        let held: string[] = [];
         try {
-          const lines = await enqueue(() => validateMaterialRequestLines(projectId, requestId, ids));
+          const lines = await enqueue(async () => {
+            // Every save made before this validation has answered by now. A line whose change was
+            // refused, or is still to be sent, is not validated: the server would validate the values it
+            // holds, not the ones on screen, and the settled row would hide the typed value and its error.
+            held = ids.filter((id) => {
+              const record = lineWrites.current.get(id);
+              return record !== undefined && (record.pending > 0 || record.failed.size > 0);
+            });
+            const ready = ids.filter((id) => !held.includes(id));
+            return ready.length > 0 ? validateMaterialRequestLines(projectId, requestId, ready) : [];
+          });
           setData((current) => (current ? mergeLines(current, lines) : current));
-          return { ok: true };
+          if (held.length > 0) setWithheld({ action: "validate", lineIds: held });
+          return lines.length > 0 || held.length === 0
+            ? { ok: true, validated: lines.length }
+            : { ok: false, blocked: true, message: "Rien n’a été validé." };
         } catch (error) {
+          if (held.length > 0) setWithheld({ action: "validate", lineIds: held });
           const refused = readBlockedLines(error);
           if (refused) {
             setBlocked(refused);
@@ -265,7 +376,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           "La photo n’a pas pu être retirée.",
         ),
     }),
-    [enqueue, projectId, requestId, resync, run],
+    [enqueue, projectId, publishLineChanges, requestId, resync, run],
   );
 
   const alertContext = useMemo<AlertContext | null>(
@@ -281,6 +392,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
   }, [alertContext]);
   const dismissBlocked = useCallback(() => setBlocked(null), []);
   const dismissReopened = useCallback(() => setReopenedByRequestChange(null), []);
+  const dismissWithheld = useCallback(() => setWithheld(null), []);
 
   if (loadError && !data) return { status: "error", message: loadError, retry };
   if (!data || !alertContext) return { status: "loading" };
@@ -297,6 +409,10 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       dismissBlocked,
       reopenedByRequestChange,
       dismissReopened,
+      lineChanges,
+      forgetLineFailure,
+      withheld,
+      dismissWithheld,
       ...actions,
     },
   };

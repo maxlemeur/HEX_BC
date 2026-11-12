@@ -47,7 +47,16 @@ import type {
  *     later choice was saved;
  * 20. a validated line, or any line shown to a reader, shows no material or supplier when they come from
  *     the request's confirmed presumption, so the reviewed table reads as if they were missing; or an
- *     unconfirmed presumption is shown as applying.
+ *     unconfirmed presumption is shown as applying;
+ * 21. « Confirmer la matière » (or the supplier) confirms whatever the server holds, although another
+ *     session changed it since the screen was loaded, or a value still being typed or saved: the
+ *     operator confirms something they never saw; or the server's refusal leaves the old value on screen;
+ * 22. a line is validated although its last change was not saved (the save queued before the validation
+ *     failed): the server validates the older values, the settled row hides the typed value and its
+ *     error, and the operator believes they validated what they typed; the same through « Valider la
+ *     sélection » or « Valider les lignes sans alerte »; or a bulk change slips another value under a
+ *     typed one that is still shown as unsaved; or such a line stays locked once its change is saved
+ *     or dropped.
  */
 
 const { splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -373,7 +382,12 @@ describe("MaterialRequestEditor", () => {
     await user.click(screen.getByRole("button", { name: "Confirmer la matière" }));
 
     await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()[0]).toEqual({ method: "PATCH", path: BASE, body: { material_confirmed: true } });
+    // The confirmation names the material the operator has on screen.
+    expect(writes()[0]).toEqual({
+      method: "PATCH",
+      path: BASE,
+      body: { material_confirmed: true, expected_presumed_material: "Laiton brut" },
+    });
     expect(await screen.findByText("Matière confirmée")).toBeVisible();
     expect(screen.queryByText("Matière à confirmer")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" })).toBeEnabled();
@@ -1226,6 +1240,301 @@ describe("MaterialRequestEditor", () => {
       expect(screen.getByRole("list", { name: "Points à régler, ligne 1" })).toHaveTextContent(
         "Matière présumée « Laiton brut » à confirmer.",
       );
+    });
+  });
+  describe("confirming what the request presumes", () => {
+    const SUPPLIER_ID = "99999999-9999-4999-8999-999999999999";
+    const OTHER_SUPPLIER_ID = "77777777-7777-4777-8777-777777777777";
+    const changedElsewhere = (field: string, message: string): Reply => ({
+      status: 409,
+      error: { code: "MATERIAL_REQUEST_PRESUMPTION_CHANGED", message, details: { field } },
+    });
+
+    it("confirms nothing, shows the server's sentence and the material now stored when it changed elsewhere (21)", async () => {
+      let reads = 0;
+      const sentence = "La matière présumée a été modifiée entre-temps : relisez-la avant de la confirmer.";
+      const user = await openEditor({
+        [`GET ${BASE}`]: () => {
+          reads += 1;
+          return {
+            data: detail({
+              request: { presumed_material: reads === 1 ? "Laiton brut" : "PVC pression" },
+              lines: [line({ material: null })],
+            }),
+          };
+        },
+        [`PATCH ${BASE}`]: changedElsewhere("presumed_material", sentence),
+      });
+
+      await user.click(screen.getByRole("button", { name: "Confirmer la matière" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(sentence);
+      expect(writes()).toEqual([
+        { method: "PATCH", path: BASE, body: { material_confirmed: true, expected_presumed_material: "Laiton brut" } },
+      ]);
+      expect(reads).toBe(2);
+      expect(screen.getByLabelText("Matière présumée")).toHaveValue("PVC pression");
+      expect(screen.getByText("Matière à confirmer")).toBeVisible();
+      expect(screen.queryByText("Matière confirmée")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
+    });
+
+    it("sends the supplier on screen with its confirmation, and confirms nothing when it changed elsewhere (21)", async () => {
+      let reads = 0;
+      const sentence = "Le fournisseur présumé a été modifié entre-temps : relisez-le avant de le confirmer.";
+      const suppliers = [
+        { id: SUPPLIER_ID, name: "Négoce Exemple" },
+        { id: OTHER_SUPPLIER_ID, name: "Comptoir Fictif" },
+      ];
+      const user = await openEditor({
+        [`GET ${BASE}`]: () => {
+          reads += 1;
+          return {
+            data: {
+              ...detail({ request: { presumed_supplier_id: reads === 1 ? SUPPLIER_ID : OTHER_SUPPLIER_ID }, lines: [line()] }),
+              supplierOptions: suppliers,
+            },
+          };
+        },
+        [`PATCH ${BASE}`]: changedElsewhere("presumed_supplier_id", sentence),
+      });
+      expect(screen.getByLabelText("Fournisseur présumé")).toHaveDisplayValue("Négoce Exemple");
+
+      await user.click(screen.getByRole("button", { name: "Confirmer le fournisseur" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(sentence);
+      expect(writes()).toEqual([
+        { method: "PATCH", path: BASE, body: { supplier_confirmed: true, expected_presumed_supplier_id: SUPPLIER_ID } },
+      ]);
+      expect(screen.getByLabelText("Fournisseur présumé")).toHaveDisplayValue("Comptoir Fictif");
+      expect(screen.getByText("Fournisseur à confirmer")).toBeVisible();
+      expect(screen.queryByText("Fournisseur confirmé")).not.toBeInTheDocument();
+    });
+
+    it("does not confirm a material that is typed but not saved yet, then confirms the saved one (21)", async () => {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ request: { presumed_material: "Laiton brut" }, lines: [line()] }) },
+        [`PATCH ${BASE}`]: async (body) => {
+          const patch = body as Partial<MaterialRequest>;
+          if (patch.presumed_material !== undefined) await held;
+          return {
+            data: {
+              request: request({ presumed_material: "PVC pression", material_confirmed: patch.material_confirmed === true }),
+              reopened_line_ids: [],
+            },
+          };
+        },
+      });
+
+      const material = screen.getByLabelText("Matière présumée");
+      await user.clear(material);
+      await user.type(material, "PVC pression");
+      const confirm = screen.getByRole("button", { name: "Confirmer la matière" });
+      expect(confirm).toHaveAttribute("aria-disabled", "true");
+      expect(confirm).toHaveAccessibleDescription(
+        "La matière saisie n’est pas encore enregistrée : confirmez-la une fois qu’elle l’est.",
+      );
+
+      // Pressing it leaves the field, which saves the material; it confirms nothing while that save runs.
+      await user.click(confirm);
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      await user.click(confirm);
+      expect(writes().map((call) => call.body)).toEqual([{ presumed_material: "PVC pression", material_confirmed: false }]);
+      release();
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirmer la matière" })).not.toHaveAttribute("aria-disabled"));
+      await user.click(screen.getByRole("button", { name: "Confirmer la matière" }));
+
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes()[1].body).toEqual({ material_confirmed: true, expected_presumed_material: "PVC pression" });
+      expect(await screen.findByText("Matière confirmée")).toBeVisible();
+    });
+  });
+
+  describe("a line whose last change was not saved", () => {
+    const refused: Reply = {
+      status: 500,
+      error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." },
+    };
+    const validation: Route = (body) => ({
+      data: {
+        lines: [line(), line({ id: LINE_B, position: 2, product_type: "Réduction" })]
+          .filter((entry) => (body as { ids: string[] }).ids.includes(entry.id))
+          .map((entry) => ({ ...entry, status: "validated", validated_at: "2026-11-10T10:00:00.000Z" })),
+      },
+    });
+    const twoLines = () => [line(), line({ id: LINE_B, position: 2, product_type: "Réduction" })];
+    const notValidated = "La ligne 1 n’a pas été validée : sa dernière modification n’a pas été enregistrée.";
+
+    it("is not validated by its own button when the save queued before the validation fails (22)", async () => {
+      let reject!: () => void;
+      const held = new Promise<void>((resolve) => {
+        reject = resolve;
+      });
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: async () => {
+          await held;
+          return refused;
+        },
+        [`POST ${BASE}/lines/validate`]: validation,
+      });
+
+      await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
+      // Leaving the cell queues its save; the validation is queued right behind it.
+      await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
+      await waitFor(() => expect(writes()).toHaveLength(1));
+      reject();
+
+      expect(await screen.findByText(notValidated)).toBeVisible();
+      expect(events).toEqual([`PATCH ${BASE}/lines/${LINE_A}`]);
+      expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("Local technique B");
+      expect(screen.getByRole("alert")).toHaveTextContent("Non enregistré : Enregistrement impossible pour le moment.");
+      expect(screen.getByText("Brouillon")).toBeVisible();
+      expect(screen.queryByText("Validée")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
+    });
+
+    it("is left out of the one-gesture validation while the other ready lines are validated (22)", async () => {
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: twoLines() }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: refused,
+        [`POST ${BASE}/lines/validate`]: validation,
+      });
+      expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (2)" })).toBeEnabled();
+
+      await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
+      await user.tab();
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" }));
+
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes()[1]).toEqual({ method: "POST", path: `${BASE}/lines/validate`, body: { ids: [LINE_B] } });
+      await waitFor(() => expect(screen.getAllByText("Validée")).toHaveLength(1));
+      expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("Local technique B");
+      expect(screen.getByRole("alert")).toHaveTextContent("Non enregistré");
+    });
+
+    it("is left out of « Valider la sélection », which says so and validates the others (22)", async () => {
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: twoLines() }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: refused,
+        [`POST ${BASE}/lines/validate`]: validation,
+      });
+
+      await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
+      await user.tab();
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("checkbox", { name: "Tout sélectionner" }));
+      await user.click(screen.getByRole("button", { name: "Valider la sélection" }));
+
+      expect(await screen.findByText(notValidated)).toBeVisible();
+      expect(writes()[1].body).toEqual({ ids: [LINE_B] });
+      await waitFor(() => expect(screen.getAllByText("Validée")).toHaveLength(1));
+      expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("Local technique B");
+    });
+
+    it("validates once its change is saved on a second try (22)", async () => {
+      let saves = 0;
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: (body) => {
+          saves += 1;
+          return saves === 1 ? refused : { data: { line: line(body as Partial<MaterialRequestLine>) } };
+        },
+        [`POST ${BASE}/lines/validate`]: (body) => ({
+          data: {
+            lines: (body as { ids: string[] }).ids.map((id) =>
+              line({ id, zone: "Local technique B", status: "validated", validated_at: "2026-11-10T10:00:00.000Z" }),
+            ),
+          },
+        }),
+      });
+
+      const zone = screen.getByLabelText("Repère, ligne 1");
+      await user.type(zone, "Local technique B");
+      await user.tab();
+      await screen.findByRole("alert");
+      expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeDisabled();
+
+      // Leaving the cell again sends the same value again.
+      await user.click(zone);
+      await user.tab();
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
+
+      expect(await screen.findByText("Validée")).toBeVisible();
+      expect(writes().map((call) => call.body)).toEqual([
+        { zone: "Local technique B" },
+        { zone: "Local technique B" },
+        { ids: [LINE_A] },
+      ]);
+      expect(screen.getByText("Local technique B")).toBeVisible();
+    });
+
+    it("can be validated again once the operator drops the change that was not saved (22)", async () => {
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: refused,
+        [`POST ${BASE}/lines/validate`]: validation,
+      });
+
+      const zone = screen.getByLabelText("Repère, ligne 1");
+      await user.type(zone, "Local technique B");
+      await user.tab();
+      await screen.findByRole("alert");
+      await user.click(zone);
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" }));
+      expect(await screen.findByText("Validée")).toBeVisible();
+      expect(writes()[1].body).toEqual({ ids: [LINE_A] });
+    });
+
+    it("is left alone by a bulk change of the column that holds its unsaved value, and the operator is told (22)", async () => {
+      const user = await openEditor({
+        [`GET ${BASE}`]: { data: detail({ lines: twoLines() }) },
+        [`PATCH ${BASE}/lines/${LINE_A}`]: refused,
+        [`PATCH ${BASE}/lines`]: (body) => ({
+          data: {
+            lines: twoLines()
+              .filter((entry) => (body as { ids: string[] }).ids.includes(entry.id))
+              .map((entry) => ({ ...entry, zone: "Local technique B" })),
+          },
+        }),
+      });
+
+      await user.type(screen.getByLabelText("Repère, ligne 1"), "Local pompes");
+      await user.tab();
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("checkbox", { name: "Tout sélectionner" }));
+      const bar = screen.getByRole("group", { name: "Actions sur la sélection" });
+      await user.selectOptions(within(bar).getByLabelText("Champ à remplir"), "Repère");
+      await user.type(within(bar).getByLabelText("Valeur à appliquer"), "Local technique B");
+      await user.click(within(bar).getByRole("button", { name: "Appliquer à la sélection" }));
+
+      expect(
+        await screen.findByText(
+          "La ligne 1 n’a pas été modifiée : une valeur saisie dans cette colonne n’y est pas enregistrée.",
+        ),
+      ).toBeVisible();
+      expect(writes()[1]).toEqual({
+        method: "PATCH",
+        path: `${BASE}/lines`,
+        body: { ids: [LINE_B], patch: { zone: "Local technique B" } },
+      });
+      expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("Local pompes");
+      expect(screen.getByRole("alert")).toHaveTextContent("Non enregistré");
+      await waitFor(() => expect(screen.getByLabelText("Repère, ligne 2")).toHaveValue("Local technique B"));
     });
   });
 });
