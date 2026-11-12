@@ -816,10 +816,26 @@ function QuotePriceEntry({
       return;
     }
     setChoice(next);
+    await saveLotOfShownPrice(next);
+  };
+
+  // The saved amount, which the field shows, sent for another lot.
+  const saveLotOfShownPrice = async (lot: MaterialRequestPricePer) => {
     if (entry.unit_price_ht_cents === null) return;
-    const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, next);
-    if (result.ok) settle(next);
+    const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, lot);
+    if (result.ok) settle(lot);
     else setError(result.message);
+  };
+
+  // Leaving the field saves what it shows. A lot chosen while the text could not be read waits for the price: sent
+  // with it even when the amount is the one saved, as what it is for changed; and sent alone when a save that
+  // travelled meanwhile already wrote the amount shown (it gave the field back its saved amount).
+  const commitShown = () => {
+    if (field.draft === null) {
+      if (per !== stored) void saveLotOfShownPrice(per);
+      return;
+    }
+    void field.commit(saveFor(per), per !== stored);
   };
 
   return (
@@ -834,9 +850,7 @@ function QuotePriceEntry({
             label={`Prix unitaire HT, ligne ${position}, ${supplier}`}
             value={entry.unit_price_ht_cents}
             field={field}
-            // A lot chosen while the text could not be read waits for the price: sent with it even when the amount is
-            // the one saved, as what it is for changed.
-            onCommit={() => void field.commit(saveFor(per), per !== stored)}
+            onCommit={commitShown}
           />
         </div>
         <NativeSelect
