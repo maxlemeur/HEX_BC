@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import {
   ArrowDownUpIcon,
   ArrowRightIcon,
+  BookLockIcon,
   CalculatorIcon,
   ChartLineIcon,
   CoinsIcon,
@@ -106,6 +107,12 @@ export default async function AdminHubPage() {
             icon={<CalculatorIcon strokeWidth={1.75} />}
             title="Calcul des devis"
             description="Coefficients de vente par défaut et taux de TVA autorisés"
+          />
+          <HubCard
+            href="/dashboard/admin/catalogue-rights"
+            icon={<BookLockIcon strokeWidth={1.75} />}
+            title="Droits du catalogue"
+            description="Ce que les ingénieurs modifient parmi les fournisseurs et les articles"
           />
         </HubSection>
 
