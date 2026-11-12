@@ -5,6 +5,7 @@ import { z } from "zod";
 import { compareEstimates, estimateLineDetail, estimateLines, estimateOutline, type EstimateReading } from "@/lib/assistant/estimate-reading";
 import { listAffaireEstimateVersions, loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
 import { AssistantToolError, type AssistantTool } from "@/lib/assistant/loop";
+import { takeoffLinesPage } from "@/lib/assistant/takeoff-reading";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { getTakeoffJobDetails, listTakeoffJobs } from "@/lib/takeoff/job-read-server";
 import { getEstimateVersionProjectIdOrThrow } from "@/lib/takeoff/version-access-server";
@@ -90,7 +91,7 @@ export function buildAssistantTools(scope: { context: AuthenticatedContext; proj
     },
     {
       name: "lire_metre", activity: "Lecture du métré",
-      description: "Sans `jobId` : liste les métrés de l’affaire. Avec `jobId` : lignes du métré (désignation, quantité, unité, confiance, preuve, fichier et page source, vérifiée ou exclue), 100 par page.",
+      description: "Sans `jobId` : liste les métrés de l’affaire. Avec `jobId` : lignes du métré (désignation, quantité, unité, confiance, preuve, fichier et page source, vérifiée ou exclue), jusqu’à 100 par page. Une preuve longue est coupée (`preuve_tronquee`). S’il reste des lignes, rappelle l’outil avec `offset` égal à `prochain_offset`.",
       input: z.object({ jobId: id.optional(), offset: z.number().int().min(0).max(100_000).optional() }).strict(),
       run: (raw) => userFacing(async () => {
         const input = raw as { jobId?: string; offset?: number };
@@ -115,12 +116,7 @@ export function buildAssistantTools(scope: { context: AuthenticatedContext; proj
         const detail = await getTakeoffJobDetails(input.jobId, { items_limit: TAKEOFF_ITEMS_PAGE, items_offset: offset });
         return {
           metre: { id: detail.job.id, statut: detail.job.status, niveau: detail.job.level, devis_version_id: detail.job.estimate_version_id },
-          lignes: detail.items.data.map((item) => ({
-            id: item.id, designation: item.designation, quantite: item.quantity, unite: item.unit, confiance: item.confidence,
-            preuve: item.evidence, fichier_source: item.source_file_name, page_source: item.source_page,
-            verifiee: item.is_verified, exclue: item.is_excluded, motif_exclusion: item.exclusion_reason,
-          })),
-          lignes_restantes: Math.max(0, detail.items.pagination.total - offset - detail.items.data.length),
+          ...takeoffLinesPage(detail.items.data, { total: detail.items.pagination.total, offset }),
         };
       }),
     },

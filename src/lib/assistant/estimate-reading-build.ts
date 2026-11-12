@@ -5,6 +5,7 @@ import type { EstimateBreakdown } from "@/lib/estimate-calculations";
 import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3/types";
 import { assertNever, requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { foCostDetail } from "@/lib/estimates/fo-cost-detail";
+import { normalizeEstimateCurrency } from "@/lib/money";
 import type { Database } from "@/types/database";
 
 /** What a reading is built from: the stored rows and, for a draft, what its pinned engine just computed. */
@@ -152,6 +153,8 @@ export function buildEstimateReading(source: EstimateReadingSource): EstimateRea
   return {
     version: {
       id: version.id, label: versionLabel(version), title: version.title, status: version.status, engine,
+      // Stored per version; the application's own default when the column is empty.
+      currency: normalizeEstimateCurrency(version.currency) ?? "EUR",
       amountsBasis: calculation.kind === "frozen" ? "frozen" : "draft_calculation",
     },
     params, totals, warnings, nodes,

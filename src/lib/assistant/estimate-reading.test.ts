@@ -27,7 +27,7 @@ function line(id: string, parentId: string | null, title: string, position: numb
 }
 
 const reading: EstimateReading = {
-  version: { id: "v-1", label: "V1", title: "Chaufferie", status: "draft", engine: 3, amountsBasis: "draft_calculation" },
+  version: { id: "v-1", label: "V1", title: "Chaufferie", status: "draft", engine: 3, currency: "EUR", amountsBasis: "draft_calculation" },
   params: { coefficient_vente_fo: "1.2500" },
   totals: {
     grossHtCents: 17_000, discountCents: 0, roundingCents: 0, totalHtCents: 17_000, totalTaxCents: 3_400,
@@ -78,12 +78,37 @@ describe("estimate reading for the assistant", () => {
     const outline = estimateOutline(discounted);
     expect(outline.totaux).toMatchObject({ total_brut_ht: "1 000,00 €", remise: "50,00 €", total_ht: "950,00 €" });
     expect(outline.sections[0]).toMatchObject({ total_ht: "950,00 €" });
-    expect(outline.note).toContain("remise");
+    expect(outline.note).toContain("le total d’une ligne est affiché avant");
     // The list and the detail show what the editor shows; the net is named apart.
     expect(estimateLines(discounted, {}).lignes[0]).toMatchObject({ total_ht: "1 000,00 €" });
     expect(estimateLineDetail(discounted, "l-remise").calcul).toMatchObject({
       total_ht: "1 000,00 €", total_net_ht_apres_remise: "950,00 €",
     });
+  });
+
+  it("says that line totals are already net where the engine deducts the discount from each line", () => {
+    // Engine 2: the line's shown total is its net; telling the model it is « before the discount » would contradict it.
+    const netLines: EstimateReading = {
+      ...reading,
+      totals: { ...reading.totals, grossHtCents: null, discountCents: 1_000, totalHtCents: 9_000 },
+      nodes: [section("s-lot", null, "Lot", 1), line("l-net", "s-lot", "Radiateur", 1, 9_000)],
+    };
+    const outline = estimateOutline(netLines);
+    expect(outline.note).toContain("déjà nets");
+    expect(outline.note).not.toContain("affiché avant");
+    expect(estimateLineDetail(netLines, "l-net").calcul).not.toHaveProperty("total_net_ht_apres_remise");
+  });
+
+  it("writes every amount in the estimate's own currency, never as euros by default", () => {
+    const dollars: EstimateReading = { ...reading, version: { ...reading.version, id: "v-usd", currency: "USD" } };
+    expect(estimateOutline(dollars).totaux.total_ht).toBe("$170.00");
+    expect(estimateOutline(dollars).devis).toMatchObject({ devise: "USD" });
+    expect(estimateLines(dollars, { sectionId: "s-reseaux" }).lignes[0]).toMatchObject({ pu_ht: "$25.00", total_ht: "$50.00" });
+    expect(estimateLineDetail(dollars, "l-cuivre").calcul).toMatchObject({ debourse_ht: "$24.00" });
+    // Two currencies are never subtracted: each total stays in its own, and no difference is given.
+    const comparison = compareEstimates(reading, dollars);
+    expect(comparison).toMatchObject({ total_ht_a: "170,00 €", total_ht_b: "$170.00", ecart_total_ht: null, sections_differentes: [] });
+    expect(comparison.note).toContain("même devise");
   });
 
   it("lists the lines of a section and of its sub-sections, in the estimate's order", () => {

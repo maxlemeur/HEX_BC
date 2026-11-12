@@ -29,10 +29,13 @@ proposer des modifications du devis, fonctionner sur le site hébergé.
    les écarts entre deux versions sont additionnés et soustraits par
    l'application, pas par le modèle. Les montants sont transmis au modèle déjà
    mis en forme en euros.
-   - Le total d'une ligne est celui que montrent l'éditeur et le document,
-     avant répartition de la remise et de l'arrondi commercial. Le net de la
-     ligne est donné à part quand il diffère. Les totaux de section et le total
-     HT sont nets.
+   - Le total d'une ligne est celui que montrent l'éditeur et le document. En
+     moteur 3, c'est le total avant répartition de la remise et de l'arrondi
+     commercial, et le net de la ligne est donné à part. Sur les moteurs plus
+     anciens, la remise est déjà déduite de chaque ligne. Les totaux de section
+     et le total HT sont nets, et l'assistant est informé du cas où il se trouve.
+   - Les montants sont écrits dans la devise du devis (euro, dollar ou livre).
+     Deux devis de devises différentes ne sont pas comparés.
    - Une ligne « Inclus », « Pour mémoire », « Hors lot » ou « Sans objet » n'a
      pas de montant et n'est pas comptée comme restant à chiffrer : seule une
      ligne « Non chiffrée » l'est.
@@ -77,7 +80,7 @@ proposer des modifications du devis, fonctionner sur le site hébergé.
 | `lire_lignes_devis` | Les lignes d'un devis ou d'une section, 80 par page |
 | `lire_ligne_devis` | Ce qui a été saisi sur une ligne et ce que le moteur en calcule |
 | `comparer_devis` | L'écart de total entre deux versions et les sections qui diffèrent |
-| `lire_metre` | Les métrés de l'affaire, ou les lignes d'un métré, 100 par page |
+| `lire_metre` | Les métrés de l'affaire, ou les lignes d'un métré, jusqu'à 100 par page ; une preuve longue est coupée et signalée |
 
 ## Données
 

@@ -11,7 +11,7 @@ const version = (overrides: Partial<Version> = {}) => ({
   id: "v-1", version_number: 2, variant_label: null, title: "Chaufferie", status: "draft", calc_engine_version: 3,
   total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0, gross_ht_cents: null, discount_applied_cents: null,
   commercial_rounding_cents: null, sale_coefficient_fo: 1.25, sale_coefficient_mo: 1.4, global_coefficient: null,
-  margin_multiplier: null, ...overrides,
+  margin_multiplier: null, currency: "EUR", ...overrides,
 }) as Version;
 
 const item = (overrides: Partial<Item>) => ({
@@ -51,7 +51,8 @@ describe("estimate reading built from the engines", () => {
       grossHtCents: 100_000, discountCents: 5_000, roundingCents: 0, totalHtCents: 95_000, totalTaxCents: 19_000,
       totalTtcCents: 114_000, costHtCents: 70_000,
     });
-    expect(reading.version).toMatchObject({ label: "V2", engine: 3, amountsBasis: "draft_calculation" });
+    expect(reading.version).toMatchObject({ label: "V2", engine: 3, currency: "EUR", amountsBasis: "draft_calculation" });
+    expect(buildEstimateReading({ version: version({ currency: "GBP" }), items: [], calculation: v3([]) }).version.currency).toBe("GBP");
   });
 
   it("gives no amount to a line that is not priced, and warns only about the ones left « Non chiffrée »", () => {

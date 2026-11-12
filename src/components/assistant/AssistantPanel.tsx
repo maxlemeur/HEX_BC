@@ -212,6 +212,8 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
       } else {
         const message = error instanceof AssistantUserError ? error.message : CONNECTION_FAILED;
         const code = error instanceof AssistantUserError ? error.code : "AI_FAILED";
+        // The connection dropped mid-answer: keep on screen what the member was reading.
+        if (!finished && (written.trim() || activity.length > 0)) setMessages((current) => [...current, local("failed")]);
         // Another question was asked in this conversation elsewhere: show it as it is now before any new retry.
         const stale = code === "ASSISTANT_RETRY_STALE";
         if (stale && threadId !== null) {

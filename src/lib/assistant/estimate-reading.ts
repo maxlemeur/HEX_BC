@@ -2,12 +2,13 @@ import "server-only";
 
 import { AssistantToolError } from "@/lib/assistant/loop";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
-import { formatEUR } from "@/lib/money";
+import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 
 /**
  * An estimate as the assistant reads it. Every amount comes from the calculation
  * engines or from the frozen columns of an issued version: nothing here derives a
- * price. Amounts leave as formatted euros so that the model never converts cents.
+ * price. Amounts leave formatted in the estimate's own currency, so that the model
+ * never converts cents nor assumes euros.
  */
 export type EstimateReadingAmounts = {
   puHtCents: number | null;
@@ -50,6 +51,7 @@ export type EstimateReadingNode = {
 export type EstimateReading = {
   version: {
     id: string; label: string; title: string | null; status: string; engine: number;
+    currency: SupportedEstimateCurrency;
     amountsBasis: "draft_calculation" | "frozen";
   };
   params: Record<string, string | number | boolean | null>;
@@ -65,12 +67,16 @@ const LINES_PAGE = 80;
 const SECTIONS_LISTED = 200;
 const NOT_PRICED = "not_priced";
 
-function euros(cents: number | null | undefined) {
-  return cents === null || cents === undefined ? null : formatEUR(cents).replace(/[  ]/g, " ");
+type Money = (cents: number | null | undefined) => string | null;
+
+/** Amounts of one estimate, written in its currency (with plain spaces, as the model and the tests read them). */
+function moneyOf(reading: EstimateReading): Money {
+  const { currency } = reading.version;
+  return (cents) => cents === null || cents === undefined ? null : formatCurrency(cents, currency).replace(/[\u00a0\u202f]/g, " ");
 }
 
-function signedEuros(cents: number) {
-  return `${cents > 0 ? "+" : ""}${euros(cents)}`;
+function signed(money: Money, cents: number) {
+  return `${cents > 0 ? "+" : ""}${money(cents)}`;
 }
 
 function fold(value: string) {
@@ -121,7 +127,7 @@ function linesUnder(ordered: ReturnType<typeof walk>, sectionId: string | null) 
 function versionSummary(reading: EstimateReading) {
   return {
     id: reading.version.id, version: reading.version.label, titre: reading.version.title, statut: reading.version.status,
-    moteur_de_calcul: reading.version.engine,
+    moteur_de_calcul: reading.version.engine, devise: reading.version.currency,
     montants: reading.version.amountsBasis === "frozen" ? "montants figés à l’émission" : "calcul du brouillon en cours",
   };
 }
@@ -145,27 +151,35 @@ function isComputed(reading: EstimateReading) {
 
 /** The estimate at a glance: settings, footer totals, and each section with the lines below it. */
 export function estimateOutline(reading: EstimateReading) {
+  const money = moneyOf(reading);
   const ordered = walk(reading);
   const computed = isComputed(reading);
   const sections = sectionTotals(reading, ordered);
   const lines = ordered.filter((entry) => entry.node.type === "line");
   const spread = (reading.totals.discountCents ?? 0) !== 0 || (reading.totals.roundingCents ?? 0) !== 0;
+  // Engine 3 shows a line before the discount is spread on it; the older engines show it already net.
+  const linesBeforeDiscount = lines.some((entry) => {
+    const amounts = entry.node.line?.amounts;
+    return amounts != null && amounts.netHtCents !== amounts.totalHtCents;
+  });
   return {
     devis: versionSummary(reading),
     parametres: reading.params,
     totaux: {
-      total_brut_ht: euros(reading.totals.grossHtCents), remise: euros(reading.totals.discountCents),
-      arrondi_commercial: euros(reading.totals.roundingCents), total_ht: euros(reading.totals.totalHtCents),
-      tva: euros(reading.totals.totalTaxCents), total_ttc: euros(reading.totals.totalTtcCents),
-      debourse_ht: euros(reading.totals.costHtCents),
+      total_brut_ht: money(reading.totals.grossHtCents), remise: money(reading.totals.discountCents),
+      arrondi_commercial: money(reading.totals.roundingCents), total_ht: money(reading.totals.totalHtCents),
+      tva: money(reading.totals.totalTaxCents), total_ttc: money(reading.totals.totalTtcCents),
+      debourse_ht: money(reading.totals.costHtCents),
     },
     ...(spread ? {
-      note: "Une remise ou un arrondi commercial s’applique : le total d’une ligne est affiché avant, les totaux de section et le total HT après.",
+      note: linesBeforeDiscount
+        ? "Une remise ou un arrondi commercial s’applique : le total d’une ligne est affiché avant, les totaux de section et le total HT après."
+        : "Une remise ou un arrondi commercial s’applique : les totaux de ligne, de section et le total HT sont déjà nets.",
     } : {}),
     avertissements: reading.warnings,
     sections: sections.slice(0, SECTIONS_LISTED).map((entry) => ({
       id: entry.id, chemin: entry.path, lignes: entry.lines, lignes_non_chiffrees: entry.unpriced,
-      total_ht: computed ? euros(entry.netHtCents) : null,
+      total_ht: computed ? money(entry.netHtCents) : null,
     })),
     sections_non_listees: Math.max(0, sections.length - SECTIONS_LISTED),
     lignes: lines.length,
@@ -178,6 +192,7 @@ export function estimateOutline(reading: EstimateReading) {
 export function estimateLines(reading: EstimateReading, options: {
   sectionId?: string; search?: string; offset?: number; unpricedOnly?: boolean;
 }) {
+  const money = moneyOf(reading);
   const search = options.search ? fold(options.search.trim()) : "";
   const matching = linesUnder(walk(reading), options.sectionId ?? null)
     .filter((entry) => !search || fold(entry.node.title).includes(search))
@@ -189,7 +204,7 @@ export function estimateLines(reading: EstimateReading, options: {
     lignes: page.map(({ node, path }) => ({
       id: node.id, section: path.join(" > "), designation: node.title, quantite: node.line?.quantity ?? null,
       unite: node.line?.unit ?? null, statut: statusLabel(node.line?.pricingStatus ?? null),
-      pu_ht: euros(node.line?.amounts?.puHtCents), total_ht: euros(node.line?.amounts?.totalHtCents),
+      pu_ht: money(node.line?.amounts?.puHtCents), total_ht: money(node.line?.amounts?.totalHtCents),
     })),
     lignes_restantes: Math.max(0, matching.length - offset - page.length),
   };
@@ -202,21 +217,22 @@ export function estimateLineDetail(reading: EstimateReading, lineId: string) {
   const { node, path } = entry;
   const line = entry.node.line;
   const amounts = line.amounts;
+  const money = moneyOf(reading);
   return {
     devis: versionSummary(reading),
     id: node.id, section: path.join(" > "), designation: node.title, description: line.description,
     quantite: line.quantity, unite: line.unit, statut: statusLabel(line.pricingStatus), source: line.source,
     saisie: {
-      prix_base_fo_ht: euros(line.inputs.unitPriceHtCents),
+      prix_base_fo_ht: money(line.inputs.unitPriceHtCents),
       // One K FO is shown to the estimator: on engine 3 it is in the supply cost sentence, provision included.
       ...(line.foCostText === null ? { k_fo: line.inputs.kFo } : {}),
       heures_mo_par_unite: line.inputs.hMoPerUnit, heures_mo: line.inputs.hMo, k_mo: line.inputs.kMo,
       taux_tva: line.inputs.taxRateBp === null ? null : `${String(line.inputs.taxRateBp / 100).replace(".", ",")} %`,
     },
     calcul: amounts === null ? null : {
-      pu_ht: euros(amounts.puHtCents), total_ht: euros(amounts.totalHtCents),
-      ...(amounts.netHtCents === amounts.totalHtCents ? {} : { total_net_ht_apres_remise: euros(amounts.netHtCents) }),
-      debourse_ht: euros(amounts.costHtCents), part_fo_ht: euros(amounts.foHtCents), part_mo_ht: euros(amounts.moHtCents),
+      pu_ht: money(amounts.puHtCents), total_ht: money(amounts.totalHtCents),
+      ...(amounts.netHtCents === amounts.totalHtCents ? {} : { total_net_ht_apres_remise: money(amounts.netHtCents) }),
+      debourse_ht: money(amounts.costHtCents), part_fo_ht: money(amounts.foHtCents), part_mo_ht: money(amounts.moHtCents),
       heures_mo: amounts.hours, detail_cout_fo: line.foCostText,
     },
   };
@@ -228,9 +244,13 @@ export function estimateLineDetail(reading: EstimateReading, lineId: string) {
  * matched by their path. The subtraction is done here, never by the model.
  */
 export function compareEstimates(a: EstimateReading, b: EstimateReading) {
+  const moneyA = moneyOf(a);
+  const moneyB = moneyOf(b);
   const totalA = a.totals.totalHtCents;
   const totalB = b.totals.totalHtCents;
-  const comparable = isComputed(a) && isComputed(b);
+  // Amounts of two currencies are never subtracted, and a draft the engine refuses has nothing to compare.
+  const sameCurrency = a.version.currency === b.version.currency;
+  const comparable = sameCurrency && isComputed(a) && isComputed(b);
   // Sections that share a path (two « Divers » under one parent) are compared as one.
   const totalsByPath = (reading: EstimateReading) => {
     const totals = new Map<string, number>();
@@ -244,15 +264,16 @@ export function compareEstimates(a: EstimateReading, b: EstimateReading) {
     const sectionB = right.get(path);
     if (sectionA !== undefined && sectionA === sectionB) return [];
     return [{
-      chemin: path, total_ht_a: euros(sectionA), total_ht_b: euros(sectionB),
-      ecart: sectionA === undefined || sectionB === undefined ? null : signedEuros(sectionB - sectionA),
+      chemin: path, total_ht_a: moneyA(sectionA), total_ht_b: moneyB(sectionB),
+      ecart: sectionA === undefined || sectionB === undefined ? null : signed(moneyA, sectionB - sectionA),
     }];
   });
   return {
     devis_a: versionSummary(a), devis_b: versionSummary(b),
     avertissements_a: a.warnings, avertissements_b: b.warnings,
-    total_ht_a: euros(totalA), total_ht_b: euros(totalB),
-    ecart_total_ht: totalA === null || totalB === null ? null : signedEuros(totalB - totalA),
+    note: sameCurrency ? null : "Les deux devis ne sont pas dans la même devise : aucun écart n’est calculé.",
+    total_ht_a: moneyA(totalA), total_ht_b: moneyB(totalB),
+    ecart_total_ht: !comparable || totalA === null || totalB === null ? null : signed(moneyA, totalB - totalA),
     sections_differentes: different.slice(0, 60),
     sections_differentes_non_listees: Math.max(0, different.length - 60),
   };
