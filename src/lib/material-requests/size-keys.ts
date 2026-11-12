@@ -71,6 +71,12 @@ function dnOfOuterDiameter(od: number, material: string | null, code: MaterialCo
   return values.size === 1 ? [...values][0] : null;
 }
 
+/** Whether the text holds this name of the table on its own, not inside a longer size (« 116/118 »). */
+function namedBy(text: string, alias: string) {
+  const escaped = foldText(alias).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w./"])${escaped}(?![\\w./])`).test(text);
+}
+
 /** Two outer diameters of a reducing piece: a DN pair only when both resolve, the diameters always. */
 function outerPair(main: number, second: number | null, material: string | null, code: MaterialCode | null): SizeReading {
   const reduce = second === null ? null : dnOfOuterDiameter(second, material, code);
@@ -116,8 +122,16 @@ export function readSize(raw: string | null | undefined, material: string | null
   const dn = new RegExp(String.raw`\bdn\s*-?\s*${NUMBER}`).exec(text);
   if (dn) return { ...empty, dn: numberOf(dn[1]) };
 
-  // Gas threads and inch sizes: « 15/21 », « 1/2" ». The steel series of the table holds their names.
+  // Names of the material's own series first: in copper « 16/18 » is the 18 mm tube (inner/outer
+  // diameters), not a reducer from 16 to 18. Then gas threads and inch sizes (« 15/21 », « 1/2" »), which
+  // the steel series of the table holds.
   if (/\d\s*\/\s*\d|"/.test(text)) {
+    if (code) {
+      const own = findDiameterEntries(text, code, familiesOf(material, code))
+        .filter((entry) => entry.aliases.some((alias) => namedBy(text, alias)));
+      const ods = new Set(own.map((entry) => entry.od_mm));
+      if (ods.size === 1) return { ...empty, od: own[0].od_mm, dn: own[0].nominal_dn };
+    }
     const threads = findDiameterEntries(text, null, ["acier"]).filter((entry) => entry.aliases.length > 0);
     const values = new Set(threads.map((entry) => entry.nominal_dn).filter((value): value is number => value !== null));
     if (values.size === 1) return { ...empty, dn: [...values][0] };

@@ -19,7 +19,9 @@ import { compareSizes, readSize } from "./size-keys";
  *     dropped: « 32 » and « 40 » in PVC are both unreadable, so a size-40 article is not told apart from a
  *     size-32 line, single or reducing;
  *  8. (Codex review of PR #263) a reducing size marked with the diameter sign (« Ø 40 x 32 ») keeps only its
- *     first diameter, so « Ø 40 x 32 » and « Ø 40 x 25 » compare as the same size.
+ *     first diameter, so « Ø 40 x 32 » and « Ø 40 x 25 » compare as the same size;
+ *  9. (Codex review of PR #263) a copper tube named by its inner/outer diameters (« 16/18 ») is read as a
+ *     reducer from 16 to 18 instead of the 18 mm tube the table names.
  */
 
 const dnOf = (text: string, material: string | null = null) => readSize(text, material)?.dn ?? null;
@@ -85,6 +87,15 @@ describe("readSize", () => {
     expect(compareSizes(readSize("Ø 40 x 32", "PVC"), readSize("Ø 40 x 25", "PVC"))).toBe("different");
     expect(compareSizes(readSize("Ø 40 x 32", "PVC"), readSize("40-32", "PVC"))).toBe("same");
     expect(readSize("Ø 35 x 28", "Cuivre")).toMatchObject({ dn: 32, reduce: 25, od: 35, reduceOd: 28 });
+  });
+
+  it("reads a copper tube named by its inner and outer diameters as that tube", () => {
+    expect(readSize("16/18", "Cuivre")).toMatchObject({ od: 18, dn: 15, reduce: null, reduceOd: null });
+    expect(readSize("20/22", "Cuivre")).toMatchObject({ od: 22, dn: 20 });
+    expect(compareSizes(readSize("16/18", "Cuivre"), readSize("Ø 16", "Cuivre"))).toBe("different");
+    expect(compareSizes(readSize("16/18", "Cuivre"), readSize("Ø 18", "Cuivre"))).toBe("same");
+    // Steel keeps its gas-thread names.
+    expect(dnOf("20/27", "Acier noir T3")).toBe(20);
   });
 
   it("reads nothing in a text without a size", () => {

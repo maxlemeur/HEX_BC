@@ -33,7 +33,9 @@ import { matchLine, prepareCatalogue, type MatchArticle, type MatchRequestLine }
  *     warning (only another size was warned), so the bulk link takes it;
  * 18. a usual name proposes an article whose size cannot be compared with the line's, without a warning;
  * 19. (Codex review of PR #263) a unit outside the shared referential (« barres ») is never compared, so an
- *     article sold in « ml » comes out without a warning and the bulk link takes it.
+ *     article sold in « ml » comes out without a warning and the bulk link takes it;
+ * 20. (Codex review of PR #263) a precision with a grade and a pressure class (« 316L PN16 ») agrees with a
+ *     304L PN16 article because one word (PN16) is shared: the grade conflict is hidden.
  */
 
 let next = 0;
@@ -272,5 +274,19 @@ describe("matchLine", () => {
     expect(candidate.warnings).toContain("Unité de l’article : ml (ligne : barres).");
     const same = matchLine(line({ product_type: "tube evac", material: "PVC", dimension: "32", unit: "ML" }), tubes);
     expect(same[0].warnings).toEqual([]);
+  });
+
+  it("compares the grade and the pressure class or standard each on its own", () => {
+    const grades = prepareCatalogue([
+      article({ id: "vanne-304-pn16", product_type: "Vanne", material: "Inox", grade: "304L", standard: "PN16", dimensions: "DN32", aliases: ["vanne inox"] }),
+      article({ id: "vanne-316-pn16", product_type: "Vanne", material: "Inox", grade: "316L", standard: "PN16", dimensions: "DN32" }),
+      article({ id: "vanne-316-pn40", product_type: "Vanne", material: "Inox", grade: "316L", standard: "PN40", dimensions: "DN32" }),
+      article({ id: "vanne-en", product_type: "Vanne", material: "Inox", standard: "EN 10217", dimensions: "DN32" }),
+    ]);
+    const asked = { material: "Inox", material_precision: "316L PN16", dimension: "DN32" };
+    expect(ids(matchLine(line({ product_type: "vanne", ...asked }), grades))).toEqual(["vanne-316-pn16", "vanne-en"]);
+    expect(ids(matchLine(line({ product_type: "vanne inox", ...asked }), grades))).not.toContain("vanne-304-pn16");
+    const byHand = matchLine(line({ product_type: "vanne", ...asked }), grades, { byHand: true });
+    expect(byHand.find((candidate) => candidate.product_id === "vanne-304-pn16")?.warnings).toContain("Autre nuance (304L PN16) que la ligne (316L PN16).");
   });
 });

@@ -226,16 +226,42 @@ export function prepareCatalogue(articles: readonly MatchArticle[]): PreparedCat
 
 type MaterialVerdict = "same" | "family" | "unknown" | "different";
 
+/** What a word of a precision says: a grade (« 316L », « A4 »), a pressure class (« PN16 »), a standard number. */
+function precisionKind(word: string): "grade" | "pressure" | "standard" | "other" | null {
+  if (["en", "iso", "din", "nf", "norme", "classe"].includes(word)) return null;
+  if (/^pn\d+$/.test(word)) return "pressure";
+  if (/^\d{3}[a-z]{0,2}$/.test(word) || /^a[24]$/.test(word)) return "grade";
+  if (/^\d{4,5}$/.test(word)) return "standard";
+  return /^\d{1,2}$/.test(word) ? null : "other";
+}
+
 /**
- * The line's precision (« 316L ») against the article's grade and standard. One shared word is enough
- * (« 316L PN16 » for a 316L article); none is another grade. Without a precision on the line there is
- * nothing to compare; without a grade on the article it is unknown.
+ * The line's precision (« 316L PN16 ») against the article's grade and standard, each kind on its own: a
+ * shared pressure class never hides another grade. Another grade, pressure class or standard number is a
+ * conflict; agreement on one of them with no conflict is the same precision. Without a precision on the line
+ * there is nothing to compare; when the article says nothing of what the line asks, it is unknown.
  */
 function comparePrecisions(line: ReadonlySet<string>, article: ReadonlySet<string>): "none" | "same" | "unknown" | "different" {
-  if (line.size === 0) return "none";
-  if (article.size === 0) return "unknown";
-  for (const word of line) if (article.has(word)) return "same";
-  return "different";
+  const byKind = (words: ReadonlySet<string>) => {
+    const kinds = new Map<string, Set<string>>();
+    for (const word of words) {
+      const kind = precisionKind(word);
+      if (kind) kinds.set(kind, (kinds.get(kind) ?? new Set()).add(word));
+    }
+    return kinds;
+  };
+  const asked = byKind(line);
+  if (asked.size === 0) return "none";
+  const offered = byKind(article);
+  let shared = false;
+  for (const [kind, words] of asked) {
+    const theirs = offered.get(kind);
+    if (!theirs) continue;
+    const agree = [...words].some((word) => theirs.has(word));
+    if (!agree && kind !== "other") return "different";
+    shared ||= agree;
+  }
+  return shared ? "same" : "unknown";
 }
 
 function compareMaterials(line: ReadonlySet<string>, article: ReadonlySet<string>): MaterialVerdict {
