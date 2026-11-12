@@ -12,7 +12,8 @@ import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chat
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
 async function context() {
-  const origin = assertLocalChatGptHost((await headers()).get("host"));
+  const requestHeaders = await headers();
+  const origin = assertLocalChatGptHost(requestHeaders.get("host"), requestHeaders.get("x-forwarded-proto"));
   const authenticated = await getAuthenticatedContext();
   return { origin, owner: { userId: authenticated.userId, tenantId: authenticated.tenantId } };
 }
@@ -27,7 +28,7 @@ export async function connectChatGpt(profileId?: string) {
   const { origin, owner } = await context();
   const result = await beginLocalChatGptSignIn(owner, origin, profileId);
   (await cookies()).set(CHATGPT_COOKIE, result.state, {
-    httpOnly: true, sameSite: "lax", secure: false, path: "/auth/chatgpt/callback", maxAge: 600,
+    httpOnly: true, sameSite: "lax", secure: origin.startsWith("https:"), path: "/auth/chatgpt/callback", maxAge: 600,
   });
   return { url: result.url };
 }

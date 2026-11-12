@@ -89,15 +89,21 @@ export async function selectLocalChatGptModel(owner: ChatGptOwner, model: string
   return selectLocalChatGptPreferences(owner, { model, reasoningEffort: credential?.reasoningEffort ?? null });
 }
 
-// Read through the terminal event: partial output is never a successful answer.
-export async function readChatGptResponse(response: Response) {
+export type ChatGptStreamEvent = {
+  type?: string; response?: Record<string, unknown>; code?: string;
+  output_index?: number; content_index?: number; delta?: string; text?: string; item?: unknown;
+};
+
+/**
+ * The events of a Responses stream, in order. A refused request and a terminal
+ * failure throw their fixed message: the provider's payload never leaves here.
+ */
+export async function* chatGptStreamEvents(response: Response): AsyncGenerator<ChatGptStreamEvent> {
   if (!response.ok || !response.body) throw providerError(undefined, response.status);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = "";
   let bytes = 0;
-  let completed: Record<string, unknown> | null = null;
-  const streamedText = new Map<string, string>();
   try {
     for (;;) {
       const { value, done } = await reader.read();
@@ -114,27 +120,38 @@ export async function readChatGptResponse(response: Response) {
         const data = event.split("\n").filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart()).join("\n");
         if (!data || data === "[DONE]") continue;
-        const parsed = JSON.parse(data) as {
-          type?: string; response?: Record<string, unknown>; code?: string;
-          output_index?: number; content_index?: number; delta?: string; text?: string;
-        };
+        const parsed = JSON.parse(data) as ChatGptStreamEvent;
         if (["response.failed", "response.incomplete", "error"].includes(parsed.type ?? "")) {
           const error = parsed.response?.error as { code?: string } | undefined;
           throw providerError(error?.code ?? parsed.code);
         }
-        if (parsed.type === "response.completed") completed = parsed.response ?? null;
-        const part = `${parsed.output_index ?? 0}:${parsed.content_index ?? 0}`;
-        if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
-          streamedText.set(part, (streamedText.get(part) ?? "") + parsed.delta);
-        }
-        if (parsed.type === "response.output_text.done" && typeof parsed.text === "string") {
-          streamedText.set(part, parsed.text);
-        }
+        yield parsed;
       }
     }
   } finally {
     await reader.cancel().catch(() => undefined);
     reader.releaseLock();
+  }
+}
+
+/** A stream that ended without its terminal success, or an answer that cannot be used. */
+export function chatGptIncompleteError() {
+  return providerError();
+}
+
+// Read through the terminal event: partial output is never a successful answer.
+export async function readChatGptResponse(response: Response) {
+  let completed: Record<string, unknown> | null = null;
+  const streamedText = new Map<string, string>();
+  for await (const parsed of chatGptStreamEvents(response)) {
+    if (parsed.type === "response.completed") completed = parsed.response ?? null;
+    const part = `${parsed.output_index ?? 0}:${parsed.content_index ?? 0}`;
+    if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
+      streamedText.set(part, (streamedText.get(part) ?? "") + parsed.delta);
+    }
+    if (parsed.type === "response.output_text.done" && typeof parsed.text === "string") {
+      streamedText.set(part, parsed.text);
+    }
   }
   if (!completed || completed.status !== "completed") throw providerError();
   const output = z.array(z.object({

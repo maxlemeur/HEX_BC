@@ -368,7 +368,7 @@ test("LAB02 a Decisions choice shows its probabilities and a ChatGPT schema erro
   await writeFile(path.join(artifacts, "lab02-evidence.json"), JSON.stringify({ runId: run.id, screenshot }, null, 2));
 });
 
-test("LAB03 the lab refuses another host, a non-admin member and an anonymous request", {
+test("LAB03 development aliases work while writes require their origin and membership remains enforced", {
   tags: ["critical", "local", "chatgpt", "takeoff-lab"], timeout: 120_000,
 }, async () => {
   const runsBefore = (await storedRuns()).length;
@@ -382,16 +382,18 @@ test("LAB03 the lab refuses another host, a non-admin member and an anonymous re
     { method: "PUT", path: `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}/verdicts/${"0".repeat(64)}`, body: { verdict: "good" } },
     { method: "POST", path: `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}/undo` },
   ];
-  // The same admin session from another host than 127.0.0.1.
+  // Development aliases allow the same admin to read; writes still require an exact Origin.
   for (const host of [`localhost:${port}`, `192.168.1.20:${port}`]) {
     for (const route of routes) {
       const response = await rawRequest({ ...route, host, cookie: admin.header });
-      expect([route.path, host, response.status, JSON.parse(response.body).error?.code]).toEqual([route.path, host, 403, "TAKEOFF_LAB_LOCAL_ONLY"]);
+      const errorCode = response.status >= 400 ? JSON.parse(response.body).error?.code ?? null : null;
+      expect([route.path, host, response.status, errorCode])
+        .toEqual([route.path, host, route.method === "GET" ? 200 : 403, route.method === "GET" ? null : "TAKEOFF_LAB_ORIGIN"]);
     }
   }
   const page = await rawRequest({ method: "GET", path: LAB, host: `localhost:${port}`, cookie: admin.header });
-  expect(page.body).toContain("Labo métré indisponible");
-  expect(page.body).not.toContain("Résultats bruts");
+  expect(page.body).not.toContain("Labo métré indisponible");
+  expect(page.body).toContain("Labo métré");
   // A member of their tenant who is not its admin.
   const member = await createLocalChatGptOwner();
   await querySql(`update public.tenant_memberships set role='engineer' where user_id='${member.userId}';`);

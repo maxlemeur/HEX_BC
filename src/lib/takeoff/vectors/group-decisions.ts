@@ -1,5 +1,6 @@
 import type { OpenAiDecisionAnswer, OpenAiDecisionQuestion } from "@/lib/ai/decisions";
 import { NETWORK_CODES, NETWORKS } from "@/lib/takeoff/bench/keys";
+import { candidateFilterReasons, type CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filter";
 import { DECISIONS_MIN_SHARE, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
 import { boxContains, distanceToSegment, pointsToMetres, SegmentIndex } from "@/lib/takeoff/vectors/geometry";
 import { readLabelBlocks } from "@/lib/takeoff/vectors/labels";
@@ -15,13 +16,15 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 //   candidates (a shared colour is decided per run by the labels), neither
 //   hidden (OFF layer) nor near-white, of at least minShare of the page's
 //   visible stroke length (near-white strokes and hidden layers left out),
-//   longest first, at most batchSize × maxBatchCalls: the tail is counted and
-//   stays « à revoir ».
+//   and never a network (TI-704, candidate-filter.ts: grey, pattern, frame or
+//   architecture layer, legend sample, air-duct colour; counted with their
+//   reason, « à revoir »), longest first, at most batchSize × maxBatchCalls:
+//   the tail is counted and stays « à revoir ».
 // - One choice question per group, named by its alias (« groupe_01 » …, in
 //   sheet order: a group id can pass the 160 characters of a question name).
 //   Choices: every network code with its label, then the other classes; a grey
-//   group is offered the other classes only (TI-658: the background is never a
-//   network).
+//   group (never sent since TI-704, kept as a guard) is offered the other
+//   classes only (TI-658: the background is never a network).
 // - Evidence: statistics only (colours, width, dash, lengths, share, paths,
 //   bbox as page fractions, the layer name when the page has layers, the 3
 //   nearest pipe labels), the page's scale and legend codes; never more than
@@ -30,7 +33,8 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 // - batchSize 36: a 6 × 6 contact sheet of 384 px tiles stays readable at
 //   about 0.27 MB of base64 (spike of 3/11/2026). Limits are per document page.
 
-export const GROUP_DECISIONS_VERSION = 1;
+// 2 (TI-704): the groups that can never be a network are no longer sent (candidate-filter.ts).
+export const GROUP_DECISIONS_VERSION = 2;
 /** Version of the questions and evidence sent per call; bump on any change. */
 export const GROUP_DECISIONS_PROMPT_VERSION = "takeoff-vector-groups-v1";
 export const GROUP_DECISIONS_LIMITS = {
@@ -58,7 +62,10 @@ export type DecisionCandidate = {
   visibleLength_pt: number;
   share: number;
 };
-export type CandidateSelection = { candidates: DecisionCandidate[]; eligible: number; left_out: number };
+/** A group left out of the candidates because it can never be a network (candidate-filter.ts). */
+export type FilteredCandidate = { group: number; id: string; reason: CandidateFilterReason };
+/** `eligible`: the groups that may be sent (candidates and left_out); `filtered`: those never sent, by reason. */
+export type CandidateSelection = { candidates: DecisionCandidate[]; eligible: number; left_out: number; filtered: FilteredCandidate[] };
 export type GroupAnswer = { class: VectorClass | null; confidence: number | null; status: OpenAiDecisionAnswer["status"] };
 export type DecisionsCallKind = "batch" | "dedicated";
 
@@ -73,19 +80,27 @@ export function aliasOf(rank: number) {
 
 export function selectDecisionCandidates(model: PageModel, reading: VectorPageReading,
   limits: { batchSize: number; maxBatchCalls: number; minShare: number } = GROUP_DECISIONS_LIMITS): CandidateSelection {
-  if (reading.mode === "raster" || model.visibleLength_pt <= 0) return { candidates: [], eligible: 0, left_out: 0 };
-  const eligible = model.groups.flatMap((group, index) => {
+  if (reading.mode === "raster" || model.visibleLength_pt <= 0) return { candidates: [], eligible: 0, left_out: 0, filtered: [] };
+  const byLength = (left: { id: string; visibleLength_pt: number }, right: { id: string; visibleLength_pt: number }) =>
+    right.visibleLength_pt - left.visibleLength_pt || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const unclassed = model.groups.flatMap((group, index) => {
     const entry = reading.groups[index];
     if (!entry || entry.id !== group.id) return [];
     if (group.hidden || group.nearWhite || entry.class !== null || entry.candidates.length > 0) return [];
     const share = group.visibleLength_pt / model.visibleLength_pt;
     return share >= limits.minShare ? [{ group: index, id: group.id, visibleLength_pt: group.visibleLength_pt, share }] : [];
-  }).sort((left, right) => right.visibleLength_pt - left.visibleLength_pt || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  }).sort(byLength);
+  const reasons = candidateFilterReasons(model, reading, new Set(unclassed.map((entry) => entry.group)));
+  const eligible = unclassed.filter((entry) => reasons[entry.group] === null);
   const kept = eligible.slice(0, limits.batchSize * limits.maxBatchCalls);
   return {
     candidates: kept.map((entry, rank) => ({ alias: aliasOf(rank + 1), ...entry })),
     eligible: eligible.length,
     left_out: eligible.length - kept.length,
+    filtered: unclassed.flatMap((entry) => {
+      const reason = reasons[entry.group];
+      return reason === null ? [] : [{ group: entry.group, id: entry.id, reason }];
+    }),
   };
 }
 

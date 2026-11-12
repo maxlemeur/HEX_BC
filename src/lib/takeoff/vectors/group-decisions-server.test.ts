@@ -250,14 +250,15 @@ describe("Decisions call loop (group-decisions-server.ts classifyVectorGroups)",
     expect(decisions.size).toBe(40);
   });
 
-  it("caps the dedicated calls at 50 and never offers a grey group a network", async () => {
+  it("caps the dedicated calls at 50 and never sends a grey group", async () => {
     const { decide, seen } = fakeDecide((alias, kind) => (kind === "batch" ? { value: "autre", confidence: 0.2 } : { value: "mur", confidence: 0.7 }));
     const outcome = await run(page(60, 2), { decide }).outcome;
     expect(seen.filter((call) => call.evidence.call === "dedicated")).toHaveLength(GROUP_DECISIONS_LIMITS.maxDedicatedCalls);
-    expect(seen.filter((call) => call.evidence.call === "batch").map((call) => call.names.length)).toEqual([36, 26]);
+    // TI-704: the 2 grey groups are filtered before the batches (60 questions, no longer 62), and get no answer.
+    expect(seen.filter((call) => call.evidence.call === "batch").map((call) => call.names.length)).toEqual([36, 24]);
     expect(outcome.calls.filter((call) => call.kind === "dedicated")).toHaveLength(50);
-    const greyAnswers = [...outcome.answers.values()].filter((answer) => answer.alias === "groupe_61" || answer.alias === "groupe_62");
-    expect(greyAnswers.every((answer) => answer.via === "batch" && answer.class === "autre")).toBe(true);
+    expect(outcome).toMatchObject({ candidates: 60, eligible: 60, left_out: 0 });
+    expect([...outcome.answers.keys()].some((id) => id.startsWith("c:#808080"))).toBe(false);
   });
 
   it("stops at the first failed or unavailable call, or an exception, without retry; the rest stays « à revoir »", async () => {

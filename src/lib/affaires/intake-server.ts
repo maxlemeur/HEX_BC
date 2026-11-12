@@ -1,3 +1,4 @@
+import { AFFAIRE_INTAKE_MAX_BATCH_FILES, AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES } from "@/lib/affaires/intake-limits";
 import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpreadsheetBudget, SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
@@ -354,8 +355,6 @@ const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
-const AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD = 20;
-const AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES = 100 * 1024 * 1024;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -2227,14 +2226,14 @@ function collectFilesFromFormData(formData: FormData) {
 }
 
 function validateAffaireIntakeUploadBatch(files: File[]) {
-  if (files.length > AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD) {
+  if (files.length > AFFAIRE_INTAKE_MAX_BATCH_FILES) {
     throw badRequest(
-      `Un lot de pièces ne peut pas dépasser ${AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD} fichiers.`
+      `Un lot de pièces ne peut pas dépasser ${AFFAIRE_INTAKE_MAX_BATCH_FILES} fichiers.`
     );
   }
 
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES) {
+  if (totalBytes > AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES) {
     throw badRequest("Le volume cumule du lot intake depasse 100 Mo.");
   }
 }

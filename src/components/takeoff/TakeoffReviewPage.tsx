@@ -108,6 +108,7 @@ import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
+import { AssistantToggle, useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
   TakeoffApplyResponse,
@@ -181,6 +182,7 @@ export default function TakeoffReviewPage({
   const reviewModeParam = searchParams.get("reviewMode");
   const fromParam = searchParams.get("from");
   const isAffaireContext = typeof projectId === "string" && projectId.length > 0;
+  useAssistantScreen(isAffaireContext ? { projectId, screen: { screen: "takeoff_review", versionId, jobId } } : null);
 
   const defaultReviewMode: ReviewMode = useMemo(() => {
     if (fromParam === "approval") return "validation";
@@ -1275,6 +1277,7 @@ export default function TakeoffReviewPage({
                   Revue ciblée · {targetedReviewCount} ligne{targetedReviewCount > 1 ? "s" : ""}
                 </Link>
               ) : null}
+              <AssistantToggle />
               <Link
                 href={backHref}
                 className={buttonVariants({ variant: "outline" })}

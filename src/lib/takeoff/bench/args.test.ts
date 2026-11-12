@@ -39,6 +39,9 @@ import { BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner } from "
 // - a vector run without --vision-review calls ChatGPT; one with it does not;
 // - --vision-review is accepted on the chatgpt pipeline, or with a value it would ignore.
 // - a chatgpt run, extraction or triage, does not say its pipeline.
+// The per-group score (TI-704), written before the code:
+// - --group-truth is accepted on the chatgpt pipeline (nothing scores groups
+//   there), or without value; a vector run without it gets a truth directory.
 
 const required = ["--dataset", "/fixture/dataset", "--docs", "all", "--models", "model-a", "--efforts", "auto", "--out", "/fixture/run"];
 
@@ -79,11 +82,11 @@ describe("takeoff bench arguments", () => {
   it("reads a vector run without model nor effort, its baseline null unless given", () => {
     expect(parseBenchArgs(vector)).toEqual({
       pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 1, out: "/fixture/run", baseline: null,
-      maxDecisionsTokens: null, visionReview: false,
+      maxDecisionsTokens: null, visionReview: false, groupTruth: null,
     });
     expect(parseBenchArgs([...vector, "--baseline", "/fixture/baseline/report.json", "--repeat", "3"]))
       .toEqual({ pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 3, out: "/fixture/run",
-        baseline: "/fixture/baseline/report.json", maxDecisionsTokens: null, visionReview: false });
+        baseline: "/fixture/baseline/report.json", maxDecisionsTokens: null, visionReview: false, groupTruth: null });
     expect(parseBenchArgs(["--pipeline=vector", "--dataset=/fixture/dataset", "--docs=all", "--out=/fixture/run",
       "--baseline=/fixture/baseline/report.json"])).toMatchObject({ pipeline: "vector", docs: "all", baseline: "/fixture/baseline/report.json" });
   });
@@ -93,6 +96,13 @@ describe("takeoff bench arguments", () => {
     expect(parseBenchArgs([...vector, "--max-decisions-tokens=10", "--repeat", "2"])).toMatchObject({ maxDecisionsTokens: 10, repeat: 2 });
   });
 
+  it("reads a vector run with the truth directory of its per-group score", () => {
+    expect(parseBenchArgs([...vector, "--group-truth", "/fixture/labels"])).toMatchObject({ pipeline: "vector", groupTruth: "/fixture/labels",
+      maxDecisionsTokens: null });
+    expect(parseBenchArgs([...vector, "--group-truth=/fixture/labels", "--max-decisions-tokens", "10"])).toMatchObject({ groupTruth: "/fixture/labels",
+      maxDecisionsTokens: 10 });
+  });
+
   it("reads a vector run with the vision pass on its rejected lines", () => {
     expect(parseBenchArgs([...vector, "--vision-review", "rejected"])).toMatchObject({ pipeline: "vector", visionReview: true, maxDecisionsTokens: null });
     expect(parseBenchArgs([...vector, "--vision-review=rejected", "--max-decisions-tokens", "10"])).toMatchObject({ visionReview: true, maxDecisionsTokens: 10 });
@@ -100,6 +110,11 @@ describe("takeoff bench arguments", () => {
 
   it.each([
     ["--vision-review on the chatgpt pipeline", [...required, "--vision-review", "rejected"]],
+    ["--group-truth on the chatgpt pipeline", [...required, "--group-truth", "/fixture/labels"]],
+    ["--group-truth on a triage run", ["--mode", "triage", "--dataset", "/d", "--docs", "all", "--max-decisions-tokens", "10", "--out", "/o",
+      "--group-truth", "/fixture/labels"]],
+    ["--group-truth without value", [...vector, "--group-truth"]],
+    ["--group-truth given twice", [...vector, "--group-truth", "/fixture/a", "--group-truth", "/fixture/b"]],
     ["--vision-review with another value", [...vector, "--vision-review", "all"]],
     ["--vision-review without value", [...vector, "--vision-review"]],
     ["--models on the vector pipeline", [...vector, "--models", "model-a"]],
