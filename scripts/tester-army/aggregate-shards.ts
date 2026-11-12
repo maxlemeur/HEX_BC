@@ -416,13 +416,18 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
       if (unplanned.length) problems.push(`${where} calc-v3.json ran ${unplanned.join(", ")}, which its plan does not list.`);
       if (repeated.length) problems.push(`${where} calc-v3.json ran ${repeated.join(", ")} more than once.`);
     }
-    // The phase's own status decides the aggregate; its e2e report names the red journeys and the quarantined
-    // ones, and a quarantine without a ticket is refused here as in the phase.
+    // The phase's own status and its e2e report each decide the aggregate: the report names the red journeys
+    // and the quarantined ones, a journey not passed in it is red even under a phase recorded as passed, and
+    // a quarantine without a ticket is refused here as in the phase.
     // A phase that stopped before its journeys has no report and names none.
     for (const phase of sorted(result.phases).filter((name) => PHASE_NAME.test(name))) {
       let run: Record<string, unknown>;
       try { run = record(record(readJson(path.join(directory, phase, "sdk", "report.json"))).run); } catch { continue; /* no readable report */ }
-      for (const problem of quarantineProblems(nameJourneys(run, `calc-v3 ${phase}`, journeys).quarantined)) problems.push(`${where} calc-v3 ${phase}: ${problem}.`);
+      const outcomes = nameJourneys(run, `calc-v3 ${phase}`, journeys);
+      // On its own, whatever status the phase recorded: the e2e CLI exits 0 on a journey that needed its retry.
+      const red = outcomes.notPassed;
+      if (red.length) problems.push(`${where} calc-v3 ${phase}: ${red.length} selected result(s) not passed, first ${red[0].file} (${red[0].label}).`);
+      for (const problem of quarantineProblems(outcomes.quarantined)) problems.push(`${where} calc-v3 ${phase}: ${problem}.`);
     }
   } else {
     if (unit.kind === "shard") {

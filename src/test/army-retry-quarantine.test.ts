@@ -227,12 +227,13 @@ function quarantineOffenders(file: string, text: string): string[] {
     while (ts.isPropertyAccessExpression(current) || ts.isCallExpression(current)) current = current.expression;
     return ts.isIdentifier(current) ? current.text : undefined;
   };
-  // The runner's registration API under any local name: `import { test as it }`, `const it = test.extend(…)`.
+  // The runner's registration API under any local name: `import { test as it }`, `const it = test.extend(…)`,
+  // and an extended API imported from a fixtures module, which most journeys use (`armyTest`, `offerTest`).
   const api = new Set(["test", "describe"]);
   for (let size = -1; size !== api.size;) {
     size = api.size;
     const collect = (node: ts.Node) => {
-      if (ts.isImportSpecifier(node) && api.has((node.propertyName ?? node.name).text)) api.add(node.name.text);
+      if (ts.isImportSpecifier(node) && (api.has((node.propertyName ?? node.name).text) || /Test$/u.test((node.propertyName ?? node.name).text))) api.add(node.name.text);
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && api.has(rootName(node.initializer) ?? "")) api.add(node.name.text);
       ts.forEachChild(node, collect);
     };
@@ -286,6 +287,9 @@ describe("test.fail in e2e/ cites a ticket", () => {
       ['describe("exports", { fail: "broken" }, () => {});', 'reason "broken" cites no ticket'],
       ['import { test as it } from "@e2e-dev/web";\nit.fail("exports the PDF", async () => {});', "registers an expected failure without a reason"],
       ['const journey = test.extend({});\njourney("exports the PDF", { fail: "broken" }, async () => {});', 'reason "broken" cites no ticket'],
+      ['import { armyTest } from "../critical/fixtures";\narmyTest("EI13 exports the PDF", { tags: ["critical"], fail: "export broken" }, async () => {});', 'reason "export broken" cites no ticket'],
+      ['import { armyTest } from "../critical/fixtures";\narmyTest.fail("EI13 exports the PDF", async () => {});', "registers an expected failure without a reason"],
+      ['import { offerTest as journey } from "./offer-fixtures";\njourney("OF01 sends the offer", { fail: true }, async () => {});', "without a reason written as a string literal"],
     ];
     for (const [source, why] of refused) {
       const offenders = quarantineOffenders("e2e/example.e2e.ts", source);
@@ -305,6 +309,16 @@ describe("test.fail in e2e/ cites a ticket", () => {
       'const outcome = { fail: true };',
     ];
     for (const source of accepted) expect(quarantineOffenders("e2e/example.e2e.ts", source), source).toEqual([]);
+  });
+
+  it("lets no journey ask for retries of its own", () => {
+    // The runner accepts `retries` up to 10 on a test or a describe, above the configuration: the one retry of CI
+    // would no longer be the only one. Zero is allowed (a journey that must never be replayed).
+    const files = fs.readdirSync(path.join(root, "e2e"), { recursive: true, encoding: "utf8" })
+      .filter((name) => /\.e2e\.[cm]?tsx?$/u.test(name));
+    expect(files.length).toBeGreaterThan(100);
+    const offenders = files.filter((name) => /\bretries\s*:\s*(?:[1-9]|[^\s\d])/u.test(fs.readFileSync(path.join(root, "e2e", name), "utf8")));
+    expect(offenders).toEqual([]);
   });
 
   it("finds no test.fail without a ticket in the journeys", () => {

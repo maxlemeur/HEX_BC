@@ -617,6 +617,17 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
     expect(aggregateEvidence(calc(PLAN)).notPassed).toEqual([
       "calc-v3 resume : generated-ouvrage-resume.e2e.ts : GR02 resumes the draft (intermittent: timed-out on attempt 1, passed on attempt 2)",
     ]);
+
+    // The aggregate does not rely on the phase's verdict: a phase recorded as passed whose report holds a
+    // journey that needed its retry is red here too.
+    reset();
+    writeGroup(1, PLAN[0], { files: { "resume/sdk/report.json": JSON.stringify({ run: { results: [
+      { file, selected: true, status: "flaky", titlePath: ["GR02 resumes the draft"], attempts: [{ status: "failed" }, { status: "passed" }] },
+    ] } }) } });
+    writeGroup(2, PLAN[1]);
+    const retried = aggregateEvidence(calc(PLAN));
+    expect(retried.status).toBe("failed");
+    expect(retried.problems.join("\n")).toContain("calc-v3 resume: 1 selected result(s) not passed, first e2e/army/local/generated-ouvrage-resume.e2e.ts (intermittent");
   });
 
   it("fails calc-v3 on a missing, duplicated or unplanned phase and on a group that does not list its planned phases", () => {

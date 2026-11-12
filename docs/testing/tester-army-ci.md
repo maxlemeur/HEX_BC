@@ -261,9 +261,12 @@ valeur supérieure à un n'est acceptée.
 | Deux échecs | rouge | `failed: <fichier> > <titre> (failed on both attempts: <erreur>)` |
 
 Le runner e2e sort en code 0 et note le run `passed` quand un parcours n'a
-réussi qu'à sa seconde tentative (son statut `flaky`). Quatre contrôles le
-gardent rouge, chacun de son côté : `run-tester-army.mjs`, la validation de
-`run-tester-army-ci.ts`, celle de chaque phase calc-v3 et l'agrégation. La
+réussi qu'à sa seconde tentative (son statut `flaky`). Plusieurs contrôles
+le gardent rouge, chacun de son côté : pour les suites critique et complète,
+`run-tester-army.mjs`, la validation de `run-tester-army-ci.ts` et
+l'agrégation ; pour calc-v3, qui appelle le runner sans `run-tester-army.mjs`,
+la validation de chaque phase et l'agrégation. Un parcours ne déclare pas ses
+propres `retries` (seul `0` est admis, pour un parcours à ne jamais rejouer). La
 ligne `TesterArmy CI error` du job, l'annotation et la section « Parcours non
 passés » du check agrégé nomment chaque parcours avec son libellé
 ([`journey-outcomes.ts`](../../scripts/tester-army/journey-outcomes.ts)) ; le
