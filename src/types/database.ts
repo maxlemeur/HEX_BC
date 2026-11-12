@@ -41,6 +41,9 @@ type CheckedColumns = CheckedColumnSpec<{
   material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf"; rotation: 0 | 90 | 180 | 270 };
   material_request_quotes: { status: "requested" | "received" | "retained" | "closed" };
   material_request_quote_lines: { price_per: 1 | 10 | 100 | 1000 };
+  purchase_orders: { delivery_mode: "site" | "office" | "counter" | null };
+  purchase_order_items: { line_kind: "article" | "shipping" | "discount"; price_per: 1 | 10 | 100 | 1000;
+    imputation: "project" | "overhead" | null };
   assistant_messages: { role: "user" | "assistant"; status: "complete" | "interrupted" | "failed" };
 }>;
 

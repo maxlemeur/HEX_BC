@@ -1944,7 +1944,7 @@
           "Demandes de matériel"
         ],
         "summary": "Supprimer une demande",
-        "description": "Supprime la demande, ses lignes et ses originaux, octets compris.",
+        "description": "Supprime la demande, ses lignes et ses originaux, octets compris. Refusé tant qu'un bon de commande qui n'est pas annulé porte une de ses lignes (TI-691) : rien n'est supprimé, originaux compris.",
         "parameters": [
           {
             "name": "projectId",
@@ -2017,11 +2017,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "MATERIAL_REQUEST_ORDERED : des lignes sont dans un bon de commande qui n'est pas annulé ; l'annuler ou supprimer le brouillon d'abord. details.references.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -2960,7 +2960,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.",
+            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions. MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3081,7 +3081,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.",
+            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions. MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3768,11 +3768,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -4007,6 +4007,237 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiMaterialRequestLinesBlocked"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/material-requests/{requestId}/orders": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Situation des commandes d'une demande",
+        "description": "Pour les lecteurs de la demande (propriétaire de l'affaire, administrateur, directeur), dans l'ordre de la demande : les lignes prêtes à commander (validées, chiffrées par un devis retenu, dans aucun bon de commande non annulé), les autres avec la première chose qui leur manque (not_validated, no_supplier, not_priced ; le libellé est celui de l'écran), les lignes commandées avec leur bon et son statut, et chaque bon portant une ligne de la demande, annulés compris, du plus ancien au plus récent : référence, fournisseur, statut, total HT du bon, nombre de lignes de la demande qu'il porte. can_create dit si l'appelant peut créer les brouillons (il écrit la demande et peut commander : rôle admin ou engineer). Les bons sont décrits même quand l'appelant ne peut pas les ouvrir (un bon n'est lisible que par son auteur et les administrateurs).",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Situation des lignes et bons de la demande.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestOrders"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'affaire n'est lisible que par son propriétaire, un administrateur ou un directeur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Créer les brouillons de commande d'une demande",
+        "description": "Un brouillon de bon de commande par fournisseur à partir des lignes prêtes, en une transaction : tous de l'affaire de la demande, sans chantier, avec le lieu de livraison de la demande (delivery_mode : site, office, counter) et une note qui la nomme ; les lignes en frais généraux suivent dans le brouillon de leur fournisseur, imputées aux frais généraux. Chaque ligne : article, référence chez ce fournisseur (sinon celle de l'article), libellé catalogue de la ligne, quantité, unité, prix HT et lot du devis retenu (jamais un prix du catalogue), TVA 20 %, type de fourniture, imputation, ligne de la demande. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Une ligne n'est commandée qu'une fois parmi les bons non annulés ; annuler son bon la rend de nouveau prête. La même clé renvoie les mêmes brouillons (200, replayed, chaque bon avec son statut actuel) et ne crée rien ; une nouvelle clé par clic.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Clé d'idempotence (UUID).",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialRequestOrdersCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Même clé : les brouillons déjà créés, replayed vrai.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestOrdersReplayed"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Brouillons créés, un par fournisseur (status draft).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestOrdersCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MATERIAL_REQUEST_LINE_ALREADY_ORDERED : une ligne vient d'être commandée par ailleurs. MATERIAL_REQUEST_ORDER_KEY_TAKEN : la clé a servi à un autre membre. MATERIAL_REQUEST_ORDER_BUSY : une autre écriture était en cours, réessayer. Rien n'est créé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). Rien n'est créé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -35835,6 +36066,300 @@
         "required": [
           "ok",
           "error"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestOrders": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "ready_line_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "not_ready": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "line_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "not_validated",
+                        "no_supplier",
+                        "not_priced"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "line_id",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "ordered": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "line_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "purchase_order_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "purchase_order_reference": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "can_open": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "line_id",
+                    "purchase_order_id",
+                    "purchase_order_reference",
+                    "status",
+                    "can_open"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "total_ht_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "line_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "can_open": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "reference",
+                    "supplier_name",
+                    "status",
+                    "total_ht_cents",
+                    "line_count",
+                    "can_open"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_create": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ready_line_ids",
+              "not_ready",
+              "ordered",
+              "orders",
+              "can_create"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialRequestOrdersCreate": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestOrdersReplayed": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "line_count": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "total_ht_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "reference",
+                    "supplier_name",
+                    "status",
+                    "line_count",
+                    "total_ht_cents"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "orders",
+              "replayed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestOrdersCreated": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "line_count": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "total_ht_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "reference",
+                    "supplier_name",
+                    "status",
+                    "line_count",
+                    "total_ht_cents"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "orders",
+              "replayed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
         ],
         "additionalProperties": false
       },
@@ -76189,6 +76714,71 @@
                             }
                           ]
                         },
+                        "delivery_mode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "site",
+                                "office",
+                                "counter"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "project": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "devis_count": {
                           "type": "integer",
                           "minimum": -9007199254740991,
@@ -76214,6 +76804,8 @@
                         "total_ttc_cents",
                         "suppliers",
                         "delivery_sites",
+                        "delivery_mode",
+                        "project",
                         "devis_count",
                         "has_devis"
                       ],
@@ -76467,6 +77059,58 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "project_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "project": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "delivery_mode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "site",
+                                "office",
+                                "counter"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -76480,7 +77124,10 @@
                         "total_tax_cents",
                         "total_ttc_cents",
                         "suppliers",
-                        "delivery_sites"
+                        "delivery_sites",
+                        "project_id",
+                        "project",
+                        "delivery_mode"
                       ],
                       "additionalProperties": false
                     }
@@ -76588,6 +77235,108 @@
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
+                        },
+                        "line_kind": {
+                          "type": "string",
+                          "enum": [
+                            "article",
+                            "shipping",
+                            "discount"
+                          ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
+                        },
+                        "material_request_line_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "material_request_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "project_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "imputation": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "project",
+                                "overhead"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "overhead_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "supply_type_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -76606,7 +77355,16 @@
                         "unit_price_ht_cents",
                         "line_total_ht_cents",
                         "line_tax_cents",
-                        "line_total_ttc_cents"
+                        "line_total_ttc_cents",
+                        "line_kind",
+                        "price_per",
+                        "material_request_line_id",
+                        "material_request_id",
+                        "project_id",
+                        "imputation",
+                        "overhead_category",
+                        "supply_type_id",
+                        "supply_type_name"
                       ],
                       "additionalProperties": false
                     }
@@ -76719,6 +77477,108 @@
                             "type": "integer",
                             "minimum": -9007199254740991,
                             "maximum": 9007199254740991
+                          },
+                          "line_kind": {
+                            "type": "string",
+                            "enum": [
+                              "article",
+                              "shipping",
+                              "discount"
+                            ]
+                          },
+                          "price_per": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "const": 1
+                              },
+                              {
+                                "type": "number",
+                                "const": 10
+                              },
+                              {
+                                "type": "number",
+                                "const": 100
+                              },
+                              {
+                                "type": "number",
+                                "const": 1000
+                              }
+                            ]
+                          },
+                          "material_request_line_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "material_request_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "project_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "imputation": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "project",
+                                  "overhead"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "overhead_category": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "supply_type_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "supply_type_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [
@@ -76737,7 +77597,16 @@
                           "unit_price_ht_cents",
                           "line_total_ht_cents",
                           "line_tax_cents",
-                          "line_total_ttc_cents"
+                          "line_total_ttc_cents",
+                          "line_kind",
+                          "price_per",
+                          "material_request_line_id",
+                          "material_request_id",
+                          "project_id",
+                          "imputation",
+                          "overhead_category",
+                          "supply_type_id",
+                          "supply_type_name"
                         ],
                         "additionalProperties": false
                       }
@@ -78620,8 +79489,7 @@
                   ]
                 },
                 "designation": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 },
                 "quantity": {
                   "type": "number",
@@ -78630,8 +79498,10 @@
                   "description": "Quantité positive, au plus trois décimales effectives, sans arrondi implicite."
                 },
                 "unit": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "unitPriceCents": {
                   "type": "integer",
@@ -78642,12 +79512,41 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 10000
+                },
+                "lineKind": {
+                  "description": "article (défaut), shipping (port) ou discount (remise, soustraite) ; ne change pas sur une ligne existante.",
+                  "type": "string",
+                  "enum": [
+                    "article",
+                    "shipping",
+                    "discount"
+                  ]
+                },
+                "pricePer": {
+                  "description": "Le prix HT s'entend pour 1 (défaut), 10, 100 ou 1 000 unités ; laissé absent, une ligne existante garde le sien.",
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 1
+                    },
+                    {
+                      "type": "number",
+                      "const": 10
+                    },
+                    {
+                      "type": "number",
+                      "const": 100
+                    },
+                    {
+                      "type": "number",
+                      "const": 1000
+                    }
+                  ]
                 }
               },
               "required": [
                 "designation",
                 "quantity",
-                "unit",
                 "unitPriceCents",
                 "taxRateBp"
               ],
@@ -78754,8 +79653,7 @@
                   ]
                 },
                 "designation": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 },
                 "quantity": {
                   "type": "number",
@@ -78778,6 +79676,36 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 10000
+                },
+                "lineKind": {
+                  "description": "article (défaut), shipping (port) ou discount (remise, soustraite) ; ne change pas sur une ligne existante.",
+                  "type": "string",
+                  "enum": [
+                    "article",
+                    "shipping",
+                    "discount"
+                  ]
+                },
+                "pricePer": {
+                  "description": "Le prix HT s'entend pour 1 (défaut), 10, 100 ou 1 000 unités ; laissé absent, une ligne existante garde le sien.",
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 1
+                    },
+                    {
+                      "type": "number",
+                      "const": 10
+                    },
+                    {
+                      "type": "number",
+                      "const": 100
+                    },
+                    {
+                      "type": "number",
+                      "const": 1000
+                    }
+                  ]
                 }
               },
               "required": [

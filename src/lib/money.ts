@@ -117,3 +117,16 @@ export function bankersRound(value: number): number {
   }
   return Math.round(value);
 }
+
+/**
+ * Rounds numerator / denominator half away from zero, as PostgreSQL's numeric round() does (2,5 -> 3, -2,5 -> -3),
+ * exactly. The amount of a purchase line given for a lot is quantity x price / price_per in cents, rounded so
+ * (TI-691); a discount, negative, rounds as its positive twin. The denominator is positive.
+ */
+export function roundHalfAwayFromZero(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= BigInt(0)) throw new RangeError("Le diviseur doit être positif.");
+  const negative = numerator < BigInt(0);
+  const magnitude = negative ? -numerator : numerator;
+  const rounded = (magnitude * BigInt(2) + denominator) / (denominator * BigInt(2));
+  return negative ? -rounded : rounded;
+}

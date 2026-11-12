@@ -13,6 +13,7 @@ import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { BENCH_USAGE, BenchUsageError, benchCouples, parseBenchArgs, parseBenchOwner, type BenchArgs, type ChatGptBenchArgs } from "@/lib/takeoff/bench/args";
 import { BenchDatasetError, loadBenchDataset, type BenchDataset } from "@/lib/takeoff/bench/dataset";
+import { loadGroupTruthDirectory, renderGroupScoreSection, scoreGroupTruth } from "@/lib/takeoff/bench/group-score";
 import { measuredLengthsByScope } from "@/lib/takeoff/bench/measured";
 import { remapBenchRunPages, selectBenchPages } from "@/lib/takeoff/bench/pages";
 import { buildBenchReport, renderBenchReportMarkdown, rulesSection, type BenchReport, type BenchReportMetadata } from "@/lib/takeoff/bench/report";
@@ -47,6 +48,7 @@ import {
   takeoffPageTriageRenderLimits,
 } from "@/lib/takeoff/page-triage-server";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
+import { AIR_LEGEND_MIN_CODES, CANDIDATE_FILTER_REASONS, LEGEND_SAMPLE_STRIP } from "@/lib/takeoff/vectors/candidate-filter";
 import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
 import { DOOR_ARC, DOOR_HINGE, FILL_CELL_M, FILL_FRAME_SHARE, FILL_HOLE_MAX_M2, FILL_MAX_CELL_M, FILL_MAX_CELLS, FILL_SANITY_RATIO, FILL_SEED_REACH_HEIGHTS, ISLAND_CIRCLE } from "@/lib/takeoff/vectors/fill";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
@@ -57,7 +59,13 @@ import {
   GROUP_DECISIONS_PROMPT_VERSION,
   GROUP_DECISIONS_VERSION,
 } from "@/lib/takeoff/vectors/group-decisions";
-import { classifyVectorGroups, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK } from "@/lib/takeoff/vectors/group-decisions-server";
+import {
+  classifyVectorGroups,
+  GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
+  GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
+  GROUP_DECISIONS_CONCURRENCY,
+  GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+} from "@/lib/takeoff/vectors/group-decisions-server";
 import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
 import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
@@ -104,6 +112,9 @@ import { SURFACE_RULE_VERSION } from "@/lib/takeoff/vectors/surfaces";
 // the profile is checked before the first call and never changed. report.json `vision`: tokens, latencies, page
 // durations p50/p95 against the baseline's (L1, same pages), and the rules after vision apart. Exit 2 at the first
 // provider stop (« Limite du forfait ChatGPT », rate limit, authorisation, changed profile), with a partial report.
+// `--group-truth <dir>` (TI-704): the classes of the groups scored against a private truth outside the dataset
+// (`<document id>.json` of the truth/groups schema, checked as truth/groups is), never applied as correspondences;
+// report.json `group_score` records the hash of its files, never their content (group-score.ts).
 
 const SCRIPT_ROOT = path.resolve(import.meta.dirname, "..");
 const REPORT_FILES = ["report.json", "report.md"] as const;
@@ -287,6 +298,9 @@ function vectorRules() {
       version: GROUP_DECISIONS_VERSION, prompt_version: GROUP_DECISIONS_PROMPT_VERSION, limits_per_page: GROUP_DECISIONS_LIMITS,
       classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
       call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+      candidate_filter: { reasons: CANDIDATE_FILTER_REASONS, legend_sample_strip: LEGEND_SAMPLE_STRIP, air_legend_min_codes: AIR_LEGEND_MIN_CODES },
+      // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
+      concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_margin: GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
       sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
     },
   };
@@ -324,6 +338,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   // A load file without truth (TI-662 load criterion) runs unscored.
   const dataset: BenchDataset = await loadBenchDataset(args.dataset, args.docs, { unscored: true });
   const scopes: ScoreScope[] = buildScoreScopes(dataset.truthFiles, dataset.manifest.documents);
+  // Refused before the first page: inside the dataset, or a file truth/groups would refuse.
+  const groupTruth = args.groupTruth ? await loadGroupTruthDirectory(args.groupTruth, { datasetRoot: args.dataset, manifest: dataset.manifest }) : null;
   const baseline = args.baseline ? await readBaseline(path.resolve(args.baseline)) : null;
   if (baseline) {
     // A baseline read another revision of a plan when its document's SHA-256 differs: its items would be scored against this truth.
@@ -413,8 +429,9 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
         after_rules: report.couples[0]?.passes.find((entry) => entry.pass === pass.pass)?.rules ?? null })) }),
     rules_after_vision: visionScored?.couples[0]?.passes.map((pass) => ({ pass: pass.pass, rules: pass.rules ?? null })) ?? [],
   } : null;
+  const groupScore = groupTruth ? scoreGroupTruth({ passes: result.vector.passes, truth: groupTruth }) : null;
   const full = {
-    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison, vision,
+    ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison, vision, group_score: groupScore,
     baseline: baseline ? {
       file: baseline.file, sha256: baseline.sha256, commit: baseline.metadata.commit, dataset_sha256: baseline.metadata.dataset.sha256,
       // The level C reading re-scored with the fixed rules of TI-664 (designations: DN × network, quantities to enter).
@@ -426,7 +443,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     ? [`## Lecture niveau C (baseline) : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
   const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`
     + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "")
-    + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n` : "");
+    + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n` : "")
+    + (groupScore ? `\n${renderGroupScoreSection(groupScore).join("\n")}\n` : "");
   await writeFile(path.join(args.out, "report.md"), markdown, { flag: "wx" });
   console.log(`Takeoff bench (vector) ${result.run.status}: ${result.run.calls_done}/${result.run.calls_planned} pages, reports in ${args.out}.`);
   if (budget) console.log(`Decisions: ${budget.snapshot().calls} calls, ${budget.snapshot().spent_tokens} tokens.`);

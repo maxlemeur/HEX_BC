@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { formatLotPrice, lineKindOf, signedLineAmount } from "@/components/purchase-orders/order-lines";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { formatEUR } from "@/lib/money";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
@@ -121,10 +122,15 @@ function OrderedItems({ items }: { items: LazyRows<OrderItemRow> | undefined }) 
                 {item.unit || "Unité à confirmer"}
               </td>
               <td className="px-4 py-3 text-right font-mono tabular-nums text-foreground-secondary">
-                {formatEUR(item.unit_price_ht_cents)}
-                <p className="mt-1 font-sans text-xs text-muted-foreground">
-                  {item.price_unit ? `par ${item.price_unit}` : "Unité du prix à confirmer"}
-                </p>
+                {/* TI-691: a price given for a lot (« 3,42 € les 100 »), a discount subtracted; others as before. */}
+                {lineKindOf(item.line_kind) === "discount"
+                  ? formatEUR(signedLineAmount(item.unit_price_ht_cents, "discount"))
+                  : formatLotPrice(item.unit_price_ht_cents, item.price_per)}
+                {(item.price_per ?? 1) > 1 ? null : (
+                  <p className="mt-1 font-sans text-xs text-muted-foreground">
+                    {item.price_unit ? `par ${item.price_unit}` : "Unité du prix à confirmer"}
+                  </p>
+                )}
               </td>
               <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums text-foreground">
                 {formatEUR(item.line_total_ht_cents)}

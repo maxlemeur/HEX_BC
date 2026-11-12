@@ -822,6 +822,33 @@ async function checkTruthDirectory(check: DatasetCheck) {
   await checkMeasured(check);
 }
 
+/**
+ * A group truth kept out of the dataset (TI-704, `takeoff:bench --group-truth <dir>`): each `<document id>.json` of
+ * the directory is checked as truth/groups is, against the manifest's documents. Other files (a README) are no truth
+ * file. `files`: the names of the truth files, sorted.
+ */
+export async function checkGroupTruthFiles(directory: string, documents: readonly ManifestDocument[]): Promise<BenchCheckResult & { files: string[] }> {
+  const check = new DatasetCheck(path.resolve(directory));
+  documents.forEach((document, index) => {
+    check.knownIds.add(document.id);
+    if (!check.documents.has(document.id)) check.documents.set(document.id, { index, document });
+  });
+  const entries = await check.listDirectory(".");
+  if (entries === null) check.error(".", [], "missing directory");
+  const files: string[] = [];
+  for (const entry of entries ?? []) {
+    if (!entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || !TRUTH_FILE_NAME.test(entry.name)) {
+      check.error(entry.name, [], "unexpected entry: group truth files are <document id>.json");
+      continue;
+    }
+    files.push(entry.name);
+    check.summary.groupFiles += 1;
+    await checkAnnotationFile(check, entry.name, "groups");
+  }
+  return { ok: check.errors.length === 0, errors: check.errors, summary: check.summary, files };
+}
+
 export async function checkTakeoffBenchDataset(datasetRoot: string): Promise<BenchCheckResult> {
   const check = new DatasetCheck(path.resolve(datasetRoot));
   if (await checkManifest(check)) {

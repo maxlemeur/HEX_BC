@@ -154,7 +154,7 @@ function scoreGroup(documents: readonly BenchTriageDocument[]): BenchTriageGroup
       score.pages.answered += 1;
       const type = String(call.answers.type?.value);
       const confidence = call.answers.type?.confidence ?? null;
-      const excludable = call.status === "available" && call.thumbnail !== null && !call.thumbnail.blank;
+      const excludable = call.status === "available" && call.thumbnail !== null && !call.thumbnail.blank && !call.thumbnail.dropped_images;
       if (truth.garder && excludable && TAKEOFF_PAGE_TRIAGE_EXCLUDED_TYPES.includes(type as TakeoffPageType) && confidence !== null) riskiest = Math.max(riskiest, confidence);
       if (truth.statut === "ambigu") continue;
       score.type_accuracy.scored += 1;

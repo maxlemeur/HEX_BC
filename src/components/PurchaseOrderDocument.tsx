@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { formatEUR } from "@/lib/money";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 import {
@@ -7,6 +9,15 @@ import {
   BusinessDocumentFooter,
   BusinessDocumentFrame,
 } from "@/components/documents/BusinessDocumentPrimitives";
+import {
+  formatLotPrice,
+  PURCHASE_ORDER_DELIVERY_MODE_LABELS,
+  PURCHASE_ORDER_LINE_KIND_LABELS,
+  signedLineAmount,
+  type PurchaseOrderAmountKind,
+  type PurchaseOrderDeliveryMode,
+  type PurchaseOrderLineKind,
+} from "@/components/purchase-orders/order-lines";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 
 // Types
@@ -45,6 +56,16 @@ export type OrderItemData = {
   unitPriceInput?: string;
   unitPriceHtCents: number;
   lineTotalHtCents: number;
+  /** TI-691: the price is for this many units (« 3,40 € les 100 »); one unit when absent. */
+  pricePer?: number;
+  /** TI-691: an article (when absent), the supplier's shipping, or a global discount that subtracts. */
+  lineKind?: PurchaseOrderLineKind;
+  /** TI-691, on screen only: the request line this line comes from. */
+  origin?: { href: string; label: string } | null;
+  /** TI-691, on screen only: what its cost is imputed to (« Affaire », « Frais généraux · EPI »). */
+  imputation?: string | null;
+  /** TI-691: the retained quote's price, which the edit screen does not change. */
+  priceReadOnly?: boolean;
 };
 
 export type SupplierOption = { id: string; name: string };
@@ -68,6 +89,8 @@ type PurchaseOrderDocumentProps = {
   supplier: SupplierData | null;
   supplierId?: string;
   supplierReadOnly?: boolean;
+  /** Why the supplier cannot be changed; the estimate's preparation when not said. */
+  supplierReadOnlyNote?: string;
   onSupplierChange?: (id: string) => void;
   supplierOptions?: SupplierOption[];
   onSupplierCreate?: () => void;
@@ -80,6 +103,14 @@ type PurchaseOrderDocumentProps = {
   siteOptions?: SiteOption[];
   onDeliverySiteCreate?: () => void;
   isDeliverySiteCreateDisabled?: boolean;
+
+  // Commande faite depuis une demande de matériel (TI-691)
+  /** The affaire the order is for; its site address is printed when it is delivered there. */
+  affaire?: { name: string; address?: string | null } | null;
+  /** How an order without a delivery site is delivered; it then replaces the site and its choice. */
+  deliveryMode?: PurchaseOrderDeliveryMode | null;
+  /** Edit: adds the supplier's shipping or a global discount. */
+  onAmountLineAdd?: (kind: PurchaseOrderAmountKind) => void;
 
   // Date livraison
   expectedDeliveryDate?: string | null;
@@ -138,6 +169,15 @@ function resolveItemDesignation(item: OrderItemData): string {
   return reference || "-";
 }
 
+/** Shipping or discount: an amount of the order, typed as such, with no unit and no quantity to count. */
+function amountKindOf(item: OrderItemData): PurchaseOrderAmountKind | null {
+  return item.lineKind === "shipping" || item.lineKind === "discount" ? item.lineKind : null;
+}
+
+function centsInput(cents: number): string {
+  return cents ? (cents / 100).toFixed(2).replace(".", ",") : "";
+}
+
 const MAX_NOTES_LINES = 3;
 
 function clampLines(value: string, maxLines: number): string {
@@ -158,6 +198,7 @@ export function PurchaseOrderDocument({
   supplier,
   supplierId,
   supplierReadOnly = false,
+  supplierReadOnlyNote = "Fournisseur conservé depuis la préparation du devis",
   onSupplierChange,
   supplierOptions = [],
   onSupplierCreate,
@@ -168,6 +209,9 @@ export function PurchaseOrderDocument({
   siteOptions = [],
   onDeliverySiteCreate,
   isDeliverySiteCreateDisabled = false,
+  affaire = null,
+  deliveryMode = null,
+  onAmountLineAdd,
   expectedDeliveryDate,
   onExpectedDeliveryDateChange,
   notes,
@@ -185,6 +229,8 @@ export function PurchaseOrderDocument({
     deliverySite &&
     !shouldHideDeliveryDetails(deliverySite) &&
     hasDeliveryDetails(deliverySite);
+  // An order made from a request has no site: its delivery mode says where it goes, and is not chosen here.
+  const deliveredByMode = !deliverySite && deliveryMode !== null;
   const issuerDisplay = normalizeDocumentIssuerDisplay({
     issuerName,
     issuerRole,
@@ -268,7 +314,7 @@ export function PurchaseOrderDocument({
                 </select>
                 {supplierReadOnly ? (
                   <p id="purchase-order-supplier-readonly" className="text-xs text-muted-foreground">
-                    Fournisseur conservé depuis la préparation du devis
+                    {supplierReadOnlyNote}
                   </p>
                 ) : null}
                 {onSupplierCreate ? (
@@ -317,6 +363,14 @@ export function PurchaseOrderDocument({
             informations livraison
           </h3>
           <div className="space-y-4 print:space-y-2">
+            {affaire ? (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  affaire
+                </p>
+                <p className="text-[15px] font-semibold leading-snug text-foreground break-words">{affaire.name}</p>
+              </div>
+            ) : null}
             <div>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -370,9 +424,17 @@ export function PurchaseOrderDocument({
             </div>
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                adresse
+                {deliveredByMode ? "mode de livraison" : "adresse"}
               </p>
-              {editable ? (
+              {deliveredByMode && deliveryMode ? (
+                <div className="text-[15px] font-medium leading-snug text-secondary-foreground">
+                  <p className="font-semibold text-foreground">{PURCHASE_ORDER_DELIVERY_MODE_LABELS[deliveryMode]}</p>
+                  {deliveryMode === "site" && affaire?.address?.trim() ? (
+                    <p className="mt-1 whitespace-pre-line">{affaire.address}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {editable && !deliveredByMode ? (
                 <div className="mb-2 flex flex-col gap-2">
                 <select
                   aria-label="Chantier de livraison"
@@ -469,12 +531,21 @@ export function PurchaseOrderDocument({
             </tr>
           </thead>
           <tbody className="divide-y divide-border text-[15px] print:text-foreground">
-            {items.map((item, index) => (
+            {items.map((item, index) => {
+              const amountKind = amountKindOf(item);
+              const pricePer = item.pricePer && item.pricePer > 1 ? item.pricePer : 1;
+              const priceEditable = editable && !item.priceReadOnly;
+              return (
               <tr
                 key={item.key}
                 className={editable ? "doc-table-row-editable" : ""}
               >
                 <td className="px-6 py-4 font-medium text-foreground break-words print:px-4 print:py-2 print:text-foreground">
+                  {amountKind ? (
+                    <span className="mb-1 mr-2 inline-flex rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-brand-blue">
+                      {PURCHASE_ORDER_LINE_KIND_LABELS[amountKind]}
+                    </span>
+                  ) : null}
                   {editable ? (
                     <input
                       type="text"
@@ -493,6 +564,20 @@ export function PurchaseOrderDocument({
                   {item.reference?.trim() && item.designation?.trim() ? (
                     <p className="mt-1 text-xs font-normal text-muted-foreground">Réf. {item.reference}</p>
                   ) : null}
+                  {item.origin || item.imputation ? (
+                    // Ours, not the supplier's: printing the screen leaves them out.
+                    <p className="no-print mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-normal text-muted-foreground">
+                      {item.origin ? (
+                        <Link
+                          href={item.origin.href}
+                          className="font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+                        >
+                          {item.origin.label}
+                        </Link>
+                      ) : null}
+                      {item.imputation ? <span>{item.imputation}</span> : null}
+                    </p>
+                  ) : null}
                   {editable && item.validationError ? (
                     <p id={`order-line-error-${item.key}`} className="mt-1 text-xs font-normal text-danger">
                       Ligne {index + 1} : {item.validationError}
@@ -500,7 +585,7 @@ export function PurchaseOrderDocument({
                   ) : null}
                 </td>
                 <td className="w-24 px-3 py-4 text-center font-bold print:px-2 print:py-2">
-                  {editable ? (
+                  {editable && !amountKind ? (
                     <input
                       type="text"
                       inputMode="decimal"
@@ -516,7 +601,9 @@ export function PurchaseOrderDocument({
                   )}
                 </td>
                 <td className="w-24 px-3 py-4 text-center text-sm print:px-2 print:py-2">
-                  {editable && !item.unitReadOnly ? (
+                  {amountKind ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : editable && !item.unitReadOnly ? (
                     <input
                       type="text"
                       aria-label={`Unité, ligne ${index + 1}`}
@@ -533,34 +620,34 @@ export function PurchaseOrderDocument({
                   )}
                 </td>
                 <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
-                  {editable ? (
+                  {priceEditable ? (
                     <input
                       type="text"
                       className="doc-input w-20 text-right"
-                      aria-label={`Prix unitaire HT, ligne ${index + 1}`}
+                      aria-label={amountKind ? `Montant HT, ligne ${index + 1}` : `Prix unitaire HT, ligne ${index + 1}`}
+                      aria-describedby={amountKind && item.validationError ? `order-line-error-${item.key}` : undefined}
                       inputMode="decimal"
                       placeholder="0,00"
-                      value={
-                        item.unitPriceInput ??
-                        (item.unitPriceHtCents
-                          ? (item.unitPriceHtCents / 100)
-                              .toFixed(2)
-                              .replace(".", ",")
-                          : "")
-                      }
+                      value={item.unitPriceInput ?? centsInput(item.unitPriceHtCents)}
                       onChange={(e) =>
                         onItemChange?.(item.key, "unitPriceEuros", e.target.value)
                       }
                     />
+                  ) : amountKind ? (
+                    formatEUR(signedLineAmount(item.unitPriceHtCents, item.lineKind))
                   ) : (
-                    formatEUR(item.unitPriceHtCents)
+                    formatLotPrice(item.unitPriceHtCents, pricePer)
                   )}
-                  <p className="mt-1 text-xs font-normal text-muted-foreground">
-                    {item.priceUnit ? `par ${item.priceUnit}` : "Unité du prix à confirmer"}
-                  </p>
+                  {amountKind === "discount" && priceEditable ? (
+                    <p className="mt-1 text-xs font-normal text-muted-foreground">déduite du total</p>
+                  ) : amountKind || pricePer > 1 ? null : (
+                    <p className="mt-1 text-xs font-normal text-muted-foreground">
+                      {item.priceUnit ? `par ${item.priceUnit}` : "Unité du prix à confirmer"}
+                    </p>
+                  )}
                 </td>
                 <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
-                  {item.validationError ? "À vérifier" : formatEUR(item.lineTotalHtCents)}
+                  {item.validationError ? "À vérifier" : formatEUR(signedLineAmount(item.lineTotalHtCents, item.lineKind))}
                 </td>
                 {editable && (
                   <td className="px-4 py-4">
@@ -586,7 +673,8 @@ export function PurchaseOrderDocument({
                   </td>
                 )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {editable && (
@@ -598,6 +686,24 @@ export function PurchaseOrderDocument({
             >
               + Ajouter une ligne
             </button>
+            {onAmountLineAdd ? (
+              <>
+                <button
+                  type="button"
+                  className="ml-5 text-sm font-medium text-brand-orange hover:underline"
+                  onClick={() => onAmountLineAdd("shipping")}
+                >
+                  + Ajouter un port
+                </button>
+                <button
+                  type="button"
+                  className="ml-5 text-sm font-medium text-brand-orange hover:underline"
+                  onClick={() => onAmountLineAdd("discount")}
+                >
+                  + Ajouter une remise
+                </button>
+              </>
+            ) : null}
           </div>
         )}
       </div>

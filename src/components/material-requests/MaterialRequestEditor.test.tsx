@@ -207,12 +207,13 @@ function writes(): Call[] {
 }
 
 async function openEditor(routes: Record<string, Route>) {
-  // The article proposals of delivery 3 are read once per page; these journeys have none, and no quote
-  // (TI-691, read by the « Consultation » section).
+  // The article proposals of delivery 3 are read once per page; these journeys have none, no quote
+  // (TI-691, read by the « Consultation » section) and no purchase order (read by « Commandes »).
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
     [`GET ${BASE}/quotes`]: { data: { items: [] } },
+    [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true } },
     ...routes,
   });
   const user = userEvent.setup();

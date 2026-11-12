@@ -124,6 +124,33 @@ est une constante nommée et versionnée dans le code.
      (une couleur partagée se tranche par les libellés), ni masqués (calque OFF), ni
      quasi blancs, d'au moins 0,1 % de la longueur visible de la page (hors quasi-blancs
      et calques masqués). Les plus longs d'abord.
+   - Ne sont jamais envoyés les groupes qui ne peuvent pas être un réseau (TI-704,
+     [`candidate-filter.ts`](../../src/lib/takeoff/vectors/candidate-filter.ts)). Ils restent
+     « à revoir », comptés avec leur raison :
+     - gris : toutes leurs couleurs grises ou quasi blanches (fond, cadres, tableaux,
+       motifs de calorifuge le long des tuyaux) ;
+     - motif : un trait en motif (hachure), sans couleur à comparer à une légende ;
+     - calque de cadre ou de cartouche, ou d'architecture (mobilier, calepinage,
+       menuiseries), par les mots de son nom ;
+     - échantillon de légende : tous ses traits visibles dans le cadre de la légende, ou
+       le groupe entier en bande courte et fine à côté d'un texte qui n'est aucun morceau
+       d'un libellé de tuyau, même coupé en plusieurs textes ou écrit sur plusieurs lignes
+       (25 hauteurs de ce texte de long au plus, 1,5 d'épaisseur, à une hauteur au plus) ;
+     - couleur de gaine d'air : un groupe de couleur (jamais un calque) dont chaque couleur
+       est celle d'une ligne de légende aéraulique (« AN », « AS », « AR », « AEX »… seuls,
+       en capitales, lus comme la légende des réseaux, au moins deux codes sur la page ;
+       un échantillon tracé sur un calque de plusieurs couleurs n'est pas lu, sa couleur
+       propre n'étant pas connue)
+       ou une teinte de celle-ci (mêlée de blanc), et aucune liée à un réseau classé sur
+       la page : sa couleur, sa teinte ou son ombre, ou la couleur dont il est la teinte
+       (le contour d'un tuyau en bande dont le remplissage est classé). Une ombre d'une
+       couleur d'air est gardée : le rouge foncé d'un tuyau de chauffage est une ombre du
+       rouge d'une gaine d'extraction.
+     - Un groupe gris n'est donc plus demandé comme mur : un « mur » ou une « cloison »
+       de Decisions à 0,8 ou plus ferme les pièces (voir Surfaces). Aucune des 89
+       réponses sur des groupes gris des runs du 5/11 ne l'était.
+     - Sur les 8 plans de développement : 61 candidats au lieu de 171, les 36 réseaux
+       gardés (mesure du 12/11/2026, banc par mots-clés avec la vérité des groupes).
    - Limites par page du document : 10 appels groupés de 36 groupes, soit 360 groupes au
      plus ; au-delà, les groupes restent « à revoir » et leur nombre est compté. Dans le
      métré, ces limites valent pour le document entier et le traitement (voir « Decisions
@@ -133,7 +160,8 @@ est une constante nommée et versionnée dans le code.
    - Une question à choix par groupe, nommée par un alias (« groupe_01 »… dans l'ordre de
      la planche) : un identifiant de groupe peut dépasser les 160 caractères d'un nom de
      question. Les choix sont les codes réseau, avec leur libellé, puis mur, cloison,
-     fond, cotation, texte et autre. Un groupe gris ne se voit proposer aucun réseau.
+     fond, cotation, texte et autre. Un groupe gris n'est jamais envoyé ; s'il l'était,
+     aucun réseau ne lui serait proposé.
    - Contexte JSON : des statistiques seulement (couleurs, épaisseur, tiret, longueurs
      en pt et en m si l'échelle est mesurable, part de la page, tracés, segments,
      fermés, rectangle englobant en fractions de page, nom du calque si la page en a,
@@ -330,6 +358,19 @@ sont faits pour l'utilisateur du métré, sur son tenant
 
 - Chaque page est lue par mots-clés, ses groupes sont classés, puis la page est relue
   avec les réponses.
+- Les appels d'une page partent 8 à la fois au plus, dans leur ordre
+  (`GROUP_DECISIONS_CONCURRENCY`). Le premier appel groupé de la page part seul, les
+  appels dédiés une fois tous les appels groupés revenus. Le contrôle du métré et le
+  plafond de jetons passent avant chaque départ : un appel ne part à côté d'autres que
+  si le plafond tient chacun d'eux. Pour un appel groupé, chacun compte alors pour
+  1,25 fois le plus gros appel déjà vu (`GROUP_DECISIONS_BATCH_RESERVE_MARGIN`).
+  Les rendus des appels dédiés restent dessinés par lots de 10, un processus à la
+  fois, un lot d'avance au plus. Le premier arrêt dans l'ordre des appels décide :
+  aucun appel ne part ensuite, ceux déjà partis finissent et les réponses de ceux
+  d'après l'arrêt ne sont pas appliquées. La page obtient les mêmes réponses que si
+  les appels étaient partis un par un, quel que soit l'ordre où ils reviennent.
+  Son résumé compte tous les appels envoyés et leurs jetons, ceux encore en cours à
+  l'arrêt compris ; sa latence est le temps passé dans les appels, pas leur somme.
 - Plafonds par défaut, modifiables par Thanh :
   - 10 appels groupés et 50 appels dédiés au plus par document et par traitement, sur
     l'ensemble de ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`). Au-delà, les groupes
@@ -388,6 +429,30 @@ plafond de jetons pour tout le run :
 - le rapport donne, par document, les appels groupés et dédiés, les jetons, les
   latences p50 / p95 des appels et des rendus, le plafond et l'arrêt ; `report.json`
   garde la réponse de chaque groupe (alias, groupe, classe, confiance, statut, appel).
+  Ses règles (`rules.vector.decisions.concurrency`) disent combien d'appels partaient
+  à la fois : la durée d'une page n'est comparable qu'à concurrence égale.
+
+Avec ou sans Decisions, `report.json` garde pour chaque page les candidats de la lecture
+par mots-clés : les groupes envoyés, et ceux écartés avec leur raison.
+
+Le score au devis ne juge pas la classe des groupes : sur les plans de développement,
+même une classe parfaite de chaque candidat ne gagne aucune clé. `--group-truth <dossier>`
+(TI-704) note donc chaque groupe contre une vérité privée, hors du jeu
+([`group-score.ts`](../../src/lib/takeoff/bench/group-score.ts)) :
+
+- le dossier contient des fichiers `<id du document>.json` au schéma de `truth/groups`,
+  vérifiés comme eux. Il est refusé dans le jeu : là, le banc le lirait comme les
+  correspondances de l'utilisateur et l'empreinte du jeu changerait. Il n'est jamais
+  appliqué ; le rapport garde l'empreinte de ses fichiers, jamais leur contenu ;
+- par document et au total : réseaux trouvés avec la classe exacte et au niveau parent
+  (HW pour HW-S), réseaux proposés sous 0,8, réseaux répondus « autre », non-réseaux pris
+  pour un réseau, groupes laissés « à revoir » (sans classe, ou réponse Decisions sous
+  0,8), candidats retenus et écartés (un réseau écarté est perdu pour Decisions),
+  précision des réseaux classés. Un groupe d'une page en échec, ou d'un document qu'une
+  passe n'a pas atteint, est « non lu » ;
+- par tranche de confiance des réponses Decisions : propositions de réseau, exactes, au
+  niveau parent, sur des non-réseaux, et précision ;
+- le coût du run sur toutes ses pages : appels, jetons et latence par page.
 
 ## Labo : écran Vecteurs et « classe de calque »
 

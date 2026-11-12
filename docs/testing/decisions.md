@@ -71,7 +71,8 @@ Le premier périmètre comprend :
   après 200 s, arrêt au premier échec, sans relance ni autre fournisseur. Les
   pages inchangées réutilisent leur réponse ; une page illisible reste « À
   vérifier » sans appel et n'empêche pas la lecture des suivantes. Une page n’est proposée à l’écart
-  que pour une réponse complète, avec vignette, d’un type exclu (coupe, façade,
+  que pour une réponse complète, avec une vignette à laquelle ne manque aucune image du
+  PDF (plus de 8 mégapixels ou illisible), d’un type exclu (coupe, façade,
   toiture, masse, pièce écrite) à une confiance d’au moins 0,8 ; toute autre page
   reste retenue « À vérifier ». Voir [Préparation du métré](../metier/preparation-metre.md).
 - Métré, classes des groupes de tracés (TI-662) : dans le worker de niveau C, avec

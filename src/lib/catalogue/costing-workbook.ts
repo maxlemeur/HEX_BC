@@ -15,7 +15,7 @@ import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 export const COSTING_WORKBOOK_SHEET = "All_data";
 
-/** Codes of the supply types every company has (seeded with their FO provision: 1,03 tube and insulation). */
+/** Codes of the supply types every company has (seeded with their K FO base: 1,13 tube, 1,02 the others). */
 export const COSTING_WORKBOOK_SUPPLY_KINDS = [
   "tube",
   "raccord",
@@ -187,8 +187,8 @@ function designationOf(wording: string, material: string, dimension: string, pre
 }
 
 /**
- * The supply type sets the estimate's FO provision once the draft is validated (1,03 for tubes and insulation,
- * 1,01 otherwise): the families of insulation, support and valves decide; a tube is a tube in any other family
+ * The supply type sets the estimate line's automatic K FO once the draft is validated (base 1,13 for tubes, 1,02
+ * otherwise, insulation included): the families of insulation, support and valves decide; a tube is a tube in any other family
  * but consumables; a material family tells a fitting from a valve or a collar; an article of no family the reader
  * knows is classified by its material, else « divers ».
  */

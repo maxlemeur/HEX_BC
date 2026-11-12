@@ -2,10 +2,13 @@ export type OwnedPurchaseOrder = {
   orderId: string;
   projectId: string;
   versionId: string;
-  tenantId: string;
+  /** Recorded in the evidence when the journey knows it; the guard does not read it. */
+  tenantId?: string;
 };
 
-const ORDER_COLUMNS = "id,reference,order_date,expected_delivery_date,notes,supplier_id,delivery_site_id,status,source_estimate_version_id,edit_revision,purchase_order_items(id,product_id,reference,source_estimate_item_id,source_selected_supplier_price_id,is_source_linked,designation,quantity,unit,price_unit,unit_price_ht_cents,tax_rate_bp,position)";
+// The purchase editor's own read (src/app/dashboard/orders/[id]/edit/page.tsx), as supabase-js sends it: since
+// TI-691 it also reads the affaire, the delivery mode and, per line, its kind, lot, imputation and request line.
+const ORDER_COLUMNS = "id,reference,order_date,expected_delivery_date,notes,supplier_id,delivery_site_id,status,source_estimate_version_id,edit_revision,project_id,delivery_mode,estimate_projects(name,site_address),purchase_order_items(id,product_id,reference,source_estimate_item_id,source_selected_supplier_price_id,is_source_linked,designation,quantity,unit,price_unit,unit_price_ht_cents,tax_rate_bp,position,line_kind,price_per,imputation,overhead_category,material_request_line_id,material_request_lines(position,request_id,material_requests(project_id,requested_on)))";
 
 function exactQuery(url: URL, expected: Record<string, string>) {
   const entries = [...url.searchParams];
