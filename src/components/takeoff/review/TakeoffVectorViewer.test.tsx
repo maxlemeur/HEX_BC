@@ -143,7 +143,7 @@ describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => 
     to_review: 2,
     decisions: { prompt_version: "takeoff-vector-groups-v1", candidates: 3, eligible: 3, left_out: 0, dedicated_left_out: 0, calls: { batch: 1, dedicated: 0, failed: 1 },
       answered: 3, total_tokens: 1200, latency_ms: 900,
-      stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } },
+      stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", from_earlier_page: false } },
   };
   const items = [
     { takeoff_item_id: "88888881-8888-4888-8888-888888888888", geometry: { ...geometry, groups: ["g-ef"] } },

@@ -407,7 +407,7 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
       }])),
       calls: [{ kind: "batch", questions: answers.length, status: stop?.reason === "call_failed" ? "failed" : "available",
         usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: 80 }],
-      stop, candidates: answers.length, eligible: answers.length, left_out: 0, dedicated_left_out: 0, render: { legend_ms: 300, sheets_ms: [80] },
+      stop, candidates: answers.length, eligible: answers.length, left_out: 0, dedicated_left_out: 0, render: { legend_ms: 300, sheets_ms: [80] }, calls_ms: null,
     };
   }
 
