@@ -24,7 +24,7 @@ const VALID_PRODUCT = {
   is_active: true,
 };
 
-type QueryResult = { data: unknown; error: { message: string } | null };
+type QueryResult = { data: unknown; error: { message: string; details?: string; code?: string } | null };
 
 const TENANT_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -204,5 +204,84 @@ describe("POST /api/products", () => {
     expect(updated).toEqual([
       { id: PRODUCT_ID, payload: { is_active: false } },
     ]);
+  });
+
+  // TI-690. Failure modes: the database refusal of an incomplete draft reaches the operator as a raw code or a
+  // generic 500; the status or the supply type is dropped on the way to the database; a creation that sets no
+  // status sends one anyway and so overrides the database default.
+  it("turns the refusal of an incomplete draft into a 422 naming the missing fields", async () => {
+    const { supabase, updated } = createProductsSupabase({
+      updateResult: {
+        data: null,
+        error: { code: "23514", message: "PRODUCT_VALIDATION_INCOMPLETE", details: "product_type,supply_type_id" },
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "validated" } })
+    );
+
+    expect(updated).toEqual([{ id: PRODUCT_ID, payload: { catalogue_status: "validated" } }]);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "PRODUCT_VALIDATION_INCOMPLETE",
+        message: "Pour valider cet article, renseignez : le type d’article, le type de fourniture.",
+        details: { missing: ["product_type", "supply_type_id"] },
+      },
+    });
+  });
+
+  it("refuses a supply type that is not in the tenant's referential", async () => {
+    const { supabase } = createProductsSupabase({
+      updateResult: { data: null, error: { code: "23514", message: "PRODUCT_SUPPLY_TYPE_INVALID" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({
+        action: "update",
+        id: PRODUCT_ID,
+        item: { supply_type_id: "44444444-4444-4444-8444-444444444444" },
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.message).toBe(
+      "Ce type de fourniture n’existe pas dans votre référentiel."
+    );
+  });
+
+  it("creates a draft with its supply type, and sends no status when none is given", async () => {
+    const { supabase, inserted } = createProductsSupabase();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const supplyTypeId = "44444444-4444-4444-8444-444444444444";
+
+    await POST(
+      postRequest({
+        action: "create",
+        item: { ...VALID_PRODUCT, catalogue_status: "draft", supply_type_id: supplyTypeId },
+      })
+    );
+    await POST(postRequest({ action: "create", item: VALID_PRODUCT }));
+
+    expect(inserted).toEqual([
+      { ...VALID_PRODUCT, catalogue_status: "draft", supply_type_id: supplyTypeId },
+      VALID_PRODUCT,
+    ]);
+  });
+
+  it("refuses an unknown catalogue status", async () => {
+    const { supabase, updated } = createProductsSupabase();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "approved" } })
+    );
+
+    expect(response.status).toBe(400);
+    expect(updated).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-o
 
 import { isValidDateOnly } from "@/lib/date-only";
 import { resolvePriceValidity } from "@/lib/catalogue/price-validity";
+import { PRODUCT_CATALOGUE_STATUSES } from "@/lib/catalogue/product-validation";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
@@ -101,6 +102,7 @@ export const catalogueListQuerySchema = z.object({
   search: z.union([z.string(), z.null()]).optional(),
   limit: positiveIntegerSchema.max(500).optional().default(100),
   include_inactive: z.boolean().optional().default(false),
+  validated_only: z.boolean().optional().default(false),
 });
 
 const pageSizeSchema = z.union([z.literal(25), z.literal(50), z.literal(100)]);
@@ -114,6 +116,7 @@ export const cataloguePageQuerySchema = z.object({
   unit: repeatedFilterSchema,
   price_status: z.array(z.enum(["fresh", "aging", "stale", "none"])).max(4).default([]),
   status: z.array(z.enum(["active", "archived"])).max(2).default([]),
+  catalogue_status: z.array(z.enum(PRODUCT_CATALOGUE_STATUSES)).max(2).default([]),
   sort: z
     .enum([
       "designation",
@@ -121,6 +124,7 @@ export const cataloguePageQuerySchema = z.object({
       "unit_price_cents",
       "best_supplier_price_cents",
       "updated_at",
+      "reliability_score",
     ])
     .default("designation"),
   dir: sortDirectionSchema.default("asc"),

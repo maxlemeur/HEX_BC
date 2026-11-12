@@ -2,6 +2,7 @@ import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dp
 import { z, type ZodTypeAny } from "zod";
 import { driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
+import { createSupplyTypeSchema } from "@/lib/catalogue/supply-types";
 
 import {
   productActionSchema,
@@ -604,13 +605,15 @@ const administrationContracts: RouteContract[] = [
       { name: "search", schema: z.string(), description: "Recherche de la liste simple." },
       { name: "limit", schema: z.number().int().positive().max(500), description: "Limite de la liste simple." },
       { name: "include_inactive", schema: z.boolean(), description: "Inclut les articles inactifs." },
+      { name: "validated_only", schema: z.boolean(), description: "Liste simple : ecarte les articles brouillons (recherches qui chiffrent sans choix de l'operateur)." },
       { name: "q", schema: z.string().max(200), description: "Recherche de la vue paginee." },
       { name: "material", schema: z.array(z.string()), description: "Filtres matiere repetables." },
       { name: "category", schema: z.array(z.string()), description: "Filtres categorie repetables." },
       { name: "unit", schema: z.array(z.string()), description: "Filtres unite repetables." },
       { name: "price_status", schema: z.array(z.enum(["fresh", "aging", "stale", "none"])), description: "Filtres fraicheur du prix." },
       { name: "status", schema: z.array(z.enum(["active", "archived"])), description: "Filtres statut." },
-      { name: "sort", schema: z.enum(["designation", "material", "unit_price_cents", "best_supplier_price_cents", "updated_at"]), description: "Colonne de tri." },
+      { name: "catalogue_status", schema: z.array(z.enum(["draft", "validated"])), description: "Filtres etat de validation (brouillon, valide)." },
+      { name: "sort", schema: z.enum(["designation", "material", "unit_price_cents", "best_supplier_price_cents", "updated_at", "reliability_score"]), description: "Colonne de tri." },
       { name: "dir", schema: z.enum(["asc", "desc"]), description: "Direction du tri." },
       { name: "page", schema: z.number().int().positive(), description: "Page demandee." },
       { name: "size", schema: z.union([z.literal(25), z.literal(50), z.literal(100)]), description: "Taille de page." },
@@ -942,6 +945,26 @@ const directoryAndOrdersContracts: RouteContract[] = [
       { status: "200", description: "Fournisseur mis a jour ou retire." },
       { status: "201", description: "Fournisseur cree." },
     ],
+  },
+  {
+    id: "list-supply-types",
+    method: "get",
+    path: "/api/catalogue/supply-types",
+    summary: "Lister les types de fourniture",
+    description:
+      "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue.",
+    tags: ["Catalogue"],
+  },
+  {
+    id: "create-supply-type",
+    method: "post",
+    path: "/api/catalogue/supply-types",
+    summary: "Creer un type de fourniture",
+    description:
+      "Cree un type de fourniture (administrateur). Un nom deja pris par un type du tenant, a la casse, aux accents, a la ponctuation et au pluriel pres, est refuse.",
+    tags: ["Catalogue"],
+    body: { schema: createSupplyTypeSchema, description: "Nom du type de fourniture." },
+    success: [{ status: "201", description: "Type de fourniture cree." }],
   },
   {
     id: "list-orders",
