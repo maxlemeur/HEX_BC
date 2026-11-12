@@ -54,8 +54,6 @@ export type ProductRecord = {
   is_active: boolean;
   catalogue_status?: ProductCatalogueStatus;
   supply_type_id?: string | null;
-  /** The article's supplier exception (TI-691), when the list that opened the form carries it. */
-  preferred_supplier_id?: string | null;
   reliability_score?: number | null;
   _supplyTypeName?: string | null;
   _referencePriceSourceOrderId?: string | null;
@@ -690,13 +688,7 @@ export function ProductFormModal({
               </div>
             </details>
 
-            {product ? (
-              <ProductSuppliers
-                productId={product.id}
-                preferredSupplierId={product.preferred_supplier_id}
-                onChanged={onSuppliersChanged}
-              />
-            ) : null}
+            {product ? <ProductSuppliers productId={product.id} onChanged={onSuppliersChanged} /> : null}
 
             {product ? <ProductAliases productId={product.id} /> : null}
 

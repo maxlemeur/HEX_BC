@@ -2,10 +2,26 @@ import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { canAddToCatalogue, canEditCatalogueRecord, buildCatalogueAccess } from "@/lib/catalogue/access";
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { PRODUCT_WRITE_REFUSAL, SHARED_PRODUCT_REFUSAL } from "@/lib/catalogue/product-writes";
-import { type ApiError, type SupabaseErrorLike, badRequest, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import {
+  type ApiError,
+  type SupabaseErrorLike,
+  badRequest,
+  forbidden,
+  mapSupabaseError,
+  notFound,
+  unprocessableEntity,
+} from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 
-import { requireProjectAccess, requireRequest, type MaterialRequestContext } from "./server-shared";
+import type { MaterialRequestLine } from "./contracts";
+import {
+  LINE_COLUMNS,
+  assertSuppliersInTenant,
+  requireProjectAccess,
+  requireRequest,
+  type MaterialRequestContext,
+} from "./server-shared";
+import { PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED } from "./supplier-contracts";
 import type {
   ArticleSupplierItem,
   ArticleSupplierItemSaved,
@@ -14,6 +30,8 @@ import type {
   LineSupplierProposals,
   LineSupplierReason,
   LineSupplierReference,
+  RetainLineSuppliersData,
+  RetainLineSuppliersResult,
   SaveArticleSupplierItemData,
 } from "./supplier-contracts";
 
@@ -21,12 +39,15 @@ import type {
  * Suppliers of material request lines (TI-691, lot 2 « l'achat », delivery 1).
  *  - Proposals: for each line with an article and no supplier, the first active supplier of the tenant among the
  *    technician's (the request's presumed supplier), the article's exception, its supply type's preferred supplier
- *    and its last purchase (public.last_purchase_suppliers), in that order (owner's decision). A proposal is never
- *    written: the office sets the line's supplier with the line PATCH, which keeps a validated line validated.
- *    Read with the rights of the affaire, in a bounded number of queries for the whole request.
+ *    and its last purchase (public.last_purchase_suppliers), in that order (owner's decision). A source is skipped
+ *    when its supplier is archived or was withdrawn from the article (inactive item). A proposal is never written by
+ *    itself: the office sets the line's supplier with the line PATCH, or retains several with retainLineSuppliers,
+ *    which only writes lines that still have none; both keep a validated line validated. Read with the rights of
+ *    the affaire, in a bounded number of queries for the whole request.
  *  - An article's suppliers: its supplier items (reference and address at each supplier, no price), read by every
  *    member of the tenant, written through public.save_supplier_catalog_item by whoever may change the article.
- *  - The article's supplier exception: written like any field of the article (TI-689 rule, its update policy).
+ *  - The article's supplier exception: written like any field of the article (TI-689 rule, its update policy), to a
+ *    supplier that has an active item for the article.
  * Every query names the active tenant. The rights are checked here to answer a status and a sentence, and again by
  * the database (policies, the definer functions' own checks), which has the last word.
  */
@@ -73,19 +94,22 @@ export async function listLineSupplierProposals(projectId: string, requestId: st
   const supplied = linked.filter((row): row is { id: string; product_id: string; supplier_id: string } => row.supplier_id !== null);
   if (linked.length === 0) return { lines: {}, references: {} };
 
-  // The article's active item at a supplier: the reference proposed with it, or the one of the line's own supplier.
+  // The article's items, active or not: an active one gives the reference proposed with its supplier, or the one of
+  // the line's own supplier; an inactive one means the supplier was withdrawn from the article.
   const { data: itemRows, error: itemsError } = await readAllRowsInChunks(uniqueIds(linked.map((row) => row.product_id)), (chunk) => supabase
     .from("supplier_catalog_items")
-    .select("id, product_id, supplier_id, supplier_sku, product_url", { count: "exact" })
+    .select("id, product_id, supplier_id, supplier_sku, product_url, is_active", { count: "exact" })
     .eq("tenant_id", tenantId)
-    .eq("is_active", true)
     .in("product_id", chunk));
   if (itemsError) throw mapSupabaseError(itemsError, "Impossible de charger les références fournisseurs.");
   const itemOf = new Map((itemRows ?? []).map((row) => [`${row.product_id}|${row.supplier_id}`, row]));
   const referenceAt = (productId: string, supplierId: string): LineSupplierReference => {
     const item = itemOf.get(`${productId}|${supplierId}`);
-    return { supplier_sku: item?.supplier_sku ?? null, product_url: item?.product_url ?? null };
+    return item?.is_active
+      ? { supplier_sku: item.supplier_sku, product_url: item.product_url }
+      : { supplier_sku: null, product_url: null };
   };
+  const withdrawnFrom = (productId: string, supplierId: string) => itemOf.get(`${productId}|${supplierId}`)?.is_active === false;
   const references = Object.fromEntries(supplied.map((row) => [row.id, referenceAt(row.product_id, row.supplier_id)]));
   if (lines.length === 0) return { lines: {}, references };
 
@@ -130,8 +154,15 @@ export async function listLineSupplierProposals(projectId: string, requestId: st
   const proposalFor = (productId: string): LineSupplierProposal | null => {
     for (const [reason, supplierId] of sourcesOf(productId)) {
       const name = supplierId ? names.get(supplierId) : undefined;
-      if (!supplierId || name === undefined) continue;
-      return { supplier_id: supplierId, supplier_name: name, reason, ...referenceAt(productId, supplierId) };
+      if (!supplierId || name === undefined || withdrawnFrom(productId, supplierId)) continue;
+      return {
+        supplier_id: supplierId,
+        supplier_name: name,
+        reason,
+        // The technician's supplier is a hint until the request confirms it (« à confirmer »).
+        confirmed: reason !== "technician" || request.supplier_confirmed,
+        ...referenceAt(productId, supplierId),
+      };
     }
     return null;
   };
@@ -299,14 +330,38 @@ export async function saveArticleSupplierItem(
   return { item, preferred_supplier_id: article.preferred_supplier_id };
 }
 
-/** The supplier exception of an article (null removes it), written like any field of the article. */
+/** The article's exception names a supplier the office can buy it from: one with an active item for it. */
+function exceptionWithoutItem(): ApiError {
+  return unprocessableEntity(
+    "Ce fournisseur n’est pas actif pour cet article : enregistrez d’abord sa référence chez lui, puis choisissez-le.",
+    undefined,
+    PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED,
+  );
+}
+
+/**
+ * The supplier exception of an article (null removes it), written like any field of the article, to a supplier
+ * that has an active item for the article (422 otherwise; the database checks it too).
+ */
 export async function setProductPreferredSupplier(
   productId: string,
   preferredSupplierId: string | null,
 ): Promise<{ preferred_supplier_id: string | null }> {
   const context = await getAuthenticatedTenantContext();
   await requireArticleEditor(context, productId);
-  if (preferredSupplierId) await requireSupplier(context, preferredSupplierId);
+  if (preferredSupplierId) {
+    await requireSupplier(context, preferredSupplierId);
+    const { data: item, error: itemError } = await context.supabase
+      .from("supplier_catalog_items")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("product_id", productId)
+      .eq("supplier_id", preferredSupplierId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (itemError) throw mapSupabaseError(itemError, "Impossible de vérifier le fournisseur de l'article.");
+    if (!item) throw exceptionWithoutItem();
+  }
 
   const { data, error } = await context.supabase
     .from("products")
@@ -318,9 +373,54 @@ export async function setProductPreferredSupplier(
   if (error) {
     // The supplier was deleted, or moved out of reach, since it was checked.
     if (error.message?.includes("PREFERRED_SUPPLIER_TENANT_MISMATCH")) throw notFound(SUPPLIER_NOT_FOUND);
+    // The supplier was withdrawn from the article since it was checked.
+    if (error.message?.includes(PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED)) throw exceptionWithoutItem();
     throw mapSupabaseError(error, "Impossible d'enregistrer le fournisseur de l'article.");
   }
   // A write filtered by the update policy reaches no row without raising: the article is one the caller may not change.
   if (!data) throw forbidden(SHARED_PRODUCT_REFUSAL);
   return { preferred_supplier_id: data.preferred_supplier_id };
+}
+
+/**
+ * Retains the supplier chosen for several lines at once. Each statement is conditional: it writes only the lines
+ * that still have no supplier, so a supplier another session set in the meantime is never overwritten. One
+ * statement per supplier chosen, never one per line. Lines not written (already supplied, or not of this request)
+ * are named in `skipped`. The supplier is not what the line says: a validated line stays validated.
+ */
+export async function retainLineSuppliers(
+  projectId: string,
+  requestId: string,
+  input: RetainLineSuppliersData,
+): Promise<RetainLineSuppliersResult> {
+  const access = await requireProjectAccess(projectId, "write");
+  const request = await requireRequest(access, requestId);
+  const { context } = access;
+  await assertSuppliersInTenant(context, input.choices.map((choice) => choice.supplier_id));
+
+  const linesBySupplier = new Map<string, string[]>();
+  for (const choice of input.choices) {
+    const ids = linesBySupplier.get(choice.supplier_id) ?? [];
+    ids.push(choice.line_id);
+    linesBySupplier.set(choice.supplier_id, ids);
+  }
+  const written: MaterialRequestLine[] = [];
+  for (const [supplierId, lineIds] of linesBySupplier) {
+    const { data, error } = await context.supabase
+      .from("material_request_lines")
+      .update({ supplier_id: supplierId })
+      .in("id", lineIds)
+      .eq("tenant_id", context.tenantId)
+      .eq("project_id", access.project.id)
+      .eq("request_id", request.id)
+      .is("supplier_id", null)
+      .select(LINE_COLUMNS);
+    if (error) throw mapSupabaseError(error, "Impossible de retenir les fournisseurs des lignes.");
+    written.push(...(data ?? []));
+  }
+  const writtenIds = new Set(written.map((line) => line.id));
+  return {
+    lines: written.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id)),
+    skipped: input.choices.map((choice) => choice.line_id).filter((lineId) => !writtenIds.has(lineId)),
+  };
 }

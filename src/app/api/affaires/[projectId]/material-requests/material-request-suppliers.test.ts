@@ -7,6 +7,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import * as supplierProposalsRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/supplier-proposals/route";
 import * as lineRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/route";
 import * as linesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/route";
+import * as retainSuppliersRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/retain-suppliers/route";
 import * as supplyTypeRoute from "@/app/api/catalogue/supply-types/[supplyTypeId]/route";
 import * as supplyTypesRoute from "@/app/api/catalogue/supply-types/route";
 import * as preferredSupplierRoute from "@/app/api/products/[productId]/preferred-supplier/route";
@@ -16,6 +17,7 @@ import type {
   ArticleSupplierItemSaved,
   ArticleSuppliers,
   LineSupplierProposal,
+  RetainLineSuppliersResult,
 } from "@/lib/material-requests/supplier-contracts";
 import {
   createFakeSupabase,
@@ -56,6 +58,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 10. A validated line returns to draft when only its supplier changes, alone or in a selection (the supplier is
  *     the office's purchasing choice); or, the other way round, changing what it says with its supplier keeps it
  *     validated.
+ * 13. (independent review) A supplier withdrawn from the article is still proposed through the technician, the
+ *     supply type or the last purchase, instead of the next source; an article's exception is set to a supplier
+ *     that has no active item for it.
+ * 14. (independent review) Retaining proposals in bulk overwrites a supplier another session set in the meantime,
+ *     or reaches a line of another request; a reader retains; the answer does not say which lines were left alone.
+ * 15. (independent review) The technician's supplier is proposed as if it were confirmed while the request's
+ *     presumed supplier is not.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -73,6 +82,7 @@ const EXCEPTION_SUPPLIER = "40000000-0000-4000-8000-000000000002";
 const TYPE_SUPPLIER = "40000000-0000-4000-8000-000000000003";
 const LAST_SUPPLIER = "40000000-0000-4000-8000-000000000004";
 const ARCHIVED_SUPPLIER = "40000000-0000-4000-8000-000000000005";
+const WITHDRAWN_SUPPLIER = "40000000-0000-4000-8000-000000000006";
 const FOREIGN_SUPPLIER = "40000000-0000-4000-8000-000000000009";
 const REQUEST = "60000000-0000-4000-8000-000000000001";
 const NAMED_REQUEST = "60000000-0000-4000-8000-000000000002";
@@ -87,6 +97,7 @@ const LINE_CHOSEN_TEE = "70000000-0000-4000-8000-000000000009";
 const LINE_FREE = "70000000-0000-4000-8000-000000000007";
 const LINE_VALIDATED = "70000000-0000-4000-8000-000000000008";
 const LINE_NAMED = "70000000-0000-4000-8000-000000000011";
+const LINE_NAMED_FLANGE = "70000000-0000-4000-8000-000000000012";
 const OTHER_LINE = "70000000-0000-4000-8000-000000000019";
 const ELBOW = "90000000-0000-4000-8000-000000000001";
 const TEE = "90000000-0000-4000-8000-000000000002";
@@ -104,6 +115,9 @@ const TEE_LAST_ITEM = "b0000000-0000-4000-8000-000000000003";
 const FLANGE_ITEM = "b0000000-0000-4000-8000-000000000004";
 const ELBOW_LAST_ITEM = "b0000000-0000-4000-8000-000000000005";
 const CAP_PRICE_ITEM = "b0000000-0000-4000-8000-000000000006";
+const FLANGE_NAMED_ITEM = "b0000000-0000-4000-8000-000000000007";
+const CAP_WITHDRAWN_ITEM = "b0000000-0000-4000-8000-000000000008";
+const OWN_ITEM = "b0000000-0000-4000-8000-000000000009";
 const VALIDATED_AT = "2026-11-11T10:00:00.000Z";
 
 type Role = "admin" | "engineer" | "viewer" | "director";
@@ -144,9 +158,11 @@ const linked = (productId: string, extra: FakeRow = {}) => ({ product_id: produc
 
 /** The latest confirmed or received order of each article, as public.last_purchase_suppliers answers it. */
 const LAST_PURCHASES: FakeRow[] = [
-  { product_id: ELBOW, supplier_id: LAST_SUPPLIER, ordered_on: "2026-10-15" },
-  { product_id: TEE, supplier_id: LAST_SUPPLIER, ordered_on: "2026-10-16" },
-  { product_id: FLANGE, supplier_id: LAST_SUPPLIER, ordered_on: "2026-09-01" },
+  { product_id: ELBOW, supplier_id: LAST_SUPPLIER },
+  { product_id: TEE, supplier_id: LAST_SUPPLIER },
+  { product_id: FLANGE, supplier_id: LAST_SUPPLIER },
+  { product_id: VALVE, supplier_id: LAST_SUPPLIER },
+  { product_id: CAP, supplier_id: WITHDRAWN_SUPPLIER },
 ];
 
 const lastPurchaseSuppliers: FakeRpcHandler = (args) => {
@@ -185,6 +201,7 @@ function seed(actor: string, role: Role, overrides: {
   tables?: Partial<FakeTables>;
   rpc?: Record<string, unknown>;
   refuseUpdate?: (table: string, values: FakeRow) => string | false;
+  beforeUpdate?: (table: string, values: FakeRow, tables: FakeTables) => void;
 } = {}) {
   const fake = createFakeSupabase({
     userId: actor,
@@ -195,6 +212,7 @@ function seed(actor: string, role: Role, overrides: {
       ...overrides.rpc,
     },
     refuseUpdate: overrides.refuseUpdate,
+    beforeUpdate: overrides.beforeUpdate,
     tables: {
       tenant_memberships: [fakeMembership(actor, actor === OUTSIDER ? OTHER_TENANT : TENANT, role)],
       tenant_catalogue_policies: [],
@@ -208,6 +226,7 @@ function seed(actor: string, role: Role, overrides: {
         supplier(TYPE_SUPPLIER, "Fournisseur Raccords"),
         supplier(LAST_SUPPLIER, "Fournisseur Dernier Achat"),
         supplier(ARCHIVED_SUPPLIER, "Fournisseur Archivé", { is_active: false }),
+        supplier(WITHDRAWN_SUPPLIER, "Fournisseur Retiré"),
         supplier(FOREIGN_SUPPLIER, "Fournisseur d'ailleurs", { tenant_id: OTHER_TENANT }),
       ],
       supply_types: [
@@ -232,6 +251,10 @@ function seed(actor: string, role: Role, overrides: {
         { id: ELBOW_LAST_ITEM, tenant_id: TENANT, product_id: ELBOW, supplier_id: LAST_SUPPLIER, supplier_sku: "DA-CO-50", product_url: null, is_active: true },
         // Created by the price book: prices only, no reference and no address.
         { id: CAP_PRICE_ITEM, tenant_id: TENANT, product_id: CAP, supplier_id: LAST_SUPPLIER, supplier_sku: null, product_url: null, is_active: true },
+        // Suppliers withdrawn from an article: never proposed for it.
+        { id: FLANGE_NAMED_ITEM, tenant_id: TENANT, product_id: FLANGE, supplier_id: NAMED_SUPPLIER, supplier_sku: "NOM-BR-50", product_url: null, is_active: false },
+        { id: CAP_WITHDRAWN_ITEM, tenant_id: TENANT, product_id: CAP, supplier_id: WITHDRAWN_SUPPLIER, supplier_sku: "RET-BO-50", product_url: null, is_active: false },
+        { id: OWN_ITEM, tenant_id: TENANT, product_id: OWN_ARTICLE, supplier_id: NAMED_SUPPLIER, supplier_sku: "NOM-MA-50", product_url: null, is_active: true },
       ],
       supplier_pricebook: [
         { id: "c0000000-0000-4000-8000-000000000001", tenant_id: TENANT, supplier_catalog_item_id: ELBOW_ITEM, unit_price_cents: 1234 },
@@ -252,6 +275,7 @@ function seed(actor: string, role: Role, overrides: {
         line(LINE_FREE, REQUEST, 7),
         line(LINE_VALIDATED, REQUEST, 8, linked(TEE, { status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER })),
         line(LINE_NAMED, NAMED_REQUEST, 1, linked(ELBOW)),
+        line(LINE_NAMED_FLANGE, NAMED_REQUEST, 2, linked(FLANGE)),
         line(OTHER_LINE, OTHER_REQUEST, 1, linked(ELBOW)),
       ],
       ...overrides.tables,
@@ -292,10 +316,29 @@ afterEach(() => {
 });
 
 describe("proposed supplier of each line", () => {
-  it("proposes the technician's supplier first, before the article's exception", async () => {
+  it("proposes the technician's supplier first, before the article's exception, to be confirmed while the request does not confirm it", async () => {
     seed(OWNER, "engineer");
     expect((await proposalsOf(NAMED_REQUEST))[LINE_NAMED]).toEqual({
-      supplier_id: NAMED_SUPPLIER, supplier_name: "Fournisseur Nommé", reason: "technician", supplier_sku: null, product_url: null,
+      supplier_id: NAMED_SUPPLIER, supplier_name: "Fournisseur Nommé", reason: "technician", confirmed: false,
+      supplier_sku: null, product_url: null,
+    } satisfies LineSupplierProposal);
+  });
+
+  it("marks the technician's supplier confirmed once the request confirms it", async () => {
+    seed(OWNER, "engineer", {
+      tables: {
+        material_requests: [request(NAMED_REQUEST, PROJECT, { presumed_supplier_id: NAMED_SUPPLIER, supplier_confirmed: true })],
+      },
+    });
+    expect((await proposalsOf(NAMED_REQUEST))[LINE_NAMED]).toMatchObject({ reason: "technician", confirmed: true });
+  });
+
+  it("skips the technician's supplier when it was withdrawn from the article, and proposes the next source", async () => {
+    seed(OWNER, "engineer");
+    // The flange has an inactive item at the named supplier; its type prefers no supplier, so its last purchase applies.
+    expect((await proposalsOf(NAMED_REQUEST))[LINE_NAMED_FLANGE]).toEqual({
+      supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", reason: "last_purchase", confirmed: true,
+      supplier_sku: "DA-BR-50", product_url: null,
     } satisfies LineSupplierProposal);
   });
 
@@ -303,31 +346,39 @@ describe("proposed supplier of each line", () => {
     seed(OWNER, "engineer");
     // The same article as the technician's line: its exception wins over its supply type and its last purchase.
     expect((await proposalsOf())[LINE_ELBOW]).toEqual({
-      supplier_id: EXCEPTION_SUPPLIER, supplier_name: "Fournisseur Exception", reason: "article",
+      supplier_id: EXCEPTION_SUPPLIER, supplier_name: "Fournisseur Exception", reason: "article", confirmed: true,
       supplier_sku: "EXC-050", product_url: "https://exception.example.test/coude-50",
     } satisfies LineSupplierProposal);
   });
 
-  it("proposes the supply type's supplier before the last purchase, without the reference of an inactive item or of another supplier", async () => {
+  it("proposes the supply type's supplier before the last purchase, after skipping an archived exception", async () => {
     seed(OWNER, "engineer");
-    // The tee was last bought from another supplier, whose active reference must not be shown here.
-    expect((await proposalsOf())[LINE_TEE]).toEqual({
-      supplier_id: TYPE_SUPPLIER, supplier_name: "Fournisseur Raccords", reason: "supply_type", supplier_sku: null, product_url: null,
+    // The valve's exception is archived; its type's supplier has no item for it (not withdrawn), and it was last
+    // bought from another supplier, whose active reference must not be shown here.
+    expect((await proposalsOf())[LINE_VALVE]).toEqual({
+      supplier_id: TYPE_SUPPLIER, supplier_name: "Fournisseur Raccords", reason: "supply_type", confirmed: true,
+      supplier_sku: null, product_url: null,
     } satisfies LineSupplierProposal);
   });
 
-  it("proposes the last purchase when the type prefers no supplier, and nothing when no source has one", async () => {
+  it("skips the supply type's supplier when it was withdrawn from the article, and proposes the last purchase", async () => {
+    seed(OWNER, "engineer");
+    // TI-691 review: the tee's item at its type's supplier is inactive. Before, that supplier was proposed anyway.
+    expect((await proposalsOf())[LINE_TEE]).toEqual({
+      supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", reason: "last_purchase", confirmed: true,
+      supplier_sku: "DA-TE-50", product_url: null,
+    } satisfies LineSupplierProposal);
+  });
+
+  it("proposes the last purchase when the type prefers no supplier, and nothing when the last purchase was withdrawn", async () => {
     seed(OWNER, "engineer");
     const lines = await proposalsOf();
     expect(lines[LINE_FLANGE]).toEqual({
-      supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", reason: "last_purchase", supplier_sku: "DA-BR-50", product_url: null,
+      supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", reason: "last_purchase", confirmed: true,
+      supplier_sku: "DA-BR-50", product_url: null,
     } satisfies LineSupplierProposal);
+    // The cap was last bought from a supplier since withdrawn from it, and has no other source.
     expect(lines[LINE_CAP]).toBeNull();
-  });
-
-  it("skips an archived supplier and proposes the next source", async () => {
-    seed(OWNER, "engineer");
-    expect((await proposalsOf())[LINE_VALVE]).toMatchObject({ supplier_id: TYPE_SUPPLIER, reason: "supply_type" });
   });
 
   it("answers only the lines that have an article and no supplier yet", async () => {
@@ -513,7 +564,7 @@ describe("suppliers of an article", () => {
     const refused = await save(ELBOW, { supplier_id: NAMED_SUPPLIER });
     expect(refused.status).toBe(400);
     expect(refused.error?.message).toBe("Renseignez la référence chez le fournisseur ou l’adresse de l’article.");
-    expect(fake.tables.supplier_catalog_items.filter((row) => row.supplier_id === NAMED_SUPPLIER)).toEqual([]);
+    expect(fake.tables.supplier_catalog_items.filter((row) => row.product_id === ELBOW && row.supplier_id === NAMED_SUPPLIER)).toEqual([]);
   });
 
   it("refuses a supplier of another tenant, and a reference without any identifier or with a non-http(s) address", async () => {
@@ -576,6 +627,101 @@ describe("supplier exception of an article", () => {
   it("refuses a body without the key", async () => {
     seed(ADMIN, "admin");
     expect((await call(preferredSupplierRoute.PATCH, "PATCH", { productId: ELBOW }, {})).status).toBe(400);
+  });
+
+  it.each<[string, string, string]>([
+    ["has no item for the article", ELBOW, NAMED_SUPPLIER],
+    ["was withdrawn from the article", TEE, TYPE_SUPPLIER],
+  ])("refuses, with a 422 sentence, a supplier that %s, and nothing is written", async (_label, productId, supplierId) => {
+    const fake = seed(ADMIN, "admin");
+    const refused = await prefer(productId, supplierId);
+    expect(refused.status).toBe(422);
+    expect(refused.error?.code).toBe("PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED");
+    expect(refused.error?.message).toMatch(/fournisseur/);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("words the database's own refusal of a supplier without an active item as the same 422", async () => {
+    seed(ADMIN, "admin", {
+      refuseUpdate: (table) => (table === "products" ? "PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED" : false),
+    });
+    const refused = await prefer(ELBOW, LAST_SUPPLIER);
+    expect(refused).toMatchObject({ status: 422, error: { code: "PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED" } });
+  });
+});
+
+describe("retaining the proposed suppliers of several lines", () => {
+  const retain = (choices: unknown, params: Record<string, string> = inRequest) =>
+    call(retainSuppliersRoute.POST, "POST", params, { choices });
+
+  it("writes only the lines that still have no supplier, keeps a validated line validated, and names the others", async () => {
+    const fake = seed(OWNER, "engineer");
+    const retained = await retain([
+      { line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER },
+      { line_id: LINE_VALIDATED, supplier_id: LAST_SUPPLIER },
+      { line_id: LINE_CHOSEN, supplier_id: NAMED_SUPPLIER },
+      { line_id: OTHER_LINE, supplier_id: NAMED_SUPPLIER },
+    ]);
+    expect(retained.status).toBe(200);
+    const result = retained.data as RetainLineSuppliersResult;
+    expect(result.lines.map((entry) => [entry.id, entry.supplier_id, entry.status])).toEqual([
+      [LINE_ELBOW, EXCEPTION_SUPPLIER, "draft"], [LINE_VALIDATED, LAST_SUPPLIER, "validated"],
+    ]);
+    expect(result.skipped.sort()).toEqual([LINE_CHOSEN, OTHER_LINE].sort());
+    expect(fake.tables.material_request_lines.find((row) => row.id === LINE_CHOSEN)).toMatchObject({ supplier_id: EXCEPTION_SUPPLIER });
+    expect(fake.tables.material_request_lines.find((row) => row.id === OTHER_LINE)).toMatchObject({ supplier_id: null });
+    expect(fake.tables.material_request_lines.find((row) => row.id === LINE_VALIDATED)).toMatchObject({ validated_at: VALIDATED_AT });
+    // One conditional statement per supplier chosen (three here), never one per line.
+    expect(fake.writes.filter((write) => write.table === "material_request_lines")).toHaveLength(3);
+  });
+
+  it("leaves alone a line another session gave a supplier in the meantime", async () => {
+    const fake = seed(OWNER, "engineer", {
+      beforeUpdate: (table, _values, tables) => {
+        if (table !== "material_request_lines") return;
+        const tee = tables.material_request_lines.find((row) => row.id === LINE_TEE);
+        if (tee && tee.supplier_id === null) tee.supplier_id = NAMED_SUPPLIER;
+      },
+    });
+    const retained = await retain([
+      { line_id: LINE_TEE, supplier_id: LAST_SUPPLIER },
+      { line_id: LINE_FLANGE, supplier_id: LAST_SUPPLIER },
+    ]);
+    expect(retained.status).toBe(200);
+    expect(retained.data).toMatchObject({ skipped: [LINE_TEE] });
+    expect((retained.data as RetainLineSuppliersResult).lines.map((entry) => entry.id)).toEqual([LINE_FLANGE]);
+    expect(fake.tables.material_request_lines.find((row) => row.id === LINE_TEE)).toMatchObject({ supplier_id: NAMED_SUPPLIER });
+  });
+
+  it.each<[string, string, Role, number]>([
+    ["a viewer", VIEWER, "viewer", 403],
+    ["a director", DIRECTOR, "director", 403],
+    ["an engineer who does not own the affaire", ENGINEER, "engineer", 403],
+    ["a member of another tenant", OUTSIDER, "admin", 404],
+  ])("refuses %s, and nothing is written", async (_label, actor, role, status) => {
+    const fake = seed(actor, role);
+    expect((await retain([{ line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER }])).status).toBe(status);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("refuses a supplier of another tenant, a line named twice, an empty or oversized batch, and writes nothing", async () => {
+    const fake = seed(OWNER, "engineer");
+    expect((await retain([{ line_id: LINE_ELBOW, supplier_id: FOREIGN_SUPPLIER }])).status).toBe(400);
+    expect((await retain([
+      { line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER }, { line_id: LINE_ELBOW, supplier_id: LAST_SUPPLIER },
+    ])).status).toBe(400);
+    expect((await retain([])).status).toBe(400);
+    const tooMany = Array.from({ length: 301 }, (_, index) => ({
+      line_id: `72000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, supplier_id: EXCEPTION_SUPPLIER,
+    }));
+    expect((await retain(tooMany)).status).toBe(400);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("answers 404 for a request of another affaire reached through this one's URL", async () => {
+    const fake = seed(ADMIN, "admin");
+    expect((await retain([{ line_id: OTHER_LINE, supplier_id: NAMED_SUPPLIER }], { projectId: PROJECT, requestId: OTHER_REQUEST })).status).toBe(404);
+    expect(fake.writes).toEqual([]);
   });
 });
 

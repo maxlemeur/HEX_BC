@@ -17,7 +17,7 @@ import {
   type MaterialRequestLine,
   type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
-import type { LineSupplierProposal } from "@/lib/material-requests/supplier-contracts";
+import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 import { cn } from "@/lib/utils";
 
 import {
@@ -33,8 +33,14 @@ import {
 } from "./cells";
 import { formatQuantity } from "./format";
 import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
-import { MaterialRequestSupplierCell, type SupplierReference } from "./MaterialRequestSupplierCell";
-import type { ArticleNotice, LineChangeState, LineProposals, SaveResult } from "./useMaterialRequestEditor";
+import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
+import type {
+  ArticleNotice,
+  LineChangeState,
+  LineProposals,
+  RetainResult,
+  SaveResult,
+} from "./useMaterialRequestEditor";
 
 /** The fixed order of the columns (TI-690); the table header and the rows both follow it. */
 export const LINE_COLUMNS = [
@@ -92,8 +98,8 @@ type LineRowProps = Readonly<{
   /** The supplier proposed for the line, while it has none (TI-691). */
   supplierProposal: LineSupplierProposal | null;
   /** The article's reference at the line's own supplier, when the catalogue knows it. */
-  supplierReference: SupplierReference | null;
-  onRetainSupplier: (supplierId: string) => Promise<SaveResult>;
+  supplierReference: LineSupplierReference | null;
+  onRetainSupplier: (supplierId: string) => Promise<RetainResult>;
 }>;
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {

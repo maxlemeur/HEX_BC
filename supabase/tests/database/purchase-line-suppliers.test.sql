@@ -5,7 +5,8 @@
 --     supplier is the office's purchasing choice); or, the other way round, changing what a validated line says (its
 --     quantity) no longer returns it to draft; a line names a supplier of another tenant;
 --  2. a supply type or an article prefers a supplier of another tenant (written directly, or by moving the row to
---     another tenant); deleting the supplier fails, or leaves its id behind;
+--     another tenant); deleting the supplier fails, or leaves its id behind; an article's exception names a supplier
+--     that has no item for it, or one withdrawn from it (inactive item);
 --  3. a viewer or a director sets or clears the preferred supplier of a supply type, or a viewer can no longer
 --     rename one (any member writes its name); an admin of another tenant reaches this tenant's types;
 --  4. an engineer who did not add a shared article sets its supplier exception while the shared base is closed
@@ -14,8 +15,9 @@
 --     change, or cannot once the admin opened the shared base; an article or a supplier of another tenant is
 --     accepted; a blank, too long or non-http(s) value is accepted; saving the same pair again creates a second item
 --     instead of updating the first; deactivating deletes the item; a price, or the reference its row keeps, changes;
---  6. last_purchase_suppliers: anon calls it; it answers amounts, quantities or order ids; a draft, sent or canceled
---     order, or an older one, is taken for the last purchase, or the tie on the date is not broken by the creation;
+--  6. last_purchase_suppliers: anon calls it; it answers dates, amounts, quantities or order ids; a draft, sent or
+--     canceled order, or an older one, is taken for the last purchase, or the tie on the date is not broken by the
+--     last change (as the reference-price sync does);
 --     a member who cannot read the request that names the article, an admin of another tenant, or an article that no
 --     line names gets a row; more than 500 ids are accepted; the office member who reads the request gets nothing
 --     because the orders are another member's (the reason it is a definer function).
@@ -180,17 +182,18 @@ select throws_ok($$update public.products set preferred_supplier_id = 'a9200000-
   '23514', 'PREFERRED_SUPPLIER_TENANT_MISMATCH', '2 an article cannot prefer a supplier of another tenant');
 update public.supply_types set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000303'
   where id = 'a9200000-0000-4000-8000-000000000402';
-update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000303'
-  where id = 'a9200000-0000-4000-8000-000000000503';
+select throws_ok($$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000303'
+    where id = 'a9200000-0000-4000-8000-000000000503'$$,
+  '23514', 'PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED',
+  '2 an article cannot prefer a supplier that has no item for it, even for a server writer');
 select throws_ok($$update public.supply_types set tenant_id = 'a9200000-0000-4000-8000-000000000102'
     where id = 'a9200000-0000-4000-8000-000000000402'$$,
   '23514', 'PREFERRED_SUPPLIER_TENANT_MISMATCH', '2 a supply type does not move to another tenant with its preferred supplier');
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
   $$delete from public.suppliers where id = 'a9200000-0000-4000-8000-000000000303'$$),
-  'ok 1', '2 the admin deletes a supplier that a supply type and an article prefer');
-select ok((select preferred_supplier_id is null from public.supply_types where id = 'a9200000-0000-4000-8000-000000000402')
-    and (select preferred_supplier_id is null from public.products where id = 'a9200000-0000-4000-8000-000000000503'),
-  '2 deleting the supplier clears both preferences');
+  'ok 1', '2 the admin deletes a supplier that a supply type prefers');
+select ok((select preferred_supplier_id is null from public.supply_types where id = 'a9200000-0000-4000-8000-000000000402'),
+  '2 deleting the supplier clears the preference (an article''s exception needs an item, which restricts the deletion)');
 
 -- ---------------------------------------------------------------------------
 -- 3. Who sets the preferred supplier of a supply type.
@@ -230,6 +233,17 @@ select is((select preferred_supplier_id from public.supply_types where id = 'a92
 -- ---------------------------------------------------------------------------
 -- 4. Who sets the supplier exception of an article.
 -- ---------------------------------------------------------------------------
+-- The article's items at the suppliers its exception will name (an exception needs an active one).
+insert into public.supplier_catalog_items (id, tenant_id, supplier_id, product_id, supplier_sku) values
+  ('a9200000-0000-4000-8000-000000000901', 'a9200000-0000-4000-8000-000000000101', 'a9200000-0000-4000-8000-000000000301',
+    'a9200000-0000-4000-8000-000000000501', 'TI691-ANCIENNE'),
+  ('a9200000-0000-4000-8000-000000000903', 'a9200000-0000-4000-8000-000000000101', 'a9200000-0000-4000-8000-000000000301',
+    'a9200000-0000-4000-8000-000000000502', 'TI691-T-1');
+insert into public.supplier_pricebook (id, tenant_id, supplier_catalog_item_id, supplier_id, product_id, supplier_sku,
+    unit, min_quantity, unit_price_cents, currency, valid_from, valid_to, is_active) values
+  ('a9200000-0000-4000-8000-000000000951', 'a9200000-0000-4000-8000-000000000101', 'a9200000-0000-4000-8000-000000000901',
+    'a9200000-0000-4000-8000-000000000301', 'a9200000-0000-4000-8000-000000000501', 'TI691-ANCIENNE',
+    'u', 1, 1234, 'EUR', current_date, current_date + 30, true);
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000005',
   $$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000301'
     where id = 'a9200000-0000-4000-8000-000000000501'$$),
@@ -245,12 +259,16 @@ select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
   $$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000302'
     where id = 'a9200000-0000-4000-8000-000000000501'$$),
-  'ok 1', '4 an admin sets the exception of a shared article');
+  '23514 PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED', '4 an admin cannot name a supplier that has no item for the article');
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
+  $$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000301'
+    where id = 'a9200000-0000-4000-8000-000000000501'$$),
+  'ok 1', '4 an admin sets the exception of a shared article to a supplier that has an active item for it');
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
   $$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000309'
     where id = 'a9200000-0000-4000-8000-000000000501'$$),
   '23514 PREFERRED_SUPPLIER_TENANT_MISMATCH', '4 an admin cannot point it at a supplier of another tenant');
-select ok((select preferred_supplier_id = 'a9200000-0000-4000-8000-000000000302' from public.products
+select ok((select preferred_supplier_id = 'a9200000-0000-4000-8000-000000000301' from public.products
     where id = 'a9200000-0000-4000-8000-000000000501')
   and (select preferred_supplier_id = 'a9200000-0000-4000-8000-000000000301' from public.products
     where id = 'a9200000-0000-4000-8000-000000000502'),
@@ -259,14 +277,6 @@ select ok((select preferred_supplier_id = 'a9200000-0000-4000-8000-000000000302'
 -- ---------------------------------------------------------------------------
 -- 5. An article's reference at a supplier, without a price.
 -- ---------------------------------------------------------------------------
-insert into public.supplier_catalog_items (id, tenant_id, supplier_id, product_id, supplier_sku) values
-  ('a9200000-0000-4000-8000-000000000901', 'a9200000-0000-4000-8000-000000000101', 'a9200000-0000-4000-8000-000000000301',
-    'a9200000-0000-4000-8000-000000000501', 'TI691-ANCIENNE');
-insert into public.supplier_pricebook (id, tenant_id, supplier_catalog_item_id, supplier_id, product_id, supplier_sku,
-    unit, min_quantity, unit_price_cents, currency, valid_from, valid_to, is_active) values
-  ('a9200000-0000-4000-8000-000000000951', 'a9200000-0000-4000-8000-000000000101', 'a9200000-0000-4000-8000-000000000901',
-    'a9200000-0000-4000-8000-000000000301', 'a9200000-0000-4000-8000-000000000501', 'TI691-ANCIENNE',
-    'u', 1, 1234, 'EUR', current_date, current_date + 30, true);
 
 select ok(not has_function_privilege('anon', 'public.save_supplier_catalog_item(uuid, uuid, text, text, boolean)', 'EXECUTE')
     and has_function_privilege('authenticated', 'public.save_supplier_catalog_item(uuid, uuid, text, text, boolean)', 'EXECUTE'),
@@ -308,7 +318,8 @@ select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000002',
   $$select public.save_supplier_catalog_item('a9200000-0000-4000-8000-000000000501', 'a9200000-0000-4000-8000-000000000302', 'TI691-B-1', null, null)$$),
   '22023 SUPPLIER_CATALOG_ITEM_ACTIVE_REQUIRED', '5 the active flag is required');
-select is((select count(*) from public.supplier_catalog_items where id <> 'a9200000-0000-4000-8000-000000000901'
+select is((select count(*) from public.supplier_catalog_items
+    where id not in ('a9200000-0000-4000-8000-000000000901', 'a9200000-0000-4000-8000-000000000903')
     and product_id in ('a9200000-0000-4000-8000-000000000501', 'a9200000-0000-4000-8000-000000000502')),
   0::bigint, '5 no refused call wrote an item');
 
@@ -349,6 +360,10 @@ select ok((select not is_active and supplier_sku = 'TI691-T-2' from public.suppl
 select is((select preferred_supplier_id from public.products where id = 'a9200000-0000-4000-8000-000000000502'),
   'a9200000-0000-4000-8000-000000000301'::uuid,
   '5 counterexample: withdrawing another supplier keeps the article''s exception');
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
+  $$update public.products set preferred_supplier_id = 'a9200000-0000-4000-8000-000000000302'
+    where id = 'a9200000-0000-4000-8000-000000000502'$$),
+  '23514 PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED', '5 the exception cannot name a supplier withdrawn from the article');
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
   $$select public.save_supplier_catalog_item('a9200000-0000-4000-8000-000000000502', 'a9200000-0000-4000-8000-000000000301', 'TI691-T-1', null)$$),
   'ok 1', 'fixture: the engineer saves the article''s reference at the supplier of its exception');
@@ -439,6 +454,12 @@ update public.purchase_orders set status = 'confirmed'
   where id in ('a9200000-0000-4000-8000-000000000802', 'a9200000-0000-4000-8000-000000000803', 'a9200000-0000-4000-8000-000000000807');
 update public.purchase_orders set status = 'sent' where id = 'a9200000-0000-4000-8000-000000000805';
 update public.purchase_orders set status = 'canceled' where id = 'a9200000-0000-4000-8000-000000000806';
+-- On the same order date, order 2 was created first but changed last: the last change decides, as for the
+-- reference-price sync. Its trigger stamps now(), equal for every statement of this transaction, so it is set here.
+alter table public.purchase_orders disable trigger set_purchase_orders_updated_at;
+update public.purchase_orders set updated_at = '2026-10-16 10:00+00' where id = 'a9200000-0000-4000-8000-000000000802';
+update public.purchase_orders set updated_at = '2026-10-15 09:30+00' where id = 'a9200000-0000-4000-8000-000000000803';
+alter table public.purchase_orders enable trigger set_purchase_orders_updated_at;
 select is((select array_agg(status::text order by reference) from public.purchase_orders where reference like 'TI691-PO-%'),
   array['received', 'confirmed', 'confirmed', 'draft', 'sent', 'canceled', 'confirmed', 'received'],
   'fixture: the orders of the admin have their statuses');
@@ -447,7 +468,7 @@ select ok(not has_function_privilege('anon', 'public.last_purchase_suppliers(uui
     and has_function_privilege('authenticated', 'public.last_purchase_suppliers(uuid[])', 'EXECUTE'),
   '6 anon cannot ask for the last purchases, a signed-in member can');
 select is(pg_get_function_result('public.last_purchase_suppliers(uuid[])'::regprocedure),
-  'TABLE(product_id uuid, supplier_id uuid, ordered_on date)', '6 the answer carries no order id, quantity, price or amount');
+  'TABLE(product_id uuid, supplier_id uuid)', '6 the answer carries no order id, date, quantity, price or amount');
 select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
   $$select 1 from public.purchase_orders where tenant_id = 'a9200000-0000-4000-8000-000000000101'$$),
   'ok 0', '6 under RLS the engineer who reads the request sees none of these orders, which are the admin''s: hence a definer function');
@@ -455,12 +476,12 @@ select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
 select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000001',
   $$select * from public.last_purchase_suppliers(array['a9200000-0000-4000-8000-000000000501', 'a9200000-0000-4000-8000-000000000502',
     'a9200000-0000-4000-8000-000000000503', 'a9200000-0000-4000-8000-000000000509', null]::uuid[]) order by product_id$$),
-  '[{"product_id": "a9200000-0000-4000-8000-000000000501", "supplier_id": "a9200000-0000-4000-8000-000000000301", "ordered_on": "2026-10-15"},
-    {"product_id": "a9200000-0000-4000-8000-000000000502", "supplier_id": "a9200000-0000-4000-8000-000000000302", "ordered_on": "2026-09-01"}]'::jsonb,
-  '6 the owner of the affaire gets, per article of a line, the latest confirmed or received order (the later created on a tie), never a draft, sent or canceled one, nor an article that no line names nor one of another tenant');
+  '[{"product_id": "a9200000-0000-4000-8000-000000000501", "supplier_id": "a9200000-0000-4000-8000-000000000302"},
+    {"product_id": "a9200000-0000-4000-8000-000000000502", "supplier_id": "a9200000-0000-4000-8000-000000000302"}]'::jsonb,
+  '6 the owner of the affaire gets, per article of a line, the latest confirmed or received order (the last changed on a tie of dates, not the last created), never a draft, sent or canceled one, nor an article that no line names nor one of another tenant');
 select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000006',
   $$select * from public.last_purchase_suppliers(array['a9200000-0000-4000-8000-000000000501']::uuid[])$$),
-  '[{"product_id": "a9200000-0000-4000-8000-000000000501", "supplier_id": "a9200000-0000-4000-8000-000000000301", "ordered_on": "2026-10-15"}]'::jsonb,
+  '[{"product_id": "a9200000-0000-4000-8000-000000000501", "supplier_id": "a9200000-0000-4000-8000-000000000302"}]'::jsonb,
   '6 a director, who reads every affaire, gets it too');
 select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000003',
   $$select * from public.last_purchase_suppliers(array['a9200000-0000-4000-8000-000000000501', 'a9200000-0000-4000-8000-000000000502']::uuid[])$$),

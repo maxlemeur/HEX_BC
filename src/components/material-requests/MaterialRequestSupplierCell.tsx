@@ -7,19 +7,17 @@ import { Button } from "@/components/ui/button";
 import { safeProductUrl } from "@/lib/catalogue/supplier-items-client";
 import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import type { MaterialRequestLine, MaterialRequestLineInput } from "@/lib/material-requests/contracts";
-import type { LineSupplierProposal, LineSupplierReason } from "@/lib/material-requests/supplier-contracts";
+import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 
 import { ChoiceCell } from "./cells";
-import type { SaveResult } from "./useMaterialRequestEditor";
-
-/** The article's reference at a supplier, and its page there, when the catalogue knows them. */
-export type SupplierReference = { supplier_sku: string | null; product_url: string | null };
+import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
 
 /** Why a supplier is proposed, in a few words read after its name. */
-export function supplierReasonLabel(reason: LineSupplierReason, supplyTypeName: string | null): string {
-  switch (reason) {
+export function supplierReasonLabel(proposal: LineSupplierProposal, supplyTypeName: string | null): string {
+  switch (proposal.reason) {
     case "technician":
-      return "nommé par le technicien";
+      // Written at the top of the sheet: a strong hint, that the office may not have confirmed yet.
+      return proposal.confirmed ? "nommé par le technicien" : "nommé par le technicien, à confirmer";
     case "article":
       return "exception de l’article";
     case "supply_type":
@@ -32,13 +30,12 @@ export function supplierReasonLabel(reason: LineSupplierReason, supplyTypeName: 
 function ReferenceDetails({
   reference,
   supplierName,
-  id,
-}: Readonly<{ reference: SupplierReference | null; supplierName: string; id?: string }>) {
+}: Readonly<{ reference: LineSupplierReference | null; supplierName: string }>) {
   const sku = reference?.supplier_sku?.trim() || null;
   const url = safeProductUrl(reference?.product_url);
   if (!sku && !url) return null;
   return (
-    <div id={id} className="min-w-0 space-y-0.5">
+    <div className="min-w-0 space-y-0.5">
       {sku ? <p className="break-all font-mono text-xs text-foreground-secondary">Réf. fournisseur : {sku}</p> : null}
       {url ? (
         <a
@@ -67,10 +64,10 @@ type SupplierCellProps = Readonly<{
   /** Only for a line without a supplier: the proposal read for the page. */
   proposal: LineSupplierProposal | null;
   /** The article's reference at the line's own supplier. */
-  reference: SupplierReference | null;
+  reference: LineSupplierReference | null;
   supplyTypeName: string | null;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
-  onRetain: (supplierId: string) => Promise<SaveResult>;
+  onRetain: (supplierId: string) => Promise<RetainResult>;
 }>;
 
 /**
@@ -94,6 +91,8 @@ export function MaterialRequestSupplierCell({
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The retain found the line already had a supplier (set meanwhile): said until the next gesture. */
+  const [alreadySet, setAlreadySet] = useState(false);
   const n = line.position;
   const proposalId = `${ids}-proposal`;
 
@@ -113,9 +112,11 @@ export function MaterialRequestSupplierCell({
 
   const retain = async (supplierId: string) => {
     setBusy(true);
+    setAlreadySet(false);
     const result = await onRetain(supplierId);
     setBusy(false);
     setError(result.ok ? null : result.message);
+    setAlreadySet(result.ok && result.skipped);
   };
 
   return (
@@ -129,6 +130,7 @@ export function MaterialRequestSupplierCell({
         onUnsavedChange={setChoosing}
         onCommit={async (supplier_id) => {
           setError(null);
+          setAlreadySet(false);
           return onSave({ supplier_id });
         }}
       />
@@ -138,7 +140,7 @@ export function MaterialRequestSupplierCell({
           <p className="text-micro font-semibold uppercase text-muted-foreground">Proposé</p>
           <div id={proposalId} className="min-w-0 space-y-0.5">
             <p className="break-words text-sm font-medium leading-snug text-foreground">
-              {`${shown.supplier_name} · ${supplierReasonLabel(shown.reason, supplyTypeName)}`}
+              {`${shown.supplier_name} · ${supplierReasonLabel(shown, supplyTypeName)}`}
             </p>
             <ReferenceDetails reference={shown} supplierName={shown.supplier_name} />
           </div>
@@ -156,6 +158,9 @@ export function MaterialRequestSupplierCell({
           </Button>
         </div>
       ) : null}
+      <p role="status" className="text-xs text-muted-foreground empty:hidden">
+        {alreadySet ? SUPPLIER_ALREADY_SET : ""}
+      </p>
       {error ? (
         <p role="alert" className="text-xs font-medium text-danger">
           Non enregistré : {error}

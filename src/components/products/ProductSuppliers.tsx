@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { ExternalLink, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,8 @@ import {
   SUPPLIER_SKU_MAX,
   type ArticleSupplierItem,
 } from "@/lib/material-requests/supplier-contracts";
+
+import { useSerialSave } from "./useSerialSave";
 
 type SuppliersState =
   | { productId: string; status: "ready"; items: ArticleSupplierItem[]; preferred: string | null }
@@ -105,12 +107,9 @@ function SupplierFields({
  */
 export function ProductSuppliers({
   productId,
-  preferredSupplierId,
   onChanged,
 }: Readonly<{
   productId: string;
-  /** The article's exception as the catalogue list knows it, when the server does not send it here. */
-  preferredSupplierId?: string | null;
   onChanged?: () => void;
 }>) {
   const ids = useId();
@@ -123,19 +122,16 @@ export function ProductSuppliers({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedPreferred, setSavedPreferred] = useState(false);
-  /** The preferred supplier on its way to the server: shown until the answer, then the answer decides. */
+  /** The last preferred supplier chosen, while its save is on its way: shown until its answer. */
   const [pendingPreferred, setPendingPreferred] = useState<{ value: string | null } | null>(null);
-  /** Only a fallback for the first read: the server's answer, when it sends one, has the last word. */
-  const fallbackPreferred = useRef(preferredSupplierId ?? null);
+  const savePreferred = useSerialSave();
 
   useEffect(() => {
     const abort = new AbortController();
     fetchArticleSuppliers(productId, abort.signal)
       .then((answer) => {
         if (abort.signal.aborted) return;
-        const preferred =
-          answer.preferred_supplier_id !== undefined ? answer.preferred_supplier_id : fallbackPreferred.current;
-        setState({ productId, status: "ready", items: answer.items, preferred });
+        setState({ productId, status: "ready", items: answer.items, preferred: answer.preferred_supplier_id });
       })
       .catch(() => {
         if (!abort.signal.aborted) setState({ productId, status: "error" });
@@ -175,9 +171,12 @@ export function ProductSuppliers({
     setError(null);
     setSavedPreferred(false);
     try {
+      // The exception comes back with the item: withdrawing the supplier it names clears it.
       const stored = await saveArticleSupplierItem(productId, input);
       setState((previous) =>
-        previous?.status === "ready" ? { ...previous, items: upsert(previous.items, stored) } : previous,
+        previous?.status === "ready"
+          ? { ...previous, items: upsert(previous.items, stored.item), preferred: stored.preferred_supplier_id }
+          : previous,
       );
       onChanged?.();
       return true;
@@ -205,7 +204,7 @@ export function ProductSuppliers({
 
   const update = async (item: ArticleSupplierItem) => {
     if ((!text(editDraft.sku) && !text(editDraft.url)) || busy) return;
-    // Both keys always leave together: one left out would be saved as empty.
+    // Both fields are on screen: both are sent, a field emptied by the office clears what is stored.
     const ok = await save(item.supplier_id, {
       supplier_id: item.supplier_id,
       supplier_sku: text(editDraft.sku),
@@ -215,32 +214,28 @@ export function ProductSuppliers({
     if (ok) setEditing(null);
   };
 
-  // Withdrawn, not deleted: its reference is kept with it, and its prices stay in the price book.
-  const withdraw = (item: ArticleSupplierItem) =>
-    save(item.supplier_id, {
-      supplier_id: item.supplier_id,
-      supplier_sku: item.supplier_sku,
-      product_url: item.product_url,
-      is_active: false,
-    });
+  // Withdrawn, not deleted: the keys left out keep the stored reference, and its prices stay in the price book.
+  const withdraw = (item: ArticleSupplierItem) => save(item.supplier_id, { supplier_id: item.supplier_id, is_active: false });
 
+  // Never disabled while it saves: the saves leave one after another, and the last answer speaks.
   const choosePreferred = async (supplierId: string | null) => {
     if (current?.status !== "ready") return;
-    setBusy("preferred");
     setPendingPreferred({ value: supplierId });
     setError(null);
     setSavedPreferred(false);
-    try {
-      const stored = await saveArticlePreferredSupplier(productId, supplierId);
-      setState((previous) => (previous?.status === "ready" ? { ...previous, preferred: stored } : previous));
+    const outcome = await savePreferred(() => saveArticlePreferredSupplier(productId, supplierId));
+    // Every answer says what the server holds now, even one a later choice has overtaken.
+    if (outcome.ok) {
+      setState((previous) => (previous?.status === "ready" ? { ...previous, preferred: outcome.value } : previous));
+    }
+    if (!outcome.latest) return;
+    setPendingPreferred(null);
+    if (outcome.ok) {
       setSavedPreferred(true);
       onChanged?.();
-    } catch (failure) {
+    } else {
       // The select goes back to what the server holds, with its sentence.
-      setError(catalogueErrorMessage(failure, "Le fournisseur privilégié de l’article n’a pas pu être enregistré."));
-    } finally {
-      setPendingPreferred(null);
-      setBusy(null);
+      setError(catalogueErrorMessage(outcome.error, "Le fournisseur privilégié de l’article n’a pas pu être enregistré."));
     }
   };
 
@@ -248,6 +243,7 @@ export function ProductSuppliers({
   const addHintId = `${ids}-add-hint`;
   const preferredId = `${ids}-preferred`;
   const preferredHintId = `${ids}-preferred-hint`;
+  const withdrawHintId = `${ids}-withdraw-hint`;
   const saved = current?.status === "ready" ? current.preferred : null;
   const preferred = pendingPreferred ? pendingPreferred.value : saved;
   const preferredKnown = preferred === null || active.some((item) => item.supplier_id === preferred);
@@ -335,6 +331,7 @@ export function ProductSuppliers({
                         loading={busy === item.supplier_id}
                         disabled={busy !== null && busy !== item.supplier_id}
                         aria-label={`Retirer ${item.supplier_name} de l’article`}
+                        aria-describedby={withdrawHintId}
                         onClick={() => void withdraw(item)}
                       >
                         <XIcon aria-hidden="true" />
@@ -379,6 +376,11 @@ export function ProductSuppliers({
             );
           })}
         </ul>
+      ) : null}
+      {current?.status === "ready" && active.length > 0 ? (
+        <p id={withdrawHintId} className="mt-1.5 text-xs text-muted-foreground">
+          Les prix de ce fournisseur restent enregistrés mais ne sont plus proposés tant qu’il est retiré de l’article.
+        </p>
       ) : null}
 
       {current?.status === "ready" ? (
@@ -461,7 +463,6 @@ export function ProductSuppliers({
             <NativeSelect
               id={preferredId}
               value={preferred ?? ""}
-              disabled={busy === "preferred"}
               aria-describedby={preferredHintId}
               onChange={(event) => void choosePreferred(event.target.value || null)}
             >
@@ -474,7 +475,7 @@ export function ProductSuppliers({
               ))}
             </NativeSelect>
             <p id={preferredHintId} className="text-xs text-muted-foreground">
-              Proposé en premier sur les demandes de matériel, avant le fournisseur du type de fourniture.
+              Proposé avant le fournisseur du type sur les demandes de matériel.
             </p>
             <p role="status" className="text-xs text-success empty:hidden">
               {savedPreferred ? "Fournisseur privilégié enregistré." : ""}

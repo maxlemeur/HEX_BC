@@ -37,6 +37,7 @@ import {
 import {
   LINE_SUPPLIER_REASONS,
   productPreferredSupplierSchema,
+  retainLineSuppliersSchema,
   saveArticleSupplierItemSchema,
   supplyTypePreferredSupplierSchema,
   type ArticleSupplierItem,
@@ -45,6 +46,7 @@ import {
   type LineSupplierProposal,
   type LineSupplierProposals,
   type LineSupplierReference,
+  type RetainLineSuppliersResult,
 } from "@/lib/material-requests/supplier-contracts";
 import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import {
@@ -116,9 +118,10 @@ const supplierReference: z.ZodType<LineSupplierReference> = z.object({
   supplier_sku: z.string().nullable(), product_url: z.string().nullable(),
 });
 const supplierProposal: z.ZodType<LineSupplierProposal> = z.object({
-  supplier_id: uuid, supplier_name: z.string(), reason: z.enum(LINE_SUPPLIER_REASONS),
+  supplier_id: uuid, supplier_name: z.string(), reason: z.enum(LINE_SUPPLIER_REASONS), confirmed: z.boolean(),
   supplier_sku: z.string().nullable(), product_url: z.string().nullable(),
 });
+const retainedSuppliers: z.ZodType<RetainLineSuppliersResult> = z.object({ lines: z.array(line), skipped: z.array(uuid) });
 const supplierProposals: z.ZodType<LineSupplierProposals> = z.object({
   lines: z.record(z.string(), supplierProposal.nullable()),
   references: z.record(z.string(), supplierReference),
@@ -353,6 +356,17 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: { "200": success("ApiMaterialRequestLinesReopened", "Lignes désignées, en brouillon.", linesData), ...writeRefusals },
   },
   {
+    tags, method: "post", path: `${one}/lines/retain-suppliers`, summary: "Retenir le fournisseur de plusieurs lignes",
+    description: `Écrit le fournisseur choisi de chaque ligne désignée qui n'en a pas encore, et seulement d'elle : une ligne à laquelle une autre session a donné un fournisseur entre-temps garde le sien. Une ligne d'une autre demande n'est pas écrite. Les lignes non écrites sont listées dans skipped. Les fournisseurs appartiennent au tenant actif ; ${MATERIAL_REQUEST_MAX_LINES} lignes au plus, chacune nommée une fois. Le fournisseur n'est pas ce que dit la ligne : une ligne validée le reste.`,
+    parameters: [project, requestId],
+    requestBody: jsonBody({ name: "MaterialRequestLinesRetainSuppliers", description: "Ligne et fournisseur retenu pour elle.", schema: retainLineSuppliersSchema }),
+    responses: {
+      "200": success("ApiMaterialRequestLinesSuppliersRetained", "Lignes écrites, dans l'ordre de la demande, et lignes laissées telles quelles.", retainedSuppliers),
+      ...writeRefusals,
+      "400": refusal("BAD_REQUEST : fournisseur d'un autre tenant, ligne nommée deux fois, ou lot vide ou trop grand ; rien n'est écrit."),
+    },
+  },
+  {
     tags, method: "get", path: `${one}/candidates`, summary: "Proposer des articles pour les lignes d'une demande",
     description: "Pour chaque ligne sans article (brouillon ou validée), jusqu'à cinq articles actifs du catalogue du tenant, brouillons compris : par référence (interne ou fournisseur), puis par nom usuel appris, puis par proximité du type, de la matière et de la dimension. La matière de la ligne, sinon la matière présumée de la demande (confirmée ou non ; hors frais généraux), guide les propositions. Rien n'est rattaché sans le geste du bureau.",
     parameters: [project, requestId],
@@ -405,7 +419,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "get", path: `${one}/supplier-proposals`, summary: "Proposer un fournisseur pour les lignes d'une demande",
-    description: "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de son type de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Null quand aucune source n'en donne. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne ou d'une sélection, et peut toujours le changer ; une ligne validée le reste.",
+    description: "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de son type de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Une source dont le fournisseur est archivé ou a été retiré de l'article (sa référence chez lui est inactive) est passée. Null quand aucune source n'en donne. confirmed est faux pour le fournisseur nommé par le technicien tant que la demande ne l'a pas confirmé (à confirmer), vrai sinon. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne, ou retient plusieurs propositions par lines/retain-suppliers, et peut toujours le changer ; une ligne validée le reste.",
     parameters: [project, requestId],
     responses: {
       "200": success("ApiMaterialRequestSupplierProposals", "Proposition par identifiant de ligne (null : aucune source) et référence des lignes qui ont un fournisseur.", supplierProposals),
@@ -423,7 +437,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags: ["Catalogue"], method: "put", path: "/api/products/{productId}/supplier-items", summary: "Enregistrer la référence d'un article chez un fournisseur",
-    description: "Ajoute ou modifie, sans prix, la référence (1 à 255 caractères, espaces retirés) et l'adresse http(s) (2 000 caractères au plus) de l'article chez le fournisseur. Clé par clé : omise, la valeur enregistrée est gardée ; null (ou vide) l'efface. Une référence active garde une référence ou une adresse : un nouveau fournisseur en demande une, et l'enregistrement ne peut effacer la dernière. is_active vaut true s'il est omis ; false retire ce fournisseur de l'article sans rien supprimer ni demander de référence (une référence qui ne porte que des prix se retire telle quelle), et retire aussi l'exception de l'article si elle désigne ce fournisseur. Les prix du tarif et la référence qu'ils ont gardée ne changent pas. Droits : ceux de la modification de l'article.",
+    description: "Ajoute ou modifie, sans prix, la référence (1 à 255 caractères, espaces retirés) et l'adresse http(s) (2 000 caractères au plus) de l'article chez le fournisseur. Clé par clé : omise, la valeur enregistrée est gardée ; null (ou vide) l'efface. Une référence active garde une référence ou une adresse : un nouveau fournisseur en demande une, et l'enregistrement ne peut effacer la dernière. is_active vaut true s'il est omis ; false retire ce fournisseur de l'article sans rien supprimer ni demander de référence (une référence qui ne porte que des prix se retire telle quelle), et retire aussi l'exception de l'article si elle désigne ce fournisseur. Les prix restent enregistrés mais ne sont plus proposés tant que le fournisseur est retiré de l’article ; enregistrer un prix le rétablit. Droits : ceux de la modification de l'article.",
     parameters: [productId],
     requestBody: jsonBody({ name: "ArticleSupplierItemSave", description: "Fournisseur du tenant et référence chez lui.", schema: saveArticleSupplierItemSchema }),
     responses: {
@@ -433,12 +447,13 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags: ["Catalogue"], method: "patch", path: "/api/products/{productId}/preferred-supplier", summary: "Choisir le fournisseur de l'article",
-    description: "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de son type de fourniture. null la retire. Droits : ceux de la modification de l'article.",
+    description: "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de son type de fourniture. Le fournisseur doit avoir une référence active pour l'article. null la retire. Droits : ceux de la modification de l'article.",
     parameters: [productId],
     requestBody: jsonBody({ name: "ProductPreferredSupplier", description: "Fournisseur du tenant, ou null.", schema: productPreferredSupplierSchema }),
     responses: {
       "200": success("ApiProductPreferredSupplier", "Exception enregistrée.", z.object({ preferred_supplier_id: uuid.nullable() })),
       ...catalogueEditorRefusals,
+      "422": refusal("PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED : ce fournisseur n'a pas de référence active pour l'article (aucune, ou retirée) ; rien n'est écrit."),
     },
   },
   {

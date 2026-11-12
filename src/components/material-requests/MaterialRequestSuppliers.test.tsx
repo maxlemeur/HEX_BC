@@ -7,29 +7,32 @@ import type {
   MaterialRequestArticleSummary,
   MaterialRequestLine,
 } from "@/lib/material-requests/contracts";
-import type { ArticleSupplierItem, LineSupplierProposal } from "@/lib/material-requests/supplier-contracts";
+import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 
 /**
  * Failure modes, written before the screen (TI-691, lot 2 « l'achat », delivery 1 « fournisseurs des
  * lignes »). Each line with an article gets a proposed supplier and its reason; each of these would buy
  * from the wrong supplier, or lose the office's work:
  *  1. a line with an article and no supplier shows no proposal, or not why it is proposed (named by the
- *     technician, exception of the article, preferred supplier of its supply type, last purchase), or not
- *     the article's reference at that supplier;
+ *     technician, confirmed or still to confirm, exception of the article, preferred supplier of its supply
+ *     type, last purchase), or not the article's reference at that supplier;
  *  2. « Retenir » sets another supplier than the one shown, or anything before the office's gesture, or
  *     is sent ahead of a change made earlier on the line;
  *  3. « Retenir les fournisseurs proposés » takes a line without a proposal or one that already has a
- *     supplier, announces another count than what it sends, or overwrites a supplier choice still on its
- *     way;
- *  4. a reader is offered « Retenir » or the bulk gesture, or is sent for proposals;
+ *     supplier, announces another count than what it sends, overwrites a supplier choice still on its way,
+ *     or is silent about lines the server left alone because they had a supplier meanwhile;
+ *  4. a reader is offered « Retenir » or the bulk gesture, or a proposal;
  *  5. a refused save shows the supplier as chosen, says nothing, or holds the line back from validation
  *     although nothing unsaved is on screen;
- *  6. a line with a supplier does not show it with its reference at that supplier, or the article's
- *     suppliers are read once per line;
+ *  6. a line with a supplier does not show it with its reference at that supplier, or the screen reads the
+ *     article's suppliers itself (one request per article, up to 300 per page) instead of the proposals'
+ *     answer;
  *  7. the proposals are read once per line, or not again after a change that makes them stale (article
- *     linked or unlinked, supplier removed, supplier named on the request changed);
+ *     linked or unlinked, supplier chosen, removed or retained, supplier named on the request changed);
  *  8. a validated line cannot get its supplier, or is shown back in draft once it has one;
  *  9. an address that is not a web address is turned into a link.
+ * (Independent review of delivery 1: 3 « skipped », 4 readers read the references, 6 per-article reads,
+ * 7 refresh after retains, 1 technician's supplier still to confirm.)
  */
 
 vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: vi.fn() }));
@@ -52,6 +55,7 @@ const BETA = "f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2";
 const GAMMA = "f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f3f3";
 const BASE = `/api/affaires/${PROJECT_ID}/material-requests/${REQUEST_ID}`;
 const PROPOSALS = `${BASE}/supplier-proposals`;
+const RETAIN = `${BASE}/lines/retain-suppliers`;
 const SUPPLIERS = [
   { id: ALPHA, name: "Négoce Alpha" },
   { id: BETA, name: "Comptoir Bêta" },
@@ -123,28 +127,26 @@ function article(partial: Partial<MaterialRequestArticleSummary> = {}): Material
   };
 }
 
-function proposal(partial: Partial<LineSupplierProposal> = {}): LineSupplierProposal {
+type Proposal = LineSupplierProposal;
+
+function proposal(partial: Partial<Proposal> = {}): Proposal {
   return {
     supplier_id: ALPHA,
     supplier_name: "Négoce Alpha",
     reason: "supply_type",
+    confirmed: true,
     supplier_sku: "NA-4471",
     product_url: null,
     ...partial,
   };
 }
 
-function item(partial: Partial<ArticleSupplierItem> = {}): ArticleSupplierItem {
-  return {
-    id: "c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1",
-    supplier_id: BETA,
-    supplier_name: "Comptoir Bêta",
-    supplier_sku: "CB-90-50",
-    product_url: null,
-    is_active: true,
-    has_price: false,
-    ...partial,
-  };
+/** The proposals route's answer: proposals for lines without a supplier, references for the others. */
+function proposals(
+  lines: Record<string, Proposal | null>,
+  references: Record<string, LineSupplierReference> = {},
+) {
+  return { data: { lines, references } };
 }
 
 type Reply = { status?: number; data?: unknown; error?: { code: string; message: string; details?: unknown } };
@@ -194,6 +196,11 @@ function detail(options: {
   };
 }
 
+/** The retain route's answer: the lines it wrote, and those it left alone because they had a supplier. */
+function retained(lines: MaterialRequestLine[], skipped: string[] = []): Reply {
+  return { data: { lines, skipped } };
+}
+
 function writes(): Call[] {
   return calls.filter((call) => call.method !== "GET");
 }
@@ -222,11 +229,17 @@ describe("suppliers of request lines", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the proposed supplier with its reason and reference, and retains it in one click (1, 2)", async () => {
+  it("shows the proposed supplier with its reason and reference, and retains it in one click (1, 2, 7)", async () => {
+    let reads_ = 0;
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal() } } },
-      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ supplier_id: ALPHA }) } },
+      [`GET ${PROPOSALS}`]: () => {
+        reads_ += 1;
+        return reads_ === 1
+          ? proposals({ [LINE_A]: proposal() })
+          : proposals({}, { [LINE_A]: { supplier_sku: "NA-4471", product_url: null } });
+      },
+      [`POST ${RETAIN}`]: retained([line({ supplier_id: ALPHA })]),
     });
 
     const retain = await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" });
@@ -239,41 +252,43 @@ describe("suppliers of request lines", () => {
     await user.click(retain);
 
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA));
-    expect(writes()).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: ALPHA } }]);
+    expect(writes()).toEqual([
+      { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_A, supplier_id: ALPHA }] } },
+    ]);
     expect(screen.queryByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" })).not.toBeInTheDocument();
-    // Read once for the page: setting a supplier hides the proposal, it does not read them all again.
-    expect(reads(PROPOSALS)).toHaveLength(1);
+    // Read again once retained: the reference now comes from the answer for lines with a supplier.
+    await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
+    expect(await screen.findByText("Réf. fournisseur : NA-4471")).toBeVisible();
   });
 
-  it("says why each supplier is proposed (1)", async () => {
+  it("says why each supplier is proposed, and when the technician's is still to confirm (1)", async () => {
     const lines = [
       line(),
       line({ id: LINE_B, position: 2 }),
       line({ id: LINE_C, position: 3 }),
       line({ id: LINE_D, position: 4 }),
+      line({ id: LINE_E, position: 5 }),
     ];
     await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines }) },
-      [`GET ${PROPOSALS}`]: {
-        data: {
-          lines: {
-            [LINE_A]: proposal({ reason: "technician", supplier_sku: null }),
-            [LINE_B]: proposal({ reason: "article", supplier_id: BETA, supplier_name: "Comptoir Bêta", supplier_sku: null }),
-            [LINE_C]: proposal({ reason: "supply_type", supplier_sku: null }),
-            [LINE_D]: proposal({ reason: "last_purchase", supplier_id: GAMMA, supplier_name: "Dépôt Gamma", supplier_sku: null }),
-          },
-        },
-      },
+      [`GET ${PROPOSALS}`]: proposals({
+        [LINE_A]: proposal({ reason: "technician", supplier_sku: null }),
+        [LINE_B]: proposal({ reason: "article", supplier_id: BETA, supplier_name: "Comptoir Bêta", supplier_sku: null }),
+        [LINE_C]: proposal({ reason: "supply_type", supplier_sku: null }),
+        [LINE_D]: proposal({ reason: "last_purchase", supplier_id: GAMMA, supplier_name: "Dépôt Gamma", supplier_sku: null }),
+        [LINE_E]: proposal({ reason: "technician", confirmed: false, supplier_sku: null }),
+      }),
     });
 
     expect(await screen.findByText("Négoce Alpha · nommé par le technicien")).toBeVisible();
+    expect(screen.getByText("Négoce Alpha · nommé par le technicien, à confirmer")).toBeVisible();
     expect(screen.getByText("Comptoir Bêta · exception de l’article")).toBeVisible();
     expect(screen.getByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
     expect(screen.getByText("Dépôt Gamma · dernier achat")).toBeVisible();
     expect(screen.queryByText(/Réf\. fournisseur/)).not.toBeInTheDocument();
   });
 
-  it("retains in bulk only the lines that have a proposal, one request per supplier (3)", async () => {
+  it("retains in bulk only the lines that have a proposal, in one request (3, 7)", async () => {
     const lines = [
       line(),
       line({ id: LINE_B, position: 2 }),
@@ -281,27 +296,25 @@ describe("suppliers of request lines", () => {
       line({ id: LINE_D, position: 4, supplier_id: GAMMA }),
       line({ id: LINE_E, position: 5, product_id: null, product_match: null }),
     ];
-    const answer = (ids: string[], supplierId: string) =>
-      lines.filter((entry) => ids.includes(entry.id)).map((entry) => ({ ...entry, supplier_id: supplierId }));
     const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ lines, articles: { [ARTICLE_1]: article(), [ARTICLE_2]: article({ id: ARTICLE_2 }) } }),
       },
-      [`GET ${PROPOSALS}`]: {
-        data: {
-          lines: {
-            [LINE_A]: proposal(),
-            [LINE_B]: proposal({ reason: "article", supplier_id: BETA, supplier_name: "Comptoir Bêta" }),
-            [LINE_C]: proposal(),
-            // A stale entry for a line that already has a supplier is never used.
-            [LINE_D]: proposal(),
-          },
+      [`GET ${PROPOSALS}`]: proposals(
+        {
+          [LINE_A]: proposal(),
+          [LINE_B]: proposal({ reason: "article", supplier_id: BETA, supplier_name: "Comptoir Bêta" }),
+          [LINE_C]: proposal(),
+          // A stale entry for a line that already has a supplier is never used.
+          [LINE_D]: proposal(),
         },
-      },
-      [`GET /api/products/${ARTICLE_1}/supplier-items`]: { data: { items: [] } },
-      [`PATCH ${BASE}/lines`]: (body) => {
-        const { ids, patch } = body as { ids: string[]; patch: { supplier_id: string } };
-        return { data: { lines: answer(ids, patch.supplier_id) } };
+        { [LINE_D]: { supplier_sku: null, product_url: null } },
+      ),
+      [`POST ${RETAIN}`]: (body) => {
+        const { choices } = body as { choices: Array<{ line_id: string; supplier_id: string }> };
+        return retained(
+          choices.map((choice) => ({ ...lines.find((entry) => entry.id === choice.line_id)!, supplier_id: choice.supplier_id })),
+        );
       },
     });
 
@@ -310,8 +323,17 @@ describe("suppliers of request lines", () => {
 
     expect(await screen.findByText("3 fournisseurs retenus.")).toBeVisible();
     expect(writes()).toEqual([
-      { method: "PATCH", path: `${BASE}/lines`, body: { ids: [LINE_A, LINE_C], patch: { supplier_id: ALPHA } } },
-      { method: "PATCH", path: `${BASE}/lines`, body: { ids: [LINE_B], patch: { supplier_id: BETA } } },
+      {
+        method: "POST",
+        path: RETAIN,
+        body: {
+          choices: [
+            { line_id: LINE_A, supplier_id: ALPHA },
+            { line_id: LINE_B, supplier_id: BETA },
+            { line_id: LINE_C, supplier_id: ALPHA },
+          ],
+        },
+      },
     ]);
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA);
     expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue(BETA);
@@ -319,15 +341,58 @@ describe("suppliers of request lines", () => {
     expect(screen.getByLabelText("Fournisseur, ligne 4")).toHaveValue(GAMMA);
     expect(screen.getByLabelText("Fournisseur, ligne 5")).toHaveValue("");
     expect(screen.getByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).toBeDisabled();
+    await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
+  });
+
+  it("says which lines the server left alone because they had a supplier meanwhile, and shows it (3)", async () => {
+    let requestReads = 0;
+    const lines = [line(), line({ id: LINE_B, position: 2 })];
+    const user = await openEditor({
+      [`GET ${BASE}`]: () => {
+        requestReads += 1;
+        // Line 2 was set from another session meanwhile: the request read again shows it.
+        return {
+          data: detail({
+            lines: requestReads === 1 ? lines : [{ ...lines[0], supplier_id: ALPHA }, { ...lines[1], supplier_id: GAMMA }],
+          }),
+        };
+      },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal(), [LINE_B]: proposal() }),
+      [`POST ${RETAIN}`]: retained([{ ...lines[0], supplier_id: ALPHA }], [LINE_B]),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Retenir les fournisseurs proposés (2)" }));
+
+    expect(await screen.findByText("1 fournisseur retenu.")).toBeVisible();
+    expect(screen.getByText("1 ligne avait déjà un fournisseur : non modifiée.")).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue(GAMMA));
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA);
+  });
+
+  it("says so when a single retain finds the line already has a supplier (3)", async () => {
+    let requestReads = 0;
+    const user = await openEditor({
+      [`GET ${BASE}`]: () => {
+        requestReads += 1;
+        return { data: detail({ lines: [line(requestReads === 1 ? {} : { supplier_id: GAMMA })] }) };
+      },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal() }),
+      [`POST ${RETAIN}`]: retained([], [LINE_A]),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
+
+    expect(await screen.findByText("La ligne avait déjà un fournisseur : non modifiée.")).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(GAMMA));
   });
 
   it("leaves out of the bulk gesture a line whose supplier choice is still on its way (3)", async () => {
     let answerChoice: (reply: Reply) => void = () => undefined;
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line(), line({ id: LINE_B, position: 2 })] }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal(), [LINE_B]: proposal() } } },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal(), [LINE_B]: proposal() }),
       [`PATCH ${BASE}/lines/${LINE_A}`]: () => new Promise<Reply>((resolve) => { answerChoice = resolve; }),
-      [`PATCH ${BASE}/lines`]: { data: { lines: [line({ id: LINE_B, position: 2, supplier_id: ALPHA })] } },
+      [`POST ${RETAIN}`]: retained([line({ id: LINE_B, position: 2, supplier_id: ALPHA })]),
     });
 
     await screen.findByRole("button", { name: "Retenir les fournisseurs proposés (2)" });
@@ -338,37 +403,37 @@ describe("suppliers of request lines", () => {
     expect(await screen.findByText("1 fournisseur retenu.")).toBeVisible();
     expect(writes()).toEqual([
       { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: GAMMA } },
-      { method: "PATCH", path: `${BASE}/lines`, body: { ids: [LINE_B], patch: { supplier_id: ALPHA } } },
+      { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_B, supplier_id: ALPHA }] } },
     ]);
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(GAMMA));
     expect(screen.getByText(/La ligne 1 n’a pas été modifiée/)).toBeVisible();
   });
 
-  it("offers no supplier control to a reader and does not ask for proposals (4, 6)", async () => {
+  it("shows a reader each supplier with its reference, from the proposals' answer, and no control (4, 6)", async () => {
     await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ canWrite: false, lines: [line(), line({ id: LINE_B, position: 2, supplier_id: BETA })] }),
       },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal() } } },
-      [`GET /api/products/${ARTICLE_1}/supplier-items`]: { data: { items: [item()] } },
+      [`GET ${PROPOSALS}`]: proposals(
+        { [LINE_A]: proposal() },
+        { [LINE_B]: { supplier_sku: "CB-90-50", product_url: null } },
+      ),
     });
 
     expect(await screen.findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
     const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
     expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Retenir/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Négoce Alpha ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
-    expect(reads(PROPOSALS)).toEqual([]);
+    expect(calls.some((call) => call.path.includes("/supplier-items"))).toBe(false);
   });
 
   it("keeps the line as it was and says so when the save is refused (5)", async () => {
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal() } } },
-      [`PATCH ${BASE}/lines/${LINE_A}`]: {
-        status: 500,
-        error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." },
-      },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal() }),
+      [`POST ${RETAIN}`]: { status: 500, error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." } },
     });
 
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
@@ -384,8 +449,8 @@ describe("suppliers of request lines", () => {
   it("keeps the lines as they were and says so when the bulk save is refused (5)", async () => {
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line(), line({ id: LINE_B, position: 2 })] }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal(), [LINE_B]: proposal() } } },
-      [`PATCH ${BASE}/lines`]: { status: 500, error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." } },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal(), [LINE_B]: proposal() }),
+      [`POST ${RETAIN}`]: { status: 500, error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." } },
     });
 
     await user.click(await screen.findByRole("button", { name: "Retenir les fournisseurs proposés (2)" }));
@@ -398,7 +463,7 @@ describe("suppliers of request lines", () => {
     expect(screen.getByRole("button", { name: "Retenir les fournisseurs proposés (2)" })).toBeEnabled();
   });
 
-  it("shows the supplier of a line with its reference there, reading each article once (6, 9)", async () => {
+  it("shows the supplier of a line with its reference there, from the proposals' answer (6, 9)", async () => {
     const lines = [
       line({ supplier_id: BETA }),
       line({ id: LINE_B, position: 2, supplier_id: BETA }),
@@ -406,15 +471,11 @@ describe("suppliers of request lines", () => {
     ];
     await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: {} } },
-      [`GET /api/products/${ARTICLE_1}/supplier-items`]: {
-        data: {
-          items: [
-            item({ product_url: "https://fournisseur.example/coude-50" }),
-            item({ id: "c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2", supplier_id: ALPHA, supplier_name: "Négoce Alpha", supplier_sku: "NA-1", product_url: "javascript:alert(1)" }),
-          ],
-        },
-      },
+      [`GET ${PROPOSALS}`]: proposals({}, {
+        [LINE_A]: { supplier_sku: "CB-90-50", product_url: "https://fournisseur.example/coude-50" },
+        [LINE_B]: { supplier_sku: "CB-90-50", product_url: "https://fournisseur.example/coude-50" },
+        [LINE_C]: { supplier_sku: "NA-1", product_url: "javascript:alert(1)" },
+      }),
     });
 
     const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
@@ -426,21 +487,22 @@ describe("suppliers of request lines", () => {
     expect(within(rows[1]).getByText("Réf. fournisseur : CB-90-50")).toBeVisible();
     expect(within(rows[2]).getByText("Réf. fournisseur : NA-1")).toBeVisible();
     expect(within(rows[2]).queryByRole("link")).not.toBeInTheDocument();
-    expect(reads(`/api/products/${ARTICLE_1}/supplier-items`)).toHaveLength(1);
+    // One read for the whole page, never one per article.
+    expect(reads(PROPOSALS)).toHaveLength(1);
+    expect(calls.some((call) => call.path.includes("/supplier-items"))).toBe(false);
   });
 
-  it("reads the proposals again after a link, an unlink, a supplier removed or the request's supplier changed (7)", async () => {
+  it("reads the proposals again after a link, an unlink, a supplier chosen or removed, or the request's supplier changed (7)", async () => {
     const linkedLine = line({ id: LINE_B, position: 2, supplier_id: ALPHA });
     const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ lines: [line(), linkedLine] }),
       },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal() } } },
-      [`GET /api/products/${ARTICLE_1}/supplier-items`]: { data: { items: [] } },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal() }),
       [`DELETE ${BASE}/lines/${LINE_A}/article`]: {
         data: { line: line({ product_id: null, product_match: null }) },
       },
-      [`PATCH ${BASE}/lines/${LINE_B}`]: { data: { line: { ...linkedLine, supplier_id: null } } },
+      [`PATCH ${BASE}/lines/${LINE_B}`]: (body) => ({ data: { line: { ...linkedLine, ...(body as object) } } }),
       [`PATCH ${BASE}`]: { data: { request: request({ presumed_supplier_id: GAMMA }), reopened_line_ids: [] } },
     });
 
@@ -453,23 +515,28 @@ describe("suppliers of request lines", () => {
     await user.selectOptions(screen.getByLabelText("Fournisseur, ligne 2"), "");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(3));
 
-    await user.selectOptions(screen.getByLabelText("Fournisseur présumé"), GAMMA);
+    // Another supplier chosen: its reference is read again with the proposals.
+    await user.selectOptions(screen.getByLabelText("Fournisseur, ligne 2"), BETA);
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(4));
+
+    await user.selectOptions(screen.getByLabelText("Fournisseur présumé"), GAMMA);
+    await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(5));
   });
 
   it("retains the supplier of a validated line and keeps it validated (8)", async () => {
     const validated = line({ status: "validated", validated_at: "2026-11-12T09:00:00.000Z" });
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [validated] }) },
-      [`GET ${PROPOSALS}`]: { data: { lines: { [LINE_A]: proposal({ reason: "article" }) } } },
-      [`GET /api/products/${ARTICLE_1}/supplier-items`]: { data: { items: [] } },
-      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: { ...validated, supplier_id: ALPHA } } },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: proposal({ reason: "article" }) }),
+      [`POST ${RETAIN}`]: retained([{ ...validated, supplier_id: ALPHA }]),
     });
 
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
 
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA));
-    expect(writes()).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: ALPHA } }]);
+    expect(writes()).toEqual([
+      { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_A, supplier_id: ALPHA }] } },
+    ]);
     expect(screen.getByText("Validée")).toBeVisible();
     expect(screen.queryByText("Brouillon")).not.toBeInTheDocument();
   });
@@ -482,7 +549,7 @@ describe("suppliers of request lines", () => {
         attempts += 1;
         return attempts === 1
           ? { status: 500, error: { code: "INTERNAL", message: "Erreur." } }
-          : { data: { lines: { [LINE_A]: proposal() } } };
+          : proposals({ [LINE_A]: proposal() });
       },
     });
 

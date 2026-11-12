@@ -2,7 +2,8 @@ import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { requestJsonUncoordinated } from "@/lib/estimates/client-http";
 import type {
-  ArticleSupplierItem,
+  ArticleSupplierItemSaved,
+  ArticleSuppliers,
   SaveArticleSupplierItemInput,
 } from "@/lib/material-requests/supplier-contracts";
 
@@ -10,12 +11,6 @@ import type {
  * Browser-side calls for the suppliers of catalogue articles and the preferred supplier of supply types
  * (TI-691). Each function is one HTTP request; the screens show what the server answered.
  */
-
-/**
- * An article's suppliers. `preferred_supplier_id`, the article's exception, is read here when the server
- * sends it: the catalogue page's list does not carry it.
- */
-export type ArticleSuppliers = { items: ArticleSupplierItem[]; preferred_supplier_id?: string | null };
 
 export type SupplyTypeWithPreferredSupplier = SupplyTypeListItem;
 
@@ -41,30 +36,32 @@ export function catalogueErrorMessage(error: unknown, fallback: string): string 
   return fallback;
 }
 
+/** The article's suppliers and its supplier exception, as the server holds them. */
 export async function fetchArticleSuppliers(productId: string, signal?: AbortSignal): Promise<ArticleSuppliers> {
-  const answer = await read<ArticleSuppliers>(
+  const answer = await read<Partial<ArticleSuppliers>>(
     productPath(productId, "supplier-items"),
     "Les fournisseurs de l’article n’ont pas pu être chargés.",
     signal,
   );
-  return { ...answer, items: answer.items ?? [] };
+  return { items: answer.items ?? [], preferred_supplier_id: answer.preferred_supplier_id ?? null };
 }
 
 /**
  * Adds, changes or withdraws (`is_active: false`) the reference of an article at a supplier, never a
- * price. A key left out is saved as empty: send the reference and the address together.
+ * price. A key left out keeps what is stored; null clears it. Answers the item and the article's exception
+ * after the save: withdrawing the supplier the article names as its exception clears that exception.
  */
 export async function saveArticleSupplierItem(
   productId: string,
   input: SaveArticleSupplierItemInput,
-): Promise<ArticleSupplierItem> {
-  const { item } = await write<{ item: ArticleSupplierItem }>(
+): Promise<ArticleSupplierItemSaved> {
+  const answer = await write<ArticleSupplierItemSaved>(
     productPath(productId, "supplier-items"),
     "PUT",
     input,
     "Le fournisseur de l’article n’a pas pu être enregistré.",
   );
-  return item;
+  return { item: answer.item, preferred_supplier_id: answer.preferred_supplier_id ?? null };
 }
 
 /** Answers the exception the server now holds. */

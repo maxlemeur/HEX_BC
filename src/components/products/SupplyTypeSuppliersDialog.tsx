@@ -13,6 +13,8 @@ import {
   type SupplyTypeWithPreferredSupplier,
 } from "@/lib/catalogue/supplier-items-client";
 
+import { useSerialSave } from "./useSerialSave";
+
 type TypesState = { status: "loading" } | { status: "error" } | { status: "ready"; items: SupplyTypeWithPreferredSupplier[] };
 
 /** One supply type and its preferred supplier, saved as soon as it is chosen. */
@@ -25,34 +27,37 @@ function SupplyTypeRow({
   suppliers: readonly SupplierDirectoryEntry[];
   onSaved: (saved: SupplyTypeWithPreferredSupplier) => void;
 }>) {
+  /** The last choice, while its save is on its way: shown until its answer. */
   const [pending, setPending] = useState<{ value: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const save = useSerialSave();
   const stored = type.preferred_supplier_id;
   const shown = pending ? pending.value : stored;
   // A supplier that left the list (deactivated) keeps its name on the type it is still preferred for.
   const unknown = stored !== null && !suppliers.some((supplier) => supplier.id === stored);
   const errorId = `supply-type-${type.id}-error`;
 
+  // Never disabled while it saves: the saves leave one after another, and the last answer speaks.
   const choose = async (supplierId: string | null) => {
     setPending({ value: supplierId });
     setError(null);
     setSaved(false);
-    try {
-      const stored = await saveSupplyTypePreferredSupplier(type.id, supplierId);
+    const outcome = await save(() => saveSupplyTypePreferredSupplier(type.id, supplierId));
+    // Every answer says what the server holds now, even one a later choice has overtaken.
+    if (outcome.ok) {
       onSaved(
-        stored ?? {
+        outcome.value ?? {
           ...type,
           preferred_supplier_id: supplierId,
           preferred_supplier_name: suppliers.find((supplier) => supplier.id === supplierId)?.name ?? null,
         },
       );
-      setSaved(true);
-    } catch (failure) {
-      setError(catalogueErrorMessage(failure, "Le fournisseur privilégié du type n’a pas pu être enregistré."));
-    } finally {
-      setPending(null);
     }
+    if (!outcome.latest) return;
+    setPending(null);
+    if (outcome.ok) setSaved(true);
+    else setError(catalogueErrorMessage(outcome.error, "Le fournisseur privilégié du type n’a pas pu être enregistré."));
   };
 
   return (
@@ -65,7 +70,6 @@ function SupplyTypeRow({
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
           value={shown ?? ""}
-          disabled={pending !== null}
           onChange={(event) => void choose(event.target.value || null)}
         >
           <option value="">Aucun</option>

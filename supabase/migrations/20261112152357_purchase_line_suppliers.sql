@@ -7,7 +7,8 @@
 --    check stays).
 -- 2. A preferred supplier per supply type (supply_types.preferred_supplier_id) and an exception per article
 --    (products.preferred_supplier_id): null, or a supplier of the row's tenant (PREFERRED_SUPPLIER_TENANT_MISMATCH);
---    deleting the supplier clears them. Who sets them:
+--    deleting the supplier clears them. An article's exception is moreover a supplier with an active item for the
+--    article (PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED): the office can buy the article there. Who sets them:
 --    - an article's: whoever may change the article (policy « Catalogue editors can update products », TI-689
 --      can_edit_catalogue_record), like any other field of it;
 --    - a supply type's: any member still writes a type's name and code (policy « Users can manage supply types »),
@@ -17,9 +18,9 @@
 -- 3. public.save_supplier_catalog_item: an article's reference (and address) at one supplier, without any price;
 --    withdrawing a supplier from an article also withdraws it as the article's exception. Until now every write
 --    path of supplier_catalog_items also wrote a price, or checked the role only.
--- 4. public.last_purchase_suppliers: the supplier and date of the latest confirmed or received order of each
---    article, the fourth source of a line's proposed supplier (after the technician's, the article's exception and
---    the supply type's preferred supplier; the order is the application's).
+-- 4. public.last_purchase_suppliers: the supplier of the latest confirmed or received order of each article, the
+--    fourth source of a line's proposed supplier (after the technician's, the article's exception and the supply
+--    type's preferred supplier; the order is the application's).
 -- Regression: supabase/tests/database/purchase-line-suppliers.test.sql.
 
 begin;
@@ -200,7 +201,10 @@ create index products_preferred_supplier_id_idx
 
 -- The foreign keys are not composite: the supplier is one of the row's tenant. Runs as the caller, so a supplier
 -- the caller cannot read is one that does not exist. Checked when it is set and when the row changes tenant.
-create function private.enforce_preferred_supplier_tenant()
+-- An article's exception is also a supplier the office can buy it from: one with an active item for the article
+-- (a supplier withdrawn from the article is not proposed; withdrawing clears the exception, see
+-- save_supplier_catalog_item). Checked when the exception is set; both tables carry the columns read here.
+create function private.enforce_preferred_supplier()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
   if new.preferred_supplier_id is not null
@@ -213,19 +217,31 @@ begin
   then
     raise exception using errcode = '23514', message = 'PREFERRED_SUPPLIER_TENANT_MISMATCH';
   end if;
+  if tg_table_name = 'products' and new.preferred_supplier_id is not null
+    and (tg_op = 'INSERT' or new.preferred_supplier_id is distinct from old.preferred_supplier_id)
+    and not exists (
+      select 1 from public.supplier_catalog_items item
+      where item.tenant_id = new.tenant_id
+        and item.product_id = new.id
+        and item.supplier_id = new.preferred_supplier_id
+        and item.is_active
+    )
+  then
+    raise exception using errcode = '23514', message = 'PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED';
+  end if;
   return new;
 end;
 $$;
 
-revoke all on function private.enforce_preferred_supplier_tenant() from public, anon, authenticated;
+revoke all on function private.enforce_preferred_supplier() from public, anon, authenticated;
 
 -- Named to fire after set_products_tenant_id: the supplier is checked against the assigned tenant.
 create trigger validate_product_preferred_supplier
   before insert or update on public.products
-  for each row execute function private.enforce_preferred_supplier_tenant();
+  for each row execute function private.enforce_preferred_supplier();
 create trigger validate_supply_type_preferred_supplier
   before insert or update on public.supply_types
-  for each row execute function private.enforce_preferred_supplier_tenant();
+  for each row execute function private.enforce_preferred_supplier();
 
 -- The preferred supplier of a supply type is a purchasing decision of the catalogue's editors, although any member
 -- still writes the type's name and code. A server writer without a user (service role, a migration) is not
@@ -380,13 +396,14 @@ grant execute on function public.save_supplier_catalog_item(uuid, uuid, text, te
 -- Security definer because purchase orders and their items are readable only by the order's owner or a tenant
 -- admin (policies « Users can view own purchase orders » and « ... purchase order items »): as the caller, the
 -- office member who reads a request would only see their own orders. What crosses that boundary is the least the
--- proposal needs: per article, the supplier and the date of the latest confirmed or received order of the active
--- tenant carrying it (by order date, then creation), never an order id, a quantity, a price or an amount.
+-- proposal needs: per article, the supplier of the latest confirmed or received order of the active tenant carrying
+-- it, never an order id, a date, a quantity, a price or an amount. Latest by order date, then last change, then id,
+-- as the reference-price sync reads it (refresh_product_reference_prices, 20260714090000).
 -- Who may ask: a member of the active tenant, for the articles that a material request line they may read names
 -- (the read rule of material requests, can_read_affaire_intake_project: owner of the affaire, admin, director).
 -- Any other id gives no row. At most 500 ids per call.
 create function public.last_purchase_suppliers(p_product_ids uuid[])
-returns table (product_id uuid, supplier_id uuid, ordered_on date)
+returns table (product_id uuid, supplier_id uuid)
 language plpgsql
 stable
 security definer
@@ -415,19 +432,19 @@ begin
           and public.can_read_affaire_intake_project(line.project_id, active_tenant_id)
       )
   )
-  select distinct on (readable.id) readable.id, purchase_order.supplier_id, purchase_order.order_date
+  select distinct on (readable.id) readable.id, purchase_order.supplier_id
   from readable
   join public.purchase_order_items order_item
     on order_item.product_id = readable.id and order_item.tenant_id = active_tenant_id
   join public.purchase_orders purchase_order
     on purchase_order.id = order_item.purchase_order_id and purchase_order.tenant_id = active_tenant_id
   where purchase_order.status in ('confirmed'::public.purchase_order_status, 'received'::public.purchase_order_status)
-  order by readable.id, purchase_order.order_date desc, purchase_order.created_at desc, purchase_order.id desc;
+  order by readable.id, purchase_order.order_date desc, purchase_order.updated_at desc, purchase_order.id desc;
 end;
 $$;
 
 comment on function public.last_purchase_suppliers(uuid[]) is
-  'TI-691: per article named by a material request line the caller may read, the supplier and date of the latest confirmed or received order of the active tenant carrying it. No amounts. At most 500 ids (LAST_PURCHASE_SUPPLIERS_TOO_MANY).';
+  'TI-691: per article named by a material request line the caller may read, the supplier of the latest confirmed or received order of the active tenant carrying it (order date, then last change, then id). No date, no amounts. At most 500 ids (LAST_PURCHASE_SUPPLIERS_TOO_MANY).';
 
 revoke all on function public.last_purchase_suppliers(uuid[]) from public, anon;
 grant execute on function public.last_purchase_suppliers(uuid[]) to authenticated;

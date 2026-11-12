@@ -14,7 +14,6 @@ import { lineTitle, plural } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMNS, LINE_TABLE_COLUMN_COUNT, MaterialRequestLineRow } from "./MaterialRequestLineRow";
-import { supplierItemOf, useArticleSupplierItems } from "./useArticleSupplierItems";
 import type {
   ArticleLinkEntry,
   BulkLinkResult,
@@ -113,9 +112,16 @@ function bulkLinkReport(result: BulkLinkResult): string[] {
   return sentences;
 }
 
-/** What the bulk retain did, in one or two sentences. */
+/** What the bulk retain did, in one to three sentences. */
 function bulkRetainReport(result: BulkRetainResult): string[] {
   const sentences = result.retained > 0 ? [`${plural(result.retained, "fournisseur retenu", "fournisseurs retenus")}.`] : [];
+  if (result.skipped > 0) {
+    sentences.push(
+      result.skipped > 1
+        ? `${result.skipped} lignes avaient déjà un fournisseur : non modifiées.`
+        : "1 ligne avait déjà un fournisseur : non modifiée.",
+    );
+  }
   const failed = result.failures.reduce((total, failure) => total + failure.count, 0);
   if (failed > 0) {
     const lead = failed > 1 ? `${failed} lignes n’ont pas reçu leur fournisseur` : "1 ligne n’a pas reçu son fournisseur";
@@ -217,12 +223,6 @@ export function MaterialRequestLines({
         : [],
     [canWrite, lines, supplierProposalOf],
   );
-  // The article's reference at the supplier of each line that has both: one read per article.
-  const referencedArticles = useMemo(
-    () => lines.flatMap((line) => (line.product_id && line.supplier_id ? [line.product_id] : [])),
-    [lines],
-  );
-  const supplierItems = useArticleSupplierItems(referencedArticles);
   const articleLine = articleLineId ? (lines.find((line) => line.id === articleLineId) ?? null) : null;
 
   const report = (result: SaveResult) => {
@@ -471,7 +471,7 @@ export function MaterialRequestLines({
                 onOpenArticles={() => setArticleLineId(line.id)}
                 onRetryProposals={editor.retryProposals}
                 supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
-                supplierReference={supplierItemOf(supplierItems, line.product_id, line.supplier_id)}
+                supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
                 onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
               />
             ))}

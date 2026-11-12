@@ -12,7 +12,10 @@ import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppl
  *     none;
  *  2. a refused choice stays shown as if it were saved, or the refusal is silent;
  *  3. a preferred supplier that left the list of suppliers is shown as another one, or as none;
- *  4. a list that could not be read is shown as « no supply type ».
+ *  4. a list that could not be read is shown as « no supply type »;
+ *  5. the select disables itself while it saves (on Windows each arrow key is a change: the first one saves
+ *     and the disabled select drops the keyboard focus), or an earlier answer overrides the last choice
+ *     (independent review of delivery 1).
  */
 
 const INOX = "5a5a5a5a-5a5a-45a5-85a5-5a5a5a5a5a5a";
@@ -22,12 +25,14 @@ const BETA = "f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2";
 const GONE = "f9f9f9f9-f9f9-4f9f-8f9f-f9f9f9f9f9f9";
 
 type Reply = { status: number; body: unknown };
-let routes: Record<string, Reply> = {};
+type Route = Reply | ((body: unknown) => Promise<Reply>);
+let routes: Record<string, Route> = {};
 const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
-  const reply = routes[`${init?.method ?? "GET"} ${input}`] ?? {
-    status: 404,
-    body: { ok: false, error: { code: "NOT_FOUND", message: "Introuvable." } },
-  };
+  const route = routes[`${init?.method ?? "GET"} ${input}`];
+  const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+  const reply = route === undefined
+    ? { status: 404, body: { ok: false, error: { code: "NOT_FOUND", message: "Introuvable." } } }
+    : typeof route === "function" ? await route(body) : route;
   return new Response(JSON.stringify(reply.body), {
     status: reply.status,
     headers: { "Content-Type": "application/json" },
@@ -107,6 +112,45 @@ describe("preferred supplier of each supply type", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("La gestion du catalogue est réservée aux administrateurs.");
     expect(inox).toHaveValue(ALPHA);
+  });
+
+  it("keeps the select usable while it saves, one save after another, the last choice winning (5)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const answers: Array<() => void> = [];
+    routes[`PATCH /api/catalogue/supply-types/${CUIVRE}`] = (body) =>
+      new Promise<Reply>((resolve) => {
+        const supplierId = (body as { preferred_supplier_id: string | null }).preferred_supplier_id;
+        answers.push(() =>
+          resolve(ok({
+            item: {
+              ...TYPES[0],
+              preferred_supplier_id: supplierId,
+              preferred_supplier_name: SUPPLIERS.find((supplier) => supplier.id === supplierId)?.name ?? null,
+            },
+          })),
+        );
+      });
+    render(<SupplyTypeSuppliersDialog open onOpenChange={vi.fn()} />);
+
+    const cuivre = await screen.findByLabelText("Fournisseur privilégié, type Cuivre");
+    await waitFor(() => expect(cuivre.querySelectorAll("option")).toHaveLength(3));
+    cuivre.focus();
+    await user.selectOptions(cuivre, ALPHA);
+    expect(cuivre).toBeEnabled();
+    expect(cuivre).toHaveFocus();
+    await user.selectOptions(cuivre, BETA);
+    expect(cuivre).toHaveValue(BETA);
+    expect(writes()).toHaveLength(1);
+
+    answers[0]();
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(cuivre).toHaveValue(BETA);
+    answers[1]();
+
+    expect(await screen.findByText("Enregistré.")).toBeVisible();
+    expect(writes().map((call) => call.body)).toEqual([{ preferred_supplier_id: ALPHA }, { preferred_supplier_id: BETA }]);
+    expect(cuivre).toHaveValue(BETA);
+    expect(cuivre).toHaveFocus();
   });
 
   it("names a preferred supplier that left the list of suppliers (3)", async () => {

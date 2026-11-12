@@ -13,7 +13,9 @@ type Line = {
   id: string; position: number; status: "draft" | "validated"; product_id: string | null; supplier_id: string | null;
 };
 type Detail = { request: { id: string }; lines: Line[] };
-type Proposal = { supplier_id: string; supplier_name: string; reason: string; supplier_sku: string | null };
+type Proposal = { supplier_id: string; supplier_name: string; reason: string; confirmed: boolean; supplier_sku: string | null };
+type Reference = { supplier_sku: string | null; product_url: string | null };
+type Proposals = { lines: Record<string, Proposal | null>; references: Record<string, Reference> };
 type SupplierItem = { supplier_id: string; supplier_sku: string | null; is_active: boolean; has_price: boolean };
 
 // TI-691, lot 2 « l'achat », delivery 1. Failure modes, written before the journey was first run against the product:
@@ -22,7 +24,9 @@ type SupplierItem = { supplier_id: string; supplier_sku: string | null; is_activ
 // - the proposal does not say why, or not the article's reference at that supplier;
 // - the article's supplier and its reference cannot be recorded from its form without a price, or its exception is lost;
 // - a supplier is set without the office's gesture, or the bulk gesture sets another one than proposed;
-// - setting the supplier of a validated line returns it to draft.
+// - retaining a proposal overwrites a supplier set on the line meanwhile;
+// - setting the supplier of a validated line returns it to draft;
+// - the supplier the technician named reads as confirmed before the office confirms it.
 // The last purchase is not exercised here: an order counts once confirmed or received, and that status is
 // changed from the order screen through the database client, not an application API; the campaign guard also
 // refuses status mutations. The ranking after the other three is covered by the server's own tests.
@@ -129,7 +133,7 @@ armyTest(
     expect(validated.status).toBe(200);
 
     // The article's exception wins over its type's supplier; a line whose article has none gets the type's.
-    const proposals = await apiRequest<Envelope<{ lines: Record<string, Proposal | null> }>>(browser, "GET", `${one}/supplier-proposals`);
+    const proposals = await apiRequest<Envelope<Proposals>>(browser, "GET", `${one}/supplier-proposals`);
     expect(proposals.status).toBe(200);
     const byPosition = added.body.data.lines.map((line) => {
       const proposal = proposals.body.data.lines[line.id];
@@ -151,6 +155,17 @@ armyTest(
     ]);
     await expect(screen.getByText(`Réf. fournisseur : ${sku}`, { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(screen.getByRole("button", "Retenir les fournisseurs proposés (0)", { exact: true })).toBeDisabled();
+    // Once retained, the same answer gives the reference at each line's supplier, and no proposal is left.
+    const after = await apiRequest<Envelope<Proposals>>(browser, "GET", `${one}/supplier-proposals`);
+    expect(after.body.data.lines).toEqual({});
+    expect(added.body.data.lines.map((line) => after.body.data.references[line.id]?.supplier_sku ?? null)).toEqual([sku, null, null]);
+    // A retain never overwrites a supplier set meanwhile: the line is left alone and said so.
+    const again = await apiRequest<Envelope<{ lines: Line[]; skipped: unknown[] }>>(browser, "POST", `${one}/lines/retain-suppliers`, {
+      choices: [{ line_id: added.body.data.lines[0].id, supplier_id: alpha }],
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.data.skipped).toHaveLength(1);
+    expect((await read())[0].supplier_id).toBe(beta);
 
     // A request whose header names a supplier: the technician's choice comes before the article's exception.
     const named = await apiRequest<Envelope<Detail>>(browser, "POST", base, {
@@ -166,17 +181,23 @@ armyTest(
     const namedLink = screen.getByRole("button", "Rattacher les références et noms connus (1)", { exact: true });
     await expect(namedLink).toBeVisible({ timeout: 60_000 });
     await namedLink.tap();
-    await expect(screen.getByText(`${alphaName} · nommé par le technicien`, { exact: true })).toBeVisible({ timeout: 30_000 });
-    const namedProposals = await apiRequest<Envelope<{ lines: Record<string, Proposal | null> }>>(
-      browser, "GET", `${base}/${namedId}/supplier-proposals`,
-    );
+    // Named on the sheet, not confirmed yet: the screen says so.
+    await expect(screen.getByText(`${alphaName} · nommé par le technicien, à confirmer`, { exact: true })).toBeVisible({ timeout: 30_000 });
     const namedLine = namedLines.body.data.lines[0].id;
-    expect([namedProposals.body.data.lines[namedLine]?.supplier_id, namedProposals.body.data.lines[namedLine]?.reason])
-      .toEqual([alpha, "technician"]);
+    const namedProposal = async () => {
+      const response = await apiRequest<Envelope<Proposals>>(browser, "GET", `${base}/${namedId}/supplier-proposals`);
+      expect(response.status).toBe(200);
+      const proposal = response.body.data.lines[namedLine];
+      return [proposal?.supplier_id, proposal?.reason, proposal?.confirmed];
+    };
+    expect(await namedProposal()).toEqual([alpha, "technician", false]);
+    const confirmed = await apiRequest<Envelope<unknown>>(browser, "PATCH", `${base}/${namedId}`, { supplier_confirmed: true });
+    expect(confirmed.status).toBe(200);
+    expect(await namedProposal()).toEqual([alpha, "technician", true]);
 
     await recordEvidence(army, "material-request-suppliers", {
       ...ids, requestId, namedId, suppliers: { alpha, beta, gamma }, supplyTypeId, elbow, tee,
-      proposals: byPosition, named: namedProposals.body.data.lines[namedLine],
+      proposals: byPosition, references: after.body.data.references, skipped: again.body.data.skipped,
     });
   },
 );

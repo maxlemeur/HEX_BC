@@ -12,14 +12,20 @@ import { ProductFormModal, type ProductRecord } from "@/app/dashboard/products/P
  *     price; a withdrawn supplier is still listed;
  *  2. adding a supplier sends a price, another supplier or reference than the one typed, is not listed once
  *     saved, or Enter in its fields submits the whole article form;
- *  3. changing a reference erases the link (a key left out is saved as empty), or the other way round;
- *  4. withdrawing deletes the supplier or erases its reference, leaves it listed although the server
+ *  3. changing a reference does not send the link shown beside it, or the other way round;
+ *  4. withdrawing deletes the supplier or touches its reference, leaves it listed although the server
  *     withdrew it, or removes it although the server refused;
- *  5. the article's preferred supplier is not saved, is chosen among suppliers that are not the article's,
- *     or cannot be set back to none;
+ *  5. the article's preferred supplier is not shown as the server holds it, is not saved, is chosen among
+ *     suppliers that are not the article's, or cannot be set back to none;
  *  6. a refusal is silent, or throws away what was typed;
  *  7. a new article asks the server for suppliers it cannot have; a list that could not be read is shown
- *     as « no supplier ».
+ *     as « no supplier »;
+ *  8. withdrawing the supplier the article names as its exception leaves the exception on screen although
+ *     the server cleared it;
+ *  9. the preferred supplier's select disables itself while it saves (on Windows each arrow key is a change:
+ *     the first one saves and the disabled select drops the keyboard focus), or an earlier answer overrides
+ *     the last choice.
+ * (8 and 9: independent review of delivery 1.)
  */
 
 const PRODUCT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -72,14 +78,14 @@ const ITEM_GAMMA_WITHDRAWN = {
 };
 
 type Reply = { status: number; body: unknown };
-type Route = Reply | ((body: unknown) => Reply);
+type Route = Reply | ((body: unknown) => Reply | Promise<Reply>);
 let routes: Record<string, Route> = {};
 const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
   const route = routes[`${init?.method ?? "GET"} ${input}`];
   const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
   const reply = route === undefined
     ? { status: 404, body: { ok: false, error: { code: "NOT_FOUND", message: "Introuvable." } } }
-    : typeof route === "function" ? route(body) : route;
+    : typeof route === "function" ? await route(body) : route;
   return new Response(JSON.stringify(reply.body), {
     status: reply.status,
     headers: { "Content-Type": "application/json" },
@@ -123,7 +129,7 @@ describe("ProductFormModal, suppliers of the article", () => {
   });
 
   it("lists the article's suppliers with their reference, link and price mark, without the withdrawn ones (1)", async () => {
-    routes = { [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA, ITEM_GAMMA_WITHDRAWN] }) };
+    routes = { [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA, ITEM_GAMMA_WITHDRAWN], preferred_supplier_id: null }) };
     renderForm();
 
     const list = await screen.findByRole("list", { name: "Fournisseurs de l’article" });
@@ -145,9 +151,9 @@ describe("ProductFormModal, suppliers of the article", () => {
     const user = userEvent.setup({ delay: null });
     const added = { ...ITEM_GAMMA_WITHDRAWN, supplier_sku: "DG-50", is_active: true };
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_BETA, ITEM_GAMMA_WITHDRAWN] }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_BETA, ITEM_GAMMA_WITHDRAWN], preferred_supplier_id: null }),
       "GET /api/suppliers": ok({ items: [{ id: ALPHA, name: "Négoce Alpha" }, { id: BETA, name: "Comptoir Bêta" }, { id: GAMMA, name: "Dépôt Gamma" }] }),
-      [`PUT ${ITEMS_URL}`]: ok({ item: added }),
+      [`PUT ${ITEMS_URL}`]: ok({ item: added, preferred_supplier_id: null }),
     };
     const { onSubmit } = renderForm();
 
@@ -172,7 +178,7 @@ describe("ProductFormModal, suppliers of the article", () => {
   it("keeps what was typed and shows the server's sentence when the addition is refused (2, 6)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [] }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [], preferred_supplier_id: null }),
       "GET /api/suppliers": ok({ items: [{ id: GAMMA, name: "Dépôt Gamma" }] }),
       [`PUT ${ITEMS_URL}`]: refused("La gestion du catalogue est réservée aux administrateurs."),
     };
@@ -195,8 +201,8 @@ describe("ProductFormModal, suppliers of the article", () => {
   it("changes a reference and sends the link with it (3)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA] }),
-      [`PUT ${ITEMS_URL}`]: (body) => ok({ item: { ...ITEM_ALPHA, ...(body as object) } }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA], preferred_supplier_id: null }),
+      [`PUT ${ITEMS_URL}`]: (body) => ok({ item: { ...ITEM_ALPHA, ...(body as object) }, preferred_supplier_id: null }),
     };
     renderForm();
 
@@ -217,28 +223,50 @@ describe("ProductFormModal, suppliers of the article", () => {
     ]);
   });
 
-  it("withdraws a supplier, keeping its reference, once the server has withdrawn it (4)", async () => {
+  it("withdraws a supplier without touching its reference, once the server has withdrawn it (4)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA] }),
-      [`PUT ${ITEMS_URL}`]: ok({ item: { ...ITEM_BETA, is_active: false } }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA], preferred_supplier_id: ALPHA }),
+      [`PUT ${ITEMS_URL}`]: ok({ item: { ...ITEM_BETA, is_active: false }, preferred_supplier_id: ALPHA }),
     };
     renderForm();
 
-    await user.click(await screen.findByRole("button", { name: "Retirer Comptoir Bêta de l’article" }));
+    const withdraw = await screen.findByRole("button", { name: "Retirer Comptoir Bêta de l’article" });
+    expect(withdraw).toHaveAccessibleDescription(
+      "Les prix de ce fournisseur restent enregistrés mais ne sont plus proposés tant qu’il est retiré de l’article.",
+    );
+    await user.click(withdraw);
 
     const list = screen.getByRole("list", { name: "Fournisseurs de l’article" });
     await waitFor(() => expect(within(list).queryByText("Comptoir Bêta")).not.toBeInTheDocument());
     expect(within(list).getByText("Négoce Alpha")).toBeVisible();
-    expect(writes()).toEqual([
-      { method: "PUT", url: ITEMS_URL, body: { supplier_id: BETA, supplier_sku: "CB-90-50", product_url: null, is_active: false } },
-    ]);
+    // A key left out keeps what is stored: the reference stays with the withdrawn supplier.
+    expect(writes()).toEqual([{ method: "PUT", url: ITEMS_URL, body: { supplier_id: BETA, is_active: false } }]);
+    expect(screen.getByLabelText("Fournisseur privilégié pour cet article")).toHaveValue(ALPHA);
+  });
+
+  it("shows the exception cleared once its supplier is withdrawn from the article (8)", async () => {
+    const user = userEvent.setup({ delay: null });
+    routes = {
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA], preferred_supplier_id: BETA }),
+      [`PUT ${ITEMS_URL}`]: ok({ item: { ...ITEM_BETA, is_active: false }, preferred_supplier_id: null }),
+    };
+    renderForm();
+
+    const preferred = await screen.findByLabelText("Fournisseur privilégié pour cet article");
+    await waitFor(() => expect(preferred).toHaveValue(BETA));
+    await user.click(screen.getByRole("button", { name: "Retirer Comptoir Bêta de l’article" }));
+
+    await waitFor(() => expect(preferred).toHaveValue(""));
+    expect(preferred).toHaveDisplayValue("Aucun : celui du type de fourniture");
+    expect(screen.queryByText("privilégié")).not.toBeInTheDocument();
+    expect(within(preferred).queryByRole("option", { name: "Fournisseur retiré de l’article" })).not.toBeInTheDocument();
   });
 
   it("keeps a supplier listed and says why when its withdrawal is refused (4, 6)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_BETA] }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_BETA], preferred_supplier_id: null }),
       [`PUT ${ITEMS_URL}`]: refused("La gestion du catalogue est réservée aux administrateurs."),
     };
     renderForm();
@@ -252,14 +280,14 @@ describe("ProductFormModal, suppliers of the article", () => {
   it("saves the article's preferred supplier among its suppliers, and none (5)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA, ITEM_GAMMA_WITHDRAWN] }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA, ITEM_GAMMA_WITHDRAWN], preferred_supplier_id: ALPHA }),
       [`PATCH ${PREFERRED_URL}`]: (body) => ok({ preferred_supplier_id: (body as { preferred_supplier_id: string | null }).preferred_supplier_id }),
     };
-    // The catalogue's list does not carry the exception; the record opened by its id does.
-    renderForm({ ...PRODUCT, preferred_supplier_id: ALPHA });
+    renderForm();
 
     const preferred = await screen.findByLabelText("Fournisseur privilégié pour cet article");
     await waitFor(() => expect(preferred).toHaveValue(ALPHA));
+    expect(preferred).toHaveAccessibleDescription(expect.stringContaining("Proposé avant le fournisseur du type"));
     expect(within(preferred).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Aucun : celui du type de fourniture",
       "Négoce Alpha",
@@ -281,10 +309,10 @@ describe("ProductFormModal, suppliers of the article", () => {
   it("goes back to the saved preferred supplier and says why when the choice is refused (5, 6)", async () => {
     const user = userEvent.setup({ delay: null });
     routes = {
-      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA] }),
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA], preferred_supplier_id: ALPHA }),
       [`PATCH ${PREFERRED_URL}`]: refused("La gestion du catalogue est réservée aux administrateurs."),
     };
-    renderForm({ ...PRODUCT, preferred_supplier_id: ALPHA });
+    renderForm();
 
     const preferred = await screen.findByLabelText("Fournisseur privilégié pour cet article");
     await waitFor(() => expect(preferred).toHaveValue(ALPHA));
@@ -292,6 +320,41 @@ describe("ProductFormModal, suppliers of the article", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("La gestion du catalogue est réservée aux administrateurs.");
     expect(preferred).toHaveValue(ALPHA);
+  });
+
+  it("keeps the preferred select usable while it saves, one save after another, the last choice winning (9)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const answers: Array<() => void> = [];
+    routes = {
+      [`GET ${ITEMS_URL}`]: ok({ items: [ITEM_ALPHA, ITEM_BETA], preferred_supplier_id: null }),
+      [`PATCH ${PREFERRED_URL}`]: (body) =>
+        new Promise<Reply>((resolve) => {
+          answers.push(() => resolve(ok({ preferred_supplier_id: (body as { preferred_supplier_id: string | null }).preferred_supplier_id })));
+        }),
+    };
+    renderForm();
+
+    const preferred = await screen.findByLabelText("Fournisseur privilégié pour cet article");
+    await waitFor(() => expect(within(preferred).getAllByRole("option")).toHaveLength(3));
+    preferred.focus();
+    // Arrow keys through the options: each one is a change.
+    await user.selectOptions(preferred, ALPHA);
+    expect(preferred).toBeEnabled();
+    expect(preferred).toHaveFocus();
+    await user.selectOptions(preferred, BETA);
+    expect(preferred).toHaveValue(BETA);
+    // The second save waits for the first answer: the server receives them in the order chosen.
+    expect(writes()).toHaveLength(1);
+
+    answers[0]();
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(preferred).toHaveValue(BETA);
+    answers[1]();
+
+    expect(await screen.findByText("Fournisseur privilégié enregistré.")).toBeVisible();
+    expect(writes().map((call) => call.body)).toEqual([{ preferred_supplier_id: ALPHA }, { preferred_supplier_id: BETA }]);
+    expect(preferred).toHaveValue(BETA);
+    expect(preferred).toHaveFocus();
   });
 
   it("asks nothing for an article being created (7)", () => {
