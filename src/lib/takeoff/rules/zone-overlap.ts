@@ -38,6 +38,12 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   no line of its own reading draws on the other page (restOf), and only these
 //   rests are compared (restCoverage), every line of a page against the other
 //   page's in one pass.
+// - Coverage (TI-684, D14: « le plan d'ensemble contrôle la couverture »): what
+//   a line of an overview draws inside the perimeter of an enlarged plan, and
+//   that no line of an enlarged plan draws (uncoveredWithin). The perimeter of a
+//   plan for a network is the rectangle that holds what it draws of that network
+//   (perimeterOf): a plan says nothing of a network it does not show, nor of
+//   what lies beyond its own drawing.
 
 // 2 (TI-684): copies whose readings contradict each other are compared. The version is part of every failure key
 // (failure-keys.ts): the next recomputation of a version reopens the verified lines of its completed, non-applied jobs
@@ -81,6 +87,12 @@ export const ZONE_OVERLAP = {
 export function isEnlargedPlan(detail: number | null | undefined, overview: number | null | undefined) {
   return typeof detail === "number" && typeof overview === "number" && detail > 0 && overview >= detail * ZONE_OVERLAP.enlargedRatio;
 }
+
+/**
+ * Coverage of an overview by its enlarged plans (TI-684, D14), a rule of its own (zone_coverage): its version moves
+ * with the perimeter, the thresholds it shares with the duplicates (ZONE_OVERLAP) or the reading of a covered stretch.
+ */
+export const ZONE_COVERAGE_VERSION = 1;
 
 export type Centreline = [number, number, number, number];
 
@@ -406,6 +418,117 @@ export function stretchLength(stretches: readonly Stretch[]) {
   return millimetres(unionLength(stretches));
 }
 
+/** A rectangle of a page, in page metres: [x0, y0, x1, y1] with x0 ≤ x1 and y0 ≤ y1. */
+export type Perimeter = [number, number, number, number];
+
+/** The rectangle that holds every centreline given (finite ones only); null when there is none. */
+export function perimeterOf(segments: Iterable<Centreline>): Perimeter | null {
+  let box: Perimeter | null = null;
+  for (const [x0, y0, x1, y1] of segments) {
+    if (![x0, y0, x1, y1].every(Number.isFinite)) continue;
+    const [left, top, right, bottom] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+    box = box ? [Math.min(box[0], left), Math.min(box[1], top), Math.max(box[2], right), Math.max(box[3], bottom)] : [left, top, right, bottom];
+  }
+  return box;
+}
+
+/**
+ * The part of a centreline inside a perimeter, as metres along it, or null. A run within ZONE_OVERLAP.distance_m of
+ * the perimeter's side, along it (parallel within ZONE_OVERLAP.angle_deg), is inside: it is the copy of the run that
+ * draws that side, as near as two copies lie. The perimeter is widened for such a run only, across it: any run that
+ * leaves the perimeter is inside up to its side, to the millimetre, whatever its angle.
+ */
+function within([x0, y0, x1, y1]: Centreline, [left, top, right, bottom]: Perimeter): [number, number] | null {
+  const length = Math.hypot(x1 - x0, y1 - y0);
+  if (!(length > 0)) return null;
+  const ux = (x1 - x0) / length, uy = (y1 - y0) / length;
+  const parallel = Math.sin((ZONE_OVERLAP.angle_deg * Math.PI) / 180);
+  const [wx, wy] = [(Math.abs(ux) <= parallel ? ZONE_OVERLAP.distance_m : 0) + EPSILON_M, (Math.abs(uy) <= parallel ? ZONE_OVERLAP.distance_m : 0) + EPSILON_M];
+  let lo = 0, hi = length;
+  for (const [origin, direction, least, most] of [[x0, ux, left - wx, right + wx], [y0, uy, top - wy, bottom + wy]]) {
+    if (direction === 0) {
+      if (origin < least || origin > most) return null;
+      continue;
+    }
+    const [a, b] = [(least - origin) / direction, (most - origin) / direction];
+    lo = Math.max(lo, Math.min(a, b));
+    hi = Math.min(hi, Math.max(a, b));
+  }
+  return hi - lo > EPSILON_M ? [lo, hi] : null;
+}
+
+/** The stretches of a line inside any of the perimeters (given in the line's page metres), centreline by centreline. */
+function insideStretches(line: OverlapLine, perimeters: readonly Perimeter[]) {
+  const inside = new Map<number, Array<[number, number]>>();
+  for (const [index, segment] of line.segments.entries()) {
+    const intervals = union(perimeters.flatMap((perimeter) => {
+      const interval = within(segment, perimeter);
+      return interval ? [interval] : [];
+    }));
+    if (intervals.length > 0) inside.set(index, intervals);
+  }
+  return inside;
+}
+
+/** Length of a line inside any of the perimeters (given in the line's page metres), two perimeters over one place counted once. */
+export function lengthWithin(line: OverlapLine, perimeters: readonly Perimeter[]) {
+  let total = 0;
+  for (const intervals of insideStretches(line, perimeters).values()) for (const [lo, hi] of intervals) total += hi - lo;
+  return millimetres(total);
+}
+
+/**
+ * What a line draws inside the perimeters and that nothing draws again (coverage, TI-684 D14): the line's stretches
+ * inside any perimeter, less the stretches `drawn` (CoverageCache.of or restCoverage: what lines of the enlarged plans
+ * draw of it), as stretches of the line in its page metres.
+ * - Two drawn stretches of one centreline less than `minimum` apart are one run (the dashes of the other plan): their
+ *   gap is drawn.
+ * - Beside a drawn stretch, a piece no longer than ZONE_OVERLAP.distance_m is none (restOf: two plans registered within
+ *   that distance leave such a sliver at the end of every dash).
+ * - Like a duplicate, an uncovered run counts from `minimum` (minCommonLength) of continuous length: its pieces that
+ *   continue one another (a corner, or the line's own dashes) are one run, a run that stops a few centimetres short on
+ *   the other plan is not.
+ */
+export function uncoveredWithin(line: OverlapLine, drawn: readonly Stretch[], perimeters: readonly Perimeter[], minimum: number): Stretch[] {
+  const covered = new Map<number, Array<[number, number]>>();
+  for (const { segment, lo, hi } of drawn) covered.set(segment, [...(covered.get(segment) ?? []), [lo, hi]]);
+  const pieces: Stretch[] = [];
+  for (const [index, inside] of insideStretches(line, perimeters)) {
+    const [x0, y0, x1, y1] = line.segments[index];
+    const length = Math.hypot(x1 - x0, y1 - y0);
+    // The drawn stretches of this centreline, those of one run joined across their gaps.
+    const copies: Array<[number, number]> = [];
+    for (const [lo, hi] of union(covered.get(index) ?? [])) {
+      const last = copies[copies.length - 1];
+      if (last && lo - last[1] < minimum - EPSILON_M) last[1] = hi;
+      else copies.push([lo, hi]);
+    }
+    const least = copies.length > 0 ? ZONE_OVERLAP.distance_m + EPSILON_M : EPSILON_M;
+    for (const [start, end] of inside) {
+      let from = start;
+      for (const [lo, hi] of [...copies, [end, end] as [number, number]]) {
+        const to = Math.min(end, lo);
+        if (to - from > least) {
+          pieces.push({ segment: index, lo: from, hi: to, at: [x0 + ((x1 - x0) * from) / length, y0 + ((y1 - y0) * from) / length,
+            x0 + ((x1 - x0) * to) / length, y0 + ((y1 - y0) * to) / length] });
+        }
+        from = Math.max(from, Math.min(end, hi));
+      }
+    }
+  }
+  return continuous(pieces, minimum);
+}
+
+/** Length of `stretches` of a line (its page metres) inside a perimeter: whether an uncovered run lies in a plan's perimeter. */
+export function stretchesWithin(stretches: readonly Stretch[], perimeter: Perimeter) {
+  let total = 0;
+  for (const { at } of stretches) {
+    const interval = within(at, perimeter);
+    if (interval) total += interval[1] - interval[0];
+  }
+  return millimetres(total);
+}
+
 export type DuplicatePair = { left: string; right: string; overlap_m: number };
 
 /**
@@ -433,5 +556,23 @@ export function settlePair(overlap_m: number, reductions: readonly [number, numb
   const deficit = Math.max(0, millimetres(overlap_m - removed));
   const tolerance = ZONE_OVERLAP.settle_m * Math.max(1, reductions.filter((reduction) => reduction > EPSILON_M).length);
   const settled = deficit <= tolerance + EPSILON_M;
+  return { settled, deficit_m: settled ? 0 : deficit };
+}
+
+/** What an isolated pair leaves to one line's reduction: its common length less what the other line removed of it. */
+export function pairShare(overlap_m: number, other: number) {
+  return Math.max(0, overlap_m - Math.min(overlap_m, Math.max(0, other)));
+}
+
+/**
+ * Whether a line's own reduction removes a length it alone draws (coverage, TI-684), past what its duplicates take of
+ * that reduction (`owed_m`: a reduction says how much, never where, and duplicates come first). Within a centimetre,
+ * and a second one when another line's reduction settled part of those duplicates (`shared`): the pair was then settled
+ * within two. `deficit_m`: what the line still counts of that length.
+ */
+export function settleCoverage(length_m: number, reduction: number, owed_m: number, shared: boolean): { settled: boolean; deficit_m: number } {
+  const removed = Math.min(length_m, Math.max(0, reduction - owed_m));
+  const deficit = Math.max(0, millimetres(length_m - removed));
+  const settled = deficit <= ZONE_OVERLAP.settle_m * (shared ? 2 : 1) + EPSILON_M;
   return { settled, deficit_m: settled ? 0 : deficit };
 }

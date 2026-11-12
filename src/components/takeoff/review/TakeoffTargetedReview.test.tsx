@@ -346,6 +346,44 @@ describe("TakeoffTargetedReview", () => {
     expect(within(section).queryByRole("button", { name: /^Retirer/ })).toBeNull();
   });
 
+  // TI-684, coverage by the overview (written before the code): the failure was listed with its reason only, nothing
+  // said how much to remove nor offered it.
+  it("offers to remove what the enlarged plan does not draw of an overview's line, or to accept it", async () => {
+    const uncovered: TakeoffRuleResult = { rule: "zone_coverage", status: "fail", code: "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN", version: 101,
+      acceptable: true, reason: "Tronçon du plan d’ensemble que le plan agrandi (Z2) ne dessine pas.", details: { level: "R+1", uncovered_m: 2 } };
+    const overviewLine = item(ids.z1, "EF Z1", 5, [uncovered]);
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], overviewLine, ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Couverture des plans agrandis" });
+    expect(within(section).getByText(/Longueur encore comptée que le plan agrandi ne dessine pas/)).toHaveTextContent("2,00 m");
+    expect(within(section).getByText(/acceptez \(V\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Doublon entre zones" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(section).getByRole("button", { name: /^Retirer 2,00 m/ }));
+    });
+    expect(patchTakeoffItems).toHaveBeenCalledWith(JOB_ID, { items: [{ item_id: ids.z1, updated_at: overviewLine.updated_at,
+      expected_rules_evaluated_at: overviewLine.rules_evaluated_at, fields: { quantity: 3 } }] });
+  });
+
+  it("asks to settle the duplicate first when the overview's line carries both failures", async () => {
+    const uncovered: TakeoffRuleResult = { rule: "zone_coverage", status: "fail", code: "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN", version: 101,
+      acceptable: true, reason: "Tronçon du plan d’ensemble que le plan agrandi (Z2) ne dessine pas.", details: { level: "R+1", uncovered_m: 2, owed_m: 1 } };
+    vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+      job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: [ITEMS[0], item(ids.z1, "EF Z1", 5, [duplicate(ids.z2, "Z2"), uncovered]), ITEMS[2]], pagination: { total: 3, offset: 0, limit: 200 } },
+    } as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    const section = screen.getByRole("region", { name: "Couverture des plans agrandis" });
+    expect(within(section).getByText(/Réglez d’abord le doublon/)).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: /^Retirer/ })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Doublon entre zones" })).getByRole("button", { name: /^Retirer 1,00 m/ })).toBeInTheDocument();
+  });
+
   it("reads the partner of a settled pair back with the saved line", async () => {
     const settledZ1 = { ...ITEMS[1], quantity: 4, rule_results: [resolved(ids.z2, "Z2")], updated_at: "2026-11-04T10:01:00.000Z" };
     vi.mocked(patchTakeoffItems).mockResolvedValue({ results: [{ item_id: ids.z1, success: true, item: settledZ1 }], succeeded: 1, failed: 0,

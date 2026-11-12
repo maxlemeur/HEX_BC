@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { blockingRules, isRuleBlocked } from "@/lib/takeoff/rules/blocking";
-import { evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
+import { TAKEOFF_RULE_VERSIONS, evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
+import { ruleFailureKeys } from "@/lib/takeoff/rules/failure-keys";
 import { nonObservableCause, ruleInputsFromDesignation, ruleInputsFromVector } from "@/lib/takeoff/rules/inputs";
 import { NETWORK_MATERIALS, checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import { REGISTRATION, registerPages, type PageAnchors } from "@/lib/takeoff/rules/registration";
@@ -1271,6 +1272,244 @@ describe("duplicate runs between zones", () => {
       geometry: { segments_m: dashes(1 + index * 0.4 + slot * 0.2, -40 * slot), polygon_m: null, length_m: 80, area_m2: null } })));
     const { results } = evaluateTakeoffRules({ pages, lines });
     expect(lines.every((entry) => rule(results, entry.id, "zone_overlap")?.code === "ZONE_OVERLAP_NONE")).toBe(true);
+  });
+});
+
+// Coverage of an overview by its enlarged plans (TI-684, D14: « le plan d'ensemble contrôle la couverture »), written
+// before the code. Until this rule, a run the overview draws inside the perimeter of an enlarged plan that the enlarged
+// plan does not draw counted from the overview without a word: a run the detail's reading missed, or a copy drawn too
+// far from its twin to be seen as a duplicate. What could go wrong:
+// - a run the detail does not draw passes, or a run it draws (in dashes, excluded, read differently) fails;
+// - a run outside the perimeter fails (a zone without its own enlarged plan is the overview's to count);
+// - a detail that shows one network makes the overview's other networks fail;
+// - the result depends on the order of pages or lines, or two plans of one scale control each other;
+// - a reduction spent on a duplicate settles the coverage too; a V survives a longer uncovered length.
+describe("coverage of an overview by its enlarged plans (TI-684, D14)", () => {
+  type Seg = [number, number, number, number];
+  type Drawn = { id: string; slot: number; segments: Seg[]; quantity?: number; network?: TakeoffRuleInputs["network"];
+    kind?: TakeoffRuleInputs["kind"]; excluded?: boolean; frozen?: boolean };
+  type Sheet = { slot: number; denominator: number | null; anchors?: null };
+  const lengthOf = (segments: Seg[]) => segments.reduce((sum, [x0, y0, x1, y1]) => sum + Math.hypot(x1 - x0, y1 - y0), 0);
+  /** Lines given in the building's frame, each on the page of its slot (a sheet shifted by -40 m per slot), in a page order. */
+  function plans(sheets: Sheet[], lines: Drawn[], orders = sheets.map((_, index) => index), reverse = false) {
+    const pages = sheets.map(({ slot, denominator, anchors }, index) => page(`job-${slot}#1`, { order: orders[index] * 10_000, zone: `Z${slot + 1}`,
+      denominator, anchors: anchors === null ? null : sheet(-40 * slot, 0, { titleBlock: 10 }) }));
+    const built = lines.map(({ id, slot, segments, quantity, network, kind, excluded, frozen }) => line(id, { job_id: `job-${slot}`,
+      page_key: `job-${slot}#1`, designation: `${network ?? "EF"} Inox 316L DN 22 (${id})`, quantity: quantity ?? Math.round(lengthOf(segments) * 1000) / 1000,
+      is_excluded: excluded ?? false, frozen: frozen ?? false, inputs: inputs({ network: network ?? "EF", kind: kind ?? "network" }),
+      geometry: { segments_m: segments.map(([x0, y0, x1, y1]): Seg => [x0 - 40 * slot, y0, x1 - 40 * slot, y1]), polygon_m: null,
+        length_m: Math.round(lengthOf(segments) * 1000) / 1000, area_m2: null } }));
+    return evaluateTakeoffRules({ pages: reverse ? pages.reverse() : pages, lines: reverse ? built.reverse() : built });
+  }
+  const coverage = (results: Map<string, TakeoffRuleResult[]>, id: string) => rule(results, id, "zone_coverage");
+  const outcome = (results: Map<string, TakeoffRuleResult[]>, ids: string[]) => ids.map((id) => {
+    const [overlap, covered] = [rule(results, id, "zone_overlap"), coverage(results, id)];
+    return `${id}:${overlap?.code}:${overlap?.details?.overlap_m ?? "-"}|${covered?.code ?? "-"}:${covered?.details?.uncovered_m ?? "-"}`;
+  });
+  /** One outcome whatever the order of the pages and of the lines. */
+  function inEveryOrder(sheets: Sheet[], lines: Drawn[], ids: string[]) {
+    const seen = new Set<string>();
+    for (const orders of permutations(sheets.map((_, index) => index))) {
+      for (const reverse of [false, true]) {
+        const { results } = plans(sheets, lines, orders, reverse);
+        seen.add(JSON.stringify([outcome(results, ids), ids.map((id) => [coverage(results, id)?.details?.quantity_context_key ?? null,
+          coverage(results, id)?.reason ?? null])]));
+      }
+    }
+    expect([...seen], "one outcome whatever the order").toHaveLength(1);
+    return (JSON.parse([...seen][0]) as [string[], unknown])[0];
+  }
+  // Z1 at 1/50 draws two cold water runs, 0–10 m at y = 1 and y = 5: its perimeter for cold water is that rectangle.
+  const detail: Sheet = { slot: 0, denominator: 50 };
+  const overview: Sheet = { slot: 1, denominator: 100 };
+  const a: Drawn = { id: "A", slot: 0, segments: [[0, 1, 10, 1]] };
+  const b: Drawn = { id: "B", slot: 0, segments: [[0, 5, 10, 5]] };
+  const copyOfA: Drawn = { id: "G1", slot: 1, segments: [[0, 1, 10, 1]] };
+  const inside: Drawn = { id: "G2", slot: 1, segments: [[2, 3, 8, 3]] };
+  const FAIL = "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN";
+
+  it("fails the overview's run that lies in the perimeter of an enlarged plan which does not draw it", () => {
+    expect(inEveryOrder([detail, overview], [a, b, copyOfA, inside], ["A", "B", "G1", "G2"])).toEqual([
+      "A:ZONE_OVERLAP_DUPLICATE:10|-:-", "B:ZONE_OVERLAP_NONE:-|-:-",
+      "G1:ZONE_OVERLAP_DUPLICATE:10|ZONE_COVERAGE_COMPLETE:-", `G2:ZONE_OVERLAP_NONE:-|${FAIL}:6`,
+    ]);
+    const result = coverage(plans([detail, overview], [a, b, copyOfA, inside]).results, "G2");
+    expect(result).toMatchObject({ rule: "zone_coverage", status: "fail", acceptable: true, details: { level: "R+1", uncovered_m: 6 } });
+    expect(result?.reason).toContain("6,00 m");
+    expect(result?.reason).toContain("Z1");
+    expect(result?.reason).toContain("acceptez (V)");
+  });
+
+  it("leaves to the overview what it draws outside every perimeter, and counts only the part inside", () => {
+    const outside: Drawn = { id: "G3", slot: 1, segments: [[12, 3, 20, 3]] };
+    const across: Drawn = { id: "G4", slot: 1, segments: [[8, 3, 14, 3]] };
+    expect(inEveryOrder([detail, overview], [a, b, outside, across], ["G3", "G4"]))
+      .toEqual(["G3:ZONE_OVERLAP_NONE:-|-:-", `G4:ZONE_OVERLAP_NONE:-|${FAIL}:2`]);
+  });
+
+  it("controls a network only where the enlarged plan draws that network, and a pipe apart from its insulation", () => {
+    // Z1 shows cold water only (a sheet per network): it says nothing of the overview's waste water or insulation.
+    const waste: Drawn = { ...inside, id: "EU1", network: "EU" };
+    const lagging: Drawn = { ...inside, id: "CAL1", kind: "insulation" };
+    expect(inEveryOrder([detail, overview], [a, b, waste, lagging], ["EU1", "CAL1"]))
+      .toEqual(["EU1:ZONE_OVERLAP_NONE:-|-:-", "CAL1:ZONE_OVERLAP_NONE:-|-:-"]);
+  });
+
+  it("never lets two plans of one scale, an unread scale or unregistered plans control each other", () => {
+    for (const sheets of [[detail, { ...overview, denominator: 50 }], [detail, { ...overview, denominator: null }],
+      [{ ...detail, denominator: null }, overview], [detail, { ...overview, anchors: null }]] as Sheet[][]) {
+      const { results } = plans(sheets, [a, b, copyOfA, inside]);
+      expect(["A", "B", "G1", "G2"].map((id) => coverage(results, id))).toEqual([undefined, undefined, undefined, undefined]);
+    }
+  });
+
+  it("reads a run as drawn by the enlarged plan when its copy there is excluded, read differently or in dashes", () => {
+    const copy: Drawn = { id: "C", slot: 0, segments: [[2, 3, 8, 3]] };
+    const passes = (lines: Drawn[]) => inEveryOrder([detail, overview], [a, b, inside, ...lines], ["G2"])[0].split("|")[1];
+    // An exclusion settles a quantity: the run is still drawn on the enlarged plan.
+    expect(passes([{ ...copy, excluded: true }])).toBe("ZONE_COVERAGE_COMPLETE:-");
+    // Read as hot water there: a copy read differently, which the duplicate rule fails; the run is drawn.
+    expect(passes([{ ...copy, network: "ECS" }])).toBe("ZONE_COVERAGE_COMPLETE:-");
+    // Dashes of 20 cm, 8 cm apart, under a solid run: one run, its gaps are no uncovered length.
+    const dashes = Array.from({ length: 21 }, (_, index): Seg => [2 + index * 0.28, 3, 2 + index * 0.28 + 0.2, 3]);
+    expect(passes([{ ...copy, segments: dashes, quantity: 6 }])).toBe("ZONE_COVERAGE_COMPLETE:-");
+    // A copy that stops 20 cm short is the same run; one that stops 50 cm short leaves that length uncovered.
+    expect(passes([{ ...copy, segments: [[2, 3, 7.8, 3]] }])).toBe("ZONE_COVERAGE_COMPLETE:-");
+    expect(passes([{ ...copy, segments: [[2, 3, 7.5, 3]] }])).toBe(`${FAIL}:0.5`);
+  });
+
+  it("adds up the dashes of an overview's run the enlarged plan does not draw", () => {
+    // Dashes of 40 cm, 10 cm apart, from 2 to 8 m: 12 dashes, 4.8 m drawn.
+    const dashes = Array.from({ length: 12 }, (_, index): Seg => [2 + index * 0.5, 3, 2 + index * 0.5 + 0.4, 3]);
+    expect(inEveryOrder([detail, overview], [a, b, { ...inside, segments: dashes }], ["G2"])).toEqual([`G2:ZONE_OVERLAP_NONE:-|${FAIL}:4.8`]);
+  });
+
+  it("controls each zone by its own enlarged plan above two zones, and reads a run drawn by either", () => {
+    // Z1 draws 0–10 m, Z2 10.5–20 m; the overview's run at y = 5 is drawn by Z1, and by Z2 up to 15 m only.
+    const z2: Sheet = { slot: 2, denominator: 50 };
+    const lines: Drawn[] = [a, b,
+      { id: "C", slot: 2, segments: [[10.5, 1, 20, 1]] }, { id: "D", slot: 2, segments: [[10.5, 5, 15, 5]] }, { id: "E", slot: 2, segments: [[10.5, 3, 20, 3]] },
+      { id: "G", slot: 1, segments: [[0, 1, 20, 1]] }, { id: "H", slot: 1, segments: [[0, 5, 20, 5]] }];
+    expect(inEveryOrder([detail, overview, z2], lines, ["G", "H"]))
+      .toEqual(["G:ZONE_OVERLAP_DUPLICATE:19.5|ZONE_COVERAGE_COMPLETE:-", `H:ZONE_OVERLAP_DUPLICATE:14.5|${FAIL}:5`]);
+    // A run neither zone draws, across both perimeters (0.5 m between them is no zone's): both plans are named, in one order.
+    const both: Drawn[] = [...lines, { id: "M", slot: 1, segments: [[2, 4, 18, 4]] }];
+    expect(inEveryOrder([detail, overview, z2], both, ["M"])).toEqual([`M:ZONE_OVERLAP_NONE:-|${FAIL}:15.5`]);
+    expect(coverage(plans([detail, overview, z2], both).results, "M")?.reason).toContain("(Z1, Z3)");
+  });
+
+  it("stops a run at the side of the perimeter it leaves, and holds a run drawn along a side as inside", () => {
+    // From (7, 1.5) to (11, 5.5): the run leaves the perimeter at x = 10, 3 m further in x. No 5 cm is added along it.
+    const oblique: Drawn = { id: "G5", slot: 1, segments: [[7, 1.5, 11, 5.5]] };
+    expect(inEveryOrder([detail, overview], [a, b, oblique], ["G5"])).toEqual([`G5:ZONE_OVERLAP_NONE:-|${FAIL}:4.243`]);
+    // 4 cm past the side, along it: the copy of the run that draws that side, as near as two copies lie.
+    const along: Drawn = { id: "G6", slot: 1, segments: [[2, 5.04, 8, 5.04]] };
+    expect(inEveryOrder([detail, overview], [a, b, along], ["G6"])).toEqual(["G6:ZONE_OVERLAP_DUPLICATE:6|ZONE_COVERAGE_COMPLETE:-"]);
+    // 20 cm past the side: outside, the overview's to count.
+    expect(inEveryOrder([detail, overview], [a, b, { ...along, segments: [[2, 5.2, 8, 5.2]] }], ["G6"])).toEqual(["G6:ZONE_OVERLAP_NONE:-|-:-"]);
+  });
+
+  it("gives no result to an excluded line: it counts nothing, and its copies are not all compared", () => {
+    const { results } = plans([detail, overview], [a, b, { ...inside, excluded: true }]);
+    expect(coverage(results, "G2")).toBeUndefined();
+    // Two readings left out, the overview's and its copy on the enlarged plan: no « not drawn » beside their common length.
+    const copy: Drawn = { id: "C", slot: 0, segments: [[2, 3, 8, 3]], excluded: true };
+    expect(coverage(plans([detail, overview], [a, b, copy, { ...inside, excluded: true }]).results, "G2")).toBeUndefined();
+  });
+
+  it("settles by the overview's own reduction, once its duplicates are removed, or by V", () => {
+    // Z1 draws 0–6 m of the overview's run 0–15 m: 6 m are a duplicate, 4 m (6–10) are in Z1's perimeter and not drawn,
+    // 5 m are outside. A reduction says how much, never where: it removes the duplicate first.
+    const short: Drawn = { ...a, segments: [[0, 1, 6, 1]] };
+    const run = (quantity: number, detailQuantity = 6) => inEveryOrder([detail, overview],
+      [{ ...short, quantity: detailQuantity }, b, { id: "G", slot: 1, segments: [[0, 1, 15, 1]], quantity }], ["G"])[0];
+    expect(run(15)).toBe(`G:ZONE_OVERLAP_DUPLICATE:6|${FAIL}:4`);
+    expect(run(12)).toBe(`G:ZONE_OVERLAP_DUPLICATE:3|${FAIL}:4`);
+    expect(run(9)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:4`);
+    expect(run(7)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:2`);
+    expect(run(5)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    expect(run(5.01)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    // The detail carried 4 m of the duplicate: the overview owes it 2 m, the rest of its reduction removes the uncovered run.
+    expect(run(11, 2)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:2`);
+    expect(run(9, 2)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    // A pair settled within its two centimetres (both lines reduced): removing the uncovered length settles the line.
+    expect(run(12.02, 3)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:4`);
+    expect(run(8.02, 3)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    expect(run(8.04, 3)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:0.04`);
+    // V settles the line as verified: the failure is acceptable, and a verified line is not blocked by it.
+    const failure = coverage(plans([detail, overview], [short, b, { id: "G", slot: 1, segments: [[0, 1, 15, 1]], quantity: 9 }]).results, "G");
+    expect(failure).toMatchObject({ status: "fail", acceptable: true });
+    expect(isRuleBlocked([failure as TakeoffRuleResult], false, true)).toBe(false);
+    expect(isRuleBlocked([failure as TakeoffRuleResult], false, false)).toBe(true);
+  });
+
+  it("charges a line's reduction for the duplicates it must remove itself, never for those another line settled", () => {
+    // Two plans of one scale: G runs 6–21 m, P on the next sheet 15–25 m reduced by the 6 m they share. G owes that pair
+    // nothing: removing the 4 m (6–10) Z1 does not draw settles its coverage.
+    const peer = (quantity: number, peerQuantity = 4) => inEveryOrder([detail, overview, { slot: 2, denominator: 100 }], [a, b,
+      { id: "G", slot: 1, segments: [[6, 3, 21, 3]], quantity }, { id: "P", slot: 2, segments: [[15, 3, 25, 3]], quantity: peerQuantity }], ["G"])[0];
+    expect(peer(15)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:4`);
+    expect(peer(13)).toBe(`G:ZONE_OVERLAP_RESOLVED:-|${FAIL}:2`);
+    expect(peer(11)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    // P kept its 10 m: G's reduction removes the pair first (6 m), then the uncovered run.
+    expect(peer(11, 10)).toBe(`G:ZONE_OVERLAP_DUPLICATE:2|${FAIL}:4`);
+    expect(peer(5, 10)).toBe("G:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-");
+    // Three scales: L at 1/100 runs 6–16 m, its copy T at 1/200 yields to it. What T removed, L does not owe.
+    const scales = (quantity: number, top: number) => inEveryOrder([detail, overview, { slot: 2, denominator: 200 }], [a, b,
+      { id: "L", slot: 1, segments: [[6, 3, 16, 3]], quantity }, { id: "T", slot: 2, segments: [[6, 3, 16, 3]], quantity: top }], ["L", "T"]);
+    expect(scales(10, 0)).toEqual([`L:ZONE_OVERLAP_RESOLVED:-|${FAIL}:4`, "T:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_COMPLETE:-"]);
+    expect(scales(6, 0)).toEqual(["L:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-", "T:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_COMPLETE:-"]);
+    // The pair settles by either reduction: the 4 m L removed for it are spent, they never pay the uncovered run too.
+    expect(scales(6, 4)).toEqual([`L:ZONE_OVERLAP_RESOLVED:-|${FAIL}:4`, "T:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_COMPLETE:-"]);
+    expect(scales(2, 4)).toEqual(["L:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_RESOLVED:-", "T:ZONE_OVERLAP_RESOLVED:-|ZONE_COVERAGE_COMPLETE:-"]);
+  });
+
+  it("never lets two lines of a pair each count the other's reduction: what a line removes pays its own uncovered run first", () => {
+    // Two plans at 1/100 share 6 m (15–21 m). L has 4 m uncovered (6–10 m), P has 4 m too (its run at y = 2): 14 m to remove.
+    const pair = (quantity: number, peerQuantity: number) => inEveryOrder([detail, overview, { slot: 2, denominator: 100 }], [a, b,
+      { id: "L", slot: 1, segments: [[6, 3, 21, 3]], quantity }, { id: "P", slot: 2, segments: [[15, 3, 25, 3], [0, 2, 4, 2]], quantity: peerQuantity }],
+    ["L", "P"]).map((entry) => entry.split("|")[1]);
+    expect(pair(9, 14)).toEqual([`${FAIL}:4`, `${FAIL}:4`]);
+    // 10 m removed of 14: 4 m are still counted, whoever removed them.
+    expect(pair(9, 10)).toEqual([`${FAIL}:4`, `${FAIL}:4`]);
+    expect(pair(11, 8)).toEqual([`${FAIL}:4`, `${FAIL}:4`]);
+    expect(pair(5, 10)).toEqual(["ZONE_COVERAGE_RESOLVED:-", "ZONE_COVERAGE_RESOLVED:-"]);
+    expect(pair(9, 6)).toEqual(["ZONE_COVERAGE_RESOLVED:-", "ZONE_COVERAGE_RESOLVED:-"]);
+    expect(pair(7, 8)).toEqual(["ZONE_COVERAGE_RESOLVED:-", "ZONE_COVERAGE_RESOLVED:-"]);
+    // Three scales, two lines alone: L (1/100) has 4 m uncovered, its copy T (1/200) 4 m too and 10 m outside: 18 m to remove.
+    const scales = (quantity: number, top: number) => inEveryOrder([detail, overview, { slot: 2, denominator: 200 }], [a, b,
+      { id: "L", slot: 1, segments: [[6, 3, 16, 3]], quantity }, { id: "T", slot: 2, segments: [[6, 3, 16, 3], [0, 2, 4, 2], [30, 3, 40, 3]], quantity: top }],
+    ["L", "T"]).map((entry) => entry.split("|")[1]);
+    expect(scales(6, 14)).toEqual([`${FAIL}:4`, `${FAIL}:4`]);
+    expect(scales(2, 14)).toEqual(["ZONE_COVERAGE_RESOLVED:-", "ZONE_COVERAGE_RESOLVED:-"]);
+    expect(scales(6, 10)).toEqual(["ZONE_COVERAGE_RESOLVED:-", "ZONE_COVERAGE_RESOLVED:-"]);
+  });
+
+  it("says what the line's duplicates still take of a reduction, for the review to offer one only when it would remove the run", () => {
+    const owed = (lines: Drawn[], sheets: Sheet[], id: string) => coverage(plans(sheets, lines).results, id)?.details?.owed_m;
+    const short: Drawn = { ...a, segments: [[0, 1, 6, 1]] };
+    const g = (quantity: number): Drawn => ({ id: "G", slot: 1, segments: [[0, 1, 15, 1]], quantity });
+    expect(owed([short, b, g(15)], [detail, overview], "G")).toBe(6);
+    expect(owed([short, b, g(12)], [detail, overview], "G")).toBe(3);
+    expect(owed([short, b, g(9)], [detail, overview], "G")).toBeUndefined();
+    // L's duplicate is open, but it is its copy T's to remove (T yields to L, and L has another partner): L owes nothing.
+    const sheets: Sheet[] = [detail, overview, { slot: 2, denominator: 100 }, { slot: 3, denominator: 200 }];
+    const lines: Drawn[] = [a, b, { id: "L", slot: 1, segments: [[6, 3, 21, 3]] }, { id: "P", slot: 2, segments: [[15, 3, 25, 3]], quantity: 4 },
+      { id: "T", slot: 3, segments: [[6, 3, 21, 3]] }];
+    const { results } = plans(sheets, lines);
+    expect(rule(results, "L", "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(coverage(results, "L")).toMatchObject({ status: "fail", details: { uncovered_m: 4 } });
+    expect(coverage(results, "L")?.details?.owed_m).toBeUndefined();
+  });
+
+  it("names what a V accepted: a longer uncovered length, or another enlarged plan, is a failure nobody saw", () => {
+    const key = (lines: Drawn[], sheets: Sheet[] = [detail, overview]) => coverage(plans(sheets, lines).results, "G2")?.details?.quantity_context_key;
+    const first = key([a, b, inside]);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(key([a, b, inside, copyOfA])).toBe(first);
+    expect(key([a, b, { ...inside, segments: [[2, 3, 9, 3]] }])).not.toBe(first);
+    expect(ruleFailureKeys([coverage(plans([detail, overview], [a, b, inside]).results, "G2")]))
+      .toEqual([`zone_coverage|${FAIL}|${TAKEOFF_RULE_VERSIONS.zone_coverage}|${first}`]);
   });
 });
 
