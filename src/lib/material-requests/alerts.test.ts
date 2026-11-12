@@ -46,6 +46,8 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     duplicate_acknowledged: false,
     status: "draft",
     validated_at: null,
+    product_id: null,
+    product_match: null,
     ...partial,
   };
 }

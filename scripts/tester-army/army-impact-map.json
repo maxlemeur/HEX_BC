@@ -26,6 +26,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/intake-google-drive.e2e.ts",
+      "e2e/army/critical/material-request-articles.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/navigation-feedback.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
@@ -252,6 +253,7 @@
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/material-request-articles.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
@@ -762,17 +764,20 @@
     },
     {
       "id": "material-requests",
-      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine.",
+      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne.",
       "paths": [
         "src/app/dashboard/affaires/[projectId]/demandes-materiel/**",
         "src/components/material-requests/**",
         "src/lib/material-requests/**",
         "src/app/api/affaires/[projectId]/material-requests/**",
         "src/app/api/material-request-technicians/**",
-        "e2e/army/critical/material-requests.e2e.ts"
+        "src/app/api/products/[productId]/aliases/**",
+        "e2e/army/critical/material-requests.e2e.ts",
+        "e2e/army/critical/material-request-articles.e2e.ts"
       ],
       "journeys": [
-        "e2e/army/critical/material-requests.e2e.ts"
+        "e2e/army/critical/material-requests.e2e.ts",
+        "e2e/army/critical/material-request-articles.e2e.ts"
       ]
     },
     {

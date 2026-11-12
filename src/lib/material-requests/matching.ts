@@ -67,6 +67,17 @@ type PreparedArticle = {
 
 export type PreparedCatalogue = readonly PreparedArticle[];
 
+export type MatchOptions = {
+  /** How many proposals at most: five by default. */
+  limit?: number;
+  /**
+   * The office searches by hand (its own words replace the line's type): another size, material or angle
+   * is then proposed too, with a warning, after every article that agrees with the line. Without it, such
+   * an article is never proposed.
+   */
+  byHand?: boolean;
+};
+
 const MAX_CANDIDATES = 5;
 const MIN_SCORE = 40;
 const MIN_TYPE_SIMILARITY = 0.34;
@@ -195,7 +206,21 @@ function compareMaterials(line: ReadonlySet<string>, article: ReadonlySet<string
   return line.size === article.size ? "same" : "family";
 }
 
-export function matchLine(line: MatchRequestLine, catalogue: PreparedCatalogue): MatchCandidate[] {
+/**
+ * The proposals for a line, the safest first.
+ *
+ * The screen's bulk link relies on this output: it links a line to its first proposal only when that
+ * proposal comes by reference or by usual name and carries no warning. So every doubt about such a proposal
+ * is a warning here: a reference that names another size, a usual name that brings a size or a material the
+ * line does not give, several articles behind one reference or one usual name, a draft, another unit.
+ */
+export function matchLine(
+  line: MatchRequestLine,
+  catalogue: PreparedCatalogue,
+  options: MatchOptions = {},
+): MatchCandidate[] {
+  const limit = options.limit ?? MAX_CANDIDATES;
+  const byHand = options.byHand === true;
   const lineWords = words(line.product_type);
   const lineAngle = angleOf(line.product_type);
   const lineMaterial = words(line.material);
@@ -205,7 +230,7 @@ export function matchLine(line: MatchRequestLine, catalogue: PreparedCatalogue):
   const lineAlias = aliasKey(line.product_type);
   const lineUnit = normalizeMeasurementUnit(line.unit).unitCode;
 
-  const candidates: MatchCandidate[] = [];
+  const candidates: Array<MatchCandidate & { mismatches: number }> = [];
   for (const entry of catalogue) {
     const size = compareSizes(lineSize, entry.size);
     const material = compareMaterials(lineMaterial, entry.materialWords);
@@ -214,6 +239,7 @@ export function matchLine(line: MatchRequestLine, catalogue: PreparedCatalogue):
 
     let via: MatchCandidate["via"] = "ranked";
     let score: number;
+    let mismatches = 0;
     if (lineReference.length >= 4 && entry.references.has(lineReference)) {
       via = "reference";
       score = 100;
@@ -222,12 +248,31 @@ export function matchLine(line: MatchRequestLine, catalogue: PreparedCatalogue):
         warnings.push(`La référence désigne une autre dimension (${entry.sizeLabel}) que la ligne (${lineSizeLabel}) : vérifiez.`);
       }
     } else {
-      if (size === "different" || material === "different") continue;
-      if (lineAngle !== null && entry.angle !== null && lineAngle !== entry.angle) continue;
+      const otherAngle = lineAngle !== null && entry.angle !== null && lineAngle !== entry.angle;
+      if (!byHand && (size === "different" || material === "different" || otherAngle)) continue;
+      if (size === "different") {
+        mismatches += 1;
+        warnings.push(`Autre dimension (${entry.sizeLabel ?? entry.article.dimensions?.trim()}) que la ligne (${lineSizeLabel ?? line.dimension?.trim()}).`);
+      }
+      if (material === "different") {
+        mismatches += 1;
+        warnings.push(`Autre matière (${entry.article.material?.trim()}) que la ligne (${line.material?.trim()}).`);
+      }
+      if (otherAngle) {
+        mismatches += 1;
+        warnings.push(`Autre angle (${entry.angle}°) que la ligne (${lineAngle}°).`);
+      }
       if (lineAlias && entry.aliases.has(lineAlias)) {
         via = "alias";
         score = 95;
         reasons.push("Nom usuel appris");
+        // A usual name says which piece, not which size or material: what the line leaves open, the office checks.
+        if (lineSize === null && entry.size !== null) {
+          warnings.push(`La ligne ne donne pas de dimension ; l’article est en ${entry.sizeLabel ?? entry.article.dimensions?.trim()} : vérifiez.`);
+        }
+        if (lineMaterial.size === 0 && entry.materialWords.size > 0) {
+          warnings.push(`La ligne ne donne pas de matière ; l’article est en ${entry.article.material?.trim()} : vérifiez.`);
+        }
       } else {
         const similarity = typeSimilarity(lineWords, entry.words);
         if (similarity < MIN_TYPE_SIMILARITY) continue;
@@ -251,11 +296,33 @@ export function matchLine(line: MatchRequestLine, catalogue: PreparedCatalogue):
       warnings.push("Article en brouillon : à valider dans le catalogue.");
     }
     if (via === "ranked" && score < MIN_SCORE) continue;
-    candidates.push({ product_id: entry.article.id, score: Math.max(0, Math.min(100, Math.round(score))), via, reasons, warnings });
+    // Searched by hand: what disagrees with the line comes after everything that agrees, and scores lower.
+    score -= 25 * mismatches;
+    candidates.push({
+      product_id: entry.article.id, score: Math.max(0, Math.min(100, Math.round(score))), via, reasons, warnings, mismatches,
+    });
   }
 
   const rank = { reference: 0, alias: 1, ranked: 2 } as const;
-  return candidates
-    .sort((left, right) => rank[left.via] - rank[right.via] || right.score - left.score)
-    .slice(0, MAX_CANDIDATES);
+  const sorted = candidates.sort((left, right) =>
+    Number(left.mismatches > 0) - Number(right.mismatches > 0)
+    || rank[left.via] - rank[right.via]
+    || right.score - left.score);
+
+  // Several articles behind the first tier (one reference, or one usual name taught on several articles):
+  // none of them is the obvious one. Counted before the limit, so that the cut cannot hide the tie.
+  const top = sorted[0];
+  if (top && top.mismatches === 0 && top.via !== "ranked") {
+    const tied = sorted.filter((candidate) => candidate.via === top.via && candidate.mismatches === 0);
+    if (tied.length > 1) {
+      const warning = top.via === "reference"
+        ? "Plusieurs articles portent cette référence : choisissez."
+        : "Plusieurs articles portent ce nom usuel : choisissez.";
+      for (const candidate of tied) candidate.warnings.push(warning);
+    }
+  }
+
+  return sorted.slice(0, limit).map((candidate) => ({
+    product_id: candidate.product_id, score: candidate.score, via: candidate.via, reasons: candidate.reasons, warnings: candidate.warnings,
+  }));
 }

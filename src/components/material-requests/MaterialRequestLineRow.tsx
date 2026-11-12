@@ -11,6 +11,8 @@ import {
   MATERIAL_REQUEST_IMPUTATION_LABELS,
   MATERIAL_REQUEST_IMPUTATIONS,
   type MaterialRequest,
+  type MaterialRequestArticleCandidate,
+  type MaterialRequestArticleSummary,
   type MaterialRequestImputation,
   type MaterialRequestLine,
   type MaterialRequestLineInput,
@@ -29,7 +31,8 @@ import {
   type ChoiceOption,
 } from "./cells";
 import { formatQuantity } from "./format";
-import type { LineChangeState, SaveResult } from "./useMaterialRequestEditor";
+import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
+import type { ArticleNotice, LineChangeState, LineProposals, SaveResult } from "./useMaterialRequestEditor";
 
 /** The fixed order of the columns (TI-690); the table header and the rows both follow it. */
 export const LINE_COLUMNS = [
@@ -44,6 +47,7 @@ export const LINE_COLUMNS = [
   { key: "supplier", label: "Fournisseur", width: "min-w-44" },
   { key: "zone", label: "Repère", width: "min-w-32" },
   { key: "imputation", label: "Imputation", width: "min-w-44" },
+  { key: "article", label: "Article", width: "min-w-72" },
 ] as const;
 
 /** Selection column, the columns above, then the status and its actions. */
@@ -74,6 +78,15 @@ type LineRowProps = Readonly<{
   onReopen: () => Promise<SaveResult>;
   materialListId: string;
   unitListId: string;
+  /** The article linked to the line, when there is one. */
+  article: MaterialRequestArticleSummary | null;
+  proposals: LineProposals;
+  articleNotice: ArticleNotice | undefined;
+  articleConflict: string | undefined;
+  onLinkArticle: (candidate: MaterialRequestArticleCandidate) => Promise<SaveResult>;
+  onUnlinkArticle: () => Promise<SaveResult>;
+  onOpenArticles: () => void;
+  onRetryProposals: () => void;
 }>;
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
@@ -145,7 +158,28 @@ function ReadCell({ children, alerts, id }: Readonly<{ children: ReactNode; aler
   );
 }
 
-function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onReopen }: LineRowProps) {
+function ArticleColumn(props: LineRowProps) {
+  return (
+    <td className={CELL}>
+      <MaterialRequestArticleCell
+        line={props.line}
+        article={props.article}
+        canWrite={props.canWrite}
+        proposals={props.proposals}
+        change={props.change}
+        notice={props.articleNotice}
+        conflict={props.articleConflict}
+        onLink={props.onLinkArticle}
+        onUnlink={props.onUnlinkArticle}
+        onOpenPanel={props.onOpenArticles}
+        onRetryProposals={props.onRetryProposals}
+      />
+    </td>
+  );
+}
+
+function SettledLineRow(props: LineRowProps) {
+  const { line, alerts, request, supplierOptions, canWrite, onReopen } = props;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
@@ -183,6 +217,7 @@ function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onRe
           {MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}
           {line.imputation === "overhead" && line.overhead_category ? ` · ${line.overhead_category}` : ""}
         </ReadCell>
+        <ArticleColumn {...props} />
         <td className={cn(CELL, "whitespace-nowrap")}>
           <div className="flex flex-wrap items-center gap-2">
             {validated ? (
@@ -234,21 +269,22 @@ function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onRe
   );
 }
 
-function EditableLineRow({
-  line,
-  alerts,
-  request,
-  supplierOptions,
-  selected,
-  onSelectedChange,
-  change,
-  onSave,
-  onForget,
-  onDelete,
-  onValidate,
-  materialListId,
-  unitListId,
-}: LineRowProps) {
+function EditableLineRow(props: LineRowProps) {
+  const {
+    line,
+    alerts,
+    request,
+    supplierOptions,
+    selected,
+    onSelectedChange,
+    change,
+    onSave,
+    onForget,
+    onDelete,
+    onValidate,
+    materialListId,
+    unitListId,
+  } = props;
   const [error, setError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const n = line.position;
@@ -393,6 +429,7 @@ function EditableLineRow({
             </div>
           ) : null}
         </td>
+        <ArticleColumn {...props} />
         <td className={cn(CELL, "whitespace-nowrap")}>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="neutral">Brouillon</Badge>

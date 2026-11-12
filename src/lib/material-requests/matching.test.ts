@@ -21,6 +21,12 @@ import { matchLine, prepareCatalogue, type MatchArticle, type MatchRequestLine }
  * 11. a one-letter typo of the technician (« colier ») finds nothing;
  * 12. an article whose size sits in its designation (« Double écrou M10 x 35 mm », dimension « pour
  *     profil … ») is proposed for an M12 line.
+ * 13. (review of delivery 3) a usual name proposes an article of a size or a material the line never gave,
+ *     without a warning: the screen's bulk link takes it, and the line's missing-dimension alert vanishes;
+ * 14. several articles behind one reference, or one usual name taught on several articles, come out as
+ *     several unwarned first-tier proposals: the bulk link picks one of them blindly;
+ * 15. a search by hand cannot reach another size, material or angle, so the office creates a duplicate
+ *     article; or, when it can, that article is not flagged or is ranked above the matching ones.
  */
 
 let next = 0;
@@ -142,11 +148,12 @@ describe("matchLine", () => {
     expect(matchLine(line({ product_type: "disque à tronçonner", dimension: "Ø 125" }), prepared)).toEqual([]);
   });
 
-  it("proposes at most five articles", () => {
+  it("proposes at most five articles, or the limit a search by hand asks for", () => {
     const many = prepareCatalogue(
       Array.from({ length: 12 }, (_, index) => article({ product_type: "Collier", material: "Supportage", dimensions: `DN${15 + index}` })),
     );
     expect(matchLine(line({ product_type: "collier" }), many).length).toBe(5);
+    expect(matchLine(line({ product_type: "collier" }), many, { limit: 10 }).length).toBe(10);
   });
 
   it("says when an article is a draft, and ranks it after an equal validated one", () => {
@@ -163,5 +170,55 @@ describe("matchLine", () => {
     const [first] = matchLine(line({ product_type: "tube", material: "Inox 304L serti", dimension: "DN 20", unit: "u" }), prepared);
     expect(first.product_id).toBe("tube-304se-20");
     expect(first.warnings).toContain("Unité de l’article : ml (ligne : u).");
+  });
+
+  it("warns when a usual name proposes a size or a material the line does not give", () => {
+    const [bare] = matchLine(line({ product_type: "goujon" }), prepared);
+    expect(bare).toMatchObject({ product_id: "tige-m10", via: "alias" });
+    expect(bare.warnings).toEqual([
+      "La ligne ne donne pas de dimension ; l’article est en M10 : vérifiez.",
+      "La ligne ne donne pas de matière ; l’article est en Supportage : vérifiez.",
+    ]);
+    const [described] = matchLine(line({ product_type: "goujon", dimension: "M10", material: "supportage" }), prepared);
+    expect(described).toMatchObject({ product_id: "tige-m10", via: "alias", warnings: [] });
+  });
+
+  it("warns every article behind one reference, and every article behind one usual name", () => {
+    const shared = prepareCatalogue([
+      article({ id: "vanne-a", product_type: "Vanne à boisseau", material: "Laiton", dimensions: "DN15", supplier_skus: ["VB-15"], aliases: ["quart de tour"] }),
+      article({ id: "vanne-b", product_type: "Vanne à boisseau papillon", material: "Laiton", dimensions: "DN15", supplier_skus: ["VB 15"], aliases: ["quart de tour"] }),
+      article({ id: "vanne-c", product_type: "Vanne à boisseau", material: "Laiton", dimensions: "DN20", supplier_skus: ["VB-20"] }),
+    ]);
+    const byReference = matchLine(line({ reference: "vb15", product_type: "vanne", material: "laiton", dimension: "DN15" }), shared);
+    expect(ids(byReference).slice(0, 2).sort()).toEqual(["vanne-a", "vanne-b"]);
+    for (const candidate of byReference.filter((entry) => entry.via === "reference")) {
+      expect(candidate.warnings).toContain("Plusieurs articles portent cette référence : choisissez.");
+    }
+    const byAlias = matchLine(line({ product_type: "quart de tour", material: "laiton", dimension: "DN15" }), shared);
+    expect(byAlias.filter((entry) => entry.via === "alias").map((entry) => entry.warnings)).toEqual([
+      ["Plusieurs articles portent ce nom usuel : choisissez."],
+      ["Plusieurs articles portent ce nom usuel : choisissez."],
+    ]);
+    const [alone] = matchLine(line({ reference: "VB-20", product_type: "vanne", material: "laiton", dimension: "DN20" }), shared);
+    expect(alone).toMatchObject({ product_id: "vanne-c", via: "reference", warnings: [] });
+  });
+
+  it("a search by hand reaches another size, material or angle, flagged and ranked after the matching ones", () => {
+    const search = line({ product_type: "té droit", material: "Inox 304L serti", dimension: "DN32" });
+    expect(ids(matchLine(search, prepared))).not.toContain("te-304se-25");
+    const byHand = matchLine(search, prepared, { byHand: true, limit: 10 });
+    const matching = ids(byHand).indexOf("te-304se-32");
+    const otherSize = byHand.find((candidate) => candidate.product_id === "te-304se-25");
+    const otherMaterial = byHand.find((candidate) => candidate.product_id === "te-316se-32");
+    expect(matching).toBe(0);
+    expect(otherSize?.warnings).toContain("Autre dimension (DN 25) que la ligne (DN 32).");
+    expect(otherMaterial?.warnings).toContain("Autre matière (Inox 316L serti) que la ligne (Inox 304L serti).");
+    expect(ids(byHand).indexOf("te-304se-25")).toBeGreaterThan(matching);
+    expect(ids(byHand).indexOf("te-316se-32")).toBeGreaterThan(matching);
+
+    const elbow = matchLine(line({ product_type: "coude 45°", dimension: "DN20" }), prepared, { byHand: true });
+    expect(ids(elbow)[0]).toBe("coude45-304se-20");
+    expect(elbow.find((candidate) => candidate.product_id === "coude90-304se-20")?.warnings)
+      .toContain("Autre angle (90°) que la ligne (45°).");
   });
 });

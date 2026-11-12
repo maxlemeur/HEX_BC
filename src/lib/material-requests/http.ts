@@ -11,6 +11,8 @@ export const requestParamsSchema = projectParamsSchema.extend({ requestId: id("r
 export const lineParamsSchema = requestParamsSchema.extend({ lineId: id("lineId") });
 export const fileParamsSchema = requestParamsSchema.extend({ fileId: id("fileId") });
 export const technicianParamsSchema = z.object({ technicianId: id("technicianId") });
+export const productParamsSchema = z.object({ productId: id("productId") });
+export const productAliasParamsSchema = productParamsSchema.extend({ aliasId: id("aliasId") });
 
 /**
  * The largest JSON body is 300 lines or a pasted message of 20,000 characters. No route here receives

@@ -25,7 +25,9 @@ import {
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
+import { readArticleSummaries } from "./articles-server";
 import {
+  DUPLICATE_KEYS,
   LINE_COLUMNS,
   REQUEST_COLUMNS,
   assertSuppliersInTenant,
@@ -133,6 +135,7 @@ export async function createMaterialRequest(
     technician: data.technician_id ? await readTechnician(context, data.technician_id) : null,
     files: [],
     lines: [],
+    articles: {},
   };
 }
 
@@ -168,7 +171,8 @@ export async function getMaterialRequestDetail(projectId: string, requestId: str
     readMaterialOptions(access),
     readSupplierOptions(access),
   ]);
-  return { request, technician, files, lines, canWrite: access.canWrite, materialOptions, supplierOptions };
+  const articles = await readArticleSummaries(access.context, lines.map((line) => line.product_id));
+  return { request, technician, files, lines, articles, canWrite: access.canWrite, materialOptions, supplierOptions };
 }
 
 type RequestPatch = Partial<Omit<UpdateMaterialRequestData, "expected_presumed_material" | "expected_presumed_supplier_id">>;
@@ -385,8 +389,6 @@ function selectLines(lines: readonly MaterialRequestLine[], ids: readonly string
 
 type LinePatch = Partial<MaterialRequestLineData> & { status?: MaterialRequestLine["status"] };
 
-/** What makes two lines the same piece (alerts.ts): once one of these changes, a kept duplicate is asked again. */
-const DUPLICATE_KEYS: ReadonlyArray<keyof MaterialRequestLineData> = ["product_type", "dimension", "material", "zone", "imputation"];
 
 function changes(line: MaterialRequestLine, patch: Partial<MaterialRequestLineData>, key: string): boolean {
   return key in patch && line[key as keyof MaterialRequestLineData] !== patch[key as keyof MaterialRequestLineData];

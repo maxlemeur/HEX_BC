@@ -29,6 +29,17 @@ export type MaterialRequestLineStatus = (typeof MATERIAL_REQUEST_LINE_STATUSES)[
 export const MATERIAL_REQUEST_FILE_ROTATIONS = [0, 90, 180, 270] as const;
 export type MaterialRequestFileRotation = (typeof MATERIAL_REQUEST_FILE_ROTATIONS)[number];
 
+/**
+ * How a line was linked to its catalogue article (delivery 3, « le rapprochement »): one of the proposals
+ * (by reference, by a usual name the office taught, by closeness), chosen by hand, or created from the line.
+ * Null exactly when the line has no article.
+ */
+/** A link or unlink refused because the line changed since it was read: nothing was written. */
+export const MATERIAL_REQUEST_LINE_CHANGED = "MATERIAL_REQUEST_LINE_CHANGED";
+
+export const MATERIAL_REQUEST_PRODUCT_MATCHES = ["reference", "alias", "ranked", "manual", "created"] as const;
+export type MaterialRequestProductMatch = (typeof MATERIAL_REQUEST_PRODUCT_MATCHES)[number];
+
 /** Originals are photographs of paper or screenshots of messages. */
 export const MATERIAL_REQUEST_FILE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const MATERIAL_REQUEST_FILE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"] as const;
@@ -107,6 +118,42 @@ export type MaterialRequestLine = {
   duplicate_acknowledged: boolean;
   status: MaterialRequestLineStatus;
   validated_at: string | null;
+  /** The catalogue article the office linked; its wording then fills the line's columns. */
+  product_id: string | null;
+  product_match: MaterialRequestProductMatch | null;
+};
+
+/** What the screen shows of a catalogue article beside a line. */
+export type MaterialRequestArticleSummary = {
+  id: string;
+  reference: string | null;
+  designation: string;
+  product_type: string | null;
+  material: string | null;
+  dimensions: string | null;
+  unit: string | null;
+  catalogue_status: "draft" | "validated";
+  /** Created from a request line: the catalogue shows « Nouveau » until it is validated. */
+  created_from_material_request: boolean;
+  supply_type_name: string | null;
+};
+
+/** A proposal: nothing is linked until the office chooses it. */
+export type MaterialRequestArticleCandidate = {
+  article: MaterialRequestArticleSummary;
+  /** 0 to 100, for ordering only. */
+  score: number;
+  via: "reference" | "alias" | "ranked";
+  reasons: string[];
+  warnings: string[];
+};
+
+/** Answer of a link (chosen or created): the line as it now reads, its article and the usual name learned. */
+export type MaterialRequestLineArticleResult = {
+  line: MaterialRequestLine;
+  article: MaterialRequestArticleSummary;
+  /** The line's former type words, now a usual name of the article; null when nothing new was learned. */
+  alias_learned: string | null;
 };
 
 export type MaterialRequestSummary = MaterialRequest & {
@@ -131,6 +178,8 @@ export type MaterialRequestDetail = {
   technician: MaterialRequestTechnician | null;
   files: MaterialRequestFile[];
   lines: MaterialRequestLine[];
+  /** Every article linked to a line of the request, by id. */
+  articles: Record<string, MaterialRequestArticleSummary>;
 };
 
 /*
@@ -278,6 +327,43 @@ export type BulkUpdateMaterialRequestLinesData = z.output<typeof bulkUpdateMater
 
 export const materialRequestLineIdsSchema = z
   .object({ ids: z.array(uuid).min(1).max(MATERIAL_REQUEST_MAX_LINES) })
+  .strict();
+
+/** Links a line to an existing article: a proposal (`via` as it was proposed) or one chosen by hand. */
+export const linkMaterialRequestLineArticleSchema = z
+  .object({
+    product_id: uuid,
+    via: z.enum(["reference", "alias", "ranked", "manual"]),
+  })
+  .strict();
+export type LinkMaterialRequestLineArticleInput = z.input<typeof linkMaterialRequestLineArticleSchema>;
+export type LinkMaterialRequestLineArticleData = z.output<typeof linkMaterialRequestLineArticleSchema>;
+
+function requiredText(max: number, message: string) {
+  return z.string().trim().min(1, message).max(max, `${max} caractères au plus.`);
+}
+
+/**
+ * Creates the article a line names and links it. The article is a draft of the catalogue, marked as
+ * created from a request; its designation defaults to type, material and size.
+ */
+export const createMaterialRequestLineArticleSchema = z
+  .object({
+    designation: requiredText(500, "La désignation ne peut pas être vide.").optional(),
+    product_type: requiredText(200, "Le type d’article est requis."),
+    material: requiredText(120, "La matière est requise."),
+    dimensions: optionalText(120),
+    unit: requiredText(20, "L’unité est requise."),
+    supply_type_id: uuid,
+    reference: optionalText(255),
+  })
+  .strict();
+export type CreateMaterialRequestLineArticleInput = z.input<typeof createMaterialRequestLineArticleSchema>;
+export type CreateMaterialRequestLineArticleData = z.output<typeof createMaterialRequestLineArticleSchema>;
+
+/** A search by hand for one line: these words replace the line's type words, size and material stay. */
+export const materialRequestLineCandidatesQuerySchema = z
+  .object({ q: z.string().trim().min(1, "Recherche vide.").max(200, "200 caractères au plus.").optional() })
   .strict();
 
 export const updateMaterialRequestFileSchema = z

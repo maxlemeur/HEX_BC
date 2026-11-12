@@ -11,7 +11,10 @@ import type { ProductView } from "@/components/products/product-view";
  *  2. a draft cannot be validated from its row, or the action reports another article;
  *  3. a validated article is shown as a draft, or offers a validation that means nothing for it;
  *  4. the validation can be sent twice while the first request is still running;
- *  5. the supply type an article is classified under is not shown.
+ *  5. the supply type an article is classified under is not shown;
+ *  6. a draft created from a material request (delivery 3) looks like any other draft, so the article
+ *     the office just added from a technician's line is not found to review; or a validated article
+ *     still reads as new.
  */
 
 function buildProduct(overrides: Partial<ProductView>): ProductView {
@@ -67,14 +70,14 @@ const VALIDATED = buildProduct({
   _supplyTypeName: "Tuyauterie inox",
 });
 
-function renderTable(updatingStatusId: string | null = null) {
+function renderTable(updatingStatusId: string | null = null, products: ProductView[] = [DRAFT, VALIDATED]) {
   const onValidate = vi.fn();
   render(
     <ProductsTable
-      products={[DRAFT, VALIDATED]}
+      products={products}
       isInitialLoading={false}
       isCatalogueEmpty={false}
-      totalItems={2}
+      totalItems={products.length}
       updatingStatusId={updatingStatusId}
       onCreate={vi.fn()}
       onTemplateImport={vi.fn()}
@@ -138,5 +141,26 @@ describe("ProductsTable, drafts", () => {
     await user.click(validate);
 
     expect(onValidate).not.toHaveBeenCalled();
+  });
+
+  it("marks a draft created from a material request as new, beside its draft mark, until it is validated (6)", () => {
+    const fromRequest = buildProduct({
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      designation: "Goujon d’ancrage M10",
+      reference: null,
+      catalogue_status: "draft",
+      created_from_material_request: true,
+    });
+    const validatedFromRequest = buildProduct({
+      id: "99999999-9999-4999-8999-999999999999",
+      designation: "Cheville métal M8",
+      created_from_material_request: true,
+    });
+    renderTable(null, [fromRequest, DRAFT, validatedFromRequest]);
+
+    expect(rowOf(fromRequest).getByText("Brouillon")).toBeInTheDocument();
+    expect(rowOf(fromRequest).getByText("Nouveau")).toBeInTheDocument();
+    expect(rowOf(DRAFT).queryByText("Nouveau")).not.toBeInTheDocument();
+    expect(rowOf(validatedFromRequest).queryByText("Nouveau")).not.toBeInTheDocument();
   });
 });
