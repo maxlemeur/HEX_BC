@@ -148,7 +148,12 @@ tiennent pas, le bouton n'insère rien et l'écran dit combien de caractères
 manquent ; à l'envoi, le blocage dit de même ce qui débloque (raccourcir
 « Établie sur », « À confirmer selon » ou le titre des lignes déclarées, alléger
 le reste des précisions, ou retirer la déclaration des lignes dont la phrase
-manque, qui repassent en simple avertissement). Le client lit la phrase dans les précisions et une ligne chiffrée
+manque, qui repassent en simple avertissement). Un choix déclaré (réserve ou
+quantité provisionnelle) que l'outil ne sait pas relire lève
+`offer_choice_unreadable`, bloquant sans forçage ni réglage du tenant : la ligne
+ne part ni comme déclarée ni comme une ligne que personne n'a déclarée ; un
+administrateur la déclare de nouveau depuis la ligne (bouton « Hypothèse »).
+Une ligne « Non chiffrée » dans ce cas reste simplement à classer. Le client lit la phrase dans les précisions et une ligne chiffrée
 ordinaire : aucun montant, contrat client ni sceau ne change ; la base et la
 précision restent internes, seul le CSV de la v3 les montre (colonne « Mention
 provisionnelle »). Même route et mêmes contrôles que la réserve ; le choix

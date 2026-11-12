@@ -217,5 +217,13 @@ describe("EstimateSendGatingDialog", () => {
       expect(message).toHaveTextContent("retirez la déclaration des lignes dont la phrase manque");
       expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
     });
+
+    it("names by title the lines whose declared choice cannot be read, without override", () => {
+      renderProvisional({ key: "offer_choice_unreadable", severity: "blocking", count: 1, itemIds: ["line-1"],
+        label: "Choix d'offre illisible", description: "Un administrateur la déclare de nouveau depuis la ligne." });
+      expect(screen.getByTestId("estimate-send-gating-unreadable-choice-line")).toHaveTextContent("Calorifuge");
+      expect(screen.queryByText(/line-1/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Forcer l'envoi" })).not.toBeInTheDocument();
+    });
   });
 });

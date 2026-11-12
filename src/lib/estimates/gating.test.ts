@@ -1045,6 +1045,30 @@ describe("estimate send gating", () => {
       }
     });
 
+    it("blocks a line whose declared choice cannot be read, without override: a declaration never falls back to a warning", async () => {
+      // The database only stores a choice it reads; the application reading it otherwise is a fault of the tool. The line
+      // then leaves neither as declared (no sentence can be written) nor as an hypothesis nobody declared.
+      const reserve = { kind: "reserve", basis: "private_estimate", code: "pending_survey", note: null,
+        decided_by: "11111111-1111-4111-8111-111111111111", decided_at: "2026-11-12T09:00:00.000000+00:00" };
+      const lines = [
+        pricedLine("line-unreadable", { offer_choice: provisional({ established_on: 12 }) }),
+        pricedLine("line-other-kind", { offer_choice: reserve, source_metadata: null }),
+        pricedLine("line-included", { pricing_status: "included", offer_choice: provisional() }),
+      ];
+      vi.mocked(getFeatureFlagValueForTenant).mockResolvedValueOnce(null).mockResolvedValueOnce("offer_choice_unreadable");
+      const result = await evaluate(lines, { exclusions: "Réseaux enterrés non compris." });
+      expect(keys(result)).toEqual({ blocking: ["offer_choice_unreadable"], warning: [] });
+      expect(result.blockingFlags[0]).toMatchObject({ severity: "blocking",
+        item_ids: ["line-included", "line-other-kind", "line-unreadable"], label: "Choix d'offre illisible" });
+      expect(() => resolveEstimateSendOverride(result, true)).toThrow(expect.objectContaining({
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: expect.objectContaining({ not_forceable: ["offer_choice_unreadable"] }),
+      }));
+      // Another engine carries no choice: nothing is read there.
+      expect(keys(await evaluate([pricedLine("line-unreadable", { offer_choice: provisional({ established_on: 12 }) })],
+        { engine: 2, exclusions: "Réseaux enterrés non compris." })).blocking).not.toContain("offer_choice_unreadable");
+    });
+
     it("lists the priced hypotheses nobody declared, as a warning only", async () => {
       const result = await evaluate([
         pricedLine("line-b-hypothesis"),
