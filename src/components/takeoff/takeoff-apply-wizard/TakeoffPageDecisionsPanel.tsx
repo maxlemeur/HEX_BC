@@ -107,7 +107,9 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
         <div className="space-y-1 text-sm">
           <h2 className="font-semibold text-foreground">{PAGE_DECISIONS_TITLE}</h2>
           <p className="text-foreground-secondary">
-            Ces pages sont déjà au devis par un autre métré. Une page n’entre qu’une fois : remplacez leur mesure précédente, ou gardez les deux avec un motif.
+            Ces pages sont déjà au devis par un autre métré. Une page n’entre qu’une fois : remplacez leur mesure précédente
+            {/* « Keep both » is named only where a page offers it. */}
+            {resolution.pages.some(({ page }) => !page.keep_both_refused) ? ", ou gardez les deux avec un motif." : "."}
           </p>
           {strategyNotice ? <p className="text-foreground-secondary">{strategyNotice}</p> : null}
         </div>

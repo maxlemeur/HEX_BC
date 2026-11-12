@@ -335,6 +335,9 @@ commit;`);
         await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
         await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
         await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
+        // Nowhere on this screen is « keep both » advised: no page offers it.
+        await expect(region).not.toContainText("gardez les deux");
+        await expect(region).not.toContainText("Gardez les deux");
         await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
         const screenshot = await ui.app.screenshot("ti682-dpgf-dead-end");
         await wizard.getByRole("button", "Annuler", { exact: true }).click();
