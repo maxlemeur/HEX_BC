@@ -467,7 +467,16 @@ try {
     if (mode !== "agent" && (report.run.usage.modelTokens !== 0 || report.run.usage.maxModelCallsInStep !== 0)) {
       throw new Error("Model-free smoke unexpectedly invoked a model.");
     }
-    const evidenceExitCode = childExitCode === 0 && successful.length === 0 ? 3 : childExitCode;
+    // The e2e CLI exits 0, with the run status "passed", when a journey only passed on a retry (flaky).
+    // A retry classifies a failure and never passes it: such a run is red here, before any launcher reads it.
+    const retried = results.filter((result) => result.selected &&
+      (result.status === "flaky" || (result.status === "passed" && (result.attempts?.length ?? 1) > 1)));
+    const passedOnRetry = retried.length > 0 || (report.run.summary?.flaky ?? 0) !== 0;
+    if (passedOnRetry) {
+      console.error(`Tester Army: ${retried.length} journey(s) passed only on a retry and keep this run red: ${
+        retried.slice(0, 20).map((result) => `${result.file} > ${result.titlePath.join(" > ")}`).join(", ") || "see report.json"}`);
+    }
+    const evidenceExitCode = childExitCode === 0 && successful.length === 0 ? 3 : childExitCode === 0 && passedOnRetry ? 1 : childExitCode;
     manifest.result = {
       status: report.run.status,
       exitCode: evidenceExitCode,
@@ -476,7 +485,10 @@ try {
       usage: report.run.usage,
       limits: report.run.limits,
       errors: report.run.errors ?? [],
-      tests: results.map((result) => ({ file: result.file, titlePath: result.titlePath, targetId: result.targetId, selected: result.selected, status: result.status, ...(result.skip ? { skip: result.skip } : {}) })),
+      tests: results.map((result) => ({ file: result.file, titlePath: result.titlePath, targetId: result.targetId, selected: result.selected, status: result.status, ...(result.skip ? { skip: result.skip } : {}),
+        // Attempts beyond the first, and a `test.fail` mark: what tells an intermittent or quarantined journey from a pass.
+        ...((result.attempts?.length ?? 1) > 1 ? { attempts: result.attempts.map((attempt) => attempt.status) } : {}),
+        ...(result.expectedFailure ? { expectedFailure: result.expectedFailure } : {}) })),
     };
     manifest.report = { path: relative(reportPath), sha256: digest(bytes) };
     // One list, SDK evidence first; each entry's prefix names its owner.

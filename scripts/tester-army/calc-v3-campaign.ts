@@ -12,6 +12,7 @@ import {
   CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
 } from "./calc-v3-phases";
 import { assertLocalAppPortAvailable, describeArmyRunFailure } from "./app-port";
+import { describeNotPassed, journeyOutcomes, quarantineProblems, type QuarantinedJourney } from "./journey-outcomes";
 import { buildSourceEvidence, prepareArmyTypeScriptConfig } from "./local-recipe-common.mjs";
 import { extractCollectedPdfTexts } from "./pdf-text";
 
@@ -28,7 +29,11 @@ type Collector = { server: Server; origin: string; directory: string; close: () 
 // phase never stops the ones after it. A phase passes only when
 // every selected result passed, nothing was skipped, retried, interrupted or
 // silently deselected, its server guard reported, the sources and build stayed
-// frozen and its evidence survived redaction.
+// frozen and its evidence survived redaction. In CI the runner asks for one
+// retry: a journey that needed it keeps its phase red and is named
+// "intermittent", apart from one that failed both attempts
+// (journey-outcomes.ts). A journey marked `test.fail` counts as passed, is
+// recorded as quarantined and needs a ticket in its reason.
 
 export type CalcV3CampaignInput = {
   root: string;
@@ -47,6 +52,10 @@ export type CalcV3CampaignInput = {
   phases?: readonly CalcV3Phase[];
   /** Filters the journeys of the single phase asked. */
   grep?: string;
+  /** Retries of a failed journey: one in CI, to classify its failure; a retried journey never passes its phase. */
+  retries?: 0 | 1;
+  /** The journeys marked `test.fail` that a phase ran, for the runner's manifest and job log. */
+  onQuarantined?: (phase: CalcV3Phase, journeys: QuarantinedJourney[]) => void;
   remember: (secret: string) => void;
   redact: (value: string) => string;
   /** Owned production build (scripts/tester-army/build-local.mjs), run once before production phases. */
@@ -168,6 +177,12 @@ function validateReport(phase: CalcV3Phase, output: string, startedAt: Date, fil
   for (const result of results) if (result.status === "passed") passedByFile[result.file] = (passedByFile[result.file] ?? 0) + 1;
   const summary = run.summary ?? {};
   const problems: string[] = [];
+  // Named first: which journeys did not pass, an intermittent one (passed on its retry; the e2e CLI exits 0
+  // on it) apart from one that failed every attempt. The checks below stay the proof that the phase is red.
+  const outcomes = journeyOutcomes(run);
+  const named = describeNotPassed(outcomes.notPassed, scrub);
+  if (named) problems.push(named);
+  problems.push(...quarantineProblems(outcomes.quarantined));
   if (run.exitCode !== 0 || (run.errors ?? []).length) {
     // An app that could not start (APP_ALREADY_RUNNING, APP_UNREACHABLE) is a run-level error: name it (TI-672).
     const causes = describeArmyRunFailure({ result: { errors: run.errors ?? [] } }, scrub);
@@ -188,6 +203,8 @@ function validateReport(phase: CalcV3Phase, output: string, startedAt: Date, fil
     expected: filtered ? "filtered: only the selected results are proven" : definition.expected,
     actual: passedByFile,
     results: results.map((result) => ({ file: result.file, kind: result.kind, titlePath: result.titlePath, status: result.status })),
+    // Expected failures (`test.fail`): counted as passed above, and proof of nothing.
+    quarantined: outcomes.quarantined,
     problems,
   };
 }
@@ -292,7 +309,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     environment.E2E_CALC_V3_OUTPUT = output;
     environment.E2E_ARMY_ARTIFACT_ROOT = path.join(output, "results");
     const args = [path.join(root, "node_modules", "e2e", "dist", "cli", "bin.js"), "run", "--config", "e2e.calc-v3.config.ts",
-      "--target", definition.target ?? "chromium-desktop", "--workers", "1", "--retries", "0", "--trace", "off", "--no-cache", ...(grep ? ["--grep", grep] : [])];
+      "--target", definition.target ?? "chromium-desktop", "--workers", "1", "--retries", String(input.retries ?? 0), "--trace", "off", "--no-cache", ...(grep ? ["--grep", grep] : [])];
     const buildBefore = definition.serverMode === "production" ? buildIdentity(root) : null;
     const startedAt = new Date();
     summary.command = [process.execPath, ...args.map((arg) => path.isAbsolute(arg) ? path.relative(root, arg).replaceAll("\\", "/") : arg)];
@@ -323,6 +340,10 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     }
     const validation = validateReport(phase, output, startedAt, filtered, scrub, input.appPort);
     summary.validation = validation;
+    if (validation.quarantined.length) {
+      summary.quarantined = validation.quarantined;
+      input.onQuarantined?.(phase, validation.quarantined);
+    }
     const problems = [...validation.problems];
     if (fixtureEffectError) problems.push(`fixture effects: ${fixtureEffectError}`);
     if (exitCode !== 0) problems.push(`TesterArmy exited ${exitCode}`);
@@ -409,13 +430,15 @@ export async function runCalcV3Campaign(input: CalcV3CampaignInput) {
   process.on("SIGTERM", onSigterm);
   try {
     const sourcesBefore = await campaignSources(input.root);
-    const campaign: Record<string, unknown> = { schemaVersion: "calc-v3-campaign-1", phases: [], selection: { phases: input.phases ?? "all", grep: input.grep ?? null }, sourcesBefore };
+    const campaign: Record<string, unknown> = { schemaVersion: "calc-v3-campaign-1", phases: [], selection: { phases: input.phases ?? "all", grep: input.grep ?? null },
+      retries: input.retries ?? 0, sourcesBefore };
     if (phases.some((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production")) await input.build();
     const failures: string[] = [];
     for (const phase of phases) {
       if (interrupted) { failures.push(`campaign stopped by ${interrupted} before ${phase}`); break; }
       const summary = await runPhase(input, phase, runStamp, scrub);
-      (campaign.phases as unknown[]).push({ phase, status: summary.status, evidence: `${phase}/phase.json`, ...(summary.error ? { error: summary.error } : {}) });
+      (campaign.phases as unknown[]).push({ phase, status: summary.status, evidence: `${phase}/phase.json`, ...(summary.error ? { error: summary.error } : {}),
+        ...(summary.quarantined ? { quarantined: summary.quarantined } : {}) });
       if (summary.status !== "passed") failures.push(`${phase}: ${summary.error ?? summary.evidenceError ?? "missing proof"}`);
     }
     const sourcesAfter = await campaignSources(input.root);
