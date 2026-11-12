@@ -75,7 +75,11 @@ returns text language sql as $$
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'content_hash', null, 'logical_document_id', null, 'file_name', 'plan-fictif.pdf'),
     'source_page', 1, 'earlier_job_ids', '[]'::jsonb, 'decision', %2$L, 'reason_code', %3$s, 'note', null,
     'lines', (select jsonb_agg(jsonb_build_object('estimate_item_id', item.id, 'expected_updated_at', item.updated_at,
-      'action', %4$L, 'take', %5$s, 'item_ids', '[]'::jsonb)) from public.estimate_items item
+      'action', %4$L, 'take', %5$s,
+      -- The earlier source line of the page, as the proposal lists it: none for an engine 2 line, the replaced line's own
+      -- source once a relaunch replaced it.
+      'item_ids', case when item.source_metadata ? 'takeoff_item_id' then jsonb_build_array(item.source_metadata -> 'takeoff_item_id')
+        else '[]'::jsonb end)) from public.estimate_items item
       where item.version_id = 'd2900000-0000-4000-8000-000000000101' and item.item_type = 'line'),
     'pairs', %6$s))$decisions$, p_job, p_decision,
     case when p_decision = 'keep_both' then quote_literal('other_zone') else 'null' end,
@@ -162,6 +166,7 @@ select is(extensions.dblink_send_query('page_b', (select query from page_race_ap
   'tab B sends « keep both » for the same takeoff');
 select pg_sleep(0.3);
 select is(extensions.dblink_is_busy('page_b'), 1, 'tab B waits for tab A''s takeoff');
+select ok(pg_temp.waits_for_version_lock('page_b'), 'on the version''s lock, before it records anything');
 select is(extensions.dblink_exec('page_a', 'commit'), 'COMMIT', 'tab A commits');
 select is((select count(*)::integer from extensions.dblink_get_result('page_b', false) as x(applied integer)), 0, 'tab B writes nothing');
 select ok(extensions.dblink_error_message('page_b') like '%TAKEOFF_PAGE_DECISIONS_FROZEN%', 'tab B finds the takeoff applied');

@@ -1038,6 +1038,7 @@ begin
   left join pg_temp._ti682_links as link on link.takeoff_item_id = pair.takeoff_item_id
   where link.estimate_item_id is null
     or not (link.estimate_item_id = pair.estimate_item_id or link.estimate_item_id = any(coalesce(p_created_ids, '{}'::uuid[])))
+  order by pair.takeoff_item_id
   limit 1;
   if conflict_item is null then
     select link.estimate_item_id, link.takeoff_item_id into conflict, conflict_item
@@ -1666,7 +1667,15 @@ language plpgsql
 security invoker
 set search_path = pg_catalog
 as $$
+declare
+  job_version_id uuid;
 begin
+  -- TI-677: the version's lock before any lock on the job (the record locks the job's row), as the application takes
+  -- them: two applications on the version never hold them in opposite orders.
+  select job.estimate_version_id into job_version_id from public.takeoff_jobs as job where job.id = p_job_id;
+  if job_version_id is not null then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || job_version_id::text, 0));
+  end if;
   perform public.record_takeoff_page_decisions(p_job_id, coalesce(p_page_decisions, '[]'::jsonb));
   if p_dpgf_authorization_token is null then
     return query select applied.* from public.apply_takeoff_job_guarded_atomic(p_job_id, p_strategy, p_target_section_id,

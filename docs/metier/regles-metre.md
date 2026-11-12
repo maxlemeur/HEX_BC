@@ -246,7 +246,7 @@ seconde fois sans décision.
   l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
   remplacer. La proposition lit la version où l'application écrit (celle du métré).
 - **En base**, sous le verrou de la version, dans la transaction de l'application
-  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261111212806_takeoff_page_decisions.sql)) :
+  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112002528_takeoff_page_decisions.sql)) :
   les décisions sont relues contre le devis tel qu'il est (une ligne supprimée ou
   modifiée depuis la proposition, une décision d'une autre personne : 409, à relire),
   le remplacement s'applique, puis le filet `private.assert_takeoff_pages_once`

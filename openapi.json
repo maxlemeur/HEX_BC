@@ -1881,6 +1881,15 @@
             }
           },
           {
+            "name": "validated_only",
+            "in": "query",
+            "description": "Liste simple : ecarte les articles brouillons (recherches qui chiffrent sans choix de l'operateur).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListCatalogueValidatedOnlyParameter"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "description": "Recherche de la vue paginee.",
@@ -1932,6 +1941,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListCatalogueStatusParameter"
+            }
+          },
+          {
+            "name": "catalogue_status",
+            "in": "query",
+            "description": "Filtres etat de validation (brouillon, valide).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListCatalogueCatalogueStatusParameter"
             }
           },
           {
@@ -2354,6 +2372,177 @@
           },
           "503": {
             "description": "Migration de référence non activée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supply-types": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les types de fourniture",
+        "description": "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue.",
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Creer un type de fourniture",
+        "description": "Cree un type de fourniture (administrateur). Un nom deja pris par un type du tenant, a la casse, aux accents, a la ponctuation et au pluriel pres, est refuse.",
+        "requestBody": {
+          "description": "Nom du type de fourniture.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplyTypeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Type de fourniture cree.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10865,6 +11054,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/SuggestPricesQueryParameter"
+            }
+          },
+          {
+            "name": "include_drafts",
+            "in": "query",
+            "description": "Recherche volontaire : inclut les articles brouillons, signales par product_catalogue_status. Absent, seuls les articles valides sont suggeres.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SuggestPricesIncludeDraftsQueryParameter"
             }
           }
         ],
@@ -25571,6 +25769,9 @@
       "ListCatalogueIncludeInactiveParameter": {
         "type": "boolean"
       },
+      "ListCatalogueValidatedOnlyParameter": {
+        "type": "boolean"
+      },
       "ListCatalogueQParameter": {
         "type": "string",
         "maxLength": 200
@@ -25615,6 +25816,16 @@
           ]
         }
       },
+      "ListCatalogueCatalogueStatusParameter": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "validated"
+          ]
+        }
+      },
       "ListCatalogueSortParameter": {
         "type": "string",
         "enum": [
@@ -25622,7 +25833,8 @@
           "material",
           "unit_price_cents",
           "best_supplier_price_cents",
-          "updated_at"
+          "updated_at",
+          "reliability_score"
         ]
       },
       "ListCatalogueDirParameter": {
@@ -26317,6 +26529,19 @@
               "expected_updated_at"
             ]
           }
+        ]
+      },
+      "CreateSupplyTypeRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
         ]
       },
       "ImportCatalogueTemplateRequest": {
@@ -55119,6 +55344,15 @@
         "type": "string",
         "minLength": 2
       },
+      "SuggestPricesIncludeDraftsQueryParameter": {
+        "type": "string",
+        "enum": [
+          "0",
+          "1",
+          "true",
+          "false"
+        ]
+      },
       "ApiEstimateSuggestPricesResponse": {
         "type": "object",
         "properties": {
@@ -55210,6 +55444,13 @@
                       "type": [
                         "string",
                         "null"
+                      ]
+                    },
+                    "product_catalogue_status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "validated"
                       ]
                     },
                     "supplier_id": {
@@ -64565,6 +64806,25 @@
                   "is_active": {
                     "default": true,
                     "type": "boolean"
+                  },
+                  "supply_type_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "catalogue_status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "validated"
+                    ]
                   }
                 },
                 "required": [
@@ -64686,6 +64946,25 @@
                   },
                   "is_active": {
                     "type": "boolean"
+                  },
+                  "supply_type_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "catalogue_status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "validated"
+                    ]
                   }
                 }
               }

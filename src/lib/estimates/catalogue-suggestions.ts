@@ -45,6 +45,8 @@ export type CataloguePriceSuggestion = {
   product_grade?: string | null;
   product_dimensions?: string | null;
   product_standard?: string | null;
+  /** TI-690: a draft is only ever returned to a deliberate search (include_drafts), which labels it. */
+  product_catalogue_status?: "draft" | "validated";
   supplier_id: string | null;
   supplier_name: string | null;
   supplier_reference: string | null;
@@ -106,6 +108,7 @@ export type CatalogueProductSuggestionRecord = {
   unit: string;
   unit_price_cents: number;
   updated_at: string;
+  catalogue_status?: "draft" | "validated";
 };
 
 type SearchRelevanceInput = {
@@ -245,6 +248,7 @@ export function mergeCatalogueProductSuggestions(input: {
       product_grade: product.grade,
       product_dimensions: product.dimensions,
       product_standard: product.standard,
+      product_catalogue_status: product.catalogue_status ?? "validated",
       supplier_id: null,
       supplier_name: null,
       supplier_reference: null,

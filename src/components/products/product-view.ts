@@ -1,8 +1,13 @@
 import type { ProductRecord } from "@/app/dashboard/products/ProductFormModal";
+import type { ProductCatalogueStatus } from "@/lib/catalogue/product-validation";
 import type { PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 
 /** One row of `/api/catalogue?view=page`: the product plus its price-coverage facts. */
 export type ProductView = ProductRecord & {
+  catalogue_status: ProductCatalogueStatus;
+  supply_type_id: string | null;
+  reliability_score: number | null;
+  _supplyTypeName: string | null;
   _status: "active" | "archived";
   _priceStatus: "none" | PriceFreshnessLevel;
   _supplierPriceCount: number;

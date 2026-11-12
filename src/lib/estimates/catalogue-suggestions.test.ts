@@ -43,4 +43,22 @@ describe("mergeCatalogueProductSuggestions", () => {
       alternatives: [],
     });
   });
+
+  // TI-690. Failure mode: a draft reached by a deliberate search is returned without its status, so the
+  // panel cannot label it and the operator links an unreviewed article unknowingly.
+  it("porte l’état brouillon d’un article, et considère validé un article sans état", () => {
+    const suggestions = mergeCatalogueProductSuggestions({
+      query: "cheville",
+      stalePriceDays: 90,
+      products: [
+        product({ id: "draft", designation: "Cheville M10", catalogue_status: "draft" }),
+        product({ id: "legacy", designation: "Cheville M12" }),
+      ],
+      supplierSuggestions: [],
+    });
+
+    expect(
+      Object.fromEntries(suggestions.map((entry) => [entry.product_id, entry.product_catalogue_status])),
+    ).toEqual({ draft: "draft", legacy: "validated" });
+  });
 });

@@ -694,6 +694,15 @@ select is(pg_temp.po_decide(pg_temp.po_job(14, 2), jsonb_build_array(pg_temp.po_
       pg_temp.po_pair(pg_temp.po_item(14, 2, 2), 14, 'WC suspendu'))))), 'ok 1', 'fixture: crossed pairs');
 select is(pg_temp.po_apply('merge elsewhere', pg_temp.po_job(14, 2), 'merge', '{}'::jsonb, null), '40001 TAKEOFF_PAGE_REPLACE_CONFLICT',
   '« Fusionner » sending a line elsewhere than its pair is refused');
+-- Codex review of c06cbb1b: the refusal names the new line, the line `merge` put it on and the line it was paired with
+-- (the first new line in id order), so that the step can show the merge's own pair.
+select is((select detail from po_outcome where case_name = 'merge elsewhere'),
+  case when pg_temp.po_item(14, 2, 1) < pg_temp.po_item(14, 2, 2)
+    then jsonb_build_object('scope', 'page', 'reason', 'merge_elsewhere', 'takeoff_item_id', pg_temp.po_item(14, 2, 1),
+      'estimate_item_id', (pg_temp.po_line(14, 'WC suspendu')).id, 'paired_estimate_item_id', (pg_temp.po_line(14, 'Vanne d''arrêt')).id)
+    else jsonb_build_object('scope', 'page', 'reason', 'merge_elsewhere', 'takeoff_item_id', pg_temp.po_item(14, 2, 2),
+      'estimate_item_id', (pg_temp.po_line(14, 'Vanne d''arrêt')).id, 'paired_estimate_item_id', (pg_temp.po_line(14, 'WC suspendu')).id) end,
+  'the refusal names the new line, where `merge` put it and the line it was paired with');
 select is(pg_temp.po_apply('crossed append', pg_temp.po_job(14, 2), 'append', '{}'::jsonb, null), 'ok',
   'with « Ajouter », the pairs the estimator corrected apply');
 reset role;

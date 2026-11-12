@@ -266,6 +266,8 @@ function AssemblyCatalogueInput({
       const searchParams = new URLSearchParams({
         search: query,
         limit: "8",
+        // TI-690: an exact match prices the component without a click; a draft article must not.
+        validated_only: "true",
       });
 
       void fetchApi<{ items: CatalogueItem[] }>(
@@ -402,6 +404,7 @@ export function AssemblyEditorDialog({
         const searchParams = new URLSearchParams({
           search: toCatalogueRecoveryQuery(item.title),
           limit: "8",
+          validated_only: "true",
         });
 
         try {

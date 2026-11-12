@@ -23,6 +23,7 @@ type CheckedColumns = CheckedColumnSpec<{
   procurement_storage_cleanup_outbox: { bucket_id: "devis" };
   supplier_pricebook: { transport_mode: "included" | "excluded" | null; zero_price_kind: "included" | "free" | null; purchase_rounding: "none" | "ceil" | null };
   product_reference_price_validations: { mode: "average" | "manual" };
+  products: { catalogue_status: "draft" | "validated" };
   estimate_version_zero_lots: { status: "generated" | "partial" | "missing" };
   estimate_version_zero_lines: { review_status: "pending" | "accepted" | "edited" | "rejected" };
   estimate_terms_templates: { policy: "optional" | "default" | "required" };

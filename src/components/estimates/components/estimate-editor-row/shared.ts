@@ -434,10 +434,12 @@ function resolveApiErrorMessage(payload: unknown, fallback: string) {
 export async function fetchCatalogueSuggestions(
   versionId: string,
   query: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  // TI-690: the inline popover never asks for drafts; a deliberate search does and labels them.
+  options: { includeDrafts?: boolean } = {}
 ): Promise<CataloguePriceSuggestion[]> {
   const response = await fetch(
-    `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(query)}`,
+    `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(query)}${options.includeDrafts ? "&include_drafts=1" : ""}`,
     {
       method: "GET",
       cache: "no-store",
