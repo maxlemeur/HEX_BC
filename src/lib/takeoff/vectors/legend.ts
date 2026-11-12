@@ -88,7 +88,7 @@ type LegendRow<T> = { text: VectorText; value: T; colors: string[]; box: Box; sa
  * `codeOf` reads as a code, with the colours of its samples (none black, grey or near-white).
  */
 function legendRowsAlong<T>(model: PageModel, axis: number, codeOf: (text: string) => T | null): LegendRow<T>[] {
-  const { extraction, segments, segmentGroup, groups } = model;
+  const { extraction, segments, segmentGroup, segmentNearWhite, groups } = model;
   // Rows are read in the sheet's frame (along its horizontal, up across it), reversed for a code that reads the other way.
   const sheet = textFrame((axis * Math.PI) / 2);
   const codes = extraction.texts.flatMap((text) => {
@@ -120,16 +120,17 @@ function legendRowsAlong<T>(model: PageModel, axis: number, codeOf: (text: strin
       const low = code.sign > 0 ? u0 : -u1, high = code.sign > 0 ? u1 : -u0;
       if (high - low > 1.5 * code.h || Math.abs((low + high) / 2 - code.cu) > 0.6 * code.h) continue;
       if (first < code.end || first > windowEnd[index] || last > windowEnd[index] + code.h) continue;
-      const group = groups[segmentGroup[id]];
-      for (const color of group.colors) {
-        if (isNearWhite(color) || isGrey(color)) continue;
-        const sample = samples[index];
-        sample.colors.add(color);
-        extendBox(sample.box, left, top);
-        extendBox(sample.box, right, bottom);
-        sample.first = Math.min(sample.first, first);
-        sample.last = Math.max(sample.last, last);
-      }
+      // The segment's own colour: its group's, unless near-white; a layer of several colours does not tell it, and
+      // its sample is not read (only the air-duct legend reads a page with layers).
+      if (segmentNearWhite[id]) continue;
+      const own = groups[segmentGroup[id]].colors.filter((color) => !isNearWhite(color));
+      if (own.length !== 1 || isGrey(own[0])) continue;
+      const sample = samples[index];
+      sample.colors.add(own[0]);
+      extendBox(sample.box, left, top);
+      extendBox(sample.box, right, bottom);
+      sample.first = Math.min(sample.first, first);
+      sample.last = Math.max(sample.last, last);
     }
   });
   const rows: LegendRow<T>[] = [];

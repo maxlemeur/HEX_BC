@@ -4,7 +4,8 @@ import { boxContains, boxesOverlap, emptyBox, extendBox, type Box } from "@/lib/
 import { isTint, isTintOrShade, readAirDuctLegend } from "@/lib/takeoff/vectors/legend";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
-import { nonNetworkLayerKind, parsePipeLabel } from "@/lib/takeoff/vectors/vocabulary";
+import { readLabelBlocks, type LabelBlock } from "@/lib/takeoff/vectors/labels";
+import { nonNetworkLayerKind } from "@/lib/takeoff/vectors/vocabulary";
 
 // The groups never sent to Decisions (TI-704): they can never be a network. On
 // the 8 development plans, 135 of the 171 groups sent were no network and none
@@ -22,9 +23,10 @@ import { nonNetworkLayerKind, parsePipeLabel } from "@/lib/takeoff/vectors/vocab
 //   or as furniture, tiling or joinery (vocabulary.ts nonNetworkLayerKind);
 // - legend_sample: every visible stroke inside the legend box (which the
 //   measure leaves out), or the whole group a short thin strip beside a text
-//   of the page that is no pipe label (no network nor size): at most 25 text
-//   heights long, 1.5 thick, within one text height of it, along it (the
-//   sample of a legend whose code is no network, on a page with layers too);
+//   of the page that is no piece of a pipe label (a block of labels.ts naming a
+//   network or a size, however the PDF splits it): at most 25 text heights
+//   long, 1.5 thick, within one text height of it, along it (the sample of a
+//   legend whose code is no network, on a page with layers too);
 // - air_duct: on a page whose legend has at least 2 air-duct codes (legend.ts
 //   readAirDuctLegend), a colour group (never a layer: its name is its
 //   identity) whose colours are each that of an air row or a tint of one
@@ -52,6 +54,22 @@ function textBox(text: VectorText): { box: Box; horizontal: boolean } {
   return { box, horizontal: Math.abs(cos) >= Math.abs(sin) };
 }
 
+/** Whether a point lies in a line of a pipe label (its glyph box), by a grid of 64 pt cells over the label lines. */
+function labelLineIndex(blocks: readonly LabelBlock[]) {
+  const cell = 64;
+  const cells = new Map<string, Box[]>();
+  for (const box of blocks.flatMap((block) => block.lines)) {
+    for (let cx = Math.floor(box.x0 / cell); cx <= Math.floor(box.x1 / cell); cx += 1) {
+      for (let cy = Math.floor(box.y0 / cell); cy <= Math.floor(box.y1 / cell); cy += 1) {
+        const key = `${cx}:${cy}`;
+        cells.set(key, [...(cells.get(key) ?? []), box]);
+      }
+    }
+  }
+  return (point: { x: number; y: number }) => (cells.get(`${Math.floor(point.x / cell)}:${Math.floor(point.y / cell)}`) ?? [])
+    .some((box) => boxContains(box, point, 0.01));
+}
+
 /** Whether a group's whole extent is a legend sample beside one of the page's texts (LEGEND_SAMPLE_STRIP). */
 function isSampleStrip(bbox: Box, texts: ReadonlyArray<{ box: Box; horizontal: boolean; height: number }>) {
   const width = bbox.x1 - bbox.x0, height = bbox.y1 - bbox.y0;
@@ -70,12 +88,12 @@ function isSampleStrip(bbox: Box, texts: ReadonlyArray<{ box: Box; horizontal: b
 export function candidateFilterReasons(model: PageModel, reading: VectorPageReading, wanted: ReadonlySet<number>): Array<CandidateFilterReason | null> {
   const reasons: Array<CandidateFilterReason | null> = model.groups.map(() => null);
   if (wanted.size === 0 || reading.mode === "raster") return reasons;
-  // A pipe label sits beside its pipe: never the text of a legend sample.
-  const texts = model.extraction.texts.filter((text) => {
-    if (text.str.trim().length === 0 || text.height <= 0) return false;
-    const label = parsePipeLabel(text.str);
-    return label.network === null && label.dn === null;
-  }).map((text) => ({ ...textBox(text), height: text.height }));
+  // A pipe label sits beside its pipe: no piece of it is the text of a legend sample, whether the PDF splits it into
+  // several items or writes it on several lines (labels.ts readLabelBlocks rebuilds it whole).
+  const inLabel = labelLineIndex(readLabelBlocks(model.extraction.texts));
+  const texts = model.extraction.texts.filter((text) => text.str.trim().length > 0 && text.height > 0)
+    .map((text) => ({ ...textBox(text), height: text.height }))
+    .filter((text) => !inLabel({ x: (text.box.x0 + text.box.x1) / 2, y: (text.box.y0 + text.box.y1) / 2 }));
   // The groups judged with every visible segment inside a legend box (by its centre), on a page with a legend.
   const inLegend = new Set<number>();
   if (reading.legend.boxes.length > 0) {

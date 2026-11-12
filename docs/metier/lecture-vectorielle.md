@@ -133,12 +133,14 @@ est une constante nommée et versionnée dans le code.
      - calque de cadre ou de cartouche, ou d'architecture (mobilier, calepinage,
        menuiseries), par les mots de son nom ;
      - échantillon de légende : tous ses traits visibles dans le cadre de la légende, ou
-       le groupe entier en bande courte et fine à côté d'un texte qui n'est pas un libellé
-       de tuyau (25 hauteurs de ce texte de long au plus, 1,5 d'épaisseur, à une hauteur
-       au plus) ;
+       le groupe entier en bande courte et fine à côté d'un texte qui n'est aucun morceau
+       d'un libellé de tuyau, même coupé en plusieurs textes ou écrit sur plusieurs lignes
+       (25 hauteurs de ce texte de long au plus, 1,5 d'épaisseur, à une hauteur au plus) ;
      - couleur de gaine d'air : un groupe de couleur (jamais un calque) dont chaque couleur
        est celle d'une ligne de légende aéraulique (« AN », « AS », « AR », « AEX »… seuls,
-       en capitales, lus comme la légende des réseaux, au moins deux codes sur la page)
+       en capitales, lus comme la légende des réseaux, au moins deux codes sur la page ;
+       un échantillon tracé sur un calque de plusieurs couleurs n'est pas lu, sa couleur
+       propre n'étant pas connue)
        ou une teinte de celle-ci (mêlée de blanc), et aucune liée à un réseau classé sur
        la page : sa couleur, sa teinte ou son ombre, ou la couleur dont il est la teinte
        (le contour d'un tuyau en bande dont le remplissage est classé). Une ombre d'une

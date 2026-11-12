@@ -16,6 +16,7 @@ import {
   type DecisionCandidate,
 } from "@/lib/takeoff/vectors/group-decisions";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
+import { readAirDuctLegend } from "@/lib/takeoff/vectors/legend";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabulary";
@@ -71,6 +72,13 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 //   of a network drawn as a tint: a band pipe's outline in an air colour, whose
 //   tinted fill the labels class, is filtered;
 // - a short pipe run beside its own label (« QRS DN 22 ») is a legend sample.
+// Codex review of PR 289 (written before the fix):
+// - the same label split by the PDF into « QRS » and « DN 22 », or written on two
+//   lines, makes its first piece the text of a legend sample, and the pipe is
+//   filtered;
+// - on a page with layers and colour strokes, an air legend whose samples lie
+//   on a layer of several colours takes every colour of that layer, so an
+//   unlayered pipe in an unrelated colour of it is filtered as a duct.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const MAGENTA = "#ff00ff";
@@ -440,5 +448,32 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
     expect(sent.has(model.groups[groupIndex(model, AIR_BLUE, 0.3)].id)).toBe(true);
     expect(sent.has(model.groups[groupIndex(model, NETWORK_TEAL)].id)).toBe(true);
     expect(filteredReasons(model, selection).get(model.groups[groupIndex(model, AIR_RED, 0.57)].id)).toBe("air_duct");
+  });
+
+  it("keeps a short pipe beside its label split into pieces or lines, as beside the label in one piece", () => {
+    const shortPipe = (color: string, y: number) => [line(color, 300, y, 380, y), line(color, 300, y + 1, 380, y + 1), line(color, 300, y + 2, 380, y + 2)];
+    // « QRS » then « DN 22 » on one baseline (a font change), and « Fictif » above « DN 25 » (two lines of one label).
+    const split = [text("QRS", 300, 508, 6), text("DN 22", 315, 508, 6)];
+    const twoLines = [text("Fictif", 300, 608, 6), text("DN 25", 300, 616, 6)];
+    const { model, reading } = prepared(page([...shortPipe(NETWORK_TEAL, 500), ...shortPipe(NETWORK_PALE, 600)], [...split, ...twoLines]));
+    const selection = selectDecisionCandidates(model, reading);
+    expect(selection.filtered).toEqual([]);
+    expect(selection.candidates.map((candidate) => candidate.id).sort())
+      .toEqual([model.groups[groupIndex(model, NETWORK_TEAL)].id, model.groups[groupIndex(model, NETWORK_PALE)].id].sort());
+  });
+
+  it("never takes for an air colour another colour of the layer an air sample is drawn on", () => {
+    // AN (magenta) and AS (blue) samples on one layer that also holds teal strokes elsewhere; an unlayered teal pipe.
+    const rows = [legendRow("AN", 0, [MAGENTA]), legendRow("AS", 1, [BLUE])];
+    const layers = [{ id: "1R", name: "FICTIF_XYZ" }];
+    const strokes: Stroke[] = [
+      ...rows.flatMap((row) => row.strokes.map((stroke) => ({ ...stroke, layer: "1R" }))),
+      ...long(NETWORK_TEAL, 700, 400, { layer: "1R" }), ...long(NETWORK_TEAL, 300, 800, { width: 0.57 }),
+    ];
+    const { model, reading } = prepared(page(strokes, rows.flatMap((row) => row.texts), { layers }));
+    expect(readAirDuctLegend(model).colors).not.toContain(NETWORK_TEAL);
+    const selection = selectDecisionCandidates(model, reading);
+    expect(selection.candidates.map((candidate) => candidate.id)).toContain(model.groups[groupIndex(model, NETWORK_TEAL, 0.57)].id);
+    expect(selection.filtered.some((entry) => entry.reason === "air_duct")).toBe(false);
   });
 });
