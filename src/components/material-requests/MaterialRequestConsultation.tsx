@@ -567,9 +567,12 @@ function useCentsDraft(value: number | null, onAbandon?: () => void) {
     return result;
   };
 
-  /** Escape: the saved amount is shown again, and what could not be saved is dropped. */
+  /**
+   * Escape: the saved amount is shown again, and what could not be saved is dropped, with what waited for it (the lot
+   * of a price chosen while the text could not be read).
+   */
   const abandon = () => {
-    if (error) onAbandon?.();
+    if (error || draft !== null) onAbandon?.();
     setDraft(null);
     setError(null);
   };
@@ -829,7 +832,9 @@ function QuotePriceEntry({
             label={`Prix unitaire HT, ligne ${position}, ${supplier}`}
             value={entry.unit_price_ht_cents}
             field={field}
-            onCommit={() => void field.commit(saveFor(per))}
+            // A lot chosen while the text could not be read waits for the price: sent with it even when the amount is
+            // the one saved, as what it is for changed.
+            onCommit={() => void field.commit(saveFor(per), per !== stored)}
           />
         </div>
         <NativeSelect

@@ -945,6 +945,87 @@ describe("consultation of suppliers", () => {
     await waitFor(() => expect(retain).toBeEnabled());
   });
 
+  it("sends a lot chosen while the price could not be read, when the price is corrected back to the saved one (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "10,0x");
+    await user.selectOptions(lot, "100");
+    await user.clear(price);
+    await user.type(price, "10,00");
+    await user.tab();
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `${QUOTES}/${QUOTE_A}`,
+          body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 100 }] },
+        },
+      ]),
+    );
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(lot).toHaveValue("100");
+  });
+
+  it("gives back the saved lot with the saved price when an unreadable price is abandoned with Escape (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "10,0x");
+    await user.selectOptions(lot, "100");
+    await user.click(price);
+    await user.keyboard("{Escape}");
+    expect(price).toHaveValue("10,00");
+    expect(lot).toHaveValue("1");
+    await waitFor(() => expect(retain).toBeEnabled());
+    await user.tab();
+    expect(writes()).toEqual([]);
+  });
+
   it("saves a typed price in cents, keeps one the server refuses, and sends nothing unreadable (6, 7)", async () => {
     let stored = quote({ status: "received", received_at: "2026-11-13T10:00:00.000Z" });
     const user = await openEditor({
