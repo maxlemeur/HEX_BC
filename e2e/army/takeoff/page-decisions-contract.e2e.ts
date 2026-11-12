@@ -114,10 +114,13 @@ const GENERIC: Naive[] = [
     payload[0].lines[0] = { ...payload[0].lines[0], item_ids: [...payload[0].lines[0].item_ids, context.relaunchIds[0]] };
     return { payload };
   } },
-  // A page kept both, its decision left out: its earlier part is then neither replaced nor kept.
+  // One page kept both, its decision left out while another page's decision is sent: its earlier part is then neither
+  // replaced nor kept. (Without any decision left, the refusal is the page itself: page_already_applied.)
   { reason: "page_not_decided", build: (context) => {
     const keeping = complete(context, (resolution) => resolution.payload.length > 1 && resolution.payload.some((decision) => decision.decision === "keep_both"));
-    return keeping ? { payload: keeping.payload.filter((decision) => decision.decision !== "keep_both") } : null;
+    if (!keeping) return null;
+    const dropped = keeping.payload.findIndex((decision) => decision.decision === "keep_both");
+    return { payload: keeping.payload.filter((_decision, index) => index !== dropped) };
   } },
   // A pair whose line is not updated, and updates without their pair.
   { reason: "pair_without_update", build: (context) => {
