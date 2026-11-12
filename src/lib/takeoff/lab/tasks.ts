@@ -106,7 +106,8 @@ const vectorGroupClass: LabTask = {
     `Questions fixées par la lecture vectorielle (${GROUP_DECISIONS_PROMPT_VERSION}), non modifiables dans le labo.`,
     `Une question choice par groupe de tracés sans classe par mots-clés, par lots de ${GROUP_DECISIONS_LIMITS.batchSize} groupes avec la légende`
       + ` (ou la page en vignette) et une planche de vignettes, puis seul avec son rendu pour une réponse sous ${GROUP_DECISIONS_LIMITS.dedicatedBelow}.`,
-    "Un groupe gris ne se voit proposer aucun réseau. Question d’un groupe :",
+    "Les groupes qui ne peuvent être un réseau (gris, motif, calque de cadre ou d’architecture, échantillon de légende, couleur de gaine d’air)"
+      + " ne sont pas envoyés. Question d’un groupe :",
     vectorGroupsQuestionTemplate().batch[0].instructions,
   ].join("\n"),
   promptBase: GROUP_DECISIONS_PROMPT_VERSION,
