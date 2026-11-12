@@ -14,12 +14,19 @@ import {
   type SupplierData,
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
+import {
+  deliveryModeOf,
+  orderLineTotals,
+  orderTotalsOf,
+  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
+  storedLineDocumentFields,
+  storedOrderAffaire,
+  type PurchaseOrderAmountKind,
+  type PurchaseOrderLineKind,
+  type StoredOrderLineFields,
+} from "@/components/purchase-orders/order-lines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useUserContext } from "@/components/UserContext";
-import {
-  computeLineTotals,
-  computeOrderTotals,
-} from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
 import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
@@ -66,6 +73,14 @@ type DraftItem = {
   unitInput: string;
   unitPriceEuros: string;
   taxRateBp: number;
+  /** TI-691: an article, the supplier's shipping, or a global discount (an amount, without quantity or unit). */
+  lineKind: PurchaseOrderLineKind;
+  /** TI-691: the price is for this many units. */
+  pricePer: number;
+  /** TI-691: a line of a material request; its price is the retained quote's and its unit the request's. */
+  fromRequest: boolean;
+  origin: { href: string; label: string } | null;
+  imputation: string | null;
 };
 
 type ExistingOrder = {
@@ -75,14 +90,18 @@ type ExistingOrder = {
   expected_delivery_date: string | null;
   notes: string | null;
   supplier_id: string;
-  delivery_site_id: string;
+  /** Null for an order made from a material request: its delivery mode says where it goes (TI-691). */
+  delivery_site_id: string | null;
   status: string;
   source_estimate_version_id: string | null;
   edit_revision: number;
+  project_id: string | null;
+  delivery_mode: string | null;
+  estimate_projects: { name: string; site_address: string | null } | null;
   purchase_order_items: ExistingItem[];
 };
 
-type ExistingItem = {
+type ExistingItem = StoredOrderLineFields & {
   id: string;
   product_id: string | null;
   reference: string | null;
@@ -118,10 +137,31 @@ function newDraftItem(): DraftItem {
     unitInput: "",
     unitPriceEuros: "",
     taxRateBp: 2000,
+    lineKind: "article",
+    pricePer: 1,
+    fromRequest: false,
+    origin: null,
+    imputation: null,
   };
 }
 
-function existingItemToDraft(item: ExistingItem): DraftItem {
+const AMOUNT_LINE_DESIGNATIONS: Record<PurchaseOrderAmountKind, string> = {
+  shipping: "Frais de port",
+  discount: "Remise",
+};
+
+/** The supplier's shipping, or a global discount: an amount imputed to the order's affaire, typed by the office. */
+function newAmountItem(kind: PurchaseOrderAmountKind): DraftItem {
+  return {
+    ...newDraftItem(),
+    designation: AMOUNT_LINE_DESIGNATIONS[kind],
+    lineKind: kind,
+    imputation: "Affaire",
+  };
+}
+
+function existingItemToDraft(item: ExistingItem, fromRequestOrder: boolean): DraftItem {
+  const shown = storedLineDocumentFields(item, { fromRequest: fromRequestOrder, onScreen: true });
   return {
     key: item.id,
     designation: item.designation,
@@ -137,6 +177,11 @@ function existingItemToDraft(item: ExistingItem): DraftItem {
     unitInput: item.unit ?? "",
     unitPriceEuros: euroInputFromCents(item.unit_price_ht_cents),
     taxRateBp: item.tax_rate_bp,
+    lineKind: shown.lineKind,
+    pricePer: shown.pricePer,
+    fromRequest: Boolean(item.material_request_line_id),
+    origin: shown.origin,
+    imputation: shown.imputation,
   };
 }
 
@@ -168,13 +213,15 @@ export default function EditOrderPage() {
     if (!id) throw new Error("Identifiant du bon de commande manquant.");
     const { data, error } = await supabase
       .from("purchase_orders")
-      .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status, source_estimate_version_id, edit_revision, purchase_order_items(id, product_id, reference, source_estimate_item_id, source_selected_supplier_price_id, is_source_linked, designation, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, position)")
+      // Kept in step with the critical campaign's read guard (e2e/army/critical/owned-purchase-reads.ts).
+      .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status, source_estimate_version_id, edit_revision, project_id, delivery_mode, estimate_projects(name, site_address), purchase_order_items(id, product_id, reference, source_estimate_item_id, source_selected_supplier_price_id, is_source_linked, designation, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, position, line_kind, price_per, imputation, overhead_category, material_request_line_id, material_request_lines(position, request_id, material_requests(project_id, requested_on)))")
       .eq("id", id)
       .single();
 
     if (error) throw error;
-    await assertCompletePurchaseOrderSnapshot(supabase, id, data.edit_revision, data.purchase_order_items.length);
-    return data as ExistingOrder;
+    const stored = data as unknown as ExistingOrder;
+    await assertCompletePurchaseOrderSnapshot(supabase, id, stored.edit_revision, stored.purchase_order_items.length);
+    return stored;
   }, [supabase, id]);
 
   const { data: order, error: orderError, isLoading: isOrderLoading, isValidating: isOrderValidating } = useSWR(
@@ -192,14 +239,14 @@ export default function EditOrderPage() {
     queueMicrotask(() => {
       if (canceled) return;
       setSupplierId(order.supplier_id);
-      setDeliverySiteId(order.delivery_site_id);
+      setDeliverySiteId(order.delivery_site_id ?? "");
       resetDeliveryDate(order.expected_delivery_date);
       setNotes(order.notes ?? "");
       setOrderDate(order.order_date);
       setReference(order.reference);
       setItems(
         orderItems.length > 0
-          ? orderItems.map(existingItemToDraft)
+          ? orderItems.map((item) => existingItemToDraft(item, order.project_id !== null))
           : [newDraftItem()]
       );
       setExpectedRevision(order.edit_revision);
@@ -212,8 +259,11 @@ export default function EditOrderPage() {
 
   // Check if order is draft
   const isDraft = order?.status === "draft";
+  // TI-691: an order made from a material request is for its affaire and keeps the retained quote's supplier.
+  const fromRequestOrder = Boolean(order?.project_id);
+  const deliveryMode = order && !order.delivery_site_id ? deliveryModeOf(order.delivery_mode) : null;
   const supplierReadOnly = Boolean(
-    order?.source_estimate_version_id || order?.purchase_order_items.some((item) => item.is_source_linked)
+    order?.source_estimate_version_id || order?.purchase_order_items.some((item) => item.is_source_linked) || fromRequestOrder
   );
 
   const fetchSuppliers = useCallback(async () => {
@@ -298,10 +348,12 @@ export default function EditOrderPage() {
     setItems((prev) =>
       prev.map((item) => {
         if (item.key !== key) return item;
+        const amount = item.lineKind !== "article";
         if (field === "designation") return { ...item, designation: String(value) };
-        if (field === "quantity") return { ...item, quantityInput: String(value) };
-        if (field === "unit" && !(item.sourceLinked && item.originalUnit !== null)) return { ...item, unitInput: String(value) };
-        if (field === "unitPriceEuros") return { ...item, unitPriceEuros: String(value) };
+        if (field === "quantity" && !amount) return { ...item, quantityInput: String(value) };
+        if (field === "unit" && !amount && !item.fromRequest && !(item.sourceLinked && item.originalUnit !== null)) return { ...item, unitInput: String(value) };
+        // A request line costs the retained quote's price: it is not typed again here.
+        if (field === "unitPriceEuros" && !item.fromRequest) return { ...item, unitPriceEuros: String(value) };
         return item;
       })
     );
@@ -318,26 +370,40 @@ export default function EditOrderPage() {
     setItems((prev) => [...prev, newDraftItem()]);
   }
 
+  function addAmountItem(kind: PurchaseOrderAmountKind) {
+    setItems((prev) => [...prev, newAmountItem(kind)]);
+  }
+
   // Keep every row, including invalid input, until the user corrects or removes it.
   const computed = items.map((item) => {
-    const quantity = parseOrderQuantityInput(item.quantityInput);
+    // Shipping and discount are one amount each: no quantity to count, no unit.
+    const amount = item.lineKind !== "article";
+    const quantity = amount ? 1 : parseOrderQuantityInput(item.quantityInput);
     const unitPriceCents = parseEuroToCents(item.unitPriceEuros);
     const needsUnitConfirmation = item.originalQuantity !== null &&
       (quantity !== item.originalQuantity || unitPriceCents !== item.originalUnitPriceCents);
-    const unitRequired = item.id === null || item.originalUnit !== null || needsUnitConfirmation;
+    const unitRequired = !amount && (item.id === null || item.originalUnit !== null || needsUnitConfirmation);
     let error: string | null = !item.designation.trim()
       ? "renseignez la désignation."
       : quantity === null
         ? "saisissez une quantité de 0,001 à 2 147 483 647, avec au maximum trois décimales."
         : unitRequired && !item.unitInput.trim()
           ? "confirmez l’unité avant de créer la ligne ou de modifier sa quantité ou son prix."
-          : unitPriceCents === null || unitPriceCents < 0
-            ? "renseignez un prix unitaire HT valide."
-            : null;
+          : amount && (unitPriceCents === null || unitPriceCents <= 0)
+            ? "renseignez le montant HT."
+            : unitPriceCents === null || unitPriceCents < 0
+              ? "renseignez un prix unitaire HT valide."
+              : null;
     let totals = { lineTotalHtCents: 0, lineTaxCents: 0, lineTotalTtcCents: 0 };
     if (!error && quantity !== null && unitPriceCents !== null) {
       try {
-        totals = computeLineTotals({ quantity, unitPriceHtCents: unitPriceCents, taxRateBp: item.taxRateBp });
+        totals = orderLineTotals({
+          quantity,
+          unitPriceHtCents: unitPriceCents,
+          taxRateBp: item.taxRateBp,
+          pricePer: item.pricePer,
+          kind: item.lineKind,
+        });
       } catch {
         error = "le montant dépasse la limite autorisée. Réduisez la quantité ou le prix.";
       }
@@ -352,9 +418,11 @@ export default function EditOrderPage() {
   let orderTotals = { totalHtCents: 0, totalTaxCents: 0, totalTtcCents: 0 };
   if (!totalsError) {
     try {
-      orderTotals = computeOrderTotals(computed);
-    } catch {
-      totalsError = "Le total de la commande dépasse la limite autorisée.";
+      orderTotals = orderTotalsOf(computed);
+    } catch (error) {
+      totalsError = error instanceof RangeError && error.message.startsWith("La remise")
+        ? error.message
+        : "Le total de la commande dépasse la limite autorisée.";
     }
   }
 
@@ -362,7 +430,12 @@ export default function EditOrderPage() {
     key: item.key,
     designation: item.designation,
     reference: item.reference,
-    unitReadOnly: item.sourceLinked && item.originalUnit !== null,
+    unitReadOnly: (item.sourceLinked && item.originalUnit !== null) || item.fromRequest,
+    priceReadOnly: item.fromRequest,
+    pricePer: item.pricePer,
+    lineKind: item.lineKind,
+    origin: item.origin,
+    imputation: item.imputation,
     quantity: computed[index].quantity ?? 0,
     quantityInput: item.quantityInput,
     unit: item.unitInput || null,
@@ -394,7 +467,8 @@ export default function EditOrderPage() {
       return;
     }
 
-    if (!supplierId || !deliverySiteId) {
+    // An order made from a request belongs to its affaire: it needs no site, even when the request named no place.
+    if (!supplierId || (!deliverySiteId && !deliveryMode && !fromRequestOrder)) {
       setFormError("Sélectionnez un fournisseur et un chantier.");
       return;
     }
@@ -405,15 +479,20 @@ export default function EditOrderPage() {
       return;
     }
 
+    // A request line goes back with its id, as quoted: the server keeps its request link, imputation and lot.
     const cleanedItems = items.map((item, index) => ({
       ...(item.id ? { id: item.id } : {}),
       productId: item.productId,
       reference: item.reference,
       designation: item.designation.trim(),
       quantity: computed[index].quantity!,
-      unit: item.unitInput === item.originalUnit ? item.originalUnit : item.unitInput.trim() || null,
+      // Every stored line has a unit: shipping and discount are one lump sum.
+      unit: item.lineKind !== "article"
+        ? item.originalUnit ?? PURCHASE_ORDER_AMOUNT_LINE_UNIT
+        : item.unitInput === item.originalUnit ? item.originalUnit : item.unitInput.trim() || null,
       taxRateBp: item.taxRateBp,
       unitPriceCents: computed[index].unitPriceCents!,
+      ...(item.lineKind !== "article" ? { lineKind: item.lineKind } : {}),
     }));
 
     if (cleanedItems.length === 0) {
@@ -431,7 +510,8 @@ export default function EditOrderPage() {
         body: JSON.stringify({
           expectedRevision,
           supplierId,
-          deliverySiteId,
+          // Without a site, the order keeps its delivery mode: no site is sent.
+          ...(deliverySiteId ? { deliverySiteId } : {}),
           expectedDeliveryDate: deliveryDate.payloadValue,
           notes: notes.trim() || null,
           items: cleanedItems,
@@ -523,6 +603,11 @@ export default function EditOrderPage() {
               Les lignes issues du devis gardent leur origine et leur unité connue. Les corrections de quantité ou de prix sont historisées ; retirer une ligne ne rend pas le besoin disponible pour un nouvel achat.
             </p>
           ) : null}
+          {items.some((item) => item.fromRequest) ? (
+            <p className="mb-4 text-sm text-muted-foreground">
+              Les lignes de la demande gardent le prix du devis retenu, leur unité, leur imputation et leur lien avec la demande. Ajoutez ici le port du fournisseur ou une remise globale.
+            </p>
+          ) : null}
           <OrderDocumentViewport label={`Bon de commande ${reference} en cours de modification`}>
             <PurchaseOrderDocument
               editable={true}
@@ -535,10 +620,14 @@ export default function EditOrderPage() {
               supplier={selectedSupplier}
               supplierId={supplierId}
               supplierReadOnly={supplierReadOnly}
+              supplierReadOnlyNote={fromRequestOrder ? "Fournisseur du devis retenu pour la demande" : undefined}
               onSupplierChange={setSupplierId}
               supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
               deliverySite={selectedSite}
               deliverySiteId={deliverySiteId}
+              affaire={storedOrderAffaire(order?.estimate_projects)}
+              deliveryMode={deliveryMode}
+              onAmountLineAdd={fromRequestOrder ? addAmountItem : undefined}
               onDeliverySiteChange={setDeliverySiteId}
               siteOptions={sites.map((s) => ({
                 id: s.id,
