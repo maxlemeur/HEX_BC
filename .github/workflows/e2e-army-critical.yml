@@ -7,9 +7,10 @@ name: TesterArmy Critical
 # Impact selection (docs/testing/tester-army-ci.md, "Sélection par impact"):
 # a pull request runs only the critical journeys its files reach, recorded as
 # scope "filtered-critical"; shared or unknown paths run the full suite, a
-# docs-only change runs none. A push to main runs the full suite unless it is
-# docs-only; workflow_dispatch and the "army-full" label always run it. The
-# nightly full suite (critical journeys included) is e2e-army-full.yml.
+# docs-only change runs none. A push to main runs the full suite, one at a
+# time (see the push trigger), unless it is docs-only, which starts no run;
+# workflow_dispatch and the "army-full" label always run it. The nightly full
+# suite (critical journeys included) is e2e-army-full.yml.
 #
 # Parallel jobs (docs/testing/tester-army-ci.md, "Jobs parallèles"): the
 # army-select job decides once. The selected critical journeys (the whole
@@ -33,14 +34,23 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+  # Every push to main that is not documentation only, in one concurrency group
+  # that cancels nothing, as the full and calc-v3 campaigns
+  # (docs/testing/tester-army-ci.md, "Campagnes de main après un push"): one
+  # suite runs, the newest waits and replaces an older waiting one, whose
+  # commits its own full suite contains. A documentation push, which selected
+  # no journey, starts none, so it never replaces a waiting suite.
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 
 permissions:
   contents: read
 
 concurrency:
-  group: army-critical-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: army-critical-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && 'main-push' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

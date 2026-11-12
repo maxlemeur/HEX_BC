@@ -47,6 +47,8 @@ const event = (event_name: string, ref = "refs/heads/main", run_id = 1): Github 
 // and the calc-v3 phases. The full and calc-v3 campaigns follow the push on main, but the account
 // runs 20 jobs at once and a busy day brings more than twenty pushes: they must stay one at a
 // time, few jobs wide, and never be started or superseded by a push of documentation only.
+// The Critical run of a push shares the queue rule: a merge train otherwise leaves one whole
+// critical suite waiting per merged pull request, ahead of the checks of the pull requests.
 describe("full and calc-v3 campaigns of main after a push", () => {
   const shards = JSON.parse(read("scripts/tester-army/army-shards.json")) as { suites: { full: { maxShards: number } }; calcV3: { maxGroups: number } };
   const campaigns = [
@@ -58,7 +60,8 @@ describe("full and calc-v3 campaigns of main after a push", () => {
     expect(campaigns.map((campaign) => campaign.file).sort()).toEqual(Object.values(ALERT_WORKFLOWS).map((workflow) => workflow.file).sort());
   });
 
-  for (const { file, job, widest } of campaigns) {
+  // The Critical run of a push plays the whole critical suite: it queues as the campaigns do, at its own width.
+  for (const file of [...campaigns.map((campaign) => campaign.file), ".github/workflows/e2e-army-critical.yml"]) {
     const workflow = read(file);
 
     it(`${file} follows a push to main unless it changes documentation only`, () => {
@@ -95,6 +98,10 @@ describe("full and calc-v3 campaigns of main after a push", () => {
       expect(group(event("pull_request", "refs/pull/1/merge"))).not.toBe(group(event("push")));
       expect(cancels(event("pull_request", "refs/pull/1/merge"))).toBe("true");
     });
+  }
+
+  for (const { file, job, widest } of campaigns) {
+    const workflow = read(file);
 
     it(`${file} runs a push campaign two journey jobs wide and the others at full width`, () => {
       const width = (github: Github) => Number(evaluate(valueOf(workflow, job, "max-parallel"), github));
