@@ -11,7 +11,7 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Quality Gate](../../.github/workflows/quality-gate.yml) | PR vers `main`, push `main`, manuel ; contrôles statiques, tests retenus et build de production, puis agrégation `quality-gate` |
 | [Smoke anonyme](../../.github/workflows/e2e-army-smoke.yml) | PR, push `main`, manuel ; configuration publique synthétique, aucun backend partagé ni modèle |
 | [Critical](../../.github/workflows/e2e-army-critical.yml) | PR vers `main`, push `main`, manuel ; sélection métier et métré, piles natives indépendantes, checks `army-critical` et `army-takeoff` |
-| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; étapes lourdes d'une PR selon chemins DB/runtime ; les autres lancements sont complets |
+| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
 | [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
@@ -193,6 +193,13 @@ coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
 métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
 un seul job. Les durées ne choisissent pas la couverture.
 
+`secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
+qu'un autre vaille sa pile et son build (environ trois minutes de runner par
+job). Elle vaut ce qu'un shard porte quand la suite entière tourne (715 s en
+critical, à 2 workers) : une sélection partielle remplit donc ses shards comme
+la suite complète, au lieu d'en ouvrir un tous les 300 s. Les parcours du métré
+(environ 320 s à 1 worker) tiennent dans un job, sous le budget de 400 s.
+
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les deux fichiers des
 [parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
@@ -204,9 +211,10 @@ la refuse avant de créer la pile. Sans durées utilisables, le plan n'a qu'un
 shard et la règle ne s'applique pas ; l'exécution de la suite entière dans un
 seul job, repli d'une sélection impossible, ne les sépare pas non plus.
 
-Les phases calc-v3 sélectionnées tournent en groupes : cinq jobs au plus
-(`calcV3.maxGroups` du même fichier), un groupe par phase quand la sélection en
-compte moins. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
+Les phases calc-v3 sélectionnées tournent en groupes : autant de jobs que leurs
+secondes de parcours mesurées en remplissent à `calcV3.secondsPerGroup`
+(480 s), jamais plus que de phases ni que `calcV3.maxGroups` (cinq). Trois
+phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
 seul build, puis exécute ses phases l'une après l'autre
 (`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
 invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
@@ -214,21 +222,108 @@ invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
 phases de la plus longue à la plus courte sur le groupe le moins chargé,
 d'après les secondes de parcours mesurées par phase (`calcV3.seconds`, hors
 préparation de la pile) ; une phase n'est pas coupée et aucun groupe n'est
-vide. La même sélection donne toujours la même répartition. Avec les 19
-phases, chaque job dure environ 9 minutes (6 minutes de parcours, le reste en
-préparation) au lieu de 19 jobs de 3 à 8 minutes. Le déclenchement manuel `all`
+vide. La même sélection donne toujours la même répartition. Les 19 phases
+(environ 1 800 s de parcours) tournent en quatre jobs d'environ 7 min 30 de
+parcours chacun, plus la préparation. Le déclenchement manuel `all`
 garde la campagne complète dans un seul job, et une phase explicite le sien.
 
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie
 les manifestes, sources, sélections, workers, résultats et empreintes de chaque
 unité. L'union doit correspondre exactement au plan, hors setups explicitement
-partagés. Une unité manquante, échouée, interrompue, avec tests sautés ou preuve
-incohérente empêche le succès agrégé. Pour calc-v3, les unités sont les
+partagés. Une unité manquante, échouée, interrompue, avec tests sautés, avec un
+parcours réussi seulement à sa [seconde tentative](#tentative-unique-et-quarantaine)
+ou une preuve incohérente empêche le succès agrégé. Pour calc-v3, les unités sont les
 groupes : le manifeste et la campagne de chaque groupe doivent lister ses phases
 prévues, toutes réussies, et les groupes ensemble exécuter chaque phase
 sélectionnée une seule fois ; une phase manquante, en double ou hors plan est
 nommée. Les agrégats conservent les preuves des unités et leur portée `full`,
 `filtered-critical`, `filtered-full` ou `calc-v3`.
+
+## Tentative unique et quarantaine
+
+Deux mécanismes aident à lire un check rouge. Aucun ne rend vert un parcours
+qui échoue.
+
+### Une seconde tentative, en CI seulement
+
+Dans les campagnes Critical, Full (shards du métré et phase développement
+compris) et Calc-v3 lancées par un workflow, un parcours en échec est rejoué
+une fois. `run-tester-army-ci.ts` le décide d'après son propre environnement
+(`CI` défini, autre que `false` ou `0`) : il passe toujours `CI=1` au runner
+e2e, même sur le poste. Un lancement local, la boucle de développement,
+l'exploration, le smoke et les recettes locales gardent zéro retry, et aucune
+valeur supérieure à un n'est acceptée.
+
+| Tentatives d'un parcours | Check | Libellé dans l'erreur du job et le résumé |
+| --- | --- | --- |
+| Réussite à la première | vert | aucun |
+| Échec, puis réussite | rouge | `intermittent: <fichier> > <titre> (failed on attempt 1, passed on attempt 2)` |
+| Deux échecs | rouge | `failed: <fichier> > <titre> (failed on both attempts: <erreur>)` |
+
+Le runner e2e sort en code 0 et note le run `passed` quand un parcours n'a
+réussi qu'à sa seconde tentative (son statut `flaky`). Plusieurs contrôles
+le gardent rouge, chacun de son côté : pour les suites critique et complète,
+`run-tester-army.mjs`, la validation de `run-tester-army-ci.ts` et
+l'agrégation ; pour calc-v3, qui appelle le runner sans `run-tester-army.mjs`,
+la validation de chaque phase et l'agrégation. Un parcours ne déclare pas ses
+propres `retries` (seul `0` est admis, pour un parcours à ne jamais rejouer). La
+ligne `TesterArmy CI error` du job, l'annotation et la section « Parcours non
+passés » du check agrégé nomment chaque parcours avec son libellé
+([`journey-outcomes.ts`](../../scripts/tester-army/journey-outcomes.ts)) ; le
+ticket d'[alerte](#alerte-des-campagnes-de-main) les reprend.
+
+« Intermittent » classe l'échec ; il ne disculpe pas le changement testé. La
+seconde tentative repart de l'état que la première a laissé (affaire créée,
+bail déjà pris, cache chaud) : un échec déterministe sur un état neuf peut y
+réussir, et un parcours intermittent peut y échouer deux fois sur une fixture
+consommée. Avant de relancer le job, la preuve attendue reste celle de
+`AGENTS.md` : le même parcours rouge ou intermittent sur `main`, ou en échec
+sans le diff. Relancer jusqu'au vert, ajouter des retries et allonger un
+timeout restent interdits.
+
+La seconde tentative ne tourne qu'après un échec : une campagne verte n'en a
+exécuté aucune, et ses comptes, ses preuves et sa durée sont ceux d'avant. Une
+campagne où tout échoue double au plus le temps de ses parcours, sous le même
+plafond `maxDuration` (30 minutes pour critical et la phase développement, 60
+pour full, 15 à 60 par phase calc-v3), au-delà duquel le run est interrompu,
+donc rouge. Chaque tentative garde ses preuves sous `results/<test>/attempt-<n>/`.
+
+### `test.fail`, une quarantaine déclarée
+
+`test.fail` (e2e 0.23) marque un parcours attendu en échec : son échec est
+compté `passed`, sa réussite fait échouer le run (`UNEXPECTED_PASS`). Il n'est
+admis que pour un parcours rouge sur `main`, le temps de sa réparation, avec
+une raison littérale qui cite un ticket ouvert : identifiant Linear (`TI-681`)
+ou ticket GitHub (`#123`).
+
+```ts
+test("EI13 exporte le PDF", { tags: ["critical"], fail: "TI-681 : export PDF cassé sur main" }, async ({ app }) => {
+  // parcours inchangé
+});
+```
+
+- Formes admises : l'option `fail: "<ticket> : raison"` ou, dans le corps,
+  `test.fail("<ticket> : raison")` et `test.fail(condition, "<ticket> : raison")`.
+  `test.fail(titre, fn)` et `fail: true` n'ont pas de raison : ils sont refusés.
+- [`check-journey-declarations.ts`](../../scripts/tester-army/check-journey-declarations.ts)
+  (`check:army-recipes`) refuse dans `verify:pr` tout `test.fail` de `e2e/` sans
+  ticket dans une raison littérale, et tout `retries` autre que `0` sur un
+  parcours. Une campagne qui exécute un parcours attendu en échec sans ticket
+  est rouge elle aussi, agrégation comprise.
+- Chaque campagne liste les parcours en quarantaine qu'elle a exécutés, avec
+  leur ticket : ligne `TesterArmy CI quarantine` du job, avertissement
+  « TesterArmy quarantine » et section « Parcours en quarantaine » du résumé du
+  check agrégé, clé `quarantined` des manifestes. Une PR ne liste que ceux que
+  sa sélection atteint ; les campagnes de `main` les listent tous.
+- Un parcours en quarantaine ne prouve rien : n'importe quel échec de test le
+  satisfait, pas seulement celui du ticket. La marque se retire avec la
+  correction ; le jour où le parcours passe, le check devient rouge jusqu'à son
+  retrait. Rien ne vérifie que le ticket cité est encore ouvert.
+- La marque ne couvre ni une erreur d'infrastructure, ni une interruption, ni
+  un setup de connexion : ils restent des échecs. Un parcours en quarantaine
+  qui réussit à une tentative et échoue à l'autre est rouge, avec le libellé
+  `intermittent: … (passed on attempt 1 although quarantined, failed as
+  expected on attempt 2)`.
 
 ## Pile, confidentialité et diagnostic
 
@@ -237,8 +332,24 @@ et cibles DB/Supabase héritées, crée une pile native loopback et applique les
 migrations du checkout. Les contrôles pgTAP/RLS précèdent les parcours ; le
 build de production peut démarrer en parallèle des contrôles DB, sur la même
 identité de backend. Le plafond SQL de copie n'est alors pas mesuré dans ce
-job ; la matrice RLS l'exécute seule, sur chaque PR qui touche la base et
-chaque nuit sur `main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+job ; la matrice RLS l'exécute seule, sur chaque PR et chaque nuit sur
+`main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+
+pgTAP et la matrice RLS prouvent la base migrée, pas les parcours : le même
+résultat dans chacune des piles d'une PR. Sur une pull request, ils tournent
+donc une seule fois, dans le check requis `rls-matrix`, seuls sur leur pile et
+plafonds compris. Ce check tourne en entier sur toute PR, de documentation
+aussi : le label `army-full` ou un diff vide lancent des jobs Army sur une
+telle PR. Les jobs Army de la même PR les lui délèguent
+(`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
+[`database-checks.ts`](../../scripts/tester-army/database-checks.ts)) : leur
+pile vérifie encore ses migrations et ses types générés, puis lance les
+parcours. Le manifeste l'indique (`database.checks` : `delegated`, absent
+quand le job exécute ses propres contrôles) et `army-critical` vert ne dit
+donc plus que le SQL est vérifié :
+c'est `rls-matrix` qui le dit. Hors pull request (push sur `main`, campagnes,
+run local), rien n'est délégué : la délégation y est refusée, faute de check
+qui réponde pour la révision.
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas
@@ -251,7 +362,8 @@ Pour diagnostiquer un échec, lire d'abord le manifeste de campagne, la phase
 déjà la cause ([port applicatif et cause d'un
 échec](tester-army-local-development.md#port-applicatif-et-cause-dun-échec)).
 Une installation/build interrompu n'est pas un résultat métier. Conserver le premier échec avant correction ; ne
-pas le masquer par un retry ou un timeout augmenté. Les workflows fixent les
+pas le masquer par un retry ou un timeout augmenté : la seconde tentative de la CI
+[classe un échec, elle ne le rend jamais vert](#tentative-unique-et-quarantaine). Les workflows fixent les
 artefacts, délais et durées de rétention actuels.
 
 Les rôles de l'API annulent une requête après 8 s (`57014`), ce que

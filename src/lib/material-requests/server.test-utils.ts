@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
  * therefore leaks in these tests, which is the point. Every write is recorded as it was sent.
  *
  * Of the database it reproduces only what the routes observe and pgTAP proves: defaults and scope on
- * insert, validation stamps, the stored mark refused without bytes of the announced size, and the return to draft of the lines
+ * insert, validation stamps, the unique keys of technicians, usual names and product references, the stored mark refused without bytes of the announced size, and the return to draft of the lines
  * that relied on a presumed material the request withdraws. The browser's own upload to a signed URL is
  * played by the test, which puts bytes in `objects`.
  */
@@ -30,9 +30,16 @@ type Filter = (row: FakeRow) => boolean;
 type QueryError = { code: string; message: string; details: null; hint: null };
 type QueryResult = { data: unknown; error: QueryError | null; count?: number | null };
 
+/** What a database function answers from its arguments and the tables, as the database would (pgTAP proves it). */
+export type FakeRpcHandler = (
+  args: Record<string, unknown>,
+  tables: FakeTables,
+) => { data: unknown; error?: { code: string; message: string; details?: string | null } | null };
+
 export type FakeSupabaseOptions = {
   userId: string | null;
   tables: FakeTables;
+  /** A fixed answer by function name, or a FakeRpcHandler that reads its arguments. */
   rpc?: Record<string, unknown>;
   /** Stored objects, by path. */
   objects?: Record<string, Uint8Array>;
@@ -65,6 +72,12 @@ function comparable(value: unknown): string | number {
 }
 
 const TECHNICIAN_NAME_KEY = (row: FakeRow) => `${row.tenant_id}|${String(row.name).replace(/\s+/g, "").toLowerCase()}`;
+/** Unique keys the routes may hit; null: the row holds no key (a product without reference). */
+const UNIQUE_KEYS: Record<string, (row: FakeRow) => string | null> = {
+  material_request_technicians: TECHNICIAN_NAME_KEY,
+  product_aliases: (row) => `${row.tenant_id}|${row.product_id}|${row.alias_key}`,
+  products: (row) => (row.reference ? `${row.tenant_id}|${String(row.reference).trim().toLowerCase()}` : null),
+};
 
 export function createFakeSupabase(options: FakeSupabaseOptions) {
   const tables = options.tables;
@@ -72,10 +85,16 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
   const writes: FakeWrite[] = [];
   const storageCalls: FakeStorageCall[] = [];
   const rpcCalls: string[] = [];
+  /** Every database function call with the arguments it was given, in order. */
+  const rpcArgs: Array<{ name: string; args: Record<string, unknown> }> = [];
+  /** Every select, by table, in the order it ran: one entry per page read. */
+  const reads: string[] = [];
   /** Writes and storage calls in the order they were made: "insert material_request_files", "upload", ... */
   const events: string[] = [];
   let signed = 0;
-  let clock = Date.parse("2026-11-12T08:00:00.000Z");
+  // Rows are stamped from the real time: the server compares them with `Date.now()` (photos whose upload
+  // was never completed are abandoned after three hours), so a fixed date turns stale as the day goes on.
+  let clock = Date.now();
   const now = () => new Date((clock += 1000)).toISOString();
 
   function parentOf(table: string, id: unknown): FakeRow | undefined {
@@ -101,8 +120,24 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         quantity: null, quantity_doubtful: false, unit: null, dimension: null, no_dimension: false,
         product_type: null, material: null, material_precision: null, reference: null, supplier_id: null,
         zone: null, imputation: "project", overhead_category: null, duplicate_acknowledged: false,
-        status: "draft", validated_at: null, validated_by: null, updated_at: row.created_at, ...row,
+        status: "draft", validated_at: null, validated_by: null, product_id: null, product_match: null,
+        updated_at: row.created_at, ...row,
       };
+    }
+    if (table === "products") {
+      // The column's default and the author trigger (TI-689): the caller's tenant, the caller as author.
+      const membership = (tables.tenant_memberships ?? []).find((entry) => entry.user_id === options.userId);
+      return {
+        tenant_id: membership?.tenant_id ?? null, reference: null, category: null, product_type: null, material: null,
+        grade: null, dimensions: null, standard: null, unit: "u", is_active: true, catalogue_status: "validated",
+        supply_type_id: null, created_from_material_request: false, updated_at: row.created_at, ...row,
+        created_by: options.userId,
+      };
+    }
+    if (table === "product_aliases") {
+      // The alias trigger: the article's tenant, the database's date, the caller as author.
+      const product = parentOf("products", row.product_id);
+      return { ...row, tenant_id: product?.tenant_id ?? null, created_by: options.userId };
     }
     if (table === "material_request_files") {
       const parent = parentOf("material_requests", row.request_id);
@@ -124,6 +159,11 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       next.validated_at = next.status === "validated" ? (row.validated_at ?? now()) : null;
       next.validated_by = next.status === "validated" ? (row.validated_by ?? options.userId) : null;
     }
+    // The quote trigger dates the life of a quote (TI-691).
+    if (table === "material_request_quotes" && next.status !== row.status) {
+      if (next.status === "received") next.received_at = now();
+      if (next.status === "closed") next.closed_at = now();
+    }
     return next;
   }
 
@@ -140,9 +180,10 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
   }
 
   function uniqueViolation(table: string, candidate: FakeRow): QueryError | null {
-    if (table !== "material_request_technicians") return null;
+    const key = UNIQUE_KEYS[table];
+    if (!key || key(candidate) === null) return null;
     const taken = (tables[table] ?? []).some(
-      (row) => row.id !== candidate.id && TECHNICIAN_NAME_KEY(row) === TECHNICIAN_NAME_KEY(candidate),
+      (row) => row.id !== candidate.id && key(row) === key(candidate),
     );
     return taken
       ? { code: "23505", message: "duplicate key value violates unique constraint", details: null, hint: null }
@@ -217,6 +258,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         writes.push({ table, operation, values: null, ids: matching.map((row) => String(row.id)) });
         return { data: returning ? matching.map((row) => project(row, columns)) : null, error: null };
       }
+      reads.push(table);
       const sorted = [...matching].sort((left, right) => {
         for (const { column, ascending } of orders) {
           const a = comparable(left[column]);
@@ -287,6 +329,13 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         filters.push((row) => (readPath(row, column) ?? null) !== null);
         return builder;
       },
+      /** Text searches are not run: every row matches. Tests shape their rows so that they all would. */
+      or() {
+        return builder;
+      },
+      ilike() {
+        return builder;
+      },
       order(column: string, orderOptions?: { ascending?: boolean }) {
         orders.push({ column, ascending: orderOptions?.ascending ?? true });
         return builder;
@@ -316,9 +365,17 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       getUser: async () => ({ data: { user: options.userId ? { id: options.userId } : null }, error: null }),
     },
     from,
-    rpc: async (name: string) => {
+    rpc: async (name: string, args: Record<string, unknown> = {}) => {
       rpcCalls.push(name);
-      return { data: options.rpc?.[name] ?? null, error: null };
+      rpcArgs.push({ name, args });
+      const answer = options.rpc?.[name];
+      if (typeof answer === "function") {
+        const { data, error } = (answer as FakeRpcHandler)(args, tables);
+        if (!error) events.push(`rpc ${name}`);
+        // A refusal keeps the DETAIL the function raised with (positions of lines, a status...).
+        return { data: error ? null : data, error: error ? { details: null, hint: null, ...error } : null };
+      }
+      return { data: answer ?? null, error: null };
     },
     storage: {
       from(bucket: string) {
@@ -382,7 +439,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     },
   };
 
-  return { supabase, tables, writes, storageCalls, rpcCalls, events, objects };
+  return { supabase, tables, writes, storageCalls, rpcCalls, rpcArgs, events, objects, reads };
 }
 
 /** The membership row `getAuthenticatedTenantContext` reads for the signed-in member. */

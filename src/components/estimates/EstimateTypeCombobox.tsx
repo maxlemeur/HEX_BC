@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
+import { describedByIds } from "@/components/ui/invalid-draft-reason";
 import {
   resolveUniqueEstimateType,
   searchEstimateTypes,
@@ -111,7 +112,7 @@ export function EstimateTypeCombobox({
         aria-controls={isOpen ? listId : undefined}
         aria-activedescendant={isOpen && active ? `${listId}-${active.id || "empty"}` : undefined}
         aria-invalid={error ? true : undefined}
-        aria-describedby={message ? `${listId}-status` : undefined}
+        aria-describedby={describedByIds(message && `${listId}-status`, error && `${listId}-error`)}
         title={error ?? selected?.label}
         autoComplete="off"
         disabled={disabled}
@@ -191,6 +192,7 @@ export function EstimateTypeCombobox({
         }}
       />
       <span id={`${listId}-status`} role="status" className="sr-only">{message}</span>
+      {error ? <span id={`${listId}-error`} className="sr-only">{error}</span> : null}
       {isOpen && inputRef.current ? createPortal(
         <div
           ref={listRef}

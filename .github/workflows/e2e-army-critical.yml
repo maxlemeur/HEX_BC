@@ -2,7 +2,9 @@ name: TesterArmy Critical
 
 # The audited target guard is retained. This job has no shared Supabase secrets:
 # run-tester-army-ci creates and destroys its own native loopback stack, then
-# runs real authenticated journeys only after migrations, pgTAP and RLS pass.
+# runs real authenticated journeys only after its migrations are verified and,
+# outside a pull request, pgTAP and RLS pass. On a pull request those two run
+# once, in the required check rls-matrix (ARMY_DATABASE_CHECKS_DELEGATED_TO).
 #
 # Impact selection (docs/testing/tester-army-ci.md, "Sélection par impact"):
 # a pull request runs only the critical journeys its files reach, recorded as
@@ -300,6 +302,9 @@ jobs:
       - name: Run native database and TesterArmy critical journeys
         id: journeys
         env:
+          # pgTAP and the RLS matrix of a pull request run once, in the required check rls-matrix
+          # (scripts/tester-army/database-checks.ts); a push to main and a campaign keep their own.
+          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
           # Qualified for the critical journeys of the owned ephemeral stack
           # (e2e.config.ts, docs/testing/tester-army-local-development.md).
           E2E_ARMY_WORKERS: "2"
@@ -449,6 +454,9 @@ jobs:
       - name: Run native database and TesterArmy takeoff journeys
         id: journeys
         env:
+          # pgTAP and the RLS matrix of a pull request run once, in the required check rls-matrix
+          # (scripts/tester-army/database-checks.ts); a push to main and a campaign keep their own.
+          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
           # Empty for the fail-safe unsharded plan: the runner's whole full selection.
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}

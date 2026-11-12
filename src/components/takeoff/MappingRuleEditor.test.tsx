@@ -74,4 +74,26 @@ describe("MappingRuleEditor", () => {
       screen.queryByText("L'ouvrage sélectionné est introuvable dans la liste chargée.")
     ).not.toBeInTheDocument();
   });
+
+  // MWG « Error Link »: after a refused submit, each refused field names its reason to assistive
+  // technology, and focus lands on the first one so that reason is read; a fixed field drops it.
+  it("links each refused field to its reason and focuses the first one", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<MappingRuleEditor mode="create" assemblies={ASSEMBLIES} onSubmit={onSubmit} />);
+
+    await user.click(screen.getByRole("button", { name: "Créer la règle" }));
+
+    const name = screen.getByLabelText("Nom de la règle");
+    const pattern = screen.getByLabelText("Pattern de correspondance");
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription("Le nom est obligatoire.");
+    expect(pattern).toHaveAccessibleDescription("Le pattern est obligatoire.");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.type(name, "Renommage");
+    expect(name).not.toHaveAttribute("aria-invalid");
+    expect(name).toHaveAccessibleDescription("");
+  });
 });

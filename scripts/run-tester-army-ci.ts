@@ -15,6 +15,7 @@ import type { Database } from "../src/types/database";
 import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-fixtures";
 import { startBlockedStatementWatch } from "./tester-army/blocked-statements";
 import { awaitBrowserInstall } from "./tester-army/browser-install";
+import { resolveDelegatedDatabaseChecks } from "./tester-army/database-checks";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
 import {
@@ -26,6 +27,9 @@ import {
   LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
+import {
+  ciRetries, describeNotPassed, describeQuarantined, journeyOutcomes, quarantineProblems, type QuarantinedJourney,
+} from "./tester-army/journey-outcomes";
 import {
   grepAlternativeProblems, listArmySelection, localJourneyCoverageProblems, selectionPreflightProblems,
 } from "./tester-army/journey-preflight.mjs";
@@ -133,6 +137,10 @@ const workers = process.env.E2E_ARMY_WORKERS ?? "";
 if (workers !== "" && !/^[1-4]$/.test(workers)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workers}".`);
 }
+// One retry of a failed journey, in CI only and only for the campaigns that qualify a change (critical, full and its
+// takeoff shards, calc-v3): it tells an intermittent journey from one that fails twice. A journey that needed it
+// keeps its campaign red (journey-outcomes.ts). Exploration, the development sessions and a workstation run keep zero.
+const retries = suite === "critical" || suite === "full" || suite === "calc-v3" ? ciRetries(process.env) : 0;
 if (suite === "calc-v3" && grep && calcV3Phases?.length !== 1) throw new Error("A calc-v3 --grep filters exactly one --phase.");
 if (fullPhase && (grep || files.length || shard)) throw new Error("full --phase development runs that phase alone: no --grep, --files or --shard.");
 // A filtered full run proves only the production full selection it filters;
@@ -178,6 +186,7 @@ const manifest: Record<string, unknown> = {
     ? { phasesNotRun: { full: "--phase development runs the development phase alone; the shards of the full suite run its full phase" } }
     : {}),
   ...(suite === "dev" ? { e2e: "not-run" } : { workers: workers === "" ? 1 : Number(workers) }),
+  ...(suite === "critical" || suite === "full" || suite === "calc-v3" ? { retries } : {}),
   status: "preparing",
   steps: [],
 };
@@ -258,7 +267,8 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
 // The production build of critical, full and calc-v3 needs only the stack's
 // origin and keys (it never receives the ARMY account or the SQL transport): it
 // starts as soon as the stack runs, while the snapshot, pgTAP and the RLS matrix
-// check the database. runApplication, which runs only after they pass, awaits it.
+// check the database (the snapshot alone when a pull request delegates the other
+// two). runApplication, which runs only after they pass, awaits it.
 // Some SQL maintenance probes require NOWAIT table locks. An explicit serial campaign keeps the build's reads
 // away from that qualification window; every database, build and browser check still runs unchanged.
 const buildsEarly = process.env.E2E_ARMY_SERIAL_BUILD !== "1" && (suite === "critical" ||
@@ -470,7 +480,8 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
       root, evidence, appPort, environment, backend: backend.origin, anonKey: local.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, admin,
       owner: { userId: user.user.id, tenantId, laborRoleId: laborRole.id },
-      phases: calcV3Phases, grep, remember: (secret) => { knownSecrets.push(secret); }, redact,
+      phases: calcV3Phases, grep, retries, remember: (secret) => { knownSecrets.push(secret); }, redact,
+      onQuarantined: (phase, journeys) => recordQuarantined(manifest, phase, journeys),
       build: () => earlyBuild ? awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
         : runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
     });
@@ -506,6 +517,8 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
     E2E_ARMY_LOCAL_DB_URL: local.E2E_ARMY_LOCAL_DB_URL,
     E2E_ARMY_LOCAL_PSQL: local.E2E_ARMY_LOCAL_PSQL,
     ...(workers === "" ? {} : { E2E_ARMY_WORKERS: workers }),
+    // Read by e2e.config.ts; absent on a workstation and for the suites that never retry.
+    ...(retries ? { E2E_ARMY_RETRIES: "1" } : {}),
   };
   if (suite === "dev-loop") {
     // docs/testing/tester-army-local-development.md: this stack, account and
@@ -575,9 +588,17 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
   manifest.phase = phase;
   manifest.campaignStartedAt = new Date().toISOString();
   await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`, context,
-    () => armyRunFailure(context));
+    () => journeysFailure(context));
   const report = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/report.json"), "utf8"));
   const run = report.run;
+  // Before any other check, so that the error names the journeys: the e2e CLI exits 0 on a journey that only
+  // passed on its retry, and reports a `test.fail` journey that failed as passed.
+  const outcomes = journeyOutcomes(run);
+  recordQuarantined(manifest, phase, outcomes.quarantined);
+  const notPassed = describeNotPassed(outcomes.notPassed, redact);
+  if (notPassed) throw new Error(notPassed);
+  const unticketed = quarantineProblems(outcomes.quarantined);
+  if (unticketed.length) throw new Error(unticketed.join("; "));
   type JourneyResult = { selected: boolean; status: string; kind: string; file: string;
     titlePath: string[]; tags: string[]; targetId: string };
   const results: JourneyResult[] = run?.results?.filter((result: JourneyResult) => result.selected) ?? [];
@@ -618,7 +639,29 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
     throw new EvidenceRetentionError(`its evidence was not retained: ${redact(error instanceof Error ? error.message : String(error))}`);
   }
   const phases = (manifest.phases ??= []) as unknown[];
-  phases.push({ phase, status: "passed", result: run.summary });
+  phases.push({ phase, status: "passed", result: run.summary, ...(outcomes.quarantined.length ? { quarantined: outcomes.quarantined } : {}) });
+}
+
+/** The journeys marked `test.fail` that a phase ran: kept in the manifest and printed with the run's result. */
+function recordQuarantined(manifest: Record<string, unknown>, phase: string, journeys: QuarantinedJourney[]) {
+  const others = ((manifest.quarantined ?? []) as Array<QuarantinedJourney & { phase: string }>).filter((journey) => journey.phase !== phase);
+  if (others.length || journeys.length) manifest.quarantined = [...others, ...journeys.map((journey) => ({ phase, ...journey }))];
+}
+
+/**
+ * Why a journey phase failed: the run-level cause the army CLI recorded, then the journeys that did not pass, an
+ * intermittent one (passed on its retry) named apart from one that failed every attempt. Undefined when the phase
+ * left neither: the last lines of its output then stand for the cause.
+ */
+function journeysFailure(context: RunContext) {
+  const causes = [armyRunFailure(context)];
+  const file = path.join(root, ".e2e/army/critical/report.json");
+  if (fs.existsSync(file) && fs.statSync(file).mtimeMs >= Date.parse(String(context.manifest.campaignStartedAt))) {
+    const outcomes = journeyOutcomes(JSON.parse(fs.readFileSync(file, "utf8")).run);
+    recordQuarantined(context.manifest, String(context.manifest.phase), outcomes.quarantined);
+    causes.push(describeNotPassed(outcomes.notPassed, redact), ...quarantineProblems(outcomes.quarantined));
+  }
+  return causes.filter(Boolean).join("; ") || undefined;
 }
 
 /** The run-level cause the army CLI recorded for this phase (an app that could not start), with the app port. */
@@ -799,9 +842,17 @@ async function main() {
       if (problems.length) throw new Error(`The filtered ${suite} run is refused before any stack: ${problems.join(" ")}`);
     }
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
+    // On a pull request the required check rls-matrix runs pgTAP and the RLS matrix once for every Army job.
+    const delegatedDatabaseChecks = resolveDelegatedDatabaseChecks(process.env);
+    if (delegatedDatabaseChecks && interactive) throw new Error("An interactive session runs its own database checks: it cannot delegate them.");
+    // Recorded only when delegated: this run then proves nothing about pgTAP and the RLS matrix by itself.
+    if (delegatedDatabaseChecks) {
+      manifest.database = { ...(manifest.database as Record<string, unknown>), checks: { status: "delegated", to: delegatedDatabaseChecks } };
+    }
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      ...(delegatedDatabaseChecks ? { delegatedDatabaseChecks } : {}),
       ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.
@@ -858,6 +909,9 @@ async function main() {
     if (!writeRetainedManifest(mainContext)) process.exitCode = 1;
     if (process.env.GITHUB_OUTPUT && manifest.privacy === "passed") fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${path.relative(root, evidence)}\n`);
     if (manifest.status === "failed") console.log(`TesterArmy CI error: ${manifest.error ?? "unknown"}`);
+    // In a green run too: a quarantined journey reports `passed` and proves nothing until its ticket is closed.
+    const quarantined = (manifest.quarantined ?? []) as QuarantinedJourney[];
+    if (quarantined.length) console.log(`TesterArmy CI quarantine (${quarantined.length} expected to fail, proving nothing): ${redact(describeQuarantined(quarantined))}`);
     console.log(`TesterArmy CI ${manifest.status}; evidence: ${path.relative(root, evidence)}`);
   }
 }

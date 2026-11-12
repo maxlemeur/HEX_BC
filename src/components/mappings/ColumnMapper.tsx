@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,10 @@ export function ColumnMapper({
   onChange: (next: ColumnMapping) => void;
 }) {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const conflictId = useId();
+  // One polite message for the whole mapper: the conflict a change creates is announced once,
+  // although two rows show it (MWG accessible error announcement).
+  const [conflictAnnouncement, setConflictAnnouncement] = useState("");
 
   const requiredTargets = targetFields.filter((field) => field.required).map((field) => field.value);
   const visibleMappings = useMemo(() => {
@@ -196,6 +200,14 @@ export function ColumnMapper({
       next[sourceColumn] = nextTarget;
     }
 
+    const others = nextTarget
+      ? sourceColumns.filter((column) => column !== sourceColumn && next[column] === nextTarget)
+      : [];
+    setConflictAnnouncement(
+      others.length > 0
+        ? `Conflit : « ${getTargetLabel(nextTarget)} » aussi assigné à ${others.join(", ")}`
+        : ""
+    );
     onChange(next);
   }
 
@@ -208,6 +220,9 @@ export function ColumnMapper({
       aria-labelledby="column-mapper-title"
       className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
     >
+      <p className="sr-only" aria-live="polite">
+        {conflictAnnouncement}
+      </p>
       <div className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div className="min-w-0">
@@ -285,12 +300,13 @@ export function ColumnMapper({
               </tr>
             </thead>
             <tbody>
-              {sortedAndFilteredColumns.map((sourceColumn) => {
+              {sortedAndFilteredColumns.map((sourceColumn, rowIndex) => {
                 const currentTarget = mapping[sourceColumn] ?? "";
                 const isMapped = Boolean(currentTarget);
                 const isRequiredTarget = requiredTargets.includes(currentTarget);
                 const duplicateSources = currentTarget ? duplicateTargetMap.get(currentTarget) : undefined;
                 const hasDuplicateConflict = duplicateSources && duplicateSources.length > 1;
+                const rowConflictId = `${conflictId}-conflict-${rowIndex}`;
                 const samples = sampleValues[sourceColumn] ?? [];
                 const confidence = confidenceBySource?.[sourceColumn] ?? null;
 
@@ -342,6 +358,7 @@ export function ColumnMapper({
                           size="sm"
                           aria-label={`Champ cible pour ${sourceColumn}`}
                           aria-invalid={hasDuplicateConflict || undefined}
+                          aria-describedby={hasDuplicateConflict ? rowConflictId : undefined}
                           className={cn(hasDuplicateConflict && "border-warning-border ring-3 ring-warning/20")}
                           value={currentTarget}
                           onChange={(event) => setMapping(sourceColumn, event.target.value)}
@@ -369,7 +386,7 @@ export function ColumnMapper({
                         ) : null}
                         {hasDuplicateConflict ? (
                           <div className="flex flex-wrap items-center gap-2 text-micro text-warning">
-                            <span>
+                            <span id={rowConflictId}>
                               Conflit : « {getTargetLabel(currentTarget)} » aussi assigné à{" "}
                               {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
                             </span>

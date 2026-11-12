@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -14,7 +14,7 @@ import * as validateRoute from "@/app/api/affaires/[projectId]/material-requests
 import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/route";
 import * as requestsRoute from "@/app/api/affaires/[projectId]/material-requests/route";
 import { MATERIAL_REQUEST_FILE_MAX_BYTES, MATERIAL_REQUEST_MAX_LINES } from "@/lib/material-requests/contracts";
-import { createFakeSupabase, fakeMembership, type FakeRow } from "@/lib/material-requests/server.test-utils";
+import { createFakeSupabase, fakeMembership, type FakeRow, type FakeRpcHandler } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -66,6 +66,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     failed or was interrupted, or keeps its bytes when its request is deleted; a storage error reaches
  *     the client.
  */
+
+const UPLOAD_CLOCKS = ["2026-11-12T09:00:00.000Z", "2030-07-01T17:30:00.000Z"];
+
+afterEach(() => vi.restoreAllMocks());
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const OTHER_TENANT = "10000000-0000-4000-8000-000000000002";
@@ -148,7 +152,16 @@ function seed(
 ) {
   const fake = createFakeSupabase({
     userId: actor,
-    rpc: { material_request_material_options: ["Cuivre", "Inox 304L"] },
+    rpc: {
+      material_request_material_options: ["Cuivre", "Inox 304L"],
+      // public.withdraw_material_request_files_for_deletion, as pgTAP proves it (TI-691): every file of the request is
+      // withdrawn, quote files included, and its path answered.
+      withdraw_material_request_files_for_deletion: ((args, tables) => {
+        const rows = (tables.material_request_files ?? []).filter((row) => row.request_id === args.p_request_id);
+        for (const row of rows) row.removed_at ??= new Date().toISOString();
+        return { data: rows.map((row) => ({ storage_path: row.storage_path })) };
+      }) satisfies FakeRpcHandler,
+    },
     objects: overrides.objects ?? { [FILE_PATH]: JPEG, [OTHER_FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG },
     failSign: overrides.failSign,
     refuseUpdate: overrides.refuseUpdate,
@@ -377,7 +390,7 @@ describe("material requests of an affaire: scope", () => {
     expect(detail.request).toMatchObject({ id: REQUEST, project_id: PROJECT, material_confirmed: true });
     expect(detail.technician).toEqual({ id: TECHNICIAN, name: "Technicien Bravo", current_project_id: PROJECT, is_active: true });
     expect(detail.files).toEqual([
-      { id: FILE, request_id: REQUEST, file_name: "demande chantier.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: "2026-11-11T09:05:00.000Z" },
+      { id: FILE, request_id: REQUEST, quote_id: null, file_name: "demande chantier.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: "2026-11-11T09:05:00.000Z" },
     ]);
     expect(detail.lines.map((entry) => [entry.id, entry.position, entry.status])).toEqual([
       [LINE_READY, 1, "draft"], [LINE_NO_QUANTITY, 2, "draft"], [LINE_VALIDATED, 3, "validated"],
@@ -985,7 +998,8 @@ describe("material requests of an affaire: originals", () => {
     expect(fake.tables.material_request_files.map((row) => row.id)).toEqual([FILE, PENDING_FILE, OTHER_FILE]);
   });
 
-  it("takes back what an interrupted upload left hours ago when the next one is prepared, and nothing recent", async () => {
+  it.each(UPLOAD_CLOCKS)("takes back what an interrupted upload left hours ago when the next one is prepared, and nothing recent at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const stalePath = `${TENANT}/${PROJECT}/${REQUEST}/80000000-0000-4000-8000-000000000003/ancienne.jpg`;
     const fake = seed(OWNER, "engineer", { objects: { [FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG, [stalePath]: JPEG } });
     fake.tables.material_request_files.push({
@@ -1012,8 +1026,8 @@ describe("material requests of an affaire: originals", () => {
     const { status, data } = await complete([ids[1], ids[0]]);
     expect(status).toBe(200);
     expect((data as { files: FakeRow[] }).files).toEqual([
-      { id: ids[1], request_id: REQUEST, file_name: "deux.png", mime_type: "image/png", byte_size: PNG.byteLength, rotation: 0, created_at: expect.any(String) },
-      { id: ids[0], request_id: REQUEST, file_name: "une.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: expect.any(String) },
+      { id: ids[1], request_id: REQUEST, quote_id: null, file_name: "deux.png", mime_type: "image/png", byte_size: PNG.byteLength, rotation: 0, created_at: expect.any(String) },
+      { id: ids[0], request_id: REQUEST, quote_id: null, file_name: "une.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: expect.any(String) },
     ]);
     // Every photo is looked at in storage before the single mark that makes them visible.
     expect(fake.events).toEqual(["info", "download", "info", "download", "update material_request_files"]);
@@ -1094,7 +1108,8 @@ describe("material requests of an affaire: originals", () => {
     expect([...fake.objects.keys()]).toEqual([FILE_PATH, OTHER_FILE_PATH, PENDING_FILE_PATH]);
   });
 
-  it("lets only one of two uploads prepared side by side become visible past twelve originals", async () => {
+  it.each(UPLOAD_CLOCKS)("lets only one of two uploads prepared side by side become visible past twelve originals at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const fake = seed(OWNER, "engineer");
     const eleven = (prefix: string) => Array.from({ length: 11 }, (_, index) => declared(`${prefix}-${index}.jpg`));
     // One original is stored: each batch of eleven fits on its own, the two together do not.
@@ -1124,7 +1139,8 @@ describe("material requests of an affaire: originals", () => {
     expect(fake.objects.has(upload.path)).toBe(false);
   });
 
-  it("bounds the photos waiting for their bytes on a request", async () => {
+  it.each(UPLOAD_CLOCKS)("bounds the photos waiting for their bytes on a request at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const fake = seed(OWNER, "engineer");
     const eleven = Array.from({ length: 11 }, (_, index) => declared(`photo-${index}.jpg`));
     // One upload was interrupted: 1 + 11 + 11 wait for their bytes, eleven more would make 34.
@@ -1189,10 +1205,11 @@ describe("material requests of an affaire: originals", () => {
     await call(fileRoute.DELETE, "DELETE", { ...inRequest, fileId: PENDING_FILE });
     expect(pending.events).toEqual(["update material_request_files", "remove", "delete material_request_files"]);
 
+    // TI-691: a request's files, those of retained quotes included, are withdrawn by one database function.
     const whole = seed(OWNER, "engineer");
     await call(requestRoute.DELETE, "DELETE", inRequest);
-    expect(whole.events).toEqual(["update material_request_files", "remove", "delete material_requests"]);
-    expect(whole.writes[0]).toMatchObject({ values: { removed_at: expect.any(String) }, ids: [FILE, PENDING_FILE] });
+    expect(whole.events).toEqual(["rpc withdraw_material_request_files_for_deletion", "remove", "delete material_requests"]);
+    expect(whole.rpcArgs).toContainEqual({ name: "withdraw_material_request_files_for_deletion", args: { p_request_id: REQUEST } });
   });
 
   it.each<[string, unknown]>([

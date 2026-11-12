@@ -11,10 +11,13 @@ import {
   MATERIAL_REQUEST_IMPUTATION_LABELS,
   MATERIAL_REQUEST_IMPUTATIONS,
   type MaterialRequest,
+  type MaterialRequestArticleCandidate,
+  type MaterialRequestArticleSummary,
   type MaterialRequestImputation,
   type MaterialRequestLine,
   type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
+import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 import { cn } from "@/lib/utils";
 
 import {
@@ -29,7 +32,15 @@ import {
   type ChoiceOption,
 } from "./cells";
 import { formatQuantity } from "./format";
-import type { LineChangeState, SaveResult } from "./useMaterialRequestEditor";
+import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
+import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
+import type {
+  ArticleNotice,
+  LineChangeState,
+  LineProposals,
+  RetainResult,
+  SaveResult,
+} from "./useMaterialRequestEditor";
 
 /** The fixed order of the columns (TI-690); the table header and the rows both follow it. */
 export const LINE_COLUMNS = [
@@ -44,6 +55,7 @@ export const LINE_COLUMNS = [
   { key: "supplier", label: "Fournisseur", width: "min-w-44" },
   { key: "zone", label: "Repère", width: "min-w-32" },
   { key: "imputation", label: "Imputation", width: "min-w-44" },
+  { key: "article", label: "Article", width: "min-w-72" },
 ] as const;
 
 /** Selection column, the columns above, then the status and its actions. */
@@ -74,6 +86,20 @@ type LineRowProps = Readonly<{
   onReopen: () => Promise<SaveResult>;
   materialListId: string;
   unitListId: string;
+  /** The article linked to the line, when there is one. */
+  article: MaterialRequestArticleSummary | null;
+  proposals: LineProposals;
+  articleNotice: ArticleNotice | undefined;
+  articleConflict: string | undefined;
+  onLinkArticle: (candidate: MaterialRequestArticleCandidate) => Promise<SaveResult>;
+  onUnlinkArticle: () => Promise<SaveResult>;
+  onOpenArticles: () => void;
+  onRetryProposals: () => void;
+  /** The supplier proposed for the line, while it has none (TI-691). */
+  supplierProposal: LineSupplierProposal | null;
+  /** The article's reference at the line's own supplier, when the catalogue knows it. */
+  supplierReference: LineSupplierReference | null;
+  onRetainSupplier: (supplierId: string) => Promise<RetainResult>;
 }>;
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
@@ -145,7 +171,54 @@ function ReadCell({ children, alerts, id }: Readonly<{ children: ReactNode; aler
   );
 }
 
-function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onReopen }: LineRowProps) {
+function ArticleColumn(props: LineRowProps) {
+  return (
+    <td className={CELL}>
+      <MaterialRequestArticleCell
+        line={props.line}
+        article={props.article}
+        canWrite={props.canWrite}
+        proposals={props.proposals}
+        change={props.change}
+        notice={props.articleNotice}
+        conflict={props.articleConflict}
+        onLink={props.onLinkArticle}
+        onUnlink={props.onUnlinkArticle}
+        onOpenPanel={props.onOpenArticles}
+        onRetryProposals={props.onRetryProposals}
+      />
+    </td>
+  );
+}
+
+/**
+ * The supplier column, on every row: a supplier is purchasing information, so the office may set or
+ * change it on a validated line too, which stays validated.
+ */
+function SupplierColumn(props: LineRowProps) {
+  const { line, request, supplierOptions, canWrite } = props;
+  const ownSupplier = supplierName(supplierOptions, line.supplier_id);
+  const requestSupplier = supplierFromRequest(request, supplierOptions);
+  return (
+    <td className={CELL}>
+      <MaterialRequestSupplierCell
+        line={line}
+        editable={canWrite}
+        supplierOptions={supplierOptions}
+        ownSupplier={ownSupplier}
+        requestSupplierLabel={requestSupplier ? fromRequest(requestSupplier) : null}
+        proposal={line.supplier_id ? null : props.supplierProposal}
+        reference={props.supplierReference}
+        supplyTypeName={props.article?.supply_type_name ?? null}
+        onSave={props.onSave}
+        onRetain={props.onRetainSupplier}
+      />
+    </td>
+  );
+}
+
+function SettledLineRow(props: LineRowProps) {
+  const { line, alerts, request, canWrite, onReopen } = props;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
@@ -153,8 +226,6 @@ function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onRe
   // an empty cell here would read as « no material » on the table that was reviewed.
   const ownMaterial = line.material?.trim() ? line.material : null;
   const requestMaterial = ownMaterial ? null : materialFromRequest(line, request);
-  const ownSupplier = supplierName(supplierOptions, line.supplier_id);
-  const requestSupplier = ownSupplier ? null : supplierFromRequest(request, supplierOptions);
   const rowId = `material-request-line-${line.id}`;
 
   return (
@@ -175,14 +246,13 @@ function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onRe
         </ReadCell>
         <ReadCell id={`${rowId}-precision`}>{line.material_precision}</ReadCell>
         <ReadCell id={`${rowId}-reference`}>{line.reference}</ReadCell>
-        <ReadCell id={`${rowId}-supplier`}>
-          {ownSupplier ?? (requestSupplier ? fromRequest(requestSupplier) : null)}
-        </ReadCell>
+        <SupplierColumn {...props} />
         <ReadCell id={`${rowId}-zone`}>{line.zone}</ReadCell>
         <ReadCell id={`${rowId}-imputation`}>
           {MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}
           {line.imputation === "overhead" && line.overhead_category ? ` · ${line.overhead_category}` : ""}
         </ReadCell>
+        <ArticleColumn {...props} />
         <td className={cn(CELL, "whitespace-nowrap")}>
           <div className="flex flex-wrap items-center gap-2">
             {validated ? (
@@ -234,28 +304,27 @@ function SettledLineRow({ line, alerts, request, supplierOptions, canWrite, onRe
   );
 }
 
-function EditableLineRow({
-  line,
-  alerts,
-  request,
-  supplierOptions,
-  selected,
-  onSelectedChange,
-  change,
-  onSave,
-  onForget,
-  onDelete,
-  onValidate,
-  materialListId,
-  unitListId,
-}: LineRowProps) {
+function EditableLineRow(props: LineRowProps) {
+  const {
+    line,
+    alerts,
+    request,
+    selected,
+    onSelectedChange,
+    change,
+    onSave,
+    onForget,
+    onDelete,
+    onValidate,
+    materialListId,
+    unitListId,
+  } = props;
   const [error, setError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const n = line.position;
   const blocking = alerts.filter((alert) => alert.blocking);
   const duplicate = alerts.some((alert) => alert.code === "possible_duplicate");
   const requestMaterial = materialFromRequest(line, request);
-  const requestSupplier = supplierFromRequest(request, supplierOptions);
   const summaryId = `material-request-line-${line.id}-summary`;
   // A change the server refused is still in its cell: validating now would validate the older value.
   const unsaved = change === "failed";
@@ -351,16 +420,7 @@ function EditableLineRow({
             onAbandon={() => onForget(["reference"])}
           />
         </td>
-        <td className={CELL}>
-          <ChoiceCell
-            label={`Fournisseur, ligne ${n}`}
-            value={line.supplier_id}
-            options={supplierOptions.map((option) => ({ value: option.id, label: option.name }))}
-            emptyLabel={requestSupplier ? fromRequest(requestSupplier) : "—"}
-            unknownLabel="Fournisseur retiré de la liste"
-            onCommit={(supplier_id) => onSave({ supplier_id })}
-          />
-        </td>
+        <SupplierColumn {...props} />
         <td className={CELL}>
           <TextCell
             label={`Repère, ligne ${n}`}
@@ -393,6 +453,7 @@ function EditableLineRow({
             </div>
           ) : null}
         </td>
+        <ArticleColumn {...props} />
         <td className={cn(CELL, "whitespace-nowrap")}>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="neutral">Brouillon</Badge>

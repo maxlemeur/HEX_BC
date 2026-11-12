@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CheckCheck, Plus } from "lucide-react";
+import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,9 +11,18 @@ import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
 import { lineTitle, plural } from "./format";
+import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMNS, LINE_TABLE_COLUMN_COUNT, MaterialRequestLineRow } from "./MaterialRequestLineRow";
-import type { MaterialRequestEditorApi, SaveResult, WithheldLines } from "./useMaterialRequestEditor";
+import type {
+  ArticleLinkEntry,
+  BulkLinkResult,
+  BulkRetainResult,
+  MaterialRequestEditorApi,
+  SaveResult,
+  SupplierRetainEntry,
+  WithheldLines,
+} from "./useMaterialRequestEditor";
 
 const COLUMN_TITLES: Partial<Record<(typeof LINE_COLUMNS)[number]["key"], string>> = {
   position: "Numéro de ligne",
@@ -88,6 +97,39 @@ function WithheldNotice({
   );
 }
 
+/** What the bulk link did, in one or two sentences. */
+function bulkLinkReport(result: BulkLinkResult): string[] {
+  const left =
+    result.left === 0
+      ? "toutes les lignes ont un article."
+      : `${result.left} ${result.left > 1 ? "restent" : "reste"} sans article, à choisir une par une.`;
+  const sentences = [`${plural(result.linked, "ligne rattachée", "lignes rattachées")} · ${left}`];
+  if (result.failures.length > 0) {
+    sentences.push(
+      `${plural(result.failures.length, "ligne n’a", "lignes n’ont")} pas pu être rattachée${result.failures.length > 1 ? "s" : ""} : ${[...new Set(result.failures)].join(" ")}`,
+    );
+  }
+  return sentences;
+}
+
+/** What the bulk retain did, in one to three sentences. */
+function bulkRetainReport(result: BulkRetainResult): string[] {
+  const sentences = result.retained > 0 ? [`${plural(result.retained, "fournisseur retenu", "fournisseurs retenus")}.`] : [];
+  if (result.skipped > 0) {
+    sentences.push(
+      result.skipped > 1
+        ? `${result.skipped} lignes avaient déjà un fournisseur : non modifiées.`
+        : "1 ligne avait déjà un fournisseur : non modifiée.",
+    );
+  }
+  const failed = result.failures.reduce((total, failure) => total + failure.count, 0);
+  if (failed > 0) {
+    const lead = failed > 1 ? `${failed} lignes n’ont pas reçu leur fournisseur` : "1 ligne n’a pas reçu son fournisseur";
+    sentences.push(`${lead} : ${[...new Set(result.failures.map((failure) => failure.message))].join(" ")}`);
+  }
+  return sentences;
+}
+
 export function MaterialRequestLines({
   editor,
   materialListId,
@@ -105,6 +147,8 @@ export function MaterialRequestLines({
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkReport, setLinkReport] = useState<string[] | null>(null);
+  const [articleLineId, setArticleLineId] = useState<string | null>(null);
   const section = useRef<HTMLElement>(null);
   const focusAddedLine = useRef(false);
   const { data, canWrite, alertsByLine } = editor;
@@ -149,6 +193,37 @@ export function MaterialRequestLines({
     return alerts.length > 0 && !alerts.some((alert) => alert.blocking);
   }).length;
   const allSelected = drafts.length > 0 && selectedIds.length === drafts.length;
+  // One gesture links only what the technician named without doubt: a reference written on the sheet or
+  // a usual name the office taught, with no warning at all. A validated line is left alone (the link
+  // would return it to draft), and so is a line holding a change that is not saved.
+  const { proposalsOf } = editor;
+  const sureLinks = useMemo<ArticleLinkEntry[]>(
+    () =>
+      canWrite
+        ? drafts.flatMap((line) => {
+            if (line.product_id || lineChanges.has(line.id)) return [];
+            const proposals = proposalsOf(line.id);
+            const first = proposals.status === "ready" ? proposals.candidates[0] : undefined;
+            if (!first || first.warnings.length > 0 || (first.via !== "reference" && first.via !== "alias")) return [];
+            return [{ lineId: line.id, input: { product_id: first.article.id, via: first.via } }];
+          })
+        : [],
+    [canWrite, drafts, lineChanges, proposalsOf],
+  );
+  // Every line with a proposal and no supplier, validated ones included: choosing a supplier keeps a
+  // validated line validated.
+  const { supplierProposalOf } = editor;
+  const proposedSuppliers = useMemo<SupplierRetainEntry[]>(
+    () =>
+      canWrite
+        ? lines.flatMap((line) => {
+            const proposal = line.supplier_id ? null : supplierProposalOf(line.id);
+            return proposal ? [{ lineId: line.id, supplierId: proposal.supplier_id }] : [];
+          })
+        : [],
+    [canWrite, lines, supplierProposalOf],
+  );
+  const articleLine = articleLineId ? (lines.find((line) => line.id === articleLineId) ?? null) : null;
 
   const report = (result: SaveResult) => {
     setError(result.ok || result.blocked ? null : result.message);
@@ -169,6 +244,22 @@ export function MaterialRequestLines({
     if (result.ok && result.validated) {
       toast.success({ title: plural(result.validated, "ligne validée", "lignes validées") });
     }
+  };
+  const linkSure = async () => {
+    if (sureLinks.length === 0) return;
+    setBusy(true);
+    setLinkReport(null);
+    const result = await editor.linkArticles(sureLinks);
+    setBusy(false);
+    setLinkReport(bulkLinkReport(result));
+  };
+  const retainProposed = async () => {
+    if (proposedSuppliers.length === 0) return;
+    setBusy(true);
+    setLinkReport(null);
+    const result = await editor.retainSuppliers(proposedSuppliers);
+    setBusy(false);
+    setLinkReport(bulkRetainReport(result));
   };
   const addLine = async () => {
     focusAddedLine.current = true;
@@ -216,13 +307,59 @@ export function MaterialRequestLines({
               Valider les lignes sans alerte ({clearIds.length})
             </Button>
           ) : null}
+          {canWrite ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
+              disabled={sureLinks.length === 0 || busy}
+              onClick={() => void linkSure()}
+            >
+              <Link2 aria-hidden="true" />
+              Rattacher les références et noms connus ({sureLinks.length})
+            </Button>
+          ) : null}
+          {canWrite ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
+              disabled={proposedSuppliers.length === 0 || busy}
+              onClick={() => void retainProposed()}
+            >
+              <Truck aria-hidden="true" />
+              Retenir les fournisseurs proposés ({proposedSuppliers.length})
+            </Button>
+          ) : null}
         </div>
       </div>
 
+      {canWrite && editor.supplierProposalsStatus === "error" ? (
+        <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+          <p>Fournisseurs proposés indisponibles.</p>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto px-0"
+            aria-label="Recharger les fournisseurs proposés"
+            onClick={editor.retrySupplierProposals}
+          >
+            Réessayer
+          </Button>
+        </div>
+      ) : null}
       {error ? (
         <Alert variant="danger">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      ) : null}
+      {linkReport ? (
+        <div role="status" className="space-y-0.5 text-sm text-foreground">
+          {linkReport.map((sentence) => (
+            <p key={sentence}>{sentence}</p>
+          ))}
+        </div>
       ) : null}
       {editor.blocked ? <BlockedReport blocked={editor.blocked} editor={editor} /> : null}
       {editor.withheld ? <WithheldNotice withheld={editor.withheld} editor={editor} /> : null}
@@ -268,7 +405,7 @@ export function MaterialRequestLines({
           // without a positioned scroll container they widen the page itself instead of scrolling here.
           className="relative overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          <table className="w-full min-w-[1500px] border-collapse text-left">
+          <table className="w-full min-w-[1800px] border-collapse text-left">
             <caption className="sr-only">
               Lignes de la demande. Les cases en jaune sont à compléter ou à vérifier avant validation.
             </caption>
@@ -323,6 +460,19 @@ export function MaterialRequestLines({
                 onReopen={() => editor.reopenLines([line.id])}
                 materialListId={materialListId}
                 unitListId={unitListId}
+                article={line.product_id ? (editor.articles[line.product_id] ?? null) : null}
+                proposals={proposalsOf(line.id)}
+                articleNotice={editor.articleNotices.get(line.id)}
+                articleConflict={editor.articleConflicts.get(line.id)}
+                onLinkArticle={(candidate) =>
+                  editor.linkArticle(line.id, { product_id: candidate.article.id, via: candidate.via })
+                }
+                onUnlinkArticle={() => editor.unlinkArticle(line.id)}
+                onOpenArticles={() => setArticleLineId(line.id)}
+                onRetryProposals={editor.retryProposals}
+                supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
+                supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
+                onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
               />
             ))}
             {canWrite ? (
@@ -361,6 +511,15 @@ export function MaterialRequestLines({
             Ajouter une ligne
           </Button>
         </div>
+      ) : null}
+      {canWrite ? (
+        <MaterialRequestArticleSheet
+          editor={editor}
+          line={articleLine}
+          onOpenChange={(open) => {
+            if (!open) setArticleLineId(null);
+          }}
+        />
       ) : null}
     </section>
   );

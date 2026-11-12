@@ -25,6 +25,7 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "provisional_quantity_mention_missing",
   "takeoff_hypothesis_without_mention",
   "provisional_quantity_mention_stale",
+  "offer_choice_unreadable",
 ] as const;
 
 /**
@@ -33,13 +34,14 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
  * lot », « Sans objet »). Lot C (D11): a line so classified after « Non chiffrée » says why, internally. Lot C, PR 4
  * (D10, D28): a line reserved in writing leaves unpriced only if the offer's limits text says something. PR 5: a priced
  * line declared with a provisional quantity leaves only if that text carries its sentence, written from the line as it
- * is now.
+ * is now. A choice the application cannot read blocks too: a declaration never leaves as an undeclared line.
  */
 export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = [
   "not_priced_unclassified",
   "excluded_without_reason",
   "offer_limits_required",
   "provisional_quantity_mention_missing",
+  "offer_choice_unreadable",
 ];
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -146,6 +148,11 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Le texte « Précisions et limites de prestation » contient une phrase « quantité provisionnelle » qui ne correspond à aucune ligne déclarée telle qu'elle est aujourd'hui (quantité, titre ou unité changés, déclaration retirée) : le client la lira. Retirez-la ou corrigez-la.",
   },
+  offer_choice_unreadable: {
+    label: "Choix d'offre illisible",
+    description:
+      "Une réserve ou une quantité provisionnelle est déclarée sur ces lignes, mais l'outil ne sait pas la relire : l'offre ne partirait pas comme déclarée. Un administrateur la déclare de nouveau depuis la ligne (bouton « Hypothèse »). Si la ligne ne propose pas ce bouton, c'est un défaut de l'outil à signaler : l'envoi reste bloqué.",
+  },
   takeoff_hypothesis_without_mention: {
     label: "Quantités sur hypothèse sans mention",
     description:
@@ -185,6 +192,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   provisional_quantity_mention_missing: "blocking",
   takeoff_hypothesis_without_mention: "warning",
   provisional_quantity_mention_stale: "warning",
+  offer_choice_unreadable: "blocking",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

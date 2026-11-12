@@ -25,12 +25,17 @@ import {
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
+import { readArticleSummaries } from "./articles-server";
 import {
+  DUPLICATE_KEYS,
   LINE_COLUMNS,
   REQUEST_COLUMNS,
   assertSuppliersInTenant,
   assertTechnicianInTenant,
   listTenantTechnicians,
+  pricedLineChanges,
+  pricedLineDatabaseRefusal,
+  pricedLinesRefusal,
   readRequestFiles,
   readRequestLines,
   readTechnician,
@@ -78,7 +83,8 @@ export async function listMaterialRequests(projectId: string): Promise<{
     readAllRows(() => supabase.from("material_request_lines").select("id, request_id, status", { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id)),
     readAllRows(() => supabase.from("material_request_files").select("id, request_id", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("project_id", access.project.id).not("stored_at", "is", null).is("removed_at", null)),
+      .eq("tenant_id", tenantId).eq("project_id", access.project.id).is("quote_id", null)
+      .not("stored_at", "is", null).is("removed_at", null)),
     listTenantTechnicians(access.context),
   ]);
   if (requests.error) throw mapSupabaseError(requests.error, "Impossible de charger les demandes de matériel.");
@@ -133,6 +139,7 @@ export async function createMaterialRequest(
     technician: data.technician_id ? await readTechnician(context, data.technician_id) : null,
     files: [],
     lines: [],
+    articles: {},
   };
 }
 
@@ -168,7 +175,8 @@ export async function getMaterialRequestDetail(projectId: string, requestId: str
     readMaterialOptions(access),
     readSupplierOptions(access),
   ]);
-  return { request, technician, files, lines, canWrite: access.canWrite, materialOptions, supplierOptions };
+  const articles = await readArticleSummaries(access.context, lines.map((line) => line.product_id));
+  return { request, technician, files, lines, articles, canWrite: access.canWrite, materialOptions, supplierOptions };
 }
 
 type RequestPatch = Partial<Omit<UpdateMaterialRequestData, "expected_presumed_material" | "expected_presumed_supplier_id">>;
@@ -385,17 +393,22 @@ function selectLines(lines: readonly MaterialRequestLine[], ids: readonly string
 
 type LinePatch = Partial<MaterialRequestLineData> & { status?: MaterialRequestLine["status"] };
 
-/** What makes two lines the same piece (alerts.ts): once one of these changes, a kept duplicate is asked again. */
-const DUPLICATE_KEYS: ReadonlyArray<keyof MaterialRequestLineData> = ["product_type", "dimension", "material", "zone", "imputation"];
 
 function changes(line: MaterialRequestLine, patch: Partial<MaterialRequestLineData>, key: string): boolean {
   return key in patch && line[key as keyof MaterialRequestLineData] !== patch[key as keyof MaterialRequestLineData];
 }
 
 /**
+ * What a line does not say: the duplicate acknowledgement, and its supplier, which is the office's purchasing
+ * choice (TI-691) rather than what the technician asked. Changing them keeps a validated line validated; the line
+ * trigger leaves them out of its backstop too.
+ */
+const NOT_WHAT_THE_LINE_SAYS: ReadonlySet<string> = new Set(["duplicate_acknowledged", "supplier_id"]);
+
+/**
  * What a change does to one line, or null when it tells the line nothing new.
  *  - A validated line always describes what was validated: changing what it says (anything but the
- *    duplicate acknowledgement) returns it to draft.
+ *    duplicate acknowledgement and the supplier) returns it to draft.
  *  - "Not a duplicate" was said of the piece the line described: changing its type, size, material, zone
  *    or imputation withdraws it, unless the same change says it again.
  */
@@ -403,7 +416,7 @@ function patchFor(line: MaterialRequestLine, patch: Partial<MaterialRequestLineD
   const changed = Object.keys(patch).filter((key) => changes(line, patch, key));
   if (changed.length === 0) return null;
   const result: LinePatch = { ...patch };
-  if (line.status === "validated" && changed.some((key) => key !== "duplicate_acknowledged")) result.status = "draft";
+  if (line.status === "validated" && changed.some((key) => !NOT_WHAT_THE_LINE_SAYS.has(key))) result.status = "draft";
   if (line.duplicate_acknowledged && patch.duplicate_acknowledged === undefined
     && DUPLICATE_KEYS.some((key) => changed.includes(key))) {
     result.duplicate_acknowledged = false;
@@ -447,10 +460,13 @@ export async function updateMaterialRequestLine(
   const access = await requireProjectAccess(projectId, "write");
   const [current] = selectLines(await readRequestLines(access, requestId), [lineId]);
   await assertSuppliersInTenant(access.context, [input.supplier_id]);
+  // TI-691: a line priced by a retained quote keeps the quote's supplier and what it orders.
+  const priced = pricedLineChanges([current], sent(input));
+  if (priced) throw pricedLinesRefusal(priced.lines, priced.what);
 
   const patch = patchFor(current, sent(input));
   if (!patch) return { line: current };
-  const [line] = await writeLines(access, requestId, [current.id], patch);
+  const [line] = await writeLines(access, requestId, [current.id], patch, pricedLineDatabaseRefusal([current]));
   return { line };
 }
 
@@ -462,6 +478,9 @@ export async function bulkUpdateMaterialRequestLines(
   const access = await requireProjectAccess(projectId, "write");
   const selected = selectLines(await readRequestLines(access, requestId), input.ids);
   await assertSuppliersInTenant(access.context, [input.patch.supplier_id]);
+  // All or nothing: one priced line whose supplier or order would change, and none of the selection is written.
+  const priced = pricedLineChanges(selected, sent(input.patch));
+  if (priced) throw pricedLinesRefusal(priced.lines, priced.what);
 
   // One statement per kind of line: those the change returns to draft, those whose kept duplicate it
   // asks again, both, or neither.
@@ -476,7 +495,9 @@ export async function bulkUpdateMaterialRequestLines(
     groups.set(key, group);
   }
   const written: MaterialRequestLine[] = [];
-  for (const group of groups.values()) written.push(...(await writeLines(access, requestId, group.ids, group.patch)));
+  for (const group of groups.values()) {
+    written.push(...(await writeLines(access, requestId, group.ids, group.patch, pricedLineDatabaseRefusal(selected))));
+  }
   return { lines: afterWrites(selected, written) };
 }
 
@@ -486,6 +507,17 @@ export async function deleteMaterialRequestLine(
   lineId: string,
 ): Promise<{ deleted: true }> {
   const access = await requireProjectAccess(projectId, "write");
+  const { data: current, error: readError } = await access.context.supabase
+    .from("material_request_lines")
+    .select("id, position, price_quote_id")
+    .eq("id", lineId)
+    .eq("tenant_id", access.context.tenantId)
+    .eq("project_id", access.project.id)
+    .eq("request_id", requestId)
+    .maybeSingle();
+  if (readError) throw mapSupabaseError(readError, "Impossible de charger la ligne.");
+  if (!current) throw notFound("Ligne introuvable dans cette demande.");
+  if (current.price_quote_id !== null) throw pricedLinesRefusal([current], "delete");
   const { data, error } = await access.context.supabase
     .from("material_request_lines")
     .delete()
@@ -495,7 +527,11 @@ export async function deleteMaterialRequestLine(
     .eq("request_id", requestId)
     .select("id")
     .maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  if (error) {
+    // A quote retained by another session since the line was read.
+    if (error.message === "MATERIAL_REQUEST_LINE_PRICED") throw pricedLinesRefusal([current], "delete");
+    throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  }
   if (!data) throw notFound("Ligne introuvable dans cette demande.");
   return { deleted: true };
 }

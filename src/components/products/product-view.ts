@@ -7,6 +7,8 @@ export type ProductView = ProductRecord & {
   catalogue_status: ProductCatalogueStatus;
   supply_type_id: string | null;
   reliability_score: number | null;
+  /** Created from a line of a material request: « Nouveau » until it is validated (TI-690). */
+  created_from_material_request?: boolean;
   _supplyTypeName: string | null;
   _status: "active" | "archived";
   _priceStatus: "none" | PriceFreshnessLevel;

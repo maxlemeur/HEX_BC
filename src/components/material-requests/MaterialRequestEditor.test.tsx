@@ -105,6 +105,11 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     duplicate_acknowledged: false,
     status: "draft",
     validated_at: null,
+    product_id: null,
+    product_match: null,
+    unit_price_ht_cents: null,
+    price_per: 1,
+    price_quote_id: null,
     ...partial,
   };
 }
@@ -134,6 +139,7 @@ function file(partial: Partial<MaterialRequestFile> = {}): MaterialRequestFile {
   return {
     id: FILE_ID,
     request_id: REQUEST_ID,
+    quote_id: null,
     file_name: "photo-essai.jpg",
     mime_type: "image/jpeg",
     byte_size: 1024,
@@ -189,6 +195,7 @@ function detail(options: {
     technician: TECHNICIAN,
     files: options.files ?? [],
     lines: options.lines ?? [],
+    articles: {},
     canWrite: options.canWrite ?? true,
     materialOptions: ["Laiton brut", "PVC pression"],
     supplierOptions: [{ id: "99999999-9999-4999-8999-999999999999", name: "Négoce Exemple" }],
@@ -200,7 +207,14 @@ function writes(): Call[] {
 }
 
 async function openEditor(routes: Record<string, Route>) {
-  mockApi({ "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } }, ...routes });
+  // The article proposals of delivery 3 are read once per page; these journeys have none, and no quote
+  // (TI-691, read by the « Consultation » section).
+  mockApi({
+    "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+    [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+    [`GET ${BASE}/quotes`]: { data: { items: [] } },
+    ...routes,
+  });
   const user = userEvent.setup();
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
   await screen.findByRole("heading", { name: "Lignes" });
@@ -1208,10 +1222,12 @@ describe("MaterialRequestEditor", () => {
 
       const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
       expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
-      expect(within(rows[0]).getByText("Négoce Exemple (demande)")).toBeVisible();
+      // TI-691: the office chooses the supplier of a validated line in place (it stays validated), so the
+      // supplier is a select there; what it shows is what the line is bought from.
+      expect(within(rows[0]).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("Négoce Exemple (demande)");
       expect(within(rows[1]).getByText("PVC pression")).toBeVisible();
-      expect(within(rows[1]).getByText("Négoce Exemple")).toBeVisible();
-      expect(within(rows[1]).queryByText(/\(demande\)/)).not.toBeInTheDocument();
+      expect(within(rows[1]).getByLabelText("Fournisseur, ligne 2")).toHaveDisplayValue("Négoce Exemple");
+      expect(within(rows[1]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
       // Overhead is not ordered in the sheet's material.
       expect(within(rows[2]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
     });

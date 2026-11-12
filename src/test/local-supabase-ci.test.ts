@@ -315,6 +315,56 @@ describe("local Supabase CI", () => {
       .rejects.toThrow("did not execute all 1 SQL files");
   });
 
+  // On a pull request the required check `rls-matrix` runs pgTAP and the behavioral RLS matrix once; the Army
+  // jobs of that pull request delegate them to it instead of repeating them in each of their stacks
+  // (docs/testing/tester-army-ci.md). Everything the application needs from this stack still happens here.
+  it("delegates pgTAP and the RLS matrix to a named check, for an application validation only", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    const { calls, dependencies } = createDependencies();
+    const runApplication = vi.fn(async () => { calls.push("run application"); });
+    await expect(runLocalSupabaseCi({ ...dependencies, runApplication, delegatedDatabaseChecks: "rls-matrix" })).resolves.toEqual({
+      database: { source: "reset", snapshot: "disabled" },
+    });
+    expect(calls).toEqual([
+      "--version",
+      `start --runtime native --workdir ${projectRoot}`,
+      `db reset --local --workdir ${projectRoot}`,
+      `migration list --local --output-format json --workdir ${projectRoot}`,
+      `status --env --workdir ${projectRoot}`,
+      "run application",
+      `stop --workdir ${projectRoot}`,
+      `stack destroy --yes --workdir ${projectRoot}`,
+    ]);
+    expect(dependencies.verifyMigrations).toHaveBeenCalledOnce();
+    expect(dependencies.verifyDatabaseTypes).toHaveBeenCalledOnce();
+    expect(dependencies.provisionUsers).toHaveBeenCalledOnce();
+    expect(dependencies.runRls).not.toHaveBeenCalled();
+    expect(runApplication).toHaveBeenCalledWith(expect.objectContaining({
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+      RLS_E2E_EPHEMERAL: "1",
+      RLS_E2E_LOCAL: "1",
+      RLS_E2E_ADMIN_EMAIL: "admin@example.test",
+      E2E_ARMY_LOCAL_DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      E2E_ARMY_LOCAL_PSQL: "/native/postgres/bin/psql",
+    }));
+    const logs = dependencies.log.mock.calls.flat().join("\n");
+    expect(logs).toContain("Database pgTAP tests and behavioral RLS matrix delegated to rls-matrix: not run on this stack.");
+    expect(logs).not.toContain("Database pgTAP tests passed.");
+    expect(logs).not.toContain("Behavioral RLS matrix passed.");
+    expect(logs).toContain("Application validation passed.");
+
+    // A database-only run has nothing to delegate to, and a partial run is not what the named check proves.
+    for (const refused of [
+      { delegatedDatabaseChecks: "rls-matrix" },
+      { delegatedDatabaseChecks: "rls-matrix", runApplication, pgTapFiles: ["a.test.sql"] },
+      { delegatedDatabaseChecks: "", runApplication },
+    ]) {
+      const attempt = createDependencies();
+      await expect(runLocalSupabaseCi({ ...attempt.dependencies, ...refused })).rejects.toThrow("delegate");
+      expect(attempt.calls).toEqual([]);
+    }
+  });
+
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
     const versionFailure = createDependencies({ cliVersionOutput: "2.120.0\nupdate notification" });
     await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow(`must be exactly ${PINNED_SUPABASE_CLI_VERSION}`);

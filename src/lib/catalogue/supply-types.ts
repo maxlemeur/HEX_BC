@@ -33,3 +33,12 @@ export const createSupplyTypeSchema = z.object({
 export type CreateSupplyTypeInput = z.infer<typeof createSupplyTypeSchema>;
 
 export type SupplyTypeRecord = { id: string; code: string; name: string };
+
+/**
+ * A supply type as the list answers it (TI-691): with the supplier proposed for the material request lines whose
+ * article is of this type, unless the article names its own exception.
+ */
+export type SupplyTypeListItem = SupplyTypeRecord & {
+  preferred_supplier_id: string | null;
+  preferred_supplier_name: string | null;
+};

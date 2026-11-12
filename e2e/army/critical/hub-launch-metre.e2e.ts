@@ -228,7 +228,18 @@ armyTest("PRE04 unavailable writing AI and Decisions preserve the manually prepa
   const triage = dialog.getByRole("region", "Tri des pages", { exact: true });
   await expect(triage.getByRole("button", "Proposer le tri des pages", { exact: true })).toBeDisabled();
   await expect(triage.getByText(/Decisions n.est pas activé pour le métré\. La sélection manuelle des pages reste disponible\./)).toBeVisible();
-  await dialog.getByLabel(`Pages de ${file.file_name}`, { exact: true }).fill("1");
+  const pages = dialog.getByLabel(`Pages de ${file.file_name}`, { exact: true });
+  // A refused page list names its reason to screen readers (aria-describedby), only while refused.
+  const pagesReason = () => ui.browser.evaluate((name) => {
+    const input = [...document.querySelectorAll("input")].find((node) => node.getAttribute("aria-label") === name);
+    const ids = (input?.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+    return ids.map((id) => document.getElementById(id)?.textContent ?? `<missing #${id}>`).join(" ").trim();
+  }, `Pages de ${file.file_name}`);
+  await pages.fill("0");
+  await expect(pages).toHaveAttribute("aria-invalid", "true");
+  await expect.poll(pagesReason).toContain("Indiquez des pages entières positives");
+  await pages.fill("1");
+  await expect.poll(pagesReason).toBe("");
   await saveTakeoffPreparation(ui);
   const manual = await read();
   expect(manual.draft.sources.filter((source) => source.active).map((source) => ({ pages: source.pages, page_triage: source.page_triage }))).toEqual([{ pages: [1], page_triage: null }]);

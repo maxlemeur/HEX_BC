@@ -96,11 +96,12 @@ describe("calc-v3 impact selection", () => {
 // (docs/testing/tester-army-ci.md, "Jobs parallèles"). What the partition could
 // get wrong without any journey noticing: a selected phase in no group or in two
 // (coverage lost, or a phase run twice), an empty group (a job that starts a
-// stack for nothing), more jobs than the limit, a different partition from one
-// run to the next, or a matrix value the runner's --phase refuses.
+// stack for nothing), more jobs than the limit, a job started for a few seconds
+// of journeys that another job could have carried, a different partition from
+// one run to the next, or a matrix value the runner's --phase refuses.
 describe("calc-v3 groups", () => {
   const measured = loadCalcV3GroupDurations(root);
-  const synthetic: CalcV3GroupDurations = { maxGroups: 3, defaultSeconds: 50,
+  const synthetic: CalcV3GroupDurations = { maxGroups: 3, secondsPerGroup: 100, defaultSeconds: 50,
     seconds: { journeys: 100, components: 90, numeric: 80, resume: 30, access: 20, emission: 10 } };
   const partitioned = (phases: readonly string[], groups: { phases: readonly string[] }[]) =>
     expect(groups.flatMap((group) => group.phases).sort()).toEqual([...phases].sort());
@@ -114,6 +115,8 @@ describe("calc-v3 groups", () => {
       [undefined, "calcV3"],
       [{ ...synthetic, maxGroups: 0 }, "maxGroups"],
       [{ ...synthetic, maxGroups: 2.5 }, "maxGroups"],
+      [{ ...synthetic, secondsPerGroup: 0 }, "secondsPerGroup"],
+      [{ ...synthetic, secondsPerGroup: undefined }, "secondsPerGroup"],
       [{ ...synthetic, defaultSeconds: 0 }, "defaultSeconds"],
       [{ ...synthetic, seconds: { journeys: -1 } }, "journeys"],
       [{ ...synthetic, seconds: { "not-a-phase": 10 } }, "not-a-phase"],
@@ -122,13 +125,18 @@ describe("calc-v3 groups", () => {
     for (const [durations, named] of invalid) expect(validateCalcV3GroupDurations(durations).join(" "), named).toContain(named);
   });
 
-  it("runs the whole campaign in five balanced groups, every phase in exactly one", () => {
+  it("runs the whole campaign in four balanced groups, every phase in exactly one", () => {
     const { groups, grouping } = planCalcV3Groups(CALC_V3_PHASES, measured);
-    expect(groups).toHaveLength(5);
-    expect(grouping).toContain("5 groups");
+    // As many jobs as the measured journeys fill at secondsPerGroup, below the limit: each job pays its own
+    // setup, stack and build, so a fifth job for the same journeys is three minutes of runner for nothing.
+    const total = CALC_V3_PHASES.reduce((sum, phase) => sum + measured!.seconds[phase], 0);
+    expect(Math.ceil(total / measured!.secondsPerGroup)).toBe(4);
+    expect(measured!.maxGroups).toBeGreaterThanOrEqual(4);
+    expect(groups).toHaveLength(4);
+    expect(grouping).toContain("4 groups");
     partitioned(CALC_V3_PHASES, groups);
     groups.forEach((group, index) => {
-      expect(group).toMatchObject({ group: index + 1, total: 5 });
+      expect(group).toMatchObject({ group: index + 1, total: 4 });
       expect(group.phases.length).toBeGreaterThan(0);
       expect(group.seconds).toBe(group.phases.reduce((sum, phase) => sum + measured!.seconds[phase], 0));
       // Within a group, the order of the campaign's phase table.
@@ -162,15 +170,29 @@ describe("calc-v3 groups", () => {
   it("never plans an empty group: as many groups as phases below the limit, none without a phase", () => {
     expect(planCalcV3Groups([], measured).groups).toEqual([]);
     expect(groupMatrix(planCalcV3Groups(["mobile"], measured).groups)).toEqual([{ group: 1, total: 1, phases: "mobile" }]);
-    expect(groupMatrix(planCalcV3Groups(["access", "mobile"], measured).groups))
-      .toEqual([{ group: 1, total: 2, phases: "mobile" }, { group: 2, total: 2, phases: "access" }]);
+    // Two phases that outweigh a group's budget each get their job; the synthetic budget is 100 s.
+    expect(groupMatrix(planCalcV3Groups(["journeys", "components"], synthetic).groups))
+      .toEqual([{ group: 1, total: 2, phases: "journeys" }, { group: 2, total: 2, phases: "components" }]);
     for (let count = 1; count <= CALC_V3_PHASES.length; count += 1) {
       const phases = CALC_V3_PHASES.slice(CALC_V3_PHASES.length - count);
       const { groups } = planCalcV3Groups(phases, measured);
-      expect(groups, `${count} phases`).toHaveLength(Math.min(5, count));
+      const seconds = phases.reduce((sum, phase) => sum + measured!.seconds[phase], 0);
+      expect(groups, `${count} phases`).toHaveLength(Math.min(measured!.maxGroups, count, Math.ceil(seconds / measured!.secondsPerGroup)));
       expect(groups.every((group) => group.phases.length > 0 && group.total === groups.length), `${count} phases`).toBe(true);
       partitioned(phases, groups);
     }
+  });
+
+  it("packs a short selection into one job instead of one job per phase", () => {
+    // The three emission phases a pull request on the sending code reaches: 239 s of journeys ran as three
+    // jobs, each with its own stack and build.
+    const emission = ["emission", "emission-v3", "resend-portal"] as const;
+    expect(emission.reduce((sum, phase) => sum + measured!.seconds[phase], 0)).toBeLessThanOrEqual(measured!.secondsPerGroup);
+    expect(groupMatrix(planCalcV3Groups(emission, measured).groups)).toEqual([{ group: 1, total: 1, phases: "emission,emission-v3,resend-portal" }]);
+    expect(groupMatrix(planCalcV3Groups(["access", "mobile"], measured).groups)).toEqual([{ group: 1, total: 1, phases: "access,mobile" }]);
+    // The budget counts journeys, the limit counts jobs: the limit wins.
+    const { groups } = planCalcV3Groups(["journeys", "components", "numeric", "resume"], { ...synthetic, maxGroups: 2 });
+    expect(groups.map((group) => group.phases)).toEqual([["journeys", "resume"], ["components", "numeric"]]);
   });
 
   it("keeps an explicit complete campaign in one job, and one group without usable durations", () => {
@@ -189,7 +211,7 @@ describe("calc-v3 groups", () => {
     }));
     expect(outputs.phases).toEqual(CALC_V3_PHASES);
     const matrix = outputs.groups as { group: number; total: number; phases: string }[];
-    expect(matrix).toHaveLength(5);
+    expect(matrix).toHaveLength(4);
     expect(matrix.flatMap((group) => parseCalcV3Phases(group.phases)).sort()).toEqual([...CALC_V3_PHASES].sort());
     // Documentation only: no group job; an explicit phase: its own job.
     expect(planOutputs({ phases: [], ...planCalcV3Groups([], measured) })).toBe("phases=[]\ngroups=[]\n");

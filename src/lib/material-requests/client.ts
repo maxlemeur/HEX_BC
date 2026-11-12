@@ -3,11 +3,16 @@ import { requestJsonUncoordinated } from "@/lib/estimates/client-http";
 
 import {
   MATERIAL_REQUEST_FILE_REJECTED,
+  MATERIAL_REQUEST_LINE_CHANGED,
   MATERIAL_REQUEST_PRESUMPTION_CHANGED,
   type BulkUpdateMaterialRequestLinesInput,
   type CompleteMaterialRequestFilesInput,
   type CreateMaterialRequestInput,
+  type CreateMaterialRequestLineArticleInput,
+  type LinkMaterialRequestLineArticleInput,
+  type MaterialRequestArticleCandidate,
   type MaterialRequestDetail,
+  type MaterialRequestLineArticleResult,
   type MaterialRequestFile,
   type MaterialRequestFileRejection,
   type MaterialRequestFileRotation,
@@ -20,6 +25,17 @@ import {
   type PrepareMaterialRequestFilesInput,
   type UpdateMaterialRequestInput,
 } from "./contracts";
+import type {
+  CreateQuoteInput,
+  MaterialRequestQuote,
+  MaterialRequestQuoteRetained,
+  UpdateQuoteInput,
+} from "./quote-contracts";
+import type {
+  LineSupplierProposals,
+  RetainLineSuppliersInput,
+  RetainLineSuppliersResult,
+} from "./supplier-contracts";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -49,6 +65,10 @@ export type MaterialRequestBlockedLine = { id: string; codes: string[] };
 
 export const MATERIAL_REQUEST_LINES_BLOCKED = "MATERIAL_REQUEST_LINES_BLOCKED";
 
+export function isLineChanged(error: unknown): boolean {
+  return isEstimateApiError(error) && error.code === MATERIAL_REQUEST_LINE_CHANGED;
+}
+
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function requestsPath(projectId: string, ...segments: string[]): string {
@@ -63,7 +83,7 @@ function read<T>(path: string, fallback: string, signal?: AbortSignal): Promise<
   return requestJsonUncoordinated<T>(path, { method: "GET", cache: "no-store", signal }, fallback);
 }
 
-function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", body: unknown, fallback: string): Promise<T> {
+function write<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body: unknown, fallback: string): Promise<T> {
   return requestJsonUncoordinated<T>(
     path,
     body === undefined ? { method } : { method, headers: JSON_HEADERS, body: JSON.stringify(body) },
@@ -319,6 +339,208 @@ export async function reopenMaterialRequestLines(
     "Les lignes n’ont pas pu être rouvertes.",
   );
   return lines;
+}
+
+/** Proposals for every line of the request that has no article yet, best first; nothing is linked. */
+export async function fetchMaterialRequestCandidates(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<Record<string, MaterialRequestArticleCandidate[]>> {
+  const { lines } = await read<{ lines: Record<string, MaterialRequestArticleCandidate[]> }>(
+    requestsPath(projectId, requestId, "candidates"),
+    "Les propositions d’articles n’ont pas pu être chargées.",
+    signal,
+  );
+  return lines ?? {};
+}
+
+/**
+ * One read for the whole request (TI-691): the proposed supplier of every line that has an article and no
+ * supplier (null when no source has one), and the article's reference at the supplier of every line that has
+ * both. Nothing is set.
+ */
+export async function fetchMaterialRequestSupplierProposals(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<LineSupplierProposals> {
+  const answer = await read<Partial<LineSupplierProposals>>(
+    requestsPath(projectId, requestId, "supplier-proposals"),
+    "Les fournisseurs proposés n’ont pas pu être chargés.",
+    signal,
+  );
+  return { lines: answer.lines ?? {}, references: answer.references ?? {} };
+}
+
+/**
+ * Sets the chosen supplier of each line, only on lines that still have none: a supplier set meanwhile (by
+ * another tab, another session) is never overwritten, and its line is listed in `skipped`. One request for
+ * every line of the gesture.
+ */
+export async function retainMaterialRequestSuppliers(
+  projectId: string,
+  requestId: string,
+  choices: RetainLineSuppliersInput["choices"],
+): Promise<RetainLineSuppliersResult> {
+  const answer = await write<Partial<RetainLineSuppliersResult>>(
+    requestsPath(projectId, requestId, "lines", "retain-suppliers"),
+    "POST",
+    { choices },
+    "Les fournisseurs proposés n’ont pas pu être retenus.",
+  );
+  return { lines: answer.lines ?? [], skipped: answer.skipped ?? [] };
+}
+
+/** Proposals for one line; `query` replaces the line's type words for a search by hand. */
+export async function fetchMaterialRequestLineCandidates(
+  projectId: string,
+  requestId: string,
+  lineId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestArticleCandidate[]> {
+  const q = query.trim();
+  const path = requestsPath(projectId, requestId, "lines", lineId, "candidates");
+  const { candidates } = await read<{ candidates: MaterialRequestArticleCandidate[] }>(
+    q ? `${path}?${new URLSearchParams({ q }).toString()}` : path,
+    "La recherche dans le catalogue n’a pas abouti.",
+    signal,
+  );
+  return candidates ?? [];
+}
+
+/** The server fills the line's columns from the article and may return a validated line to draft. */
+export function linkMaterialRequestLineArticle(
+  projectId: string,
+  requestId: string,
+  lineId: string,
+  input: LinkMaterialRequestLineArticleInput,
+): Promise<MaterialRequestLineArticleResult> {
+  return write(
+    requestsPath(projectId, requestId, "lines", lineId, "article"),
+    "PUT",
+    input,
+    "L’article n’a pas pu être rattaché.",
+  );
+}
+
+export async function unlinkMaterialRequestLineArticle(
+  projectId: string,
+  requestId: string,
+  lineId: string,
+): Promise<MaterialRequestLine> {
+  const { line } = await write<{ line: MaterialRequestLine }>(
+    requestsPath(projectId, requestId, "lines", lineId, "article"),
+    "DELETE",
+    undefined,
+    "L’article n’a pas pu être délié.",
+  );
+  return line;
+}
+
+/** Creates a draft article of the catalogue from the line and links it. 403 and 409 carry a sentence. */
+export function createMaterialRequestLineArticle(
+  projectId: string,
+  requestId: string,
+  lineId: string,
+  input: CreateMaterialRequestLineArticleInput,
+): Promise<MaterialRequestLineArticleResult> {
+  return write(
+    requestsPath(projectId, requestId, "lines", lineId, "article"),
+    "POST",
+    input,
+    "L’article n’a pas pu être créé.",
+  );
+}
+
+/* Consultation of suppliers (TI-691, lot 2 « l'achat », delivery 2): one quote asked of one supplier. */
+
+function quotesPath(projectId: string, requestId: string, ...segments: string[]): string {
+  return requestsPath(projectId, requestId, "quotes", ...segments);
+}
+
+export async function fetchMaterialRequestQuotes(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestQuote[]> {
+  const { items } = await read<{ items?: MaterialRequestQuote[] }>(
+    quotesPath(projectId, requestId),
+    "Les devis n’ont pas pu être chargés.",
+    signal,
+  );
+  return items ?? [];
+}
+
+/** Records that the office sent this message to the supplier. 409 with a sentence when one is still open. */
+export async function createMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  input: CreateQuoteInput,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId),
+    "POST",
+    input,
+    "La consultation n’a pas pu être enregistrée.",
+  );
+  return item;
+}
+
+export async function updateMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+  input: UpdateQuoteInput,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId),
+    "PATCH",
+    input,
+    "Le devis n’a pas pu être enregistré.",
+  );
+  return item;
+}
+
+/** 422 with a sentence while the quote is not received or a line has no price: nothing is written then. */
+export async function retainMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+): Promise<MaterialRequestQuoteRetained> {
+  const answer = await write<Partial<MaterialRequestQuoteRetained> & { item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId, "retain"),
+    "POST",
+    undefined,
+    "Le devis n’a pas pu être retenu.",
+  );
+  return { item: answer.item, lines: answer.lines ?? [], closed_quote_ids: answer.closed_quote_ids ?? [] };
+}
+
+export async function closeMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId, "close"),
+    "POST",
+    undefined,
+    "Le devis n’a pas pu être clos.",
+  );
+  return item;
+}
+
+export type MaterialRequestSupplyType = { id: string; code: string; name: string };
+
+export async function fetchSupplyTypes(signal?: AbortSignal): Promise<MaterialRequestSupplyType[]> {
+  const { items } = await read<{ items: MaterialRequestSupplyType[] }>(
+    "/api/catalogue/supply-types",
+    "Les types de fourniture n’ont pas pu être chargés.",
+    signal,
+  );
+  return items ?? [];
 }
 
 export async function fetchMaterialRequestTechnicians(signal?: AbortSignal): Promise<MaterialRequestTechnician[]> {

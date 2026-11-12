@@ -572,10 +572,15 @@ describe("TesterArmy shard plans", () => {
     expect(none.mode).toBe("none");
     expect(none.shards).toMatchObject({ files: [], shards: [] });
 
-    // The takeoff journeys: all of them split at one worker each, a few in one job, none planned for none.
+    // The takeoff journeys: all of them in as many jobs as their measured seconds fill at one worker, a few in
+    // one job, none planned for none. One job today: a second one paid its own stack and build for about 160 s
+    // of journeys.
     expect(full.fullOnly.mode).toBe("all");
-    expect(full.takeoffShards.shards.length).toBeGreaterThan(1);
-    expect(full.takeoffShards.shards.length).toBeLessThanOrEqual(durations.suites.takeoff.maxShards);
+    const takeoffSeconds = full.fullOnly.files.filter((file) => file !== map.suite.setup)
+      .reduce((sum, file) => sum + (durations.seconds[file] ?? durations.defaultSeconds), 0);
+    expect(full.takeoffShards.shards).toHaveLength(
+      Math.min(durations.suites.takeoff.maxShards, Math.ceil(takeoffSeconds / durations.suites.takeoff.secondsPerShard)));
+    expect(full.takeoffShards.shards).toHaveLength(1);
     expect(full.takeoffShards.workers).toBe(1);
     expectPartition(full.takeoffShards, full.fullOnly.files, "every takeoff journey");
     const contracts = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/takeoff/contracts.e2e.ts"], repositoryFiles: files });

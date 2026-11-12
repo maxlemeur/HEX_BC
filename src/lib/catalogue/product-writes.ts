@@ -29,9 +29,9 @@ function compactRecord<T extends Record<string, unknown>>(payload: T): T {
   return next as T;
 }
 
-const PRODUCT_WRITE_REFUSAL =
+export const PRODUCT_WRITE_REFUSAL =
   "L'ajout et la modification d'articles sont réservés aux administrateurs et aux ingénieurs.";
-const SHARED_PRODUCT_REFUSAL =
+export const SHARED_PRODUCT_REFUSAL =
   "Cet article fait partie de la base commune : vous modifiez seulement les articles que vous avez ajoutés. Un administrateur peut ouvrir la base commune aux ingénieurs.";
 
 /**
@@ -46,8 +46,12 @@ function getWriterClient() {
 /** Refusal of the trigger protect_product_catalogue_validation (TI-689): a draft is validated by an admin. */
 const PRODUCT_VALIDATION_ADMIN_ONLY = "PRODUCT_VALIDATION_ADMIN_ONLY";
 
+/** A reference already held by another item of the tenant (unique index, case-insensitive). */
+export const PRODUCT_REFERENCE_TAKEN =
+  "Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.";
+
 /** Refusals of the triggers that guard an item's catalogue status, as sentences. */
-function catalogueStatusError(error: { message: string; details?: string | null }) {
+export function catalogueStatusError(error: { message: string; details?: string | null }) {
   if (error.message.includes(PRODUCT_VALIDATION_INCOMPLETE)) {
     const missing = productValidationFieldsFromDetail(error.details);
     return unprocessableEntity(
@@ -91,7 +95,7 @@ export async function createProduct(input: CreateProductInput) {
 
   if (error) {
     if (error.code === "23505") {
-      throw conflict("Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.");
+      throw conflict(PRODUCT_REFERENCE_TAKEN);
     }
     throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de créer le produit.");
   }

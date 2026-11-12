@@ -36,8 +36,11 @@ type CheckedColumns = CheckedColumnSpec<{
   measurement_units: { dimension: "count" | "set" | "lump_sum" | "length" | "area" | "volume" | "mass" | "time" | "inch" };
   suggestion_corrections: { field_name: "description" | "category_id" | "k_fo" | "k_mo" | "labor_role_id" | "supply_type_id" };
   material_requests: { delivery_place: "site" | "office" | "counter" | null };
-  material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated" };
-  material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp"; rotation: 0 | 90 | 180 | 270 };
+  material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated";
+    product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null; price_per: 1 | 10 | 100 | 1000 };
+  material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf"; rotation: 0 | 90 | 180 | 270 };
+  material_request_quotes: { status: "requested" | "received" | "retained" | "closed" };
+  material_request_quote_lines: { price_per: 1 | 10 | 100 | 1000 };
 }>;
 
 // A SQL function argument has no NOT NULL catalog attribute. These existing
@@ -62,6 +65,7 @@ type NullableArguments = NullableArgumentSpec<{
   supplier_prices_page: "p_q" | "p_product_id" | "p_supplier_id";
   supplier_prices_summary: "p_product_id" | "p_supplier_id";
   update_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
+  save_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
   commit_estimate_batch: "p_draft_lock_session_id";
   persist_generated_ouvrage_review: "p_expected_review_token";
   commit_generated_ouvrages: "p_draft_lock_session_id";

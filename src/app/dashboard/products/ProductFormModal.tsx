@@ -4,7 +4,9 @@ import { useMemo, useRef, useState } from "react";
 import { AlertTriangleIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { ProductAliases } from "@/components/products/ProductAliases";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
+import { ProductSuppliers } from "@/components/products/ProductSuppliers";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,6 +107,8 @@ type ProductFormModalProps = {
   /** Supply types of the tenant; the form can add one, since a tenant may have none. */
   supplyTypes?: readonly ProductSupplyType[];
   onSupplyTypeCreated?: (supplyType: ProductSupplyType) => void;
+  /** A supplier of the article, or its preferred one, was saved from the form (saved at once, TI-691). */
+  onSuppliersChanged?: () => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: ProductPayload) => Promise<void> | void;
 };
@@ -200,6 +204,7 @@ export function ProductFormModal({
   materialSuggestions,
   supplyTypes,
   onSupplyTypeCreated,
+  onSuppliersChanged,
   onOpenChange,
   onSubmit,
 }: Readonly<ProductFormModalProps>) {
@@ -682,6 +687,10 @@ export function ProductFormModal({
                 </div>
               </div>
             </details>
+
+            {product ? <ProductSuppliers productId={product.id} onChanged={onSuppliersChanged} /> : null}
+
+            {product ? <ProductAliases productId={product.id} /> : null}
 
             {isEditing ? (
               <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
