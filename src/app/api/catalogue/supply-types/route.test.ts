@@ -167,7 +167,11 @@ describe("/api/catalogue/supply-types", () => {
     const response = await GET();
 
     expect(response.status).toBe(200);
-    expect((await response.json()).data).toEqual({ items: existing });
+    // TI-691: each type also says which supplier it prefers (none here, so no supplier is read); a type that
+    // prefers one is listed with its name in material-request-suppliers.test.ts.
+    expect((await response.json()).data).toEqual({
+      items: existing.map((item) => ({ ...item, preferred_supplier_id: null, preferred_supplier_name: null })),
+    });
     expect(tenantFilters(readCalls)).toEqual([["tenant_id", TENANT_ID]]);
   });
 });

@@ -22,6 +22,7 @@ const SUPPLY_TYPES = [
     code: "TUBE",
     name: "Tube",
     default_fo_provision: 1.03,
+    preferred_supplier_id: null,
     created_at: "2026-07-14T08:00:00.000Z",
     updated_at: "2026-07-14T08:00:00.000Z",
   },

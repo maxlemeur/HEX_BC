@@ -25,6 +25,11 @@ import {
   type PrepareMaterialRequestFilesInput,
   type UpdateMaterialRequestInput,
 } from "./contracts";
+import type {
+  LineSupplierProposals,
+  RetainLineSuppliersInput,
+  RetainLineSuppliersResult,
+} from "./supplier-contracts";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -342,6 +347,43 @@ export async function fetchMaterialRequestCandidates(
     signal,
   );
   return lines ?? {};
+}
+
+/**
+ * One read for the whole request (TI-691): the proposed supplier of every line that has an article and no
+ * supplier (null when no source has one), and the article's reference at the supplier of every line that has
+ * both. Nothing is set.
+ */
+export async function fetchMaterialRequestSupplierProposals(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<LineSupplierProposals> {
+  const answer = await read<Partial<LineSupplierProposals>>(
+    requestsPath(projectId, requestId, "supplier-proposals"),
+    "Les fournisseurs proposés n’ont pas pu être chargés.",
+    signal,
+  );
+  return { lines: answer.lines ?? {}, references: answer.references ?? {} };
+}
+
+/**
+ * Sets the chosen supplier of each line, only on lines that still have none: a supplier set meanwhile (by
+ * another tab, another session) is never overwritten, and its line is listed in `skipped`. One request for
+ * every line of the gesture.
+ */
+export async function retainMaterialRequestSuppliers(
+  projectId: string,
+  requestId: string,
+  choices: RetainLineSuppliersInput["choices"],
+): Promise<RetainLineSuppliersResult> {
+  const answer = await write<Partial<RetainLineSuppliersResult>>(
+    requestsPath(projectId, requestId, "lines", "retain-suppliers"),
+    "POST",
+    { choices },
+    "Les fournisseurs proposés n’ont pas pu être retenus.",
+  );
+  return { lines: answer.lines ?? [], skipped: answer.skipped ?? [] };
 }
 
 /** Proposals for one line; `query` replaces the line's type words for a search by hand. */

@@ -52,6 +52,12 @@ type Supabase = SupabaseClient<Database>;
 
 const MAX_SUPPLIER_COMPARISON_ITEMS = 200;
 
+/**
+ * The offer as the suggestions read it: the supplier's reference and address come from the article's supplier item,
+ * and an offer whose item is inactive (TI-691: the supplier was withdrawn from the article) is not an active offer,
+ * even though its price row stays active: it is never suggested, ranked or preselected. A row read without its
+ * item (no embed) keeps its own flag.
+ */
 function normalizeSupplierPricebookRow(row: SupplierPricebookRow): SupplierPricebookRow {
   const joinedItem = Array.isArray(row.supplier_catalog_items)
     ? row.supplier_catalog_items[0] ?? null
@@ -59,6 +65,7 @@ function normalizeSupplierPricebookRow(row: SupplierPricebookRow): SupplierPrice
 
   return {
     ...row,
+    is_active: row.is_active && joinedItem?.is_active !== false,
     supplier_sku:
       joinedItem && Object.prototype.hasOwnProperty.call(joinedItem, "supplier_sku")
         ? joinedItem.supplier_sku
@@ -316,7 +323,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url, is_active)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -339,11 +346,13 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey!inner(supplier_sku, product_url, is_active)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
     .eq("is_active", true)
+    // TI-691: the offers of a supplier withdrawn from the article are not alternatives.
+    .eq("supplier_catalog_items.is_active", true)
     .order("updated_at", { ascending: false })
     .limit(400);
 
@@ -535,10 +544,12 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url), products!supplier_pricebook_product_id_fkey!inner(catalogue_status)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey!inner(supplier_sku, product_url, is_active), products!supplier_pricebook_product_id_fkey!inner(catalogue_status)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
+    // TI-691: the offers of a supplier withdrawn from the article are not suggested; filtered before the cap too.
+    .eq("supplier_catalog_items.is_active", true)
     // TI-690: an offer found by its supplier or its SKU can belong to an article the product search never
     // returned. Filtered here, before the cap, so the offers of draft articles cannot crowd out the others.
     .in("products.catalogue_status", suggestedStatuses)

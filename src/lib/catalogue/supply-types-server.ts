@@ -1,25 +1,111 @@
 import "server-only";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { badRequest, conflict, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 
+import { canAddToCatalogue } from "./access";
 import {
   supplyTypeCodeFromName,
   type CreateSupplyTypeInput,
+  type SupplyTypeListItem,
   type SupplyTypeRecord,
 } from "./supply-types";
 
-export async function listSupplyTypes(): Promise<{ items: SupplyTypeRecord[] }> {
-  const { supabase, tenantId } = await getAuthenticatedTenantContext();
-  const { data, error } = await supabase
+type TenantContext = Awaited<ReturnType<typeof getAuthenticatedTenantContext>>;
+type SupplyTypeRow = SupplyTypeRecord & { preferred_supplier_id: string | null };
+
+const SUPPLY_TYPE_COLUMNS = "id, code, name, preferred_supplier_id";
+const SUPPLY_TYPE_NOT_FOUND = "Type de fourniture introuvable.";
+const SUPPLIER_NOT_FOUND = "Fournisseur introuvable.";
+/** TI-691: like the article's suppliers, a purchasing decision of the catalogue's editors. */
+const PREFERRED_SUPPLIER_REFUSAL =
+  "Le fournisseur préféré d’un type de fourniture est choisi par un administrateur ou un ingénieur.";
+
+/** The rows with the name of the supplier each prefers (one query for all of them, none when no type prefers one). */
+async function withSupplierNames(context: TenantContext, rows: readonly SupplyTypeRow[]): Promise<SupplyTypeListItem[]> {
+  const supplierIds = [...new Set(rows.map((row) => row.preferred_supplier_id).filter((id): id is string => Boolean(id)))];
+  let names = new Map<string, string>();
+  if (supplierIds.length > 0) {
+    const { data, error } = await context.supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("tenant_id", context.tenantId)
+      .in("id", supplierIds);
+    if (error) throw mapSupabaseError(error, "Impossible de charger les fournisseurs préférés.");
+    names = new Map((data ?? []).map((row) => [row.id, row.name]));
+  }
+  return rows.map((row) => {
+    const preferred = row.preferred_supplier_id ?? null;
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      preferred_supplier_id: preferred,
+      preferred_supplier_name: preferred ? (names.get(preferred) ?? null) : null,
+    };
+  });
+}
+
+export async function listSupplyTypes(): Promise<{ items: SupplyTypeListItem[] }> {
+  const context = await getAuthenticatedTenantContext();
+  const { data, error } = await context.supabase
     .from("supply_types")
-    .select("id, code, name")
-    .eq("tenant_id", tenantId)
+    .select(SUPPLY_TYPE_COLUMNS)
+    .eq("tenant_id", context.tenantId)
     .order("name", { ascending: true });
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les types de fourniture.");
   }
-  return { items: data ?? [] };
+  return { items: await withSupplierNames(context, data ?? []) };
+}
+
+/**
+ * The preferred supplier of a supply type (null removes it): admins and engineers of the active tenant, while any
+ * member still writes the type's name (a trigger of the database guards this column only, and has the last word).
+ */
+export async function setSupplyTypePreferredSupplier(
+  supplyTypeId: string,
+  preferredSupplierId: string | null,
+): Promise<{ item: SupplyTypeListItem }> {
+  const context = await getAuthenticatedTenantContext();
+  if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PREFERRED_SUPPLIER_REFUSAL);
+  const { supabase, tenantId } = context;
+
+  const { data: existing, error: readError } = await supabase
+    .from("supply_types")
+    .select("id")
+    .eq("id", supplyTypeId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (readError) throw mapSupabaseError(readError, "Impossible de charger le type de fourniture.");
+  if (!existing) throw notFound(SUPPLY_TYPE_NOT_FOUND);
+  if (preferredSupplierId) {
+    const { data: supplier, error: supplierError } = await supabase
+      .from("suppliers")
+      .select("id")
+      .eq("id", preferredSupplierId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (supplierError) throw mapSupabaseError(supplierError, "Impossible de vérifier le fournisseur.");
+    if (!supplier) throw notFound(SUPPLIER_NOT_FOUND);
+  }
+
+  const { data, error } = await supabase
+    .from("supply_types")
+    .update({ preferred_supplier_id: preferredSupplierId })
+    .eq("id", supplyTypeId)
+    .eq("tenant_id", tenantId)
+    .select(SUPPLY_TYPE_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    if (error.message?.includes("SUPPLY_TYPE_PREFERRED_SUPPLIER_EDITORS_ONLY")) throw forbidden(PREFERRED_SUPPLIER_REFUSAL);
+    // The supplier was deleted, or moved out of reach, since it was checked.
+    if (error.message?.includes("PREFERRED_SUPPLIER_TENANT_MISMATCH")) throw notFound(SUPPLIER_NOT_FOUND);
+    throw mapSupabaseError(error, "Impossible d'enregistrer le fournisseur préféré.");
+  }
+  if (!data) throw notFound(SUPPLY_TYPE_NOT_FOUND);
+  const [item] = await withSupplierNames(context, [data]);
+  return { item };
 }
 
 /**

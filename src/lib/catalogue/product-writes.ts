@@ -31,7 +31,7 @@ function compactRecord<T extends Record<string, unknown>>(payload: T): T {
 
 export const PRODUCT_WRITE_REFUSAL =
   "L'ajout et la modification d'articles sont réservés aux administrateurs et aux ingénieurs.";
-const SHARED_PRODUCT_REFUSAL =
+export const SHARED_PRODUCT_REFUSAL =
   "Cet article fait partie de la base commune : vous modifiez seulement les articles que vous avez ajoutés. Un administrateur peut ouvrir la base commune aux ingénieurs.";
 
 /**

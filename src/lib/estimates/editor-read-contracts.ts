@@ -117,6 +117,8 @@ export const estimateEditorCategorySchema = z.object({
 
 export const estimateEditorSupplyTypeSchema = z.object({
   ...rowIdentity, code: z.string(), name: z.string(), default_fo_provision: number,
+  // TI-691: the purchasing preference, unread by the editor; absent from older payloads.
+  preferred_supplier_id: uuid.nullable().default(null),
 }).passthrough() satisfies z.ZodType<Database["public"]["Tables"]["supply_types"]["Row"]>;
 
 export const estimateEditorLaborRoleSchema = z.object({

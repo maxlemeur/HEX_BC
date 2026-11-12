@@ -952,7 +952,7 @@ const directoryAndOrdersContracts: RouteContract[] = [
     path: "/api/catalogue/supply-types",
     summary: "Lister les types de fourniture",
     description:
-      "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue.",
+      "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue, avec le fournisseur que chacun prefere (preferred_supplier_id, preferred_supplier_name, null sans fournisseur prefere).",
     tags: ["Catalogue"],
   },
   {
