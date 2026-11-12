@@ -187,7 +187,7 @@ export function TextCell({
         className={controlClass(alerts, Boolean(error))}
         aria-label={id ? undefined : label}
         aria-invalid={cellTone(alerts) === "blocking" || Boolean(error) || undefined}
-        aria-describedby={[describedBy(messagesId, alerts, error), hintId].filter(Boolean).join(" ") || undefined}
+        aria-describedby={[hintId, describedBy(messagesId, alerts, error)].filter(Boolean).join(" ") || undefined}
         value={draft ?? value ?? ""}
         placeholder={placeholder}
         list={list}

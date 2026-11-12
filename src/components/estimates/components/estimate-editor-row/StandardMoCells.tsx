@@ -1,5 +1,7 @@
 "use client";
 
+import { useId } from "react";
+
 import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
 
 import { formatCurrency } from "@/lib/money";
@@ -83,6 +85,7 @@ export function StandardMoCells({
   const selectedLaborRole = laborRoles.find(
     (role) => role.id === item.labor_role_id
   );
+  const kMoErrorId = useId();
   const missingLaborRateMessage = getMissingLaborRateMessage(
     selectedLaborRole,
     item.h_mo
@@ -220,6 +223,7 @@ export function StandardMoCells({
             parseValue={parseCoefficientDraft}
             aria-label={`Coefficient main-d'œuvre K MO pour ${item.title || "sans titre"}`}
             aria-invalid={missingLaborRateMessage ? true : undefined}
+            aria-describedby={missingLaborRateMessage ? kMoErrorId : undefined}
             title={
               missingLaborRateMessage ??
               "K MO multiplie le taux horaire du rôle de main-d'œuvre."
@@ -244,6 +248,7 @@ export function StandardMoCells({
             placeholder="1.00"
             disabled={isReadOnly}
           />
+          {missingLaborRateMessage ? <span id={kMoErrorId} className="sr-only">{missingLaborRateMessage}</span> : null}
         </div>
       ) : null}
     </EstimateOrderedCells>

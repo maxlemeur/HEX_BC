@@ -23,10 +23,10 @@ const DELIVERY_OPTIONS = MATERIAL_REQUEST_DELIVERY_PLACES.map((value) => ({
   label: MATERIAL_REQUEST_DELIVERY_PLACE_LABELS[value],
 }));
 
-function FieldError({ message }: Readonly<{ message: string | null }>) {
+function FieldError({ id, message }: Readonly<{ id?: string; message: string | null }>) {
   if (!message) return null;
   return (
-    <p role="alert" className="mt-1 text-xs font-medium text-danger">
+    <p id={id} role="alert" className="mt-1 text-xs font-medium text-danger">
       Non enregistré : {message}
     </p>
   );
@@ -84,6 +84,7 @@ function DateField({
         value={draft ?? value ?? ""}
         disabled={disabled}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
         onChange={(event) => setDraft(event.currentTarget.value)}
         onBlur={() => void commit()}
         onKeyDown={(event) => {
@@ -94,7 +95,7 @@ function DateField({
           }
         }}
       />
-      <FieldError message={error} />
+      <FieldError id={`${id}-error`} message={error} />
     </>
   );
 }
@@ -124,6 +125,7 @@ function NoteField({
         value={draft ?? value ?? ""}
         disabled={disabled}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
         onChange={(event) => setDraft(event.currentTarget.value)}
         onBlur={async () => {
           if (draft === null) return;
@@ -151,7 +153,7 @@ function NoteField({
           }
         }}
       />
-      <FieldError message={error} />
+      <FieldError id={`${id}-error`} message={error} />
     </>
   );
 }

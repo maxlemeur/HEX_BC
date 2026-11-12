@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,7 @@ import {
   useSpreadsheetNavigation,
   type SpreadsheetCell,
 } from "@/hooks/useSpreadsheetNavigation";
+import { InvalidDraftReason } from "@/components/ui/invalid-draft-reason";
 import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 
 type EditableCellInputType = "text" | "number";
@@ -90,6 +92,9 @@ export function EditableCell<TCommitValue = string>({
   // Keep a local editing value so intermediate keystrokes are not clobbered
   // by the parent re-rendering with a converted (e.g. cents→euros) value.
   const [localEditingValue, setLocalEditingValue] = useState<string | null>(null);
+  // The draft refused when the cell was left, announced once (see InvalidDraftReason).
+  const [refusedDraft, setRefusedDraft] = useState<string | null>(null);
+  const errorId = useId();
   const invalid = localEditingValue !== null && isValidInput !== undefined && !isValidInput(localEditingValue);
 
   const inputValue = (isEditing || invalid) && localEditingValue !== null
@@ -154,11 +159,13 @@ export function EditableCell<TCommitValue = string>({
       const nextValue = event.currentTarget.value;
       if (isValidInput && !isValidInput(nextValue)) {
         event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
+        setRefusedDraft(nextValue);
         // Leave the invalid draft visible without stealing focus from the next control.
         return;
       }
       event.currentTarget.setCustomValidity("");
       setLocalEditingValue(null);
+      setRefusedDraft(null);
       if (parseOnCommit) {
         onCommit(parseOnCommit(nextValue));
         return;
@@ -199,6 +206,7 @@ export function EditableCell<TCommitValue = string>({
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? errorId : undefined}
         title={invalid ? NUMERIC_INPUT_ERROR : undefined}
         step={type === "number" ? step : undefined}
         min={type === "number" ? min : undefined}
@@ -220,6 +228,9 @@ export function EditableCell<TCommitValue = string>({
         }}
         style={isEditing || invalid ? undefined : HIDDEN_EDITOR_STYLE}
       />
+      {invalid ? (
+        <InvalidDraftReason id={errorId} refusedDraft={refusedDraft}>{NUMERIC_INPUT_ERROR}</InvalidDraftReason>
+      ) : null}
     </div>
   );
 }

@@ -43,11 +43,12 @@ function ListField({ label, values, onChange, multiline = false }: { label: stri
 }
 
 function PagesField({ name, pages, onChange }: { name: string; pages: number[]; onChange: (pages: number[]) => void }) {
+  const errorId = useId();
   const [text, setText] = useState(pages.join(", "));
   const parse = (value: string) => value.trim() === "" ? [] : value.split(",").map((part) => /^\s*[1-9]\d*\s*$/.test(part) ? Number(part) : -1);
   const invalid = parse(text).some((page) => page < 1);
   useEffect(() => { if (JSON.stringify(parse(text)) !== JSON.stringify(pages)) setText(pages.join(", ")); }, [pages, text]);
-  return <label className="space-y-1 text-sm"><span>Pages</span><Input aria-label={`Pages de ${name}`} aria-invalid={invalid} value={text} placeholder="Toutes les pages" onChange={(event) => { setText(event.target.value); onChange(parse(event.target.value)); }} />{invalid && <span className="block text-xs text-danger">Indiquez des pages entières positives séparées par des virgules. Aucune page invalide ne sera ignorée.</span>}</label>;
+  return <label className="space-y-1 text-sm"><span>Pages</span><Input aria-label={`Pages de ${name}`} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} value={text} placeholder="Toutes les pages" onChange={(event) => { setText(event.target.value); onChange(parse(event.target.value)); }} />{invalid && <span id={errorId} className="block text-xs text-danger">Indiquez des pages entières positives séparées par des virgules. Aucune page invalide ne sera ignorée.</span>}</label>;
 }
 
 export function PreparationConfirmation({ label, accessibleLabel, checked, onChange }: { label: string; accessibleLabel?: string; checked: boolean; onChange: (checked: boolean) => void }) {

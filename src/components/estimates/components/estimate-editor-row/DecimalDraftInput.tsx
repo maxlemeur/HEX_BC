@@ -2,6 +2,7 @@
 
 import {
   forwardRef,
+  useId,
   useState,
   useRef,
   type FocusEventHandler,
@@ -9,6 +10,7 @@ import {
 } from "react";
 
 import { parseDecimalDraft } from "@/components/estimates/components/estimate-editor-row/shared";
+import { describedByIds, InvalidDraftReason } from "@/components/ui/invalid-draft-reason";
 import { formatDecimalInput, NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 
 type DecimalDraftInputProps = Omit<
@@ -63,6 +65,9 @@ export const DecimalDraftInput = forwardRef<
 ) {
   const edited = useRef(false);
   const [draftValue, setDraftValue] = useState<string | null>(null);
+  // The draft refused when the field was left, announced once (see InvalidDraftReason).
+  const [refusedDraft, setRefusedDraft] = useState<string | null>(null);
+  const errorId = useId();
 
   const resolve = (raw: string): number | null => {
     return raw.trim() === "" ? emptyValue ?? 0 : parseValue(raw);
@@ -70,44 +75,53 @@ export const DecimalDraftInput = forwardRef<
   const invalid = draftValue !== null && resolve(draftValue) === null;
 
   return (
-    <input
-      {...inputProps}
-      ref={ref}
-      type="text"
-      inputMode="decimal"
-      value={draftValue ?? formatDecimalInput(value)}
-      aria-invalid={invalid || inputProps["aria-invalid"]}
-      title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
-      onFocus={(event) => {
-        edited.current = false;
-        setDraftValue(event.currentTarget.value);
-        onFocus?.(event);
-      }}
-      onChange={(event) => {
-        edited.current = true;
-        const nextValue = event.currentTarget.value;
-        setDraftValue(nextValue);
-        const parsed = resolve(nextValue);
-        event.currentTarget.setCustomValidity(parsed === null ? NUMERIC_INPUT_ERROR : "");
-      }}
-      onBlur={(event) => {
-        const nextValue = event.currentTarget.value;
-        onBlur?.(event);
-        if (!commitOnUnchangedBlur && !edited.current) {
+    <>
+      <input
+        {...inputProps}
+        ref={ref}
+        type="text"
+        inputMode="decimal"
+        value={draftValue ?? formatDecimalInput(value)}
+        aria-invalid={invalid || inputProps["aria-invalid"]}
+        aria-describedby={describedByIds(inputProps["aria-describedby"], invalid && errorId)}
+        title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
+        onFocus={(event) => {
+          edited.current = false;
+          setDraftValue(event.currentTarget.value);
+          onFocus?.(event);
+        }}
+        onChange={(event) => {
+          edited.current = true;
+          const nextValue = event.currentTarget.value;
+          setDraftValue(nextValue);
+          const parsed = resolve(nextValue);
+          event.currentTarget.setCustomValidity(parsed === null ? NUMERIC_INPUT_ERROR : "");
+        }}
+        onBlur={(event) => {
+          const nextValue = event.currentTarget.value;
+          onBlur?.(event);
+          if (!commitOnUnchangedBlur && !edited.current) {
+            setDraftValue(null);
+            setRefusedDraft(null);
+            return;
+          }
+          const parsed = resolve(nextValue);
+          if (parsed === null) {
+            event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
+            setRefusedDraft(nextValue);
+            // Leave the invalid draft visible without stealing focus from the next control.
+            return;
+          }
+          event.currentTarget.setCustomValidity("");
           setDraftValue(null);
-          return;
-        }
-        const parsed = resolve(nextValue);
-        if (parsed === null) {
-          event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
-          // Leave the invalid draft visible without stealing focus from the next control.
-          return;
-        }
-        event.currentTarget.setCustomValidity("");
-        setDraftValue(null);
-        onValueChange(parsed);
-        onValueCommit(parsed);
-      }}
-    />
+          setRefusedDraft(null);
+          onValueChange(parsed);
+          onValueCommit(parsed);
+        }}
+      />
+      {invalid ? (
+        <InvalidDraftReason id={errorId} refusedDraft={refusedDraft}>{NUMERIC_INPUT_ERROR}</InvalidDraftReason>
+      ) : null}
+    </>
   );
 });
