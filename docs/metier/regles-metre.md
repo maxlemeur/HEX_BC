@@ -214,7 +214,9 @@ seconde fois sans décision.
   une ligne DPGF (son rapprochement la remplace déjà), jamais d'un document à un autre :
   une ligne qui ne connaît que le nom de son plan n'est pas appariée sur une page où
   deux plans identifiés de ce nom se rencontrent (la limite de groupement de la
-  PR 1). Le chiffreur corrige chaque paire ; la liste ne propose que ce que la base
+  PR 1). Une longueur regroupée sur deux plans (le regroupement ne lit pas le
+  document) se remplace sur chacun, chaque nouvelle ligne remplaçant la part de son
+  propre document (revue Codex de 251a98a1). Le chiffreur corrige chaque paire ; la liste ne propose que ce que la base
   accepte. Mesuré sur les sorties du banc (trois relances, sans appel au modèle) :
   70,4 % des lignes vision et 98,6 % des lignes vectorielles sont appariées.
 - **Lignes que le nouveau métré n'a plus** : aucun choix par défaut, « Retirer du
@@ -263,21 +265,26 @@ seconde fois sans décision.
   porte aussi une autre page remesurée, sans ligne nouvelle qui la remplace là,
   demande « retirer sa part » ou « la garder ».
 - **Le contrat de l'écran avec la base** (TKD03,
-  [`page-decisions-contract.e2e.ts`](../../e2e/army/takeoff/page-decisions-contract.e2e.ts)) :
-  sur une matrice de situations (une ligne sur une page et sur deux, toutes ses pages
-  ou une seule remesurées, une ligne nouvelle sans page, une ligne disparue, une
-  quantité modifiée à la main, une version DPGF), chaque état que l'écran laisse
-  confirmer est appliqué par la vraie fonction de la base, au nom du chiffreur, puis
-  annulé : il doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit
-  être refusé.
+  [`page-decisions-contract.e2e.ts`](../../e2e/army/takeoff/page-decisions-contract.e2e.ts)).
+  Ses situations se déduisent de la base : chaque motif de refus que la migration peut
+  lever est soit atteint, dans une situation, par une décision naïve que la base refuse
+  pour ce motif précis, soit nommé avec la raison pour laquelle le contrat le laisse
+  de côté ; un motif ajouté sans situation fait échouer le parcours. Dans chaque
+  situation (une ligne sur une page et sur deux, sur deux plans, toutes ses pages ou
+  une seule remesurées, une ligne nouvelle sans page ou écartée à la revue, une ligne
+  disparue, une ligne d'ouvrage, une quantité modifiée à la main, une version DPGF,
+  une ligne DPGF alimentée depuis la page), chaque état que l'écran laisse confirmer
+  est appliqué par la vraie fonction de la base, au nom du chiffreur, puis annulé : il
+  doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit être refusé.
 - **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
   l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
   remplacer. La proposition lit la version où l'application écrit (celle du métré).
 - **En base**, sous le verrou de la version, dans la transaction de l'application
   ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112014358_takeoff_page_decisions.sql)) :
   les décisions, enregistrées dans la transaction même de l'application, sont relues
-  après tout enregistrement de l'éditeur en cours (leur insertion attend la ligne de la
-  version qu'il verrouille) contre le devis tel qu'il est (une ligne supprimée ou
+  après tout enregistrement de l'éditeur en cours (l'application verrouille la ligne
+  de la version, comme l'éditeur, avant de les lire ; leur insertion l'attend aussi)
+  contre le devis tel qu'il est (une ligne supprimée ou
   modifiée depuis la proposition, une décision d'une autre personne : 409, à relire),
   le remplacement s'applique, puis le filet `private.assert_takeoff_pages_once`
   vérifie que chaque contribution antérieure restante sur une page du métré est
