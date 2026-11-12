@@ -191,6 +191,12 @@ interface LocalSupabaseCiDependencies {
   /** File names under supabase/tests/database; the whole folder when absent. */
   pgTapFiles?: readonly string[];
   skipRlsMatrix?: boolean;
+  /**
+   * The required check that runs pgTAP and the behavioral RLS matrix for this revision, when the caller is a job of
+   * the same pull request (scripts/tester-army/database-checks.ts): this stack then skips both and still verifies
+   * its migrations and generated types before the application starts.
+   */
+  delegatedDatabaseChecks?: string;
 }
 
 const PGTAP_DIRECTORY = path.join("supabase", "tests", "database");
@@ -902,6 +908,10 @@ export async function runLocalSupabaseCi(
   if (dependencies.skipRlsMatrix && dependencies.runApplication) {
     throw new Error("--skip-rls applies to db:ci:local only, never to an application validation");
   }
+  if (dependencies.delegatedDatabaseChecks !== undefined && (!dependencies.delegatedDatabaseChecks.trim() ||
+    !dependencies.runApplication || dependencies.pgTapFiles || dependencies.skipRlsMatrix)) {
+    throw new Error("Only a complete application validation can delegate pgTAP and the RLS matrix, to a named check");
+  }
 
   const projectErrors = dependencies.validateProject();
   if (projectErrors.length > 0) {
@@ -1138,56 +1148,60 @@ export async function runLocalSupabaseCi(
     dependencies.verifyDatabaseTypes(project.rootDirectory);
     dependencies.log("Generated database types match the migrated local schema.");
 
-    checkpoint("run pgTAP");
-    const pgTapDirectory = path.join(project.rootDirectory, PGTAP_DIRECTORY);
-    const pgTapOutput = dependencies.supabase(withWorkdir([
-      "test",
-      "db",
-      "--local",
-      ...(pgTapFiles ? pgTapFiles.map((file) => path.join(pgTapDirectory, file)) : [pgTapDirectory]),
-    ]), true);
-    const expectedTestFiles = pgTapFiles?.length ?? fs.readdirSync(
-      path.join(process.cwd(), PGTAP_DIRECTORY)
-    ).filter((file) => file.endsWith(".sql")).length;
-    validatePgTapReport(pgTapOutput, expectedTestFiles);
-    dependencies.log(pgTapOutput.trim());
-    dependencies.log("Database pgTAP tests passed.");
-    // Lot 3.1: the owner's CI/production maxima (a 1 000-operation copy into a v3: 3,5 s), single runs asserted
-    // wherever the database checks run alone, CI included (E2E RLS Matrix). A caller that starts work alongside them
-    // (onStackStarted: the Army production build) skips them: the same probe measured that build's load too, up to
-    // 5,6 s (docs/testing/lot3-1-v3-copy-scale.md).
-    if (dependencies.onStackStarted) {
-      dependencies.log("CI statement ceilings skipped: work started alongside the database checks.");
+    if (dependencies.delegatedDatabaseChecks) {
+      dependencies.log(`Database pgTAP tests and behavioral RLS matrix delegated to ${dependencies.delegatedDatabaseChecks}: not run on this stack.`);
     } else {
-      checkpoint("run CI statement ceilings");
-      const ceilingOutput = dependencies.supabase(withWorkdir([
+      checkpoint("run pgTAP");
+      const pgTapDirectory = path.join(project.rootDirectory, PGTAP_DIRECTORY);
+      const pgTapOutput = dependencies.supabase(withWorkdir([
         "test",
         "db",
         "--local",
-        path.join(project.rootDirectory, "supabase", "tests", "ceiling"),
+        ...(pgTapFiles ? pgTapFiles.map((file) => path.join(pgTapDirectory, file)) : [pgTapDirectory]),
       ]), true);
-      validatePgTapReport(ceilingOutput, fs.readdirSync(
-        path.join(process.cwd(), "supabase", "tests", "ceiling")
-      ).filter((file) => file.endsWith(".sql")).length);
-      dependencies.log(ceilingOutput.trim());
-      dependencies.log("CI statement ceilings passed.");
-    }
-    // Wall-clock budgets are opt-in on an identified native host; a single-run
-    // CI timing depends on the runner class drawn
-    // (docs/testing/large-estimate-statement-budget.md).
-    if (dependencies.environment.DB_CI_STATEMENT_BUDGET === "enforce") {
-      activePhase = "run statement budgets";
-      const budgetOutput = dependencies.supabase(withWorkdir([
-        "test",
-        "db",
-        "--local",
-        path.join(project.rootDirectory, "supabase", "tests", "budget"),
-      ]), true);
-      validatePgTapReport(budgetOutput, fs.readdirSync(
-        path.join(process.cwd(), "supabase", "tests", "budget")
-      ).filter((file) => file.endsWith(".sql")).length);
-      dependencies.log(budgetOutput.trim());
-      dependencies.log("Statement budgets passed.");
+      const expectedTestFiles = pgTapFiles?.length ?? fs.readdirSync(
+        path.join(process.cwd(), PGTAP_DIRECTORY)
+      ).filter((file) => file.endsWith(".sql")).length;
+      validatePgTapReport(pgTapOutput, expectedTestFiles);
+      dependencies.log(pgTapOutput.trim());
+      dependencies.log("Database pgTAP tests passed.");
+      // Lot 3.1: the owner's CI/production maxima (a 1 000-operation copy into a v3: 3,5 s), single runs asserted
+      // wherever the database checks run alone, CI included (E2E RLS Matrix). A caller that starts work alongside them
+      // (onStackStarted: the Army production build) skips them: the same probe measured that build's load too, up to
+      // 5,6 s (docs/testing/lot3-1-v3-copy-scale.md).
+      if (dependencies.onStackStarted) {
+        dependencies.log("CI statement ceilings skipped: work started alongside the database checks.");
+      } else {
+        checkpoint("run CI statement ceilings");
+        const ceilingOutput = dependencies.supabase(withWorkdir([
+          "test",
+          "db",
+          "--local",
+          path.join(project.rootDirectory, "supabase", "tests", "ceiling"),
+        ]), true);
+        validatePgTapReport(ceilingOutput, fs.readdirSync(
+          path.join(process.cwd(), "supabase", "tests", "ceiling")
+        ).filter((file) => file.endsWith(".sql")).length);
+        dependencies.log(ceilingOutput.trim());
+        dependencies.log("CI statement ceilings passed.");
+      }
+      // Wall-clock budgets are opt-in on an identified native host; a single-run
+      // CI timing depends on the runner class drawn
+      // (docs/testing/large-estimate-statement-budget.md).
+      if (dependencies.environment.DB_CI_STATEMENT_BUDGET === "enforce") {
+        activePhase = "run statement budgets";
+        const budgetOutput = dependencies.supabase(withWorkdir([
+          "test",
+          "db",
+          "--local",
+          path.join(project.rootDirectory, "supabase", "tests", "budget"),
+        ]), true);
+        validatePgTapReport(budgetOutput, fs.readdirSync(
+          path.join(process.cwd(), "supabase", "tests", "budget")
+        ).filter((file) => file.endsWith(".sql")).length);
+        dependencies.log(budgetOutput.trim());
+        dependencies.log("Statement budgets passed.");
+      }
     }
 
     if (dependencies.skipRlsMatrix) {
@@ -1199,7 +1213,6 @@ export async function runLocalSupabaseCi(
       );
       checkpoint("provision local Auth users");
       provisioned = await dependencies.provisionUsers(status);
-      checkpoint("run behavioral RLS matrix");
       const localEnvironment = {
         ...createLocalCiEnvironment(dependencies.environment),
         ...provisioned.environment,
@@ -1210,8 +1223,11 @@ export async function runLocalSupabaseCi(
         RLS_E2E_LOCAL: "1",
         SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
       };
-      await dependencies.runRls(localEnvironment);
-      dependencies.log("Behavioral RLS matrix passed.");
+      if (!dependencies.delegatedDatabaseChecks) {
+        checkpoint("run behavioral RLS matrix");
+        await dependencies.runRls(localEnvironment);
+        dependencies.log("Behavioral RLS matrix passed.");
+      }
       if (dependencies.runApplication) {
         checkpoint("run application validation");
         if (!status.databaseUrl) throw new Error("Local PostgreSQL status is missing for the application fixtures");

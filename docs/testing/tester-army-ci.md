@@ -11,7 +11,7 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Quality Gate](../../.github/workflows/quality-gate.yml) | PR vers `main`, push `main`, manuel ; contrôles statiques, tests retenus et build de production, puis agrégation `quality-gate` |
 | [Smoke anonyme](../../.github/workflows/e2e-army-smoke.yml) | PR, push `main`, manuel ; configuration publique synthétique, aucun backend partagé ni modèle |
 | [Critical](../../.github/workflows/e2e-army-critical.yml) | PR vers `main`, push `main`, manuel ; sélection métier et métré, piles natives indépendantes, checks `army-critical` et `army-takeoff` |
-| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; étapes lourdes d'une PR selon chemins DB/runtime ; les autres lancements sont complets |
+| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
 | [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
@@ -237,8 +237,24 @@ et cibles DB/Supabase héritées, crée une pile native loopback et applique les
 migrations du checkout. Les contrôles pgTAP/RLS précèdent les parcours ; le
 build de production peut démarrer en parallèle des contrôles DB, sur la même
 identité de backend. Le plafond SQL de copie n'est alors pas mesuré dans ce
-job ; la matrice RLS l'exécute seule, sur chaque PR qui touche la base et
-chaque nuit sur `main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+job ; la matrice RLS l'exécute seule, sur chaque PR et chaque nuit sur
+`main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+
+pgTAP et la matrice RLS prouvent la base migrée, pas les parcours : le même
+résultat dans chacune des piles d'une PR. Sur une pull request, ils tournent
+donc une seule fois, dans le check requis `rls-matrix`, seuls sur leur pile et
+plafonds compris. Ce check tourne en entier sur toute PR, de documentation
+aussi : le label `army-full` ou un diff vide lancent des jobs Army sur une
+telle PR. Les jobs Army de la même PR les lui délèguent
+(`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
+[`database-checks.ts`](../../scripts/tester-army/database-checks.ts)) : leur
+pile vérifie encore ses migrations et ses types générés, puis lance les
+parcours. Le manifeste l'indique (`database.checks` : `delegated`, absent
+quand le job exécute ses propres contrôles) et `army-critical` vert ne dit
+donc plus que le SQL est vérifié :
+c'est `rls-matrix` qui le dit. Hors pull request (push sur `main`, campagnes,
+run local), rien n'est délégué : la délégation y est refusée, faute de check
+qui réponde pour la révision.
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas
