@@ -58,7 +58,7 @@ begin
         values(i,current_setting('test.tenant_id')::uuid,j,'EF cuivre DN 22',q,'ml',0.99,'Mesure fictive localisée','plan-fictif.pdf',1,
           now()+jsonb_array_length(mapping)*interval '1 second');
         sources:=sources||jsonb_build_array(jsonb_build_object('id',i,'quantity',q,'updated_at',
-          (select updated_at from public.takeoff_items where id=i)));
+          (select updated_at from public.takeoff_items where id=i),'measured',q,'protective',0,'printed_gap',0));
         mapping:=mapping||jsonb_build_array(jsonb_build_object('item_id',i,'source_order',jsonb_array_length(mapping),
           'rule_id',null,'action','none','designation','EF cuivre DN 22','unit_price_cents',null,'category_id',null,'assembly_id',null));
       end loop;
