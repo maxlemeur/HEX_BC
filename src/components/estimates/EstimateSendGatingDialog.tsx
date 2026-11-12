@@ -20,7 +20,8 @@ import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
-import { OFFER_RESERVE_WARNING } from "@/lib/estimates/offer-choice";
+import { OFFER_PROVISIONAL_QUANTITY_WARNING, OFFER_RESERVE_WARNING } from "@/lib/estimates/offer-choice";
+import { provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";
 import {
   ESTIMATE_STATUS_REASON_CODE_VALUES,
   ESTIMATE_STATUS_REASON_CODES,
@@ -52,7 +53,11 @@ type EstimateSendGatingDialogProps = {
   statusReasonLines?: readonly EstimateSendGatingLine[];
   /** Saves the internal reason of a line, then checks the send again; absent for a reader who cannot write the line. */
   onSaveStatusReason?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
-  /** The reserved lines of `offer_reserve_declared` and `offer_limits_required`, by title and reserve. */
+  /**
+   * The reserved lines of `offer_reserve_declared` and `offer_limits_required`, by title and reserve; PR 5: the lines of
+   * `provisional_quantity_mention_missing`, by title and the sentence the limits must carry, and those of
+   * `takeoff_hypothesis_without_mention`, by title.
+   */
   reserveLines?: readonly EstimateSendGatingReserveLine[];
   /** Opens the limits text, where the reserves are inserted and reviewed; absent for who cannot write it. */
   onOpenLimits?: () => void;
@@ -186,7 +191,8 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
 }
 
 /** Flags whose lines the window names by their titles (never by identifiers). */
-const LINES_BY_TITLE_FLAG_KEYS = new Set(["excluded_without_reason", "offer_reserve_declared", "offer_limits_required"]);
+const LINES_BY_TITLE_FLAG_KEYS = new Set(["excluded_without_reason", "offer_reserve_declared", "offer_limits_required",
+  "provisional_quantity_mention_missing", "takeoff_hypothesis_without_mention", "provisional_quantity_mention_stale"]);
 
 function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const details = flag.details ?? {};
@@ -432,8 +438,51 @@ function renderReserveEntries(
   disabled: boolean,
   onInsert?: () => void,
 ) {
-  if (flag.key !== "offer_reserve_declared" && flag.key !== "offer_limits_required") return null;
   const byId = new Map(lines.map((line) => [line.id, line]));
+  // TI-682, lot C, PR 5: a sentence of the limits no current line asks; the issuer rereads the text.
+  if (flag.key === "provisional_quantity_mention_stale") {
+    return onInsert ? (
+      <div className="mt-2">
+        <Button variant="outline" size="sm" disabled={disabled} onClick={onInsert}>
+          Relire les précisions
+        </Button>
+      </div>
+    ) : null;
+  }
+  // TI-682, lot C, PR 5: each provisional quantity with the sentence its line asks today; the hypotheses nobody declared.
+  if (flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention") {
+    const missing = flag.key === "provisional_quantity_mention_missing";
+    const overflow = missing ? (flag.details?.limits_overflow as { missing_characters?: unknown } | undefined) : undefined;
+    const missingCharacters = typeof overflow?.missing_characters === "number" ? overflow.missing_characters : 0;
+    return (
+      <div className="mt-2">
+        {missingCharacters > 0 ? (
+          <p className="mb-2 text-xs font-medium text-danger" data-testid="estimate-send-gating-provisional-overflow">
+            {provisionalMentionsOverflowMessage(missingCharacters, "send")}
+          </p>
+        ) : null}
+        {missing ? <p className="mb-2 text-xs text-warning">{OFFER_PROVISIONAL_QUANTITY_WARNING}</p> : null}
+        <ul className="space-y-2">
+          {flag.itemIds.map((itemId) => {
+            const line = byId.get(itemId);
+            return (
+              <li key={itemId} className="rounded-lg bg-surface px-2.5 py-2" data-testid={missing
+                ? "estimate-send-gating-provisional-line" : "estimate-send-gating-hypothesis-line"}>
+                <span className="block text-xs font-medium text-foreground">{line?.title ?? "Ligne sans titre"}</span>
+                {missing && line?.description ? <span className="block text-xs text-foreground-secondary">{line.description}</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+        {missing && onInsert ? (
+          <Button className="mt-2" variant="outline" size="sm" disabled={disabled} onClick={onInsert}>
+            Rédiger les précisions
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  if (flag.key !== "offer_reserve_declared" && flag.key !== "offer_limits_required") return null;
   if (flag.key === "offer_limits_required") {
     return onInsert ? (
       <div className="mt-2">
@@ -567,6 +616,7 @@ export function EstimateSendGatingDialog({
   const hasNotPricedToClassify = blockingFlags.some((flag) => flag.key === "not_priced_unclassified");
   const hasExcludedWithoutReason = blockingFlags.some((flag) => flag.key === "excluded_without_reason");
   const hasLimitsRequired = blockingFlags.some((flag) => flag.key === "offer_limits_required");
+  const hasProvisionalMentionMissing = blockingFlags.some((flag) => flag.key === "provisional_quantity_mention_missing");
   const reserves = { lines: reserveLines, disabled: isSubmitting, onInsert: onOpenLimits };
 
   return (
@@ -637,6 +687,11 @@ export function EstimateSendGatingDialog({
               {hasLimitsRequired && canForce ? (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Une offre qui réserve des lignes dit par écrit ce qu&apos;elle ne chiffre pas : le forçage n&apos;est pas proposé tant que les précisions sont vides.
+                </p>
+              ) : null}
+              {hasProvisionalMentionMissing && canForce ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Une quantité provisionnelle se dit au client : le forçage n&apos;est pas proposé tant que sa phrase manque aux précisions.
                 </p>
               ) : null}
             </section>

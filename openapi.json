@@ -7390,12 +7390,111 @@
       }
     },
     "/api/estimates/{versionId}/items/{itemId}/offer-choice": {
+      "get": {
+        "tags": [
+          "Estimate Items"
+        ],
+        "summary": "Lire le point de départ d'une quantité provisionnelle",
+        "description": "TI-682 : ce sur quoi la quantité d'une ligne est établie, d'après la note saisie sur les lignes de métré dont elle vient (dans l'ordre de son marqueur, sur une ligne, 160 caractères au plus) ; null sans marqueur ni note. Lecture seule, avec les droits du lecteur.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Identifiant UUID d'une ligne de la version.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateItemIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Point de départ de « Établie sur ».",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEstimateLineOfferChoiceSuggestionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Version ou ligne introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "Estimate Items"
         ],
-        "summary": "Déclarer la réserve écrite d'une ligne",
-        "description": "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas.",
+        "summary": "Déclarer la réserve écrite ou la quantité provisionnelle d'une ligne",
+        "description": "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas. TI-682, lot C, PR 5 : une quantité provisionnelle (kind provisional_quantity) se déclare de même sur une ligne chiffrée dont la quantité repose sur une hypothèse du métré ; ses deux textes sont réduits à une ligne ; l'envoi exige ensuite que la phrase composée d'après la ligne actuelle figure dans les précisions.",
         "parameters": [
           {
             "name": "versionId",
@@ -7435,7 +7534,7 @@
           }
         ],
         "requestBody": {
-          "description": "Réserve écrite dans l'offre d'une ligne « Non chiffrée » (TI-682) : base, motif et précision internes.",
+          "description": "Choix écrit dans l'offre d'une ligne (TI-682) : réserve d'une ligne « Non chiffrée » (base, motif et précision internes) ou quantité provisionnelle d'une ligne chiffrée sur hypothèse du métré (base et précision internes, ce sur quoi la quantité est établie et ce qui la confirmera, imprimés dans la phrase des précisions).",
           "required": true,
           "content": {
             "application/json": {
@@ -7497,7 +7596,7 @@
             }
           },
           "409": {
-            "description": "VERSION_CONFLICT, LOCK_REQUIRED, ou ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (la ligne n'est pas « Non chiffrée »).",
+            "description": "VERSION_CONFLICT, LOCK_REQUIRED, ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (une réserve sur une ligne qui n'est pas « Non chiffrée », une quantité provisionnelle sur une ligne qui n'est pas chiffrée) ou ESTIMATE_OFFER_CHOICE_HYPOTHESIS_REQUIRED (la quantité de la ligne ne repose sur aucune hypothèse du métré).",
             "content": {
               "application/json": {
                 "schema": {
@@ -7522,8 +7621,8 @@
         "tags": [
           "Estimate Items"
         ],
-        "summary": "Retirer la réserve écrite d'une ligne",
-        "description": "TI-682 : un administrateur du tenant retire la réserve d'une ligne d'une v3 brouillon ; la ligne redevient « Non chiffrée » à classer. Mêmes contrôles que la déclaration.",
+        "summary": "Retirer la réserve écrite ou la quantité provisionnelle d'une ligne",
+        "description": "TI-682 : un administrateur du tenant retire le choix d'une ligne d'une v3 brouillon ; une ligne réservée redevient « Non chiffrée » à classer, une ligne provisionnelle redevient une hypothèse signalée à l'émetteur. Mêmes contrôles que la déclaration.",
         "parameters": [
           {
             "name": "versionId",
@@ -34316,52 +34415,102 @@
                       "default": null,
                       "anyOf": [
                         {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "reserve"
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "reserve"
+                                },
+                                "basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "private_estimate",
+                                    "indicative_quantities"
+                                  ]
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "quantity_not_determinable",
+                                    "pending_survey",
+                                    "pending_buyer_answer",
+                                    "other"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "decided_by": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                                },
+                                "decided_at": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "basis",
+                                "code",
+                                "note",
+                                "decided_by",
+                                "decided_at"
+                              ],
+                              "additionalProperties": false
                             },
-                            "basis": {
-                              "type": "string",
-                              "enum": [
-                                "private_estimate",
-                                "indicative_quantities"
-                              ]
-                            },
-                            "code": {
-                              "type": "string",
-                              "enum": [
-                                "quantity_not_determinable",
-                                "pending_survey",
-                                "pending_buyer_answer",
-                                "other"
-                              ]
-                            },
-                            "note": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "decided_by": {
-                              "type": "string",
-                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                            },
-                            "decided_at": {
-                              "type": "string",
-                              "minLength": 1
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "provisional_quantity"
+                                },
+                                "basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "private_estimate",
+                                    "indicative_quantities"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "established_on": {
+                                  "type": "string"
+                                },
+                                "to_confirm_by": {
+                                  "type": "string"
+                                },
+                                "decided_by": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                                },
+                                "decided_at": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "basis",
+                                "note",
+                                "established_on",
+                                "to_confirm_by",
+                                "decided_by",
+                                "decided_at"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "kind",
-                            "basis",
-                            "code",
-                            "note",
-                            "decided_by",
-                            "decided_at"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "null"
@@ -36313,52 +36462,102 @@
                       "default": null,
                       "anyOf": [
                         {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "reserve"
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "reserve"
+                                },
+                                "basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "private_estimate",
+                                    "indicative_quantities"
+                                  ]
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "enum": [
+                                    "quantity_not_determinable",
+                                    "pending_survey",
+                                    "pending_buyer_answer",
+                                    "other"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "decided_by": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                                },
+                                "decided_at": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "basis",
+                                "code",
+                                "note",
+                                "decided_by",
+                                "decided_at"
+                              ],
+                              "additionalProperties": false
                             },
-                            "basis": {
-                              "type": "string",
-                              "enum": [
-                                "private_estimate",
-                                "indicative_quantities"
-                              ]
-                            },
-                            "code": {
-                              "type": "string",
-                              "enum": [
-                                "quantity_not_determinable",
-                                "pending_survey",
-                                "pending_buyer_answer",
-                                "other"
-                              ]
-                            },
-                            "note": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "decided_by": {
-                              "type": "string",
-                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                            },
-                            "decided_at": {
-                              "type": "string",
-                              "minLength": 1
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "provisional_quantity"
+                                },
+                                "basis": {
+                                  "type": "string",
+                                  "enum": [
+                                    "private_estimate",
+                                    "indicative_quantities"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "established_on": {
+                                  "type": "string"
+                                },
+                                "to_confirm_by": {
+                                  "type": "string"
+                                },
+                                "decided_by": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                                },
+                                "decided_at": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "basis",
+                                "note",
+                                "established_on",
+                                "to_confirm_by",
+                                "decided_by",
+                                "decided_at"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "kind",
-                            "basis",
-                            "code",
-                            "note",
-                            "decided_by",
-                            "decided_at"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "null"
@@ -43804,52 +44003,102 @@
                     "default": null,
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "const": "reserve"
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "reserve"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "quantity_not_determinable",
+                                  "pending_survey",
+                                  "pending_buyer_answer",
+                                  "other"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "code",
+                              "note",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           },
-                          "basis": {
-                            "type": "string",
-                            "enum": [
-                              "private_estimate",
-                              "indicative_quantities"
-                            ]
-                          },
-                          "code": {
-                            "type": "string",
-                            "enum": [
-                              "quantity_not_determinable",
-                              "pending_survey",
-                              "pending_buyer_answer",
-                              "other"
-                            ]
-                          },
-                          "note": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "decided_by": {
-                            "type": "string",
-                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                          },
-                          "decided_at": {
-                            "type": "string",
-                            "minLength": 1
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "provisional_quantity"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "established_on": {
+                                "type": "string"
+                              },
+                              "to_confirm_by": {
+                                "type": "string"
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "note",
+                              "established_on",
+                              "to_confirm_by",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "kind",
-                          "basis",
-                          "code",
-                          "note",
-                          "decided_by",
-                          "decided_at"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -45265,52 +45514,102 @@
                     "default": null,
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "const": "reserve"
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "reserve"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "quantity_not_determinable",
+                                  "pending_survey",
+                                  "pending_buyer_answer",
+                                  "other"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "code",
+                              "note",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           },
-                          "basis": {
-                            "type": "string",
-                            "enum": [
-                              "private_estimate",
-                              "indicative_quantities"
-                            ]
-                          },
-                          "code": {
-                            "type": "string",
-                            "enum": [
-                              "quantity_not_determinable",
-                              "pending_survey",
-                              "pending_buyer_answer",
-                              "other"
-                            ]
-                          },
-                          "note": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "decided_by": {
-                            "type": "string",
-                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                          },
-                          "decided_at": {
-                            "type": "string",
-                            "minLength": 1
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "provisional_quantity"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "established_on": {
+                                "type": "string"
+                              },
+                              "to_confirm_by": {
+                                "type": "string"
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "note",
+                              "established_on",
+                              "to_confirm_by",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "kind",
-                          "basis",
-                          "code",
-                          "note",
-                          "decided_by",
-                          "decided_at"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -45802,8 +46101,37 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "ApiEstimateLineOfferChoiceSuggestionResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "established_on": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "established_on"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "EstimateLineOfferChoiceRequest": {
-        "description": "Réserve écrite dans l'offre (TI-682) : une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, le texte « Précisions et limites de prestation » le dit. Base, code et note restent internes.",
+        "description": "Choix écrit dans l'offre (TI-682), sur une ligne d'une v3 brouillon. « reserve » : une ligne « Non chiffrée » part non chiffrée, le texte « Précisions et limites de prestation » le dit. « provisional_quantity » : une ligne chiffrée dont la quantité repose sur une hypothèse du métré part avec une quantité provisionnelle, la phrase composée par l'outil doit figurer dans ce texte. Base, code et note restent internes.",
         "oneOf": [
           {
             "type": "object",
@@ -45848,6 +46176,52 @@
               "code"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "provisional_quantity"
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "private_estimate",
+                  "indicative_quantities"
+                ],
+                "description": "Ce qui fonde la réserve, déclaré par l'administrateur (l'outil ne le vérifie pas)."
+              },
+              "note": {
+                "description": "Précision interne, sans les blancs des deux bouts : 10 à 500 caractères quand elle est donnée ; obligatoire pour le code other et pour la base indicative_quantities (référence de l'article du règlement de la consultation).",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "established_on": {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "Ce sur quoi la quantité est établie. Imprimé dans la phrase lue par le client : les blancs et retours à la ligne sont réduits à une espace, puis 3 à 160 caractères, sans caractère de contrôle ni caractère invisible."
+              },
+              "to_confirm_by": {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "Ce selon quoi elle sera confirmée. Imprimé dans la phrase lue par le client : les blancs et retours à la ligne sont réduits à une espace, puis 3 à 160 caractères, sans caractère de contrôle ni caractère invisible."
+              }
+            },
+            "required": [
+              "kind",
+              "basis",
+              "established_on",
+              "to_confirm_by"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -45888,52 +46262,102 @@
                   "offer_choice": {
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "const": "reserve"
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "reserve"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "quantity_not_determinable",
+                                  "pending_survey",
+                                  "pending_buyer_answer",
+                                  "other"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "code",
+                              "note",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           },
-                          "basis": {
-                            "type": "string",
-                            "enum": [
-                              "private_estimate",
-                              "indicative_quantities"
-                            ]
-                          },
-                          "code": {
-                            "type": "string",
-                            "enum": [
-                              "quantity_not_determinable",
-                              "pending_survey",
-                              "pending_buyer_answer",
-                              "other"
-                            ]
-                          },
-                          "note": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "decided_by": {
-                            "type": "string",
-                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                          },
-                          "decided_at": {
-                            "type": "string",
-                            "minLength": 1
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "provisional_quantity"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "established_on": {
+                                "type": "string"
+                              },
+                              "to_confirm_by": {
+                                "type": "string"
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "note",
+                              "established_on",
+                              "to_confirm_by",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "kind",
-                          "basis",
-                          "code",
-                          "note",
-                          "decided_by",
-                          "decided_at"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -46025,52 +46449,102 @@
                   "offer_choice": {
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "const": "reserve"
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "reserve"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "quantity_not_determinable",
+                                  "pending_survey",
+                                  "pending_buyer_answer",
+                                  "other"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "code",
+                              "note",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           },
-                          "basis": {
-                            "type": "string",
-                            "enum": [
-                              "private_estimate",
-                              "indicative_quantities"
-                            ]
-                          },
-                          "code": {
-                            "type": "string",
-                            "enum": [
-                              "quantity_not_determinable",
-                              "pending_survey",
-                              "pending_buyer_answer",
-                              "other"
-                            ]
-                          },
-                          "note": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "decided_by": {
-                            "type": "string",
-                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                          },
-                          "decided_at": {
-                            "type": "string",
-                            "minLength": 1
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "provisional_quantity"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "private_estimate",
+                                  "indicative_quantities"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "established_on": {
+                                "type": "string"
+                              },
+                              "to_confirm_by": {
+                                "type": "string"
+                              },
+                              "decided_by": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                              },
+                              "decided_at": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "basis",
+                              "note",
+                              "established_on",
+                              "to_confirm_by",
+                              "decided_by",
+                              "decided_at"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "kind",
-                          "basis",
-                          "code",
-                          "note",
-                          "decided_by",
-                          "decided_at"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"

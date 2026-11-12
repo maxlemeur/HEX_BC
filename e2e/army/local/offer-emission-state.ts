@@ -96,3 +96,45 @@ COMMIT;`,
     Date.parse(receipt.expiresAt) !== Date.parse(expiresAt) || receipt.triggerEnabled !== true) throw new Error("Owned portal expiry clock readback differs.");
   return receipt;
 }
+
+/**
+ * TI-682, lot C, PR 5 (V3M08): the takeoff hypothesis marker on one priced line of the owned v3 draft, exactly as
+ * private.takeoff_mark_provisions writes it (under the v3 writer contract, an estimated source). The batch never carries
+ * a marker and the takeoff application that writes it is the takeoff journeys' (quantity-rules.e2e.ts reads it back);
+ * this fixture only gives the emission journey a line the offer must speak of. Never a choice, never a sent offer.
+ */
+export async function markOwnedLineAsTakeoffHypothesis(army: ArmyState, versionId: string, itemId: string) {
+  const { tenantId, projectId, ownerId } = await ownedOffer(army, versionId);
+  const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+  if (![versionId, itemId, tenantId, projectId, ownerId].every((id) => uuid.test(id))) throw new Error("Owned marker identities differ.");
+  const transport = sqlTransport({ backend: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    databaseUrl: process.env.E2E_ARMY_LOCAL_DB_URL ?? "", psql: process.env.E2E_ARMY_LOCAL_PSQL ?? "" });
+  const result = spawnSync(transport.executable, [...transport.args, "-v", "VERBOSITY=sqlstate"], {
+    env: transport.env, encoding: "utf8", timeout: 20_000, maxBuffer: 16_384,
+    input: `BEGIN;
+DO $mark$ DECLARE matches integer; BEGIN
+  IF current_database()<>'postgres' OR current_user<>'postgres' OR NOT EXISTS (
+    SELECT 1 FROM public.estimate_versions v JOIN public.estimate_projects p ON p.id=v.project_id AND p.tenant_id=v.tenant_id
+    WHERE v.id='${versionId}'::uuid AND v.tenant_id='${tenantId}'::uuid AND p.id='${projectId}'::uuid
+      AND p.user_id='${ownerId}'::uuid AND p.name LIKE '${army.runPrefix}-%' AND v.status='draft' AND v.calc_engine_version=3)
+    THEN RAISE EXCEPTION 'ARMY_TAKEOFF_MARKER_SCOPE'; END IF;
+  PERFORM pg_catalog.set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+  UPDATE public.estimate_items SET source_metadata = coalesce(source_metadata, '{}'::jsonb) || jsonb_build_object(
+      'takeoff_provision', jsonb_build_object('version', 1, 'job_id', gen_random_uuid()::text, 'sources', jsonb_build_array(
+        jsonb_build_object('takeoff_item_id', gen_random_uuid()::text, 'forced', false, 'forced_reason', null,
+          'entry_category', null, 'hypothesis_cause', 'estimated'))))
+    WHERE id='${itemId}'::uuid AND version_id='${versionId}'::uuid AND tenant_id='${tenantId}'::uuid AND item_type='line'
+      AND pricing_status='priced' AND offer_choice IS NULL;
+  GET DIAGNOSTICS matches=ROW_COUNT;
+  IF matches<>1 THEN RAISE EXCEPTION 'ARMY_TAKEOFF_MARKER_ROW_COUNT'; END IF;
+  PERFORM pg_catalog.set_config('miaouffrage.estimate_v3_writer', '', true);
+END $mark$;
+SELECT json_build_object('hypothesis', public.estimate_item_takeoff_hypothesis(source_metadata))
+FROM public.estimate_items WHERE id='${itemId}'::uuid AND version_id='${versionId}'::uuid AND tenant_id='${tenantId}'::uuid;
+COMMIT;`,
+  });
+  if (result.status !== 0 || result.error) throw new Error("Owned takeoff marker transaction failed.");
+  const receipt = JSON.parse(result.stdout.trim()) as { hypothesis: boolean };
+  if (receipt.hypothesis !== true) throw new Error("Owned takeoff marker readback differs.");
+  return receipt;
+}

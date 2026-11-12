@@ -5,9 +5,11 @@ import { applyStatusReasonRules, type EstimateStatusReason } from "@/lib/estimat
 import {
   applyOfferChoiceRules,
   describeOfferChoice,
+  readOfferProvisionalQuantity,
   readOfferReserve,
   type EstimateOfferChoiceInput,
 } from "@/lib/estimates/offer-choice";
+import { composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
 import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
@@ -147,6 +149,7 @@ import {
   type EstimateEditorData,
   releaseEstimateDraftLock,
   saveEstimateVersion,
+  readEstimateLineOfferChoiceSuggestion,
   setEstimateLineOfferChoice,
   updateEstimateLaborRole,
   type VersionZeroDraftSummary,
@@ -2416,7 +2419,7 @@ export function useEstimateEditorState({
   const saveOfferChoice = useCallback(async (itemId: string, choice: EstimateOfferChoiceInput | null) => {
     const flushed = await flushBufferedItemUpdates();
     if (flushed === "error" || flushed === "blocked") {
-      throw new Error("Les modifications en cours du devis doivent être enregistrées avant la réserve.");
+      throw new Error("Les modifications en cours du devis doivent être enregistrées avant la réserve ou la quantité provisionnelle.");
     }
     const token = versionRef.current?.updated_at;
     if (!token || !editorDocument.isCurrent(documentScope)) throw new Error("Le devis a changé. Rechargez-le.");
@@ -2425,19 +2428,29 @@ export function useEstimateEditorState({
     editorDocument.acknowledgeItems([{ id: itemId, updates: { offer_choice: receipt.item.offer_choice } }]);
   }, [documentScope, editorDocument, flushBufferedItemUpdates, resolvedVersionId, versionRef]);
 
+  // TI-682, lot C, PR 5 : « Établie sur » part de la note de la ligne de métré.
+  const suggestEstablishedOn = useCallback((itemId: string) => readEstimateLineOfferChoiceSuggestion(resolvedVersionId, itemId),
+    [resolvedVersionId]);
+
   const v3Grid = useMemo<EstimateV3GridModel | null>(
     () => (v3Breakdown === undefined ? null : {
       lines: indexEstimateV3Lines(v3Breakdown), allowedTaxRatesBp,
       saleCoefficientFo: v3Breakdown?.params.sale_coefficient_fo ?? null,
-      offerReserve: { canDeclare: canDeclareOfferReserve, save: saveOfferChoice },
+      offerReserve: { canDeclare: canDeclareOfferReserve, save: saveOfferChoice, suggestEstablishedOn },
     }),
-    [v3Breakdown, allowedTaxRatesBp, canDeclareOfferReserve, saveOfferChoice]
+    [v3Breakdown, allowedTaxRatesBp, canDeclareOfferReserve, saveOfferChoice, suggestEstablishedOn]
   );
 
   // Titres des lignes « Non chiffrée » réservées, pour le paragraphe des précisions (insertion éditable).
   const reservedLineTitles = useMemo(() => (isV3 ? items : [])
     .filter((item) => readOfferReserve(item) !== null)
     .map((item) => item.title?.trim() || "Sans titre"), [isV3, items]);
+  // TI-682, lot C, PR 5 : les phrases des quantités provisionnelles, écrites d'après les lignes actuelles.
+  const provisionalQuantityMentions = useMemo(() => (isV3 ? items : []).flatMap((item) => {
+    const provisional = readOfferProvisionalQuantity(item);
+    const mention = provisional ? composeProvisionalQuantityMention(item, provisional) : null;
+    return mention ? [mention] : [];
+  }), [isV3, items]);
 
   const closeSettingsDrawer = useCallback(() => {
     setIsSettingsDrawerOpen(false);
@@ -2643,6 +2656,7 @@ export function useEstimateEditorState({
           isFrozen: version.status !== "draft",
           storedMarginMultiplier,
           reservedLineTitles,
+          provisionalQuantityMentions,
           onChangeSettings: updateSettings,
           onSaveSettings: handleSaveSettings,
           laborRoles,
@@ -2799,12 +2813,18 @@ export function useEstimateEditorState({
   // TI-682, lot C, PR 4 : les lignes réservées, nommées dans la fenêtre d'envoi avec leur base ; les précisions s'ouvrent
   // depuis la fenêtre pour y insérer le paragraphe des réserves.
   const reserveItemIds = useMemo(() => [...new Set((sendGating ? [...sendGating.blockingFlags, ...sendGating.warningFlags] : [])
-    .filter((flag) => flag.key === "offer_reserve_declared" || flag.key === "offer_limits_required")
+    .filter((flag) => flag.key === "offer_reserve_declared" || flag.key === "offer_limits_required"
+      || flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention")
     .flatMap((flag) => flag.itemIds))], [sendGating]);
+  // PR 5 : une quantité provisionnelle se lit par la phrase que les précisions doivent porter.
   const reserveLines = useMemo(() => reserveItemIds.map((itemId) => {
     const item = items.find((candidate) => candidate.id === itemId);
     const reserve = item ? readOfferReserve(item) : null;
-    return { id: itemId, title: item?.title?.trim() || "Sans titre", description: reserve ? describeOfferChoice(reserve) : "" };
+    const provisional = item ? readOfferProvisionalQuantity(item) : null;
+    const mention = item && provisional ? composeProvisionalQuantityMention(item, provisional) : null;
+    const description = reserve ? describeOfferChoice(reserve)
+      : provisional ? (mention ?? "La ligne n'a pas de quantité : la phrase ne peut pas être écrite.") : "";
+    return { id: itemId, title: item?.title?.trim() || "Sans titre", description };
   }), [items, reserveItemIds]);
   const openLimitsFromSendDialog = useCallback(() => {
     closeSendGatingDialog();

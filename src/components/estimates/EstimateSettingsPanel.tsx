@@ -20,6 +20,7 @@ import type {
 import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
 import { appendOfferReserveParagraph } from "@/lib/estimates/offer-choice";
+import { planProvisionalQuantityMentions, provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -78,6 +79,11 @@ type EstimateSettingsPanelProps = {
    * le paragraphe qui les liste, éditable.
    */
   reservedLineTitles?: readonly string[];
+  /**
+   * TI-682, lot C, PR 5 : phrases « quantité provisionnelle » des lignes déclarées, écrites d'après les lignes actuelles ;
+   * un bouton ajoute aux précisions celles qui n'y sont pas (l'envoi les exige).
+   */
+  provisionalQuantityMentions?: readonly string[];
 };
 
 /** Champs communs à tous les moteurs (identité, validité, devise, régime de TVA). */
@@ -143,11 +149,16 @@ export function EstimateSettingsPanel({
   onSave,
   v3 = null,
   reservedLineTitles = [],
+  provisionalQuantityMentions = [],
 }: EstimateSettingsPanelProps) {
   const [glossaryDismissed, setGlossaryDismissed] = useState(false);
   // v3 : les champs communs sont ceux du brouillon v3, seule source de sa charge ; v1/v2 : inchangés.
   const commonSettings = v3?.draft ?? settings;
   const changeCommon: (patch: CommonSettingsPatch) => void = v3 ? v3.updateDraft : onChange;
+  // PR 5 : les phrases manquantes, ajoutées après le texte ; quand elles ne tiennent pas dans les 5 000 caractères des
+  // précisions, rien n'est inséré (jamais de troncature) et l'écran dit combien de caractères manquent.
+  const provisionalPlan = planProvisionalQuantityMentions(commonSettings.exclusions, provisionalQuantityMentions);
+  const missingProvisionalMentions = provisionalPlan.missing;
   const commonDisabled = isReadOnly || (v3 !== null && v3.draft === null);
 
   useEffect(() => {
@@ -368,6 +379,30 @@ export function EstimateSettingsPanel({
               {reservedLineTitles.length} ligne{reservedLineTitles.length > 1 ? "s" : ""} réservée
               {reservedLineTitles.length > 1 ? "s" : ""} : l&apos;offre doit le dire ici.
             </span>
+          </div>
+        ) : null}
+        {missingProvisionalMentions.length > 0 && !commonDisabled ? (
+          <div className="flex flex-wrap items-center gap-2" data-testid="estimate-provisional-mentions">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={provisionalPlan.overflow > 0}
+              onClick={() => {
+                if (provisionalPlan.overflow === 0) changeCommon({ exclusions: provisionalPlan.text });
+              }}
+            >
+              Insérer les mentions de quantité provisionnelle
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {missingProvisionalMentions.length} mention{missingProvisionalMentions.length > 1 ? "s" : ""} à écrire : l&apos;envoi
+              attend la phrase de chaque ligne telle qu&apos;elle est aujourd&apos;hui ; retirez une phrase devenue fausse.
+            </span>
+            {provisionalPlan.overflow > 0 ? (
+              <p role="alert" className="w-full text-xs text-danger" data-testid="estimate-provisional-mentions-overflow">
+                {provisionalMentionsOverflowMessage(provisionalPlan.overflow, "insert")}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

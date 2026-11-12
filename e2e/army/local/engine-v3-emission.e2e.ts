@@ -13,6 +13,7 @@ import {
   storedPdfState, verifySeal, type Envelope, type Evidence, type Scenario,
 } from "./engine-v3-emission-support";
 import { waitForDraftLease } from "./engine-v3-editor-support";
+import { markOwnedLineAsTakeoffHypothesis } from "./offer-emission-state";
 import { setTenantCalcPolicy, useDedicatedV3Owner } from "./engine-v3-persistence-support";
 import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
 
@@ -74,7 +75,11 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //  V3M-19 Une ligne « Non chiffrée » part sans réserve, ou avec une réserve aux précisions vides (même forcée par un
 //         administrateur) ; la base, le motif ou la précision d'une réserve atteignent le PDF reçu ou le portail ;
 //         l'événement d'envoi ne l'enregistre pas ; une duplication la recopie.
-// V3M01, V3M03, V3M04, V3M05, V3M06 et V3M07 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
+// Ajouté par TI-682, lot C, PR 5 (quantité provisionnelle) :
+//  V3M-20 Une ligne chiffrée sur hypothèse du métré n'est pas signalée à l'émetteur ; déclarée provisionnelle, elle part
+//         sans sa phrase dans les précisions (même forcée), ou la phrase ne suit pas la ligne ; le PDF reçu ou le portail
+//         ne la montrent pas, ou montrent la base ou la note internes ; l'envoi ne l'enregistre pas ; une copie la recopie.
+// V3M01, V3M03, V3M04, V3M05, V3M06, V3M07 et V3M08 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
 // exact par fichier.
@@ -987,6 +992,199 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         reserve: copyGate.warning.offer_reserve_declared ?? [] };
       await record("duplicate", { sourceVersionId: ids.versionId, versionId: duplicated.body.data.version_id, gate: copyGate, actual: copyView });
       expect(copyView).toEqual({ status: "not_priced", choice: null, toClassify: true, reserve: [] });
+    });
+
+  // TI-682, lot C, PR 5 — V3M-20 : une ligne chiffrée dont la quantité repose sur une hypothèse du métré part avec une
+  // quantité provisionnelle que l'offre dit, ou ne part pas. Défaillances observables : la ligne marquée n'est pas
+  // signalée à l'émetteur ; une quantité provisionnelle part sans sa phrase dans les précisions (même forcée par un
+  // administrateur, ou avec un autre texte) ; la phrase ne suit pas la ligne (titre, quantité, unité) ; le PDF reçu ou le
+  // portail ne la montrent pas, montrent la base ou la note internes, ou ne montrent plus la ligne comme une ligne
+  // chiffrée ordinaire ; l'événement d'envoi ne l'enregistre pas ; une duplication la recopie.
+  offerTest("V3M08 a priced line resting on a takeoff hypothesis is listed for the issuer; declared provisional by an administrator, the offer leaves only once its limits carry the sentence written from the line, without override; the PDF received and the portal show the sentence and an ordinary priced line, never the basis or the note; the sent event records it; a duplicate drops it",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
+      const { app, screen, browser, army } = ui;
+      const fixture = emissionFixture();
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m08-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const ids = await createV3(browser, army, record, "V3M08");
+      const lineTitle = `${army.runPrefix} V3M08 calorifuge EC`;
+      const ESTABLISHED_ON = "le plan CVC indice B du niveau R+1";
+      const TO_CONFIRM_BY = "le relevé contradictoire sur site";
+      const NOTE = "Hypothèse du métré, note interne V3M08";
+      const SENTENCE = `${lineTitle} : quantité provisionnelle de 12,5 ml, établie sur ${ESTABLISHED_ON}, à confirmer selon ${TO_CONFIRM_BY}.`;
+      const OTHER_LIMITS = "Réseaux enterrés non compris.";
+      // Internal words a client must never read (the basis and the note of the choice, the CSV's label).
+      const INTERNAL = [NOTE, "Devis privé", "hors marché public", "Quantité provisionnelle —", "Mention provisionnelle"];
+
+      // Une ligne chiffrée (12,5 ml, PR FO 10,00 €) par le lot ; le métré la marque comme hypothèse (fixture possédée).
+      expect((await apiRequest(browser, "POST", `/api/estimates/${ids.versionId}/lock`)).status).toBe(201);
+      const empty = await readEstimate(browser, ids.versionId);
+      const section = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", `/api/estimates/${ids.versionId}/items`,
+        { item_type: "section", position: 1, title: `${army.runPrefix} V3M08 lot` }, { "if-match": empty.version.updated_at });
+      expect([section.status, section.body.ok]).toEqual([201, true]);
+      const beforeBatch = await readEstimate(browser, ids.versionId);
+      const batch = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${ids.versionId}/batch`,
+        { operation_key: randomUUID(), operations: [{ op: "create", data: {
+          item_type: "line", parent_id: section.body.data.item.id, position: 1, line_nature: "supply_only", title: lineTitle,
+          description: null, unit_code: "ml", pricing_status: "priced", quantity: 12.5, unit_price_ht_cents: 1000, tax_rate_bp: 2000,
+          k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, labor_role_id: null, source_provider: "manual" } }] },
+        { "if-match": beforeBatch.version.updated_at });
+      expect([batch.status, batch.body.ok, batch.body.data?.committed]).toEqual([200, true, true]);
+      expect((await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
+      const lineId = (await readEstimate(browser, ids.versionId)).items.find((item) => item.title === lineTitle)?.id ?? "";
+      const marked = await markOwnedLineAsTakeoffHypothesis(army, ids.versionId, lineId);
+      await generatePdf(browser, record, "draft", ids.versionId);
+      type Gate = { canSend: boolean; blockingFlags: Array<{ key: string; itemIds?: string[]; item_ids?: string[] }>;
+        warningFlags: Array<{ key: string; itemIds?: string[]; item_ids?: string[] }> };
+      const gateOf = async (versionId: string) => {
+        const read = await apiRequest<Envelope<{ gating: Gate }>>(browser, "GET", `/api/estimates/${versionId}/gating`);
+        expect(read.status).toBe(200);
+        const flags = (list: Gate["blockingFlags"]) => Object.fromEntries(list.map((flag) => [flag.key, flag.itemIds ?? flag.item_ids ?? []]));
+        return { canSend: read.body.data.gating.canSend, blocking: flags(read.body.data.gating.blockingFlags),
+          warning: flags(read.body.data.gating.warningFlags) };
+      };
+      const undeclared = await gateOf(ids.versionId);
+      await record("gate-undeclared", { versionId: ids.versionId, lineId, marked, actual: undeclared });
+      expect(undeclared, "an undeclared hypothesis is listed for the issuer, never blocked")
+        .toEqual({ canSend: true, blocking: {}, warning: { takeoff_hypothesis_without_mention: [lineId] } });
+
+      // L'administrateur déclare la quantité provisionnelle depuis la ligne ; la fenêtre montre la phrase lue par le client.
+      const editorReady = async () => {
+        await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+        await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+        await waitForDraftLease({ app, screen, browser });
+      };
+      await editorReady();
+      await screen.getByRole("button", `Déclarer une quantité provisionnelle pour ${lineTitle}`, { exact: true }).click();
+      const choiceDialog = screen.getByRole("dialog", "Quantité provisionnelle dans l'offre", { exact: true });
+      await expect(choiceDialog).toBeVisible({ timeout: 30_000 });
+      const warned = normalizeQuotes(await choiceDialog.textContent()).includes("peut rendre l'offre irrégulière");
+      await choiceDialog.getByRole("radio", "Devis privé (hors marché public)", { exact: true }).click();
+      // Doubled and edge blanks are reduced to one space (an <input> keeps no line break; Vitest covers those).
+      await choiceDialog.getByRole("textbox", "Établie sur", { exact: true }).fill(`  ${ESTABLISHED_ON.replace("indice B ", "indice B   ")} `);
+      await choiceDialog.getByRole("textbox", "À confirmer selon", { exact: true }).fill(TO_CONFIRM_BY);
+      await choiceDialog.getByRole("textbox", /Précision interne/).fill(NOTE);
+      await expect(choiceDialog.getByTestId("estimate-v3-offer-provisional-mention")).toHaveText(SENTENCE, { timeout: 10_000 });
+      await new Promise((resolve) => setTimeout(resolve, 500)); // the dialog's opening transition, for a readable capture
+      const dialogScreenshot = await app.screenshot("v3m08-provisional-dialog");
+      await choiceDialog.getByRole("button", "Déclarer la quantité provisionnelle", { exact: true }).click();
+      await expect(choiceDialog).toBeHidden({ timeout: 30_000 });
+      await expect(screen.getByRole("button", `Quantité provisionnelle déclarée pour ${lineTitle}`, { exact: true }))
+        .toBeVisible({ timeout: 30_000 });
+      const declared = await readEstimate(browser, ids.versionId);
+      const declaredLine = declared.items.find((item) => item.id === lineId);
+      const choice = declaredLine?.offer_choice as Record<string, unknown> | null | undefined;
+      const declaredView = { warned, status: declaredLine?.pricing_status, choice: choice ? { kind: choice.kind, basis: choice.basis,
+        established_on: choice.established_on, to_confirm_by: choice.to_confirm_by, note: choice.note, by: choice.decided_by } : null };
+      await record("declared", { versionId: ids.versionId, actual: declaredView, screenshots: [dialogScreenshot] });
+      expect(declaredView).toEqual({ warned: true, status: "priced", choice: { kind: "provisional_quantity", basis: "private_estimate",
+        established_on: ESTABLISHED_ON, to_confirm_by: TO_CONFIRM_BY, note: NOTE, by: fixture.owner.userId } });
+
+      // La fenêtre d'envoi : la phrase manque (et les précisions sont vides) ; aucun forçage, le bouton d'envoi éteint.
+      const send = screen.getByTestId("estimate-page-toolbar-send-button");
+      await expect(send).toBeEnabled({ timeout: 30_000 });
+      await send.click();
+      const sendWindow = screen.getByRole("dialog", "Vérification avant envoi", { exact: true });
+      await expect(sendWindow).toBeVisible({ timeout: 30_000 });
+      await expect(sendWindow.getByText("Mention « quantité provisionnelle » à écrire", { exact: true })).toBeVisible({ timeout: 30_000 });
+      const windowText = normalizeQuotes(await sendWindow.textContent());
+      const blockedView = {
+        sentenceListed: windowText.includes(normalizeQuotes(SENTENCE)),
+        override: await sendWindow.getByRole("button", "Forcer l'envoi", { exact: true }).count(),
+        confirm: await sendWindow.getByRole("button", "Envoyer", { exact: true }).isEnabled(),
+      };
+      const blockedScreenshot = await app.screenshot("v3m08-send-window-mention-missing");
+      const blockedGate = await gateOf(ids.versionId);
+      await record("send-window-blocked", { versionId: ids.versionId, gate: blockedGate, actual: blockedView, screenshots: [blockedScreenshot] });
+      expect(blockedView).toEqual({ sentenceListed: true, override: 0, confirm: false });
+      expect(blockedGate).toEqual({ canSend: false,
+        blocking: { offer_limits_required: [lineId], provisional_quantity_mention_missing: [lineId] }, warning: {} });
+
+      // Les précisions disent autre chose : la phrase manque toujours, l'envoi forcé par l'administrateur est refusé.
+      await sendWindow.getByRole("button", "Rédiger les précisions", { exact: true }).first().click();
+      await expect(sendWindow).toBeHidden({ timeout: 30_000 });
+      const limits = screen.getByRole("textbox", "Précisions et exclusions particulières", { exact: true });
+      await limits.fill(OTHER_LIMITS);
+      await screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).click();
+      await expect.poll(async () => (await readEstimate(browser, ids.versionId)).version.exclusions ?? null, { timeout: 60_000 })
+        .toBe(OTHER_LIMITS);
+      const otherText = await gateOf(ids.versionId);
+      const beforeForce = await readEstimate(browser, ids.versionId);
+      const forced = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${ids.versionId}/status`,
+        { status: "sent", force: true }, { "if-match": beforeForce.version.updated_at });
+      const afterForce = await readEstimate(browser, ids.versionId);
+      const forceView = { gate: otherText, status: forced.status, code: forced.body.error?.code ?? null,
+        notForceable: (forced.body.error as { details?: { not_forceable?: string[] } } | undefined)?.details?.not_forceable ?? null,
+        version: afterForce.version.status };
+      await record("forced-send-refused", { versionId: ids.versionId, actual: forceView });
+      expect(forceView).toEqual({ gate: { canSend: false, blocking: { provisional_quantity_mention_missing: [lineId] }, warning: {} },
+        status: 400, code: "ESTIMATE_GATING_NOT_FORCEABLE", notForceable: ["provisional_quantity_mention_missing"], version: "draft" });
+
+      // La phrase s'insère depuis les réglages, après le texte déjà écrit, puis s'enregistre : l'offre peut partir.
+      await editorReady();
+      await screen.getByTestId("estimate-page-toolbar-send-button").click();
+      await expect(sendWindow).toBeVisible({ timeout: 30_000 });
+      await sendWindow.getByRole("button", "Rédiger les précisions", { exact: true }).first().click();
+      await expect(sendWindow).toBeHidden({ timeout: 30_000 });
+      await screen.getByRole("button", "Insérer les mentions de quantité provisionnelle", { exact: true }).click();
+      await expect(limits).toHaveValue(`${OTHER_LIMITS}\n\n${SENTENCE}`);
+      await screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).click();
+      await expect.poll(async () => (await readEstimate(browser, ids.versionId)).version.exclusions ?? null, { timeout: 60_000 })
+        .toBe(`${OTHER_LIMITS}\n\n${SENTENCE}`);
+      const written = await gateOf(ids.versionId);
+      await record("gate-mention-written", { versionId: ids.versionId, actual: written });
+      expect(written).toEqual({ canSend: true, blocking: {}, warning: {} });
+
+      // Émission par l'email (collecteur sentinelle) : le PDF reçu et le portail portent la phrase et une ligne chiffrée.
+      const delivered = await sendOffer(ui, record, "v3m08", ids.versionId);
+      const sent = await readEstimate(browser, ids.versionId);
+      const sentLine = sent.items.find((item) => item.id === lineId);
+      const lineTotal = normalizeQuotes(new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" })
+        .format(Number(sentLine?.line_total_ht_cents ?? 0) / 100));
+      const pdf = normalizeQuotes((await pdfText(delivered.pdf)).text);
+      // The PDF may wrap and hyphenate the sentence: compared without hyphens (soft or wrapped) nor the blanks after them.
+      const unhyphenated = (text: string) => normalizeQuotes(text).replace(/[-\u00ad]\s*/gu, "");
+      const clientView = (text: string) => ({ sentence: unhyphenated(text).includes(unhyphenated(SENTENCE)),
+        limitsTitle: text.includes("Précisions et limites de prestation"), otherLimits: text.includes(OTHER_LIMITS),
+        line: text.includes(lineTitle), total: text.includes(lineTotal), unpriced: text.includes("Non chiffrée"),
+        internal: INTERNAL.filter((word) => text.includes(normalizeQuotes(word))) });
+      const pdfView = clientView(pdf);
+      const portal = clientView(normalizeQuotes(await openCollectedPortal(ui, delivered.portalUrl)));
+      const portalScreenshot = await app.screenshot("v3m08-portal");
+      await record("client-copies", { versionId: ids.versionId, status: sent.version.status, lineTotal,
+        line: { status: sentLine?.pricing_status, quantity: sentLine?.quantity, unit: sentLine?.unit_code }, pdf: pdfView, portal,
+        screenshots: [portalScreenshot] });
+      const expectedClient = { sentence: true, limitsTitle: true, otherLimits: true, line: true, total: true, unpriced: false, internal: [] };
+      expect({ status: sent.version.status, line: { status: sentLine?.pricing_status, quantity: Number(sentLine?.quantity) },
+        pdf: pdfView, portal })
+        .toEqual({ status: "sent", line: { status: "priced", quantity: 12.5 }, pdf: expectedClient, portal: expectedClient });
+      expect(Number(sentLine?.line_total_ht_cents ?? 0)).toBeGreaterThan(0);
+
+      // L'événement d'envoi enregistre la quantité provisionnelle ; une duplication ne la recopie pas.
+      await accountLogin(ui);
+      const events = await apiRequest<Envelope<{ events: Array<{ eventType: string; metadata: Record<string, unknown> }> }>>(
+        browser, "GET", `/api/estimates/${ids.versionId}/events`);
+      const sentEvents = (events.body.data?.events ?? []).filter((event) => event.eventType === "sent");
+      const recorded = sentEvents.map((event) => ((event.metadata.offer_choices ?? []) as Array<Record<string, unknown>>)
+        .map((entry) => ({ item: entry.item_id, kind: entry.kind, basis: entry.basis, established_on: entry.established_on,
+          to_confirm_by: entry.to_confirm_by, note: entry.note, by: entry.decided_by })));
+      await record("sent-event", { versionId: ids.versionId, status: events.status, actual: recorded });
+      expect(recorded).toEqual([[{ item: lineId, kind: "provisional_quantity", basis: "private_estimate", established_on: ESTABLISHED_ON,
+        to_confirm_by: TO_CONFIRM_BY, note: NOTE, by: fixture.owner.userId }]]);
+      const duplicated = await apiRequest<Envelope<{ version_id: string }>>(browser, "POST", `/api/estimates/${ids.versionId}/duplicate`);
+      expect(duplicated.status).toBe(201);
+      const copy = await readEstimate(browser, duplicated.body.data.version_id);
+      const copied = copy.items.find((item) => item.title === lineTitle);
+      const copyGate = await gateOf(duplicated.body.data.version_id);
+      const copyView = { status: copied?.pricing_status ?? null, choice: copied?.offer_choice ?? null,
+        listed: copyGate.warning.takeoff_hypothesis_without_mention?.includes(copied?.id ?? "") ?? false,
+        missing: copyGate.blocking.provisional_quantity_mention_missing ?? [],
+        // The copy keeps the limits text, whose sentence no line of the copy asks any more: the issuer is told.
+        stale: copyGate.warning.provisional_quantity_mention_stale ?? [] };
+      await record("duplicate", { sourceVersionId: ids.versionId, versionId: duplicated.body.data.version_id, gate: copyGate, actual: copyView });
+      expect(copyView).toEqual({ status: "priced", choice: null, listed: true, missing: [],
+        stale: [duplicated.body.data.version_id] });
     });
 }
 

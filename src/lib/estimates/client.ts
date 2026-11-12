@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { type JsonRecord, isRecord, toNumber, toStringValue, toBooleanValue, hasOwnProperty, getRootPayload, extractEntity, pickRecord, pickArray } from "@/lib/estimates/client-json";
 import { EstimateApiError, isEstimateApiError, toErrorMessage, extractErrorDetails, extractErrorCode } from "@/lib/estimates/client-errors";
 import { type EstimateVersionToken, type BulkUpdateEstimateVersionPatch, parseVersionToken } from "@/lib/estimates/client-version";
@@ -2662,7 +2663,7 @@ export async function setEstimateLineOfferChoice(
       headers: { "Content-Type": "application/json", "If-Match": versionToken },
       ...(choice ? { body: JSON.stringify(choice) } : {}),
     },
-    "Impossible d'enregistrer la réserve.",
+    "Impossible d'enregistrer la réserve ou la quantité provisionnelle.",
     (value) => {
       const receipt = estimateOfferChoiceReceiptSchema.parse(value);
       if (receipt.item.id.toLowerCase() !== itemId.toLowerCase() || receipt.version.id.toLowerCase() !== versionId.toLowerCase()) {
@@ -2672,6 +2673,17 @@ export async function setEstimateLineOfferChoice(
     },
     { mutation: { versionId, structural: false } }
   );
+}
+
+/** TI-682, lot C, PR 5: what « Établie sur » of a provisional quantity starts from (the takeoff line's note). */
+export async function readEstimateLineOfferChoiceSuggestion(versionId: string, itemId: string): Promise<string | null> {
+  const suggestion = await requestJson(
+    `/api/estimates/${versionId}/items/${itemId}/offer-choice`,
+    { method: "GET" },
+    "Impossible de lire la note du métré.",
+    (value) => z.object({ established_on: z.string().nullable() }).parse(value),
+  );
+  return suggestion.established_on;
 }
 
 export async function updateEstimateItem(

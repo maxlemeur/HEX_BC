@@ -152,7 +152,10 @@ après avoir été `not_priced` porte un motif interne (`status_reason`) avant
 l'envoi ; ce motif ne change aucun montant et n'entre pas dans le sceau. Une
 ligne `not_priced` peut aussi partir avec une réserve écrite (`offer_choice`) :
 elle reste `not_priced`, hors du HT et de la TVA, et la réserve n'entre pas
-dans le sceau.
+dans le sceau. Une ligne `priced` dont la quantité repose sur une hypothèse du
+métré peut partir avec une quantité provisionnelle (`offer_choice`, kind
+`provisional_quantity`) : elle reste une ligne chiffrée, son montant est
+inchangé, et seule la phrase écrite dans les précisions la signale au client.
 
 Le pied suit cet ordre :
 
