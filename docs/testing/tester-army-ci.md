@@ -242,6 +242,25 @@ Une installation/build interrompu n'est pas un résultat métier. Conserver le p
 pas le masquer par un retry ou un timeout augmenté. Les workflows fixent les
 artefacts, délais et durées de rétention actuels.
 
+Les rôles de l'API annulent une requête après 8 s (`57014`), ce que
+l'application répond par un 400 : le parcours échoue alors sur un code HTTP,
+sans dire quelle requête a attendu. Pendant les parcours,
+[`blocked-statements.ts`](../../scripts/tester-army/blocked-statements.ts)
+relève deux fois par seconde les requêtes actives depuis plus d'une seconde et
+les sessions qui les bloquent. `blocked-statements.jsonl`, à la racine des
+preuves, garde une ligne par requête : sa durée la plus longue, l'attente
+(`wait`, `waitingFor`) et, dans `blockedBy`, chaque session bloquante avec son
+état et l'âge de sa transaction. `client` distingue l'API (`api`), le SQL direct
+des fixtures (`sql`) et les services Supabase (`service`). Une requête n'y figure que par son premier
+mot-clé et les objets qualifiés qu'elle nomme (`with
+public.atomic_create_estimate_item`) : aucun texte SQL ni valeur n'est publié.
+Le fichier est absent quand rien n'a dépassé une seconde. Le manifeste indique
+`blockedStatements.rounds`, le nombre de relevés revenus, et `status` :
+`watched` en exige au moins un, `stopped-early` signale un `psql` parti avant
+la fin, `unavailable` un relevé qui n'a rien pu lire. Un fichier absent avec
+`unavailable` ne prouve donc pas qu'aucune requête n'a attendu. Ce relevé ne
+fait jamais échouer un run.
+
 Les fichiers `shared-supabase-*.md` restants sont des reçus historiques lus par
 le garde de restamp ; leur présence protège les noms des migrations déjà
 appliquées. Les autres documents de recettes encore présents sont référencés
