@@ -66,10 +66,17 @@ describe("mapApplyTakeoffRpcError, a page already in the estimate", () => {
     }
   });
 
-  it("says « Fusionner » sends a line elsewhere than its pair: a choice, not a change to read again", () => {
-    const error = page("TAKEOFF_PAGE_REPLACE_CONFLICT", "40001", '{"scope": "page", "estimate_item_id": "x"}');
+  // Codex review of c06cbb1b: on a DPGF version « Fusionner » is required, so « choose Ajouter » was no way out. The
+  // refusal names the new line and where the merge put it, and the step reads its proposal again (guard page_decision).
+  it("says where « Fusionner » put the new line, and that the proposal is read again", () => {
+    const error = page("TAKEOFF_PAGE_REPLACE_CONFLICT", "40001", JSON.stringify({ scope: "page", reason: "merge_elsewhere",
+      takeoff_item_id: "00000000-0000-4000-8000-000000000101", estimate_item_id: "00000000-0000-4000-8000-000000000201",
+      paired_estimate_item_id: "00000000-0000-4000-8000-000000000202" }));
     expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
-    expect(error.message).toContain("« Fusionner » rattache une ligne du nouveau métré à une autre ligne que celle choisie");
+    expect(error.details).toMatchObject({ guard: "page_decision", reason: "merge_elsewhere",
+      takeoff_item_id: "00000000-0000-4000-8000-000000000101", estimate_item_id: "00000000-0000-4000-8000-000000000201" });
+    expect(error.message).toBe("La fusion rattache une ligne du nouveau métré à une autre ligne de la page que celle choisie. "
+      + "La proposition est relue avec le rattachement de la fusion : vérifiez-le puis confirmez. Hors DPGF, « Ajouter » évite la fusion.");
   });
 
   it.each([

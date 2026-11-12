@@ -92,6 +92,8 @@ const takeoffPageRefusalSchema = z.object({
   earlier_job_ids: z.array(z.string()).optional(),
   line_count: z.number().int().optional(),
   estimate_item_id: z.string().optional(),
+  takeoff_item_id: z.string().optional(),
+  paired_estimate_item_id: z.string().nullable().optional(),
 });
 
 /** What the page guard named (JSON detail); null when it says nothing readable. */
@@ -178,10 +180,12 @@ export function mapApplyTakeoffRpcError(
         details: { ...guardDetails, guard: "page_already_applied" }, retryable: false, jobId: input.jobId });
     }
     if (normalized.includes("takeoff_page_replace_conflict")) {
-      // Deterministic: the same proposal would meet the same match again; the estimator changes the strategy or a pair.
+      // Deterministic: the same decisions would meet the same match again. The proposal replays the merge (mergeMatches),
+      // so this happens only when the section changed or a pair was chosen by hand; the step reads its proposal again
+      // (guard page_decision) with the merge's own pair locked. On DPGF « Fusionner » is required: no « Ajouter » there.
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
-        message: "« Fusionner » rattache une ligne du nouveau métré à une autre ligne que celle choisie à l’étape « Pages déjà au devis ». "
-          + "Choisissez « Ajouter », ou rattachez la ligne comme la fusion le fait.",
+        message: "La fusion rattache une ligne du nouveau métré à une autre ligne de la page que celle choisie. "
+          + "La proposition est relue avec le rattachement de la fusion : vérifiez-le puis confirmez. Hors DPGF, « Ajouter » évite la fusion.",
         details: { ...guardDetails, guard: "page_decision", reason: "merge_elsewhere" }, retryable: false, jobId: input.jobId });
     }
     if (normalized.includes("takeoff_page_decision_stale")) {

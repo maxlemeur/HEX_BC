@@ -382,19 +382,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string) => {
-      // TI-682 lot D: the page decisions (none here) are recorded before the application.
-      if (fn === "record_takeoff_page_decisions") return { data: 0, error: null };
-      if (fn === "apply_takeoff_job_guarded_atomic" && options.atomicRpcMissing) {
+      if (fn === "apply_takeoff_job_with_page_decisions" && options.atomicRpcMissing) {
         return {
           data: null,
           error: {
             code: "PGRST202",
             message:
-              "Could not find the function public.apply_takeoff_job_guarded_atomic",
+              "Could not find the function public.apply_takeoff_job_with_page_decisions",
           },
         };
       }
-      if (fn !== "apply_takeoff_job_guarded_atomic") {
+      if (fn !== "apply_takeoff_job_with_page_decisions") {
         throw new Error(`Unexpected rpc function: ${fn}`);
       }
 
@@ -465,9 +463,10 @@ describe("applyTakeoffJob", () => {
       },
     });
 
-    expect(vi.mocked(supabase.rpc).mock.calls.filter(([fn]) => fn === "apply_takeoff_job_guarded_atomic")).toHaveLength(1);
+    // TI-682 lot D: the application and its page decisions (none here) in one call.
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded_atomic",
+      "apply_takeoff_job_with_page_decisions",
       expect.any(Object)
     );
     expect(supabase.__state.job.status).toBe("completed");

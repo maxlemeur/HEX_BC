@@ -703,6 +703,10 @@ begin
       '[]'::jsonb), caller_id
   from pg_catalog.jsonb_array_elements(coalesce(p_decisions, '[]'::jsonb)) as decision(value);
   get diagnostics recorded = row_count;
+  -- Codex review of c06cbb1b: the decisions an application reads are the ones recorded in its own transaction
+  -- (public.apply_takeoff_job_with_page_decisions). Decisions recorded by another request (another tab, a call
+  -- between this record and an application) are refused as stale by takeoff_prepare_page_decisions.
+  perform pg_catalog.set_config('app.takeoff_page_decisions_job', p_job_id::text, true);
   return recorded;
 exception
   when unique_violation then
@@ -815,6 +819,11 @@ begin
 
   if not exists (select 1 from pg_temp._ti682_choices) and not exists (select 1 from pg_temp._ti682_pairs) then
     return;
+  end if;
+  -- Decisions bound to this application: recorded in its own transaction, never read from another request.
+  if coalesce(pg_catalog.current_setting('app.takeoff_page_decisions_job', true), '') <> p_job_id::text then
+    raise exception 'TAKEOFF_PAGE_DECISION_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('scope', 'page', 'reason', 'decisions_not_of_this_application')::text;
   end if;
 
   -- Stale: decided by someone else (another tab of another person), a line deleted or changed since the proposal, a line
@@ -955,6 +964,32 @@ end;
 $$;
 revoke all on function private.takeoff_prepare_page_decisions(uuid, uuid, uuid, text, jsonb) from public, anon, authenticated, service_role;
 
+-- Codex review of c06cbb1b: the mapping plan the writer receives. A new line paired with an earlier line only gives that
+-- line its quantity: its `set_price` or `set_category` is not written there (a price write would clear the line's
+-- recorded price origin and derive its provision again, private.derive_estimate_item_fo_provision). The line `append`
+-- creates for it is deleted by takeoff_replace_pages. Read after takeoff_prepare_page_decisions (pg_temp._ti682_pairs).
+create function private.takeoff_page_writer_plan(p_mapping_plan jsonb)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $$
+begin
+  if pg_catalog.to_regclass('pg_temp._ti682_pairs') is null or pg_catalog.jsonb_typeof(p_mapping_plan) is distinct from 'array'
+    or not exists (select 1 from pg_temp._ti682_pairs) then
+    return p_mapping_plan;
+  end if;
+  return (select pg_catalog.jsonb_agg(case
+      when entry.value ->> 'action' in ('set_price', 'set_category') and exists (select 1 from pg_temp._ti682_pairs as pair
+        where pair.takeoff_item_id = private.takeoff_uuid_or_null(entry.value -> 'item_id'))
+      then entry.value || pg_catalog.jsonb_build_object('action', 'none', 'unit_price_cents', null, 'category_id', null)
+      else entry.value end order by entry.ordinality)
+    from pg_catalog.jsonb_array_elements(p_mapping_plan) with ordinality as entry(value, ordinality));
+end;
+$$;
+
+revoke all on function private.takeoff_page_writer_plan(jsonb) from public, anon, authenticated, service_role;
+
 -- After the atomic application (and the DPGF consolidation): each earlier estimate line the estimator replaces keeps
 -- its identity, title, price, category, settings and lot C columns; its quantity is its measured quantity less the
 -- earlier source lines of the replaced pages plus the new lines paired with it (rounded once, up to the unit, for a
@@ -978,6 +1013,8 @@ declare
   engine smallint;
   old_writer text := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
   conflict uuid;
+  conflict_item uuid;
+  conflict_pair uuid;
   deleted uuid[] := '{}'::uuid[];
   updated uuid[] := '{}'::uuid[];
 begin
@@ -996,19 +1033,19 @@ begin
   -- A paired new line must come out of the application as a line created by this call, or as its own earlier line (a
   -- `merge` by title). A new line `merge` sent onto another earlier line of these pages replaced it silently: without
   -- any decision, that is the page applied again; with decisions, a replacement the estimator did not see.
-  select pair.estimate_item_id into conflict
+  select link.estimate_item_id, pair.takeoff_item_id, pair.estimate_item_id into conflict, conflict_item, conflict_pair
   from pg_temp._ti682_pairs as pair
   left join pg_temp._ti682_links as link on link.takeoff_item_id = pair.takeoff_item_id
   where link.estimate_item_id is null
     or not (link.estimate_item_id = pair.estimate_item_id or link.estimate_item_id = any(coalesce(p_created_ids, '{}'::uuid[])))
   limit 1;
-  if conflict is null then
-    select link.estimate_item_id into conflict
+  if conflict_item is null then
+    select link.estimate_item_id, link.takeoff_item_id into conflict, conflict_item
     from pg_temp._ti682_links as link
     join pg_temp._ti682_lines as line on line.id = link.estimate_item_id and line.source_provider is distinct from 'dpgf'
     where not exists (select 1 from pg_temp._ti682_pairs as pair where pair.takeoff_item_id = link.takeoff_item_id
       and pair.estimate_item_id = link.estimate_item_id)
-    order by link.estimate_item_id
+    order by link.estimate_item_id, link.takeoff_item_id
     limit 1;
     if conflict is not null and not exists (select 1 from pg_temp._ti682_choices) then
       raise exception 'TAKEOFF_PAGE_ALREADY_APPLIED' using errcode = '23514',
@@ -1018,9 +1055,11 @@ begin
           from pg_temp._ti682_conflicts as page where page.estimate_item_id = conflict));
     end if;
   end if;
-  if conflict is not null then
+  if conflict_item is not null then
+    -- The new line, the earlier line `merge` put it on (null: none) and the line it was paired with (null: none).
     raise exception 'TAKEOFF_PAGE_REPLACE_CONFLICT' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('scope', 'page', 'estimate_item_id', conflict)::text;
+      detail = pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object('scope', 'page', 'reason', 'merge_elsewhere',
+        'takeoff_item_id', conflict_item, 'estimate_item_id', conflict, 'paired_estimate_item_id', conflict_pair))::text;
   end if;
   if not exists (select 1 from pg_temp._ti682_pairs) and not exists (select 1 from pg_temp._ti682_choices) then
     return query select '[]'::jsonb, coalesce(p_links, '[]'::jsonb), '{}'::uuid[], '{}'::uuid[];
@@ -1078,9 +1117,9 @@ begin
   set quantity = case when outcome.take = 'keep_mine' then outcome.previous_quantity
       when outcome.factor is not null then pg_catalog.ceil(outcome.new_raw * outcome.factor) / outcome.factor
       else outcome.new_raw end,
-    -- What `merge` may have rewritten on its own earlier line is the estimator's: title, description, price, category.
-    title = line.title, description = line.description, unit_price_ht_cents = line.unit_price_ht_cents,
-    category_id = line.category_id,
+    -- What `merge` may have rewritten on its own earlier line is the estimator's: title and description. Its price and
+    -- category are never written (private.takeoff_page_writer_plan), so no trigger derives anything from them.
+    title = line.title, description = line.description,
     source_provider = 'takeoff', source_job_id = p_job_id,
     source_file_name = outcome.file_name, source_page = outcome.page,
     source_metadata = (coalesce(line.source_metadata, '{}'::jsonb) - 'takeoff_length_rounding' - 'takeoff_page_replacement')
@@ -1296,7 +1335,7 @@ begin
   -- TI-682 D: the earlier contributions of the pages this takeoff reads and its decisions, before anything is written.
   perform private.takeoff_prepare_page_decisions(p_job_id, job_tenant_id, job_version_id, p_strategy, p_mapping_plan);
   select result.* into atomic from public.apply_takeoff_job_atomic(
-    p_job_id,p_strategy,p_target_section_id,p_mapping_plan) as result;
+    p_job_id,p_strategy,p_target_section_id,private.takeoff_page_writer_plan(p_mapping_plan)) as result;
   -- TI-682 D: the replaced pages; finalize_takeoff_lengths works on the links the replacement left, so that it does not
   -- size an earlier line from the new takeoff's lines alone.
   select result.* into replaced from private.takeoff_replace_pages(p_job_id, job_tenant_id, job_version_id,
@@ -1498,7 +1537,8 @@ begin
   -- TI-682 D: the earlier contributions of the pages this takeoff reads and its decisions, before anything is written.
   perform private.takeoff_prepare_page_decisions(p_job_id, job_tenant_id, job_version_id, p_strategy, p_mapping_plan);
   select result.* into applied
-  from public.apply_takeoff_job_atomic(p_job_id,p_strategy,p_target_section_id,p_mapping_plan) result;
+  from public.apply_takeoff_job_atomic(p_job_id,p_strategy,p_target_section_id,
+    private.takeoff_page_writer_plan(p_mapping_plan)) result;
 
   if exists(select 1 from pg_temp._p680_targets) then
     -- Retain all existing mapping/engine guards. Only this invocation's newly created duplicate
@@ -1602,5 +1642,43 @@ revoke all on function public.apply_takeoff_job_guarded_atomic(
 grant execute on function public.apply_takeoff_job_guarded_atomic(
   uuid, text, uuid, jsonb, text
 ) to authenticated;
+
+-- Codex review of c06cbb1b: the page decisions travel with the application. Recorded and applied in one transaction
+-- (the job's row lock taken by the record is held until the application commits), so that an application applies the
+-- decisions of its own request, never those another tab recorded between a record and an application.
+create function public.apply_takeoff_job_with_page_decisions(
+  p_job_id uuid,
+  p_strategy text,
+  p_target_section_id uuid,
+  p_mapping_plan jsonb,
+  p_page_decisions jsonb,
+  p_dpgf_authorization_token text default null
+)
+returns table (
+  created_count integer,
+  updated_count integer,
+  ignored_count integer,
+  created_ids uuid[],
+  scope text,
+  item_links jsonb
+)
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $$
+begin
+  perform public.record_takeoff_page_decisions(p_job_id, coalesce(p_page_decisions, '[]'::jsonb));
+  if p_dpgf_authorization_token is null then
+    return query select applied.* from public.apply_takeoff_job_guarded_atomic(p_job_id, p_strategy, p_target_section_id,
+      p_mapping_plan) as applied;
+  else
+    return query select applied.* from public.apply_takeoff_job_guarded_atomic(p_job_id, p_strategy, p_target_section_id,
+      p_mapping_plan, p_dpgf_authorization_token) as applied;
+  end if;
+end;
+$$;
+
+revoke all on function public.apply_takeoff_job_with_page_decisions(uuid, text, uuid, jsonb, jsonb, text) from public, anon;
+grant execute on function public.apply_takeoff_job_with_page_decisions(uuid, text, uuid, jsonb, jsonb, text) to authenticated;
 
 commit;

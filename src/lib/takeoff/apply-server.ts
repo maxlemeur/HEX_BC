@@ -19,7 +19,6 @@ import {
   listTakeoffRulePartnerExclusions,
   loadTakeoffApplyConcurrencyToken,
   logTakeoffMappingApplyAuditEvents,
-  recordTakeoffPageDecisions,
   revokeTakeoffDpgfApplyAuthorization,
 } from "@/lib/takeoff/apply-repository";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
@@ -273,13 +272,6 @@ export async function applyTakeoffJob(
     // An empty bulk mutation retains estimate authorization, draft lock and OCC checks.
     await bulkUpdateEstimateItems(jobRow.estimate_version_id, [], concurrencyToken);
 
-    // TI-682 lot D: the estimator's decision for each page another takeoff already brought (replace its earlier measure,
-    // or keep both with a reason), recorded under the user's session just before the application, which reads them under
-    // the version's lock. Always recorded, none included: an application without a decision leaves none behind from an
-    // earlier attempt, and the guard refuses a page already in the estimate.
-    const recorded = await recordTakeoffPageDecisions({ supabase, jobId: normalizedJobId, decisions: payload.page_decisions ?? [] });
-    if (recorded.error) throw mapApplyTakeoffRpcError(recorded.error, { jobId: normalizedJobId });
-
     let dpgfAuthorizationToken: string | null = null;
     let rpcData: unknown;
 
@@ -325,6 +317,11 @@ export async function applyTakeoffJob(
           target_section_id: payload.target_section_id ?? null,
           mapping_plan: buildTakeoffAtomicMappingPlan(mappingPreview.items),
           dpgf_authorization_token: dpgfAuthorizationToken,
+          // TI-682 lot D: the estimator's decision for each page another takeoff already brought (replace its earlier
+          // measure, or keep both with a reason). They travel with the application and are recorded in its own
+          // transaction: a request never applies decisions another request recorded meanwhile. Always sent, none
+          // included: no decision of an earlier attempt is left behind, and the guard refuses a page already in the estimate.
+          page_decisions: payload.page_decisions ?? [],
         },
       });
 

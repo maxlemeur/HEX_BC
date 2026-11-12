@@ -185,31 +185,61 @@ export function proposePagePairs(input: {
   return pairs;
 }
 
+/** A new line as the writer reads it for « Fusionner »: its designation once the mapping renamed it, its creation. */
+export type MergeSource = { id: string; designation: string; unit: string; created_at: string };
+
 /**
- * What « Fusionner » (merge) would do on the target section, as private.takeoff_apply_v3_lines does it: a new line and an
- * existing line of the section with the same title (spaces reduced, lower case) and unit, at the same rank. On a DPGF
- * version, where merging is required, these pairs are imposed.
+ * The new lines « Fusionner » matches, as apply_takeoff_job_atomic hands them to the writer: the lines still included
+ * once the mapping plan left out what it skips or folds into an ouvrage, each with the designation a « rename » gave it,
+ * ranked by creation then identifier (the writer's source order), never in the order they were read.
  */
-export function mergeMatches(newLines: ReadonlyArray<{ id: string; designation: string; unit: string }>,
-  sectionLines: ReadonlyArray<{ id: string; title: string; unit_code: string | null; pricing_status: string; position: number }>) {
-  const key = (title: string, unit: string) => `${normalizedDesignation(title)}\u0000${unit}`;
+export function mergeSources(lines: ReadonlyArray<{ id: string; designation: string; unit: string; created_at: string; is_excluded: boolean }>,
+  plan: ReadonlyArray<{ item_id: string; action: string; transformed?: { designation?: string | null } | null }>): MergeSource[] {
+  const actions = new Map(plan.map((item) => [item.item_id, item]));
+  return lines.filter((line) => !line.is_excluded && !["skip", "apply_assembly"].includes(actions.get(line.id)?.action ?? ""))
+    .map((line) => {
+      const planned = actions.get(line.id);
+      const renamed = planned?.action === "rename" ? planned.transformed?.designation?.trim() : null;
+      return { id: line.id, designation: renamed || line.designation, unit: line.unit, created_at: line.created_at };
+    })
+    .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+}
+
+/**
+ * What « Fusionner » (merge) does on the target section, replayed from the writer of the version's engine: a new line
+ * and an existing line of the section with the same key, at the same rank (new lines by their source order, existing
+ * lines by position then identifier). On a DPGF version, where merging is required, these pairs are imposed.
+ * - engine 3 (private.takeoff_apply_v3_lines): the title with its spaces reduced, lower case, and the unit code (or the
+ *   status mention) the referential gives the new line's unit, against the line's unit code (or status);
+ * - engines 1 and 2 (public.apply_takeoff_job): the title and the unit as written, trimmed and lower case, against the
+ *   line's title and description (its unit), the same way (that writer does not reduce inner spaces).
+ */
+export function mergeMatches(newLines: readonly MergeSource[],
+  sectionLines: ReadonlyArray<{ id: string; title: string; unit_code: string | null; description: string | null; pricing_status: string; position: number }>,
+  engine: number) {
+  const v3 = engine === 3;
+  const title = (value: string) => (v3 ? normalizedDesignation(value) : value.trim().toLowerCase());
+  const existingKey = (line: (typeof sectionLines)[number]) =>
+    `${title(line.title)}\u0000${v3 ? line.unit_code ?? `status:${line.pricing_status}` : (line.description ?? "").trim().toLowerCase()}`;
+  const sourceKey = (line: MergeSource) => {
+    if (!v3) return `${title(line.designation)}\u0000${line.unit.trim().toLowerCase()}`;
+    const resolved = normalizeMeasurementUnit(line.unit);
+    const unit = resolved.unitCode ?? (resolved.pricingStatus ? `status:${resolved.pricingStatus}` : null);
+    return unit === null ? null : `${title(line.designation)}\u0000${unit}`;
+  };
   const existing = new Map<string, string[]>();
   for (const line of [...sectionLines].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))) {
-    const unit = line.unit_code ?? `status:${line.pricing_status}`;
-    const list = existing.get(key(line.title, unit)) ?? [];
-    list.push(line.id);
-    existing.set(key(line.title, unit), list);
+    const key = existingKey(line);
+    existing.set(key, [...(existing.get(key) ?? []), line.id]);
   }
   const ranks = new Map<string, number>();
   const matches = new Map<string, string>();
-  for (const line of newLines) {
-    const resolved = normalizeMeasurementUnit(line.unit);
-    const unit = resolved.unitCode ?? (resolved.pricingStatus ? `status:${resolved.pricingStatus}` : null);
-    if (!unit) continue;
-    const lineKey = key(line.designation, unit);
-    const rank = ranks.get(lineKey) ?? 0;
-    ranks.set(lineKey, rank + 1);
-    const target = existing.get(lineKey)?.[rank];
+  for (const line of [...newLines].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))) {
+    const key = sourceKey(line);
+    if (key === null) continue;
+    const rank = ranks.get(key) ?? 0;
+    ranks.set(key, rank + 1);
+    const target = existing.get(key)?.[rank];
     if (target) matches.set(line.id, target);
   }
   return matches;

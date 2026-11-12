@@ -14,7 +14,7 @@ import {
   type TakeoffPageReplacementRow,
 } from "@/lib/takeoff/page-replacement-contracts";
 
-import { initialPageDraft, pageMissing, pageOutcome, type PageDraft } from "./page-decisions";
+import { initialPageDraft, pageMissing, pageOutcome, type PageContext, type PageDraft } from "./page-decisions";
 
 // TI-682 lot D, PR 2: « Pages déjà au devis », at the application's confirmation. For each page another takeoff already
 // brought into the estimate, the estimator replaces its earlier measure (recommended, preselected) or keeps both with a
@@ -44,12 +44,14 @@ function earlierLabel(row: TakeoffPageReplacementRow, jobs: ReadonlyMap<string, 
   }).join(" et ");
 }
 
-function PageDecision({ row, jobs, draft, disabled, onChange }: Readonly<{
-  row: TakeoffPageReplacementRow; jobs: ReadonlyMap<string, Job>; draft: PageDraft; disabled: boolean; onChange: (draft: PageDraft) => void;
+function PageDecision({ row, jobs, draft, context, disabled, onChange }: Readonly<{
+  row: TakeoffPageReplacementRow; jobs: ReadonlyMap<string, Job>; draft: PageDraft; context: PageContext; disabled: boolean;
+  onChange: (draft: PageDraft) => void;
 }>) {
   const label = pageLabel(row);
-  const outcome = pageOutcome(row, draft);
-  const missing = pageMissing(row, draft);
+  // Each line as it will be stored: a line carrying several replaced pages takes all their new measures at once.
+  const outcome = pageOutcome(row, draft, context);
+  const missing = pageMissing(row, draft, context);
   const titles = new Map(row.earlier_lines.map((line) => [line.id, line.title]));
   const name = `takeoff-page-${row.key}`;
   // A line that also carries another page is never removed: « remove all » leaves it waiting for « keep ».
@@ -107,6 +109,7 @@ function PageDecision({ row, jobs, draft, disabled, onChange }: Readonly<{
                   <li key={line.id} className="space-y-1">
                     <span className="font-medium">{line.title}</span> : {quantity(line.before)} → {quantity(line.after)}
                     {line.before !== null && line.after !== line.before ? ` (${line.after > line.before ? "+" : ""}${quantity(line.after - line.before)})` : ""}
+                    {line.pages > 1 ? <span className="text-muted-foreground"> (quantité de la ligne sur ses {line.pages} pages remesurées)</span> : null}
                     <span className="text-muted-foreground"> — titre, prix et catégorie gardés</span>
                     {line.changedByHand ? (
                       <div role="radiogroup" aria-label={`Quantité de ${line.title}`} className="flex flex-wrap gap-4 pl-2 text-xs">
@@ -194,6 +197,21 @@ function PageDecision({ row, jobs, draft, disabled, onChange }: Readonly<{
   );
 }
 
+/** A choice for a quantity changed by hand belongs to the line: made on one page, it holds on every page of that line. */
+function withSharedTakes(rows: readonly TakeoffPageReplacementRow[], drafts: Readonly<Record<string, PageDraft>>, key: string, draft: PageDraft) {
+  const next: Record<string, PageDraft> = { ...drafts, [key]: draft };
+  const before = drafts[key]?.takes ?? {};
+  for (const [lineId, take] of Object.entries(draft.takes)) {
+    if (take === before[lineId]) continue;
+    for (const other of rows) {
+      if (other.key === key || !other.earlier_lines.some((line) => line.id === lineId)) continue;
+      const otherDraft = next[other.key] ?? initialPageDraft(other);
+      next[other.key] = { ...otherDraft, takes: { ...otherDraft.takes, [lineId]: take } };
+    }
+  }
+  return next;
+}
+
 export function TakeoffPageDecisionsPanel({ proposal, error, loading, drafts, strategyNotice, disabled, onDraftsChange }: Readonly<{
   proposal: TakeoffPageReplacementResponse | null;
   error: string | null;
@@ -223,7 +241,8 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, drafts, st
       </div>
       {proposal.rows.map((row) => (
         <PageDecision key={row.key} row={row} jobs={jobs} draft={drafts[row.key] ?? initialPageDraft(row)} disabled={disabled}
-          onChange={(draft) => onDraftsChange({ ...drafts, [row.key]: draft })} />
+          context={{ rows: proposal.rows, drafts }}
+          onChange={(draft) => onDraftsChange(withSharedTakes(proposal.rows, drafts, row.key, draft))} />
       ))}
       {proposal.unidentified_count > 0 ? (
         <p className="text-xs text-muted-foreground">{plural(proposal.unidentified_count, "ligne")} de ce métré sans plan ni page : non comparée{proposal.unidentified_count > 1 ? "s" : ""}.</p>

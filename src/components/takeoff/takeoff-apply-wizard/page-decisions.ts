@@ -30,8 +30,11 @@ export function initialPageDraft(row: TakeoffPageReplacementRow): PageDraft {
 }
 
 export type PageOutcome = {
-  updated: Array<{ id: string; title: string; before: number | null; after: number; changedByHand: boolean; take: "new" | "keep_mine" | null;
-    newLineIds: string[] }>;
+  updated: Array<{ id: string; title: string; before: number | null;
+    /** The quantity the database will store: every page of the line that a decision replaces counts (Codex review). */
+    after: number; changedByHand: boolean; take: "new" | "keep_mine" | null; newLineIds: string[];
+    /** How many pages of this application replace part of the line. */
+    pages: number }>;
   added: string[];
   vanished: Array<{ id: string; title: string; quantity: number | null; choice: "remove" | "keep" | null;
     /** It also carries other pages: it is kept, never removed (its other pages would go with it). */
@@ -39,13 +42,53 @@ export type PageOutcome = {
   dpgfTargets: string[];
 };
 
-/** What a page's draft does: the earlier lines updated (before → after), the new lines added, the lines that vanished. */
-export function pageOutcome(row: TakeoffPageReplacementRow, draft: PageDraft): PageOutcome {
+/** Every page of the application, so that a line carrying several pages is computed once for all of them. */
+export type PageContext = { rows: readonly TakeoffPageReplacementRow[]; drafts: Readonly<Record<string, PageDraft>> };
+
+type LineReplacement = { removed: Set<string>; added: number[]; pages: number; take: "new" | "keep_mine" | null };
+
+/**
+ * Each earlier line a decision updates, across all the pages of the application, as private.takeoff_replace_pages
+ * computes it: the source lines of every replacing page taken out, every new line paired with it added, one choice for a
+ * quantity changed by hand (the first one made, on whichever page).
+ */
+function lineReplacements(context: PageContext) {
+  const lines = new Map<string, LineReplacement>();
+  for (const row of context.rows) {
+    const draft = context.drafts[row.key] ?? initialPageDraft(row);
+    if (draft.decision !== "replace") continue;
+    const quantities = new Map(row.new_lines.map((line) => [line.id, line.quantity]));
+    for (const line of row.earlier_lines) {
+      if (line.dpgf_target) continue;
+      const newLineIds = Object.entries(draft.pairs).filter(([, estimateItemId]) => estimateItemId === line.id).map(([newLineId]) => newLineId);
+      if (newLineIds.length === 0) continue;
+      const entry = lines.get(line.id) ?? { removed: new Set<string>(), added: [], pages: 0, take: null };
+      for (const id of line.item_ids) entry.removed.add(id);
+      entry.added.push(...newLineIds.map((id) => quantities.get(id) ?? 0));
+      entry.pages += 1;
+      lines.set(line.id, entry);
+    }
+  }
+  for (const row of context.rows) {
+    for (const [lineId, take] of Object.entries((context.drafts[row.key] ?? initialPageDraft(row)).takes)) {
+      const entry = lines.get(lineId);
+      if (entry && take && entry.take === null) entry.take = take;
+    }
+  }
+  return lines;
+}
+
+/**
+ * What a page's draft does: the earlier lines updated (before → the quantity stored), the new lines added, the lines
+ * that vanished. Without `context`, the page alone (an application of one page).
+ */
+export function pageOutcome(row: TakeoffPageReplacementRow, draft: PageDraft, context?: PageContext): PageOutcome {
+  const whole = context ?? { rows: [row], drafts: { [row.key]: draft } };
+  const replacements = lineReplacements({ rows: whole.rows, drafts: { ...whole.drafts, [row.key]: draft } });
   const pairedBy = new Map<string, string[]>();
   for (const [newLineId, estimateItemId] of Object.entries(draft.pairs)) {
     if (estimateItemId) pairedBy.set(estimateItemId, [...(pairedBy.get(estimateItemId) ?? []), newLineId]);
   }
-  const quantities = new Map(row.new_lines.map((line) => [line.id, line.quantity]));
   const outcome: PageOutcome = { updated: [], added: [], vanished: [], dpgfTargets: [] };
   for (const line of row.earlier_lines) {
     if (line.dpgf_target) {
@@ -53,24 +96,30 @@ export function pageOutcome(row: TakeoffPageReplacementRow, draft: PageDraft): P
       continue;
     }
     const newLineIds = pairedBy.get(line.id) ?? [];
-    if (newLineIds.length === 0) {
+    const replacement = replacements.get(line.id);
+    if (newLineIds.length === 0 || !replacement) {
       const choice = draft.choices[line.id] ?? null;
       outcome.vanished.push({ id: line.id, title: line.title, quantity: line.quantity, otherPages: line.other_pages,
         choice: choice === "remove" && line.other_pages ? null : choice });
       continue;
     }
-    const next = replacementQuantities({ quantity: line.quantity, factor: line.length_factor,
-      sources: line.sources, removedSourceIds: new Set(line.item_ids), added: newLineIds.map((id) => ({ quantity: quantities.get(id) ?? 0 })) });
-    const take = draft.takes[line.id] ?? null;
-    outcome.updated.push({ id: line.id, title: line.title, before: line.quantity, after: line.changed_by_hand && take === "keep_mine"
-      ? line.quantity ?? 0 : next.next, changedByHand: line.changed_by_hand, take, newLineIds });
+    const next = replacementQuantities({ quantity: line.quantity, factor: line.length_factor, sources: line.sources,
+      removedSourceIds: replacement.removed, added: replacement.added.map((quantity) => ({ quantity })) });
+    outcome.updated.push({ id: line.id, title: line.title, before: line.quantity,
+      after: line.changed_by_hand && replacement.take === "keep_mine" ? line.quantity ?? 0 : next.next,
+      changedByHand: line.changed_by_hand, take: replacement.take, newLineIds, pages: replacement.pages });
   }
   outcome.added = row.new_lines.filter((line) => !draft.pairs[line.id]).map((line) => line.id);
   return outcome;
 }
 
+/** Each page's outcome, every line computed across all the pages of the application. */
+export function pageOutcomes(rows: readonly TakeoffPageReplacementRow[], drafts: Readonly<Record<string, PageDraft>>) {
+  return new Map(rows.map((row) => [row.key, pageOutcome(row, drafts[row.key] ?? initialPageDraft(row), { rows, drafts })]));
+}
+
 /** What still waits for the estimator on a page: nothing when its decision can be sent. */
-export function pageMissing(row: TakeoffPageReplacementRow, draft: PageDraft): string[] {
+export function pageMissing(row: TakeoffPageReplacementRow, draft: PageDraft, context?: PageContext): string[] {
   if (draft.decision === "keep_both") {
     if (row.keep_both_refused) return ["Garder les deux n’est pas possible sur cette page."];
     if (!draft.reason) return ["Choisissez le motif pour garder les deux mesures."];
@@ -79,7 +128,7 @@ export function pageMissing(row: TakeoffPageReplacementRow, draft: PageDraft): s
     }
     return [];
   }
-  const outcome = pageOutcome(row, draft);
+  const outcome = pageOutcome(row, draft, context);
   const missing: string[] = [];
   const notFed = row.earlier_lines.filter((line) => line.dpgf_target && !line.fed_again);
   if (notFed.length > 0) {
@@ -108,7 +157,7 @@ export function pageDecisionsPayload(rows: readonly TakeoffPageReplacementRow[],
           take: null, item_ids: line.item_ids })),
         pairs: [] };
     }
-    const outcome = pageOutcome(row, draft);
+    const outcome = pageOutcome(row, draft, { rows, drafts });
     const updated = new Map(outcome.updated.map((line) => [line.id, line]));
     const vanished = new Map(outcome.vanished.map((line) => [line.id, line]));
     return { ...base, decision: "replace", reason_code: null, note: null,
@@ -128,7 +177,7 @@ export function pageDecisionCounts(rows: readonly TakeoffPageReplacementRow[], d
   return rows.reduce((counts, row) => {
     const draft = drafts[row.key] ?? initialPageDraft(row);
     if (draft.decision === "keep_both") return { ...counts, keptBoth: counts.keptBoth + 1, added: counts.added + row.new_lines.length };
-    const outcome = pageOutcome(row, draft);
+    const outcome = pageOutcome(row, draft, { rows, drafts });
     return { ...counts, updated: counts.updated + outcome.updated.length, added: counts.added + outcome.added.length,
       removed: counts.removed + outcome.vanished.filter((line) => line.choice === "remove").length,
       kept: counts.kept + outcome.vanished.filter((line) => line.choice === "keep").length };

@@ -6,6 +6,7 @@ import {
   jaccard,
   lengthFactor,
   mergeMatches,
+  mergeSources,
   proposePagePairs,
   replacementQuantities,
   unitKey,
@@ -163,11 +164,35 @@ describe("the helpers the pairing rests on", () => {
     expect([...designationTokens("Vanne d’arrêt DN 20 à sphère")]).toEqual(["vanne", "arret", "dn", "20", "sphere"]);
     expect(jaccard("WC suspendu PMR", "WC suspendu")).toBeCloseTo(2 / 3);
   });
-  it("replays « Fusionner »: same title and unit at the same rank in the target section", () => {
-    expect(mergeMatches([{ id: id(101), designation: "WC  suspendu", unit: "u" }, { id: id(102), designation: "wc suspendu", unit: "u" },
-      { id: id(103), designation: "Vanne", unit: "ml" }],
-    [{ id: id(201), title: "WC suspendu", unit_code: "u", pricing_status: "priced", position: 2 },
-      { id: id(202), title: "Vanne", unit_code: "u", pricing_status: "priced", position: 1 }]))
+  const section = (n: number, title: string, unitCode: string | null, position: number, description: string | null = unitCode) =>
+    ({ id: id(n), title, unit_code: unitCode, description, pricing_status: "priced", position });
+  it("replays « Fusionner » on engine 3: same title and unit code at the same rank in the target section", () => {
+    expect(mergeMatches([{ id: id(101), designation: "WC  suspendu", unit: "u", created_at: "2026-11-11T10:00:00Z" },
+      { id: id(102), designation: "wc suspendu", unit: "u", created_at: "2026-11-11T10:00:01Z" },
+      { id: id(103), designation: "Vanne", unit: "ml", created_at: "2026-11-11T10:00:02Z" }],
+    [section(201, "WC suspendu", "u", 2), section(202, "Vanne", "u", 1)], 3))
       .toEqual(new Map([[id(101), id(201)]]));
+  });
+  // Codex review of c06cbb1b: the imposed pairs must be the writer's own. Written before the fix (red on c06cbb1b).
+  it("ranks the new lines as the writer does: by creation, then identifier, never by the order read", () => {
+    const sections = [section(201, "WC suspendu", "u", 1), section(202, "WC suspendu", "u", 2)];
+    expect(mergeMatches([{ id: id(101), designation: "WC suspendu", unit: "u", created_at: "2026-11-11T10:00:05Z" },
+      { id: id(102), designation: "WC suspendu", unit: "u", created_at: "2026-11-11T10:00:01Z" }], sections, 3))
+      .toEqual(new Map([[id(102), id(201)], [id(101), id(202)]]));
+  });
+  it("replays the engine 1/2 writer: the title and the unit as written, against the line's title and description", () => {
+    // Engine 1/2 lines carry their unit in the description and no unit code; the engine 3 key would never match them.
+    expect(mergeMatches([{ id: id(101), designation: "WC suspendu", unit: "U", created_at: "2026-11-11T10:00:00Z" }],
+      [section(201, "wc suspendu", null, 1, "u")], 2)).toEqual(new Map([[id(101), id(201)]]));
+    expect(mergeMatches([{ id: id(101), designation: "WC suspendu", unit: "pièce", created_at: "2026-11-11T10:00:00Z" }],
+      [section(201, "wc suspendu", null, 1, "u")], 2)).toEqual(new Map());
+  });
+  it("feeds the replay with the writer's designations: a mapping rename, the lines it skips or folds left out", () => {
+    const lines = [{ id: id(101), designation: "WC", unit: "u", created_at: "2026-11-11T10:00:00Z", is_excluded: false },
+      { id: id(102), designation: "Lavabo", unit: "u", created_at: "2026-11-11T10:00:01Z", is_excluded: false },
+      { id: id(103), designation: "Vanne", unit: "u", created_at: "2026-11-11T10:00:02Z", is_excluded: true }];
+    expect(mergeSources(lines, [{ item_id: id(101), action: "rename", transformed: { designation: "WC suspendu" } },
+      { item_id: id(102), action: "skip", transformed: { designation: "Lavabo" } }]))
+      .toEqual([{ id: id(101), designation: "WC suspendu", unit: "u", created_at: "2026-11-11T10:00:00Z" }]);
   });
 });

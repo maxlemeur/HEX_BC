@@ -25,6 +25,7 @@ import {
   lengthFactor,
   mayReplaceAcrossDocuments,
   mergeMatches,
+  mergeSources,
   proposePagePairs,
   replacementQuantities,
   unitKey,
@@ -54,6 +55,7 @@ import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 type Context = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId">;
 
 type TakeoffLineRow = { id: string; job_id: string; designation: string; unit: string; quantity: number | string; is_excluded: boolean;
+  created_at: string;
   source_file_name: string | null; source_page: number | null; source_document: unknown; rule_inputs: unknown };
 type EstimateLineRow = { id: string; title: string; unit_code: string | null; description: string | null; pricing_status: string;
   quantity: number | string | null; updated_at: string; unit_price_ht_cents: number | null; parent_id: string | null; position: number;
@@ -62,7 +64,7 @@ type EstimateLineRow = { id: string; title: string; unit_code: string | null; de
   replacement_item_ids: unknown; replacement_job_id: unknown; mapping_action: unknown };
 type JobRow = { id: string; created_at: string; level: string | null; source_file_name: string | null; sources: unknown };
 
-const TAKEOFF_LINE_SELECT = "id,job_id,designation,unit,quantity,is_excluded,source_file_name,source_page,"
+const TAKEOFF_LINE_SELECT = "id,job_id,designation,unit,quantity,is_excluded,created_at,source_file_name,source_page,"
   + "source_document:metadata->source_document,rule_inputs:metadata->rule_inputs";
 const ESTIMATE_LINE_SELECT = "id,title,unit_code,description,pricing_status,quantity,updated_at,unit_price_ht_cents,parent_id,position,item_type,"
   + "source_provider,source_job_id,source_file_name,source_page,"
@@ -106,6 +108,13 @@ async function readEstimateLines(context: Context, versionId: string) {
     .eq("item_type" as never, "line" as never) as never, { pageSize: 1000 });
   if (error) readFailed(error, "Impossible de lire les lignes du devis.");
   return (data ?? []) as unknown as EstimateLineRow[];
+}
+
+async function readEngine(context: Context, versionId: string) {
+  const { data, error } = await context.supabase.from("estimate_versions" as never).select("calc_engine_version" as never)
+    .eq("tenant_id" as never, context.tenantId as never).eq("id" as never, versionId as never).single();
+  if (error) readFailed(error, "Impossible de lire la version du devis.");
+  return Number((data as unknown as { calc_engine_version: number }).calc_engine_version);
 }
 
 async function readJobs(context: Context, ids: readonly string[]) {
@@ -172,10 +181,12 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
     estimateLines: [...provenance.values()], earlierItems,
     jobSources: new Map([...jobs.values()].map((row) => [row.id.toLowerCase(), sourcesOf(row)])) });
 
-  // « Fusionner » on a DPGF version: the lines it matches by title in the target section are imposed.
+  // « Fusionner » on a DPGF version: the lines its writer matches by title in the target section are imposed, replayed
+  // from the writer of the version's engine on what it is handed (renamed designations, its source order).
   const merged = mergeRequired && applyRequest.strategy === "merge"
-    ? mergeMatches(included.map((line) => ({ id: line.id, designation: line.designation, unit: line.unit })),
-      estimateRows.filter((line) => (line.parent_id ?? null) === (applyRequest.target_section_id ?? null)))
+    ? mergeMatches(mergeSources(ownLines, mappingPreview.items),
+      estimateRows.filter((line) => (line.parent_id ?? null) === (applyRequest.target_section_id ?? null)),
+      await readEngine(context, versionId))
     : new Map<string, string>();
   // The DPGF targets this takeoff's lines feed (its reconciliation), to refuse keeping both where one is fed again (D-6).
   const fedTargets = comparisonContext ? new Map(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows

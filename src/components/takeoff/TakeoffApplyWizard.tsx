@@ -272,7 +272,7 @@ export function TakeoffApplyWizard({
   const pageRead = pageProposal && pageProposal.key === pageRequest ? pageProposal : null;
   const pageRows = useMemo(() => pageRead?.data?.rows ?? [], [pageRead]);
   const pagesReady = pageRequest !== null && pageRead !== null && pageRead.error === null
-    && pageRows.every((row) => pageMissing(row, pageDrafts[row.key] ?? initialPageDraft(row)).length === 0);
+    && pageRows.every((row) => pageMissing(row, pageDrafts[row.key] ?? initialPageDraft(row), { rows: pageRows, drafts: pageDrafts }).length === 0);
   // Outside a DPGF version, a page measured again is applied with « Ajouter »: each earlier line is updated in place,
   // and « Fusionner » by title would replace or move lines the estimator did not see paired.
   const appliedStrategy: TakeoffApplyStrategy = pageRows.length > 0 && !pageRead?.data?.merge_required ? "append" : strategy;
