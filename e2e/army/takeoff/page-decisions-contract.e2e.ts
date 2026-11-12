@@ -338,8 +338,9 @@ commit;`);
   // TI-696 (Codex review of PR 288): the same part, both its pages read again. The application counts the pages replaced
   // together: replacing both takes the part out whole (the screen recommends it, the database accepts it); replacing one
   // while keeping the other both still cuts it (dpgf_part_unknown), and the line says to replace that page too or keep both.
-  { name: "a DPGF line of a policy applied before D4, both its pages read again", dpgf: true, earlier: [read("Siphon de cour", 2, "u", 1)],
-    relaunch: [read("Siphon de cour (relevé)", 3, "u", 1), read("Regard de visite", 1, "u", 2)],
+  // Its own titles: « Fusionner » matches by title across the section the DPGF situations share.
+  { name: "a DPGF line of a policy applied before D4, both its pages read again", dpgf: true, earlier: [read("Grille de sol", 2, "u", 1)],
+    relaunch: [read("Grille de sol (relevé)", 3, "u", 1), read("Tampon de regard", 1, "u", 2)],
     prepare: feedDpgfTargetBeforeD4,
     expect: (proposal) => {
       const initial = resolveConfirmation(proposal, initialConfirmationDraft(proposal));

@@ -143,7 +143,9 @@ export function earlierDpgfParts(contributions: readonly DpgfContribution[], inp
   lines: ReadonlyMap<string, DpgfComposedLinePlace>;
 }) {
   const others = contributions.filter((entry) => entry.job_id !== input.jobId);
-  const isReadAgain = (entry: DpgfContribution) => entry.item_ids.some((id) => input.readAgainItemIds.has(id));
+  // A part of several lines whose share per page is unknown leaves only whole (dpgf_part_unknown): read again only when
+  // all of its lines are, else it is kept both and stays in the total (TI-696).
+  const isReadAgain = (entry: DpgfContribution) => entry.item_ids.every((id) => input.readAgainItemIds.has(id));
   const kept = others.filter((entry) => !isReadAgain(entry));
   const entries = new Map<string, DpgfEarlierEntry>();
   for (const entry of others) {

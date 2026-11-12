@@ -75,6 +75,29 @@ describe("the reconciliation of a DPGF line other takeoffs feed", () => {
     expect(row.composition?.total_quantity).toBe(16);
   });
 
+  it("keeps in the total a part of unknown share that lies partly on a page this takeoff does not read (TI-696)", () => {
+    // A policy applied before D4, one block over pages 1 and 2; the relaunch reads page 1 only. The application cannot take
+    // it out (dpgf_part_unknown): the page is kept both, and the line holds the block and this takeoff's measure.
+    const block: DpgfContribution = { job_id: jobOne, item_ids: [id(101), id(102)], quantity: 45, protective: 0, printed_gap: 0 };
+    const [row] = computeTakeoffDpgfRows(input({ reference: 30, current: [takeoffLine(201, 10, 1)], earlier: [block], readAgain: [id(101)] })).rows;
+    expect([row.composition?.earlier.map((entry) => [entry.quantity, entry.read_again]), row.composition?.total_quantity]).toEqual([[[45, false]], 55]);
+  });
+
+  it("keeps a review decision when only the pages read again change, not what the line keeps (TI-696)", () => {
+    // At the review page 1 is read again; at the application the mapping plan leaves its only line out. The composition
+    // is the same: the decision stands (its gap is judged again on the total).
+    const atReview = input({ reference: 22, current: [takeoffLine(201, 10, 2)], earlier: [part(101, 12), part(102, 6)], readAgain: [id(101)] });
+    const [first] = computeTakeoffDpgfRows(atReview).rows;
+    const decision = { id: id(501), tenant_id: id(2), version_id: versionId, takeoff_job_id: jobTwo, estimate_item_id: target,
+      decision: "keep_takeoff", reason: "Mesure vérifiée (fictif)", review_reference: "ref", line_label: "EF cuivre DN 22", line_position: 1,
+      source_file_name: "dpgf-fictif.xlsx", source_page: 1, decided_at: "2026-11-12T08:00:00Z", updated_at: "2026-11-12T08:00:00Z",
+      decided_by: id(1), quantity_snapshot: dpgfReviewQuantitySnapshot(first), source: "current_version",
+      carried_over_from_version_id: null, carried_over_from_version_number: null } as TakeoffDpgfReviewDecisionRecord;
+    const [atApplication] = computeTakeoffDpgfRows(input({ reference: 22, current: [takeoffLine(201, 10, 2)],
+      earlier: [part(101, 12), part(102, 6)], readAgain: [], decision })).rows;
+    expect([atApplication.composition?.total_quantity, atApplication.applied_decision?.id]).toEqual([28, id(501)]);
+  });
+
   it("shows a count fed by two takeoffs with its composition, whatever the unit", () => {
     const [row] = computeTakeoffDpgfRows(input({ reference: 7, title: "WC suspendu", unit: "u",
       current: [takeoffLine(201, 3, 2, "WC suspendu", "u")], earlier: [part(101, 4)] })).rows;
