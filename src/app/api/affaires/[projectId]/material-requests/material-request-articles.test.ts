@@ -52,6 +52,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 13. (review) « sans dimension » stays checked once the article gives the line a size.
  * 14. (Codex review of #263) a link chosen from proposals computed on an older version of the line (another
  *     tab changed DN 20 to DN 25 before the link) overwrites the corrected line with the old proposal.
+ * 15. (Codex review of #263) unlinking gives the line back its unit but keeps a quantity the office corrected
+ *     in the article's unit (« 18 ml » becomes « 18 barres »), without asking to check it.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -344,7 +346,7 @@ describe("linking a line to an article", () => {
     expect((await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked" })).status).toBe(200);
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)?.pre_link_wording).toEqual({
       product_type: "coude 90", material: null, material_precision: null, dimension: "DN 50", no_dimension: false,
-      unit: "pcs", quantity_doubtful: false,
+      unit: "pcs", quantity_doubtful: false, quantity: 4,
     });
     const unlinked = await call(lineArticleRoute.DELETE, "DELETE", onLine(LINE_ELBOW));
     expect((unlinked.data as { line: MaterialRequestLine }).line).toMatchObject({
@@ -468,6 +470,26 @@ describe("linking a line to an article", () => {
     const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "manual" });
     expect((linked.data as MaterialRequestLineArticleResult).line).toMatchObject({ dimension: "DN 50", material_precision: null });
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)?.dimension).toBe("DN 50");
+  });
+
+  it.each<[string, number, boolean]>([
+    ["corrected in the article's unit", 18, true],
+    ["left as the technician asked", 3, false],
+  ])("unlinking back to the technician's unit asks to check a quantity %s", async (_label, quantity, doubtful) => {
+    const fake = seed(OWNER, "engineer", {
+      tables: {
+        products: [article(ELBOW, { designation: "Tube inox 304L DN 50", product_type: "Tube", material: "Inox 304L", dimensions: "DN 50", unit: "ml" })],
+        material_request_lines: [line(LINE_ELBOW, REQUEST, 1, { quantity: 3, unit: "barres" })],
+      },
+    });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "manual" });
+    expect((linked.data as MaterialRequestLineArticleResult).line).toMatchObject({ quantity: 3, unit: "ml", quantity_doubtful: true });
+    // The office checks the quantity in the article's unit (or keeps it) and confirms it.
+    Object.assign(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)!, {
+      quantity, quantity_doubtful: false, updated_at: new Date().toISOString(),
+    });
+    const unlinked = await call(lineArticleRoute.DELETE, "DELETE", onLine(LINE_ELBOW));
+    expect((unlinked.data as { line: MaterialRequestLine }).line).toMatchObject({ quantity, unit: "barres", quantity_doubtful: doubtful });
   });
 
   it("unlinking restores the technician's words, clears the link and returns a validated line to draft", async () => {
