@@ -305,9 +305,10 @@ test("EI13 exporte le PDF", { tags: ["critical"], fail: "TI-681 : export PDF cas
 - Formes admises : l'option `fail: "<ticket> : raison"` ou, dans le corps,
   `test.fail("<ticket> : raison")` et `test.fail(condition, "<ticket> : raison")`.
   `test.fail(titre, fn)` et `fail: true` n'ont pas de raison : ils sont refusés.
-- [`army-retry-quarantine.test.ts`](../../src/test/army-retry-quarantine.test.ts)
-  refuse dans `verify:pr` tout `test.fail` de `e2e/` sans ticket dans une raison
-  littérale. Une campagne qui exécute un parcours attendu en échec sans ticket
+- [`check-journey-declarations.ts`](../../scripts/tester-army/check-journey-declarations.ts)
+  (`check:army-recipes`) refuse dans `verify:pr` tout `test.fail` de `e2e/` sans
+  ticket dans une raison littérale, et tout `retries` autre que `0` sur un
+  parcours. Une campagne qui exécute un parcours attendu en échec sans ticket
   est rouge elle aussi, agrégation comprise.
 - Chaque campagne liste les parcours en quarantaine qu'elle a exécutés, avec
   leur ticket : ligne `TesterArmy CI quarantine` du job, avertissement

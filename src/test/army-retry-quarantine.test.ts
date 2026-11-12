@@ -15,17 +15,13 @@
 //    nobody is asked to repair it. The runner reports an expected failure as
 //    `passed`, so only its reason tells a quarantine from a pass;
 // 5. a quarantine nobody sees: the summary must name it with its ticket.
-import fs from "node:fs";
-import path from "node:path";
-
-import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ciRetries, describeNotPassed, describeQuarantined, journeyOutcomes, quarantineProblems, quarantineTicket,
 } from "../../scripts/tester-army/journey-outcomes";
+import { quarantineOffenders, retriesOffenders } from "../../scripts/tester-army/check-journey-declarations";
 
-const root = process.cwd();
 const FILE = "e2e/army/critical/estimate-integrity.e2e.ts";
 
 type Attempt = { status: string; error?: { code: string; message: string }; expectedFailure?: { reason: string; error?: { code: string; message: string } } };
@@ -215,62 +211,8 @@ describe("test.fail is a quarantine with an open ticket", () => {
   });
 });
 
-// The policy check on the journeys' source. `test.fail` is accepted in e2e/
-// only with a reason written as a literal that cites a ticket: the option
-// `{ fail: "TI-681: …" }` or, in a body, `test.fail("TI-681: …")` and
-// `test.fail(condition, "TI-681: …")`. The registration form
-// `test.fail(title, fn)` and `{ fail: true }` carry no reason and are refused.
-function quarantineOffenders(file: string, text: string): string[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const rootName = (node: ts.Expression): string | undefined => {
-    let current = node;
-    while (ts.isPropertyAccessExpression(current) || ts.isCallExpression(current)) current = current.expression;
-    return ts.isIdentifier(current) ? current.text : undefined;
-  };
-  // The runner's registration API under any local name: `import { test as it }`, `const it = test.extend(…)`,
-  // and an extended API imported from a fixtures module, which most journeys use (`armyTest`, `offerTest`).
-  const api = new Set(["test", "describe"]);
-  for (let size = -1; size !== api.size;) {
-    size = api.size;
-    const collect = (node: ts.Node) => {
-      if (ts.isImportSpecifier(node) && (api.has((node.propertyName ?? node.name).text) || /Test$/u.test((node.propertyName ?? node.name).text))) api.add(node.name.text);
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && api.has(rootName(node.initializer) ?? "")) api.add(node.name.text);
-      ts.forEachChild(node, collect);
-    };
-    collect(source);
-  }
-  const literal = (node: ts.Node | undefined) => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : undefined;
-  const offenders: string[] = [];
-  const offend = (node: ts.Node, what: string) => {
-    offenders.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}: ${what}`);
-  };
-  const checkReason = (node: ts.Node, reason: ts.Node | undefined) => {
-    const text = literal(reason);
-    if (text === undefined) offend(node, "test.fail without a reason written as a string literal");
-    else if (!quarantineTicket(text)) offend(node, `test.fail reason "${text}" cites no ticket`);
-  };
-  const visit = (node: ts.Node) => {
-    if (ts.isCallExpression(node) && api.has(rootName(node.expression) ?? "")) {
-      const callee = node.expression;
-      if (ts.isPropertyAccessExpression(callee) && callee.name.text === "fail") {
-        if (node.arguments.some((argument) => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))) {
-          offend(node, "test.fail(title, fn) registers an expected failure without a reason: use the option { fail: \"TI-…: reason\" }");
-        } else checkReason(node, node.arguments.length === 1 ? node.arguments[0] : node.arguments[1]);
-      }
-      for (const argument of node.arguments) {
-        if (!ts.isObjectLiteralExpression(argument)) continue;
-        for (const property of argument.properties) {
-          if (!property.name || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) || property.name.text !== "fail") continue;
-          checkReason(property, ts.isPropertyAssignment(property) ? property.initializer : undefined);
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return offenders;
-}
-
+// The guard on the journeys' declarations (scripts/tester-army/check-journey-declarations.ts, run by
+// check:army-recipes): what it refuses and what it leaves alone, on source it is handed.
 describe("test.fail in e2e/ cites a ticket", () => {
   it("refuses every form of test.fail whose reason is absent, computed or without a ticket", () => {
     const refused: Array<[source: string, why: string]> = [
@@ -311,24 +253,23 @@ describe("test.fail in e2e/ cites a ticket", () => {
     for (const source of accepted) expect(quarantineOffenders("e2e/example.e2e.ts", source), source).toEqual([]);
   });
 
-  it("lets no journey ask for retries of its own", () => {
-    // The runner accepts `retries` up to 10 on a test or a describe, above the configuration: the one retry of CI
-    // would no longer be the only one. Zero is allowed (a journey that must never be replayed).
-    const files = fs.readdirSync(path.join(root, "e2e"), { recursive: true, encoding: "utf8" })
-      .filter((name) => /\.e2e\.[cm]?tsx?$/u.test(name));
-    expect(files.length).toBeGreaterThan(100);
-    const offenders = files.filter((name) => /\bretries\s*:\s*(?:[1-9]|[^\s\d])/u.test(fs.readFileSync(path.join(root, "e2e", name), "utf8")));
-    expect(offenders).toEqual([]);
-  });
-
-  it("finds no test.fail without a ticket in the journeys", () => {
-    const files = fs.readdirSync(path.join(root, "e2e"), { recursive: true, encoding: "utf8" })
-      .filter((name) => /\.[cm]?[jt]sx?$/u.test(name))
-      .map((name) => path.posix.join("e2e", name.split(path.sep).join("/")))
-      .sort();
-    expect(files.length).toBeGreaterThan(100);
-    const offenders = files.flatMap((file) => quarantineOffenders(file, fs.readFileSync(path.join(root, file), "utf8")));
-    expect(offenders, "test.fail is a quarantine for a journey that is red on main: its reason is a string literal that cites an open " +
-      "Linear id (TI-681) or GitHub issue (#123), and the campaign summary lists it (docs/testing/tester-army-ci.md).").toEqual([]);
+  it("refuses the retries a journey gives itself, other than 0", () => {
+    const refused = [
+      'test("exports the PDF", { tags: ["critical"], retries: 3 }, async () => {});',
+      'describe("exports", { retries: 1 }, () => {});',
+      'test("exports the PDF", { retries }, async () => {});',
+      'import { armyTest } from "../critical/fixtures";\narmyTest("EI13 exports the PDF", { retries: attempts }, async () => {});',
+    ];
+    for (const source of refused) {
+      const offenders = retriesOffenders("e2e/example.e2e.ts", source);
+      expect(offenders, source).toHaveLength(1);
+      expect(offenders[0], source).toMatch(/^e2e\/example\.e2e\.ts:\d+: a journey sets no retries of its own other than 0/u);
+    }
+    const accepted = [
+      'test("GR07 never replays", { session: "army", trace: "off", retries: 0, timeout: 240_000 }, async () => {});',
+      // A comment and an object that is not a registration are not the runner's option.
+      '// retries: 3 would hide the failure\ntest("exports the PDF", async () => { const policy = { retries: 3 }; await upload(file, { retries: 2 }); });',
+    ];
+    for (const source of accepted) expect(retriesOffenders("e2e/example.e2e.ts", source), source).toEqual([]);
   });
 });
