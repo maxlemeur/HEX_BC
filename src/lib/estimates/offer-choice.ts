@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  normalizeProvisionalText,
+  PROVISIONAL_QUANTITY_MESSAGES,
+  PROVISIONAL_QUANTITY_TEXT,
+  provisionalTextError,
+} from "@/lib/estimates/provisional-quantity";
 import { noteLength, noteText } from "@/lib/takeoff/rules/acceptance-note";
 import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "@/lib/units/normalize";
 
@@ -11,12 +17,16 @@ import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "
 // the PDF, the portal, the DPGF or standard workbooks, the purchase order; only the internal CSV.
 // The database (migration *_estimate_line_offer_choice.sql, public.estimate_offer_choice_valid) refuses the same
 // values; these rules let the editor and the route refuse them first. Codes and bases are provisional (pending the
-// owner's agreement): kept equal to the SQL lists. Only the kind « reserve » exists; the provisional quantity (PR 5)
-// widens the union below and the SQL function, nothing else.
+// owner's agreement): kept equal to the SQL lists.
+// PR 5 (migration *_estimate_line_provisional_quantity.sql): the kind « provisional_quantity », on a priced line whose
+// quantity rests on a takeoff hypothesis. The same basis and note as a reserve (the same question of regularity in a
+// public lump-sum contract), no code (why the quantity is an hypothesis is the marker's, what confirms it is
+// to_confirm_by), and the two texts the client reads in the sentence (src/lib/estimates/provisional-quantity.ts).
 
 /** The line status each kind of choice belongs to (the database clears a choice whose line leaves it). */
 export const ESTIMATE_OFFER_CHOICE_LINE_STATUS = {
   reserve: "not_priced",
+  provisional_quantity: "priced",
 } as const satisfies Record<string, EstimateLinePricingStatus>;
 
 export type EstimateOfferChoiceKind = keyof typeof ESTIMATE_OFFER_CHOICE_LINE_STATUS;
@@ -60,6 +70,15 @@ export const OFFER_RESERVE_WARNING =
   + "un devis privé, ou si le règlement de la consultation déclare les quantités indicatives ; sinon, posez la question "
   + "à l'acheteur.";
 
+/**
+ * Shown when a provisional quantity is declared (provisional wording): the same risk as a reserve, the client reads that
+ * the quantity is not firm.
+ */
+export const OFFER_PROVISIONAL_QUANTITY_WARNING =
+  "En marché public à prix global et forfaitaire, une quantité annoncée comme provisionnelle peut rendre l'offre "
+  + "irrégulière. Ne la déclarez que pour un devis privé, ou si le règlement de la consultation déclare les quantités "
+  + "indicatives ; sinon, posez la question à l'acheteur.";
+
 export const OFFER_CHOICE_MESSAGES = {
   note: `La précision tient en ${OFFER_CHOICE_NOTE.min} à ${OFFER_CHOICE_NOTE.max} caractères.`,
   otherNote: `Le motif « Autre » se précise en ${OFFER_CHOICE_NOTE.min} à ${OFFER_CHOICE_NOTE.max} caractères.`,
@@ -75,13 +94,39 @@ export type EstimateOfferReserveInput = {
   note: string | null;
 };
 
-export type EstimateOfferChoiceInput = EstimateOfferReserveInput;
+/** What an administrator declares for a provisional quantity; the server adds its author and time. */
+export type EstimateOfferProvisionalQuantityInput = {
+  kind: "provisional_quantity";
+  basis: EstimateOfferReserveBasis;
+  note: string | null;
+  /** What the quantity is established on, printed in the sentence: one line of 3 to 160 characters. */
+  established_on: string;
+  /** What will confirm it, printed in the sentence: one line of 3 to 160 characters. */
+  to_confirm_by: string;
+};
+
+export type EstimateOfferChoiceInput = EstimateOfferReserveInput | EstimateOfferProvisionalQuantityInput;
+
+type Decided = { decided_by: string; decided_at: string };
 
 /** The choice as stored. */
-export type EstimateOfferChoice = EstimateOfferChoiceInput & { decided_by: string; decided_at: string };
+export type EstimateOfferChoice = EstimateOfferChoiceInput & Decided;
+export type EstimateOfferReserve = EstimateOfferReserveInput & Decided;
+export type EstimateOfferProvisionalQuantity = EstimateOfferProvisionalQuantityInput & Decided;
+
+/** Why a provisional quantity's texts cannot be saved once normalized, or null. */
+export function provisionalQuantityTextsError(choice: { established_on?: string | null; to_confirm_by?: string | null }) {
+  if (provisionalTextError(normalizeProvisionalText(choice.established_on)) !== null) {
+    return { path: "established_on", message: PROVISIONAL_QUANTITY_MESSAGES.establishedOn } as const;
+  }
+  if (provisionalTextError(normalizeProvisionalText(choice.to_confirm_by)) !== null) {
+    return { path: "to_confirm_by", message: PROVISIONAL_QUANTITY_MESSAGES.toConfirmBy } as const;
+  }
+  return null;
+}
 
 /** Why the choice cannot be saved (the database's checks, in its order), or null. */
-export function offerChoiceError(choice: { basis: string; code: string; note?: string | null }): string | null {
+export function offerChoiceError(choice: { basis: string; code?: string; note?: string | null }): string | null {
   const length = noteLength(choice.note ?? "");
   if (length === 0) {
     if (choice.code === "other") return OFFER_CHOICE_MESSAGES.otherNote;
@@ -117,28 +162,66 @@ const reserveInputSchema = z.strictObject({
  * What the administration route accepts: the kind, the basis, the code and an optional note. Parsed as stored (note
  * trimmed, null when empty). The author and the time are the server's.
  */
-export const estimateOfferChoiceInputSchema = z.discriminatedUnion("kind", [reserveInputSchema])
+const provisionalTextSchema = (description: string) => z.string().max(REQUEST_NOTE_MAX).meta({
+  description: `${description} Imprimé dans la phrase lue par le client : les blancs et retours à la ligne sont réduits à `
+    + `une espace, puis ${PROVISIONAL_QUANTITY_TEXT.min} à ${PROVISIONAL_QUANTITY_TEXT.max} caractères, sans caractère `
+    + "de contrôle ni caractère invisible.",
+});
+
+const provisionalQuantityInputSchema = z.strictObject({
+  kind: z.literal("provisional_quantity"),
+  basis: reserveInputSchema.shape.basis,
+  note: reserveInputSchema.shape.note,
+  established_on: provisionalTextSchema("Ce sur quoi la quantité est établie."),
+  to_confirm_by: provisionalTextSchema("Ce selon quoi elle sera confirmée."),
+});
+
+export const estimateOfferChoiceInputSchema = z.discriminatedUnion("kind", [reserveInputSchema, provisionalQuantityInputSchema])
   .superRefine((choice, context) => {
     const message = offerChoiceError(choice);
     if (message) context.addIssue({ code: "custom", message, path: ["note"] });
+    if (choice.kind !== "provisional_quantity") return;
+    const textError = provisionalQuantityTextsError(choice);
+    if (textError) context.addIssue({ code: "custom", message: textError.message, path: [textError.path] });
   })
-  .transform((choice): EstimateOfferChoiceInput => normalizeOfferChoice(choice))
+  .transform((choice): EstimateOfferChoiceInput => {
+    const normalized = normalizeOfferChoice(choice);
+    return normalized.kind === "provisional_quantity"
+      ? { ...normalized, established_on: normalizeProvisionalText(normalized.established_on),
+        to_confirm_by: normalizeProvisionalText(normalized.to_confirm_by) }
+      : normalized;
+  })
   .meta({
-    description: "Réserve écrite dans l'offre (TI-682) : une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, "
-      + "le texte « Précisions et limites de prestation » le dit. Base, code et note restent internes.",
+    description: "Choix écrit dans l'offre (TI-682), sur une ligne d'une v3 brouillon. « reserve » : une ligne « Non "
+      + "chiffrée » part non chiffrée, le texte « Précisions et limites de prestation » le dit. « provisional_quantity » : "
+      + "une ligne chiffrée dont la quantité repose sur une hypothèse du métré part avec une quantité provisionnelle, "
+      + "la phrase composée par l'outil doit figurer dans ce texte. Base, code et note restent internes.",
   });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const storedProvisionalTextSchema = z.string().refine((value) => provisionalTextError(value) === null);
+
 /** The stored column, of the shape its CHECK constraint guarantees (estimate_offer_choice_valid). */
-export const estimateOfferChoiceSchema = z.strictObject({
-  kind: z.literal("reserve"),
-  basis: z.enum(ESTIMATE_OFFER_RESERVE_BASIS_VALUES),
-  code: z.enum(ESTIMATE_OFFER_RESERVE_CODE_VALUES),
-  note: z.string().nullable(),
-  decided_by: z.string().regex(UUID),
-  decided_at: z.string().min(1),
-});
+export const estimateOfferChoiceSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("reserve"),
+    basis: z.enum(ESTIMATE_OFFER_RESERVE_BASIS_VALUES),
+    code: z.enum(ESTIMATE_OFFER_RESERVE_CODE_VALUES),
+    note: z.string().nullable(),
+    decided_by: z.string().regex(UUID),
+    decided_at: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("provisional_quantity"),
+    basis: z.enum(ESTIMATE_OFFER_RESERVE_BASIS_VALUES),
+    note: z.string().nullable(),
+    established_on: storedProvisionalTextSchema,
+    to_confirm_by: storedProvisionalTextSchema,
+    decided_by: z.string().regex(UUID),
+    decided_at: z.string().min(1),
+  }),
+]);
 
 /** The answer of the administration route: the line's choice and the new version token. */
 export const estimateOfferChoiceReceiptSchema = z.strictObject({
@@ -171,10 +254,22 @@ type OfferChoiceLine = {
 };
 
 /** The reserve a line leaves with: a readable reserve on a « Non chiffrée » line, else null (still to classify). */
-export function readOfferReserve(line: OfferChoiceLine): EstimateOfferChoice | null {
+export function readOfferReserve(line: OfferChoiceLine): EstimateOfferReserve | null {
   if (line.item_type === "section" || line.pricing_status !== ESTIMATE_OFFER_CHOICE_LINE_STATUS.reserve) return null;
   const choice = readEstimateOfferChoice(line.offer_choice);
   return choice?.kind === "reserve" ? choice : null;
+}
+
+/**
+ * The provisional quantity a line leaves with: a readable one on a priced line (the database clears it when the line
+ * leaves « Chiffrée » or loses its hypothesis marker), else null.
+ */
+export function readOfferProvisionalQuantity(line: OfferChoiceLine): EstimateOfferProvisionalQuantity | null {
+  if (line.item_type === "section" || (line.pricing_status ?? "priced") !== ESTIMATE_OFFER_CHOICE_LINE_STATUS.provisional_quantity) {
+    return null;
+  }
+  const choice = readEstimateOfferChoice(line.offer_choice);
+  return choice?.kind === "provisional_quantity" ? choice : null;
 }
 
 /**
@@ -213,15 +308,23 @@ export function appendOfferReserveParagraph(exclusions: string | null | undefine
   return current.length > 0 ? `${current}\n\n${paragraph}` : paragraph;
 }
 
-/** The reserve's basis and reason in one line, for the issuer (send window) and the internal CSV. */
+/** The choice's basis and reason in one line, for the issuer (send window) and the internal CSV. */
 export function describeOfferChoice(choice: EstimateOfferChoice): string {
   const basis = ESTIMATE_OFFER_RESERVE_BASES[choice.basis];
-  const code = ESTIMATE_OFFER_RESERVE_CODES[choice.code];
-  return choice.note ? `${basis} — ${code} : ${choice.note}` : `${basis} — ${code}`;
+  const reason = choice.kind === "reserve"
+    ? ESTIMATE_OFFER_RESERVE_CODES[choice.code]
+    : `établie sur ${choice.established_on}, à confirmer selon ${choice.to_confirm_by}`;
+  return choice.note ? `${basis} — ${reason} : ${choice.note}` : `${basis} — ${reason}`;
 }
 
 /** CSV « Réserve dans l'offre »: the reserve of a « Non chiffrée » line, empty otherwise. */
 export function formatOfferChoice(line: OfferChoiceLine): string {
   const reserve = readOfferReserve(line);
   return reserve ? `Réserve — ${describeOfferChoice(reserve)}` : "";
+}
+
+/** CSV « Mention provisionnelle »: the provisional quantity of a priced line, empty otherwise. */
+export function formatOfferProvisionalQuantity(line: OfferChoiceLine): string {
+  const provisional = readOfferProvisionalQuantity(line);
+  return provisional ? `Quantité provisionnelle — ${describeOfferChoice(provisional)}` : "";
 }
