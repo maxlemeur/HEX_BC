@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWebVitalPayload,
   describeInteractionTarget,
+  INP_ATTRIBUTION_METRIC_NAME,
   sanitizeInteractionTarget,
   type InteractionTargetElement,
   type WebVitalMetricInput,
@@ -20,6 +21,11 @@ function metric(overrides: Partial<WebVitalMetricInput> = {}): WebVitalMetricInp
     navigationType: "navigate",
     ...overrides,
   };
+}
+
+/** INP as the attribution build reports it, in its own record next to the plain INP. */
+function attributedInp(overrides: Partial<WebVitalMetricInput> = {}): WebVitalMetricInput {
+  return metric({ name: INP_ATTRIBUTION_METRIC_NAME, ...overrides });
 }
 
 function payloadFor(input: WebVitalMetricInput) {
@@ -77,8 +83,26 @@ describe("buildWebVitalPayload", () => {
     expect(payloadFor(metric())).not.toHaveProperty("inp");
   });
 
-  it("maps INP subparts, the longest script and frame style/layout durations", () => {
+  it("keeps the plain INP free of attribution, which travels in its own record", () => {
     const payload = payloadFor(metric({
+      attribution: { inputDelay: 10, processingDuration: 20, presentationDelay: 30 },
+    }));
+
+    expect(payload.name).toBe("INP");
+    expect(payload).not.toHaveProperty("inp");
+  });
+
+  it("names the attribution record apart from the plain INP", () => {
+    const payload = payloadFor(attributedInp({
+      attribution: { inputDelay: 10, processingDuration: 20, presentationDelay: 30 },
+    }));
+
+    expect(payload.name).toBe("INP-attribution");
+    expect(payload.inp).toMatchObject({ inputDelay: 10, processingDuration: 20, presentationDelay: 30 });
+  });
+
+  it("maps INP subparts, the longest script and frame style/layout durations", () => {
+    const payload = payloadFor(attributedInp({
       attribution: {
         interactionType: "pointer",
         interactionTarget: "main>button[data-testid=estimate-save].btn",
@@ -131,7 +155,7 @@ describe("buildWebVitalPayload", () => {
   });
 
   it("reports a cross-origin script without its URL", () => {
-    const payload = payloadFor(metric({
+    const payload = payloadFor(attributedInp({
       attribution: {
         inputDelay: 200,
         processingDuration: 10,
@@ -164,7 +188,7 @@ describe("buildWebVitalPayload", () => {
   });
 
   it("reports only the scheme of a script URL that is not http(s)", () => {
-    const payload = payloadFor(metric({
+    const payload = payloadFor(attributedInp({
       attribution: {
         inputDelay: 1,
         processingDuration: 1,
@@ -181,7 +205,7 @@ describe("buildWebVitalPayload", () => {
   });
 
   it("reports no script when the browser has no long animation frame data", () => {
-    const payload = payloadFor(metric({
+    const payload = payloadFor(attributedInp({
       attribution: { inputDelay: 2, processingDuration: 3, presentationDelay: 4 },
     }));
 
@@ -200,7 +224,7 @@ describe("buildWebVitalPayload", () => {
   });
 
   it("bounds free-form script fields and rejects unknown enum values", () => {
-    const payload = payloadFor(metric({
+    const payload = payloadFor(attributedInp({
       attribution: {
         interactionType: "touch-and-hold",
         inputDelay: Number.NaN,
@@ -241,7 +265,7 @@ describe("buildWebVitalPayload", () => {
   });
 
   it("sanitizes a browser-provided interaction target", () => {
-    const payload = payloadFor(metric({
+    const payload = payloadFor(attributedInp({
       attribution: {
         inputDelay: 1,
         processingDuration: 1,

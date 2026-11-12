@@ -3,6 +3,13 @@ const UUID_SEGMENT_PATTERN =
 
 export const DEFAULT_WEB_VITALS_SAMPLE_RATE = 0.1;
 
+/**
+ * Name of the record carrying INP attribution. The plain INP stays the measure of record:
+ * the attribution build loads later and cannot recover interactions under the 104 ms
+ * event buffer that happened before it subscribed, so its value can be lower.
+ */
+export const INP_ATTRIBUTION_METRIC_NAME = "INP-attribution";
+
 export type WebVitalRating = "good" | "needs-improvement" | "poor";
 
 const SCRIPT_INVOKER_TYPES = [
@@ -106,7 +113,7 @@ export type WebVitalPayload = {
   route: string;
   viewport: "mobile" | "desktop";
   buildId: string | null;
-  /** Present for INP only, when the attribution build measured it. */
+  /** Present on the `INP-attribution` record only, never on the plain INP. */
   inp?: InpAttributionPayload;
 };
 
@@ -327,7 +334,7 @@ export function buildWebVitalPayload(input: {
 }): WebVitalPayload {
   const { metric } = input;
   const inp =
-    metric.name === "INP" && metric.attribution
+    metric.name === INP_ATTRIBUTION_METRIC_NAME && metric.attribution
       ? { inp: buildInpAttribution(metric.attribution, input.origin) }
       : {};
   return {

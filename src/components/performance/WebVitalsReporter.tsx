@@ -6,6 +6,7 @@ import { useReportWebVitals } from "next/web-vitals";
 import {
   buildWebVitalPayload,
   describeInteractionTarget,
+  INP_ATTRIBUTION_METRIC_NAME,
   parseWebVitalsSampleRate,
   shouldSampleWebVitals,
   type WebVitalMetricInput,
@@ -15,9 +16,7 @@ type ReportWebVitalsCallback = Parameters<typeof useReportWebVitals>[0];
 
 // One attribution INP subscription per page: web-vitals' onINP cannot be removed, so a
 // remount of the dashboard layout must not add a second one.
-let inpAttribution: "idle" | "loading" | "ready" | "failed" = "idle";
-// Plain INP received while the attribution build loads; sent only if that load fails.
-let pendingPlainInp: WebVitalMetricInput | null = null;
+let inpAttributionRequested = false;
 
 function sendWebVital(endpoint: string, body: string) {
   if (navigator.sendBeacon?.(endpoint, body)) {
@@ -68,36 +67,28 @@ export function WebVitalsReporter({
     [buildId, endpoint, isSampled]
   );
 
+  // Every plain metric is sent, INP included: it is the measure of record.
   const reportWebVital = useCallback<ReportWebVitalsCallback>(
-    (metric) => {
-      // INP comes from the attribution build below; this one is a fallback for its failure.
-      if (metric.name === "INP" && inpAttribution !== "failed") {
-        if (inpAttribution === "loading") pendingPlainInp = metric;
-        return;
-      }
-      reportMetric(metric);
-    },
+    (metric) => reportMetric(metric),
     [reportMetric]
   );
 
   useEffect(() => {
-    if (!endpoint || !isSampled() || inpAttribution !== "idle") return;
-    inpAttribution = "loading";
+    if (!endpoint || !isSampled() || inpAttributionRequested) return;
+    inpAttributionRequested = true;
     // Loaded on demand: unsampled sessions and builds without an endpoint never download it.
+    // It subscribes late and only recovers buffered interactions of 104 ms or more, so its
+    // value can miss a faster one the plain INP saw: it travels in its own record, to
+    // explain slow interactions, and never replaces the plain INP. A failed load only
+    // loses the attribution.
     import("next/dist/compiled/web-vitals-attribution")
       .then(({ onINP }) => {
-        onINP(reportMetric, { reportSoftNavs: true, generateTarget: describeTargetNode });
-        inpAttribution = "ready";
+        onINP(
+          (metric) => reportMetric({ ...metric, name: INP_ATTRIBUTION_METRIC_NAME }),
+          { reportSoftNavs: true, generateTarget: describeTargetNode }
+        );
       })
-      .catch(() => {
-        inpAttribution = "failed";
-      })
-      .finally(() => {
-        // Once loaded, the build reads buffered event entries (104 ms or more): a slow
-        // interaction behind this plain INP is reported again, with its attribution.
-        if (inpAttribution === "failed" && pendingPlainInp) reportMetric(pendingPlainInp);
-        pendingPlainInp = null;
-      });
+      .catch(() => undefined);
   }, [endpoint, isSampled, reportMetric]);
 
   useReportWebVitals(reportWebVital);

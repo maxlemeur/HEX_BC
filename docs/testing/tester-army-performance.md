@@ -66,9 +66,12 @@ d'invocation, chemin du fichier sans origine ni paramètres, fonction, durée et
 style/layout forcés. Elles disent pourquoi une interaction est lente ; la durée
 d'événement reste un diagnostic de labo, pas l'INP de terrain.
 
-Sur le terrain, `WebVitalsReporter` envoie l'INP avec son attribution
-(`inp` : sous-parties délai d'entrée, traitement et présentation, script le plus
-long, style et layout des frames, cible anonymisée). Le script n'est identifié
+Sur le terrain, `WebVitalsReporter` envoie l'INP tel quel, valeur de référence,
+puis un enregistrement distinct `INP-attribution` qui l'explique (`inp` :
+sous-parties délai d'entrée, traitement et présentation, script le plus long,
+style et layout des frames, cible anonymisée). Chargée après coup, l'attribution
+ne retrouve que les interactions de 104 ms ou plus : sa valeur peut être plus
+basse que l'INP et ne le remplace pas. Le script n'est identifié
 par son chemin que s'il vient de l'origine de l'application. Le sélecteur de
 cible ne garde que les balises, `data-testid` et deux classes stables par
 élément, sur quatre éléments et 160 caractères au plus, et devient `null` s'il
