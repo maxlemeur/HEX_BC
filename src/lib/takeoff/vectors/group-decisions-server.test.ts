@@ -66,7 +66,7 @@ function fakeRender(overrides: Partial<GroupDecisionsRender> = {}) {
   const render: GroupDecisionsRender = {
     legend: async () => {
       calls.legend += 1;
-      return { image: IMAGE, issue: null, duration_ms: 4 };
+      return { image: IMAGE, issue: null, dropped_images: 0, duration_ms: 4 };
     },
     sheets: async (plans) => {
       calls.sheets.push(plans.length);
@@ -192,7 +192,7 @@ describe("Decisions call loop (group-decisions-server.ts classifyVectorGroups)",
     const { decide, seen } = fakeDecide(() => ({ value: "EU", confidence: 0.9 }));
     const noCanvas = fakeRender({ sheets: async (plans) => ({ images: plans.map(() => null), issue: "canvas_unavailable", render_ms: plans.map(() => null), duration_ms: 1 }) });
     await expect(run(page(5), { decide, render: noCanvas.render }).outcome).resolves.toMatchObject({ calls: [], stop: { reason: "canvas_unavailable" }, candidates: 5 });
-    const brokenLegend = fakeRender({ legend: async () => ({ image: null, issue: "render_failed", duration_ms: 1 }) });
+    const brokenLegend = fakeRender({ legend: async () => ({ image: null, issue: "render_failed", dropped_images: 0, duration_ms: 1 }) });
     await expect(run(page(5), { decide, render: brokenLegend.render }).outcome).resolves.toMatchObject({ calls: [], stop: { reason: "render_failed" } });
     const throwing = fakeRender({ sheets: async () => {
       throw new Error("Fictional render crash.");

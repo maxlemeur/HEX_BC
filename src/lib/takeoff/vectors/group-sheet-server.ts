@@ -30,7 +30,8 @@ export type GroupSheetsResult = {
   render_ms: Array<number | null>;
   duration_ms: number;
 };
-export type GroupLegendResult = { image: GroupImage | null; issue: GroupRenderIssue | null; duration_ms: number };
+/** `dropped_images`: embedded images of the page the legend render lacks (too large to read or undecodable), 0 without an image. */
+export type GroupLegendResult = { image: GroupImage | null; issue: GroupRenderIssue | null; dropped_images: number; duration_ms: number };
 
 const MARK = "__GROUP_SHEET__";
 
@@ -214,9 +215,10 @@ export async function renderLegendExtract(bytes: Uint8Array, page: number, crop:
   const target = rendered.pages.find((entry) => entry.page === page);
   const image = target?.image ?? null;
   if (image) {
-    return { image: { mimeType: image.mimeType, data: image.data, width: image.width, height: image.height, bytes: image.bytes }, issue: null, duration_ms: rendered.durationMs };
+    return { image: { mimeType: image.mimeType, data: image.data, width: image.width, height: image.height, bytes: image.bytes }, issue: null,
+      dropped_images: target?.droppedImages ?? 0, duration_ms: rendered.durationMs };
   }
   const issue: GroupRenderIssue = rendered.timedOut ? "timeout"
     : target?.imageIssue === "canvas_unavailable" ? "canvas_unavailable" : target?.imageIssue === "too_large" ? "too_large" : "render_failed";
-  return { image: null, issue, duration_ms: rendered.durationMs };
+  return { image: null, issue, dropped_images: 0, duration_ms: rendered.durationMs };
 }

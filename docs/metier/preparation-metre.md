@@ -238,7 +238,10 @@ Une page n'est proposée à l'écart que si le type répondu est une coupe, une
 façade, un plan de toiture, un plan de masse ou une pièce écrite, avec une
 confiance d'au moins 0,8, une réponse complète et une vignette lisible. Sinon elle
 reste retenue « À vérifier » (confiance faible, refus, réponse partielle, échec,
-vignette absente ou blanche, plafond de jetons ou durée atteints).
+vignette absente ou blanche, plafond de jetons ou durée atteints). Une vignette à
+laquelle manque une image du PDF (plus de 8 mégapixels, jamais décodée, ou
+illisible) garde les textes et les tracés de la page : elle est envoyée, mais la
+page reste « À vérifier ».
 
 La proposition s'affiche à part. Seule « Accepter le tri » écrit `pages` et
 `active` : les pages retenues, toutes les pages par la liste vide, ou la pièce

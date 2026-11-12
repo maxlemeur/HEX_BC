@@ -23,7 +23,9 @@ const SAMPLE_TEXT_CHARS = 12000;
  * First-pages sample on the shared page reader, with the historical intake
  * bounds: text of pages 1-2 up to 12 000 characters in total (more than
  * 20 000 text items fails the document), and a first-page JPEG only when the
- * text is too short to classify (scanned PDF).
+ * text is too short to classify (scanned PDF). A raster above the decoded
+ * bound, or undecodable, is missing from that JPEG (TI-715): it is said in
+ * the issues, and a JPEG left white by it is not sent.
  */
 async function samplePdf(bytes: ArrayBuffer): Promise<IntakeDecisionEvidence> {
   const fallback: IntakeDecisionEvidence = {
@@ -49,8 +51,10 @@ async function samplePdf(bytes: ArrayBuffer): Promise<IntakeDecisionEvidence> {
   }
   const result: IntakeDecisionEvidence = {
     text: rendered.pages.map((page) => page.text).join(""),
+    // A white picture of a scan whose raster is too large to read carries nothing.
     images: rendered.status === "complete"
-      ? rendered.pages.flatMap((page) => page.image ? [{ mimeType: page.image.mimeType, data: page.image.data }] : [])
+      ? rendered.pages.flatMap((page) => page.image && !(page.image.blank && page.droppedImages > 0)
+        ? [{ mimeType: page.image.mimeType, data: page.image.data }] : [])
       : [],
     sampledPages: rendered.pages.map((page) => page.page),
     ...(rendered.pageCount === null ? {} : { pageCount: rendered.pageCount }),
@@ -63,6 +67,8 @@ async function samplePdf(bytes: ArrayBuffer): Promise<IntakeDecisionEvidence> {
   if (rendered.pages.some((page) => page.imageIssue === "render_failed")) return result;
   if ((rendered.pageCount ?? 0) > result.sampledPages.length)
     result.issues.push("Decisions consulte un échantillon des premières pages : catégorie à confirmer.");
+  if (rendered.pages.some((page) => page.image !== null && page.droppedImages > 0))
+    result.issues.push("L’aperçu du PDF omet une image trop lourde ou illisible : la catégorie reste à confirmer.");
   if (!result.text.trim() && !result.images.length)
     result.issues.push("Le PDF n’a pas fourni de contenu lisible : le classement reste à vérifier.");
   return result;
