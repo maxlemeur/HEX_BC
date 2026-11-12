@@ -32,4 +32,15 @@ describe("the composition of a DPGF line in the reconciliation", () => {
     ]);
     expect(within(note).getByRole("status")).toHaveTextContent("Peut-être compté deux fois, à vérifier : 2,5 m dessinés");
   });
+
+  it("says what the line keeps while its row is decided out of scope (TI-696)", () => {
+    // Fed, it would hold 10 (the earlier page read again); out of scope, its lines are skipped and it keeps 12.
+    const outOfScope = { ...row, takeoff_quantity: 10, quantity_unit: "u", applied_decision: { decision: "out_of_scope" },
+      composition: { ...row.composition!, earlier_quantity: 0, total_quantity: 10, unfed_quantity: 12, unfed_protective: 0,
+        double_counted: [] } } as unknown as TakeoffDpgfComparisonRow;
+    render(<DpgfCompositionNote row={outOfScope} />);
+    expect(screen.getByRole("group", { name: "Composition de EF cuivre DN 22" }))
+      .toHaveTextContent("Hors périmètre : tant que ce métré ne l’alimente pas, la ligne garde 12 u des autres métrés ; "
+        + "le total ci-dessus est celui qu’elle tiendrait alimentée.");
+  });
 });

@@ -40,6 +40,13 @@ export function DpgfCompositionNote({ row }: Readonly<{ row: TakeoffDpgfComparis
         ))}
         {row.takeoff_quantity === null ? null : <li>Ce métré : {quantityFormat.format(row.takeoff_quantity)} {unit}</li>}
       </ul>
+      {row.applied_decision?.decision === "out_of_scope" ? (
+        // TI-696: out of scope, its lines are skipped and read no page again: the line keeps the other takeoffs' parts.
+        <p className="text-xs text-foreground-secondary">
+          Hors périmètre : tant que ce métré ne l’alimente pas, la ligne garde {quantityFormat.format(composition.unfed_quantity
+            ?? composition.earlier_quantity)} {unit} des autres métrés ; le total ci-dessus est celui qu’elle tiendrait alimentée.
+        </p>
+      ) : null}
       {composition.double_counted.length > 0 ? (
         <p role="status" className="text-xs font-medium text-warning">
           Peut-être compté deux fois, à vérifier : {composition.double_counted.map((entry) => `${quantityFormat.format(entry.overlap_m)} m`).join(", ")} dessinés
