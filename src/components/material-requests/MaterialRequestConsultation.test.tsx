@@ -54,6 +54,9 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  *     which consultations exist.
  * 17. a quote is retained while one of its lines is a draft (what is bought would not be what was checked): at the
  *     gesture, or at its turn in the queue after the line was reopened; or the server's refusal is not said.
+ * 18. after a refused price (the field shows 20 €, 10 € is saved), choosing « pour 100 » saves the saved 10 € for
+ *     100 and releases « Retenir ce devis », which would apply 10 € les 100 while the field shows 20 €; or a lot
+ *     change sends something while the price shown cannot be read.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -846,6 +849,229 @@ describe("consultation of suppliers", () => {
       await screen.findByText("Non enregistré : La ligne 2 n’est pas validée : validez-la avant de retenir ce devis."),
     ).toBeVisible();
     expect(within(quoteCard("Négoce Alpha")).getByText("Reçu")).toBeVisible();
+  });
+
+  it("sends the price shown with a new lot after a refused save, and holds the retain until it is saved (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    let patches = 0;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        patches += 1;
+        if (patches === 1) return { status: 503, error: { code: "UNAVAILABLE", message: "Le service est indisponible, réessayez." } };
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+    expect(retain).toBeEnabled();
+
+    await user.clear(price);
+    await user.type(price, "20,00");
+    await user.tab();
+    expect(await within(card).findByText("Non enregistré : Le service est indisponible, réessayez.")).toBeVisible();
+    // The quote as the server holds it is read again (10 €); the field keeps the 20 € typed.
+    await waitFor(() => expect(reads(QUOTES).length).toBeGreaterThan(1));
+    expect(price).toHaveValue("20,00");
+    expect(retain).toBeDisabled();
+
+    await user.selectOptions(lot, "100");
+
+    // The price shown goes with the lot, never the 10 € saved before.
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 2000, price_per: 100 }] });
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(price).toHaveValue("20,00");
+    expect(lot).toHaveValue("100");
+    expect(within(card).queryByText(/^Non enregistré/)).not.toBeInTheDocument();
+  });
+
+  it("holds a lot change while the price shown cannot be read, and sends both once it is corrected (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "20,0x");
+    await user.selectOptions(within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" }), "10");
+    expect(writes()).toEqual([]);
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 1 n’est pas lisible.");
+
+    await user.clear(price);
+    await user.type(price, "20,00");
+    await user.tab();
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `${QUOTES}/${QUOTE_A}`,
+          body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 2000, price_per: 10 }] },
+        },
+      ]),
+    );
+    await waitFor(() => expect(retain).toBeEnabled());
+  });
+
+  it("sends a lot chosen while the price could not be read, when the price is corrected back to the saved one (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "10,0x");
+    await user.selectOptions(lot, "100");
+    await user.clear(price);
+    await user.type(price, "10,00");
+    await user.tab();
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `${QUOTES}/${QUOTE_A}`,
+          body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 100 }] },
+        },
+      ]),
+    );
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(lot).toHaveValue("100");
+  });
+
+  it("keeps a lot chosen while an earlier price save travels, and sends it with the corrected price (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    let releaseFirst: () => void = () => undefined;
+    let patches = 0;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: async (body) => {
+        patches += 1;
+        if (patches === 1) await new Promise<void>((resolve) => (releaseFirst = resolve));
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "20,00");
+    await user.tab();
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    await user.clear(price);
+    await user.type(price, "30,0x");
+    await user.selectOptions(lot, "100");
+    releaseFirst();
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" })).toHaveAccessibleDescription(
+      "Le prix de la ligne 1 n’est pas lisible.",
+    ));
+    expect(lot).toHaveValue("100");
+
+    await user.clear(price);
+    await user.type(price, "30,00");
+    await user.tab();
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 3000, price_per: 100 }] });
+  });
+
+  it("gives back the saved lot with the saved price when an unreadable price is abandoned with Escape (18)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [
+        { line_id: LINE_A, unit_price_ht_cents: 1000, price_per: 1 },
+        { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 },
+      ],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const price = within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    const lot = within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" });
+
+    await user.clear(price);
+    await user.type(price, "10,0x");
+    await user.selectOptions(lot, "100");
+    await user.click(price);
+    await user.keyboard("{Escape}");
+    expect(price).toHaveValue("10,00");
+    expect(lot).toHaveValue("1");
+    await waitFor(() => expect(retain).toBeEnabled());
+    await user.tab();
+    expect(writes()).toEqual([]);
   });
 
   it("saves a typed price in cents, keeps one the server refuses, and sends nothing unreadable (6, 7)", async () => {

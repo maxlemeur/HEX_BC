@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -99,6 +99,22 @@ type MappingRuleEditorErrors = Partial<{
   setCategoryId: string;
   applyAssemblyId: string;
 }>;
+
+// Each field that can be refused, in the order of the form: after a refused submit, focus goes to
+// the first refused one so that its reason, linked by aria-describedby, is read.
+const ERROR_FIELD_IDS: Record<keyof MappingRuleEditorErrors, string> = {
+  name: "mapping-rule-name",
+  matchPattern: "mapping-rule-match-pattern",
+  priority: "mapping-rule-priority",
+  renameDesignation: "mapping-rule-action-rename",
+  setPriceCents: "mapping-rule-action-price",
+  setCategoryId: "mapping-rule-action-category",
+  applyAssemblyId: "mapping-rule-action-assembly",
+};
+
+function errorIdOf(key: keyof MappingRuleEditorErrors) {
+  return `${ERROR_FIELD_IDS[key]}-error`;
+}
 
 type PreviewResult = {
   state: "idle" | "match" | "no-match" | "invalid";
@@ -389,6 +405,14 @@ export function MappingRuleEditor({
     toInitialFormState(mode, initialRule, defaultPriority)
   );
   const [errors, setErrors] = useState<MappingRuleEditorErrors>({});
+  const focusFirstError = useRef(false);
+
+  useEffect(() => {
+    if (!focusFirstError.current) return;
+    focusFirstError.current = false;
+    const first = (Object.keys(ERROR_FIELD_IDS) as Array<keyof MappingRuleEditorErrors>).find((key) => errors[key]);
+    if (first) document.getElementById(ERROR_FIELD_IDS[first])?.focus();
+  }, [errors]);
 
   const previewResult = useMemo(
     () => evaluatePreview(state.matchType, state.matchPattern, state.previewDesignation),
@@ -423,6 +447,7 @@ export function MappingRuleEditor({
     });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
+      focusFirstError.current = true;
       return;
     }
 
@@ -472,6 +497,7 @@ export function MappingRuleEditor({
             <Input
               id="mapping-rule-name"
               aria-invalid={errors.name ? true : undefined}
+              aria-describedby={errors.name ? errorIdOf("name") : undefined}
               value={state.name}
               onChange={(event) => {
                 setField("name", event.target.value);
@@ -481,7 +507,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.name ? (
-              <p className="mt-1 text-xs text-danger">{errors.name}</p>
+              <p id={errorIdOf("name")} className="mt-1 text-xs text-danger">{errors.name}</p>
             ) : null}
           </div>
 
@@ -516,6 +542,7 @@ export function MappingRuleEditor({
             <Input
               id="mapping-rule-match-pattern"
               aria-invalid={errors.matchPattern ? true : undefined}
+              aria-describedby={errors.matchPattern ? errorIdOf("matchPattern") : undefined}
               value={state.matchPattern}
               onChange={(event) => {
                 setField("matchPattern", event.target.value);
@@ -527,7 +554,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.matchPattern ? (
-              <p className="mt-1 text-xs text-danger">{errors.matchPattern}</p>
+              <p id={errorIdOf("matchPattern")} className="mt-1 text-xs text-danger">{errors.matchPattern}</p>
             ) : null}
           </div>
         </div>
@@ -582,6 +609,7 @@ export function MappingRuleEditor({
               step={1}
               inputMode="numeric"
               aria-invalid={errors.priority ? true : undefined}
+              aria-describedby={errors.priority ? errorIdOf("priority") : undefined}
               value={state.priority}
               onChange={(event) => {
                 setField("priority", event.target.value);
@@ -590,7 +618,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.priority ? (
-              <p className="mt-1 text-xs text-danger">{errors.priority}</p>
+              <p id={errorIdOf("priority")} className="mt-1 text-xs text-danger">{errors.priority}</p>
             ) : null}
           </div>
         </div>
@@ -603,6 +631,7 @@ export function MappingRuleEditor({
             <Input
               id="mapping-rule-action-rename"
               aria-invalid={errors.renameDesignation ? true : undefined}
+              aria-describedby={errors.renameDesignation ? errorIdOf("renameDesignation") : undefined}
               value={state.renameDesignation}
               onChange={(event) => {
                 setField("renameDesignation", event.target.value);
@@ -612,7 +641,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.renameDesignation ? (
-              <p className="mt-1 text-xs text-danger">{errors.renameDesignation}</p>
+              <p id={errorIdOf("renameDesignation")} className="mt-1 text-xs text-danger">{errors.renameDesignation}</p>
             ) : null}
           </div>
         ) : null}
@@ -629,6 +658,7 @@ export function MappingRuleEditor({
               step={1}
               inputMode="numeric"
               aria-invalid={errors.setPriceCents ? true : undefined}
+              aria-describedby={errors.setPriceCents ? errorIdOf("setPriceCents") : undefined}
               value={state.setPriceCents}
               onChange={(event) => {
                 setField("setPriceCents", event.target.value);
@@ -638,7 +668,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.setPriceCents ? (
-              <p className="mt-1 text-xs text-danger">{errors.setPriceCents}</p>
+              <p id={errorIdOf("setPriceCents")} className="mt-1 text-xs text-danger">{errors.setPriceCents}</p>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
                 1890 = 18,90 dans la devise du devis.
@@ -655,6 +685,7 @@ export function MappingRuleEditor({
             <Input
               id="mapping-rule-action-category"
               aria-invalid={errors.setCategoryId ? true : undefined}
+              aria-describedby={errors.setCategoryId ? errorIdOf("setCategoryId") : undefined}
               value={state.setCategoryId}
               onChange={(event) => {
                 setField("setCategoryId", event.target.value);
@@ -664,7 +695,7 @@ export function MappingRuleEditor({
               disabled={isSubmitting}
             />
             {errors.setCategoryId ? (
-              <p className="mt-1 text-xs text-danger">{errors.setCategoryId}</p>
+              <p id={errorIdOf("setCategoryId")} className="mt-1 text-xs text-danger">{errors.setCategoryId}</p>
             ) : null}
           </div>
         ) : null}
@@ -677,6 +708,7 @@ export function MappingRuleEditor({
             <NativeSelect
               id="mapping-rule-action-assembly"
               aria-invalid={errors.applyAssemblyId ? true : undefined}
+              aria-describedby={errors.applyAssemblyId ? errorIdOf("applyAssemblyId") : undefined}
               value={state.applyAssemblyId}
               onChange={(event) => {
                 setField("applyAssemblyId", event.target.value);
@@ -703,7 +735,7 @@ export function MappingRuleEditor({
               ))}
             </NativeSelect>
             {errors.applyAssemblyId ? (
-              <p className="mt-1 text-xs text-danger">{errors.applyAssemblyId}</p>
+              <p id={errorIdOf("applyAssemblyId")} className="mt-1 text-xs text-danger">{errors.applyAssemblyId}</p>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
                 Chargé depuis la bibliothèque d&apos;ouvrages de l&apos;organisation (limite 100).

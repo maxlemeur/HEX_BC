@@ -17,9 +17,11 @@ import * as closeRoute from "@/app/api/affaires/[projectId]/material-requests/[r
 import * as retainRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/retain/route";
 import * as quoteRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/route";
 import * as quotesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/route";
+import { buildConsultationMessage, type ConsultationLine } from "@/lib/material-requests/consultation-message";
 import type { MaterialRequestFile } from "@/lib/material-requests/contracts";
 import {
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
+  MATERIAL_REQUEST_QUOTE_MESSAGE_MAX,
   type MaterialRequestQuote,
   type MaterialRequestQuoteRetained,
 } from "@/lib/material-requests/quote-contracts";
@@ -506,11 +508,34 @@ describe("recording a quote", () => {
     expect(fake.rpcCalls).toEqual([]);
   });
 
+  it.each<[string, boolean]>([
+    ["with references", true],
+    ["without references", false],
+  ])("records the message of 300 lines at their field limits, %s", async (_label, withReferences) => {
+    // (Codex review of #279) 300 ordinary lines already made 35 000 characters, above the former cap of 20 000. The worst
+    // case: the technician's words (500), unit (20), size (80), material and precision (120 each), a reference at the
+    // supplier (255), the largest quantity.
+    const worst = (position: number): ConsultationLine => ({
+      position, quantity: 999_999.999, unit: "u".repeat(20), designation: null, dimension: "d".repeat(80),
+      material: "m".repeat(120), precision: "p".repeat(120), originalText: `${"o".repeat(495)} ${String(position).padStart(4, "0")}`,
+      reference: null, supplierSku: withReferences ? null : "s".repeat(255),
+    });
+    const message = buildConsultationMessage({
+      affaireName: "a".repeat(1000), lines: Array.from({ length: 300 }, (_, index) => worst(index + 1)), withReferences, deliveryPlace: "site",
+    });
+    expect(message.length).toBeGreaterThan(250_000);
+    expect(message.length).toBeLessThanOrEqual(MATERIAL_REQUEST_QUOTE_MESSAGE_MAX);
+    const fake = seed(OWNER, "engineer");
+    const { status } = await call(quotesRoute.POST, "POST", inRequest, createBody({ message }));
+    expect(status).toBe(201);
+    expect(fake.rpcArgs.find((entry) => entry.name === "create_material_request_quote")?.args.p_message).toBe(message);
+  });
+
   it.each<[string, FakeRow]>([
     ["no line", { line_ids: [] }],
     ["a line twice", { line_ids: [LINE_VALVE, LINE_VALVE] }],
     ["a blank message", { message: "   " }],
-    ["a message of 20 001 characters", { message: "x".repeat(20_001) }],
+    ["a message of 262 145 characters", { message: "x".repeat(262_145) }],
     ["no variant", { with_references: undefined }],
   ])("refuses a quote with %s before the database is called", async (_label, extra) => {
     const fake = seed(OWNER, "engineer");

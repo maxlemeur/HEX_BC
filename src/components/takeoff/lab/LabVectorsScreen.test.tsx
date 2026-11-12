@@ -127,6 +127,23 @@ afterEach(() => {
 });
 
 describe("LabVectorsScreen", () => {
+  // MWG « Error Text » / « Error Link »: a refused campaign name says why next to the field, not by
+  // its red border alone, and the field lists that reason in aria-describedby only while refused.
+  it("shows and links the reason a campaign name is refused", async () => {
+    render(<LabVectorsScreen />);
+    await waitFor(() => expect(vectorsMock).toHaveBeenCalledWith(DOC_A, 1, null));
+    const campaign = screen.getByLabelText("Campagne");
+    const reason = "Nom de campagne : lettres minuscules, chiffres et tirets.";
+
+    fireEvent.change(campaign, { target: { value: "Campagne A" } });
+    expect(campaign).toHaveAttribute("aria-invalid", "true");
+    expect(campaign).toHaveAccessibleDescription(reason);
+
+    fireEvent.change(campaign, { target: { value: "campagne-a" } });
+    expect(campaign).not.toHaveAttribute("aria-invalid");
+    expect(campaign).toHaveAccessibleDescription("");
+  });
+
   it("shows a run from the history only on the selection it was clicked on", async () => {
     const answer = deferred<LabRun>();
     runMock.mockReturnValueOnce(answer.promise).mockResolvedValueOnce(RUN_A);

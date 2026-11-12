@@ -195,10 +195,18 @@ function businessSnapshot(estimate: ArmyEstimate) {
       await column(sourceHeaders[1]).selectOption({ value: "designation" });
       await expect(nextMapping).toBeDisabled();
       await expect(sourceRow(sourceHeaders[1])).toContainText("Conflit");
+      // The conflicting select names its reason to screen readers (aria-describedby), only while in conflict.
+      const conflictReason = (label: string) => browser.evaluate((name) => {
+        const select = [...document.querySelectorAll("select")].find((node) => node.getAttribute("aria-label") === name);
+        const ids = (select?.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+        return ids.map((id) => document.getElementById(id)?.textContent ?? `<missing #${id}>`).join(" ").trim();
+      }, label);
+      await expect.poll(() => conflictReason(`Champ cible pour ${sourceHeaders[1]}`)).toContain(`aussi assigné à ${sourceHeaders[0]}`);
       for (const [header, target] of Object.entries(mapping)) {
         await column(header).selectOption({ value: target });
       }
       await expect(nextMapping).toBeEnabled();
+      await expect.poll(() => conflictReason(`Champ cible pour ${sourceHeaders[1]}`)).toBe("");
       await nextMapping.tap();
 
       const preview = await apiRequest<Envelope<Preview>>(browser, "POST", "/api/mappings", {
