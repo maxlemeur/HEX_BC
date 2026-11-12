@@ -765,8 +765,15 @@ armyTest("TKD04 a DPGF line two takeoffs of two pages feed holds their sum, show
   options, async (ui) => {
     const { browser, army } = ui;
     const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY cumul DPGF" }, army);
-    const { versionId, sectionId } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
+    const { versionId, sectionId, target: helper } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
       { title: "EF cuivre DN 22", reference: 20 });
+    // The client export refuses a priced line without a unit (ESTIMATE_V3_UNIT_REQUIRED): the line that gives the section
+    // gets one.
+    await sql(`begin;
+select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+update public.estimate_items set unit_code = 'u' where id = '${helper.id}' and version_id = '${versionId}';
+select public.estimate_v3_complete_entry_for_writer('${versionId}', array['${helper.id}'::uuid]);
+commit;`);
     const scoped = await localTakeoffFixture(army, { projectId: base.projectId, versionId });
     const plan = randomUUID();
     const seed = (level: "B" | "C", quantity: number, page: number) => scoped.seed(level, [{ designation: "EF cuivre DN 22", quantity,

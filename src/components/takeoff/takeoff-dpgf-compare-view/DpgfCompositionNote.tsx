@@ -43,7 +43,7 @@ export function DpgfCompositionNote({ row }: Readonly<{ row: TakeoffDpgfComparis
       {composition.double_counted.length > 0 ? (
         <p role="status" className="text-xs font-medium text-warning">
           Peut-être compté deux fois, à vérifier : {composition.double_counted.map((entry) => `${quantityFormat.format(entry.overlap_m)} m`).join(", ")} dessinés
-          aussi dans une ligne d’un autre métré que cette ligne DPGF garde.
+          aussi dans une ligne d’un autre métré que cette ligne DPGF garde, ou gardera si les deux mesures de sa page sont gardées.
         </p>
       ) : null}
     </div>
