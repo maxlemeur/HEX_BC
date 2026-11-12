@@ -67,7 +67,15 @@ insert into da_cases values
   -- 12: a version 1 policy that cannot be split, one of its pages replaced.
   (12, 'EF cuivre DN 22', 'ml', 10),
   -- 13 and 14: a version 1 policy read through a forged composition, or none.
-  (13, 'EF cuivre DN 22', 'ml', 20), (14, 'EF cuivre DN 22', 'ml', 20);
+  (13, 'EF cuivre DN 22', 'ml', 20), (14, 'EF cuivre DN 22', 'ml', 20),
+  -- 15: an hypothesis of the first takeoff, a measure of the second: the target still rests on the hypothesis.
+  (15, 'EF cuivre DN 22', 'ml', 5),
+  -- 16: the page of the hypothesis replaced by a relaunch that no longer feeds the target: nothing of it remains.
+  (16, 'EF cuivre DN 22', 'ml', 5),
+  -- 17: an hypothesis in each takeoff.
+  (17, 'EF cuivre DN 22', 'ml', 5),
+  -- 18: a replaced page whose relaunch writes a line of the target's title onto it, outside the reconciliation.
+  (18, 'EF cuivre DN 22', 'ml', 5);
 grant select on da_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -130,7 +138,15 @@ insert into da_items values
   (11, 1, 1, 'EF cuivre DN 22', 2, 'ml', 1), (11, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (11, 3, 1, 'EF cuivre DN 22', 4, 'ml', 3),
   (12, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (12, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (12, 2, 1, 'EF cuivre DN 22', 8, 'ml', 1),
   (13, 1, 1, 'EF cuivre DN 22', 12.4, 'ml', 1), (13, 2, 1, 'EF cuivre DN 22', 10.2, 'ml', 2),
-  (14, 1, 1, 'EF cuivre DN 22', 12.4, 'ml', 1), (14, 2, 1, 'EF cuivre DN 22', 10.2, 'ml', 2);
+  (14, 1, 1, 'EF cuivre DN 22', 12.4, 'ml', 1), (14, 2, 1, 'EF cuivre DN 22', 10.2, 'ml', 2),
+  (15, 1, 1, 'EF cuivre DN 22', 8, 'ml', 1), (15, 2, 1, 'EF cuivre DN 22', 4, 'ml', 2),
+  (16, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (16, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (16, 2, 1, 'Vanne d''arrêt', 3, 'u', 1),
+  (17, 1, 1, 'EF cuivre DN 22', 8, 'ml', 1), (17, 2, 1, 'EF cuivre DN 22', 4, 'ml', 2),
+  (18, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (18, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (18, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1);
+-- The lines whose quantity is an hypothesis its author entered (the provision marker's sources).
+create temporary table da_hypotheses (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
+  on commit drop;
+insert into da_hypotheses values (15, 1, 1), (16, 1, 1), (17, 1, 1), (17, 2, 1);
 
 create or replace function pg_temp.da_item(p_case integer, p_job integer, p_line integer)
 returns uuid language sql immutable as $$ select pg_temp.da_id(p_case * 1000 + p_job * 100 + p_line) $$;
@@ -156,7 +172,12 @@ returns void language sql as $$
     'plan-fictif.pdf', item.page,
     jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', current_setting('test.plan'))),
     '[]'::jsonb, now() + item.line_no * interval '1 second'
-  from da_items item where item.case_no = p_case and item.job_no = p_job
+  from da_items item where item.case_no = p_case and item.job_no = p_job;
+  update public.takeoff_items item set quantity_entered_by = pg_temp.da_id(1), quantity_entered_at = now(),
+    quantity_entry_category = 'hypothesis', quantity_entry_note = 'Quantité supposée, à confirmer au relevé (fictif).'
+  from da_hypotheses hypothesis
+  where hypothesis.case_no = p_case and hypothesis.job_no = p_job
+    and item.id = pg_temp.da_item(hypothesis.case_no, hypothesis.job_no, hypothesis.line_no);
 $$;
 
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
@@ -223,7 +244,8 @@ $$;
 grant execute on function pg_temp.da_decide(integer, text, text, integer[]) to authenticated;
 
 -- The service permit: the target the job's lines of its title feed, with what each line brings (no printed surface
--- here), and the compositions the service read for version 1 policies (p_compositions).
+-- here), and the compositions the service read for version 1 policies (p_compositions). As the service builds it
+-- (buildDpgfApplyQuantityPolicy), the target's source_metadata is the one it holds, its DPGF reference restated.
 create or replace function pg_temp.da_permit(p_case integer, p_job integer, p_token text, p_compositions jsonb default null)
 returns void language sql as $$
   insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
@@ -235,7 +257,8 @@ returns void language sql as $$
       'reference_quantity', c.reference, 'measured_quantity', fed.total, 'priced_quantity', greatest(c.reference, fed.total),
       'absolute_gap', abs(fed.total - c.reference), 'reviewed', false,
       'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
-      'source_metadata', jsonb_build_object('dpgf_source_quantity', c.reference, 'dpgf_source_unit', c.unit),
+      'source_metadata', coalesce(target.source_metadata, '{}'::jsonb)
+        || jsonb_build_object('dpgf_source_quantity', c.reference, 'dpgf_source_unit', c.unit),
       'takeoff_items', fed.items))
       from da_cases c
       join public.estimate_items target on target.id = pg_temp.da_id(p_case * 1000 + 3)
@@ -424,6 +447,79 @@ select is(pg_temp.da_apply('no composition', 14, 2, 'da-14-2'), '40001 TAKEOFF_D
 reset role;
 select is(jsonb_build_array((pg_temp.da_target(13)).quantity, (pg_temp.da_target(14)).quantity), '[20, 20]'::jsonb,
   'both targets keep what they hold');
+
+-- Provisions. The marker (source_metadata.takeoff_provision, private.takeoff_mark_provisions) names the hypotheses a
+-- line rests on, and the « quantité provisionnelle » an administrator declares on it stands only with that marker
+-- (private.clear_estimate_item_offer_choice). A target that sums several takeoffs rests on the hypotheses of every line
+-- it keeps: neither is lost when a measured takeoff accumulates onto it; both go when the page of the hypothesis leaves it.
+
+/** The marker's sources on a target: [job number, line number] each. */
+create or replace function pg_temp.da_marker(p_case integer)
+returns jsonb language sql security definer as $$
+  select coalesce(jsonb_agg(jsonb_build_array(job_no, line) order by job_no, line), '[]'::jsonb)
+  from jsonb_array_elements((pg_temp.da_target(p_case)).source_metadata #> '{takeoff_provision,sources}') as source(value)
+  cross join generate_series(1, 3) as job_no cross join generate_series(1, 3) as line
+  where pg_temp.da_item(p_case, job_no, line)::text = source.value ->> 'takeoff_item_id'
+$$;
+-- The « quantité provisionnelle » declared on a target, by the trusted writer of its v3 draft.
+create or replace function pg_temp.da_declare(p_case integer)
+returns text language plpgsql as $$
+begin
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_version(p_case)::text, true);
+  update public.estimate_items set offer_choice = jsonb_build_object('kind', 'provisional_quantity', 'basis', 'private_estimate',
+    'note', null, 'established_on', 'le plan fictif indice A', 'to_confirm_by', 'le relevé contradictoire sur site',
+    'decided_by', pg_temp.da_id(1), 'decided_at', '2026-11-12T09:00:00.123456+00:00')
+  where id = pg_temp.da_id(p_case * 1000 + 3);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+  return (pg_temp.da_target(p_case)).offer_choice ->> 'kind';
+end;
+$$;
+
+select is(jsonb_build_array(pg_temp.da_marker(15), pg_temp.da_marker(16), pg_temp.da_marker(17)), '[[[1, 1]], [[1, 1]], [[1, 1]]]'::jsonb,
+  'fixture: the first takeoff''s hypothesis marks each target');
+select is(jsonb_build_array(pg_temp.da_declare(15), pg_temp.da_declare(16)), '["provisional_quantity", "provisional_quantity"]'::jsonb,
+  'fixture: a « quantité provisionnelle » is declared on two of them');
+
+-- 15. A measured takeoff accumulates onto a target that rests on an hypothesis: it still does.
+select pg_temp.da_permit(15, 2, 'da-15-2');
+set local role authenticated;
+select is(pg_temp.da_apply('measure beside an hypothesis', 15, 2, 'da-15-2'), 'ok', 'a measured takeoff of another page feeds the target');
+reset role;
+select is((pg_temp.da_target(15)).quantity, 12::numeric, 'the target holds 8 (hypothesis) + 4 (measured)');
+select is(pg_temp.da_marker(15), '[[1, 1]]'::jsonb, 'its marker still names the first takeoff''s hypothesis it keeps');
+select is((pg_temp.da_target(15)).offer_choice ->> 'kind', 'provisional_quantity',
+  'the « quantité provisionnelle » declared on it stands: the quantity sold still rests on the hypothesis');
+
+-- 16. The page of the hypothesis replaced, the relaunch feeding the target nothing: the target no longer rests on it.
+select pg_temp.da_permit(16, 2, 'da-16-2');
+set local role authenticated;
+select is(pg_temp.da_decide(16, 'replace', null, array[1]), 'ok 1', 'fixture: the page of the hypothesis replaced');
+select is(pg_temp.da_apply('hypothesis page replaced', 16, 2, 'da-16-2'), 'ok', 'the relaunch applies');
+reset role;
+select is((pg_temp.da_target(16)).quantity, 6::numeric, 'the target falls to max(5, 6 measured on page 2)');
+select is(jsonb_build_array((pg_temp.da_target(16)).source_metadata ? 'takeoff_provision', (pg_temp.da_target(16)).offer_choice),
+  '[false, null]'::jsonb, 'its marker leaves with the hypothesis, and the « quantité provisionnelle » with it');
+
+-- 17. An hypothesis in each takeoff: the marker names both.
+select pg_temp.da_permit(17, 2, 'da-17-2');
+set local role authenticated;
+select is(pg_temp.da_apply('two hypotheses', 17, 2, 'da-17-2'), 'ok', 'a second takeoff with its own hypothesis');
+reset role;
+select is(pg_temp.da_marker(17), '[[1, 1], [2, 1]]'::jsonb, 'the marker names the hypothesis of each takeoff the target keeps');
+
+-- 18. A line of the relaunch merged onto a target whose page it replaces, without the reconciliation linking it: refused
+-- (its measure would be lost under the target's composition), as replacing such a page was before the sum.
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+values (current_setting('test.tenant_id')::uuid, pg_temp.da_job(18, 2), pg_temp.da_version(18), pg_temp.da_id(1),
+  encode(sha256(convert_to('da-18-2', 'UTF8')), 'hex'), '{"quantity_policy": []}'::jsonb, now() + interval '5 minutes');
+set local role authenticated;
+select is(pg_temp.da_decide(18, 'replace', null, array[1]), 'ok 1', 'fixture: page 1 replaced');
+select is(pg_temp.da_apply('merged onto a target not fed', 18, 2, 'da-18-2'), '40001 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT',
+  'a relaunch line written onto a DPGF target it does not feed is refused, never overwritten by the composition');
+reset role;
+select is(jsonb_build_array((pg_temp.da_target(18)).quantity, (pg_temp.da_target(18)).source_provider), '[16, "dpgf"]'::jsonb,
+  'the target keeps what it holds');
 
 select * from finish();
 rollback;

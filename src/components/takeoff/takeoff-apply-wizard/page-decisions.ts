@@ -145,8 +145,11 @@ function dpgfOutcome(proposal: TakeoffPageReplacementResponse, target: TakeoffPa
   const total = composeDpgfTarget(target.reference, [...kept,
     ...target.fed.map((line) => ({ job_id: proposal.job_id, item_ids: [line.item_id], quantity: line.quantity, protective: line.protective,
       printed_gap: line.printed_gap }))]).priced;
-  // Rounded once, up to the unit for a length, as the application rounds the sum.
-  const after = target.length_factor ? Math.ceil(Number((total * target.length_factor).toFixed(9))) / target.length_factor : total;
+  // Rounded once, up to the unit for a length, as the application rounds the sum. The application writes only a line it
+  // feeds or whose page it replaces (private.takeoff_compose_dpgf_targets): any other keeps what it holds.
+  const written = target.fed.length > 0 || pages.some((page) => page.lines.some((entry) => entry.id === target.id));
+  const composed = target.length_factor ? Math.ceil(Number((total * target.length_factor).toFixed(9))) / target.length_factor : total;
+  const after = written || target.quantity === null ? composed : target.quantity;
   const created = new Map(proposal.jobs.map((job) => [job.id, job.created_at]));
   const byJob = new Map<string | null, DpgfTargetOutcome["takeoffs"][number]>();
   for (const part of [...kept.map((entry) => ({ job: entry.job_id as string | null, quantity: entry.quantity, place: entry,

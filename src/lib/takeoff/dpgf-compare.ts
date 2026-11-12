@@ -578,7 +578,8 @@ function buildComposition(dpgfId: string, linkedTakeoffItems: readonly Normalize
   const parts = earlierDpgfParts(target.contributions, { jobId: context.jobId,
     readAgainItemIds: context.readAgainItemIds ?? new Set(), lines: context.dpgfCompositions.lines });
   if (parts.entries.length === 0) return null;
-  const kept = new Set(parts.kept.flatMap((entry) => entry.item_ids));
+  // A partner on a page this takeoff reads again counts too: replaced by default, it stays in the sum if both are kept.
+  const held = new Set(target.contributions.filter((entry) => entry.job_id !== context.jobId).flatMap((entry) => entry.item_ids));
   const jobs = context.dpgfCompositions.jobs;
   return {
     earlier: { measured: parts.measured, protective: parts.protective, printed_gap: parts.printed_gap },
@@ -590,7 +591,7 @@ function buildComposition(dpgfId: string, linkedTakeoffItems: readonly Normalize
       earlier_printed_gap: parts.printed_gap,
       total_quantity: toStableNumber((measured ?? 0) + parts.measured, 4) ?? parts.measured,
       double_counted: linkedTakeoffItems.flatMap((item) => (context.overlapPartners?.get(item.item_id) ?? [])
-        .filter((partner) => !partner.resolved && kept.has(partner.item_id))
+        .filter((partner) => !partner.resolved && held.has(partner.item_id))
         .map((partner) => ({ item_id: item.item_id, partner_item_id: partner.item_id, partner_job_id: partner.job_id,
           overlap_m: partner.overlap_m }))),
     },

@@ -799,6 +799,11 @@ commit;`);
       row.composition?.double_counted.map((entry) => entry.overlap_m), row.delta_absolute], "the reconciliation judges the total")
       .toEqual([[[first.jobId, 12.4, false]], 22.6, [2.5], 2.6]);
 
+    // The draft lease this journey's API calls hold is released from the page they ran in, before any navigation (its
+    // session lives in that page), as closing that editor would: the wizard of the review takes its own.
+    const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+    expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
+
     // The reconciliation, as the estimator reads it.
     await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${second.jobId}/review?versionId=${versionId}&reviewMode=production&view=dpgf`);
     await expect(ui.screen.getByRole("heading", "Comparaison DPGF explicable", { exact: true })).toBeVisible();
@@ -809,8 +814,6 @@ commit;`);
     const reconciliation = await ui.app.screenshot("ti682-dpgf-composition");
 
     // The confirmation: before and after, its composition; no page already in the estimate (two pages).
-    const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
-    expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
     await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${second.jobId}/review/targeted?versionId=${versionId}`);
     await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
     const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });

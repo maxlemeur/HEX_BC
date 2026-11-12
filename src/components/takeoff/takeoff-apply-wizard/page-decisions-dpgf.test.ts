@@ -64,6 +64,24 @@ describe("what each DPGF line the application touches will hold", () => {
     expect([keptBoth.after, keptBoth.falls, keptBoth.drops]).toEqual([16, false, []]);
   });
 
+  it("announces nothing for a line the application leaves as it is: neither fed nor on a page replaced", () => {
+    // Its quantity differs from its composition (changed after the last takeoff): kept both, it stays 20; replaced, the
+    // page's part leaves its sum and it is written.
+    const data = proposal({
+      pages: [{ key: "page-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [earlierJob],
+        lines: [{ id: id(300), item_ids: [id(101)] }], new_line_ids: [id(202)], dpgf_fed_again: [], ambiguous_document: false, keep_both_refused: null }],
+      lines: [dpgfLine(300, "EF cuivre DN 22", 20)],
+      new_lines: [{ id: id(202), designation: "Vanne d'arrêt", unit: "u", quantity: 3, unit_key: "u", candidates: [{ key: "page-1", line_ids: [] }] }],
+      dpgf_targets: [target({ quantity: 20, reference: 5, earlier: [part(101, 13, 1)] })],
+    });
+    const replaced = resolveConfirmation(data, initialConfirmationDraft(data));
+    expect([replaced.dpgf[0].after, replaced.dpgf[0].falls]).toEqual([5, true]);
+    const control = confirmationControls(replaced).find((entry) => entry.id === "page:page-1")!;
+    const kept = resolveConfirmation(data, setConfirmationControl(initialConfirmationDraft(data), control, "keep_both"));
+    expect([kept.dpgf[0].before, kept.dpgf[0].after, kept.dpgf[0].falls, kept.dpgf[0].drops]).toEqual([20, 20, false, []]);
+    expect(kept.lines[0].after).toBe(20);
+  });
+
   it("says nowhere when the replaced page brings nothing of the line's unit", () => {
     const data = proposal({
       pages: [{ key: "page-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [earlierJob],

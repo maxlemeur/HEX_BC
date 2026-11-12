@@ -14,6 +14,11 @@
 --   composition, and writes a target whose page it replaces without feeding it.
 -- - private.assert_takeoff_pages_once, from 20261112025548: the provisional refusals dpgf_keep_both (D-6) and
 --   dpgf_not_replaced fall: keeping both counts both, replacing a page takes its part out.
+-- - private.takeoff_mark_provisions, from 20261111124022: a DPGF target rests on the hypotheses of every line it keeps,
+--   so its provision marker keeps the sources of the other takeoffs still in its composition (a « quantité
+--   provisionnelle » declared on it stands while they do) and loses them with their page. Other lines: unchanged.
+-- - A line « Fusionner » writes onto a DPGF target this application does not feed but recomposes (a page it replaces) is
+--   refused (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT), never overwritten.
 -- The 4-argument overload (a version without DPGF line), the page decisions, the replacement of the other lines,
 -- finalize_takeoff_lengths and the source selection (TI-681) are untouched.
 -- Errors: TAKEOFF_PAGE_DECISION_INVALID « dpgf_part_unknown » (22023) when a page of a takeoff whose part per page is
@@ -182,6 +187,176 @@ begin
 end;
 $$;
 revoke all on function private.takeoff_compose_dpgf_targets(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
+
+
+-- The provisions -----------------------------------------------------------------------------------------------------
+
+-- From 20261111124022_takeoff_hypothesis_provision_marker.sql, its newest definition; only the lines marked « TI-682 D4 »
+-- change. Both overloads of apply_takeoff_job_guarded_atomic call it, on the links the application left: a line that is
+-- not a DPGF target is marked exactly as before (its sources, this takeoff's, in the same order).
+create or replace function private.takeoff_mark_provisions(
+  p_job_id uuid,
+  p_tenant_id uuid,
+  p_version_id uuid,
+  p_item_links jsonb,
+  p_created_ids uuid[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  engine smallint;
+  old_writer text := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
+begin
+  select version.calc_engine_version
+    into engine
+  from public.estimate_versions as version
+  where version.id = p_version_id
+    and version.tenant_id = p_tenant_id;
+
+  -- A v3 draft's lines are written under its writer contract (the amounts are not touched).
+  if engine = 3 then
+    perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', p_version_id::text, true);
+  end if;
+
+  -- TI-686 M4: the forced lines and their coded reason, from the forced entries of the consumed audit (one per blocked
+  -- line, enforce_takeoff_apply_security); a job applies once, the latest audit wins should it not.
+  with forced as (
+    select distinct on (entry.value ->> 'item_id')
+      entry.value ->> 'item_id' as item_id,
+      entry.value ->> 'reason_code' as reason_code
+    from public.takeoff_apply_override_consumptions as consumed
+    join public.audit_logs as audit
+      on audit.id = consumed.audit_log_id
+     and audit.tenant_id = consumed.tenant_id
+    cross join lateral pg_catalog.jsonb_array_elements(
+      case when pg_catalog.jsonb_typeof(audit.after_data #> '{metadata,forced_items}') = 'array'
+        then audit.after_data #> '{metadata,forced_items}' else '[]'::jsonb end
+    ) as entry(value)
+    where consumed.job_id = p_job_id
+      and consumed.tenant_id = p_tenant_id
+      and consumed.estimate_version_id = p_version_id
+      and pg_catalog.jsonb_typeof(entry.value) = 'object'
+      and pg_catalog.jsonb_typeof(entry.value -> 'item_id') = 'string'
+    order by entry.value ->> 'item_id', audit.created_at desc, audit.id desc
+  ),
+  links as (
+    select link.estimate_item_id, link.takeoff_item_id
+    from pg_catalog.jsonb_to_recordset(
+      case when pg_catalog.jsonb_typeof(p_item_links) = 'array' then p_item_links else '[]'::jsonb end
+    ) as link(takeoff_item_id text, estimate_item_id uuid)
+    union
+    select item.id, item.source_metadata ->> 'takeoff_item_id'
+    from public.estimate_items as item
+    where item.id = any(coalesce(p_created_ids, '{}'::uuid[]))
+      and item.version_id = p_version_id
+      and item.tenant_id = p_tenant_id
+      and item.item_type = 'line'::public.estimate_item_type
+      and item.source_metadata ->> 'mapping_action' = 'apply_assembly'
+    -- TI-682 D4: every DPGF target this application composed (its version 2 policy names this takeoff), one it no longer
+    -- feeds included (a page it replaces took its part out).
+    union
+    select item.id, null::text
+    from public.estimate_items as item
+    where item.version_id = p_version_id
+      and item.tenant_id = p_tenant_id
+      and item.item_type = 'line'::public.estimate_item_type
+      and item.source_provider = 'dpgf'
+      and item.source_metadata #>> '{takeoff_quantity_policy,version}' = '2'
+      and item.source_metadata #>> '{takeoff_quantity_policy,job_id}' = p_job_id::text
+  ),
+  -- TI-682 D4: a DPGF target sums the measures it keeps, so it rests on the hypotheses of every line it keeps: the sources
+  -- its marker names from the other takeoffs stay while their lines stay in its composition, and leave with them.
+  earlier as (
+    select item.id as estimate_item_id, pg_catalog.jsonb_agg(source.value) as sources
+    from public.estimate_items as item
+    cross join lateral pg_catalog.jsonb_array_elements(case
+      when pg_catalog.jsonb_typeof(item.source_metadata #> '{takeoff_provision,sources}') = 'array'
+        then item.source_metadata #> '{takeoff_provision,sources}' else '[]'::jsonb end) as source(value)
+    where item.version_id = p_version_id
+      and item.tenant_id = p_tenant_id
+      and item.item_type = 'line'::public.estimate_item_type
+      and item.source_provider = 'dpgf'
+      and item.source_metadata #>> '{takeoff_quantity_policy,version}' = '2'
+      and item.source_metadata #>> '{takeoff_quantity_policy,job_id}' = p_job_id::text
+      and pg_catalog.jsonb_typeof(item.source_metadata #> '{takeoff_quantity_policy,item_ids}') = 'array'
+      and pg_catalog.jsonb_typeof(source.value -> 'takeoff_item_id') = 'string'
+      and item.source_metadata #> '{takeoff_quantity_policy,item_ids}' @> pg_catalog.jsonb_build_array(source.value -> 'takeoff_item_id')
+      and not exists (select 1 from public.takeoff_items as own
+        where own.id = private.takeoff_uuid_or_null(source.value -> 'takeoff_item_id') and own.job_id = p_job_id)
+    group by item.id
+  ),
+  marked as (
+    select
+      links.estimate_item_id,
+      pg_catalog.jsonb_agg(
+        pg_catalog.jsonb_build_object(
+          'takeoff_item_id', source.id,
+          'forced', forced.item_id is not null,
+          'forced_reason', forced.reason_code,
+          'entry_category', source.quantity_entry_category,
+          -- TI-682 lot C: why the source is an hypothesis (entered_hypothesis, estimated, non_observable), or null.
+          'hypothesis_cause', public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category)
+        )
+        order by source.id
+      -- TI-682 lot C: a forced source, or any hypothesis (an entered one as before, now also an estimate or a quantity a
+      -- plan cannot show that its reviewer included without entering it).
+      ) filter (where forced.item_id is not null
+        or public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is not null) as sources
+    from links
+    left join public.takeoff_items as source
+      on source.id::text = links.takeoff_item_id
+     and source.job_id = p_job_id
+     and source.tenant_id = p_tenant_id
+    left join forced
+      on forced.item_id = source.id::text
+    group by links.estimate_item_id
+  ),
+  -- TI-682 D4: this takeoff's sources and those a DPGF target keeps of the other takeoffs, by takeoff line.
+  combined as (
+    select marked.estimate_item_id,
+      (select pg_catalog.jsonb_agg(entry.value order by entry.value ->> 'takeoff_item_id')
+        from pg_catalog.jsonb_array_elements(coalesce(marked.sources, '[]'::jsonb) || coalesce(earlier.sources, '[]'::jsonb))
+          as entry(value)) as sources
+    from marked
+    left join earlier on earlier.estimate_item_id = marked.estimate_item_id
+  ),
+  next_state as (
+    select
+      item.id,
+      case
+        when combined.sources is null then item.source_metadata - 'takeoff_provision'
+        else coalesce(item.source_metadata, '{}'::jsonb) || pg_catalog.jsonb_build_object('takeoff_provision',
+          pg_catalog.jsonb_build_object('version', 1, 'job_id', p_job_id, 'sources', combined.sources))
+      end as source_metadata
+    from combined
+    join public.estimate_items as item
+      on item.id = combined.estimate_item_id
+     and item.version_id = p_version_id
+     and item.tenant_id = p_tenant_id
+     and item.item_type = 'line'::public.estimate_item_type
+  )
+  update public.estimate_items as item
+  set source_metadata = next_state.source_metadata
+  from next_state
+  where item.id = next_state.id
+    and item.version_id = p_version_id
+    and item.tenant_id = p_tenant_id
+    and item.source_metadata is distinct from next_state.source_metadata;
+
+  if engine = 3 then
+    perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', old_writer, true);
+  end if;
+end;
+$$;
+
+comment on function private.takeoff_mark_provisions(uuid, uuid, uuid, jsonb, uuid[]) is
+  'TI-686 D10/D12, TI-682 lot C and D4: writes or removes source_metadata.takeoff_provision on the estimate lines a takeoff application touched (final links, materialized ouvrage lines and the DPGF targets it composed): sources forced by the consumed override audit of the job (with their coded reason) or resting on an hypothesis (public.takeoff_item_hypothesis_cause: entered, estimated or not observable), each with its hypothesis_cause; a DPGF target also keeps the sources of the other takeoffs whose lines its composition keeps. Internal display only (H9). Called by both overloads of public.apply_takeoff_job_guarded_atomic only.';
+
+revoke all on function private.takeoff_mark_provisions(uuid, uuid, uuid, jsonb, uuid[])
+  from public, anon, authenticated, service_role;
 
 
 -- The last net, after everything the application wrote: on every page the takeoff now brings into the estimate, each
@@ -509,6 +684,13 @@ begin
   -- TI-682 D4: a target whose page this application replaces without feeding it loses that page's part (its new measure
   -- entered elsewhere, or nowhere). Rounded here, once, on what it keeps: no line of this takeoff reaches it.
   if exists(select 1 from pg_temp._d4_composed composed where not composed.fed) then
+    -- TI-682 D4: the writer must not have put a line of this takeoff on such a target (« Fusionner » matches by title and
+    -- unit, outside the reconciliation): its composition would overwrite that measure. Refused, as replacing its page was
+    -- before the sum (dpgf_not_replaced).
+    if exists(select 1 from jsonb_to_recordset(applied.item_links) as output(takeoff_item_id uuid,estimate_item_id uuid)
+      join pg_temp._d4_composed composed on composed.target_id=output.estimate_item_id and not composed.fed) then
+      raise exception 'TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT' using errcode='40001';
+    end if;
     old_writer:=coalesce(current_setting('miaouffrage.estimate_v3_writer',true),'');
     if engine=3 then perform set_config('miaouffrage.estimate_v3_writer',job_version_id::text,true); end if;
     update public.estimate_items item set

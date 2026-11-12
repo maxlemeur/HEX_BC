@@ -90,6 +90,15 @@ describe("the reconciliation of a DPGF line other takeoffs feed", () => {
     expect(row.composition?.total_quantity).toBe(22);
   });
 
+  it("puts to check a line drawn again in a part of a page this takeoff reads again: « keep both » would keep it", () => {
+    // Left out of the total by default (the page is replaced), but the estimator may keep both: the doubt stays on screen.
+    const partners = new Map([[id(201), [{ item_id: id(102), job_id: jobOne, overlap_m: 2, resolved: false }]]]);
+    const [row] = computeTakeoffDpgfRows(input({ reference: 30, current: [takeoffLine(201, 10, 1)],
+      earlier: [part(101, 12), part(102, 6)], readAgain: [id(102)], partners })).rows;
+    expect(row.composition?.double_counted).toEqual([{ item_id: id(201), partner_item_id: id(102), partner_job_id: jobOne, overlap_m: 2 }]);
+    expect(row.composition?.total_quantity).toBe(22);
+  });
+
   it("makes a review decision stale once what the line keeps of the other takeoffs changes", () => {
     const reviewed = input({ reference: 22, current: [takeoffLine(201, 10, 2)], earlier: [part(101, 12)] });
     const [first] = computeTakeoffDpgfRows(reviewed).rows;
