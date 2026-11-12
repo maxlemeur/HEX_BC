@@ -38027,6 +38027,19 @@
                     },
                     "default_fo_provision": {
                       "type": "number"
+                    },
+                    "preferred_supplier_id": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -38036,7 +38049,8 @@
                     "updated_at",
                     "code",
                     "name",
-                    "default_fo_provision"
+                    "default_fo_provision",
+                    "preferred_supplier_id"
                   ],
                   "additionalProperties": {}
                 }
