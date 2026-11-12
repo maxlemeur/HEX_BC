@@ -40,6 +40,11 @@ type Read = { line: string; quantity: number; unit: string; page: number | null 
 type Situation = {
   name: string;
   dpgf?: boolean;
+  /**
+   * The relaunch's level: C by default. A level C line without a page is blocked from any application until an
+   * administrator forces it (the quantity guard, which the wizard shows apart), so a line without a page is read at B.
+   */
+  level?: "B" | "C";
   earlier: Read[];
   /** The estimator's quantity typed by hand on the earlier line of this title, before the relaunch. */
   handQuantity?: { title: string; quantity: number };
@@ -62,7 +67,7 @@ const SITUATIONS: Situation[] = [
     relaunch: [read(EF, 12, "ml", 1)],
     expect: (proposal) => expect(lineNamed(proposal, EF).outside_pages).toBe(true) },
   { name: "a new line without a page over a line of two pages", earlier: [read(EF, 10, "ml", 1), read(EF, 10, "ml", 2)],
-    relaunch: [read(EF, 18, "ml", null)],
+    level: "B", relaunch: [read(EF, 18, "ml", null)],
     expect: (proposal) => expect([proposal.pages.length, proposal.pairs.length]).toEqual([2, 1]) },
   { name: "a vanished line whose pages are all measured again", earlier: [read(EF, 10, "ml", 1), read(EF, 10, "ml", 2)],
     relaunch: [read("Vanne d'arrêt", 2, "u", 1), read("Vanne d'arrêt", 1, "u", 2)],
@@ -230,7 +235,7 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
           { "if-match": estimate.version.updated_at });
         expect(edited.status, `${situation.name}: the estimator's own quantity`).toBe(200);
       }
-      const relaunch = await scoped.seed("C", seedOf(situation.relaunch), source);
+      const relaunch = await scoped.seed(situation.level ?? "C", seedOf(situation.relaunch), source);
       const read = await apiRequest<Envelope<TakeoffPageReplacementResponse>>(browser, "POST", `/api/takeoff/jobs/${relaunch.jobId}/page-replacement`,
         { strategy, target_section_id: sectionId });
       expect([read.status, read.body.ok], `${situation.name}: the proposal`).toEqual([200, true]);

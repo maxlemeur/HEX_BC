@@ -57,6 +57,8 @@ export type ResolvedLine = {
   before: number | null;
   /** The quantity the database will store; null when the line is removed or not decided yet. */
   after: number | null;
+  /** What the new measure gives the line (its pages' parts decided), shown while a take is still to choose. */
+  measured: number | null;
   take: "new" | "keep_mine" | null;
   vanished: "remove" | "keep" | null;
   /** Why « remove » is not offered, if it is not. */
@@ -112,7 +114,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const keptBoth = onPages.filter((page) => !replacing.has(page.key));
     const replaced = onPages.filter((page) => replacing.has(page.key));
     const before = line.quantity;
-    const base = { line, before, take: null, vanished: null, removeRefused: null, newLineIds: [] as string[] };
+    const base = { line, before, take: null, vanished: null, removeRefused: null, newLineIds: [] as string[], measured: null };
     if (line.dpgf_target) {
       return { ...base, state: "dpgf" as const, after: before, missing: [],
         pages: onPages.map((page) => ({ ...page, role: "dpgf" as const, part: null })) };
@@ -135,7 +137,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
         ...(line.changed_by_hand && take === null ? [`« ${line.title} » : quantité modifiée à la main, nouvelle mesure ou la vôtre.`] : []),
       ];
       const decided = pages.every((page) => page.role !== "part" || page.part !== null);
-      return { ...base, state: "updated" as const, pages, take, newLineIds: by.map((entry) => entry.newLine.id),
+      return { ...base, state: "updated" as const, pages, take, newLineIds: by.map((entry) => entry.newLine.id), measured: decided ? next : null,
         after: !decided ? null : line.changed_by_hand && take === "keep_mine" ? before ?? 0 : line.changed_by_hand && take === null ? null : next,
         missing };
     }

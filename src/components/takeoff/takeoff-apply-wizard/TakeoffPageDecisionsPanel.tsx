@@ -52,9 +52,14 @@ const ROLE_LABELS: Record<ResolvedLine["pages"][number]["role"], string> = {
 
 function outcomeText(entry: ResolvedLine) {
   switch (entry.state) {
-    case "updated":
-      return entry.after === null ? `${quantity(entry.before)} → à décider` : `${quantity(entry.before)} → ${quantity(entry.after)}`
-        + (entry.before !== null && entry.after !== entry.before ? ` (${entry.after > entry.before ? "+" : ""}${quantity(entry.after - entry.before)})` : "");
+    case "updated": {
+      const shown = entry.after ?? entry.measured;
+      if (shown === null) return `${quantity(entry.before)} → à décider`;
+      const change = `${quantity(entry.before)} → ${quantity(shown)}`
+        + (entry.before !== null && shown !== entry.before ? ` (${shown > entry.before ? "+" : ""}${quantity(shown - entry.before)})` : "");
+      // A quantity changed by hand, not chosen yet: both outcomes, nothing decided.
+      return entry.after === null ? `${change} avec la nouvelle mesure, ou ${quantity(entry.before)} en gardant la vôtre : à choisir` : change;
+    }
     case "vanished":
       return entry.vanished === "remove" ? `${quantity(entry.before)} → retirée du devis` : entry.vanished === "keep" ? `${quantity(entry.before)}, gardée` : `${quantity(entry.before)} → à décider`;
     case "kept":
