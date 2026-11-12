@@ -70,6 +70,21 @@ type Situation = {
   naive?: Naive[];
   /** Edit the line after the proposal is read: the route refuses (STALE), the proposal read again is accepted. */
   staleAfterProposal?: string;
+  /**
+   * No state of the screen confirms here, by rule: what the screen must say instead, done outside it (its advice's
+   * `elsewhere`), and each way out proved after the walk.
+   */
+  deadEnd?: { elsewhere: string[]; text: RegExp; exits: (input: ExitInput) => Promise<unknown> };
+};
+type ExitInput = {
+  ui: Parameters<Parameters<typeof armyTest>[2]>[0];
+  ids: { projectId: string; versionId: string; sectionId: string; jobId: string };
+  strategy: string;
+  relaunchItem: (designation: string) => { id: string };
+  readProposal: () => Promise<TakeoffPageReplacementResponse>;
+  /** The confirmable states of a proposal, each applied by the database as the estimator and rolled back. */
+  confirmable: (proposal: TakeoffPageReplacementResponse) => Promise<{ states: number; verdicts: string[]; misadvised: string[] }>;
+  problem: (problem: string, detail: unknown) => void;
 };
 
 const read = (line: string, quantity: number, unit: string, page: number | null, extra: Partial<Read> = {}): Read => ({ line, quantity, unit, page, ...extra });
@@ -133,6 +148,32 @@ const GENERIC: Naive[] = [
     return { payload: context.base.payload.map((decision) => ({ ...decision, pairs: [] })) };
   } },
 ];
+
+/**
+ * A DPGF target an earlier takeoff fed from page 1 of the situation's plan: its source line, written into the applied
+ * takeoff, and the DPGF line naming it (takeoff_quantity_policy), as the DPGF reconciliation of that takeoff left it.
+ */
+async function feedDpgfTargetFromPage({ versionId, earlierJobId, plan, source }: { versionId: string; earlierJobId: string;
+  plan: (doc?: "A" | "B") => string; source: (doc?: "A" | "B") => string }) {
+  const item = randomUUID();
+  // The earlier takeoff is applied, so its lines are frozen: the fixture line is written with triggers off.
+  await sql(`begin;
+set local session_replication_role = replica;
+insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
+metadata, is_excluded, is_verified)
+select '${item}', job_item.tenant_id, job_item.job_id, job_item.result_id, 'EF cuivre DN 22', 30, 'ml', 0.95, 'ARMY localized fixture: EF cuivre DN 22',
+'${source()}', 1, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', '${plan()}')), false, false
+from public.takeoff_items job_item where job_item.job_id = '${earlierJobId}' limit 1;
+set local session_replication_role = origin;
+select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+update public.estimate_items set source_job_id = '${earlierJobId}', source_file_name = '${source()}', source_page = 1,
+source_metadata = source_metadata || jsonb_build_object('takeoff_quantity_policy', jsonb_build_object('version', 1, 'job_id', '${earlierJobId}',
+  'item_ids', jsonb_build_array('${item}')))
+where version_id = '${versionId}' and source_provider = 'dpgf';
+select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items
+where version_id = '${versionId}' and source_provider = 'dpgf'));
+commit;`);
+}
 
 const SITUATIONS: Situation[] = [
   { name: "a line on one page, measured again", earlier: [read("WC suspendu", 4, "u", 1)], relaunch: [read("WC suspendu", 5, "u", 1)],
@@ -250,26 +291,7 @@ commit;`);
   // Its own titles: « Fusionner » matches by title across the section, which the other DPGF situation shares.
   { name: "a DPGF target the earlier takeoff fed from the page", dpgf: true, earlier: [read("Lavabo", 4, "u", 1)],
     relaunch: [read("Lavabo (relevé)", 5, "u", 1)],
-    prepare: async ({ versionId, earlierJobId, plan, source }) => {
-      const item = randomUUID();
-      // The earlier takeoff is applied, so its lines are frozen: the fixture line is written with triggers off.
-      await sql(`begin;
-set local session_replication_role = replica;
-insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page,
-  metadata, is_excluded, is_verified)
-select '${item}', job_item.tenant_id, job_item.job_id, job_item.result_id, 'EF cuivre DN 22', 30, 'ml', 0.95, 'ARMY localized fixture: EF cuivre DN 22',
-  '${source()}', 1, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', '${plan()}')), false, false
-from public.takeoff_items job_item where job_item.job_id = '${earlierJobId}' limit 1;
-set local session_replication_role = origin;
-select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
-update public.estimate_items set source_job_id = '${earlierJobId}', source_file_name = '${source()}', source_page = 1,
-  source_metadata = source_metadata || jsonb_build_object('takeoff_quantity_policy', jsonb_build_object('version', 1, 'job_id', '${earlierJobId}',
-    'item_ids', jsonb_build_array('${item}')))
-where version_id = '${versionId}' and source_provider = 'dpgf';
-select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items
-  where version_id = '${versionId}' and source_provider = 'dpgf'));
-commit;`);
-    },
+    prepare: feedDpgfTargetFromPage,
     expect: (proposal) => expect(proposal.lines.some((line) => line.dpgf_target)).toBe(true),
     naive: [
       { reason: "dpgf_target", build: (context) => {
@@ -286,6 +308,70 @@ commit;`);
         return replaced ? { payload: replaced.payload } : null;
       } },
     ] },
+  // The DPGF line the earlier takeoff fed from the page is not fed again, and « Fusionner », required with a DPGF,
+  // imposes the washbasin onto its earlier line: replacing would leave the DPGF line's earlier measure beside the new
+  // one (dpgf_not_replaced) and keeping both meets the merge (refused until the DPGF accumulation, D4). The screen says
+  // what to do instead; both ways out are proved: excluding the merged line at review, or linking a line of the page to
+  // the DPGF line in the DPGF reconciliation.
+  { name: "a DPGF line not fed again beside a line « Fusionner » imposes", dpgf: true, earlier: [read("Lavabo double vasque", 4, "u", 1)],
+    relaunch: [read("Lavabo double vasque", 5, "u", 1), read("Calorifuge", 30, "ml", 1)],
+    prepare: feedDpgfTargetFromPage,
+    expect: (proposal) => expect([proposal.pages.map((page) => [page.keep_both_refused, page.dpgf_fed_again]), proposal.pairs.map((pair) => pair.locked)])
+      .toEqual([[["merge_match", []]], [true]]),
+    deadEnd: { elsewhere: ["exclude_at_review", "link_in_dpgf_review"],
+      text: /ni remplacer ni garder les deux ne se confirme ici\. Écartez « Lavabo double vasque » à la revue du métré .*, ou liez à « EF cuivre DN 22 \(DPGF\) » une ligne de ce métré lue sur cette page, dans le rapprochement DPGF/,
+      exits: async ({ ui, ids, strategy, relaunchItem, readProposal, confirmable, problem }) => {
+        // What the estimator sees: the wizard of the takeoff's review, up to its confirmation.
+        await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
+        await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+        const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+        await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
+        await wizard.getByRole("button", "Suivant", { exact: true }).click();
+        await wizard.getByRole("radio", /^Fusionner/).check();
+        await wizard.getByRole("button", "Suivant", { exact: true }).click();
+        await expect(wizard).toContainText("Calorifuge");
+        await wizard.getByRole("button", "Suivant", { exact: true }).click();
+        const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
+        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
+        await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
+        await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
+        await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+        const screenshot = await ui.app.screenshot("ti682-dpgf-dead-end");
+        await wizard.getByRole("button", "Annuler", { exact: true }).click();
+
+        // Way out 1: the merged line excluded at the takeoff's review. The page is then confirmed (keeping both).
+        const washbasin = relaunchItem("Lavabo double vasque");
+        const exclude = async (excluded: boolean) => {
+          const detail = await apiRequest<Envelope<{ items: { data: Array<{ id: string; updated_at: string }> } }>>(ui.browser, "GET", `/api/takeoff/jobs/${ids.jobId}`);
+          const row = detail.body.data.items.data.find((item) => item.id === washbasin.id)!;
+          const patched = await apiRequest<Envelope<{ results: Array<{ success: boolean }> }>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/items`,
+            { items: [{ item_id: row.id, updated_at: row.updated_at, fields: excluded
+              ? { is_excluded: true, exclusion_reason: "Lavabo déjà compté sur la ligne précédente (fixture ARMY)." }
+              : { is_excluded: false, exclusion_reason: null } }] });
+          if (patched.status !== 200 || !patched.body.data.results[0]?.success) problem(`the review ${excluded ? "excludes" : "includes"} the merged line`, patched.body);
+        };
+        await exclude(true);
+        const excluded = await confirmable(await readProposal());
+        if (excluded.states === 0 || excluded.verdicts.some((verdict) => verdict !== "ok") || excluded.misadvised.length > 0) {
+          problem("excluding the merged line at review does not unblock the confirmation", excluded);
+        }
+        await exclude(false);
+        const again = await confirmable(await readProposal());
+        if (again.states !== 0) problem("the dead end is not back once the merged line is included again", again);
+
+        // Way out 2: a line of the page linked to the DPGF line in the DPGF reconciliation. The page is then replaced,
+        // through the route (its DPGF authorization feeds the DPGF line).
+        const target = (await readProposal()).lines.find((line) => line.dpgf_target)!;
+        const linked = await apiRequest<Envelope<unknown>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/dpgf-link`,
+          { version_id: ids.versionId, estimate_item_id: target.id, takeoff_item_ids: [relaunchItem("Calorifuge").id] });
+        if (linked.status !== 200) problem("the DPGF reconciliation links the line", linked.body);
+        const fed = await readProposal();
+        const resolution = resolveConfirmation(fed, initialConfirmationDraft(fed));
+        if (!resolution.complete) problem("linking a line of the page to the DPGF line does not unblock the confirmation", resolution.missing);
+        const applied = await applyOwnedTakeoff(ui.browser, ids.versionId, ids.jobId, { strategy, target_section_id: ids.sectionId, page_decisions: resolution.payload });
+        if (applied.status !== 200) problem("the route refuses the page once the DPGF line is fed", applied.body);
+        return { screenshot, excluded, again: again.states, fed: fed.pages.map((page) => page.dpgf_fed_again), applied: applied.status };
+      } } },
 ];
 
 /**
@@ -396,12 +482,24 @@ function forcedPayload(proposal: TakeoffPageReplacementResponse, draft: Confirma
   return null;
 }
 
+/** The advice of a state that chooses an option the screen disables (or does not show). */
+function misadvice(resolution: Resolution) {
+  const controls = new Map(confirmationControls(resolution).map((control) => [control.id, control]));
+  return [...resolution.pages.flatMap((entry) => entry.advice), ...resolution.lines.flatMap((entry) => entry.advice)].flatMap((advice) =>
+    advice.choose.flatMap((choice) => {
+      const option = (controls.get(choice.control)?.options as Array<{ value: unknown; disabled: string | null }> | undefined)
+        ?.find((entry) => entry.value === choice.value);
+      return option && option.disabled === null ? [] : [`« ${advice.text} » → ${choice.control}=${String(choice.value)} (${option?.disabled ?? "not on screen"})`];
+    }));
+}
+
 /** Every state the screen reaches from its initial state through enabled controls, distinct by what it shows and sends. */
 function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 2_000) {
   const seen = new Map<string, Resolution>();
   const drafts = new Map<string, ConfirmationDraft>();
   const queue = [initialConfirmationDraft(proposal)];
   const unexplained: string[] = [];
+  const misadvised = new Set<string>();
   const withheld = new Map<string, { choice: string; payload: TakeoffPageDecision[] }>();
   while (queue.length > 0 && seen.size < limit) {
     const draft = queue.shift()!;
@@ -410,6 +508,8 @@ function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 2_000
     if (seen.has(key)) continue;
     seen.set(key, resolution);
     drafts.set(key, draft);
+    // The advice shown names only choices the screen offers where it names them.
+    for (const entry of misadvice(resolution)) misadvised.add(entry);
     for (const control of confirmationControls(resolution)) {
       for (const option of control.options) {
         // An option the screen does not offer says why; an option it offers takes effect.
@@ -427,7 +527,7 @@ function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 2_000
       }
     }
   }
-  return { resolutions: [...seen.values()], exhausted: queue.length === 0, unexplained, withheld: [...withheld.values()] };
+  return { resolutions: [...seen.values()], exhausted: queue.length === 0, unexplained, misadvised: [...misadvised], withheld: [...withheld.values()] };
 }
 
 type Call = { payload: TakeoffPageDecision[]; strategy: string };
@@ -534,6 +634,7 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
 
       const walk = reachableStates(proposal);
       if (walk.unexplained.length > 0) problems.push({ situation: situation.name, problem: "an option without effect or without a reason", detail: walk.unexplained });
+      if (walk.misadvised.length > 0) problems.push({ situation: situation.name, problem: "an advice names a choice the screen disables", detail: walk.misadvised });
       const confirmable = walk.resolutions.filter((resolution) => resolution.complete);
       const initial = resolveConfirmation(proposal, initialConfirmationDraft(proposal));
       const outsider = (await readEstimate(browser, versionId)).items.find((item) => item.id === target.id)!;
@@ -569,11 +670,33 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       if (refused.length > 0) problems.push({ situation: situation.name, problem: "a state the screen lets the estimator confirm is refused by the database", detail: refused.slice(0, 3) });
       if (unjustified.length > 0) problems.push({ situation: situation.name, problem: "a choice the screen withholds is accepted by the database", detail: unjustified });
       if (naiveMisses.length > 0) problems.push({ situation: situation.name, problem: "a naive decision is not refused for the reason it was built for", detail: naiveMisses });
-      if (confirmable.length === 0) problems.push({ situation: situation.name, problem: "no state can be confirmed", detail: initial.missing });
+      if (situation.deadEnd) {
+        // No state confirms here, by rule: the screen says what to do instead, and only that.
+        const shown = initial.pages.flatMap((page) => page.advice);
+        const deadEnd = shown.find((advice) => advice.elsewhere.length > 0);
+        if (confirmable.length > 0) problems.push({ situation: situation.name, problem: "a dead end by rule is confirmable", detail: confirmable.length });
+        if (!deadEnd || JSON.stringify(deadEnd.elsewhere) !== JSON.stringify(situation.deadEnd.elsewhere) || !situation.deadEnd.text.test(deadEnd.text)) {
+          problems.push({ situation: situation.name, problem: "the screen does not say what to do instead", detail: shown });
+        }
+      } else if (confirmable.length === 0) problems.push({ situation: situation.name, problem: "no state can be confirmed", detail: initial.missing });
       if (!walk.exhausted) problems.push({ situation: situation.name, problem: "the walk did not exhaust the screen's states", detail: walk.resolutions.length });
 
       // Through the route: a stale proposal is refused and read again; then the default when the screen offers it as
       // complete, else the first complete state reached.
+      let exits: unknown = null;
+      if (situation.deadEnd) {
+        exits = await situation.deadEnd.exits({ ui, ids: { projectId: base.projectId, versionId, sectionId, jobId: relaunch.jobId }, strategy,
+          relaunchItem: (designation) => relaunch.items.find((item) => item.designation === designation)!,
+          readProposal,
+          confirmable: async (next) => {
+            const walked = reachableStates(next);
+            const states = walked.resolutions.filter((resolution) => resolution.complete);
+            const verdicts = await databaseVerdicts({ userId, tenantId: scoped.tenantId, versionId, jobId: relaunch.jobId, sectionId,
+              dpgf: Boolean(situation.dpgf), calls: states.map((resolution) => ({ payload: resolution.payload, strategy })) });
+            return { states: states.length, verdicts: [...new Set(verdicts)], misadvised: walked.misadvised };
+          },
+          problem: (problem, detail) => problems.push({ situation: situation.name, problem, detail }) });
+      }
       let chosen = context.base;
       let stale: unknown = null;
       if (situation.staleAfterProposal && chosen) {
@@ -597,7 +720,7 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       report.push({ situation: situation.name, versionId, earlier: earlier.jobId, relaunch: relaunch.jobId, pages: proposal.pages.length,
         states: walk.resolutions.length, exhausted: walk.exhausted, confirmable: confirmable.length, refused: refused.length,
         withheld: walk.withheld.length, unjustified: unjustified.length,
-        naive: naive.map((entry, at) => [entry.reason, reasonOf(naiveVerdicts[at])]), defaultComplete: initial.complete, stale });
+        naive: naive.map((entry, at) => [entry.reason, reasonOf(naiveVerdicts[at])]), defaultComplete: initial.complete, stale, exits });
     }
 
     // The refusals the migration can raise, each met by a naive decision or named as outside the contract.
