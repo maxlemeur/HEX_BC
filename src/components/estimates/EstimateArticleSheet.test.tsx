@@ -1,8 +1,9 @@
-import { cleanup,render,screen,waitFor } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { fetchApi } from "@/components/catalogue/api";
 import { EstimateArticleSheet } from "@/components/estimates/EstimateArticleSheet";
+import { fetchCatalogueSuggestions } from "@/components/estimates/components/estimate-editor-row/shared";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 
 vi.mock("@/components/catalogue/api", () => ({
@@ -84,5 +85,52 @@ describe("EstimateArticleSheet", () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.getByText("Article archivé")).toBeInTheDocument();
+  });
+
+  // TI-690. Failure modes: the deliberate search does not ask for drafts, so an imported article cannot be
+  // linked to a line at all; or it returns a draft without saying so.
+  it("asks for drafts in the deliberate search and labels them", async () => {
+    vi.mocked(fetchCatalogueSuggestions).mockResolvedValue([
+      { ...suggestion, product_catalogue_status: "draft" },
+      {
+        ...suggestion,
+        product_id: "55555555-5555-4555-8555-555555555555",
+        product_designation: "Plateau chêne",
+        product_catalogue_status: "validated",
+      },
+    ]);
+
+    render(
+      <EstimateArticleSheet
+        isOpen
+        mode="associate"
+        versionId="version-1"
+        lineTitle="Plateau"
+        productId={null}
+        currency="EUR"
+        isReadOnly={false}
+        onClose={vi.fn()}
+        onAssociate={vi.fn()}
+        onDetach={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Rechercher dans le catalogue"), {
+      target: { value: "plateau" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Plateau chêne")).toBeInTheDocument();
+    });
+    expect(fetchCatalogueSuggestions).toHaveBeenCalledWith(
+      "version-1",
+      "plateau",
+      expect.any(AbortSignal),
+      { includeDrafts: true },
+    );
+    const draftRow = screen.getByText("Plateau mélaminé blanc").closest("button");
+    const validatedRow = screen.getByText("Plateau chêne").closest("button");
+    expect(draftRow).toHaveTextContent("Brouillon");
+    expect(validatedRow).not.toHaveTextContent("Brouillon");
   });
 });

@@ -5,10 +5,17 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
+  unprocessableEntity,
 } from "@/lib/estimates/errors";
 import type { Database } from "@/types/database";
 
 import type { CreateProductInput, UpdateProductInput } from "./directory-schemas";
+import {
+  PRODUCT_SUPPLY_TYPE_INVALID,
+  PRODUCT_VALIDATION_INCOMPLETE,
+  productValidationFieldsFromDetail,
+  productValidationMessage,
+} from "./product-validation";
 
 type ProductInsert = Database["public"]["Tables"]["products"]["Insert"];
 type ProductUpdate = Database["public"]["Tables"]["products"]["Update"];
@@ -34,6 +41,22 @@ async function getAdminClient() {
   return { supabase, userId };
 }
 
+/** Refusals of the trigger validate_product_catalogue_status, as sentences. */
+function catalogueStatusError(error: { message: string; details?: string | null }) {
+  if (error.message.includes(PRODUCT_VALIDATION_INCOMPLETE)) {
+    const missing = productValidationFieldsFromDetail(error.details);
+    return unprocessableEntity(
+      productValidationMessage(missing),
+      { missing },
+      PRODUCT_VALIDATION_INCOMPLETE,
+    );
+  }
+  if (error.message.includes(PRODUCT_SUPPLY_TYPE_INVALID)) {
+    return badRequest("Ce type de fourniture n’existe pas dans votre référentiel.");
+  }
+  return null;
+}
+
 export async function createProduct(input: CreateProductInput) {
   const { supabase } = await getAdminClient();
   const payload = compactRecord<ProductInsert>({
@@ -48,6 +71,8 @@ export async function createProduct(input: CreateProductInput) {
     unit: input.unit,
     unit_price_cents: input.unit_price_cents,
     is_active: input.is_active,
+    supply_type_id: input.supply_type_id,
+    catalogue_status: input.catalogue_status,
   });
 
   const { data, error } = await supabase
@@ -60,7 +85,7 @@ export async function createProduct(input: CreateProductInput) {
     if (error.code === "23505") {
       throw conflict("Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.");
     }
-    throw mapSupabaseError(error, "Impossible de créer le produit.");
+    throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de créer le produit.");
   }
 
   return { item: data };
@@ -100,7 +125,7 @@ export async function updateProduct(input: UpdateProductInput) {
     if (error.message.includes("REFERENCE_PRICE_VALIDATION_REQUIRED")) {
       throw conflict("Le prix de référence doit être validé depuis « Examiner le prix ». Une référence validée ne peut pas changer d’unité sans nouvelle validation.");
     }
-    throw mapSupabaseError(error, "Impossible de mettre à jour le produit.");
+    throw catalogueStatusError(error) ?? mapSupabaseError(error, "Impossible de mettre à jour le produit.");
   }
 
   if (!data) {
