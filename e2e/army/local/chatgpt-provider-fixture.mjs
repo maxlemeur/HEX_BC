@@ -190,6 +190,15 @@ globalThis.fetch = async (input, init) => {
     const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
       type: "function_call", id: `fc_army_${outputs.length}`, call_id: `call_army_${outputs.length}`, name, arguments: JSON.stringify(args), status: "completed" } }, completed]);
+    if (question.startsWith("ASSIST02 ")) {
+      const jobId = /ASSIST02 ([0-9a-f-]{36})/.exec(question)?.[1];
+      assert(jobId, "The requested fictional job id must be present.");
+      if (outputs.length === 0) return call("lire_metre", { jobId });
+      assert.equal(outputs.length, 1);
+      const result = outputs[0];
+      const text = result.erreur ? `Refus : ${result.erreur}` : result.lignes.map(line => `${line.designation} : ${line.quantite} ${line.unite}`).join("; ");
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
     if (outputs.length === 0) return call("lire_devis", { versionId });
     if (outputs.length === 1) return call("lire_lignes_devis", { versionId });
     const [outline, lines] = outputs;

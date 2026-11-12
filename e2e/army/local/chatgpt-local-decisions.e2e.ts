@@ -521,6 +521,106 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
 });
 
 
+// A finished fictional CSV job is read from the review screen, then refused from another affaire.
+if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and rejects another affaire", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("ASSIST02 requires its temporary fixture.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-assistant-takeoff-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré assistant" }, army);
+    const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
+    await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
+    await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
+    const source = screen.getByLabel("Fichier source", { exact: true });
+    await expect(source).toBeEnabled();
+    await source.setInputFiles(csv);
+    await expect(screen.getByText(path.basename(csv), { exact: true })).toBeVisible();
+    await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
+      inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A" } }, browser.locator("form").last());
+    const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
+      screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
+    expect(created.status).toBe(201);
+    const jobId = (await created.json<{ data: { id: string } }>()).data.id;
+    const read = () => apiRequest<{ data: { job: { status: string }; items: { data: Array<{ designation: string; quantity: number; unit: string }> } } }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
+    await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
+    const detail = (await read()).body.data;
+    expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
+    const other = await createEstimateViaWizard(ui, { projectName: `${prefix}-other`, title: "Autre affaire" }, army);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
+    await screen.getByTestId("assistant-toggle").click();
+    const panel = screen.getByTestId("assistant-panel");
+    await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
+    await panel.getByTestId("assistant-send").click();
+    const answer = panel.getByTestId("assistant-message-assistant");
+    await expect(answer).toContainText("ARMY copper pipe : 12.5 m", DEV_SERVER_WORK);
+    await expect(answer).toHaveAttribute("data-status", "complete");
+    await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture du métré");
+    const screenshot = await app.screenshot("assistant-takeoff-answer");
+    await ui.app.open(`/dashboard/estimates/${other.versionId}/edit`);
+    await screen.getByTestId("assistant-toggle").click();
+    await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
+    await panel.getByTestId("assistant-send").click();
+    await expect(answer).toContainText("Ce métré n’appartient pas à l’affaire de cette conversation.", DEV_SERVER_WORK);
+    await expect(answer).not.toContainText("ARMY copper pipe");
+    await recordEvidence(army, "assistant-takeoff-answer", { ids, other, jobId, quantity: 12.5, provider: "fixture", screenshot });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+
+if (!existsSync(liveProbePath)) test("ASSIST03 timeout is explained and retry keeps one question", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("ASSIST03 requires its temporary fixture.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const { client } = await localClient();
+    const prefix = `ARMY-assistant-timeout-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Assistant délai" }, army);
+    await createLineViaApi(browser, ids.versionId, "ARMY tube délai", { quantity: 3, unit_price_ht_cents: 1250 });
+    const total = (await readEstimate(browser, ids.versionId)).version.total_ht_cents;
+    const euros = `${Math.trunc(total / 100)},${String(total % 100).padStart(2, "0")} €`;
+    await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+    await screen.getByTestId("assistant-toggle").click();
+    const panel = screen.getByTestId("assistant-panel");
+    const question = "Quel est le total après délai ?";
+    await setDecisionsControl({ timeoutWriting: true });
+    await panel.getByTestId("assistant-input").fill(question);
+    await panel.getByTestId("assistant-send").click();
+    await expect(panel.getByTestId("assistant-error")).toHaveText("La réponse a dépassé le délai autorisé. Réessayez avec une question plus ciblée.", DEV_SERVER_WORK);
+    await expect(panel.getByTestId("assistant-message-user")).toHaveText(question);
+    await setDecisionsControl({});
+    await panel.getByTestId("assistant-retry").click();
+    await expect(panel.getByTestId("assistant-message-assistant").last()).toContainText(`Le total HT du devis est de ${euros}.`, DEV_SERVER_WORK);
+    const thread = await client.from("assistant_threads").select("id").eq("project_id", ids.projectId).single();
+    expect(thread.error).toBeNull();
+    await expect.poll(async () => (await client.from("assistant_messages").select("role, status, content").eq("thread_id", thread.data!.id).order("created_at")).data, DEV_SERVER_WORK)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ role: "assistant", status: "complete" })]));
+    const saved = await client.from("assistant_messages").select("role, status, content, error_code").eq("thread_id", thread.data!.id).order("created_at");
+    expect(saved.error).toBeNull();
+    expect(saved.data?.filter(message => message.role === "user")).toEqual([
+      { role: "user", status: "complete", content: question, error_code: null },
+    ]);
+    expect(saved.data?.filter(message => message.status === "failed")).toEqual([
+      expect.objectContaining({ role: "assistant", error_code: "AI_TIMEOUT" }),
+    ]);
+    await recordEvidence(army, "assistant-timeout-retry", { ids, questionCount: 1, provider: "fixture", screenshot: await app.screenshot("assistant-timeout-retry") });
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+
 test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classification", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
