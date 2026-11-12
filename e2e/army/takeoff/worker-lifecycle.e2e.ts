@@ -587,13 +587,13 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   // Classified groups first in the page record, then the unclassified one.
   expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });
   expect(failedPage.decisions).toMatchObject({ candidates: 1, calls: { batch: 1, dedicated: 0, failed: 1 }, answered: 0, total_tokens: 0,
-    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } });
+    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", from_earlier_page: false } });
   expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",
     VECTOR_PLAN.room.designation].sort((left, right) => left.localeCompare(right)));
   expect(failed.geometries.some((geometry) => geometry.network === "EU")).toBe(false);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${failedJobId}/review`);
   await expect(viewer).toBeVisible({ timeout: 30_000 });
-  await expect(viewer.getByText("Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
   await expect(viewer.getByText("Decisions : 1 appel, 0 jeton, 0 réponse", { exact: true })).toBeVisible();
   await expect(viewer.getByText("1 groupe de tracés à revoir", { exact: true })).toBeVisible();
   await expect(networks).not.toContainText(/EU\s*4\.00 m/);

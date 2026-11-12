@@ -395,7 +395,7 @@ export function createOptimisticLineItem(input: {
   lineTaxCents: number;
   lineTotalTtcCents: number;
   isLaborSplitEnabled: boolean;
-  /** TI-534 : provision FO d'une ligne v3 sans type FO (1,010) ; 1 en v1/v2. */
+  /** TI-534 : provision FO historique de la ligne ; 1 pour une nouvelle ligne, dont le K FO porte pertes et transport. */
   foProvision?: number;
 }): EditorEstimateItem {
   const timestamp = new Date().toISOString();

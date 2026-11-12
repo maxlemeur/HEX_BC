@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { callOpenAiDecisions, type OpenAiDecisionAnswer, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
+import { callOpenAiDecisions, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { badRequest, conflict, unprocessableEntity } from "@/lib/estimates/errors";
 import {
@@ -137,25 +137,20 @@ export async function runVectorGroupsConfig(input: {
   const reading = readVectorPage(extraction);
   const model = buildPageModel(extraction);
   const keywords = classifyByKeywords(model, reading.legend);
-  const results: OpenAiDecisionsResult[] = [];
+  /** Each call's result in the order the calls started (they may end in any order: TI-704); null for one that threw. */
+  const results: Array<OpenAiDecisionsResult | null> = [];
   const budget = createDecisionsTokenBudget(Math.max(1, input.remainingTokens), GROUP_DECISIONS_CALL_ESTIMATE_TOKENS);
   const outcome = await classifyVectorGroups({
     bytes, extraction, reading, owner: input.access.owner, budget, render: input.render,
     context: { tenantId: input.access.owner.tenantId, projectId: "takeoff-lab",
       preparationFingerprint: sha256Hex(`${document.sha256}\u0000${task.id}\u0000${input.promptVersion}`) },
     decide: async (request) => {
+      const slot = results.push(null) - 1;
       const result = await (input.decide ?? callOpenAiDecisions)(request);
-      results.push(result);
+      results[slot] = result;
       return result;
     },
   });
-  // A dedicated answer replaces the batch one (group-decisions-server.ts), never one of a failed or unavailable call:
-  // the last answer of an alias among the results the loop applied is the one kept.
-  const rawByAlias = new Map<string, OpenAiDecisionAnswer>();
-  for (const result of results) {
-    if (result.status === "failed" || result.status === "unavailable") continue;
-    for (const answer of result.answers) rawByAlias.set(answer.name, answer);
-  }
   const indexOf = new Map(model.groups.map((group, index) => [group.id, index]));
   const asked = [...outcome.answers].sort(([, left], [, right]) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0));
   const answers: LabAnswer[] = [];
@@ -163,8 +158,9 @@ export async function runVectorGroupsConfig(input: {
   for (const [groupId, entry] of asked) {
     const index = indexOf.get(groupId) as number;
     const name = vectorGroupName(model.groups[index]);
-    const raw = rawByAlias.get(entry.alias);
-    const probabilities = entry.status === "answered" && raw?.probabilities ? raw.probabilities.map((option) => ({
+    // The probabilities of the call the kept answer comes from (group-decisions-server.ts): the dedicated one when it
+    // replaced the batch answer, never a failed call's nor one sent after the stop.
+    const probabilities = entry.status === "answered" && entry.probabilities ? entry.probabilities.map((option) => ({
       value: String(option.value), label: choiceLabel(task, option.value), probability: option.probability,
     })).sort((left, right) => right.probability - left.probability) : null;
     const answer: LabAnswer = {
@@ -185,7 +181,8 @@ export async function runVectorGroupsConfig(input: {
     input: total.input + (call.usage?.input_tokens ?? 0), output: total.output + (call.usage?.output_tokens ?? 0), reasoning: 0,
     total: total.total + (call.usage?.total_tokens ?? 0),
   }), { input: 0, output: 0, reasoning: 0, total: 0 });
-  const latency = outcome.calls.length === 0 ? null : outcome.calls.reduce((total, call) => total + call.latency_ms, 0);
+  // The time the calls took together (TI-704: they run in parallel), as the other configurations' elapsed time.
+  const latency = outcome.calls_ms;
   const stop = outcome.stop;
   const incomplete = answers.some((answer) => answer.status !== "answered");
   // A stop after answers (provider, ceiling or a dedicated render) keeps them: they are paid, applied and judged.
@@ -197,7 +194,7 @@ export async function runVectorGroupsConfig(input: {
     status, message, latency_ms: latency, usage, answers, elements: status === "failed" ? [] : elements, stop,
     raw: JSON.stringify({
       page, mode: reading.mode, candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out, stop, render: outcome.render,
-      calls: outcome.calls, results,
+      calls: outcome.calls, results: results.filter((result) => result !== null),
     }, null, 2),
   };
 }
