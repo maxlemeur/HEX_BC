@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -66,6 +66,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     failed or was interrupted, or keeps its bytes when its request is deleted; a storage error reaches
  *     the client.
  */
+
+const UPLOAD_CLOCKS = ["2026-11-12T09:00:00.000Z", "2030-07-01T17:30:00.000Z"];
+
+afterEach(() => vi.restoreAllMocks());
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const OTHER_TENANT = "10000000-0000-4000-8000-000000000002";
@@ -985,7 +989,8 @@ describe("material requests of an affaire: originals", () => {
     expect(fake.tables.material_request_files.map((row) => row.id)).toEqual([FILE, PENDING_FILE, OTHER_FILE]);
   });
 
-  it("takes back what an interrupted upload left hours ago when the next one is prepared, and nothing recent", async () => {
+  it.each(UPLOAD_CLOCKS)("takes back what an interrupted upload left hours ago when the next one is prepared, and nothing recent at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const stalePath = `${TENANT}/${PROJECT}/${REQUEST}/80000000-0000-4000-8000-000000000003/ancienne.jpg`;
     const fake = seed(OWNER, "engineer", { objects: { [FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG, [stalePath]: JPEG } });
     fake.tables.material_request_files.push({
@@ -1094,7 +1099,8 @@ describe("material requests of an affaire: originals", () => {
     expect([...fake.objects.keys()]).toEqual([FILE_PATH, OTHER_FILE_PATH, PENDING_FILE_PATH]);
   });
 
-  it("lets only one of two uploads prepared side by side become visible past twelve originals", async () => {
+  it.each(UPLOAD_CLOCKS)("lets only one of two uploads prepared side by side become visible past twelve originals at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const fake = seed(OWNER, "engineer");
     const eleven = (prefix: string) => Array.from({ length: 11 }, (_, index) => declared(`${prefix}-${index}.jpg`));
     // One original is stored: each batch of eleven fits on its own, the two together do not.
@@ -1124,7 +1130,8 @@ describe("material requests of an affaire: originals", () => {
     expect(fake.objects.has(upload.path)).toBe(false);
   });
 
-  it("bounds the photos waiting for their bytes on a request", async () => {
+  it.each(UPLOAD_CLOCKS)("bounds the photos waiting for their bytes on a request at %s", async (clock) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(clock));
     const fake = seed(OWNER, "engineer");
     const eleven = Array.from({ length: 11 }, (_, index) => declared(`photo-${index}.jpg`));
     // One upload was interrupted: 1 + 11 + 11 wait for their bytes, eleven more would make 34.
