@@ -201,7 +201,8 @@ armyTest(
     expect(drafts.map((item) => item.reference).sort()).toEqual([elbowRef, tubeRef, valveRef].sort());
     const draftOf = (reference: string) => drafts.find((item) => item.reference === reference)!;
     expect(draftOf(tubeRef)).toMatchObject({
-      catalogue_status: "draft", designation: "Tube — Inox 304L soudé DN20", product_type: "Tube",
+      // The precision, absent from the wording, follows the size in parentheses.
+      catalogue_status: "draft", designation: "Tube — Inox 304L soudé DN20 (21,3x1,6)", product_type: "Tube",
       material: "Inox 304L soudé", grade: "304L", dimensions: "DN20 — 21,3x1,6", category: "Tuyauterie",
       unit: "ml", unit_price_cents: 1250, reliability_score: 8, supply_type_id: expectedType("tube"),
     });

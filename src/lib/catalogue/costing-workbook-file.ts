@@ -13,6 +13,10 @@ import {
  * The rows are counted from A1, blank rows included, so that a row's index plus one is the row the spreadsheet
  * shows: the reader's issues name it. Only the cells that hold a value set the extent read, never the sheet's
  * dimension, which Excel stretches over formatted empty cells.
+ *
+ * An error cell (#N/A, #REF!) or a formula saved without its value is sent as text, its displayed error or
+ * « #ERREUR »: SheetJS would give an empty cell, and a price « #N/A » would become a silent 0 € draft. As text,
+ * the reader reports it (« Prix « #N/A » illisible… »).
  */
 
 export type CostingWorkbookRows = CostingWorkbookImportInput["rows"];
@@ -30,11 +34,23 @@ export class CostingWorkbookFileError extends Error {
   }
 }
 
-type XlsxCell = { t?: string; v?: unknown };
+type XlsxCell = { t?: string; v?: unknown; w?: unknown; f?: unknown; F?: unknown };
+
+/** What an error cell, or a formula without its cached value, says in the spreadsheet. */
+const UNREADABLE_CELL = "#ERREUR";
 
 const formatCount = (value: number) => value.toLocaleString("fr-FR");
 const formatMegabytes = (bytes: number) =>
   (bytes / (1024 * 1024)).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+
+/** The text sent for an error cell or a formula without its value; null for any other cell. */
+function errorText(cell: XlsxCell | undefined): string | null {
+  if (!cell) return null;
+  const uncachedFormula = cell.t === "z" && (typeof cell.f === "string" || typeof cell.F === "string");
+  if (cell.t !== "e" && !uncachedFormula) return null;
+  const shown = cell.t === "e" && typeof cell.w === "string" ? cell.w.trim() : "";
+  return (shown || UNREADABLE_CELL).slice(0, COSTING_WORKBOOK_MAX_TEXT);
+}
 
 function holdsValue(cell: XlsxCell | undefined): boolean {
   if (!cell || cell.t === "e" || cell.t === "z") return false;
@@ -52,7 +68,8 @@ function contractCell(value: unknown): CostingWorkbookCell {
 }
 
 function contractRow(values: readonly unknown[]): CostingWorkbookCell[] {
-  const row = values.slice(0, COSTING_WORKBOOK_MAX_CELLS).map(contractCell);
+  // Array.from, not map: a cell SheetJS skips leaves a hole, which must become null.
+  const row = Array.from(values.slice(0, COSTING_WORKBOOK_MAX_CELLS), contractCell);
   let length = row.length;
   while (length > 0 && row[length - 1] === null) length -= 1;
   row.length = length;
@@ -74,7 +91,8 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
   try {
     // The workbook holds other heavy sheets: list the names first, then parse « All_data » alone.
     name = sheetName(xlsx.read(bytes, { type: "array", bookSheets: true }).SheetNames);
-    sheet = name ? xlsx.read(bytes, { type: "array", sheets: name }).Sheets[name] : undefined;
+    // Stubs keep the formulas saved without their value, which SheetJS drops otherwise.
+    sheet = name ? xlsx.read(bytes, { type: "array", sheets: name, sheetStubs: true }).Sheets[name] : undefined;
   } catch {
     throw new CostingWorkbookFileError("Ce fichier n’a pas pu être lu comme un classeur Excel.");
   }
@@ -86,10 +104,15 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
 
   let lastRow = -1;
   let lastColumn = -1;
+  const errors: Array<{ r: number; c: number; text: string }> = [];
   for (const address of Object.keys(sheet)) {
-    if (address.startsWith("!") || !holdsValue(sheet[address] as XlsxCell)) continue;
+    if (address.startsWith("!")) continue;
+    const cell = sheet[address] as XlsxCell;
+    const error = errorText(cell);
+    if (error === null && !holdsValue(cell)) continue;
     const { r, c } = xlsx.utils.decode_cell(address);
     if (c >= COSTING_WORKBOOK_MAX_CELLS) continue;
+    if (error !== null) errors.push({ r, c, text: error });
     lastRow = Math.max(lastRow, r);
     lastColumn = Math.max(lastColumn, c);
   }
@@ -108,7 +131,13 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
     defval: null,
     range: { s: { r: 0, c: 0 }, e: { r: lastRow, c: lastColumn } },
   });
-  return rows.map(contractRow);
+  const contractRows = rows.map(contractRow);
+  for (const { r, c, text } of errors) {
+    const values = contractRows[r];
+    while (values.length < c) values.push(null);
+    values[c] = text;
+  }
+  return contractRows;
 }
 
 /** The JSON body of a preview (`confirm: false`) or of the import, refused before any request when too heavy. */

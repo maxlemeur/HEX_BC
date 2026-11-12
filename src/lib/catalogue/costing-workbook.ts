@@ -1,4 +1,4 @@
-import { parseEuroToCents } from "@/lib/money";
+import { parseAmountCents } from "@/lib/numeric-input/parsers";
 import { foldText } from "@/lib/text/fold";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
@@ -85,6 +85,27 @@ const HEADER_SEARCH_ROWS = 10;
 const GENERIC_MATERIALS = new Set(["divers", "robinetterie", "supportage", "consommables", "calorifuge", "collier"]);
 /** Workbook families that are materials: the piece itself says whether it is a tube or a fitting. */
 const MATERIAL_FAMILIES = new Set(["I4L", "I6L", "T10", "AN", "MC", "PVCP", "SMU", "PVCE", "FPH", "PER"]);
+/** First words of a tube: a tube whatever its family, but insulation, support, valves and consumables. */
+const TUBE_WORDS = new Set(["tube", "tubes", "tuyau", "tuyaux"]);
+/** Materials that name the trade of an article the workbook does not classify. */
+const INSULATION_MATERIALS = ["calorifuge", "isolant", "kooltherm", "armaflex", "rockwool"];
+const SUPPORT_MATERIALS = ["supportage", "collier"];
+/** products.unit_price_cents is a PostgreSQL integer: a larger price would fail its whole chunk of drafts. */
+const MAX_PRICE_CENTS = 2_147_483_647;
+/** products.reference, compared case-insensitively: a cut reference could collide with another one. */
+const MAX_REFERENCE_LENGTH = 255;
+/**
+ * Error values a spreadsheet shows in place of a result (Excel in English and in French, LibreOffice), compared
+ * without accents nor case. The browser sends an error cell as this displayed text.
+ */
+const ERROR_TOKENS = new Set([
+  "#NULL!", "#NUL!", "#DIV/0!", "#VALUE!", "#VALEUR!", "#REF!", "#NAME?", "#NOM?", "#NUM!", "#NOMBRE!", "#N/A", "#N/D",
+  "#GETTING_DATA", "#ATTENTE_DONNEES", "#SPILL!", "#PROPAGATION!", "#CALC!", "#FIELD!", "#CHAMP!", "#BLOCKED!",
+  "#BLOQUE!", "#CONNECT!", "#CONNEXION!", "#BUSY!", "#OCCUPE!", "#UNKNOWN!", "#INCONNU!", "#EXTERNAL!", "#ERROR!",
+  "#ERREUR", "#ERREUR!",
+]);
+/** Text columns where an error is read as empty, and reported. */
+const SECONDARY_TEXT_COLUMNS = ["Matériau", "Dimension", "Précision", "norme", "Unité", "Type FO"] as const;
 
 const CATEGORY_OF_KIND: Record<CostingWorkbookSupplyKind, string> = {
   tube: "Tuyauterie",
@@ -101,6 +122,11 @@ const headerKey = (value: Cell) => foldText(text(value)).replace(/\s+/g, " ").tr
 function text(value: Cell): string {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function isErrorToken(value: string): boolean {
+  const folded = foldText(value.trim()).toUpperCase();
+  return ERROR_TOKENS.has(folded) || /^ERR:\d{3}$/.test(folded);
 }
 
 /** A size column: the workbook's placeholders (« - », « / ») say nothing. */
@@ -133,9 +159,12 @@ function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Colu
   );
 }
 
-/** The type of article: the wording before its details (« Bouchon mâle – fonte malléable » → « Bouchon mâle »). */
+/**
+ * The type of article: the wording before its details (« Bouchon mâle – fonte malléable » → « Bouchon mâle »,
+ * « Mise en place - élément » → « Mise en place »). Only a spaced dash cuts: « T-Rex » stays whole.
+ */
 function productTypeOf(wording: string): string {
-  const [head] = wording.split(/\s+[–—]\s+/);
+  const [head] = wording.split(/\s+[-–—]\s+/);
   return head.trim().slice(0, 200);
 }
 
@@ -143,25 +172,43 @@ function contains(haystack: string, needle: string) {
   return foldText(haystack).replace(/\s+/g, "").includes(foldText(needle).replace(/\s+/g, ""));
 }
 
-function designationOf(wording: string, material: string, dimension: string): string {
+/**
+ * The wording, then « — material » unless it is a trade or already said, then the size unless already said,
+ * then « (precision) » unless already said: two reduced tees of the same size differ by their precision alone.
+ */
+function designationOf(wording: string, material: string, dimension: string, precision: string): string {
   let designation = wording;
   if (material && !GENERIC_MATERIALS.has(foldText(material)) && !contains(wording, material)) {
     designation += ` — ${material}`;
   }
   if (dimension && !contains(designation, dimension)) designation += ` ${dimension}`;
+  if (precision && !contains(designation, precision)) designation += ` (${precision})`;
   return designation.slice(0, 500);
 }
 
-function supplyKindOf(family: string, productType: string): CostingWorkbookSupplyKind {
+/**
+ * The supply type sets the estimate's FO provision once the draft is validated (1,03 for tubes and insulation,
+ * 1,01 otherwise): the families of insulation, support and valves decide; a tube is a tube in any other family
+ * but consumables; a material family tells a fitting from a valve or a collar; an article of no family the reader
+ * knows is classified by its material, else « divers ».
+ */
+function supplyKindOf(family: string, productType: string, material: string): CostingWorkbookSupplyKind {
   const head = foldText(productType).split(/[^a-z0-9]+/).find(Boolean) ?? "";
   if (family === "CAL") return "calorifuge";
   if (family === "SUP") return "support";
   if (family === "ROB") return head === "vanne" ? "vanne" : "robinetterie";
-  if (!MATERIAL_FAMILIES.has(family)) return "divers";
-  if (head === "tube") return "tube";
-  if (head === "collier") return "support";
-  if (head === "vanne") return "vanne";
-  return "raccord";
+  if (family === "CONS") return "divers";
+  if (TUBE_WORDS.has(head)) return "tube";
+  if (MATERIAL_FAMILIES.has(family)) {
+    if (head === "collier") return "support";
+    if (head === "vanne") return "vanne";
+    return "raccord";
+  }
+  const trade = foldText(material);
+  if (INSULATION_MATERIALS.some((word) => trade.includes(word))) return "calorifuge";
+  if (SUPPORT_MATERIALS.some((word) => trade.includes(word))) return "support";
+  if (trade.includes("robinetterie")) return head === "vanne" ? "vanne" : "robinetterie";
+  return "divers";
 }
 
 function gradeOf(material: string): string | null {
@@ -171,10 +218,16 @@ function gradeOf(material: string): string | null {
   return `${match[1]}${match[2] ? (match[2].toLowerCase() === "ti" ? "Ti" : "L") : ""}`;
 }
 
+/**
+ * A number is read natively, rounded half away from zero to the cent from its shortest decimal digits (Excel's
+ * ROUND, PostgreSQL's round(numeric)): a formula's 12.345 is 12,35 €, its 3491.8000000000002 is 3 491,80 €. It
+ * is how the application reads every spreadsheet amount (parseAmountCents, the DPGF import's unit prices too).
+ * Text keeps the entry grammar: « 12,345 » is refused, not guessed.
+ */
 function priceOf(value: Cell): { cents: number; unreadable: boolean } {
   if (value === null || value === undefined || text(value) === "") return { cents: 0, unreadable: false };
-  const cents = parseEuroToCents(typeof value === "number" ? String(value) : text(value));
-  return cents === null || cents < 0 ? { cents: 0, unreadable: true } : { cents, unreadable: false };
+  const cents = parseAmountCents(typeof value === "number" ? value : text(value));
+  return cents === null || cents < 0 || cents > MAX_PRICE_CENTS ? { cents: 0, unreadable: true } : { cents, unreadable: false };
 }
 
 function reliabilityOf(value: Cell): { score: number | null; invalid: boolean } {
@@ -230,9 +283,21 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       issues.push({ row: sheetRow, reference: null, message: "Ligne sans référence (colonne ID) : ignorée." });
       continue;
     }
+    if (isErrorToken(reference)) {
+      issues.push({ row: sheetRow, reference: null, message: `Référence en erreur dans le classeur (${reference}) : ignorée.` });
+      continue;
+    }
+    if (reference.length > MAX_REFERENCE_LENGTH) {
+      issues.push({ row: sheetRow, reference, message: `Référence de plus de ${MAX_REFERENCE_LENGTH} caractères : ignorée.` });
+      continue;
+    }
     const wording = text(cell("Caractéristique"));
     if (!wording) {
       issues.push({ row: sheetRow, reference, message: "Ligne sans caractéristique : ignorée." });
+      continue;
+    }
+    if (isErrorToken(wording)) {
+      issues.push({ row: sheetRow, reference, message: `Caractéristique en erreur dans le classeur (${wording}) : ignorée.` });
       continue;
     }
     const key = workbookReferenceKey(reference);
@@ -243,12 +308,23 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     }
     firstRowOf.set(key, sheetRow);
 
-    const material = text(cell("Matériau"));
-    const dimension = sizeText(cell("Dimension"));
-    const precision = sizeText(cell("Précision"));
-    const family = text(cell("Type FO"));
+    // An error in a secondary column is read as empty; the row says so once, naming every such cell.
+    const secondary = new Map<(typeof SECONDARY_TEXT_COLUMNS)[number], string>();
+    const errorCells: string[] = [];
+    for (const column of SECONDARY_TEXT_COLUMNS) {
+      const raw = text(cell(column));
+      if (isErrorToken(raw)) errorCells.push(`${column} : ${raw}`);
+      secondary.set(column, isErrorToken(raw) ? "" : raw);
+    }
+    if (errorCells.length > 0) {
+      issues.push({ row: sheetRow, reference, message: `Cellule en erreur dans le classeur (${errorCells.join(", ")}) : ignorée.` });
+    }
+    const material = secondary.get("Matériau") ?? "";
+    const dimension = sizeText(secondary.get("Dimension"));
+    const precision = sizeText(secondary.get("Précision"));
+    const family = secondary.get("Type FO") ?? "";
     const productType = productTypeOf(wording);
-    const supplyKind = supplyKindOf(family, productType);
+    const supplyKind = supplyKindOf(family, productType, material);
 
     const price = priceOf(cell("PR. FO"));
     if (price.unreadable) {
@@ -258,20 +334,20 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     if (reliability.invalid) {
       issues.push({ row: sheetRow, reference, message: `Fiabilité « ${text(cell("Fiabilité (/10)"))} » hors de 0 à 10 : ignorée.` });
     }
-    const rawUnit = text(cell("Unité"));
+    const rawUnit = secondary.get("Unité") ?? "";
     if (!rawUnit) issues.push({ row: sheetRow, reference, message: "Unité absente : « u » retenue." });
     const unit = rawUnit ? (normalizeMeasurementUnit(rawUnit).unitCode ?? rawUnit).slice(0, 50) : "u";
     const dimensions = [dimension, precision].filter(Boolean).join(" — ").slice(0, 255) || null;
 
     articles.push({
       row: sheetRow,
-      reference: reference.slice(0, 255),
-      designation: designationOf(wording, material, dimension),
+      reference,
+      designation: designationOf(wording, material, dimension, precision),
       product_type: productType || null,
       material: material.slice(0, 255) || null,
       grade: gradeOf(material),
       dimensions,
-      standard: text(cell("norme")).slice(0, 255) || null,
+      standard: (secondary.get("norme") ?? "").slice(0, 255) || null,
       category: family === "CONS" ? "Consommables" : CATEGORY_OF_KIND[supplyKind],
       unit,
       unit_price_cents: price.cents,

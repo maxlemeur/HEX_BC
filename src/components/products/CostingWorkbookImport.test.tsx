@@ -24,6 +24,9 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  *  8. (added with the route's contract, after the first version of the dialog) An import that stopped half-way
  *     (COSTING_WORKBOOK_IMPORT_INCOMPLETE) keeps offering the stale preview's count, does not refresh the list
  *     although drafts were created, or gives no way to import what is left.
+ *  9. (found by review) A refusal that carries a sentence of the server (a 409 « un article vient d’être
+ *     ajouté », a 500 that says what failed) is replaced by a generic « erreur 409 »; after a 409 on the
+ *     confirmation, the stale preview is still offered instead of a new one.
  */
 
 const SHEET_ROWS = [
@@ -199,7 +202,13 @@ describe("CostingWorkbookImport", () => {
     [403, { ok: false, error: { code: "FORBIDDEN", message: "La gestion du catalogue est réservée aux administrateurs." } },
       "La gestion du catalogue est réservée aux administrateurs."],
     [403, { ok: false }, "L’import du classeur est réservé aux administrateurs et aux ingénieurs."],
-  ])("shows the %i refusal's sentence in the dialog and keeps the chosen file (5)", async (status, body, sentence) => {
+    [500, { ok: false, error: { code: "INTERNAL_ERROR", message: "Impossible de lire les articles du catalogue." } },
+      "Impossible de lire les articles du catalogue."],
+    [500, { ok: false }, "L’import n’a pas abouti (erreur 500). Réessayez dans un instant."],
+    // The schema's « Payload invalide. » says nothing to the office: the dialog's own sentence instead.
+    [400, { ok: false, error: { code: "VALIDATION_ERROR", message: "Payload invalide." } },
+      "Le serveur a refusé le contenu de l’onglet « All_data »."],
+  ])("shows the %i refusal's sentence in the dialog and keeps the chosen file (5, 9)", async (status, body, sentence) => {
     const user = userEvent.setup();
     fetchMock.mockImplementationOnce(() => respond(status, body));
     renderDialog();
@@ -271,6 +280,28 @@ describe("CostingWorkbookImport", () => {
 
     expect(await within(dialog()).findByText("1 342 nouveaux articles en brouillon")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Importer ${(1342).toLocaleString("fr-FR")} brouillons` })).toBeEnabled();
+    expect(sentBodies().map((body) => body.confirm)).toEqual([false, true, false]);
+  });
+
+  it("after a 409 on the confirmation, shows the server's sentence and previews again instead of the stale preview (9)", async () => {
+    const user = userEvent.setup();
+    const conflict = "Un article de ce classeur vient d’être ajouté au catalogue : relancez l’import pour reprendre les articles qui manquent.";
+    fetchMock
+      .mockImplementationOnce(() => success(report()))
+      .mockImplementationOnce(() => respond(409, { ok: false, error: { code: "CONFLICT", message: conflict } }))
+      .mockImplementationOnce(() => success(report({ new_articles: 1841, already_in_catalogue: 780 })));
+    const { props } = renderDialog();
+
+    await user.upload(fileInput(), costingWorkbook());
+    await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
+
+    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(conflict);
+    expect(within(dialog()).queryByText(/erreur 409/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
+    expect(props.onImported).toHaveBeenCalledTimes(1);
+
+    await user.click(within(dialog()).getByRole("button", { name: "Réessayer" }));
+    expect(await screen.findByRole("button", { name: `Importer ${(1841).toLocaleString("fr-FR")} brouillons` })).toBeEnabled();
     expect(sentBodies().map((body) => body.confirm)).toEqual([false, true, false]);
   });
 

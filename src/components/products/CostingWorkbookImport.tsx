@@ -64,7 +64,7 @@ const PHASE_LABELS: Record<Exclude<Phase, "idle">, string> = {
 type Outcome =
   | { ok: true; report: CostingWorkbookImportReport }
   | { ok: false; aborted: true }
-  | { ok: false; aborted: false; message: string; retry: boolean; incomplete: boolean };
+  | { ok: false; aborted: false; message: string; retry: boolean; stale: boolean };
 
 const formatCount = (value: number) => value.toLocaleString("fr-FR");
 
@@ -91,19 +91,29 @@ function isReport(value: unknown): value is CostingWorkbookImportReport {
 function refusal(status: number, payload: unknown): Extract<Outcome, { aborted: false }> {
   const error = asRecord(asRecord(payload)?.error);
   const code = typeof error?.code === "string" ? error.code : null;
-  const message = typeof error?.message === "string" && error.message.trim() ? error.message : null;
+  const serverMessage = typeof error?.message === "string" && error.message.trim() ? error.message : null;
+  // The schema's refusal (« Payload invalide. ») says nothing to the office: the dialog's own sentence instead.
+  const message = code === "VALIDATION_ERROR" ? null : serverMessage;
+  // Drafts may have been created (an import stopped half-way) or the catalogue changed meanwhile (409): the
+  // preview no longer holds, a new one counts what is left.
+  const stale = code === COSTING_WORKBOOK_IMPORT_INCOMPLETE || status === 409;
+  let fallback: string;
   if (code === COSTING_WORKBOOK_IMPORT_INCOMPLETE) {
-    return {
-      ok: false, aborted: false, retry: true, incomplete: true,
-      message: message ?? "L’import s’est arrêté en cours de route. Relancez-le : il reprend où il s’est arrêté.",
-    };
+    fallback = "L’import s’est arrêté en cours de route. Relancez-le : il reprend où il s’est arrêté.";
+  } else if (code === COSTING_WORKBOOK_FORMAT || status === 422) {
+    fallback = "Ce classeur n’a pas la forme attendue.";
+  } else if (status === 403) {
+    fallback = "L’import du classeur est réservé aux administrateurs et aux ingénieurs.";
+  } else if (status === 413) {
+    fallback = `L’onglet « ${COSTING_WORKBOOK_SHEET} » est trop lourd pour être envoyé.`;
+  } else if (status === 400) {
+    fallback = `Le serveur a refusé le contenu de l’onglet « ${COSTING_WORKBOOK_SHEET} ».`;
+  } else {
+    fallback = `L’import n’a pas abouti (erreur ${status}). Réessayez dans un instant.`;
   }
-  const fail = (text: string, retry = false) => ({ ok: false as const, aborted: false as const, message: text, retry, incomplete: false });
-  if (code === COSTING_WORKBOOK_FORMAT || status === 422) return fail(message ?? "Ce classeur n’a pas la forme attendue.");
-  if (status === 403) return fail(message ?? "L’import du classeur est réservé aux administrateurs et aux ingénieurs.");
-  if (status === 413) return fail(message ?? `L’onglet « ${COSTING_WORKBOOK_SHEET} » est trop lourd pour être envoyé.`);
-  if (status === 400) return fail(`Le serveur a refusé le contenu de l’onglet « ${COSTING_WORKBOOK_SHEET} ».`);
-  return fail(`L’import n’a pas abouti (erreur ${status}). Réessayez dans un instant.`, true);
+  // The file itself is refused (format, rights, size, content): choosing it again changes nothing.
+  const retry = stale || ![400, 403, 413, 422].includes(status);
+  return { ok: false, aborted: false, message: message ?? fallback, retry, stale };
 }
 
 export function CostingWorkbookImport({ open, onClose, onImported, onShowDrafts }: Readonly<CostingWorkbookImportProps>) {
@@ -166,7 +176,7 @@ function CostingWorkbookImportSteps({
       body = costingWorkbookImportBody(currentRows, confirm);
     } catch (bodyError) {
       const message = bodyError instanceof CostingWorkbookFileError ? bodyError.message : UNREADABLE_FILE;
-      return { ok: false, aborted: false, message, retry: false, incomplete: false };
+      return { ok: false, aborted: false, message, retry: false, stale: false };
     }
     const controller = new AbortController();
     requestRef.current = controller;
@@ -182,12 +192,12 @@ function CostingWorkbookImportSteps({
       if (!response.ok) return refusal(response.status, payload);
       const data = asRecord(payload)?.data;
       if (!isReport(data)) {
-        return { ok: false, aborted: false, message: "Réponse inattendue du serveur. Réessayez dans un instant.", retry: true, incomplete: false };
+        return { ok: false, aborted: false, message: "Réponse inattendue du serveur. Réessayez dans un instant.", retry: true, stale: false };
       }
       return { ok: true, report: data };
     } catch {
       if (controller.signal.aborted) return { ok: false, aborted: true };
-      return { ok: false, aborted: false, message: NETWORK_FAILURE, retry: true, incomplete: false };
+      return { ok: false, aborted: false, message: NETWORK_FAILURE, retry: true, stale: false };
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }
@@ -268,8 +278,8 @@ function CostingWorkbookImportSteps({
       return;
     }
     setError(outcome.message);
-    if (outcome.incomplete) {
-      // Some drafts exist now: the preview is stale, a new one counts what is left.
+    if (outcome.stale) {
+      // Some drafts may exist now: a new preview counts what is left.
       setPreview(null);
       setCanRetry(true);
       await refreshCatalogue();

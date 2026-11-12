@@ -27,11 +27,14 @@ import {
  *     build millions of empty cells, or sends thousands of empty rows the server refuses.
  *  4. More rows than the import accepts are sent anyway (the server answers with a 400 the office cannot read)
  *     instead of refused in a sentence before any request.
- *  5. A cell is sent that the contract does not carry (an error cell, a string over 4 000 characters, a cell
- *     past the 60th column), so the server refuses the whole sheet.
+ *  5. A cell is sent that the contract does not carry (a string over 4 000 characters, a cell past the 60th
+ *     column), so the server refuses the whole sheet.
  *  6. A file that is not a workbook (a PDF renamed .xlsx) crashes the dialog instead of a sentence.
  *  7. Rows heavier than the body the route reads are posted anyway and answered with a 413 the office cannot
  *     read, instead of refused in a sentence before any request.
+ *  8. (found by review, after the first version) An error cell (#N/A, #REF!) or a formula saved without its value
+ *     is sent as an empty cell: a price « #N/A » becomes a silent 0 € draft instead of a remark the office reads.
+ *     An empty cell must stay empty.
  */
 
 const HEADERS = [
@@ -114,10 +117,9 @@ describe("readCostingWorkbookFile", () => {
     expect(rows.length).toBe(COSTING_WORKBOOK_MAX_ROWS);
   });
 
-  it("sends only what the contract carries: no error cell, no over-long text, nothing past the 60th column (5)", async () => {
+  it("sends only what the contract carries: no over-long text, nothing past the 60th column (5)", async () => {
     const long = "x".repeat(COSTING_WORKBOOK_MAX_TEXT + 1000);
     const cells = sheet([["ID", "Caractéristique", "Actif", "Prix"], ["A.1", long, true, 5.44]]);
-    cells.E2 = { t: "e", v: 0x2a };
     cells[XLSX.utils.encode_cell({ r: 0, c: COSTING_WORKBOOK_MAX_CELLS + 9 })] = { t: "s", v: "colonne lointaine" };
     cells["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 1, c: COSTING_WORKBOOK_MAX_CELLS + 9 } });
     const rows = await readCostingWorkbookFile(workbook({ All_data: cells }));
@@ -127,6 +129,36 @@ describe("readCostingWorkbookFile", () => {
     expect(costingWorkbookImportSchema.safeParse({ rows: [Array(COSTING_WORKBOOK_MAX_CELLS + 1).fill(null)], confirm: false }).success).toBe(false);
     expect(costingWorkbookImportSchema.safeParse({ rows: [["x".repeat(COSTING_WORKBOOK_MAX_TEXT + 1)]], confirm: false }).success).toBe(false);
     expect(costingWorkbookImportSchema.safeParse({ rows: [Array(COSTING_WORKBOOK_MAX_CELLS).fill("x".repeat(COSTING_WORKBOOK_MAX_TEXT))], confirm: false }).success).toBe(true);
+  });
+
+  it("sends an error cell or a formula without its value as text the reader reports, and an empty cell as empty (8)", async () => {
+    const cells = sheet([
+      ["ID", "Vide", "Erreur", "Référence", "Sans valeur", "Formule vide"],
+      ["A.1", null, null, null, null, null],
+    ]);
+    cells.C2 = { t: "e", v: 0x2a }; // #N/A, its displayed text kept by the file
+    cells.D2 = { t: "e", v: 0x17 }; // #REF!
+    cells.E2 = { t: "z", f: "SUM(Z1:Z9)" }; // a formula saved without its value (Excel writes <c><f>…</f></c>)
+    cells.F2 = { t: "s", v: "", f: "\"\"" }; // a formula whose value is an empty text: empty, not an error
+    cells["!ref"] = "A1:F2";
+    const rows = await readCostingWorkbookFile(workbook({ All_data: cells }));
+    expect(rows).toEqual([
+      ["ID", "Vide", "Erreur", "Référence", "Sans valeur", "Formule vide"],
+      ["A.1", null, "#N/A", "#REF!", "#ERREUR", ""],
+    ]);
+
+    // Through the reader: the price « #N/A » is a remark, never a silent 0 €; an empty price stays « to fill ».
+    const tube = (id: string) => row({ "Type_ligne": "Art", "ID": id, "Matériau": "Inox 304L soudé", "Caractéristique": "Tube", "Unité": "ml" });
+    const tubes = sheet([HEADERS, tube("Tub.X4so.20"), tube("Tub.X4so.25")]);
+    tubes[XLSX.utils.encode_cell({ r: 1, c: HEADERS.indexOf("PR. FO") })] = { t: "e", v: 0x2a };
+    const priced = await readCostingWorkbookFile(workbook({ All_data: tubes }));
+    const result = readCostingWorkbookRows(priced);
+    expect(result.articles.map((article) => [article.reference, article.unit_price_cents])).toEqual([
+      ["Tub.X4so.20", 0], ["Tub.X4so.25", 0],
+    ]);
+    expect(result.issues).toEqual([
+      { row: 2, reference: "Tub.X4so.20", message: "Prix « #N/A » illisible : article importé sans prix." },
+    ]);
   });
 
   it("builds the request body, and refuses in a sentence rows heavier than the route reads (7)", () => {
