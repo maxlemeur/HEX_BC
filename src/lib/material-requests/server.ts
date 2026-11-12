@@ -395,9 +395,16 @@ function changes(line: MaterialRequestLine, patch: Partial<MaterialRequestLineDa
 }
 
 /**
+ * What a line does not say: the duplicate acknowledgement, and its supplier, which is the office's purchasing
+ * choice (TI-691) rather than what the technician asked. Changing them keeps a validated line validated; the line
+ * trigger leaves them out of its backstop too.
+ */
+const NOT_WHAT_THE_LINE_SAYS: ReadonlySet<string> = new Set(["duplicate_acknowledged", "supplier_id"]);
+
+/**
  * What a change does to one line, or null when it tells the line nothing new.
  *  - A validated line always describes what was validated: changing what it says (anything but the
- *    duplicate acknowledgement) returns it to draft.
+ *    duplicate acknowledgement and the supplier) returns it to draft.
  *  - "Not a duplicate" was said of the piece the line described: changing its type, size, material, zone
  *    or imputation withdraws it, unless the same change says it again.
  */
@@ -405,7 +412,7 @@ function patchFor(line: MaterialRequestLine, patch: Partial<MaterialRequestLineD
   const changed = Object.keys(patch).filter((key) => changes(line, patch, key));
   if (changed.length === 0) return null;
   const result: LinePatch = { ...patch };
-  if (line.status === "validated" && changed.some((key) => key !== "duplicate_acknowledged")) result.status = "draft";
+  if (line.status === "validated" && changed.some((key) => !NOT_WHAT_THE_LINE_SAYS.has(key))) result.status = "draft";
   if (line.duplicate_acknowledged && patch.duplicate_acknowledged === undefined
     && DUPLICATE_KEYS.some((key) => changed.includes(key))) {
     result.duplicate_acknowledged = false;

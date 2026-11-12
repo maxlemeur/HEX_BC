@@ -15,6 +15,7 @@ import {
   deleteMaterialRequestLine,
   fetchMaterialRequest,
   fetchMaterialRequestCandidates,
+  fetchMaterialRequestSupplierProposals,
   isLineChanged,
   isPresumptionChanged,
   linkMaterialRequestLineArticle,
@@ -42,6 +43,7 @@ import type {
   MaterialRequestLineSeen,
   UpdateMaterialRequestInput,
 } from "@/lib/material-requests/contracts";
+import type { LineSupplierProposal } from "@/lib/material-requests/supplier-contracts";
 
 import { uploadMaterialRequestPhotos, type PhotoUploadStep } from "./photo-upload";
 
@@ -85,6 +87,18 @@ export type ArticleLinkEntry = { lineId: string; input: LinkMaterialRequestLineA
 
 /** `left`: lines of the request still without an article once the bulk link is done. */
 export type BulkLinkResult = { linked: number; left: number; failures: string[] };
+
+/** The supplier proposals of the request (TI-691): read once for the page, by the office only. */
+export type SupplierProposalsStatus = "loading" | "ready" | "error";
+
+export type SupplierRetainEntry = { lineId: string; supplierId: string };
+
+/** `failures`: how many lines each refused request covered, with the server's sentence. */
+export type BulkRetainResult = { retained: number; failures: Array<{ count: number; message: string }> };
+
+/** A supplier chosen in the line's select is on its way, or was refused and is still shown there. */
+export const SUPPLIER_CHOICE_HELD =
+  "Un autre choix de fournisseur de cette ligne n’est pas encore enregistré : réessayez quand il l’est.";
 
 /** The columns the matcher reads: a change of one of them makes the line's proposals stale. */
 const MATCHED_COLUMNS: ReadonlySet<string> = new Set([
@@ -158,6 +172,20 @@ export type MaterialRequestEditorApi = {
   linkArticles: (entries: readonly ArticleLinkEntry[]) => Promise<BulkLinkResult>;
   unlinkArticle: (lineId: string) => Promise<SaveResult>;
   createArticle: (lineId: string, input: CreateMaterialRequestLineArticleInput) => Promise<SaveResult>;
+  /**
+   * The supplier proposed for a line that has an article and no supplier, once read; null otherwise
+   * (none, not read yet, or stale while it is read again).
+   */
+  supplierProposalOf: (lineId: string) => LineSupplierProposal | null;
+  supplierProposalsStatus: SupplierProposalsStatus;
+  retrySupplierProposals: () => void;
+  /**
+   * Sets the line's supplier, in the queue of writes. A refusal leaves nothing unsaved on screen: the line
+   * stays as the server holds it and is not held back from validation.
+   */
+  retainSupplier: (lineId: string, supplierId: string) => Promise<SaveResult>;
+  /** One request per supplier; a line whose supplier choice is not saved is left out and reported. */
+  retainSuppliers: (entries: readonly SupplierRetainEntry[]) => Promise<BulkRetainResult>;
 };
 
 export type MaterialRequestEditorState =
@@ -195,6 +223,8 @@ function applyArticleLink(
 
 type ProposalsRead = { status: "loading" | "ready" | "error"; lines: Record<string, MaterialRequestArticleCandidate[]> };
 
+type SupplierProposalsRead = { status: SupplierProposalsStatus; lines: Record<string, LineSupplierProposal | null> };
+
 /**
  * State of one request on screen. Every write goes to the server one after the other, in the order the
  * operator made them, and the screen then shows what the server answered.
@@ -221,6 +251,15 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
   const [staleProposals, setStaleProposals] = useState<ReadonlySet<string> | "all">(new Set<string>());
   const [articleNotices, setArticleNotices] = useState<ReadonlyMap<string, ArticleNotice>>(new Map());
   const [articleConflicts, setArticleConflicts] = useState<ReadonlyMap<string, string>>(new Map());
+  const [supplierProposals, setSupplierProposals] = useState<SupplierProposalsRead>({ status: "loading", lines: {} });
+  /** Bumped by every change that makes supplier proposals stale: the page reads them all again, once. */
+  const [supplierProposalsVersion, setSupplierProposalsVersion] = useState(0);
+  const [staleSupplierProposals, setStaleSupplierProposals] = useState<ReadonlySet<string> | "all">(new Set<string>());
+  /**
+   * Per line: the supplier choices of its select not answered yet. A proposal retained meanwhile would be
+   * sent after them and overwrite the choice the operator made first.
+   */
+  const supplierWrites = useRef(new Map<string, number>());
   /** The lines as last rendered: a link compares the line's status before and after. */
   const latest = useRef<MaterialRequestEditorData | null>(null);
   useEffect(() => {
@@ -256,6 +295,45 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
     setProposals((current) => ({ ...current, status: "loading" }));
     setProposalsVersion((current) => current + 1);
   }, []);
+
+  // Supplier proposals are for the office too: a reader is never sent for them.
+  useEffect(() => {
+    if (!loaded || !writable) return;
+    const abort = new AbortController();
+    fetchMaterialRequestSupplierProposals(projectId, requestId, abort.signal)
+      .then((lines) => {
+        if (abort.signal.aborted) return;
+        setSupplierProposals({ status: "ready", lines });
+        setStaleSupplierProposals(new Set<string>());
+      })
+      .catch(() => {
+        if (!abort.signal.aborted) setSupplierProposals((current) => ({ ...current, status: "error" }));
+      });
+    return () => abort.abort();
+  }, [loaded, writable, supplierProposalsVersion, projectId, requestId]);
+
+  /**
+   * What a line is proposed depends on its article, on the supplier the request names, and on the line
+   * having no supplier. A supplier set on a line hides its proposal without a new read; a supplier
+   * removed, an article linked or unlinked, or the request's supplier changed read them again.
+   */
+  const markSupplierProposalsStale = useCallback((lineIds: readonly string[] | "all") => {
+    setStaleSupplierProposals((current) =>
+      lineIds === "all" || current === "all" ? "all" : new Set([...current, ...lineIds]),
+    );
+    setSupplierProposalsVersion((current) => current + 1);
+  }, []);
+
+  const retrySupplierProposals = useCallback(() => {
+    setSupplierProposals((current) => ({ ...current, status: "loading" }));
+    setSupplierProposalsVersion((current) => current + 1);
+  }, []);
+
+  const holdsSupplierChoice = useCallback(
+    (lineId: string) =>
+      (supplierWrites.current.get(lineId) ?? 0) > 0 || lineWrites.current.get(lineId)?.failed.has("supplier_id") === true,
+    [],
+  );
 
   // Leaving the request while photos are on their way drops what was prepared for them.
   useEffect(() => {
@@ -370,9 +448,10 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       setConflict(lineId, message);
       await resync();
       markProposalsStale([lineId]);
+      markSupplierProposalsStale([lineId]);
       return { ok: false, blocked: true, message };
     },
-    [markProposalsStale, resync, setConflict],
+    [markProposalsStale, markSupplierProposalsStale, resync, setConflict],
   );
 
   /**
@@ -396,13 +475,14 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         setArticleNotices((current) => new Map(current).set(lineId, noticeOf(before, result.line, result.alias_learned)));
         // The usual name just learned can change what other lines are proposed.
         markProposalsStale([]);
+        markSupplierProposalsStale([lineId]);
         return { ok: true };
       } catch (error) {
         if (isLineChanged(error)) return reportLineChanged(lineId, error, fallback);
         return { ok: false, message: materialRequestErrorMessage(error, fallback) };
       }
     },
-    [enqueue, holdsUnsavedChange, markProposalsStale, reportLineChanged, setConflict],
+    [enqueue, holdsUnsavedChange, markProposalsStale, markSupplierProposalsStale, reportLineChanged, setConflict],
   );
 
   const actions = useMemo(
@@ -426,6 +506,8 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           if (reopened.size > 0) setReopenedByRequestChange(reopened.size);
           // A line that names no material is matched with the request's presumed one.
           if ("presumed_material" in patch || "material_confirmed" in patch) markProposalsStale("all");
+          // The supplier the technician named comes first for every line.
+          if ("presumed_supplier_id" in patch || "supplier_confirmed" in patch) markSupplierProposalsStale("all");
           return { ok: true };
         } catch (error) {
           // The value about to be confirmed is no longer the one stored: nothing was written. The request
@@ -439,6 +521,8 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         const record = lineWrites.current.get(lineId) ?? { pending: 0, failed: new Set<string>() };
         lineWrites.current.set(lineId, record);
         record.pending += 1;
+        const choosesSupplier = "supplier_id" in patch;
+        if (choosesSupplier) supplierWrites.current.set(lineId, (supplierWrites.current.get(lineId) ?? 0) + 1);
         publishLineChanges();
         const saved = run(
           async () => {
@@ -453,18 +537,18 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
               throw error;
             } finally {
               record.pending -= 1;
+              if (choosesSupplier) supplierWrites.current.set(lineId, (supplierWrites.current.get(lineId) ?? 1) - 1);
               publishLineChanges();
             }
           },
           (current, line) => mergeLines(current, [line]),
           "La ligne n’a pas pu être enregistrée.",
         );
-        return touchesMatchedColumns(patch)
-          ? saved.then((result) => {
-              if (result.ok) markProposalsStale([lineId]);
-              return result;
-            })
-          : saved;
+        return saved.then((result) => {
+          if (result.ok && touchesMatchedColumns(patch)) markProposalsStale([lineId]);
+          if (result.ok && choosesSupplier && patch.supplier_id === null) markSupplierProposalsStale([lineId]);
+          return result;
+        });
       },
       addLines: async (lines: MaterialRequestLineInput[]): Promise<SaveResult> => {
         try {
@@ -507,6 +591,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           });
           setData((current) => (current ? mergeLines(current, outcome.lines) : current));
           if (outcome.ready.length > 0 && touchesMatchedColumns(patch)) markProposalsStale(outcome.ready);
+          if (outcome.ready.length > 0 && patch.supplier_id === null) markSupplierProposalsStale(outcome.ready);
           if (outcome.held.length > 0) setWithheld({ action: "apply", lineIds: outcome.held });
           return outcome.ready.length > 0
             ? { ok: true }
@@ -646,12 +731,14 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
             return next;
           });
           markProposalsStale([]);
+          markSupplierProposalsStale(outcome.results.map((result) => result.line.id));
         }
         if (outcome.changed.size > 0) {
           for (const [lineId, message] of outcome.changed) setConflict(lineId, message);
           // Read again after the queued task: inside it, a read would wait behind itself.
           await resync();
           markProposalsStale([...outcome.changed.keys()]);
+          markSupplierProposalsStale([...outcome.changed.keys()]);
         }
         const linkedIds = new Set(outcome.results.map((result) => result.line.id));
         const left = (latest.current?.lines ?? []).filter((line) => !line.product_id && !linkedIds.has(line.id)).length;
@@ -669,17 +756,62 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
             return next;
           });
           markProposalsStale([lineId]);
+          markSupplierProposalsStale([lineId]);
           return { ok: true };
         } catch (error) {
           if (isLineChanged(error)) return reportLineChanged(lineId, error, "L’article n’a pas pu être délié.");
           return { ok: false, message: materialRequestErrorMessage(error, "L’article n’a pas pu être délié.") };
         }
       },
+      retainSupplier: async (lineId: string, supplierId: string): Promise<SaveResult> => {
+        // Checked at the gesture: a choice queued before it would be overwritten once answered.
+        if (holdsSupplierChoice(lineId)) return { ok: false, message: SUPPLIER_CHOICE_HELD };
+        try {
+          const line = await enqueue(() =>
+            updateMaterialRequestLine(projectId, requestId, lineId, { supplier_id: supplierId }),
+          );
+          setData((current) => (current ? mergeLines(current, [line]) : current));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, message: materialRequestErrorMessage(error, "Le fournisseur n’a pas pu être retenu.") };
+        }
+      },
+      retainSuppliers: async (entries: readonly SupplierRetainEntry[]): Promise<BulkRetainResult> => {
+        setWithheld(null);
+        const held = entries.filter((entry) => holdsSupplierChoice(entry.lineId)).map((entry) => entry.lineId);
+        const bySupplier = new Map<string, string[]>();
+        for (const entry of entries) {
+          if (held.includes(entry.lineId)) continue;
+          bySupplier.set(entry.supplierId, [...(bySupplier.get(entry.supplierId) ?? []), entry.lineId]);
+        }
+        const outcome = await enqueue(async () => {
+          const lines: MaterialRequestLine[] = [];
+          const failures: BulkRetainResult["failures"] = [];
+          let retained = 0;
+          for (const [supplierId, ids] of bySupplier) {
+            try {
+              lines.push(...(await bulkUpdateMaterialRequestLines(projectId, requestId, { ids, patch: { supplier_id: supplierId } })));
+              retained += ids.length;
+            } catch (error) {
+              failures.push({
+                count: ids.length,
+                message: materialRequestErrorMessage(error, "Le fournisseur n’a pas pu être retenu."),
+              });
+            }
+          }
+          return { lines, failures, retained };
+        });
+        if (outcome.lines.length > 0) setData((current) => (current ? mergeLines(current, outcome.lines) : current));
+        if (held.length > 0) setWithheld({ action: "apply", lineIds: held });
+        return { retained: outcome.retained, failures: outcome.failures };
+      },
     }),
     [
       enqueue,
+      holdsSupplierChoice,
       holdsUnsavedChange,
       markProposalsStale,
+      markSupplierProposalsStale,
       projectId,
       publishLineChanges,
       reportLineChanged,
@@ -700,6 +832,15 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       return { status: "ready", candidates: proposals.lines[lineId] ?? [] };
     },
     [proposals, staleProposals],
+  );
+
+  const supplierProposalOf = useCallback(
+    (lineId: string): LineSupplierProposal | null => {
+      if (supplierProposals.status !== "ready") return null;
+      if (staleSupplierProposals === "all" || staleSupplierProposals.has(lineId)) return null;
+      return supplierProposals.lines[lineId] ?? null;
+    },
+    [staleSupplierProposals, supplierProposals],
   );
 
   const alertContext = useMemo<AlertContext | null>(
@@ -741,6 +882,9 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       retryProposals,
       articleNotices,
       articleConflicts,
+      supplierProposalOf,
+      supplierProposalsStatus: supplierProposals.status,
+      retrySupplierProposals,
       ...actions,
     },
   };

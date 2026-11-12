@@ -27,6 +27,7 @@
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/intake-google-drive.e2e.ts",
       "e2e/army/critical/material-request-articles.e2e.ts",
+      "e2e/army/critical/material-request-suppliers.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/navigation-feedback.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
@@ -255,6 +256,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/material-request-articles.e2e.ts",
+      "e2e/army/critical/material-request-suppliers.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
@@ -766,7 +768,7 @@
     },
     {
       "id": "material-requests",
-      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne.",
+      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne. MR03 : fournisseur proposé par ligne et sa raison (technicien, exception de l'article, type de fourniture), retenu en un geste, ligne validée qui le reste ; fournisseurs de l'article depuis sa fiche.",
       "paths": [
         "src/app/dashboard/affaires/[projectId]/demandes-materiel/**",
         "src/components/material-requests/**",
@@ -774,13 +776,19 @@
         "src/app/api/affaires/[projectId]/material-requests/**",
         "src/app/api/material-request-technicians/**",
         "src/app/api/products/[productId]/aliases/**",
+        "src/app/api/products/[productId]/{supplier-items,preferred-supplier}/**",
+        "src/app/api/catalogue/supply-types/[supplyTypeId]/**",
+        "src/components/products/{ProductSuppliers,SupplyTypeSuppliersDialog}.tsx",
+        "src/lib/catalogue/supplier-items-client.ts",
         "e2e/army/critical/material-requests.e2e.ts",
         "e2e/army/critical/material-request-articles.e2e.ts",
+        "e2e/army/critical/material-request-suppliers.e2e.ts",
         "e2e/fixtures/material-requests/**"
       ],
       "journeys": [
         "e2e/army/critical/material-requests.e2e.ts",
-        "e2e/army/critical/material-request-articles.e2e.ts"
+        "e2e/army/critical/material-request-articles.e2e.ts",
+        "e2e/army/critical/material-request-suppliers.e2e.ts"
       ]
     },
     {

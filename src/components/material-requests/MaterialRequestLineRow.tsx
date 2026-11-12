@@ -17,6 +17,7 @@ import {
   type MaterialRequestLine,
   type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
+import type { LineSupplierProposal } from "@/lib/material-requests/supplier-contracts";
 import { cn } from "@/lib/utils";
 
 import {
@@ -32,6 +33,7 @@ import {
 } from "./cells";
 import { formatQuantity } from "./format";
 import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
+import { MaterialRequestSupplierCell, type SupplierReference } from "./MaterialRequestSupplierCell";
 import type { ArticleNotice, LineChangeState, LineProposals, SaveResult } from "./useMaterialRequestEditor";
 
 /** The fixed order of the columns (TI-690); the table header and the rows both follow it. */
@@ -87,6 +89,11 @@ type LineRowProps = Readonly<{
   onUnlinkArticle: () => Promise<SaveResult>;
   onOpenArticles: () => void;
   onRetryProposals: () => void;
+  /** The supplier proposed for the line, while it has none (TI-691). */
+  supplierProposal: LineSupplierProposal | null;
+  /** The article's reference at the line's own supplier, when the catalogue knows it. */
+  supplierReference: SupplierReference | null;
+  onRetainSupplier: (supplierId: string) => Promise<SaveResult>;
 }>;
 
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
@@ -178,8 +185,34 @@ function ArticleColumn(props: LineRowProps) {
   );
 }
 
+/**
+ * The supplier column, on every row: a supplier is purchasing information, so the office may set or
+ * change it on a validated line too, which stays validated.
+ */
+function SupplierColumn(props: LineRowProps) {
+  const { line, request, supplierOptions, canWrite } = props;
+  const ownSupplier = supplierName(supplierOptions, line.supplier_id);
+  const requestSupplier = supplierFromRequest(request, supplierOptions);
+  return (
+    <td className={CELL}>
+      <MaterialRequestSupplierCell
+        line={line}
+        editable={canWrite}
+        supplierOptions={supplierOptions}
+        ownSupplier={ownSupplier}
+        requestSupplierLabel={requestSupplier ? fromRequest(requestSupplier) : null}
+        proposal={line.supplier_id ? null : props.supplierProposal}
+        reference={props.supplierReference}
+        supplyTypeName={props.article?.supply_type_name ?? null}
+        onSave={props.onSave}
+        onRetain={props.onRetainSupplier}
+      />
+    </td>
+  );
+}
+
 function SettledLineRow(props: LineRowProps) {
-  const { line, alerts, request, supplierOptions, canWrite, onReopen } = props;
+  const { line, alerts, request, canWrite, onReopen } = props;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
@@ -187,8 +220,6 @@ function SettledLineRow(props: LineRowProps) {
   // an empty cell here would read as « no material » on the table that was reviewed.
   const ownMaterial = line.material?.trim() ? line.material : null;
   const requestMaterial = ownMaterial ? null : materialFromRequest(line, request);
-  const ownSupplier = supplierName(supplierOptions, line.supplier_id);
-  const requestSupplier = ownSupplier ? null : supplierFromRequest(request, supplierOptions);
   const rowId = `material-request-line-${line.id}`;
 
   return (
@@ -209,9 +240,7 @@ function SettledLineRow(props: LineRowProps) {
         </ReadCell>
         <ReadCell id={`${rowId}-precision`}>{line.material_precision}</ReadCell>
         <ReadCell id={`${rowId}-reference`}>{line.reference}</ReadCell>
-        <ReadCell id={`${rowId}-supplier`}>
-          {ownSupplier ?? (requestSupplier ? fromRequest(requestSupplier) : null)}
-        </ReadCell>
+        <SupplierColumn {...props} />
         <ReadCell id={`${rowId}-zone`}>{line.zone}</ReadCell>
         <ReadCell id={`${rowId}-imputation`}>
           {MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}
@@ -274,7 +303,6 @@ function EditableLineRow(props: LineRowProps) {
     line,
     alerts,
     request,
-    supplierOptions,
     selected,
     onSelectedChange,
     change,
@@ -291,7 +319,6 @@ function EditableLineRow(props: LineRowProps) {
   const blocking = alerts.filter((alert) => alert.blocking);
   const duplicate = alerts.some((alert) => alert.code === "possible_duplicate");
   const requestMaterial = materialFromRequest(line, request);
-  const requestSupplier = supplierFromRequest(request, supplierOptions);
   const summaryId = `material-request-line-${line.id}-summary`;
   // A change the server refused is still in its cell: validating now would validate the older value.
   const unsaved = change === "failed";
@@ -387,16 +414,7 @@ function EditableLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["reference"])}
           />
         </td>
-        <td className={CELL}>
-          <ChoiceCell
-            label={`Fournisseur, ligne ${n}`}
-            value={line.supplier_id}
-            options={supplierOptions.map((option) => ({ value: option.id, label: option.name }))}
-            emptyLabel={requestSupplier ? fromRequest(requestSupplier) : "—"}
-            unknownLabel="Fournisseur retiré de la liste"
-            onCommit={(supplier_id) => onSave({ supplier_id })}
-          />
-        </td>
+        <SupplierColumn {...props} />
         <td className={CELL}>
           <TextCell
             label={`Repère, ligne ${n}`}

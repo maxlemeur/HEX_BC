@@ -35,6 +35,19 @@ import {
   type MaterialRequestUpdateResult,
 } from "@/lib/material-requests/contracts";
 import {
+  LINE_SUPPLIER_REASONS,
+  productPreferredSupplierSchema,
+  saveArticleSupplierItemSchema,
+  supplyTypePreferredSupplierSchema,
+  type ArticleSupplierItem,
+  type ArticleSupplierItemSaved,
+  type ArticleSuppliers,
+  type LineSupplierProposal,
+  type LineSupplierProposals,
+  type LineSupplierReference,
+} from "@/lib/material-requests/supplier-contracts";
+import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
+import {
   jsonBody, jsonResponse, pathParameter, queryParameter, schemaDefinition,
   successResponseSchemaDefinition, type OpenApiOperationDefinition, type OpenApiResponseDefinition,
 } from "@/lib/openapi/registry-helpers";
@@ -98,6 +111,32 @@ const uploads: z.ZodType<MaterialRequestFileUploads> = z.object({
   })),
 });
 const updateResult: z.ZodType<MaterialRequestUpdateResult> = z.object({ request, reopened_line_ids: z.array(uuid) });
+// TI-691: suppliers of the lines (src/lib/material-requests/supplier-contracts.ts).
+const supplierReference: z.ZodType<LineSupplierReference> = z.object({
+  supplier_sku: z.string().nullable(), product_url: z.string().nullable(),
+});
+const supplierProposal: z.ZodType<LineSupplierProposal> = z.object({
+  supplier_id: uuid, supplier_name: z.string(), reason: z.enum(LINE_SUPPLIER_REASONS),
+  supplier_sku: z.string().nullable(), product_url: z.string().nullable(),
+});
+const supplierProposals: z.ZodType<LineSupplierProposals> = z.object({
+  lines: z.record(z.string(), supplierProposal.nullable()),
+  references: z.record(z.string(), supplierReference),
+});
+const articleSupplierItem: z.ZodType<ArticleSupplierItem> = z.object({
+  id: uuid, supplier_id: uuid, supplier_name: z.string(), supplier_sku: z.string().nullable(),
+  product_url: z.string().nullable(), is_active: z.boolean(), has_price: z.boolean(),
+});
+const articleSuppliers: z.ZodType<ArticleSuppliers> = z.object({
+  items: z.array(articleSupplierItem), preferred_supplier_id: uuid.nullable(),
+});
+const articleSupplierSaved: z.ZodType<ArticleSupplierItemSaved> = z.object({
+  item: articleSupplierItem, preferred_supplier_id: uuid.nullable(),
+});
+const supplyTypeItem: z.ZodType<SupplyTypeListItem> = z.object({
+  id: uuid, code: z.string(), name: z.string(), preferred_supplier_id: uuid.nullable(),
+  preferred_supplier_name: z.string().nullable(),
+});
 const detailShape = {
   request, technician: technician.nullable(), files: z.array(file), lines: z.array(line),
   articles: z.record(z.string(), articleSummary),
@@ -155,6 +194,7 @@ const lineId = pathParameter({ name: "lineId", description: "Ligne de cette dema
 const fileId = pathParameter({ name: "fileId", description: "Original de cette demande.", schemaName: "MaterialRequestFileId", schema: uuid });
 const productId = pathParameter({ name: "productId", description: "Article du tenant actif.", schemaName: "MaterialRequestProductId", schema: uuid });
 const aliasId = pathParameter({ name: "aliasId", description: "Nom usuel de cet article.", schemaName: "ProductAliasId", schema: uuid });
+const supplyTypeId = pathParameter({ name: "supplyTypeId", description: "Type de fourniture du tenant actif.", schemaName: "SupplyTypeId", schema: uuid });
 const technicianId = pathParameter({ name: "technicianId", description: "Technicien du tenant actif.", schemaName: "MaterialRequestTechnicianId", schema: uuid });
 
 const base = "/api/affaires/{projectId}/material-requests";
@@ -164,7 +204,11 @@ const tags = ["Demandes de matériel"];
 const linesData = z.object({ lines: z.array(line) });
 const articleRule = "Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.";
 const lineChanged = refusal("MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande.");
-const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
+const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
+const catalogueEditorRefusals = {
+  "403": refusal("FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689)."),
+  "404": refusal("NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu."),
+};
 
 export const materialRequestOperations: OpenApiOperationDefinition[] = [
   {
@@ -358,6 +402,55 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: `La ligne retrouve le libellé qu'elle avait avant son premier rattachement (les propositions sont recalculées sur lui) ; une ligne rattachée sans libellé conservé garde ses colonnes. ${articleRule}`,
     parameters: [project, requestId, lineId],
     responses: { "200": success("ApiMaterialRequestLineArticleUnlinked", "Ligne sans article.", z.object({ line })), ...writeRefusals, "409": lineChanged },
+  },
+  {
+    tags, method: "get", path: `${one}/supplier-proposals`, summary: "Proposer un fournisseur pour les lignes d'une demande",
+    description: "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de son type de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Null quand aucune source n'en donne. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne ou d'une sélection, et peut toujours le changer ; une ligne validée le reste.",
+    parameters: [project, requestId],
+    responses: {
+      "200": success("ApiMaterialRequestSupplierProposals", "Proposition par identifiant de ligne (null : aucune source) et référence des lignes qui ont un fournisseur.", supplierProposals),
+      ...readRefusals,
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "get", path: "/api/products/{productId}/supplier-items", summary: "Lister les fournisseurs d'un article",
+    description: "Fournisseurs de l'article avec sa référence et son adresse chez chacun, actifs d'abord puis par nom ; has_price dit si un prix du tarif utilise cette référence ; preferred_supplier_id est l'exception de l'article (null sans exception). Lisible par tout membre du tenant actif.",
+    parameters: [productId],
+    responses: {
+      "200": success("ApiArticleSupplierItems", "Fournisseurs de l'article et son exception.", articleSuppliers),
+      "404": refusal("NOT_FOUND : article d'un autre tenant ou inconnu."),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "put", path: "/api/products/{productId}/supplier-items", summary: "Enregistrer la référence d'un article chez un fournisseur",
+    description: "Ajoute ou modifie, sans prix, la référence (1 à 255 caractères, espaces retirés) et l'adresse http(s) (2 000 caractères au plus) de l'article chez le fournisseur. Clé par clé : omise, la valeur enregistrée est gardée ; null (ou vide) l'efface. Une référence active garde une référence ou une adresse : un nouveau fournisseur en demande une, et l'enregistrement ne peut effacer la dernière. is_active vaut true s'il est omis ; false retire ce fournisseur de l'article sans rien supprimer ni demander de référence (une référence qui ne porte que des prix se retire telle quelle), et retire aussi l'exception de l'article si elle désigne ce fournisseur. Les prix du tarif et la référence qu'ils ont gardée ne changent pas. Droits : ceux de la modification de l'article.",
+    parameters: [productId],
+    requestBody: jsonBody({ name: "ArticleSupplierItemSave", description: "Fournisseur du tenant et référence chez lui.", schema: saveArticleSupplierItemSchema }),
+    responses: {
+      "200": success("ApiArticleSupplierItemSaved", "Référence enregistrée et exception de l'article après l'enregistrement.", articleSupplierSaved),
+      ...catalogueEditorRefusals,
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "patch", path: "/api/products/{productId}/preferred-supplier", summary: "Choisir le fournisseur de l'article",
+    description: "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de son type de fourniture. null la retire. Droits : ceux de la modification de l'article.",
+    parameters: [productId],
+    requestBody: jsonBody({ name: "ProductPreferredSupplier", description: "Fournisseur du tenant, ou null.", schema: productPreferredSupplierSchema }),
+    responses: {
+      "200": success("ApiProductPreferredSupplier", "Exception enregistrée.", z.object({ preferred_supplier_id: uuid.nullable() })),
+      ...catalogueEditorRefusals,
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "patch", path: "/api/catalogue/supply-types/{supplyTypeId}", summary: "Choisir le fournisseur préféré d'un type de fourniture",
+    description: "Fournisseur proposé aux lignes de demandes de matériel dont l'article est de ce type, sauf exception de l'article. null le retire. Réservé aux administrateurs et aux ingénieurs du tenant actif.",
+    parameters: [supplyTypeId],
+    requestBody: jsonBody({ name: "SupplyTypePreferredSupplier", description: "Fournisseur du tenant, ou null.", schema: supplyTypePreferredSupplierSchema }),
+    responses: {
+      "200": success("ApiSupplyTypePreferredSupplier", "Type de fourniture et son fournisseur préféré.", z.object({ item: supplyTypeItem })),
+      "403": refusal("FORBIDDEN : réservé aux administrateurs et aux ingénieurs."),
+      "404": refusal("NOT_FOUND : type de fourniture ou fournisseur d'un autre tenant, ou inconnu."),
+    },
   },
   {
     tags: ["Catalogue"], method: "get", path: "/api/products/{productId}/aliases", summary: "Lister les noms usuels d'un article",

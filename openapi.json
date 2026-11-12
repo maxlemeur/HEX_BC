@@ -2870,7 +2870,7 @@
           "Demandes de matériel"
         ],
         "summary": "Appliquer une modification à une sélection de lignes",
-        "description": "Applique les mêmes valeurs aux lignes désignées et retourne ces lignes. Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.",
+        "description": "Applique les mêmes valeurs aux lignes désignées et retourne ces lignes. Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -2982,7 +2982,7 @@
           "Demandes de matériel"
         ],
         "summary": "Modifier une ligne",
-        "description": "Seuls les champs envoyés changent. Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien. Changer le type, la dimension, la matière, la zone ou l'imputation d'une ligne retire son « doublon vu », sauf si la même requête le redonne. Statut, position et validation ne se modifient pas ici.",
+        "description": "Seuls les champs envoyés changent. Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien. Changer le type, la dimension, la matière, la zone ou l'imputation d'une ligne retire son « doublon vu », sauf si la même requête le redonne. Statut, position et validation ne se modifient pas ici.",
         "parameters": [
           {
             "name": "projectId",
@@ -3906,6 +3906,107 @@
         }
       }
     },
+    "/api/affaires/{projectId}/material-requests/{requestId}/supplier-proposals": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Proposer un fournisseur pour les lignes d'une demande",
+        "description": "Pour chaque ligne qui a un article et pas encore de fournisseur, le premier fournisseur actif du tenant parmi, dans cet ordre : celui que le technicien a nommé (fournisseur présumé de la demande, confirmé ou non), l'exception de l'article, le fournisseur préféré de son type de fourniture, celui de la dernière commande confirmée ou reçue de l'article. Null quand aucune source n'en donne. supplier_sku et product_url sont la référence et l'adresse de l'article chez ce fournisseur si elle est active. references donne de même, pour chaque ligne qui a déjà un article et un fournisseur, la référence active de l'article chez ce fournisseur. Rien n'est écrit : le bureau choisit le fournisseur de la ligne par la modification d'une ligne ou d'une sélection, et peut toujours le changer ; une ligne validée le reste.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposition par identifiant de ligne (null : aucune source) et référence des lignes qui ont un fournisseur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestSupplierProposals"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'affaire n'est lisible que par son propriétaire, un administrateur ou un directeur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/bulk-archive": {
       "post": {
         "tags": [
@@ -4762,7 +4863,7 @@
           "Catalogue"
         ],
         "summary": "Lister les types de fourniture",
-        "description": "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue.",
+        "description": "Retourne les types de fourniture du tenant, communs aux lignes de devis et aux articles du catalogue, avec le fournisseur que chacun prefere (preferred_supplier_id, preferred_supplier_name, null sans fournisseur prefere).",
         "responses": {
           "200": {
             "description": "Operation executee avec succes.",
@@ -4900,6 +5001,109 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/supply-types/{supplyTypeId}": {
+      "patch": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Choisir le fournisseur préféré d'un type de fourniture",
+        "description": "Fournisseur proposé aux lignes de demandes de matériel dont l'article est de ce type, sauf exception de l'article. null le retire. Réservé aux administrateurs et aux ingénieurs du tenant actif.",
+        "parameters": [
+          {
+            "name": "supplyTypeId",
+            "in": "path",
+            "description": "Type de fourniture du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SupplyTypeId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Fournisseur du tenant, ou null.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplyTypePreferredSupplier"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Type de fourniture et son fournisseur préféré.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSupplyTypePreferredSupplier"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : type de fourniture ou fournisseur d'un autre tenant, ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -20351,6 +20555,302 @@
         }
       }
     },
+    "/api/products/{productId}/preferred-supplier": {
+      "patch": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Choisir le fournisseur de l'article",
+        "description": "Exception de l'article : proposée aux lignes de demandes de matériel avant le fournisseur préféré de son type de fourniture. null la retire. Droits : ceux de la modification de l'article.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Fournisseur du tenant, ou null.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductPreferredSupplier"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exception enregistrée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPreferredSupplier"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/supplier-items": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les fournisseurs d'un article",
+        "description": "Fournisseurs de l'article avec sa référence et son adresse chez chacun, actifs d'abord puis par nom ; has_price dit si un prix du tarif utilise cette référence ; preferred_supplier_id est l'exception de l'article (null sans exception). Lisible par tout membre du tenant actif.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fournisseurs de l'article et son exception.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiArticleSupplierItems"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article d'un autre tenant ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Enregistrer la référence d'un article chez un fournisseur",
+        "description": "Ajoute ou modifie, sans prix, la référence (1 à 255 caractères, espaces retirés) et l'adresse http(s) (2 000 caractères au plus) de l'article chez le fournisseur. Clé par clé : omise, la valeur enregistrée est gardée ; null (ou vide) l'efface. Une référence active garde une référence ou une adresse : un nouveau fournisseur en demande une, et l'enregistrement ne peut effacer la dernière. is_active vaut true s'il est omis ; false retire ce fournisseur de l'article sans rien supprimer ni demander de référence (une référence qui ne porte que des prix se retire telle quelle), et retire aussi l'exception de l'article si elle désigne ce fournisseur. Les prix du tarif et la référence qu'ils ont gardée ne changent pas. Droits : ceux de la modification de l'article.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Fournisseur du tenant et référence chez lui.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleSupplierItemSave"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Référence enregistrée et exception de l'article après l'enregistrement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiArticleSupplierItemSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/reference-suggestion": {
       "get": {
         "tags": [
@@ -33698,6 +34198,113 @@
         ],
         "additionalProperties": false
       },
+      "ApiMaterialRequestSupplierProposals": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "lines": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "supplier_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "supplier_name": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "technician",
+                            "article",
+                            "supply_type",
+                            "last_purchase"
+                          ]
+                        },
+                        "supplier_sku": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "product_url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "supplier_id",
+                        "supplier_name",
+                        "reason",
+                        "supplier_sku",
+                        "product_url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "references": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "supplier_sku": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "product_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "supplier_sku",
+                    "product_url"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "lines",
+              "references"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "BulkArchiveAffairesRequest": {
         "type": "object",
         "properties": {
@@ -34541,6 +35148,97 @@
         "required": [
           "name"
         ]
+      },
+      "SupplyTypeId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "SupplyTypePreferredSupplier": {
+        "type": "object",
+        "properties": {
+          "preferred_supplier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "preferred_supplier_id"
+        ],
+        "additionalProperties": false
+      },
+      "ApiSupplyTypePreferredSupplier": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "preferred_supplier_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "preferred_supplier_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "code",
+                  "name",
+                  "preferred_supplier_id",
+                  "preferred_supplier_name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "ImportCatalogueTemplateRequest": {
         "type": "object",
@@ -74114,6 +74812,268 @@
             },
             "required": [
               "deleted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ProductPreferredSupplier": {
+        "type": "object",
+        "properties": {
+          "preferred_supplier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "preferred_supplier_id"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPreferredSupplier": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "preferred_supplier_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "preferred_supplier_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiArticleSupplierItems": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "supplier_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    },
+                    "supplier_sku": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "product_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "has_price": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "supplier_id",
+                    "supplier_name",
+                    "supplier_sku",
+                    "product_url",
+                    "is_active",
+                    "has_price"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "preferred_supplier_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "preferred_supplier_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ArticleSupplierItemSave": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "supplier_sku": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "product_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supplier_id"
+        ],
+        "additionalProperties": false
+      },
+      "ApiArticleSupplierItemSaved": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "supplier_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "supplier_name": {
+                    "type": "string"
+                  },
+                  "supplier_sku": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "product_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "is_active": {
+                    "type": "boolean"
+                  },
+                  "has_price": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "supplier_id",
+                  "supplier_name",
+                  "supplier_sku",
+                  "product_url",
+                  "is_active",
+                  "has_price"
+                ],
+                "additionalProperties": false
+              },
+              "preferred_supplier_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "item",
+              "preferred_supplier_id"
             ],
             "additionalProperties": false
           }

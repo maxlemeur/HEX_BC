@@ -25,6 +25,7 @@ import {
   type PrepareMaterialRequestFilesInput,
   type UpdateMaterialRequestInput,
 } from "./contracts";
+import type { LineSupplierProposal } from "./supplier-contracts";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -339,6 +340,23 @@ export async function fetchMaterialRequestCandidates(
   const { lines } = await read<{ lines: Record<string, MaterialRequestArticleCandidate[]> }>(
     requestsPath(projectId, requestId, "candidates"),
     "Les propositions d’articles n’ont pas pu être chargées.",
+    signal,
+  );
+  return lines ?? {};
+}
+
+/**
+ * The proposed supplier of every line that has an article and no supplier yet (TI-691), null when there is
+ * none; nothing is set. The line's supplier is set with the line PATCH.
+ */
+export async function fetchMaterialRequestSupplierProposals(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<Record<string, LineSupplierProposal | null>> {
+  const { lines } = await read<{ lines: Record<string, LineSupplierProposal | null> }>(
+    requestsPath(projectId, requestId, "supplier-proposals"),
+    "Les fournisseurs proposés n’ont pas pu être chargés.",
     signal,
   );
   return lines ?? {};

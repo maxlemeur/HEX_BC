@@ -6,6 +6,7 @@ import {
   EllipsisIcon,
   FileSpreadsheetIcon,
   InfoIcon,
+  LayersIcon,
   TagsIcon,
   UploadIcon,
   UsersIcon,
@@ -33,10 +34,13 @@ export function ProductCatalogueMenu({
   stats,
   onTemplateImport,
   onCsvImport,
+  onSupplyTypes,
 }: {
   stats: ProductCatalogueCounters;
   onTemplateImport: () => void;
   onCsvImport: () => void;
+  /** Opens the preferred supplier of each supply type (TI-691). */
+  onSupplyTypes?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -106,6 +110,12 @@ export function ProductCatalogueMenu({
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
+        {onSupplyTypes ? (
+          <DropdownMenuItem className="min-h-10 px-2" onClick={onSupplyTypes}>
+            <LayersIcon aria-hidden="true" />
+            Types de fourniture
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem className="min-h-10 px-2" render={<Link href="/dashboard/suppliers" />}>
           <UsersIcon aria-hidden="true" />
           Gérer les fournisseurs

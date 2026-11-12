@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CheckCheck, Link2, Plus } from "lucide-react";
+import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -14,11 +14,14 @@ import { lineTitle, plural } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMNS, LINE_TABLE_COLUMN_COUNT, MaterialRequestLineRow } from "./MaterialRequestLineRow";
+import { supplierItemOf, useArticleSupplierItems } from "./useArticleSupplierItems";
 import type {
   ArticleLinkEntry,
   BulkLinkResult,
+  BulkRetainResult,
   MaterialRequestEditorApi,
   SaveResult,
+  SupplierRetainEntry,
   WithheldLines,
 } from "./useMaterialRequestEditor";
 
@@ -110,6 +113,17 @@ function bulkLinkReport(result: BulkLinkResult): string[] {
   return sentences;
 }
 
+/** What the bulk retain did, in one or two sentences. */
+function bulkRetainReport(result: BulkRetainResult): string[] {
+  const sentences = result.retained > 0 ? [`${plural(result.retained, "fournisseur retenu", "fournisseurs retenus")}.`] : [];
+  const failed = result.failures.reduce((total, failure) => total + failure.count, 0);
+  if (failed > 0) {
+    const lead = failed > 1 ? `${failed} lignes n’ont pas reçu leur fournisseur` : "1 ligne n’a pas reçu son fournisseur";
+    sentences.push(`${lead} : ${[...new Set(result.failures.map((failure) => failure.message))].join(" ")}`);
+  }
+  return sentences;
+}
+
 export function MaterialRequestLines({
   editor,
   materialListId,
@@ -190,6 +204,25 @@ export function MaterialRequestLines({
         : [],
     [canWrite, drafts, lineChanges, proposalsOf],
   );
+  // Every line with a proposal and no supplier, validated ones included: choosing a supplier keeps a
+  // validated line validated.
+  const { supplierProposalOf } = editor;
+  const proposedSuppliers = useMemo<SupplierRetainEntry[]>(
+    () =>
+      canWrite
+        ? lines.flatMap((line) => {
+            const proposal = line.supplier_id ? null : supplierProposalOf(line.id);
+            return proposal ? [{ lineId: line.id, supplierId: proposal.supplier_id }] : [];
+          })
+        : [],
+    [canWrite, lines, supplierProposalOf],
+  );
+  // The article's reference at the supplier of each line that has both: one read per article.
+  const referencedArticles = useMemo(
+    () => lines.flatMap((line) => (line.product_id && line.supplier_id ? [line.product_id] : [])),
+    [lines],
+  );
+  const supplierItems = useArticleSupplierItems(referencedArticles);
   const articleLine = articleLineId ? (lines.find((line) => line.id === articleLineId) ?? null) : null;
 
   const report = (result: SaveResult) => {
@@ -219,6 +252,14 @@ export function MaterialRequestLines({
     const result = await editor.linkArticles(sureLinks);
     setBusy(false);
     setLinkReport(bulkLinkReport(result));
+  };
+  const retainProposed = async () => {
+    if (proposedSuppliers.length === 0) return;
+    setBusy(true);
+    setLinkReport(null);
+    const result = await editor.retainSuppliers(proposedSuppliers);
+    setBusy(false);
+    setLinkReport(bulkRetainReport(result));
   };
   const addLine = async () => {
     focusAddedLine.current = true;
@@ -278,9 +319,36 @@ export function MaterialRequestLines({
               Rattacher les références et noms connus ({sureLinks.length})
             </Button>
           ) : null}
+          {canWrite ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
+              disabled={proposedSuppliers.length === 0 || busy}
+              onClick={() => void retainProposed()}
+            >
+              <Truck aria-hidden="true" />
+              Retenir les fournisseurs proposés ({proposedSuppliers.length})
+            </Button>
+          ) : null}
         </div>
       </div>
 
+      {canWrite && editor.supplierProposalsStatus === "error" ? (
+        <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+          <p>Fournisseurs proposés indisponibles.</p>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto px-0"
+            aria-label="Recharger les fournisseurs proposés"
+            onClick={editor.retrySupplierProposals}
+          >
+            Réessayer
+          </Button>
+        </div>
+      ) : null}
       {error ? (
         <Alert variant="danger">
           <AlertDescription>{error}</AlertDescription>
@@ -402,6 +470,9 @@ export function MaterialRequestLines({
                 onUnlinkArticle={() => editor.unlinkArticle(line.id)}
                 onOpenArticles={() => setArticleLineId(line.id)}
                 onRetryProposals={editor.retryProposals}
+                supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
+                supplierReference={supplierItemOf(supplierItems, line.product_id, line.supplier_id)}
+                onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
               />
             ))}
             {canWrite ? (

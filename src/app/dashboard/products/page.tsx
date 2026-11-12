@@ -46,6 +46,10 @@ const ProductCsvImport = dynamic(
   () => import("@/components/products/ProductCsvImport").then((module) => module.ProductCsvImport),
   { ssr: false }
 );
+const SupplyTypeSuppliersDialog = dynamic(
+  () => import("@/components/products/SupplyTypeSuppliersDialog").then((module) => module.SupplyTypeSuppliersDialog),
+  { ssr: false }
+);
 const ProductPriceTemplateImport = dynamic(
   () => import("@/components/products/ProductPriceTemplateImport").then((module) => module.ProductPriceTemplateImport),
   { ssr: false }
@@ -133,6 +137,7 @@ export default function ProductsPage() {
   const [referenceProduct, setReferenceProduct] = useState<ProductRecord | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
+  const [isSupplyTypesOpen, setIsSupplyTypesOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const requestedProductId = searchParams.get("product_id");
@@ -509,6 +514,7 @@ export default function ProductsPage() {
               stats={stats}
               onTemplateImport={openTemplateImport}
               onCsvImport={openCsvImport}
+              onSupplyTypes={() => setIsSupplyTypesOpen(true)}
             />
           </div>
         }
@@ -665,6 +671,7 @@ export default function ProductsPage() {
           materialSuggestions={data?.facets.materials}
           supplyTypes={data?.supplyTypes}
           onSupplyTypeCreated={() => void mutate()}
+          onSuppliersChanged={() => void mutate()}
           onOpenChange={handleFormOpenChange}
           onSubmit={saveProduct}
         />
@@ -678,6 +685,9 @@ export default function ProductsPage() {
             setSuccessMessage("Base produits importée et actualisée.");
           }}
         />
+      ) : null}
+      {isSupplyTypesOpen ? (
+        <SupplyTypeSuppliersDialog open={isSupplyTypesOpen} onOpenChange={setIsSupplyTypesOpen} />
       ) : null}
       {isTemplateImportOpen ? (
         <ProductPriceTemplateImport

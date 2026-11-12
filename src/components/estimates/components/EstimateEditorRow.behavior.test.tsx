@@ -302,7 +302,7 @@ describe("EstimateEditorRow behavior", () => {
 
   it("commits FO by UUID after explicit selection and preserves it on an unknown prefix", () => {
     const type = {
-      id: "type-tube", code: "TUB", name: "Tube", default_fo_provision: 1.03, tenant_id: "tenant-1", created_at: "", updated_at: "",
+      id: "type-tube", code: "TUB", name: "Tube", default_fo_provision: 1.03, preferred_supplier_id: null, tenant_id: "tenant-1", created_at: "", updated_at: "",
     };
     renderRow(createItem({ supply_type_id: type.id }), { supplyTypeById: new Map([[type.id, type]]) });
     const input = screen.getByRole("combobox", { name: /Type de fourniture/ });
