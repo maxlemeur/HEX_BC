@@ -194,7 +194,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "201": success("ApiMaterialRequestFilesPrepared", "Un envoi signé par photo, valable deux heures.", uploads),
       ...writeRefusals,
       "413": refusal("PAYLOAD_TOO_LARGE : une photo annoncée dépasse 20 Mo."),
-      "422": refusal("MATERIAL_REQUEST_HEIC_UNSUPPORTED : photo HEIC, à enregistrer en JPEG. MATERIAL_REQUEST_FILE_LIMIT : la demande garderait plus de 12 originaux. MATERIAL_REQUEST_UPLOADS_PENDING : plus de 24 photos attendraient leurs octets sur cette demande."),
+      "422": refusal("MATERIAL_REQUEST_HEIC_UNSUPPORTED : photo HEIC, à convertir en JPEG avant l'envoi (l'écran le fait). MATERIAL_REQUEST_FILE_LIMIT : la demande garderait plus de 12 originaux. MATERIAL_REQUEST_UPLOADS_PENDING : plus de 24 photos attendraient leurs octets sur cette demande."),
     },
   },
   {
