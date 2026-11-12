@@ -1,3 +1,4 @@
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 import type { Database } from "@/types/database";
 
 export const MIN_SECTION_DEPTH = 1;
@@ -18,6 +19,7 @@ export type HierarchyItemLike = {
   id: string;
   parent_id: string | null;
   item_type: EstimateItemType;
+  source_metadata?: unknown;
 };
 
 export type HierarchyIndex = {
@@ -117,9 +119,16 @@ export function resolveSectionLevel(
 ): number | null {
   const section = index.byId.get(sectionId);
   if (!section || section.item_type !== "section") return null;
-  const depth = resolveItemDepth(index, sectionId);
-  if (depth === null) return null;
-  return depth + 1;
+  let level = 0;
+  let cursor: HierarchyItemLike | undefined = section;
+  const visited = new Set<string>();
+  while (cursor) {
+    if (visited.has(cursor.id)) return null;
+    visited.add(cursor.id);
+    if (cursor.item_type === "section" && !isKitSection(cursor)) level += 1;
+    cursor = cursor.parent_id ? index.byId.get(cursor.parent_id) : undefined;
+  }
+  return level;
 }
 
 export function isAncestorOrSelf(
@@ -150,7 +159,7 @@ export function collectSubtreeMetrics(
   index: HierarchyIndex,
   rootId: string
 ): HierarchySubtreeMetrics {
-  const rootDepth = resolveItemDepth(index, rootId) ?? 0;
+  const rootLevel = resolveSectionLevel(index, rootId) ?? 0;
   const stack: string[] = [rootId];
   const visited = new Set<string>();
   const lineRelativeDepths: number[] = [];
@@ -168,8 +177,9 @@ export function collectSubtreeMetrics(
     }
 
     children.forEach((child) => {
-      const childDepth = resolveItemDepth(index, child.id);
-      const relativeDepth = Math.max((childDepth ?? rootDepth) - rootDepth, 0);
+      const childLevel = child.item_type === "section" ? resolveSectionLevel(index, child.id)
+        : child.parent_id ? (resolveSectionLevel(index, child.parent_id) ?? 0) + 1 : 0;
+      const relativeDepth = Math.max((childLevel ?? rootLevel) - rootLevel, 0);
 
       if (child.item_type === "section") {
         maxSectionRelativeDepth = Math.max(maxSectionRelativeDepth, relativeDepth);

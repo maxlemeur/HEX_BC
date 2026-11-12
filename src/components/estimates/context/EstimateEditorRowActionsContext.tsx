@@ -47,6 +47,8 @@ export type EstimateEditorRowItemPatch = Partial<
   LaborSplitItemFields;
 
 export type EstimateEditorRowActionsContextValue = {
+  onInsertOuvrage?: (itemId: string) => void;
+  onResizeOuvrage?: (itemId: string, quantity: number) => Promise<void>;
   onDeleteItem: (itemId: string) => void;
   onOpenSupplierComparisonPanel: (itemId: string) => void;
   onOpenArticle: (itemId: string) => void;

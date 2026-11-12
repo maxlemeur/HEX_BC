@@ -20,6 +20,7 @@ const LINE_FIELDS = [
   "status_reason",
 ] as const;
 const UPDATE_FIELDS = [
+  "assembly_quantity",
   "line_nature", "parent_id", "position", "title", "aid", "description",
   "quantity", "unit_price_ht_cents", "tax_rate_bp", "k_fo", "k_fo_manual", "h_mo",
   "h_mo_majoration", "k_mo", "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",

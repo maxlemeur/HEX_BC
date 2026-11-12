@@ -93,7 +93,7 @@ export function buildClientContract2(input: ClientContract2BuildInput): ClientCo
   const showPortions = input.prepared.layout.priceMode === "fo_mo_and_total";
   const walk = (parentId: string | null, depth: number): void => {
     for (const entry of children.get(parentId) ?? []) {
-      if (visited.has(entry.id) || depth > 4 || (entry.item_type === "section" && depth > 3)) incomplete();
+      if (visited.has(entry.id) || depth > 7 || (entry.item_type === "section" && depth > 6)) incomplete();
       visited.add(entry.id);
       const common = { id: entry.id, parentId: entry.parent_id, position: entry.position, depth,
         title: entry.title?.trim() || "Sans titre" };

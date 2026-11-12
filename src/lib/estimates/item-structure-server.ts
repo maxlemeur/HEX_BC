@@ -1,3 +1,4 @@
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 import {
   collectEstimateSubtreeIds,
   assertEstimateReorderPermutation,
@@ -204,7 +205,7 @@ export async function moveEstimateItem(
 
   const { data: item, error: itemError } = await supabase
     .from("estimate_items")
-    .select("id, version_id, parent_id, item_type")
+    .select("id, version_id, parent_id, item_type, source_metadata")
     .eq("tenant_id", tenantId)
     .eq("id", input.item_id)
     .eq("version_id", versionId)
@@ -250,7 +251,7 @@ export async function moveEstimateItem(
     }
 
     const nextSectionLevel =
-      targetParentSectionLevel === null ? 1 : targetParentSectionLevel + 1;
+      (targetParentSectionLevel ?? 0) + (isKitSection(item) ? 0 : 1);
     assertSectionPlacementAllowed({
       maxSectionDepth,
       nextSectionLevel,

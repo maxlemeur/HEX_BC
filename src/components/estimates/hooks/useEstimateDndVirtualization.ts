@@ -1,4 +1,5 @@
 "use client";
+import { isKitSection } from "@/lib/estimates/kit-presentation";
 
 import {
   useCallback,
@@ -294,7 +295,7 @@ export function useEstimateDndVirtualization({
           return false;
         }
 
-        const nextSectionLevel = parentLevel === null ? 1 : parentLevel + 1;
+        const nextSectionLevel = (parentLevel ?? 0) + (isKitSection(activeItem) ? 0 : 1);
         if (nextSectionLevel > maxSectionDepth) {
           return false;
         }

@@ -502,7 +502,7 @@ export type EstimateBatchOperation =
   | {
       op: "update";
       id: string;
-      data: Database["public"]["Tables"]["estimate_items"]["Update"];
+      data: Database["public"]["Tables"]["estimate_items"]["Update"] & { assembly_quantity?: number };
     }
   | {
       op: "delete";
@@ -2783,7 +2783,7 @@ export async function batchEstimateOperations(
   versionId: string,
   updatedAtToken: string,
   operations: EstimateBatchOperation[],
-  options: { dryRun?: boolean; attempt?: EstimateBatchAttempt } = {}
+  options: { dryRun?: boolean; attempt?: EstimateBatchAttempt; onPrepared?: (data: EstimateEditorData) => void } = {}
 ): Promise<EstimateBatchResult> {
   // Load the receipt/parser only for batch work; the editor's initial bundle
   // does not need the recovery implementation to display a quote.
@@ -2798,6 +2798,25 @@ export async function batchEstimateOperations(
       versionId, updatedAtToken: token ?? updatedAtToken,
       operations: operationsSnapshot, ...options,
     });
+    if (result.value.committed && operations.some(operation => operation.op === "update" && operation.data.assembly_quantity !== undefined)) {
+      const identity = getEstimateEditorMutationIdentity(versionId);
+      // Publish the new token together with all resized components. A failed read
+      // must keep the mutation queue blocked rather than permit stale row writes.
+      const read = async () => {
+        if (JSON.stringify(getEstimateEditorMutationIdentity(versionId)) !== JSON.stringify(identity)) throw new Error("Le compte ou le devis a changé.");
+        const refreshed = await fetchEstimateEditorData(versionId);
+        if (!scope.isActive() || JSON.stringify(getEstimateEditorMutationIdentity(versionId)) !== JSON.stringify(identity)) throw new Error("L’éditeur a changé.");
+        if (refreshed.version.id !== versionId || isOlderEstimateVersionToken(refreshed.version.updated_at, result.version.updated_at)) throw new Error("La relecture du devis est périmée.");
+        options.onPrepared?.(refreshed);
+        return {
+          version: { id: refreshed.version.id, updated_at: refreshed.version.updated_at, content_revision: refreshed.version.content_revision },
+          structural: true, deferVersionPublication: Boolean(options.onPrepared), needsReload: !options.onPrepared,
+          totals: { total_ht_cents: refreshed.version.total_ht_cents, total_tax_cents: refreshed.version.total_tax_cents, total_ttc_cents: refreshed.version.total_ttc_cents },
+        };
+      };
+      try { return { ...result, ...await read() }; }
+      catch { throw scope.requireRead(read, "La quantité est enregistrée, mais la relecture des composants a échoué. Vérifiez le résultat avant de poursuivre."); }
+    }
     if (result.value.committed && result.version.content_revision === undefined) {
       const readVersion = async () => {
         const read = parseVersionToken(await requestJsonUncoordinated<unknown>(

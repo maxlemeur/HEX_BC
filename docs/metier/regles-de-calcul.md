@@ -125,9 +125,14 @@ métier (TI-534). Une copie de section conserve le snapshot de transport et son
 absence connue ; la duplication d’une version conserve ses valeurs exactes.
 
 Un **kit métier** est un ensemble d’articles et de quantités prédéfinies.
-Chaque composant conserve son calcul et sa famille, mais sa décomposition
-reste masquée dans le chiffrage et les documents client. Le total du kit
-reste visible. Les assemblages insérés portent `source_metadata.kit_metier`.
+Chaque composant conserve son calcul et sa famille. Dans l’éditeur, l’ouvrage
+est présenté comme une ligne à quantité modifiable, avec son détail dépliable et
+modifiable (TI-718). La quantité multiplie les composants, seules entrées du
+moteur ; les heures par unité restent inchangées en v3, les heures totales sont
+multipliées en v1/v2. La composition est conservée lors des passages par zéro
+et des changements fractionnaires. La quantité d’un sous-ouvrage est relative à l’ouvrage parent. Le détail affiche les quantités effectives
+pour l’ouvrage entier. Les documents client conservent le total du kit sans sa
+décomposition. Un ouvrage ne consomme pas un niveau de chapitre. Les assemblages insérés portent `source_metadata.kit_metier`.
 Les exports de données internes conservent les composants.
 
 Les projections TypeScript et le déclencheur SQL appliquent le même contrat
