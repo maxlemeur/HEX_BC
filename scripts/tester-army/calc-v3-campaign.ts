@@ -236,9 +236,11 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
       E2E_ARMY_SUITE: "calc-v3", E2E_CALC_V3_OWNED_STACK: "1", E2E_CALC_V3_PHASE: phase,
       E2E_ARMY_SERVER_MODE: definition.serverMode, E2E_COVERAGE_BACKEND_ORIGIN: input.backend,
       ...fixtures.env, ...fixtures.secretEnv,
-      // Only the owned portal clock fixture needs SQL from a journey process.
+      // Only two owned fixtures need SQL from a journey process: the portal clock (resend-portal) and the takeoff
+      // hypothesis marker of one line the journey created (emission-v3, V3M08: no API writes a marker).
       // The app's explicit inheritEnv list never forwards this transport.
-      ...(phase === "resend-portal" ? { E2E_ARMY_LOCAL_DB_URL: input.databaseUrl, E2E_ARMY_LOCAL_PSQL: input.psql } : {}),
+      ...(phase === "resend-portal" || phase === "emission-v3"
+        ? { E2E_ARMY_LOCAL_DB_URL: input.databaseUrl, E2E_ARMY_LOCAL_PSQL: input.psql } : {}),
       ...(fixtures.login ? { E2E_LOGIN_EMAIL: fixtures.login.email, E2E_LOGIN_PASSWORD: fixtures.login.password } : {}),
     };
     let networkLog: string;

@@ -15,7 +15,7 @@ vi.mock("@/lib/estimates/server-context", async () => {
   };
 });
 
-import { DELETE, PUT } from "@/app/api/estimates/[versionId]/items/[itemId]/offer-choice/route";
+import { DELETE, GET, PUT } from "@/app/api/estimates/[versionId]/items/[itemId]/offer-choice/route";
 import { conflict } from "@/lib/estimates/errors";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import {
@@ -141,5 +141,64 @@ describe("PUT/DELETE …/items/{itemId}/offer-choice (TI-682)", () => {
     // An identifier spelled in capitals in the URL is the same line: its committed receipt is accepted.
     const upper = { params: Promise.resolve({ versionId: VERSION_ID.toUpperCase(), itemId: ITEM_ID.toUpperCase() }) };
     expect((await read(await PUT(request("PUT", reserve), upper))).status).toBe(200);
+  });
+
+  // TI-682, lot C, PR 5: the provisional quantity of a priced line resting on a takeoff hypothesis.
+  const provisional = { kind: "provisional_quantity", basis: "private_estimate", note: null,
+    established_on: "  le plan CVC\n  indice B ", to_confirm_by: "le relevé\tcontradictoire sur site" };
+
+  it("declares a provisional quantity, its texts on one line", async () => {
+    const { status } = await read(await PUT(request("PUT", provisional), params));
+    expect(status).toBe(200);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_choice: { kind: "provisional_quantity", basis: "private_estimate", note: null,
+      established_on: "le plan CVC indice B", to_confirm_by: "le relevé contradictoire sur site" } });
+  });
+
+  it("refuses a provisional quantity without its texts, with a code, or with texts the client document cannot carry", async () => {
+    const malformed = await Promise.all([
+      { ...provisional, established_on: "ab" },
+      { ...provisional, to_confirm_by: "x".repeat(161) },
+      { ...provisional, established_on: "le plan\u200bCVC" },
+      { ...provisional, to_confirm_by: "relevé \u202esur site" },
+      { ...provisional, code: "pending_survey" },
+      { kind: "provisional_quantity", basis: "private_estimate", established_on: "le plan CVC" },
+      { ...provisional, basis: "indicative_quantities" },
+    ].map(async (body) => (await read(await PUT(request("PUT", body), params))).status));
+    expect(malformed).toEqual([400, 400, 400, 400, 400, 400, 400]);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("names the refusal of a line whose quantity rests on no hypothesis", async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { message: "ESTIMATE_OFFER_CHOICE_HYPOTHESIS_REQUIRED", code: "P0001" } });
+    const { status, body } = await read(await PUT(request("PUT", provisional), params));
+    expect([status, body.error?.code]).toEqual([409, "ESTIMATE_OFFER_CHOICE_HYPOTHESIS_REQUIRED"]);
+  });
+
+  it("reads what « Établie sur » starts from: the takeoff lines' notes, in the marker's order, on one bounded line", async () => {
+    const SOURCE_A = "6666666a-6666-4666-8666-66666666666a";
+    const SOURCE_B = "7777777b-7777-4777-8777-77777777777b";
+    const marker = { takeoff_provision: { version: 1, job_id: "job", sources: [SOURCE_B, SOURCE_A, "not-a-uuid"].map((id) => ({
+      takeoff_item_id: id, forced: false, forced_reason: null, entry_category: null, hypothesis_cause: "estimated" })) } };
+    const rows: Record<string, unknown> = {
+      estimate_items: { data: { id: ITEM_ID, item_type: "line", source_metadata: marker }, error: null },
+      takeoff_items: { data: [{ id: SOURCE_A, quantity_entry_note: "plan  RDC" }, { id: SOURCE_B, quantity_entry_note: "plan R+1\n indice B" }],
+        error: null },
+    };
+    const filters: unknown[][] = [];
+    const supabase = { from: (table: string) => {
+      const builder: Record<string, unknown> = {};
+      for (const method of ["select", "eq", "in"]) builder[method] = (...args: unknown[]) => { filters.push([table, method, ...args]); return builder; };
+      builder.maybeSingle = async () => rows[table];
+      builder.then = (resolve: (value: unknown) => unknown) => resolve(rows[table]);
+      return builder;
+    } };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({ supabase, tenantId: TENANT_ID, userId: USER_ID, tenantRole: "engineer" } as never);
+    const { status, body } = await read(await GET(new Request("http://localhost"), params));
+    expect({ status, data: body.data }).toEqual({ status: 200, data: { established_on: "plan R+1 indice B ; plan RDC" } });
+    expect(filters).toContainEqual(["takeoff_items", "in", "id", [SOURCE_B, SOURCE_A]]);
+    expect(filters).toContainEqual(["takeoff_items", "eq", "tenant_id", TENANT_ID]);
+    rows.estimate_items = { data: { id: ITEM_ID, item_type: "line", source_metadata: {} }, error: null };
+    expect((await read(await GET(new Request("http://localhost"), params))).body.data).toEqual({ established_on: null });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

@@ -58,6 +58,8 @@ type EstimateEditorDrawerProps = {
   storedMarginMultiplier?: number;
   /** TI-682, lot C, PR 4 : titres des lignes réservées dans l'offre (insertion dans les précisions). */
   reservedLineTitles?: readonly string[];
+  /** TI-682, lot C, PR 5 : phrases des quantités provisionnelles, d'après les lignes actuelles. */
+  provisionalQuantityMentions?: readonly string[];
   onChangeSettings: EstimateSettingsPanelProps["onChange"];
   onSaveSettings: EstimateSettingsPanelProps["onSave"];
   /** Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`), nuls en v1/v2. */
@@ -110,6 +112,7 @@ export function EstimateEditorDrawer({
   isFrozen = false,
   storedMarginMultiplier,
   reservedLineTitles,
+  provisionalQuantityMentions,
   onChangeSettings,
   onSaveSettings,
   v3Settings = null,
@@ -259,6 +262,7 @@ export function EstimateEditorDrawer({
             isFrozen={isFrozen}
             storedMarginMultiplier={storedMarginMultiplier}
             reservedLineTitles={reservedLineTitles}
+            provisionalQuantityMentions={provisionalQuantityMentions}
             error={null}
             onChange={onChangeSettings}
             onSave={onSaveSettings}

@@ -1,6 +1,7 @@
 import { badRequest, forbidden } from "@/lib/estimates/errors";
 import type { EstimateSendGatingResult } from "@/lib/estimates/gating";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
+import { provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";
 import type { EstimateStatus } from "@/lib/estimates/status";
 
 export type EstimateVersionEventType =
@@ -62,6 +63,16 @@ export function assertEstimateForceSendAllowed(force: boolean | undefined, isAdm
   }
 }
 
+/** TI-682, lot C, PR 5: the refusal of missing provisional sentences, with what unblocks when the text has no room left. */
+function provisionalMentionsRefusal(gating: EstimateSendGatingResult) {
+  const reason = "des quantités provisionnelles déclarées n'ont pas leur phrase, écrite d'après la ligne actuelle, dans le texte "
+    + "« Précisions et limites de prestation »";
+  const overflow = gating.blockingFlags.find((flag) => flag.key === "provisional_quantity_mention_missing")?.details?.limits_overflow;
+  const missing = overflow && typeof overflow === "object" ? (overflow as { missing_characters?: unknown }).missing_characters : null;
+  return typeof missing === "number" && missing > 0
+    ? `${reason}. ${provisionalMentionsOverflowMessage(missing, "send").replace(/\.$/, "")}` : reason;
+}
+
 export function resolveEstimateSendOverride(
   gating: EstimateSendGatingResult,
   force: boolean | undefined
@@ -86,7 +97,10 @@ export function resolveEstimateSendOverride(
         ? ["des lignes exclues après « Non chiffrée » attendent leur motif interne"]
         : []),
       ...(notForceable.includes("offer_limits_required")
-        ? ["l'offre réserve des lignes et son texte « Précisions et limites de prestation » est vide"]
+        ? ["l'offre réserve des lignes ou annonce des quantités provisionnelles et son texte « Précisions et limites de prestation » est vide"]
+        : []),
+      ...(notForceable.includes("provisional_quantity_mention_missing")
+        ? [provisionalMentionsRefusal(gating)]
         : []),
     ];
     throw badRequest(

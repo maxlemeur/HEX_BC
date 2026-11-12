@@ -1006,6 +1006,10 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
   - Le marqueur ne porte aucun choix. La réserve écrite dans l'offre (TI-682, lot C) est une colonne de la ligne,
     `estimate_items.offer_choice`, déclarée par un administrateur sur une ligne « Non chiffrée » (voir
     [cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)) ; une ligne marquée reste une provision interne.
+    Une ligne chiffrée dont le marqueur est une hypothèse peut, elle, être déclarée en quantité provisionnelle (même
+    colonne, kind `provisional_quantity`) : la phrase des précisions le dit au client, la ligne et son montant ne
+    changent pas. Le choix s'efface si le marqueur disparaît (`takeoff_mark_provisions` le retire quand une remesure
+    n'apporte plus d'hypothèse) ; « Établie sur » part de la note saisie sur la ligne de métré (`quantity_entry_note`).
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
   `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
   règle, sur les jobs appliqués de la période (section « Forçages par règle ») :

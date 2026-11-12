@@ -22,18 +22,24 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "excluded_without_reason",
   "offer_reserve_declared",
   "offer_limits_required",
+  "provisional_quantity_mention_missing",
+  "takeoff_hypothesis_without_mention",
+  "provisional_quantity_mention_stale",
 ] as const;
 
 /**
  * TI-682 (D25): flags no tenant setting can downgrade and no administrator can force. A « Non chiffrée » line is a
  * line still to classify: it is priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors
  * lot », « Sans objet »). Lot C (D11): a line so classified after « Non chiffrée » says why, internally. Lot C, PR 4
- * (D10, D28): a line reserved in writing leaves unpriced only if the offer's limits text says something.
+ * (D10, D28): a line reserved in writing leaves unpriced only if the offer's limits text says something. PR 5: a priced
+ * line declared with a provisional quantity leaves only if that text carries its sentence, written from the line as it
+ * is now.
  */
 export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = [
   "not_priced_unclassified",
   "excluded_without_reason",
   "offer_limits_required",
+  "provisional_quantity_mention_missing",
 ];
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -128,7 +134,22 @@ export const ESTIMATE_GATING_FLAG_META: Record<
   offer_limits_required: {
     label: "Précisions et limites de prestation à rédiger",
     description:
-      "Une offre qui réserve des lignes dit par écrit ce qu'elle ne chiffre pas : le texte « Précisions et limites de prestation » ne peut pas rester vide. Insérez la liste des réserves, relisez-la, puis enregistrez.",
+      "Une offre qui réserve des lignes, ou annonce des quantités provisionnelles, le dit par écrit : le texte « Précisions et limites de prestation » ne peut pas rester vide. Insérez la liste des réserves ou les mentions, relisez-les, puis enregistrez.",
+  },
+  provisional_quantity_mention_missing: {
+    label: "Mention « quantité provisionnelle » à écrire",
+    description:
+      "Ces lignes chiffrées partent avec une quantité provisionnelle déclarée par un administrateur : leur phrase, écrite d'après la ligne actuelle (titre, quantité, unité), doit figurer dans le texte « Précisions et limites de prestation ». Si la ligne a changé depuis, insérez la phrase nouvelle.",
+  },
+  provisional_quantity_mention_stale: {
+    label: "Mention « quantité provisionnelle » à relire",
+    description:
+      "Le texte « Précisions et limites de prestation » contient une phrase « quantité provisionnelle » qui ne correspond à aucune ligne déclarée telle qu'elle est aujourd'hui (quantité, titre ou unité changés, déclaration retirée) : le client la lira. Retirez-la ou corrigez-la.",
+  },
+  takeoff_hypothesis_without_mention: {
+    label: "Quantités sur hypothèse sans mention",
+    description:
+      "La quantité de ces lignes chiffrées repose sur une hypothèse du métré, et l'offre ne le dit pas : le client lira une quantité ferme. Un administrateur peut déclarer une quantité provisionnelle sur la ligne (bouton « Hypothèse » de la ligne).",
   },
 };
 
@@ -161,6 +182,9 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   excluded_without_reason: "blocking",
   offer_reserve_declared: "warning",
   offer_limits_required: "blocking",
+  provisional_quantity_mention_missing: "blocking",
+  takeoff_hypothesis_without_mention: "warning",
+  provisional_quantity_mention_stale: "warning",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

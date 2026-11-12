@@ -113,6 +113,52 @@ une duplication de version ne la recopie pas : chaque offre déclare les
 siennes. Source : [offer-choice.ts](../../src/lib/estimates/offer-choice.ts),
 migration `20261111193950_estimate_line_offer_choice.sql`.
 
+Quantité provisionnelle dans l'offre (TI-682, lot C) : une ligne chiffrée dont
+la quantité repose sur une hypothèse du métré (marqueur `takeoff_provision` lu
+comme « Hypothèse ») part chiffrée, et l'offre peut dire que sa quantité est
+provisionnelle. Tant que rien n'est déclaré, l'envoi liste ces lignes dans
+« Quantités sur hypothèse sans mention », un avertissement qui ne bloque pas :
+le client y lirait une quantité ferme. Un administrateur du tenant déclare la
+quantité provisionnelle sur la ligne (bouton « Hypothèse ») : la même base
+qu'une réserve (devis privé, ou quantités indicatives selon le règlement de la
+consultation, la précision donnant alors la référence de l'article), avec le
+même avertissement, ce sur quoi la quantité est établie (« Établie sur »,
+prérempli depuis la note saisie sur la ligne de métré, modifiable) et ce qui la
+confirmera (« À confirmer selon »). Ces deux textes sont imprimés : chacun tient
+sur une ligne, de 3 à 160 caractères, les blancs et retours à la ligne réduits
+à une espace, sans caractère de contrôle ni caractère invisible. L'outil
+compose la phrase d'après la ligne actuelle : « {Titre} : quantité
+provisionnelle de {Q} {unité}, établie sur …, à confirmer selon …. », la
+quantité au format français à trois décimales au plus comme le PDF, l'unité
+omise quand la ligne n'en a pas. Un bouton des réglages l'ajoute au texte
+« Précisions et limites de prestation », après ce qui y est écrit. L'envoi exige
+que ce texte contienne la phrase recalculée sur la ligne actuelle, à des blancs
+et retours à la ligne près : `provisional_quantity_mention_missing` bloque,
+aucun réglage du tenant ne le rétrograde, aucun administrateur ne le force, pour
+l'émission manuelle comme pour l'email ; un texte vide lève aussi
+`offer_limits_required`. Si le titre, la quantité ou l'unité changent, la phrase
+change et l'envoi attend la nouvelle. La phrase n'est reconnue qu'en début de
+texte, de ligne ou après une ponctuation : celle de « Gros tube » ne vaut pas
+pour « Tube ». Une phrase « quantité provisionnelle » qui ne correspond à aucune
+ligne déclarée telle qu'elle est (quantité changée, déclaration retirée ou
+effacée, version dupliquée) lève « Mention « quantité provisionnelle » à
+relire », un avertissement : le client la lirait, retirez-la à la main. Le texte
+des précisions reste limité à 5 000 caractères : quand les phrases à insérer n'y
+tiennent pas, le bouton n'insère rien et l'écran dit combien de caractères
+manquent ; à l'envoi, le blocage dit de même ce qui débloque (raccourcir
+« Établie sur », « À confirmer selon » ou le titre des lignes déclarées, alléger
+le reste des précisions, ou retirer la déclaration des lignes dont la phrase
+manque, qui repassent en simple avertissement). Le client lit la phrase dans les précisions et une ligne chiffrée
+ordinaire : aucun montant, contrat client ni sceau ne change ; la base et la
+précision restent internes, seul le CSV de la v3 les montre (colonne « Mention
+provisionnelle »). Même route et mêmes contrôles que la réserve ; le choix
+s'efface quand la ligne quitte « Chiffrée » ou perd son marqueur d'hypothèse
+(une remesure dont les sources n'en sont plus), et la ligne revient alors dans
+l'avertissement ; une version envoyée le fige ; l'événement « sent » l'enregistre
+avec ses deux textes ; une duplication ne le recopie pas. Source :
+[provisional-quantity.ts](../../src/lib/estimates/provisional-quantity.ts),
+migration `20261112100501_estimate_line_provisional_quantity.sql`.
+
 Motif interne d'une exclusion (TI-682, lot C) : une ligne qui a été « Non
 chiffrée » dans la version (`was_not_priced`, posé par la base et collant,
 même par « Non chiffrée » → « Chiffrée » → « Hors lot ») et qui porte l'un des

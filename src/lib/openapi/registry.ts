@@ -2612,7 +2612,9 @@ const createEstimateItemBody = jsonBody({
 
 const estimateOfferChoiceBody = jsonBody({
   name: "EstimateLineOfferChoiceRequest",
-  description: "Réserve écrite dans l'offre d'une ligne « Non chiffrée » (TI-682) : base, motif et précision internes.",
+  description: "Choix écrit dans l'offre d'une ligne (TI-682) : réserve d'une ligne « Non chiffrée » (base, motif et précision "
+    + "internes) ou quantité provisionnelle d'une ligne chiffrée sur hypothèse du métré (base et précision internes, ce sur "
+    + "quoi la quantité est établie et ce qui la confirmera, imprimés dans la phrase des précisions).",
   schema: estimateOfferChoiceInputSchema,
 });
 
@@ -3941,10 +3943,24 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     },
   },
   {
+    method: "get",
+    path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
+    summary: "Lire le point de départ d'une quantité provisionnelle",
+    description: "TI-682 : ce sur quoi la quantité d'une ligne est établie, d'après la note saisie sur les lignes de métré dont elle vient (dans l'ordre de son marqueur, sur une ligne, 160 caractères au plus) ; null sans marqueur ni note. Lecture seule, avec les droits du lecteur.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, estimateItemIdPathParameter],
+    responses: {
+      "200": jsonResponse("Point de départ de « Établie sur ».",
+        successResponseSchemaDefinition("ApiEstimateLineOfferChoiceSuggestionResponse",
+          z.strictObject({ established_on: z.string().nullable() }))),
+      "404": jsonResponse("Version ou ligne introuvable.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
     method: "put",
     path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
-    summary: "Déclarer la réserve écrite d'une ligne",
-    description: "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas.",
+    summary: "Déclarer la réserve écrite ou la quantité provisionnelle d'une ligne",
+    description: "TI-682 : un administrateur du tenant déclare qu'une ligne « Non chiffrée » d'une v3 brouillon part non chiffrée, avec ce qui fonde la réserve (enregistré, non vérifié). Le client lit « Non chiffrée » et le texte « Précisions et limites de prestation », que l'envoi exige non vide ; base, motif et précision restent internes. Exige le jeton de version et le bail de cette page ; le lot et l'API de données n'écrivent jamais cette réserve, qu'un changement de statut efface et qu'une duplication ne recopie pas. TI-682, lot C, PR 5 : une quantité provisionnelle (kind provisional_quantity) se déclare de même sur une ligne chiffrée dont la quantité repose sur une hypothèse du métré ; ses deux textes sont réduits à une ligne ; l'envoi exige ensuite que la phrase composée d'après la ligne actuelle figure dans les précisions.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: estimateOfferChoiceBody,
@@ -3954,14 +3970,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "400": jsonResponse("Réserve invalide, version d'un autre moteur que le 3, ou jeton manquant.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "403": jsonResponse("ESTIMATE_OFFER_CHOICE_FORBIDDEN (pas administrateur) ou READ_ONLY (version envoyée).", openApiSharedSchemaDefinitions.apiFailureResponse),
       "404": jsonResponse("Version ou ligne introuvable.", openApiSharedSchemaDefinitions.apiFailureResponse),
-      "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED, ou ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (la ligne n'est pas « Non chiffrée »).", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED, ESTIMATE_OFFER_CHOICE_STATUS_MISMATCH (une réserve sur une ligne qui n'est pas « Non chiffrée », une quantité provisionnelle sur une ligne qui n'est pas chiffrée) ou ESTIMATE_OFFER_CHOICE_HYPOTHESIS_REQUIRED (la quantité de la ligne ne repose sur aucune hypothèse du métré).", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {
     method: "delete",
     path: "/api/estimates/{versionId}/items/{itemId}/offer-choice",
-    summary: "Retirer la réserve écrite d'une ligne",
-    description: "TI-682 : un administrateur du tenant retire la réserve d'une ligne d'une v3 brouillon ; la ligne redevient « Non chiffrée » à classer. Mêmes contrôles que la déclaration.",
+    summary: "Retirer la réserve écrite ou la quantité provisionnelle d'une ligne",
+    description: "TI-682 : un administrateur du tenant retire le choix d'une ligne d'une v3 brouillon ; une ligne réservée redevient « Non chiffrée » à classer, une ligne provisionnelle redevient une hypothèse signalée à l'émetteur. Mêmes contrôles que la déclaration.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, estimateItemIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
     responses: {

@@ -32,8 +32,16 @@ import {
 
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { hasOfferLimitsText, readOfferReserve } from "@/lib/estimates/offer-choice";
+import { hasOfferLimitsText, readOfferProvisionalQuantity, readOfferReserve } from "@/lib/estimates/offer-choice";
+import {
+  composeProvisionalQuantityMention,
+  countStaleProvisionalQuantityMentions,
+  hasProvisionalQuantityMention,
+  OFFER_LIMITS_MAX_LENGTH,
+  planProvisionalQuantityMentions,
+} from "@/lib/estimates/provisional-quantity";
 import { requiresStatusReason } from "@/lib/estimates/status-reason";
+import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { mapSupabaseError } from "./errors";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
 import { readAllEstimateItems } from "./read-all-items-server";
@@ -378,6 +386,8 @@ export async function evaluateEstimateSendGating(
   // A version read without its engine column is never treated as engine 3: no new flag rather than a wrong one.
   const engine = resolveEstimateEngineVersionForDisplay(version);
   const isEngine3 = engine !== null && usesPerUnitLabor(engine);
+  // TI-682, lot C, PR 5: the priced lines declared with a provisional quantity, and their sentence as the line is now.
+  const provisionalMentions: Array<{ itemId: string; mention: string | null }> = [];
   for (const item of items) {
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";
@@ -391,6 +401,14 @@ export async function evaluateEstimateSendGating(
     // TI-682, lot C (D11): a necessary service left unpriced, then excluded, says why before it leaves (internally).
     if (isEngine3 && requiresStatusReason(item)) itemIdsByFlag.excluded_without_reason.add(item.id);
     if (!isEngine3 || pricingStatus !== "priced") continue;
+    // TI-682, lot C, PR 5: a priced line whose quantity rests on a takeoff hypothesis leaves as an ordinary priced line.
+    // Declared provisional, the offer must carry its sentence; undeclared, the issuer sees it (a warning, never a block:
+    // the estimates sent before this lot did not say it either).
+    const provisional = readOfferProvisionalQuantity(item);
+    if (provisional) provisionalMentions.push({ itemId: item.id, mention: composeProvisionalQuantityMention(item, provisional) });
+    else if (readTakeoffProvision(item.source_metadata)?.kind === "hypothesis") {
+      itemIdsByFlag.takeoff_hypothesis_without_mention.add(item.id);
+    }
     const flags = qualityFlagsByItemId[item.id] ?? [];
     // A line that already misses its price or its quantity says so under its own flag.
     if (flags.includes("missing_price") || flags.includes("missing_quantity")) continue;
@@ -399,8 +417,25 @@ export async function evaluateEstimateSendGating(
 
   // A reserve is written in the offer: its limits text says something. A version read without that text is treated as
   // empty (refused rather than sent).
-  if (itemIdsByFlag.offer_reserve_declared.size > 0 && !hasOfferLimitsText(version.exclusions)) {
+  if (!hasOfferLimitsText(version.exclusions)) {
     itemIdsByFlag.offer_reserve_declared.forEach((itemId) => itemIdsByFlag.offer_limits_required.add(itemId));
+    provisionalMentions.forEach(({ itemId }) => itemIdsByFlag.offer_limits_required.add(itemId));
+  }
+  // The sentence written from the line as it is now is in the limits text, whatever its blanks and line breaks: a new
+  // quantity, title or unit asks the new sentence. A line without a quantity has no sentence and stays blocked.
+  for (const { itemId, mention } of provisionalMentions) {
+    if (mention === null || !hasProvisionalQuantityMention(version.exclusions, mention)) {
+      itemIdsByFlag.provisional_quantity_mention_missing.add(itemId);
+    }
+  }
+  // When the limits text can no longer receive the missing sentences, the flag says by how much: the issuer reads what
+  // unblocks the offer instead of a refusal without a way out.
+  const currentMentions = provisionalMentions.flatMap(({ mention }) => (mention === null ? [] : [mention]));
+  const mentionsOverflow = planProvisionalQuantityMentions(version.exclusions, currentMentions).overflow;
+  // A « quantité provisionnelle » sentence that matches no current line (a quantity changed, a choice withdrawn or
+  // cleared) still reaches the client: listed for the issuer, never blocked.
+  if (isEngine3 && countStaleProvisionalQuantityMentions(version.exclusions, currentMentions) > 0) {
+    itemIdsByFlag.provisional_quantity_mention_stale.add(version.id);
   }
 
   if (version.margin_mode === "tiered" && marginTiers.length === 0) {
@@ -492,6 +527,9 @@ export async function evaluateEstimateSendGating(
     if (key === "total_exceeds_budget") {
       details.total_ht_cents = version.total_ht_cents;
       details.budget_ceiling_ht_cents = budgetCeilingHtCents;
+    }
+    if (key === "provisional_quantity_mention_missing" && mentionsOverflow > 0) {
+      details.limits_overflow = { missing_characters: mentionsOverflow, limit: OFFER_LIMITS_MAX_LENGTH };
     }
     if (key === "version_zero_review_pending" && versionZeroSummary?.activeDraft) {
       details.draft_id = versionZeroSummary.activeDraft.id;
