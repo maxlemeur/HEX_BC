@@ -26,7 +26,8 @@ import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-reposit
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
 import { buildDpgfApplyQuantityPolicy } from "@/lib/takeoff/dpgf-apply-quantities";
-import { computeTakeoffDpgfRows, hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-compare";
+import { excludeDpgfOutOfScope } from "@/lib/takeoff/apply-plan-exclusions";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { checkApplyGuard, type GuardBlockedItem } from "@/lib/takeoff/guards";
 import { FORCE_MESSAGES, forcedItemError, packForcedItems, type ForcedEntry } from "@/lib/takeoff/force-reasons";
@@ -181,15 +182,7 @@ export async function applyTakeoffJob(
     const comparisonContext = hasDpgfTargetLines ? await loadTakeoffDpgfComparisonContext({
       auth: { supabase, tenantId, userId }, jobId: normalizedJobId, versionId: jobRow.estimate_version_id,
     }) : null;
-    if (comparisonContext) {
-      const outOfScope = new Set(computeTakeoffDpgfRows(comparisonContext.comparisonInput).rows
-        .filter(row => row.applied_decision?.decision === "out_of_scope")
-        .flatMap(row => row.linked_takeoff_items.map(item => item.item_id)));
-      mappingPreview.items = mappingPreview.items.map(item => outOfScope.has(item.item_id)
-        ? { ...item, action: "skip", transformed: { ...item.transformed, is_excluded: true } } : item);
-      const excluded = new Set(mappingPreview.items.filter(item => item.action === "skip" || item.action === "apply_assembly").map(item => item.item_id));
-      comparisonContext.comparisonInput.takeoffLines = comparisonContext.comparisonInput.takeoffLines.filter(item => !excluded.has(item.item_id));
-    }
+    excludeDpgfOutOfScope(mappingPreview, comparisonContext);
     {
       const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
         tenantId,
@@ -324,6 +317,11 @@ export async function applyTakeoffJob(
           target_section_id: payload.target_section_id ?? null,
           mapping_plan: buildTakeoffAtomicMappingPlan(mappingPreview.items),
           dpgf_authorization_token: dpgfAuthorizationToken,
+          // TI-682 lot D: the estimator's decision for each page another takeoff already brought (replace its earlier
+          // measure, or keep both with a reason). They travel with the application and are recorded in its own
+          // transaction: a request never applies decisions another request recorded meanwhile. Always sent, none
+          // included: no decision of an earlier attempt is left behind, and the guard refuses a page already in the estimate.
+          page_decisions: payload.page_decisions ?? [],
         },
       });
 

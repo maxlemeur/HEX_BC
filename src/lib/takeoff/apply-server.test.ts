@@ -79,6 +79,33 @@ beforeEach(() => {
   vi.mocked(repository.invokeApplyTakeoffRpc).mockResolvedValue({ data: { created_count: 1 }, error: null } as never);
 });
 
+// TI-682 lot D, PR 2: the estimator's page decisions travel with the application, recorded and applied in the same
+// database transaction (public.apply_takeoff_job_with_page_decisions), so that a request never applies decisions another
+// request recorded meanwhile (Codex review of c06cbb1b; red on c06cbb1b, which recorded them in a call of their own).
+describe("takeoff apply with page decisions", () => {
+  const decision = { document: { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: "plan.pdf" },
+    source_page: 1, earlier_job_ids: [SECTION_ID], decision: "keep_both", reason_code: "other_zone", note: null,
+    lines: [{ estimate_item_id: SECTION_ID, expected_updated_at: "2026-11-11T10:00:00.000000+00:00", action: "keep", take: null, item_ids: [] }],
+    pairs: [] };
+
+  it("sends the decisions with the application itself, never in a call of their own", async () => {
+    await applyTakeoffJob(JOB_ID, { ...request, page_decisions: [decision] });
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalledExactlyOnceWith({ supabase: auth.supabase,
+      args: expect.objectContaining({ job_id: JOB_ID, page_decisions: [decision] }) });
+  });
+
+  it("sends none when none is sent: an earlier attempt's decisions are replaced by none", async () => {
+    await applyTakeoffJob(JOB_ID, request);
+    expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalledExactlyOnceWith({ supabase: auth.supabase,
+      args: expect.objectContaining({ page_decisions: [] }) });
+  });
+
+  it("refuses a keep-both decision without its reason before reaching the database", async () => {
+    await expect(applyTakeoffJob(JOB_ID, { ...request, page_decisions: [{ ...decision, reason_code: null }] })).rejects.toMatchObject({ status: 422 });
+    expect(repository.invokeApplyTakeoffRpc).not.toHaveBeenCalled();
+  });
+});
+
 describe("takeoff apply orchestration", () => {
   it("checks the draft before the global DPGF review, authorizes it, then invokes the atomic write", async () => {
     const response = await applyTakeoffJob(JOB_ID, request);
@@ -95,7 +122,8 @@ describe("takeoff apply orchestration", () => {
     expect(authorization.authorizationToken).toMatch(/^[0-9a-f-]{36}$/);
     expect(repository.invokeApplyTakeoffRpc).toHaveBeenCalledExactlyOnceWith({
       supabase: auth.supabase,
-      args: { job_id: JOB_ID, strategy: "merge", target_section_id: SECTION_ID, mapping_plan: [], dpgf_authorization_token: authorization.authorizationToken },
+      args: { job_id: JOB_ID, strategy: "merge", target_section_id: SECTION_ID, mapping_plan: [], dpgf_authorization_token: authorization.authorizationToken,
+        page_decisions: [] },
     });
     expect(response.summary.created_count).toBe(1);
     expect(getTakeoffJobDetailByIdOrThrow).toHaveBeenCalledTimes(2);

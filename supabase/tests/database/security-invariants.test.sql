@@ -71,6 +71,7 @@ with expected_buckets(bucket_id) as (
     ('devis'),
     ('dpgf-imports'),
     ('estimate-documents'),
+    ('material-requests'),
     ('plan-files'),
     ('takeoff-files')
 )
@@ -87,6 +88,7 @@ with expected_buckets(bucket_id) as (
     ('devis'),
     ('dpgf-imports'),
     ('estimate-documents'),
+    ('material-requests'),
     ('plan-files'),
     ('takeoff-files')
 )
@@ -173,7 +175,22 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('takeoff_jobs', 'DELETE'),
     ('takeoff_items', 'SELECT'),
     ('takeoff_items', 'UPDATE'),
-    ('takeoff_results', 'SELECT')
+    ('takeoff_results', 'SELECT'),
+    ('material_requests', 'SELECT'),
+    ('material_requests', 'INSERT'),
+    ('material_requests', 'UPDATE'),
+    ('material_requests', 'DELETE'),
+    ('material_request_lines', 'SELECT'),
+    ('material_request_lines', 'INSERT'),
+    ('material_request_lines', 'UPDATE'),
+    ('material_request_lines', 'DELETE'),
+    ('material_request_files', 'SELECT'),
+    ('material_request_files', 'INSERT'),
+    ('material_request_files', 'UPDATE'),
+    ('material_request_files', 'DELETE'),
+    ('material_request_technicians', 'SELECT'),
+    ('material_request_technicians', 'INSERT'),
+    ('material_request_technicians', 'UPDATE')
 )
 select ok(
   has_table_privilege(
@@ -209,7 +226,11 @@ with authenticated_data_api_tables(table_name) as (
     ('plan_files'),
     ('takeoff_jobs'),
     ('takeoff_items'),
-    ('takeoff_results')
+    ('takeoff_results'),
+    ('material_requests'),
+    ('material_request_lines'),
+    ('material_request_files'),
+    ('material_request_technicians')
 ),
 forbidden_authenticated_grants(privilege_name) as (
   values ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')
@@ -241,7 +262,8 @@ with forbidden_authenticated_dml(table_name, privilege_name) as (
     ('takeoff_results', 'DELETE'),
     ('procurement_storage_cleanup_outbox', 'INSERT'),
     ('procurement_storage_cleanup_outbox', 'UPDATE'),
-    ('procurement_storage_cleanup_outbox', 'DELETE')
+    ('procurement_storage_cleanup_outbox', 'DELETE'),
+    ('material_request_technicians', 'DELETE')
 )
 select ok(
   not has_table_privilege(

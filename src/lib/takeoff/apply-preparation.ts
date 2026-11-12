@@ -13,6 +13,7 @@ import {
   type TakeoffDpgfComparisonSummary,
   type TakeoffMappingPreviewItem,
 } from "@/lib/takeoff/types";
+import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,6 +32,8 @@ export type ApplyTakeoffRpcArgs = {
   target_section_id: string | null;
   mapping_plan: TakeoffAtomicMappingPlanItem[];
   dpgf_authorization_token?: string | null;
+  /** TI-682 lot D: the estimator's page decisions, recorded and applied in the application's own transaction. */
+  page_decisions?: readonly TakeoffPageDecision[];
 };
 
 export type TakeoffAtomicMappingPlanItem = {

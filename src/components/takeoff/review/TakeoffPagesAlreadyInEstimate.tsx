@@ -7,11 +7,13 @@ import { AlertTriangle } from "lucide-react";
 import { launchDocumentsOf, type PageDocumentSource } from "@/lib/takeoff/page-contributions";
 import { fetchLaunchPageContributions, fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-client";
 import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contributions-contracts";
+import { TAKEOFF_PAGE_KEEP_BOTH_REASON_LABELS } from "@/lib/takeoff/page-replacement-contracts";
 import { cn } from "@/lib/utils";
 
-// TI-682 lot D, PR 1: « a plan page enters an estimate once ». Nothing yet replaces an earlier measure: these
-// notices only say, before the last click, which pages of this takeoff the estimate already holds from another one
-// (the page, that takeoff, how many estimate lines it brought). They decide nothing and block nothing.
+// TI-682 lot D: « a plan page enters an estimate once ». These notices say, before the application, which pages of this
+// takeoff the estimate already holds from another one (the page, that takeoff, how many estimate lines it brought). They
+// decide nothing: the decision (replace the earlier measure, or keep both with a reason) is taken at the application's
+// confirmation (TakeoffPageDecisionsPanel), and the database refuses a page applied again without one (PR 2).
 
 type Item = { id: string; is_excluded: boolean; rule_results?: ReadonlyArray<{ rule: string; status: string; details?: unknown }> | null };
 type Read = { data: TakeoffPageContributionsResponse | null; error: string | null };
@@ -148,6 +150,12 @@ export function TakeoffPagesAlreadyInEstimateBanner({ read, items, applied, jobH
   read: Read; items: readonly Item[]; applied: boolean; jobHref: (job: Job) => string; className?: string;
 }>) {
   const shown = useMemo(() => pagesToShow(read.data, items, applied), [applied, items, read.data]);
+  // The pages the estimator decided to keep both, with the reason: no double count, a decision (PR 2).
+  const keptBoth = shown.pages.flatMap((page) => {
+    const decision = read.data?.decisions?.find((entry) => entry.decision === "keep_both" && entry.source_page === page.page
+      && (entry.file_name ?? null) === (page.file_name ?? null));
+    return decision?.reason_code ? [TAKEOFF_PAGE_KEEP_BOTH_REASON_LABELS[decision.reason_code]] : [];
+  });
   if (read.error) return <p className={cn("text-xs text-muted-foreground", className)}>Vérification des pages déjà au devis indisponible.</p>;
   if (!read.data || (shown.pages.length === 0 && shown.unidentified === 0)) return null;
   if (shown.pages.length === 0) return <div className={className}><NotCompared count={shown.unidentified} /></div>;
@@ -155,38 +163,17 @@ export function TakeoffPagesAlreadyInEstimateBanner({ read, items, applied, jobH
     <Frame className={className}>
       <PageRows data={read.data} pages={shown.pages} jobHref={jobHref} />
       <p className="text-foreground-secondary">
-        {applied
-          ? "Ce métré est déjà appliqué : ces pages sont au devis deux fois. Retirez du devis les lignes en double."
-          : "Appliquer ce métré ajouterait ces pages une seconde fois : rien ne retire encore la mesure précédente. Pour remesurer une page, retirez d’abord du devis les lignes du métré précédent."}
+        {!applied
+          ? "À l’application, choisissez pour chaque page de remplacer sa mesure précédente ou de garder les deux : une page n’entre qu’une fois au devis sans votre choix."
+          : keptBoth.length === shown.pages.length
+            ? `Mesures gardées toutes les deux à l’application : ${[...new Set(keptBoth)].join(", ")}.`
+            : "Ce métré est déjà appliqué : ces pages sont au devis deux fois. Retirez du devis les lignes en double."}
       </p>
       {shown.zoneOverlap ? (
         <p className="text-foreground-secondary">
           Un doublon entre zones signalé ici avec une ligne du métré précédent compare deux lectures de la même page : ce n’est pas une autre zone, ne retirez pas la ligne pour le régler.
         </p>
       ) : null}
-      <NotCompared count={shown.unidentified} />
-    </Frame>
-  );
-}
-
-/** What the chosen strategy does to the earlier measure of those pages (nothing yet replaces a page as a whole). */
-const STRATEGY_EFFECT = {
-  append: "Confirmer ajoutera ces pages une seconde fois au devis, à côté de la mesure précédente.",
-  merge: "Fusionner ne remplace que les lignes de même désignation et de même unité : les autres seront ajoutées à côté de la mesure précédente.",
-  replace: "Remplacer vide seulement la section cible : les lignes du métré précédent rangées dans une autre section resteront au devis.",
-} as const;
-
-/** The apply wizard: the same pages, without links, and no decision to take yet. */
-export function TakeoffPagesAlreadyInEstimateNotice({ read, items, strategy }: Readonly<{
-  read: Read; items?: readonly Item[]; strategy: keyof typeof STRATEGY_EFFECT;
-}>) {
-  const shown = useMemo(() => pagesToShow(read.data, items), [items, read.data]);
-  if (read.error) return <p className="text-xs text-muted-foreground">Vérification des pages déjà au devis indisponible.</p>;
-  if (!read.data || shown.pages.length === 0) return null;
-  return (
-    <Frame>
-      <PageRows data={read.data} pages={shown.pages} />
-      <p className="text-foreground-secondary">{STRATEGY_EFFECT[strategy]}</p>
       <NotCompared count={shown.unidentified} />
     </Frame>
   );
@@ -215,7 +202,7 @@ export function TakeoffLaunchPagesNotice({ versionId, sources }: Readonly<{
   return (
     <Frame>
       <PageRows data={read.data} pages={read.data.pages} />
-      <p className="text-foreground-secondary">Vous pouvez lancer ce métré ; à l’application, ces pages seraient ajoutées une seconde fois au devis, à côté de la mesure précédente.</p>
+      <p className="text-foreground-secondary">Vous pouvez lancer ce métré ; à l’application, vous choisirez pour chaque page de remplacer sa mesure précédente ou de garder les deux.</p>
     </Frame>
   );
 }

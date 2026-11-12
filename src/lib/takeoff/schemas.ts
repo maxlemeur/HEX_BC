@@ -14,6 +14,7 @@ import { FORCE_REASON_CODES } from "@/lib/takeoff/force-reason-codes";
 import type { ForcedItem } from "@/lib/takeoff/force-reasons";
 import { ACCEPTANCE_NOTE, JUSTIFICATION_MESSAGE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
 import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
+import { takeoffPageDecisionsSchema } from "@/lib/takeoff/page-replacement-contracts";
 
 const requiredTextSchema = z
   .string()
@@ -562,6 +563,8 @@ export const takeoffApplyRequestSchema = z
     // override_justification is refused (strict object).
     forced_justifications: z.array(forcedJustificationSchema).min(1).optional(),
     forced_items: z.array(forcedItemSchema).min(1).optional(),
+    // TI-682 lot D: the estimator's decision for each page another takeoff already brought into the estimate.
+    page_decisions: takeoffPageDecisionsSchema.optional(),
   })
   .strict()
   .superRefine((payload, ctx) => {

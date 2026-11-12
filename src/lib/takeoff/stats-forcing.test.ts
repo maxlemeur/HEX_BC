@@ -95,6 +95,7 @@ describe("buildRuleForcingStats", () => {
     expect(stats.rows).toEqual([
       row("dn_network", "DN et réseau", 11, 5, 3, 27.3),
       row("zone_overlap", "Doublon entre zones", 1, 0, 0, null),
+      row("zone_coverage", "Couverture des plans agrandis", 0, 0, 0, null),
       row("scale_dimension", "Échelle et cotes", 5, 0, 0, null),
       row("area_printed", "Aire et surface imprimée", 2, 0, 0, null),
       row("room_overlap", "Pièces qui se chevauchent", 0, 0, 0, null),

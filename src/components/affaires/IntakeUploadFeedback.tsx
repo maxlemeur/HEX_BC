@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon } from "lucide-react";
 
@@ -58,17 +58,23 @@ export function useIntakeUploadFeedback(projectId: string, documents = EMPTY_DOC
   useEffect(() => {
     // Retire by server identity, so another file with the same name cannot finish an upload.
     const completed = new Set(documents.filter((document) => document.uploadStatus === "uploaded" && dossierDocumentState(document) !== "processing").map((document) => document.documentId));
-    setEntries((prior) => {
-      const next = prior.filter((entry) => !(entry.projectId === projectId && entry.phase === "integrating" && entry.documentId && completed.has(entry.documentId)));
-      return next.length === prior.length ? prior : next;
-    });
+    const retired = (entry: UploadEntry) => entry.projectId === projectId && entry.phase === "integrating" && Boolean(entry.documentId) && completed.has(entry.documentId!);
+    // Ask for nothing when nothing retires. While React holds an earlier update back behind a
+    // refresh in flight, it replays the later ones at every render and the entries change
+    // identity each time: an update asked here on every change would then render without end.
+    if (!entries.some(retired)) return;
+    setEntries((prior) => prior.filter((entry) => !retired(entry)));
   }, [documents, entries, projectId]);
 
+  // One refresh at a time. The router shows nothing new while a refresh is in flight, and a
+  // refresh asked before the previous one has landed puts it back in flight: on a fixed
+  // two-second rhythm, a server that answers in two seconds or more would never be shown.
+  const [refreshing, startRefresh] = useTransition();
   useEffect(() => {
-    if (!awaitingIntegration) return;
-    const interval = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(interval);
-  }, [awaitingIntegration, router]);
+    if (!awaitingIntegration || refreshing) return;
+    const timeout = setTimeout(() => startRefresh(() => router.refresh()), 2000);
+    return () => clearTimeout(timeout);
+  }, [awaitingIntegration, refreshing, router]);
 
   const dismissFailure = useCallback((key: string) => setEntries((prior) => prior.filter((entry) => entry.key !== key || entry.phase !== "failed")), []);
   return { files, onUploadEvent, dismissFailure };

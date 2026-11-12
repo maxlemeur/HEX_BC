@@ -11,6 +11,7 @@
       "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
       "e2e/army/critical/bulk-edit-sync.e2e.ts",
       "e2e/army/critical/bulk-move.e2e.ts",
+      "e2e/army/critical/catalogue-draft-status.e2e.ts",
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/dashboard-workspace.e2e.ts",
@@ -25,6 +26,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/intake-google-drive.e2e.ts",
+      "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/navigation-feedback.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
@@ -105,6 +107,7 @@
       "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
       "e2e/army/takeoff/import-format-completion.e2e.ts",
       "e2e/army/takeoff/intake-dossier.e2e.ts",
+      "e2e/army/takeoff/page-decisions-contract.e2e.ts",
       "e2e/army/takeoff/page-once.e2e.ts",
       "e2e/army/takeoff/quantity-rules.e2e.ts",
       "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
@@ -241,6 +244,7 @@
       "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
       "e2e/army/critical/bulk-edit-sync.e2e.ts",
       "e2e/army/critical/bulk-move.e2e.ts",
+      "e2e/army/critical/catalogue-draft-status.e2e.ts",
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
       "e2e/army/critical/editor-idle-requests.e2e.ts",
@@ -249,6 +253,7 @@
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
@@ -758,6 +763,21 @@
       ]
     },
     {
+      "id": "material-requests",
+      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine.",
+      "paths": [
+        "src/app/dashboard/affaires/[projectId]/demandes-materiel/**",
+        "src/components/material-requests/**",
+        "src/lib/material-requests/**",
+        "src/app/api/affaires/[projectId]/material-requests/**",
+        "src/app/api/material-request-technicians/**",
+        "e2e/army/critical/material-requests.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/material-requests.e2e.ts"
+      ]
+    },
+    {
       "id": "legacy-parity-catalogue",
       "paths": [
         "src/app/dashboard/{products,prices}/**"
@@ -1071,11 +1091,16 @@
     },
     {
       "id": "takeoff-page-once",
-      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues, notice de l'assistant et du lancement (TKD01) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
+      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues et notice du lancement (TKD01) ; remplacer la mesure précédente ou garder les deux à la confirmation, refus sans décision (TKD02) ; contrat de l'écran avec la base, chaque confirmation permise acceptée, sur une matrice de situations (TKD03) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
       "paths": [
         "src/lib/takeoff/page-contributions*.ts",
         "src/app/api/takeoff/page-contributions/**",
         "src/app/api/takeoff/jobs/**/page-contributions/**",
+        "src/lib/takeoff/page-replacement*.ts",
+        "src/app/api/takeoff/jobs/**/page-replacement/**",
+        "src/components/takeoff/takeoff-apply-wizard/TakeoffPageDecisionsPanel.tsx",
+        "src/components/takeoff/takeoff-apply-wizard/page-decisions.ts",
+        "supabase/migrations/*_takeoff_page_decisions.sql",
         "src/components/takeoff/review/TakeoffPagesAlreadyInEstimate.tsx",
         "src/components/takeoff/review/TakeoffTargetedReview.tsx",
         "src/components/takeoff/TakeoffReviewPage.tsx",
@@ -1084,6 +1109,7 @@
         "e2e/army/takeoff/vector-plan-fixture.ts"
       ],
       "journeys": [
+        "e2e/army/takeoff/page-decisions-contract.e2e.ts",
         "e2e/army/takeoff/page-once.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts"
       ]
@@ -1148,6 +1174,21 @@
       ],
       "journeys": [
         "e2e/army/local/affaire-register.e2e.ts"
+      ]
+    },
+    {
+      "id": "catalogue-draft-status",
+      "note": "CAT01 : un article brouillon reste hors des suggestions de devis ; validation et type de fourniture depuis l'écran des produits.",
+      "paths": [
+        "src/app/dashboard/products/**",
+        "src/components/products/**",
+        "src/app/api/products/**",
+        "src/app/api/catalogue/**",
+        "src/lib/catalogue/**",
+        "e2e/army/critical/catalogue-draft-status.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/catalogue-draft-status.e2e.ts"
       ]
     }
   ]

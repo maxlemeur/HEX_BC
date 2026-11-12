@@ -1,0 +1,489 @@
+"use client";
+
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Info, TriangleAlert } from "lucide-react";
+
+import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import type { MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
+import { parseQuantity } from "@/lib/numeric-input/parsers";
+import { cn } from "@/lib/utils";
+
+import type { SaveResult } from "./useMaterialRequestEditor";
+
+export type CellAlerts = readonly MaterialRequestLineAlert[];
+
+const NO_ALERTS: CellAlerts = [];
+const QUANTITY_MAX = 1_000_000;
+const QUANTITY_UNREADABLE = "Quantité illisible : un nombre au-dessus de zéro, trois décimales au plus.";
+
+type CellTone = "blocking" | "notice" | null;
+
+function cellTone(alerts: CellAlerts): CellTone {
+  if (alerts.some((alert) => alert.blocking)) return "blocking";
+  return alerts.length > 0 ? "notice" : null;
+}
+
+/** Background of a table cell named by an alert: full yellow when it blocks, pale when it is a remark. */
+export function alertCellClass(alerts: CellAlerts): string {
+  const tone = cellTone(alerts);
+  if (tone === "blocking") return "bg-warning-light";
+  return tone === "notice" ? "bg-warning-subtle" : "";
+}
+
+const CELL_CONTROL =
+  "h-9 w-full min-w-0 rounded-control border border-input bg-surface px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-subtle-foreground hover:border-border-strong focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/15";
+
+function controlClass(alerts: CellAlerts, failed: boolean): string {
+  const tone = cellTone(alerts);
+  return cn(
+    CELL_CONTROL,
+    tone === "blocking" && "border-warning-border",
+    tone === "notice" && "border-dashed border-warning-border",
+    failed && "border-danger",
+  );
+}
+
+/**
+ * The words behind a highlighted cell: the alert is read, not only seen. A blocking alert and a remark
+ * differ by their icon and their wording as well as by their colour.
+ */
+export function CellMessages({
+  id,
+  alerts = NO_ALERTS,
+  error,
+}: Readonly<{ id: string; alerts?: CellAlerts; error?: string | null }>) {
+  if (alerts.length === 0 && !error) return null;
+  return (
+    <div id={id} className="mt-1 space-y-0.5 text-xs leading-snug">
+      {alerts.map((alert) => (
+        <p key={alert.code} className="flex items-start gap-1 font-medium text-warning">
+          {alert.blocking ? (
+            <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+          ) : (
+            <Info aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+          )}
+          <span>{alert.blocking ? alert.message : `À noter : ${alert.message}`}</span>
+        </p>
+      ))}
+      {error ? (
+        <p role="alert" className="font-medium text-danger">
+          Non enregistré : {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function describedBy(id: string, alerts: CellAlerts, error: string | null | undefined): string | undefined {
+  return alerts.length > 0 || error ? id : undefined;
+}
+
+/**
+ * The writes of one field that have not been answered yet. Writes of a request go to the server one
+ * after the other, so what the server will hold once they settle is the last value sent, not the value
+ * still shown as saved. Comparing a new entry with the saved value alone would drop a correction made
+ * while a save is on its way (« DN 20 » → « DN 40 », then back to « DN 20 » before the answer).
+ */
+export function usePendingWrites<T>(stored: T) {
+  const state = useRef<{ count: number; ticket: number; last: T | null }>({ count: 0, ticket: 0, last: null });
+  return {
+    /** No write of this field is on its way. */
+    idle: () => state.current.count === 0,
+    /** What the server will hold for this field once the writes on their way have settled. */
+    expected: (): T => (state.current.count > 0 ? (state.current.last as T) : stored),
+    /**
+     * Sends `value`. Answers the result when it is the last value sent for the field, and null when a
+     * later one followed: only the answer to the last write speaks for what the field shows.
+     */
+    send: async (value: T, write: () => Promise<SaveResult>): Promise<SaveResult | null> => {
+      const pending = state.current;
+      const ticket = (pending.ticket += 1);
+      pending.count += 1;
+      pending.last = value;
+      const result = await write();
+      pending.count -= 1;
+      return pending.ticket === ticket ? result : null;
+    },
+  };
+}
+
+/**
+ * A text column edited in place. Leaving the cell or Enter saves it, Escape gives back the saved value.
+ * When the save fails, the typing stays in the cell with the reason under it; leaving the cell again retries.
+ */
+export function TextCell({
+  id,
+  label,
+  value,
+  onCommit,
+  alerts = NO_ALERTS,
+  placeholder,
+  list,
+  maxLength,
+  disabled = false,
+  hintId,
+  onUnsavedChange,
+  onAbandon,
+}: Readonly<{
+  /** Id of a text shown beside the field that the field should be described by. */
+  hintId?: string;
+  /** Told whenever the field starts or stops holding a value that is not the saved one. */
+  onUnsavedChange?: (unsaved: boolean) => void;
+  /** Told when a value that could not be saved is dropped (Escape, or the saved value typed back). */
+  onAbandon?: () => void;
+  /** Given when a visible <label> names the field; otherwise `label` is the accessible name. */
+  id?: string;
+  label?: string;
+  value: string | null;
+  onCommit: (next: string | null) => Promise<SaveResult>;
+  alerts?: CellAlerts;
+  placeholder?: string;
+  list?: string;
+  maxLength?: number;
+  disabled?: boolean;
+}>) {
+  const messagesId = useId();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const stored = (value ?? "").trim();
+  const writes = usePendingWrites(stored);
+  // Typed, on its way, or refused: in all three the field shows something the server does not hold.
+  const unsaved = draft !== null && draft.trim() !== stored;
+
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+  }, [onUnsavedChange, unsaved]);
+
+  const commit = async (raw: string | null) => {
+    if (raw === null) return;
+    const next = raw.trim();
+    if (next === writes.expected()) {
+      // Nothing to send. With no write on its way the cell shows the saved value again; otherwise the
+      // answer on its way settles it (Enter then leaving the cell commits the same value twice).
+      if (writes.idle()) {
+        if (error) onAbandon?.();
+        setDraft(null);
+        setError(null);
+      }
+      return;
+    }
+    const result = await writes.send(next, () => onCommit(next.length > 0 ? next : null));
+    if (result === null) return;
+    if (result.ok) {
+      setError(null);
+      setDraft((current) => (current !== null && current.trim() === next ? null : current));
+    } else {
+      setError(result.message);
+    }
+  };
+
+  return (
+    <>
+      <input
+        id={id}
+        type="text"
+        className={controlClass(alerts, Boolean(error))}
+        aria-label={id ? undefined : label}
+        aria-invalid={cellTone(alerts) === "blocking" || Boolean(error) || undefined}
+        aria-describedby={[describedBy(messagesId, alerts, error), hintId].filter(Boolean).join(" ") || undefined}
+        value={draft ?? value ?? ""}
+        placeholder={placeholder}
+        list={list}
+        maxLength={maxLength}
+        disabled={disabled}
+        autoComplete="off"
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={() => void commit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void commit(draft);
+          } else if (event.key === "Escape" && (draft !== null || error)) {
+            event.preventDefault();
+            if (error) onAbandon?.();
+            setDraft(null);
+            setError(null);
+          }
+        }}
+      />
+      <CellMessages id={messagesId} alerts={alerts} error={error} />
+    </>
+  );
+}
+
+function readQuantityDraft(raw: string): number | null {
+  const quantity = parseQuantity(raw);
+  return quantity !== null && quantity > 0 && quantity <= QUANTITY_MAX ? quantity : null;
+}
+
+/**
+ * The quantity, typed with the house decimal grammar (« 12,5 »). An emptied cell means « not known yet »,
+ * which the alerts then ask for; a figure the grammar refuses stays visible and is not sent.
+ */
+export function QuantityCell({
+  label,
+  value,
+  onCommit,
+  alerts = NO_ALERTS,
+  onAbandon,
+}: Readonly<{
+  label: string;
+  value: number | null;
+  onCommit: (next: number | null) => Promise<SaveResult>;
+  alerts?: CellAlerts;
+  /** Told when a quantity that could not be saved is dropped (Escape, or the saved one typed back). */
+  onAbandon?: () => void;
+}>) {
+  const messagesId = useId();
+  const [failed, setFailed] = useState<{ value: number | null; message: string } | null>(null);
+  /** The quantity on its way to the server: shown instead of the saved one until the answer. */
+  const [sending, setSending] = useState<{ value: number | null } | null>(null);
+  const [unreadable, setUnreadable] = useState(false);
+  const [mountKey, setMountKey] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const writes = usePendingWrites(value);
+  const cancelled = useRef(false);
+  const error = unreadable ? QUANTITY_UNREADABLE : (failed?.message ?? null);
+
+  useEffect(() => {
+    if (!cancelled.current) return;
+    input.current?.focus();
+    cancelled.current = false;
+  }, [mountKey]);
+
+  const commit = async (next: number | null) => {
+    if (cancelled.current) return;
+    if (next === writes.expected()) {
+      if (writes.idle()) {
+        if (failed) onAbandon?.();
+        setFailed(null);
+      }
+      return;
+    }
+    setSending({ value: next });
+    setFailed(null);
+    const result = await writes.send(next, () => onCommit(next));
+    if (result === null) return;
+    setSending(null);
+    setFailed(result.ok ? null : { value: next, message: result.message });
+  };
+
+  return (
+    <>
+      <DecimalDraftInput
+        key={mountKey}
+        ref={input}
+        className={cn(controlClass(alerts, Boolean(error)), "text-right tabular-nums")}
+        aria-label={label}
+        aria-invalid={cellTone(alerts) === "blocking" || Boolean(error) || undefined}
+        aria-describedby={describedBy(messagesId, alerts, error)}
+        autoComplete="off"
+        value={failed ? failed.value : sending ? sending.value : value}
+        emptyValue={0}
+        parseValue={readQuantityDraft}
+        onValueChange={() => undefined}
+        onValueCommit={(next) => void commit(next === 0 ? null : next)}
+        onInput={(event) => {
+          const raw = event.currentTarget.value;
+          setUnreadable(raw.trim() !== "" && readQuantityDraft(raw) === null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const raw = event.currentTarget.value;
+            if (raw.trim() === "") void commit(null);
+            else if (readQuantityDraft(raw) !== null) void commit(readQuantityDraft(raw));
+          } else if (event.key === "Escape") {
+            // The house input keeps its own draft: a fresh one shows the saved value again.
+            event.preventDefault();
+            cancelled.current = true;
+            if (failed) onAbandon?.();
+            setFailed(null);
+            setUnreadable(false);
+            setMountKey((current) => current + 1);
+          }
+        }}
+      />
+      <CellMessages id={messagesId} alerts={alerts} error={error} />
+    </>
+  );
+}
+
+export type ChoiceOption = { value: string; label: string };
+
+/** A choice saved as soon as it is made. A refused choice stays shown, with the reason under it. */
+export function ChoiceCell({
+  id,
+  label,
+  value,
+  options,
+  emptyLabel,
+  unknownLabel,
+  onCommit,
+  disabled = false,
+  onUnsavedChange,
+}: Readonly<{
+  /** Told whenever the select starts or stops showing a choice that is not the saved one. */
+  onUnsavedChange?: (unsaved: boolean) => void;
+  id?: string;
+  label?: string;
+  value: string | null;
+  options: readonly ChoiceOption[];
+  /** Label of the « nothing chosen » option; without it, a value is always chosen. */
+  emptyLabel?: string;
+  /** Shown for a saved value that is no longer among the options. */
+  unknownLabel?: string;
+  onCommit: (next: string | null) => Promise<SaveResult>;
+  disabled?: boolean;
+}>) {
+  const messagesId = useId();
+  const [pending, setPending] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ value: string; message: string } | null>(null);
+  const writes = usePendingWrites(value ?? "");
+  const shown = pending ?? failed?.value ?? value ?? "";
+  const known = shown === "" || options.some((option) => option.value === shown);
+  const unsaved = pending !== null || failed !== null;
+
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+  }, [onUnsavedChange, unsaved]);
+
+  return (
+    <>
+      <NativeSelect
+        id={id}
+        size="sm"
+        className="px-2 pr-8"
+        aria-label={id ? undefined : label}
+        aria-invalid={failed ? true : undefined}
+        aria-describedby={failed ? messagesId : undefined}
+        value={shown}
+        disabled={disabled}
+        onChange={async (event) => {
+          const next = event.currentTarget.value;
+          setPending(next);
+          setFailed(null);
+          const result = await writes.send(next, () => onCommit(next === "" ? null : next));
+          // An earlier choice answered after a later one was made: the later answer settles the cell.
+          if (result === null) return;
+          setPending(null);
+          if (!result.ok) setFailed({ value: next, message: result.message });
+        }}
+      >
+        {emptyLabel !== undefined ? <option value="">{emptyLabel}</option> : null}
+        {known ? null : <option value={shown}>{unknownLabel ?? shown}</option>}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </NativeSelect>
+      <CellMessages id={messagesId} error={failed?.message} />
+    </>
+  );
+}
+
+/**
+ * A yes/no of a line, saved as soon as it is ticked. Like the other cells, a change the server refused
+ * stays shown with its reason; ticking it back sends the saved state again and clears it.
+ */
+export function ToggleCell({
+  label,
+  text,
+  checked,
+  onCommit,
+}: Readonly<{
+  label: string;
+  text: string;
+  checked: boolean;
+  onCommit: (next: boolean) => Promise<SaveResult>;
+}>) {
+  const messagesId = useId();
+  const [pending, setPending] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState<{ value: boolean; message: string } | null>(null);
+  const writes = usePendingWrites(checked);
+
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-xs text-foreground-secondary">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          aria-label={label}
+          aria-invalid={failed ? true : undefined}
+          aria-describedby={failed ? messagesId : undefined}
+          checked={pending ?? failed?.value ?? checked}
+          onChange={async (event) => {
+            const next = event.currentTarget.checked;
+            setPending(next);
+            setFailed(null);
+            const result = await writes.send(next, () => onCommit(next));
+            if (result === null) return;
+            setPending(null);
+            if (!result.ok) setFailed({ value: next, message: result.message });
+          }}
+        />
+        {text}
+      </label>
+      <CellMessages id={messagesId} error={failed?.message} />
+    </div>
+  );
+}
+
+/**
+ * A removal in two presses, without a dialog: the first arms the button, the second removes.
+ * Leaving the button or Escape disarms it.
+ */
+export function ConfirmButton({
+  label,
+  confirmLabel,
+  confirmText,
+  onConfirm,
+  children,
+  variant = "ghost",
+  size = "sm",
+}: Readonly<{
+  label: string;
+  confirmLabel: string;
+  confirmText: string;
+  onConfirm: () => Promise<unknown>;
+  children: ReactNode;
+  variant?: "ghost" | "outline";
+  size?: "sm" | "icon-sm";
+}>) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant={armed ? "danger" : variant}
+        size={armed ? "sm" : size}
+        aria-label={armed ? confirmLabel : label}
+        loading={busy}
+        onBlur={() => setArmed(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setArmed(false);
+        }}
+        onClick={async () => {
+          if (!armed) {
+            setArmed(true);
+            return;
+          }
+          setBusy(true);
+          await onConfirm();
+          setBusy(false);
+          setArmed(false);
+        }}
+      >
+        {armed ? confirmText : children}
+      </Button>
+      <span role="status" className="sr-only">
+        {armed ? "Appuyez de nouveau pour confirmer." : ""}
+      </span>
+    </>
+  );
+}

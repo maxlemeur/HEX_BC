@@ -29,11 +29,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
+import { PRODUCT_VALIDATION_INCOMPLETE } from "@/lib/catalogue/product-validation";
 import { cn } from "@/lib/utils";
 
 import type {
   ProductPayload,
   ProductRecord,
+  ProductSupplyType,
 } from "./ProductFormModal";
 
 const ProductFormModal = dynamic(
@@ -63,6 +65,7 @@ type ProductPageResponse = {
     categories: string[];
     units: string[];
   };
+  supplyTypes: ProductSupplyType[];
 };
 
 const PRODUCT_SORT_OPTIONS: SortOption[] = [
@@ -75,6 +78,8 @@ const PRODUCT_SORT_OPTIONS: SortOption[] = [
     label: "Dernière modification",
     defaultDirection: "desc",
   },
+  // Imported note of a draft: best-rated first, unrated last. Offered, never applied on its own.
+  { key: "reliability_score", label: "Fiabilité", defaultDirection: "desc" },
 ];
 
 const PRICE_STATUS_OPTIONS = [
@@ -89,6 +94,11 @@ const STATUS_OPTIONS = [
   { value: "archived", label: "Archivés" },
 ];
 
+const CATALOGUE_STATUS_OPTIONS = [
+  { value: "draft", label: "Brouillons" },
+  { value: "validated", label: "Validés" },
+];
+
 const PRODUCT_PAGE_SIZES = [25, 50, 100] as const;
 type ProductPageSize = (typeof PRODUCT_PAGE_SIZES)[number];
 
@@ -101,6 +111,14 @@ const EMPTY_COUNTERS: ProductCatalogueCounters = {
 
 function toOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }));
+}
+
+/** The refusal of a draft that lacks a field required for validation (HTTP 422). */
+function isIncompleteValidationRefusal(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error as Error & { code?: unknown }).code === PRODUCT_VALIDATION_INCOMPLETE
+  );
 }
 
 export default function ProductsPage() {
@@ -144,6 +162,7 @@ export default function ProductsPage() {
   const unitFilters = searchParams.getAll("unit");
   const priceStatusFilters = searchParams.getAll("price_status");
   const statusFilters = searchParams.getAll("status");
+  const catalogueStatusFilters = searchParams.getAll("catalogue_status");
 
   const updateUrl = useCallback(
     (
@@ -219,8 +238,10 @@ export default function ProductsPage() {
     unitFilters.forEach((value) => query.append("unit", value));
     priceStatusFilters.forEach((value) => query.append("price_status", value));
     statusFilters.forEach((value) => query.append("status", value));
+    catalogueStatusFilters.forEach((value) => query.append("catalogue_status", value));
     return `/api/catalogue?${query.toString()}`;
   }, [
+    catalogueStatusFilters,
     categoryFilters,
     direction,
     materialFilters,
@@ -289,6 +310,13 @@ export default function ProductsPage() {
         placeholder: "Tous les statuts",
         options: STATUS_OPTIONS,
       },
+      {
+        type: "multi-select",
+        key: "catalogue_status",
+        label: "Validation",
+        placeholder: "Brouillons et validés",
+        options: CATALOGUE_STATUS_OPTIONS,
+      },
     ],
     [data?.facets.categories, data?.facets.materials, data?.facets.units],
   );
@@ -302,6 +330,7 @@ export default function ProductsPage() {
     unit: unitFilters,
     price_status: priceStatusFilters,
     status: statusFilters,
+    catalogue_status: catalogueStatusFilters,
   };
 
   const handleFilterChange = useCallback(
@@ -365,11 +394,15 @@ export default function ProductsPage() {
       await mutate();
       setIsFormOpen(false);
       setEditingProduct(null);
-      setSuccessMessage(
-        editingProduct
-          ? "Produit mis à jour."
-          : `Produit ajouté à la base.${saved.item.reference ? ` Référence : ${saved.item.reference}.` : ""}`,
-      );
+      if (payload.catalogue_status === "validated") {
+        setSuccessMessage("Article validé.");
+      } else {
+        setSuccessMessage(
+          editingProduct
+            ? "Produit mis à jour."
+            : `Produit ajouté à la base.${saved.item.reference ? ` Référence : ${saved.item.reference}.` : ""}`,
+        );
+      }
     } catch (error) {
       setFormError(
         error instanceof Error ? error.message : "Enregistrement impossible.",
@@ -411,6 +444,37 @@ export default function ProductsPage() {
     } catch (error) {
       setFormError(
         error instanceof Error ? error.message : "Mise à jour impossible.",
+      );
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  }
+
+  async function validateProduct(product: ProductRecord) {
+    setUpdatingStatusId(product.id);
+    setSuccessMessage(null);
+    setFormError(null);
+    try {
+      await fetchApi("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          id: product.id,
+          item: { catalogue_status: "validated" },
+        }),
+      });
+      await mutate();
+      setSuccessMessage("Article validé.");
+    } catch (error) {
+      // An incomplete draft opens on its form, where the missing fields are marked and the
+      // server's sentence is shown; any other failure is reported like an archive failure.
+      if (isIncompleteValidationRefusal(error)) {
+        setEditingProduct(product);
+        setIsFormOpen(true);
+      }
+      setFormError(
+        error instanceof Error ? error.message : "Validation impossible.",
       );
     } finally {
       setUpdatingStatusId(null);
@@ -484,6 +548,7 @@ export default function ProductsPage() {
             unit: null,
             price_status: null,
             status: null,
+            catalogue_status: null,
           });
         }}
       />
@@ -551,6 +616,7 @@ export default function ProductsPage() {
           onEdit={openEditForm}
           onReviewPrice={setReferenceProduct}
           onToggleArchive={(product) => void toggleArchive(product)}
+          onValidate={(product) => void validateProduct(product)}
         />
 
         {totalItems > 0 ? (
@@ -597,6 +663,8 @@ export default function ProductsPage() {
           error={formError}
           categorySuggestions={data?.facets.categories}
           materialSuggestions={data?.facets.materials}
+          supplyTypes={data?.supplyTypes}
+          onSupplyTypeCreated={() => void mutate()}
           onOpenChange={handleFormOpenChange}
           onSubmit={saveProduct}
         />

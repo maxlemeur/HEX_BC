@@ -119,7 +119,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     const { data: productsData, error: productsError } = await input.supabase
       .from("products")
       .select(
-        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode"
+        "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status"
       )
       .eq("tenant_id", input.tenantId)
       .in("id", productIds);
@@ -267,6 +267,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         product_grade: product?.grade ?? null,
         product_dimensions: product?.dimensions ?? null,
         product_standard: product?.standard ?? null,
+        product_catalogue_status: product?.catalogue_status ?? "validated",
         supplier_id: row.supplier_id,
         supplier_name: supplier?.name ?? "Fournisseur",
         supplier_reference: row.supplier_sku ?? null,
@@ -428,8 +429,11 @@ function extractCatalogueUrl(value: string | null | undefined) {
 
 export async function suggestEstimateCataloguePrices(
   versionId: string,
-  query: string
+  query: string,
+  // A deliberate search (the "associate an article" panel) may reach drafts; it shows them labelled.
+  options: { includeDrafts?: boolean } = {}
 ) {
+  const includeDrafts = options.includeDrafts === true;
   const normalizedQuery = query.trim();
   if (normalizedQuery.length < 2) {
     throw badRequest("Le paramètre q doit contenir au moins 2 caractères.");
@@ -446,7 +450,10 @@ export async function suggestEstimateCataloguePrices(
   }
 
   const productColumns =
-    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode";
+    "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at, reference_transport_mode, catalogue_status";
+  const suggestedStatuses: Array<"draft" | "validated"> = includeDrafts
+    ? ["validated", "draft"]
+    : ["validated"];
   const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
   const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
 
@@ -456,6 +463,7 @@ export async function suggestEstimateCataloguePrices(
       .select(productColumns)
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
+      .in("catalogue_status", suggestedStatuses)
       .or(productPrefixFilter)
       .order("designation", { ascending: true })
       .limit(40),
@@ -464,6 +472,7 @@ export async function suggestEstimateCataloguePrices(
       .select(productColumns)
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
+      .in("catalogue_status", suggestedStatuses)
       .or(productContainsFilter)
       .order("designation", { ascending: true })
       .limit(80),
@@ -526,10 +535,13 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, transport_mode, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url), products!supplier_pricebook_product_id_fkey!inner(catalogue_status)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
+    // TI-690: an offer found by its supplier or its SKU can belong to an article the product search never
+    // returned. Filtered here, before the cap, so the offers of draft articles cannot crowd out the others.
+    .in("products.catalogue_status", suggestedStatuses)
     .order("updated_at", { ascending: false })
     .limit(400);
 

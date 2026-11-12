@@ -7,6 +7,7 @@ import type { CatalogueItem } from "@/components/catalogue/types";
 import { fetchCatalogueSuggestions } from "@/components/estimates/components/estimate-editor-row/shared";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -157,7 +158,7 @@ export function EstimateArticleSheet({
     const timeoutId = window.setTimeout(() => {
       setIsLoading(true);
       setError(null);
-      void fetchCatalogueSuggestions(versionId, trimmedQuery, abortController.signal)
+      void fetchCatalogueSuggestions(versionId, trimmedQuery, abortController.signal, { includeDrafts: true })
         .then((data) => {
           if (!abortController.signal.aborted) setSuggestions(data);
         })
@@ -253,6 +254,11 @@ export function EstimateArticleSheet({
                           {suggestion.product_reference ?? "Sans référence"}
                           {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
                         </span>
+                        {suggestion.product_catalogue_status === "draft" ? (
+                          <Badge variant="warning" size="sm" className="mt-1">
+                            Brouillon
+                          </Badge>
+                        ) : null}
                         {refusal ? <span className="block text-xs font-medium text-danger">{refusal}</span> : null}
                       </span>
                       <span className="shrink-0 font-medium tabular-nums text-foreground">

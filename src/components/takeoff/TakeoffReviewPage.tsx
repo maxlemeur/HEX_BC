@@ -1161,6 +1161,7 @@ export default function TakeoffReviewPage({
   const {
     submitting: applySubmitting,
     error: applyError,
+    errorGuard: applyErrorGuard,
     setError: setApplyError,
     confirm: handleApplyConfirm,
   } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
@@ -1415,6 +1416,7 @@ export default function TakeoffReviewPage({
         excludedCount={items.length - includedItems.length}
         isSubmitting={applySubmitting}
         submitError={applyError}
+        submitErrorGuard={applyErrorGuard}
         onOpenChange={setApplyWizardOpen}
         onConfirm={handleApplyConfirm}
         items={items}

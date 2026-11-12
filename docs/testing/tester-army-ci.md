@@ -29,7 +29,9 @@ parcours atteints. Un changement partagé, inconnu ou une erreur de sélection
 élargit à la suite entière. Une modification limitée aux chemins documentaires
 reconnus n'exécute aucun parcours.
 
-Un push `main` lance la suite critical entière sauf documentation seule.
+Un push `main` lance la suite critical entière sauf documentation seule, une
+suite à la fois : [la plus récente attend et remplace une plus ancienne en
+attente](#campagnes-de-main-après-un-push).
 Le déclenchement manuel ou le label `army-full` force la sélection complète.
 Les parcours `fullOnly` de métré sont sélectionnés sur PR ; ils ne se rajoutent
 pas au run Critical d'un push `main`, et restent couverts par la campagne Full
@@ -99,6 +101,16 @@ fois et une journée chargée compte plus de vingt push.
   push.
 - Un push de documentation seule (`docs/**`, `**/*.md`, les chemins `docs` de la
   carte d'impact) ne démarre aucune campagne et n'en remplace aucune.
+
+Le run Critical d'un push suit la même file depuis le 11/11/2026, à sa largeur
+habituelle (ses shards tournent ensemble) : un run tourne, le plus récent attend
+et remplace un plus ancien en attente, et un push de documentation seule n'en
+démarre aucun. Chaque run joue la suite critical entière, donc celui qui reste
+couvre les commits de ceux qu'il remplace. Avant, chaque push gardait le sien :
+le soir du 11/11/2026, après quinze fusions en deux heures, dix runs Critical
+de `main` étaient ouverts en même temps à 23 h 25 UTC, celui du push de 22 h 04
+n'avait pas fini 81 minutes plus tard, et les contrôles des pull requests
+attendaient derrière eux.
 
 Le résultat d'un commit se lit donc sur la première campagne terminée qui le
 contient : environ 45 minutes après le push (première campagne mesurée, le
@@ -241,6 +253,25 @@ déjà la cause ([port applicatif et cause d'un
 Une installation/build interrompu n'est pas un résultat métier. Conserver le premier échec avant correction ; ne
 pas le masquer par un retry ou un timeout augmenté. Les workflows fixent les
 artefacts, délais et durées de rétention actuels.
+
+Les rôles de l'API annulent une requête après 8 s (`57014`), ce que
+l'application répond par un 400 : le parcours échoue alors sur un code HTTP,
+sans dire quelle requête a attendu. Pendant les parcours,
+[`blocked-statements.ts`](../../scripts/tester-army/blocked-statements.ts)
+relève deux fois par seconde les requêtes actives depuis plus d'une seconde et
+les sessions qui les bloquent. `blocked-statements.jsonl`, à la racine des
+preuves, garde une ligne par requête : sa durée la plus longue, l'attente
+(`wait`, `waitingFor`) et, dans `blockedBy`, chaque session bloquante avec son
+état et l'âge de sa transaction. `client` distingue l'API (`api`), le SQL direct
+des fixtures (`sql`) et les services Supabase (`service`). Une requête n'y figure que par son premier
+mot-clé et les objets qualifiés qu'elle nomme (`with
+public.atomic_create_estimate_item`) : aucun texte SQL ni valeur n'est publié.
+Le fichier est absent quand rien n'a dépassé une seconde. Le manifeste indique
+`blockedStatements.rounds`, le nombre de relevés revenus, et `status` :
+`watched` en exige au moins un, `stopped-early` signale un `psql` parti avant
+la fin, `unavailable` un relevé qui n'a rien pu lire. Un fichier absent avec
+`unavailable` ne prouve donc pas qu'aucune requête n'a attendu. Ce relevé ne
+fait jamais échouer un run.
 
 Les fichiers `shared-supabase-*.md` restants sont des reçus historiques lus par
 le garde de restamp ; leur présence protège les noms des migrations déjà

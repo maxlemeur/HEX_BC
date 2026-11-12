@@ -3,6 +3,7 @@ import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
+import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
 import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -37,6 +38,7 @@ import {
   estimateBatchCommittedResultSchema as estimateBatchCommittedSchema, estimateBatchResultSchema,
 } from "@/lib/estimates/batch-contracts";
 import { z } from "zod";
+import { materialRequestOperations } from "@/lib/openapi/registry-material-requests";
 import { sourceCoverageOperations } from "@/lib/openapi/registry-source-coverage";
 import { purchaseReceiptSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import {
@@ -491,6 +493,7 @@ const suggestedCataloguePriceSchema = z.object({
   product_grade: z.string().nullable(),
   product_dimensions: z.string().nullable(),
   product_standard: z.string().nullable(),
+  product_catalogue_status: z.enum(["draft", "validated"]).optional(),
   supplier_id: uuidSchema.nullable(),
   supplier_name: z.string().nullable(),
   supplier_reference: z.string().nullable(),
@@ -1919,6 +1922,15 @@ const apiTakeoffPageContributionsSchemaDefinition = successResponseSchemaDefinit
   "ApiTakeoffPageContributionsResponse",
   takeoffPageContributionsResponseSchema
 );
+const apiTakeoffPageReplacementSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPageReplacementResponse",
+  takeoffPageReplacementResponseSchema
+);
+const takeoffPageReplacementBody = jsonBody({
+  name: "TakeoffPageReplacementRequest",
+  description: "Strategie, section cible et ajustements de mapping de l'assistant d'application.",
+  schema: takeoffPageReplacementRequestSchema,
+});
 const takeoffLaunchPageContributionsBody = jsonBody({
   name: "TakeoffLaunchPageContributionsRequest",
   description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
@@ -2377,6 +2389,15 @@ const suggestPricesQueryParameter = queryParameter({
   schemaName: "SuggestPricesQueryParameter",
   schema: suggestPricesQuerySchema,
   required: true,
+});
+
+const suggestPricesIncludeDraftsQueryParameter = queryParameter({
+  name: "include_drafts",
+  description:
+    "Recherche volontaire : inclut les articles brouillons, signales par product_catalogue_status. Absent, seuls les articles valides sont suggeres.",
+  schemaName: "SuggestPricesIncludeDraftsQueryParameter",
+  schema: z.enum(["1", "true", "0", "false"]),
+  required: false,
 });
 
 const changelogCompareQueryParameter = queryParameter({
@@ -2936,11 +2957,12 @@ const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   ...sourceCoverageOperations,
+  ...materialRequestOperations,
   {
     method: "get",
     path: "/api/products/reference-suggestion",
     summary: "Proposer une référence interne d’article",
-    description: "Suggestion provisoire réservée aux administrateurs du catalogue. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+    description: "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
     tags: ["Catalogue"],
     responses: {
       "200": jsonResponse("Référence proposée.", schemaDefinition(
@@ -2948,7 +2970,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         successEnvelopeSchema(z.object({ reference: z.string().min(1) })), "output"
       )),
       "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
-      "403": jsonResponse("Administrateur du catalogue requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("Administrateur ou ingénieur requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "500": jsonResponse("Suggestion indisponible.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
@@ -3190,6 +3212,20 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [takeoffJobIdPathParameter, takeoffPageContributionsVersionIdQueryParameter],
     responses: {
       "200": jsonResponse("Pages deja au devis.", apiTakeoffPageContributionsSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/page-replacement",
+    summary: "Proposition de remplacement des pages deja au devis",
+    description:
+      "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffPageReplacementBody,
+    responses: {
+      "200": jsonResponse("Proposition par page.", apiTakeoffPageReplacementSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },
@@ -3454,7 +3490,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/apply",
     summary: "Appliquer un job Takeoff",
     description:
-      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items).",
+      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items). TI-682 lot D : une page de plan qu'un autre metre a deja apportee au devis n'entre que par une decision (page_decisions : remplacer sa mesure ligne a ligne, ou garder les deux avec un motif) ; sans elle, 422 details.guard page_already_applied ; une decision invalide, 422 page_decision ; une decision perimee, 409 page_decision.",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: applyTakeoffJobBody,
@@ -4177,7 +4213,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     summary: "Suggérer des prix",
     description: "Interroge le catalogue pour suggerer des prix par recherche.",
     tags: ["Estimate Items"],
-    parameters: [versionIdPathParameter, suggestPricesQueryParameter],
+    parameters: [
+      versionIdPathParameter,
+      suggestPricesQueryParameter,
+      suggestPricesIncludeDraftsQueryParameter,
+    ],
     responses: {
       "200": jsonResponse(
         "Suggestions de prix retournees.",

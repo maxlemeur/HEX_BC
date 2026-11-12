@@ -108,7 +108,7 @@ Deux garanties, décidées le 6 novembre 2026 (D11, D12).
 - La protection vaut par métré : deux métrés de la même page appliqués au même
   devis ne sont pas comparés par ce refus. Elle lit la page que chaque ligne porte,
   que le relecteur peut corriger. Depuis le lot D, un second métré de la page est
-  signalé (section suivante), sans encore être refusé.
+  signalé, et n'est appliqué que par une décision (section suivante).
 
 ## Une page n'entre qu'une fois au devis — TI-682 (lot D)
 
@@ -117,8 +117,9 @@ remplace l'ancienne. Une révision du plan (même « Référence du plan ») est
 page. Avant ce lot, rien ne comparait deux métrés d'une même page : relancer un plan
 et l'appliquer avec « Ajouter » doublait ses quantités sans un mot.
 
-**Première étape : prévenir (PR 1).** Rien n'est encore refusé ni remplacé ; rien de
-ce qu'une application écrit ne change.
+**Prévenir (PR 1), puis remplacer (PR 2).** La définition de « même page » et la
+lecture du devis ci-dessous servent aux deux : l'avertissement des revues, et la
+décision et le refus à l'application.
 
 - **Même page.** Deux lignes de métré lisent la même page quand elles lisent le même
   document et la même page, ou que la page manque sur l'une des deux (faute de
@@ -163,20 +164,18 @@ ce qu'une application écrit ne change.
     suffit pas (il a pu lire aussi une autre zone) ; faute de pouvoir placer la ligne
     partenaire sur la page (ligne de devis sans ligne source, moteurs 1 et 2), il ne
     dit rien ;
-  - dans l'assistant d'application, à la confirmation : la notice « Pages déjà au
-    devis » (pages, métré antérieur, nombre de lignes). Les lignes que le plan
-    d'application ignore ou range dans un ouvrage n'y comptent pas, et le texte dit ce
-    que la stratégie choisie fait de la mesure précédente (« Fusionner » ne remplace
-    que les lignes de même désignation et unité, « Remplacer » ne vide que la section
-    cible) ;
+  - dans l'assistant d'application, à la confirmation : la décision « Pages déjà au
+    devis » (section suivante) ;
   - une fois le métré appliqué, seules restent signalées les pages où ses propres
-    lignes sont encore au devis : là, la page y est deux fois. Ses lignes sans page
+    lignes sont encore au devis : là, la page y est deux fois, sauf si le chiffreur a
+    gardé les deux mesures (le bandeau dit alors ce choix et son motif). Ses lignes sans page
     sont sur la page signalée, par la même règle. Appliqué depuis la revue, le
     bandeau relit le devis ; il le relit aussi quand la revue complète enregistre la
     page source corrigée d'une ligne. L'exclusion d'une ligne ne demande pas de
     relecture : le bandeau filtre les pages sur les lignes affichées.
-- **Provenance périmée.** Une clé d'arrondi ou de ligne DPGF écrite par un autre métré
-  que le dernier de la ligne (une fusion ultérieure l'a gardée) ne compte pas.
+- **Provenance périmée.** Une clé d'arrondi, de ligne DPGF ou de remplacement écrite
+  par un autre métré que le dernier de la ligne (une fusion ultérieure l'a gardée) ne
+  compte pas.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
   version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
@@ -184,14 +183,120 @@ ce qu'une application écrit ne change.
   métrés, et la RLS des lignes du devis, des lignes de métré et des métrés la bornent. La définition est écrite une
   fois en TypeScript
   ([`page-contributions.ts`](../../src/lib/takeoff/page-contributions.ts)), sur la table
-  de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts),
-  que la jumelle SQL de l'étape suivante lira.
+  de cas de [`page-contributions.test.ts`](../../src/lib/takeoff/page-contributions.test.ts).
+  Sa jumelle SQL (`private.takeoff_pages_already_in_estimate` et ses fonctions) lit les
+  mêmes cas : [`page-contributions.vectors.json`](../../src/lib/takeoff/page-contributions.vectors.json),
+  joués par Vitest et par `takeoff-page-contributions-twin.test.sql`.
 - **Ce qui ne relève pas d'une règle fixe** : c'est une décision par page, prise à
   l'application, pas une erreur de quantité d'une ligne ; les règles fixes ne lisent
   ni le devis ni une version copiée.
-- **Étape suivante (PR 2)** : remplacer la mesure antérieure ligne à ligne, ou garder
-  les deux avec un motif, et le refus en base d'une page appliquée deux fois sans
-  décision.
+
+**Remplacer ou garder les deux (PR 2).** À la confirmation de l'assistant, pour chaque
+page déjà au devis, le chiffreur choisit ; la base refuse une page appliquée une
+seconde fois sans décision.
+
+- **Remplacer la mesure précédente** (recommandé, présélectionné). Ligne à ligne : la
+  ligne de devis garde son identifiant, sa place, son titre (le libellé du chiffreur),
+  son prix, sa catégorie, ses réglages de main-d'œuvre et de fourniture, son statut et
+  ses colonnes du lot C. Sa quantité perd la part de la page (ses lignes de métré
+  sources sur la page) et reçoit la nouvelle mesure ; une longueur est arrondie une
+  fois au mètre, comme `finalize_takeoff_lengths`. Une ligne qui couvrait aussi
+  d'autres pages garde leur part. Sa provenance devient le nouveau métré (clé
+  `takeoff_page_replacement` : quantité précédente, part retirée, part ajoutée,
+  sources). Le marqueur de provision suit le nouveau métré : le dernier métré gagne.
+- **Appariement proposé** ([`page-replacement.ts`](../../src/lib/takeoff/page-replacement.ts)),
+  entre une ligne du nouveau métré et une ligne de métré source de la page, dans
+  l'ordre : même désignation et même unité que la ligne source (pas le titre du devis,
+  que le chiffreur a pu renommer) ; même réseau (nature, réseau, matériau, DN) pour
+  une ligne vectorielle ; même unité et désignation proche (indice de Jaccard des mots
+  ≥ 0,5), la meilleure. Chaque source sert une fois ; plusieurs lignes nouvelles
+  peuvent remplacer les sources d'une longueur regroupée. Jamais deux unités, jamais
+  une ligne DPGF (son rapprochement la remplace déjà), jamais d'un document à un autre :
+  une ligne qui ne connaît que le nom de son plan n'est pas appariée sur une page où
+  deux plans identifiés de ce nom se rencontrent (la limite de groupement de la
+  PR 1). Une longueur regroupée sur deux plans (le regroupement ne lit pas le
+  document) se remplace sur chacun, chaque nouvelle ligne remplaçant la part de son
+  propre document (revue Codex de 251a98a1). Le chiffreur corrige chaque paire ; la liste ne propose que ce que la base
+  accepte. Mesuré sur les sorties du banc (trois relances, sans appel au modèle) :
+  70,4 % des lignes vision et 98,6 % des lignes vectorielles sont appariées.
+- **Lignes que le nouveau métré n'a plus** : aucun choix par défaut, « Retirer du
+  devis » ou « Garder », et deux boutons qui règlent toutes les lignes en un clic
+  quand il y en a plusieurs. La confirmation attend un choix pour chacune. Une ligne
+  qui porte aussi des pages que ce métré ne relit pas ne se retire pas : elles
+  partiraient avec elle ; elle se garde. Une ligne dont toutes les pages sont relues
+  par l'application se retire (revue Codex de 708c7fbf : lue page par page, elle ne se
+  retirait jamais). Une ligne gardée avec une page « garder les deux » ne se retire
+  pas non plus. L'écran dit pourquoi. Une ligne d'ouvrage tient sa quantité de
+  l'ouvrage : elle se garde ou se retire, jamais une ligne du métré ne la remplace.
+  Une section d'ouvrage n'est pas une ligne de la page.
+- **Rien remplacé** : un « remplacement » qui garde toutes les lignes précédentes
+  garde en fait les deux mesures ; il demande « Garder les deux » et son motif.
+- **Quantité modifiée à la main** (elle diffère de ce que ses sources donnent) :
+  « Prendre la nouvelle mesure » ou « Garder ma quantité » ; jamais écrasée sans ce
+  choix. Une longueur appliquée avant TI-681 (sa mesure brute, jamais arrondie) n'est
+  pas une quantité modifiée. Une ligne des moteurs 1 et 2 ne nomme pas ses sources :
+  elle est remplacée entière, et comme une modification à la main ne peut pas s'y
+  voir, le choix est toujours demandé.
+- **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
+  ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
+  ingénieurs comme aux administrateurs. Refusé sur une page qui alimente une ligne
+  DPGF déjà alimentée par un autre métré, tant que la ligne DPGF ne garde que la
+  dernière mesure. À l'inverse, une ligne DPGF de la page que le nouveau métré
+  n'alimente pas ne peut pas être « remplacée » : sa mesure resterait à côté de la
+  nouvelle ; on garde alors les deux, avec un motif.
+- **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
+  « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
+  vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
+- **Une décision, un seul endroit** (revue Codex de 708c7fbf). La base décide par ligne
+  du devis, sur toutes les pages de l'application : une seule quantité choisie par
+  ligne, un seul retrait, une seule paire par ligne du nouveau métré. L'écran fait de
+  même ([`page-decisions.ts`](../../src/components/takeoff/takeoff-apply-wizard/page-decisions.ts)) :
+  la décision d'une page appartient à la page ; la paire, à la ligne du nouveau métré ;
+  la quantité choisie, le retrait et la part d'une page, à la ligne du devis. Ce que
+  l'écran montre, ce qu'il attend encore et les décisions envoyées se lisent d'une
+  même résolution de ce brouillon. La confirmation est rangée par ligne du devis :
+  les pages remesurées d'abord (remplacer ou garder les deux), puis chaque ligne du
+  devis une fois, avec ses pages, la quantité qu'elle gardera et ses choix, puis chaque
+  ligne du nouveau métré une fois, avec la ligne qu'elle remplace.
+- **Une ligne du nouveau métré sans page** se trouve sur chaque page où elle peut
+  être ; elle n'est proposée qu'une fois et remplace la part de chacune de ces pages
+  sur la ligne qu'elle remplace.
+- **La part d'une page sans nouvelle ligne** : une ligne mise à jour par une page qui
+  porte aussi une autre page remesurée, sans ligne nouvelle qui la remplace là,
+  demande « retirer sa part » ou « la garder ».
+- **Le contrat de l'écran avec la base** (TKD03,
+  [`page-decisions-contract.e2e.ts`](../../e2e/army/takeoff/page-decisions-contract.e2e.ts)).
+  Ses situations se déduisent de la base : chaque motif de refus que la migration peut
+  lever est soit atteint, dans une situation, par une décision naïve que la base refuse
+  pour ce motif précis, soit nommé avec la raison pour laquelle le contrat le laisse
+  de côté ; un motif ajouté sans situation fait échouer le parcours. Dans chaque
+  situation (une ligne sur une page et sur deux, sur deux plans, toutes ses pages ou
+  une seule remesurées, une ligne nouvelle sans page ou écartée à la revue, une ligne
+  disparue, une ligne d'ouvrage, une quantité modifiée à la main, une version DPGF,
+  une ligne DPGF alimentée depuis la page), chaque état que l'écran laisse confirmer
+  est appliqué par la vraie fonction de la base, au nom du chiffreur, puis annulé : il
+  doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit être refusé.
+- **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
+  l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
+  remplacer. La proposition lit la version où l'application écrit (celle du métré).
+- **En base**, sous le verrou de la version, dans la transaction de l'application
+  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112025548_takeoff_page_decisions.sql)) :
+  les décisions, enregistrées dans la transaction même de l'application, sont relues
+  après tout enregistrement de l'éditeur en cours (l'application verrouille la ligne
+  de la version, comme l'éditeur, avant de les lire ; leur insertion l'attend aussi)
+  contre le devis tel qu'il est (une ligne supprimée ou
+  modifiée depuis la proposition, une décision d'une autre personne : 409, à relire),
+  le remplacement s'applique, puis le filet `private.assert_takeoff_pages_once`
+  vérifie que chaque contribution antérieure restante sur une page du métré est
+  gardée par une décision, ligne source par ligne source. Sans décision :
+  `TAKEOFF_PAGE_ALREADY_APPLIED`, 422 qui nomme la page. Les décisions
+  (`takeoff_page_decisions`) sont gelées à l'application et rattachées aux métrés,
+  non recopiées avec une version.
+- **Ce qui reste possible** : une ligne collée ou recréée à la main (sans provenance) ;
+  une section copiée dans la même version ; des lignes sans plan ni page ; un même plan
+  déposé sous deux noms sans préparation ; un même dessin dans deux fichiers
+  différents (rôle de Z1/Z2) ; « garder les deux » choisi à tort, mais motivé et
+  tracé.
 
 ## Entrées
 
@@ -234,6 +339,7 @@ qu'elles sont maintenant.
 |---|---|---|---|
 | `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
 | `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
+| `zone_coverage` | `ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN` | `ZONE_COVERAGE_COMPLETE`, `ZONE_COVERAGE_RESOLVED` | oui |
 | `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui, avec un motif codé et ce qui a été vérifié |
 | `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui, avec un motif codé, la base de la surface écrite et une note |
 | `room_overlap` | `ROOM_OVERLAP` | `ROOM_OVERLAP_NONE` | oui |
@@ -549,7 +655,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
   - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
   - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
-  - plans agrandis : le contrôle de couverture de D14 (un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas) n'est pas fait, un tel tronçon compte sans alerte ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
+  - plans agrandis : le contrôle de couverture de D14 est une règle à part (voir « Couverture des plans agrandis par le plan d'ensemble ») ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
@@ -564,6 +670,56 @@ avant la réserve) :
 - **Doublons** : 325 m d'axes en double à moins de 0,5 cm, 11 m entre 0,5 et 2 cm, aucun entre 2 et 5 cm.
   - Les premiers tuyaux distincts d'un même réseau sont à 8,6 cm. D = 5 cm tombe dans ce creux.
   - Le plus petit doublon mesuré fait 42 cm. Deux tronçons bout à bout à la limite de zone se recouvrent au plus d'une bande (7 pt : 12 cm au 1/50, 25 cm au 1/100). D'où L = 30 cm.
+
+### Couverture des plans agrandis par le plan d'ensemble
+
+Règle `zone_coverage` (TI-684, décision D14 du 6 nov. 2026 : « à indice cohérent, le détail
+agrandi fait foi dans son périmètre, et le plan d'ensemble contrôle la couverture » ;
+version 1, écrite 101 avec celle du recalage). Elle lit les mêmes lignes que
+`zone_overlap` : les tuyaux et les calorifuges d'une lecture vectorielle, au réseau lu, par
+niveau.
+
+- **Ce qu'elle cherche** : un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas. C'est soit un tronçon que la lecture du plan agrandi a manqué, soit un tracé du plan d'ensemble qui n'existe pas (ou plus) à l'échelle du détail, soit une copie dessinée trop loin de son double pour être un doublon. Avant cette règle, il comptait sans alerte.
+- **Plan agrandi** : la définition de `zone_overlap` (échelle au moins 1,5 fois plus fine, les deux échelles lues), sur deux pages du niveau qui partagent un repère. Deux pages de même échelle, une échelle non lue ou deux pages sans repère commun ne donnent aucun résultat.
+- **Périmètre** : pour un genre (tuyau ou calorifuge) et un réseau, le rectangle qui contient tout ce que le plan agrandi en dessine, lignes exclues comprises (une exclusion règle une quantité, le tracé reste sur la page).
+  - Un plan agrandi qui ne montre qu'un réseau ne dit rien des autres : une ligne d'eau chaude n'est pas contrôlée par un détail qui ne dessine que de l'eau froide.
+  - Une zone sans plan agrandi reste au plan d'ensemble : ce qui est hors de tout périmètre n'est pas lu.
+  - Un tronçon appartient au périmètre quand son axe y est. Un tracé qui longe un bord (parallèle à 2° près) y est encore à D = 5 cm du bord : c'est la copie du tronçon qui dessine ce bord, recalée à 1 ou 2 cm près. Tout autre tracé qui sort du périmètre s'arrête au bord, au millimètre ; un tracé à moins de 2° d'un bord est lu jusqu'à 5 cm au-delà de ce bord.
+- **Ce que le plan agrandi dessine d'une ligne** : ses copies sur ce plan, de même lecture ou lues autrement, exclues ou non, avec les seuils du doublon (D = 5 cm, 2°, minimum par tronçon continu à l'échelle la plus grossière).
+- **Ligne exclue** : aucun résultat. Elle ne compte rien, et deux lignes exclues ne sont pas comparées : ce que le plan agrandi dessine d'elle ne serait pas entier. La règle la lit dès qu'elle est incluse.
+- **Non dessiné** : ce qui reste de la ligne dans les périmètres.
+  - Entre deux copies d'un même axe, un vide plus court que le minimum est tenu pour dessiné (les tirets d'un réseau en pointillés, 5 cm d'écart).
+  - À côté d'une copie, un reste d'au plus D n'en est pas un (deux plans recalés à 1 ou 2 cm près).
+  - Le reste compte par tronçon continu d'au moins le minimum du plan d'ensemble (30 cm, ou une bande du dessin : 49 cm au 1/200), comme pour un doublon : les tirets d'un tracé en pointillés du plan d'ensemble s'additionnent.
+  - Une ligne dont moins que ce minimum entre dans un périmètre n'a aucun résultat.
+- **Résultats** :
+  - `ZONE_COVERAGE_COMPLETE` : tout ce que la ligne dessine dans les périmètres y est dessiné ;
+  - `ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN` : il reste une longueur non dessinée. La raison nomme le ou les plans agrandis et la longueur ; `details.uncovered_m` porte ce qui reste à régler ;
+  - `ZONE_COVERAGE_RESOLVED` : la réduction de la ligne a retiré cette longueur.
+- **Règlement** (rien ne se règle tout seul) :
+  - **réduction** de la ligne du plan d'ensemble, quand le tronçon n'existe pas. Une réduction ne dit jamais où elle retire : elle paie d'abord ce que les doublons de la ligne lui demandent, puis la couverture, à 1 cm près (2 cm quand la réduction d'une autre ligne a réglé une part du doublon, comme pour la paire). Une ligne de 15 m dont 6 m sont en double et 4 m non dessinés est réglée à 5 m ; à 9 m son doublon est réglé et la couverture échoue encore. Ce que les doublons demandent à la ligne :
+    - ligne qui cède : ce que les plans agrandis dessinent d'elle, moins ce que son unique partenaire sans autre copie a déjà retiré ;
+    - sa copie sur un plan d'ensemble qui lui cède : rien, sauf quand elles sont deux lignes seules (la paire se règle alors par l'une ou l'autre réduction : la ligne doit ce que le plan d'ensemble n'a pas retiré, et ce qu'elle a retiré pour la paire ne paie pas la couverture) ;
+    - paire isolée de même rang : la longueur commune moins ce que l'autre ligne a retiré (une paire Z1/Z2 déjà réglée par Z2 ne demande rien à Z1) ;
+    - groupe de trois lignes ou plus, qu'aucune réduction ne règle : tout ce que le groupe dessine de la ligne ;
+    - « ce que l'autre ligne a retiré » est sa réduction au-delà de son propre tronçon non dessiné, qu'elle paie d'abord : deux lignes d'une paire ne comptent jamais chacune toute la réduction de l'autre. Une paire de 6 m dont chaque ligne a 4 m non dessinés demande 14 m retirés en tout ; à 10 m, les deux lignes échouent encore pour 4 m.
+  - `details.owed_m` : ce que les doublons demandent encore à la réduction de la ligne (absent quand rien) ;
+  - **« Accepter » (V)**, quand le tronçon existe et manque au plan agrandi : le plan d'ensemble est alors la seule source de ce tronçon ;
+  - **exclusion** : une ligne exclue ne bloque jamais.
+  - C'est un avertissement de quantité (TI-681) : il ne bloque pas l'application, et V ne demande pas de motif.
+- **Ce qu'un V accepte** : les plans agrandis nommés et la longueur non dessinée, au millimètre (`details.quantity_context_key`, lue par `takeoff_rule_failure_keys`). Un autre plan agrandi ou une autre longueur non dessinée (plus longue ou plus courte) est un nouvel échec, qui retire la vérification ; les doublons de la ligne n'entrent pas dans cette identité.
+- **Deux échecs sur une ligne** : `zone_overlap` et `zone_coverage` sont deux règles, donc deux résultats. Une ligne du plan d'ensemble peut porter un doublon et un tronçon non dessiné ; la revue ciblée demande de régler le doublon d'abord.
+- **Revue ciblée** : la section « Couverture des plans agrandis » donne la longueur non dessinée encore comptée et propose « Retirer X m » quand aucun doublon ouvert ne demande encore de réduction à la ligne (`owed_m`) ; sinon elle renvoie au doublon. Un doublon ouvert qui se retire d'une autre ligne (la copie d'un plan d'ensemble qui cède) n'empêche pas la réduction. Quand rien ne resterait de la ligne, elle dit de l'exclure. V reste celui de la ligne : sur une ligne qui porte aussi un doublon, il accepte les deux échecs.
+- **Limites connues** :
+  - le périmètre est le rectangle de tous les traits lus du réseau : une zone en L couvre une partie du voisin, et un trait isolé (un échantillon de légende que la lecture aurait retenu) l'étend jusqu'à lui ; les tronçons du plan d'ensemble qui s'y trouvent sont signalés à tort (à accepter par V) ;
+  - un plan agrandi qui ne dessine qu'un tronçon d'un réseau a un périmètre réduit à ce tronçon : une copie du plan d'ensemble dessinée à plus de 5 cm de lui n'est signalée ni comme doublon ni ici ;
+  - une interruption du tracé du plan agrandi d'au moins le minimum (un appareil dessiné à l'échelle, 45 cm au 1/100) laisse cette longueur non dessinée : la ligne s'accepte par V ;
+  - un plan agrandi dont la lecture n'a retenu aucune ligne d'un réseau n'a pas de périmètre pour lui : ce qu'il a entièrement manqué n'est pas signalé ;
+  - une ligne dont le réseau n'est pas lu n'est pas contrôlée ;
+  - la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa couverture. La réduction d'une ligne partenaire paie d'abord son propre tronçon non dessiné, même accepté par V : la ligne doit alors plus qu'il ne faut à leur paire (elle s'accepte par V). Exclure la copie du plan agrandi libère la réduction que la ligne avait faite pour ce doublon : elle règle alors la couverture sans autre geste ;
+  - l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue ;
+  - la règle n'a pas été mesurée sur un plan réel : ses seuils sont ceux du doublon.
+- **Base de données** : `takeoff_item_rule_blocked` tient ce code pour un avertissement de quantité depuis la migration `20261111233221_takeoff_zone_coverage_warning.sql`. Sans elle, le code est inconnu de la garde de la base, qui bloque l'application de la ligne tant qu'elle n'est pas vérifiée ou exclue, alors que l'application la tient pour un avertissement : la migration s'applique avant le déploiement du code.
 
 ### Échelle du cartouche cohérente avec les cotes
 
@@ -1066,6 +1222,12 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   - Groupe de trois lignes ou plus : aucune correction n'est proposée. « Retirer la ligne »
     n'est offert que pour une ligne que les autres dessinent entièrement (à 1 cm près, sur
     la longueur mesurée) ; sinon la ligne s'accepte (V) une fois vérifiée.
+- **Couverture des plans agrandis** : la section donne la longueur encore comptée que le
+  plan agrandi ne dessine pas. « Retirer 4,00 m » ramène la ligne à sa quantité moins cette
+  longueur ; tant qu'un doublon ouvert demande encore une réduction à la ligne, elle n'est
+  pas proposée et la section demande de régler d'abord le doublon. Quand rien ne resterait
+  de la ligne, la section dit de l'exclure. V accepte la ligne quand le tronçon existe et
+  manque au plan agrandi.
 - **Règles à recalculer** (un recalcul sauté ou en échec) : la raison reste affichée, mais
   rien n'est proposé (ni réduction, ni « Retirer la ligne », ni V) : elle peut ne plus tenir
   (longueur déjà retirée, partenaire déjà exclu). Entrée sur la quantité, même inchangée,

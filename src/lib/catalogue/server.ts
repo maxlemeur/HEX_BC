@@ -9,6 +9,7 @@ import {
 
 import { getAuthenticatedTenantContext, readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-offer-price";
+import { listSupplyTypes } from "@/lib/catalogue/supply-types-server";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import type {
@@ -749,6 +750,11 @@ export async function listCatalogueItems(input: CatalogueListQueryInput) {
       query = query.eq("is_active", true);
     }
 
+    // TI-690: a lookup that prices on its own (the assembly editor) never reads a draft article.
+    if (input.validated_only) {
+      query = query.eq("catalogue_status", "validated");
+    }
+
     if (input.id) {
       query = query.eq("id", input.id);
     }
@@ -800,11 +806,14 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     p_dir: input.dir,
     p_page: input.page,
     p_size: input.size,
+    p_catalogue_statuses: input.catalogue_status,
   };
 
-  const [pageResult, summaryResult] = await Promise.all([
+  const [pageResult, summaryResult, supplyTypesResult] = await Promise.all([
     supabase.rpc("catalogue_products_page", rpcInput),
     supabase.rpc("catalogue_products_summary"),
+    // The article form offers the supply types of the active tenant; a few dozen rows at most.
+    listSupplyTypes(),
   ]);
 
   if (pageResult.error) {
@@ -843,6 +852,8 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
     return {
       ...normalized,
       _status: normalized.is_active === false ? "archived" : "active",
+      _supplyTypeName:
+        typeof row.supply_type_name === "string" ? row.supply_type_name : null,
       _priceStatus:
         typeof row.price_status === "string" ? row.price_status : "none",
       _supplierPriceCount: asSafeInteger(row.supplier_price_count),
@@ -899,6 +910,7 @@ export async function listCataloguePage(input: CataloguePageQueryInput) {
       categories: Array.isArray(summary.categories) ? summary.categories : [],
       units: Array.isArray(summary.units) ? summary.units : [],
     },
+    supplyTypes: supplyTypesResult.items,
   };
 }
 

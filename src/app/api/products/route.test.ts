@@ -24,7 +24,7 @@ const VALID_PRODUCT = {
   is_active: true,
 };
 
-type QueryResult = { data: unknown; error: { message: string } | null };
+type QueryResult = { data: unknown; error: { message: string; details?: string; code?: string } | null };
 
 const TENANT_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -60,6 +60,8 @@ function createProductsSupabase(options: {
   role?: "admin" | "engineer" | "viewer";
   insertResult?: QueryResult;
   updateResult?: QueryResult;
+  /** Row read back after an update that affected nothing (TI-689); null = not readable. */
+  readableRow?: { id: string } | null;
 } = {}) {
   const inserted: unknown[] = [];
   const updated: Array<{ id: string; payload: unknown }> = [];
@@ -91,6 +93,11 @@ function createProductsSupabase(options: {
       }
 
       return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: vi.fn(async () => ({ data: options.readableRow ?? null, error: null })),
+          })),
+        })),
         insert: vi.fn((payload: unknown) => {
           inserted.push(payload);
           return {
@@ -129,6 +136,58 @@ describe("POST /api/products", () => {
     vi.clearAllMocks();
   });
 
+  describe("catalogue rights (TI-689)", () => {
+    it("lets an engineer add an item", async () => {
+      const { supabase, inserted } = createProductsSupabase({ role: "engineer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "create", item: VALID_PRODUCT }));
+
+      expect(response.status).toBe(201);
+      expect(inserted).toHaveLength(1);
+    });
+
+    it("refuses a viewer before any write", async () => {
+      const { supabase, inserted, updated } = createProductsSupabase({ role: "viewer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const responses = await Promise.all([
+        POST(postRequest({ action: "create", item: VALID_PRODUCT })),
+        POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } })),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([403, 403]);
+      expect([inserted, updated]).toEqual([[], []]);
+    });
+
+    it("tells an engineer that an item of the shared base is not theirs to change", async () => {
+      const { supabase } = createProductsSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: { id: PRODUCT_ID },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } }));
+
+      expect(response.status).toBe(403);
+      expect(JSON.stringify(await response.json())).toContain("base commune");
+    });
+
+    it("keeps « introuvable » for an item nobody reads", async () => {
+      const { supabase } = createProductsSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: null,
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { is_active: false } }));
+
+      expect(response.status).toBe(404);
+    });
+  });
+
   it("archives a product with a partial update", async () => {
     const { supabase, updated } = createProductsSupabase();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -145,5 +204,101 @@ describe("POST /api/products", () => {
     expect(updated).toEqual([
       { id: PRODUCT_ID, payload: { is_active: false } },
     ]);
+  });
+
+  // TI-690. Failure modes: the database refusal of an incomplete draft reaches the operator as a raw code or a
+  // generic 500; the status or the supply type is dropped on the way to the database; a creation that sets no
+  // status sends one anyway and so overrides the database default.
+  it("turns the refusal of an incomplete draft into a 422 naming the missing fields", async () => {
+    const { supabase, updated } = createProductsSupabase({
+      updateResult: {
+        data: null,
+        error: { code: "23514", message: "PRODUCT_VALIDATION_INCOMPLETE", details: "product_type,supply_type_id" },
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "validated" } })
+    );
+
+    expect(updated).toEqual([{ id: PRODUCT_ID, payload: { catalogue_status: "validated" } }]);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "PRODUCT_VALIDATION_INCOMPLETE",
+        message: "Pour valider cet article, renseignez : le type d’article, le type de fourniture.",
+        details: { missing: ["product_type", "supply_type_id"] },
+      },
+    });
+  });
+
+  // TI-689. Failure mode: the refusal of a validation by someone other than an admin reaches them as a 500.
+  it("tells who is not an admin that validating a draft is an admin act", async () => {
+    const { supabase } = createProductsSupabase({
+      updateResult: { data: null, error: { code: "42501", message: "PRODUCT_VALIDATION_ADMIN_ONLY" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "validated" } })
+    );
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe(
+      "La validation d’un article en brouillon est réservée aux administrateurs."
+    );
+  });
+
+  it("refuses a supply type that is not in the tenant's referential", async () => {
+    const { supabase } = createProductsSupabase({
+      updateResult: { data: null, error: { code: "23514", message: "PRODUCT_SUPPLY_TYPE_INVALID" } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({
+        action: "update",
+        id: PRODUCT_ID,
+        item: { supply_type_id: "44444444-4444-4444-8444-444444444444" },
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.message).toBe(
+      "Ce type de fourniture n’existe pas dans votre référentiel."
+    );
+  });
+
+  it("creates a draft with its supply type, and sends no status when none is given", async () => {
+    const { supabase, inserted } = createProductsSupabase();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const supplyTypeId = "44444444-4444-4444-8444-444444444444";
+
+    await POST(
+      postRequest({
+        action: "create",
+        item: { ...VALID_PRODUCT, catalogue_status: "draft", supply_type_id: supplyTypeId },
+      })
+    );
+    await POST(postRequest({ action: "create", item: VALID_PRODUCT }));
+
+    expect(inserted).toEqual([
+      { ...VALID_PRODUCT, catalogue_status: "draft", supply_type_id: supplyTypeId },
+      VALID_PRODUCT,
+    ]);
+  });
+
+  it("refuses an unknown catalogue status", async () => {
+    const { supabase, updated } = createProductsSupabase();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      postRequest({ action: "update", id: PRODUCT_ID, item: { catalogue_status: "approved" } })
+    );
+
+    expect(response.status).toBe(400);
+    expect(updated).toEqual([]);
   });
 });

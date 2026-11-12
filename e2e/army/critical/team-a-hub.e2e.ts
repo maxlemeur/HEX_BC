@@ -170,6 +170,7 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   await expect(page.getByText("Aucune pièce n’est obligatoire. Démarrez sur une page blanche ou ajoutez les documents disponibles pour préparer le brief.", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Continuer en manuel", exact: true }).click();
   await expect(page.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit`));
+  await expect(page.getByTestId("estimate-editor-add-root-section-button")).toBeEnabled();
   expect((await readEstimate(page.browser, versionId)).items).toEqual([]);
   expect(await activeGaps()).toEqual([]);
 
@@ -215,6 +216,10 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   await expect(page.getByRole("link", { name: "Démarrer sur une page blanche", exact: true })).toBeVisible();
   await expect(page.getByText("Le dossier reste incomplet. Ajoutez les pièces manquantes avant de poursuivre le chiffrage.", { exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: "Démarrer sur une page blanche", exact: true }).click();
+  await expect(page.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit`));
+  // The editor acquires/releases its draft lease during hydration. API seeding must
+  // wait for the same writable state as a user, or its lease can be released mid-write.
+  await expect(page.getByTestId("estimate-editor-add-root-section-button")).toBeEnabled();
   // Seed one real line, then edit through the editor and prove the saved value.
   const title = "Prestation saisie sans DPGF";
   await createLineViaApi(page.browser, versionId, title);

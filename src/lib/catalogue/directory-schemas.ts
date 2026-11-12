@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PRODUCT_CATALOGUE_STATUSES } from "./product-validation";
+
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
 const requiredTextSchema = z
@@ -30,6 +32,9 @@ const nonNegativeIntegerSchema = z
   .int()
   .min(0, "Valeur numerique invalide.");
 
+const supplyTypeIdSchema = z.union([z.string().uuid(UUID_ERROR_MESSAGE), z.null()]).optional();
+const catalogueStatusSchema = z.enum(PRODUCT_CATALOGUE_STATUSES).optional();
+
 const productWriteFieldsSchema = z.object({
   reference: optionalTextSchema,
   designation: requiredTextSchema.max(500),
@@ -42,6 +47,9 @@ const productWriteFieldsSchema = z.object({
   unit: z.string().trim().min(1).max(50).optional().default("u"),
   unit_price_cents: nonNegativeIntegerSchema.optional().default(0),
   is_active: z.boolean().optional().default(true),
+  supply_type_id: supplyTypeIdSchema,
+  // Omitted: the database default applies (validated), as for every writer that predates the status.
+  catalogue_status: catalogueStatusSchema,
 });
 
 const productUpdateFieldsSchema = z
@@ -57,6 +65,8 @@ const productUpdateFieldsSchema = z
     unit: z.string().trim().min(1).max(50).optional(),
     unit_price_cents: nonNegativeIntegerSchema.optional(),
     is_active: z.boolean().optional(),
+    supply_type_id: supplyTypeIdSchema,
+    catalogue_status: catalogueStatusSchema,
   })
   .partial()
   .superRefine((payload, ctx) => {

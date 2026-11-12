@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
 import { surfaceBasis, type SurfaceBasis } from "@/lib/takeoff/quantity-policy";
@@ -43,18 +45,26 @@ import type {
   ZoneOverlapPlan,
 } from "@/lib/takeoff/rules/types";
 import {
+  ZONE_COVERAGE_VERSION,
   ZONE_OVERLAP_VERSION,
   CoverageCache,
   commonLength,
   coveredBy,
   isEnlargedPlan,
+  lengthWithin,
   minCommonLength,
+  pairShare,
+  perimeterOf,
   restCoverage,
   restOf,
+  settleCoverage,
   settlePair,
   stretchLength,
+  stretchesWithin,
+  uncoveredWithin,
   type Centreline,
   type DuplicatePair,
+  type Perimeter,
   type RestLine,
   type Stretch,
 } from "@/lib/takeoff/rules/zone-overlap";
@@ -75,12 +85,19 @@ import {
 // - Enlarged plans (TI-684, D14): a line whose copies are all on plans at a
 //   finer scale yields to them; it settles what they draw of it by its own
 //   reduction, in no group. The enlarged plans' lines fail with it until then.
+// - Coverage (TI-684, D14: « le plan d'ensemble contrôle la couverture »): a
+//   line of an overview fails zone_coverage for what it draws inside the
+//   perimeter of an enlarged plan that draws its network, and that no line of
+//   an enlarged plan draws, until that length is removed from it or the line
+//   accepted (V). A rule of its own: the duplicate and the uncovered run of
+//   one line are two failures.
 // - Versions: each result carries the version of its rule, which moves with
 //   its thresholds or reference table.
 
 export const TAKEOFF_RULE_VERSIONS: Record<TakeoffRuleId, number> = {
   dn_network: NETWORK_DIAMETER_TABLE_VERSION,
   zone_overlap: ZONE_OVERLAP_VERSION * 100 + REGISTRATION_VERSION,
+  zone_coverage: ZONE_COVERAGE_VERSION * 100 + REGISTRATION_VERSION,
   // 2 (TI-686 D9): V needs a coded reason and what was checked; a new version reopens every earlier V without them.
   scale_dimension: 2,
   area_printed: AREA_PRINTED_RULE_VERSION,
@@ -724,14 +741,18 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
      * shown as it would stand if it came back.
      */
     const yielded = new Map<string, ReturnType<typeof settlePair>>();
+    /** What the enlarged plans draw of a line that yields, and the reduction its single partner without other copy carries. */
+    const yieldTerms = (line: ZoneLine, partners: readonly Entry[]) => {
+      const [first] = partners;
+      const alone = partners.length === 1 && partnersOf(first.other.id).every(({ other }) => other.id === line.id);
+      return { drawn: partners.length === 1 ? first.overlap_m : coveredOf(line, partners.map(({ other }) => other)),
+        carried: alone ? reduction(first.other) : 0 };
+    };
     const yieldOf = (line: ZoneLine, returning?: Entry) => {
       const cached = returning ? undefined : yielded.get(line.id);
       if (cached) return cached;
-      const partners = returning ? [...partnersOf(line.id), returning] : partnersOf(line.id);
-      const [first] = partners;
-      const alone = partners.length === 1 && partnersOf(first.other.id).every(({ other }) => other.id === line.id);
-      const drawn = partners.length === 1 ? first.overlap_m : coveredOf(line, partners.map(({ other }) => other));
-      const outcome = settlePair(drawn, [reduction(line), alone ? reduction(first.other) : 0]);
+      const { drawn, carried } = yieldTerms(line, returning ? [...partnersOf(line.id), returning] : partnersOf(line.id));
+      const outcome = settlePair(drawn, [reduction(line), carried]);
       if (!returning) yielded.set(line.id, outcome);
       return outcome;
     };
@@ -822,6 +843,114 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
           { level, partners, partner_count: partners.length, overlap_m: outcome.deficit_m, group_size: outcome.size }));
       }
     }
+
+    // Coverage (TI-684, D14: « le détail agrandi fait foi dans son périmètre, et le plan d'ensemble contrôle la
+    // couverture »). A line of an overview is read against the enlarged plans of its page that share its frame:
+    // - the perimeter of an enlarged plan, for a kind and a network, is the rectangle that holds what it draws of them
+    //   (every line, excluded or not). A plan that shows one network says nothing of the others, and a zone without
+    //   its own enlarged plan is the overview's to count;
+    // - what the enlarged plans draw of the line: its copies there, of its reading or read differently, excluded or
+    //   not (an exclusion settles a quantity, the run is still drawn);
+    // - what is left inside the perimeters is a run the enlarged plan does not draw: one its reading missed, or a copy
+    //   drawn too far from its twin for a duplicate. The line fails until its own reduction removes that length, past
+    //   what its duplicates take of it (a reduction never says where: duplicates come first), or until it is accepted;
+    // - an excluded line counts nothing and has no result (two excluded lines are not compared: what the enlarged plan
+    //   draws of it would not be whole).
+    /**
+     * What the duplicates of a line take of its reduction, and whether another line's reduction settled part of them:
+     * - a line that yields: what the enlarged plans draw of it, less what its single partner without other copy removed;
+     * - its copy on an overview that yields to it: nothing, unless they are two lines alone (either reduction then
+     *   settles the pair: the line owes what the overview's did not remove);
+     * - an isolated pair of peers: the common length less what the other line removed;
+     * - « what the other line removed » is its reduction past its own uncovered run (`credit`);
+     * - a group of three lines or more, which no reduction settles: all its peers draw of the line.
+     */
+    const uncoveredOf = new Map<string, number>();
+    // What the other line of a pair removed of it: its reduction past its own uncovered run, which it pays first. Two
+    // lines never each count the other's whole reduction (both would settle with too little removed).
+    const credit = (other: ZoneLine) => Math.max(0, reduction(other) - (uncoveredOf.get(other.id) ?? 0));
+    const owedBy = (line: ZoneLine): { owed: number; shared: boolean } => {
+      const partners = partnersOf(line.id);
+      if (partners.length === 0) return { owed: 0, shared: false };
+      const shareOf = ({ other, overlap_m }: Entry) => ({ owed: pairShare(overlap_m, credit(other)), shared: credit(other) > 0 });
+      if (yields(line)) {
+        const { drawn, carried } = yieldTerms(line, partners);
+        // `carried`: the reduction of its single partner without other copy, the only one that counts for the pair.
+        return carried > 0 ? shareOf({ other: partners[0].other, overlap_m: drawn }) : { owed: drawn, shared: false };
+      }
+      const peers = peersOf(line);
+      if (peers.length === 0) {
+        const alone = partners.length === 1 && partnersOf(partners[0].other.id).length === 1;
+        return alone ? shareOf(partners[0]) : { owed: 0, shared: false };
+      }
+      if (peers.length === 1 && groupSize.get(find(line.id)) === 2) return shareOf(peers[0]);
+      return { owed: coveredOf(line, peers.map(({ other }) => other)), shared: false };
+    };
+    const perimeters = new Map<string, Perimeter | null>();
+    const perimeterOn = (page: string, line: ZoneLine) => {
+      const key = JSON.stringify([page, line.inputs.kind, line.inputs.network]);
+      if (!perimeters.has(key)) {
+        perimeters.set(key, perimeterOf((linesOf.get(page) ?? []).filter((other) => other.inputs.kind === line.inputs.kind
+          && other.inputs.network === line.inputs.network).flatMap((other) => other.geometry.segments_m)));
+      }
+      return perimeters.get(key) as Perimeter | null;
+    };
+    // Every line's uncovered length first: what a line removed of a pair is read past its own (`credit`).
+    const open: Array<{ line: ZoneLine; length: number; concerned: RulePage[] }> = [];
+    for (const line of levelLines) {
+      if (line.is_excluded) continue;
+      const own = pages.get(line.page_key) as RulePage;
+      // The enlarged plans that draw the line's network, each with its perimeter brought into the line's page metres.
+      const enlarged = levelPages.flatMap((plan) => {
+        if (plan.key === own.key || !isEnlargedPlan(plan.denominator, own.denominator) || !together(own.key, plan.key)) return [];
+        const perimeter = perimeterOn(plan.key, line);
+        if (!perimeter) return [];
+        const [frame, planFrame] = framesOf(own.key, plan.key);
+        const [dx, dy] = [planFrame[4] - frame[4], planFrame[5] - frame[5]];
+        return [{ plan, perimeter: [perimeter[0] + dx, perimeter[1] + dy, perimeter[2] + dx, perimeter[3] + dy] as Perimeter }];
+      });
+      if (enlarged.length === 0) continue;
+      // The overview's is the coarser scale of each pair: one minimum for the line.
+      const minimum = minCommonLength([own.denominator]);
+      const inside = enlarged.map((entry) => entry.perimeter);
+      // Nothing of the line reaches a perimeter by a run's length: the rule has nothing to read on it.
+      if (lengthWithin(overlapLine(line), inside) < minimum) continue;
+      const drawn = (pairsOf.get(line.id) ?? []).filter(({ other }) => enlarged.some((entry) => entry.plan.key === other.page_key))
+        .flatMap(({ other }) => {
+          const [frame, otherFrame] = framesOf(line.page_key, other.page_key);
+          return contradicted.get(line.id)?.get(other.id)
+            ?? coverage.of(overlapLine(line), frame, overlapLine(other), otherFrame, minimumOf(line.page_key, other.page_key));
+        });
+      const uncovered = uncoveredWithin(overlapLine(line), drawn, inside, minimum);
+      const length = stretchLength(uncovered);
+      if (!(length > 0)) {
+        push(results, line.id, result("zone_coverage", "pass", "ZONE_COVERAGE_COMPLETE",
+          `Tronçons de cette ligne situés dans le périmètre des plans agrandis du niveau ${level} : tous y sont dessinés.`, { level }));
+        continue;
+      }
+      uncoveredOf.set(line.id, length);
+      open.push({ line, length, concerned: enlarged.filter((entry) => stretchesWithin(uncovered, entry.perimeter) > 0).map((entry) => entry.plan) });
+    }
+    for (const { line, length, concerned } of open) {
+      const zones = [...new Set(concerned.map((plan) => plan.zone ?? "une autre page"))].sort(byText).join(", ");
+      const { owed, shared } = owedBy(line);
+      const outcome = settleCoverage(length, reduction(line), owed, shared);
+      if (outcome.settled) {
+        push(results, line.id, result("zone_coverage", "pass", "ZONE_COVERAGE_RESOLVED",
+          `Longueur que le plan agrandi (${zones}) ne dessine pas déjà retirée de cette ligne.`, { level }));
+        continue;
+      }
+      // What the line's duplicates still take of a reduction, to the millimetre: the review offers none before.
+      const left = Math.max(0, Math.round((owed - reduction(line)) * 1000) / 1000);
+      // What a V accepts: these plans and this length. Another plan, or another length, is a failure nobody saw.
+      const key = createHash("sha256").update(JSON.stringify({ plans: concerned.map((plan) => plan.key).sort(byText),
+        uncovered_mm: Math.round(length * 1000) })).digest("hex");
+      push(results, line.id, result("zone_coverage", "fail", "ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN",
+        `Tronçon du plan d’ensemble que le plan agrandi (${zones}) ne dessine pas : ${metres(length)} de cette ligne sont dans son périmètre au niveau ${level} sans y être dessinés${
+          outcome.deficit_m < length ? `, dont ${metres(outcome.deficit_m)} encore comptés` : ""}. À indice cohérent, le plan agrandi fait foi dans son périmètre : retirez cette longueur de cette ligne si le tronçon n’existe pas${
+          left > 0 ? " (une réduction retire d’abord ses doublons)" : ""}, ou acceptez (V) la ligne une fois vérifié que le tronçon existe et manque au plan agrandi.`,
+        { level, uncovered_m: outcome.deficit_m, ...(left > 0 ? { owed_m: left } : {}), quantity_context_key: key }));
+    }
   }
   return { transforms, registrations };
 }
@@ -833,7 +962,8 @@ function push(results: Map<string, TakeoffRuleResult[]>, id: string, entry: Take
 }
 
 const RULE_ORDER = new Map<TakeoffRuleId, number>([
-  ["non_observable", 0], ["dn_network", 1], ["zone_overlap", 2], ["scale_dimension", 3], ["area_printed", 4], ["room_overlap", 5], ["closed_box", 6],
+  ["non_observable", 0], ["dn_network", 1], ["zone_overlap", 2], ["zone_coverage", 3], ["scale_dimension", 4], ["area_printed", 5], ["room_overlap", 6],
+  ["closed_box", 7],
 ]);
 
 /** Every rule on every line of the version; a line without inputs gets no result. */

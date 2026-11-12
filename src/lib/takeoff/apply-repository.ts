@@ -20,30 +20,24 @@ import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities"
 /** A line the apply guard reads, with the state an admin override records when it lifts it (TI-677 PR D). */
 export type TakeoffApplyGuardRow = ApplyGuardItem & { override_state: TakeoffApplyOverrideItemState };
 
+/**
+ * The guarded application, through public.apply_takeoff_job_with_page_decisions: the page decisions are recorded and
+ * applied in one transaction, so that the application applies the decisions of its own request (TI-682 lot D), then the
+ * guarded overload (with the DPGF authorization when there is one).
+ */
 export async function invokeApplyTakeoffRpc(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   args: ApplyTakeoffRpcArgs;
 }) {
-  if (input.args.dpgf_authorization_token) {
-    return input.supabase.rpc(
-      "apply_takeoff_job_guarded_atomic" as never,
-      {
-        p_job_id: input.args.job_id,
-        p_strategy: input.args.strategy,
-        p_target_section_id: input.args.target_section_id,
-        p_mapping_plan: input.args.mapping_plan,
-        p_dpgf_authorization_token: input.args.dpgf_authorization_token,
-      } as never
-    );
-  }
-
   return input.supabase.rpc(
-    "apply_takeoff_job_guarded_atomic" as never,
+    "apply_takeoff_job_with_page_decisions" as never,
     {
       p_job_id: input.args.job_id,
       p_strategy: input.args.strategy,
       p_target_section_id: input.args.target_section_id,
       p_mapping_plan: input.args.mapping_plan,
+      p_page_decisions: input.args.page_decisions ?? [],
+      p_dpgf_authorization_token: input.args.dpgf_authorization_token ?? null,
     } as never
   );
 }

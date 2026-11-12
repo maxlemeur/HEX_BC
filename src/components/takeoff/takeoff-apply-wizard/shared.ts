@@ -5,6 +5,7 @@ import type {
   TakeoffPreviewConversionResponse,
 } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
+import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -27,6 +28,8 @@ export type TakeoffApplyWizardSubmitPayload = {
   override?: boolean;
   /** TI-686 D10: each blocked line's coded reason, its justification stored once (with override). */
   forced?: ForcedOverride;
+  /** TI-682 lot D: the decision for each page another takeoff already brought into the estimate. */
+  pageDecisions?: TakeoffPageDecision[];
 };
 
 export const ROOT_SECTION_VALUE = "__takeoff_root_section__";
