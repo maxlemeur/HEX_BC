@@ -75,7 +75,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
   /** Writes and storage calls in the order they were made: "insert material_request_files", "upload", ... */
   const events: string[] = [];
   let signed = 0;
-  let clock = Date.parse("2026-11-12T08:00:00.000Z");
+  let clock = Date.now();
   const now = () => new Date((clock += 1000)).toISOString();
 
   function parentOf(table: string, id: unknown): FakeRow | undefined {
