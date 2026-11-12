@@ -745,13 +745,35 @@ describe("TesterArmy critical workflow wiring", () => {
   it("skips the journeys only on an explicit none and keeps workers and cache saves in scope", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    // One decision, before any install: a "none" selection starts no shard.
+    // The selection by impact decides before any install: a "none" selection starts no shard and installs nothing.
     const select = steps(jobs["army-select"]);
-    expect(select.some((step) => /^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu.test(step))).toBe(true);
-    expect(select.some((step) => /^\s+run: npm ci\b/mu.test(step))).toBe(false);
-    for (const output of ["mode", "files", "full_only_mode", "critical_shards", "takeoff_shards"]) {
-      expect(jobs["army-select"]).toContain(`\n      ${output}: \${{ steps.select.outputs.${output} }}\n`);
+    const selecting = select.findIndex((step) => /^\s+id: select$/mu.test(step));
+    expect(select[selecting]).toMatch(/^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu);
+    const installs = select.map((step, index) => (/^\s+run: npm ci\b/mu.test(step) ? index : -1)).filter((index) => index !== -1);
+    // The only install is the decision filter's, after the selection, on a pull request that holds journeys
+    // and the key, and it may fail without failing the job (docs/testing/tester-army-ci.md).
+    expect(installs).toHaveLength(1);
+    expect(installs[0]).toBeGreaterThan(selecting);
+    const install = select[installs[0]];
+    expect(install).toMatch(/^\s+id: decision_install$/mu);
+    expect(install).toMatch(/^\s+continue-on-error: true$/mu);
+    expect(install).toContain("github.event_name == 'pull_request' && env.ARMY_DECISION_KEY_SET == 'true'");
+    expect(install).toContain("!contains(github.event.pull_request.labels.*.name, 'army-full')");
+    expect(install).toContain("steps.select.outputs.mode == 'files' || steps.select.outputs.mode == 'full'");
+    const asking = select.find((step) => /^\s+id: decision$/mu.test(step));
+    expect(asking).toMatch(/^\s+if: steps\.decision_install\.outcome == 'success'$/mu);
+    expect(asking).toMatch(/^\s+continue-on-error: true$/mu);
+    expect(asking).toContain("run: node --import tsx scripts/tester-army/decision-listing.ts --selection .e2e/army/ci/selection.json --out .e2e/army/ci/decision.json");
+    const narrowing = select.find((step) => /^\s+id: narrow$/mu.test(step));
+    expect(narrowing).toMatch(/^\s+if: steps\.decision\.outcome == 'success'$/mu);
+    expect(narrowing).toMatch(/^\s+continue-on-error: true$/mu);
+    expect(narrowing).toContain('select-journeys.ts "${args[@]}" --decision .e2e/army/ci/decision.json');
+    // The narrowed plan when the model answered, else the selection by impact: never an empty output.
+    for (const output of ["mode", "full_only_mode", "critical_shards", "takeoff_shards"]) {
+      expect(jobs["army-select"]).toContain(`\n      ${output}: \${{ steps.narrow.outputs.${output} || steps.select.outputs.${output} }}\n`);
     }
+    // No job reads the file list as an output: each shard receives its files from the matrix.
+    expect(jobs["army-select"]).not.toMatch(/^ {6}files: /mu);
     // An empty or missing selector output must run the journeys: only an
     // explicit none skips the shards (an empty matrix then fails, never passes).
     const shard = jobs["army-critical-shard"];

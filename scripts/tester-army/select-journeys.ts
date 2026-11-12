@@ -120,6 +120,29 @@ export type Selection = {
   /** The full-only journeys split into parallel army-takeoff-shard jobs (empty for "none"). */
   takeoffShards: ShardPlan;
   changedPaths: PathDecision[];
+  /** Present when the army-select job asked the decision model (--decision): what it left out, or why it was not applied. */
+  decision?: AppliedDecision;
+};
+/** One suite of scripts/tester-army/decision-listing.ts: the journey files the decision model left out entirely. */
+export type DecisionSuite = { judged: number; leftOut: Array<{ file: string; reason: string }>; notes: string[] };
+/** What decision-listing.ts writes for --decision. */
+export type DecisionListing = {
+  schemaVersion: "army-decision-1";
+  model: string;
+  minPercent: number;
+  /** The commit the change was measured from: it must be the selection's base. */
+  base: string;
+  critical: DecisionSuite | null;
+  takeoff: DecisionSuite | null;
+};
+export type AppliedDecision = {
+  model: string | null;
+  minPercent: number | null;
+  /** False: the selection by impact stands unchanged, and `reason` says why. */
+  applied: boolean;
+  reason: string;
+  leftOut: Array<{ suite: "critical" | "takeoff"; file: string; reason: string }>;
+  notes: string[];
 };
 export type SourceGraph = {
   files: Set<string>;
@@ -809,6 +832,93 @@ function fullOnlyFailSafe(event: string, map: ImpactMap | undefined, repositoryF
   return { mode: "all", reason: "fail-safe: the full-only journeys cannot be listed for the runner; the whole full selection runs", files: [] };
 }
 
+/** Why the decision model does not narrow this selection, or null when it may. */
+export function decisionSkipped(selection: Selection): string | null {
+  if (selection.schemaVersion !== "army-impact-selection-4") return "the selection is unreadable";
+  if (selection.event !== "pull_request") return `event ${selection.event || "unknown"}: only a pull request is narrowed`;
+  if (!selection.base) return "the selection has no base commit";
+  if (/^(?:full suite forced|fail-safe)/u.test(selection.reason)) return selection.reason;
+  if (selection.mode === "none" && selection.fullOnly.mode === "none") return "no journey is selected";
+  return null;
+}
+
+function readDecisionSuite(value: unknown): DecisionSuite | null {
+  if (value === null) return null;
+  const suite = value as Partial<DecisionSuite> | undefined;
+  if (!suite || typeof suite.judged !== "number" || !Array.isArray(suite.leftOut) || !Array.isArray(suite.notes) ||
+    !suite.leftOut.every((entry) => entry && typeof entry.file === "string" && typeof entry.reason === "string") ||
+    !suite.notes.every((note) => typeof note === "string")) throw new Error("a suite of the decision listing is unreadable");
+  return suite as DecisionSuite;
+}
+
+/**
+ * The selection by impact, less the journey files the decision model left out (decision-listing.ts). It only
+ * removes: a file the selection did not hold is ignored, the login setup always stays, and the remaining
+ * journeys keep the rules of selectJourneys (setup, anchor). An unreadable listing, another base, a forced or
+ * fail-safe selection: the selection stands unchanged and `decision.applied` is false.
+ */
+export function narrowSelection(input: { map: ImpactMap; selection: Selection; listing: unknown; shards?: ShardInput }): Selection {
+  const { map, selection } = input;
+  const unchanged = (reason: string, listing?: Partial<DecisionListing>): Selection => ({ ...selection, decision: {
+    model: typeof listing?.model === "string" ? listing.model : null, minPercent: typeof listing?.minPercent === "number" ? listing.minPercent : null,
+    applied: false, reason, leftOut: [], notes: [] } });
+  const skipped = decisionSkipped(selection);
+  if (skipped) return unchanged(skipped);
+  const listing = input.listing as Partial<DecisionListing> | null | undefined;
+  let critical: DecisionSuite | null;
+  let takeoff: DecisionSuite | null;
+  try {
+    if (!listing || listing.schemaVersion !== "army-decision-1" || typeof listing.model !== "string" || typeof listing.minPercent !== "number") {
+      throw new Error("the decision listing is unreadable");
+    }
+    if (listing.base !== selection.base) throw new Error(`the decision listing judged the change since ${String(listing.base)}, not since ${selection.base}`);
+    critical = readDecisionSuite(listing.critical);
+    takeoff = readDecisionSuite(listing.takeoff);
+  } catch (error) {
+    return unchanged((error as Error).message, listing ?? undefined);
+  }
+  const setup = map.suite.setup;
+  const leftOut: AppliedDecision["leftOut"] = [];
+  // Critical journeys. A full selection holds every journey of the suite.
+  let { mode, reason, files } = selection;
+  const candidates = selection.mode === "files" ? selection.files : selection.mode === "full" ? map.suite.journeys : [];
+  const dropped = new Map((critical?.leftOut ?? []).filter((entry) => entry.file !== setup && candidates.includes(entry.file)).map((entry) => [entry.file, entry.reason]));
+  if (dropped.size) {
+    for (const [file, why] of dropped) leftOut.push({ suite: "critical", file, reason: why });
+    const journeys = candidates.filter((file) => file !== setup && !dropped.has(file));
+    const anonymous = new Set(map.suite.anonymous);
+    if (journeys.length === 0) {
+      mode = "none";
+      files = [];
+      reason = `no critical journey runs: the decision model left out the ${dropped.size} selected by impact (${selection.reason})`;
+    } else {
+      // As in selectJourneys: the login setup, and the anchor when no authenticated business journey remains.
+      const kept = new Set([...journeys, setup]);
+      if (!journeys.some((journey) => !anonymous.has(journey))) kept.add(map.suite.anchor);
+      mode = "files";
+      files = [...kept].sort();
+      reason = `${files.length} of ${map.suite.journeys.length} journey files selected: the decision model left out ${dropped.size} (by impact: ${selection.reason})`;
+    }
+  }
+  // Full-only journeys: an explicit list only (a fail-safe "all" without one is the whole full selection).
+  let fullOnly = selection.fullOnly;
+  const droppedFullOnly = new Map((takeoff?.leftOut ?? []).filter((entry) => entry.file !== setup && fullOnly.files.includes(entry.file)).map((entry) => [entry.file, entry.reason]));
+  if (fullOnly.mode !== "none" && droppedFullOnly.size) {
+    for (const [file, why] of droppedFullOnly) leftOut.push({ suite: "takeoff", file, reason: why });
+    const journeys = fullOnly.files.filter((file) => file !== setup && !droppedFullOnly.has(file));
+    fullOnly = journeys.length === 0
+      ? { mode: "none", reason: `no full-only journey runs: the decision model left out the ${droppedFullOnly.size} selected by impact (${fullOnly.reason})`, files: [] }
+      : { mode: "files", reason: `${journeys.length} full-only journey files selected: the decision model left out ${droppedFullOnly.size} (by impact: ${fullOnly.reason})`,
+        files: [setup, ...journeys].sort() };
+  }
+  const decision: AppliedDecision = { model: listing!.model!, minPercent: listing!.minPercent!, applied: true,
+    reason: leftOut.length ? `${leftOut.length} journey file(s) left out` : "the decision model left out no journey file",
+    leftOut, notes: [...(critical?.notes ?? []), ...(takeoff?.notes ?? [])] };
+  if (!leftOut.length) return { ...selection, decision };
+  return { ...selection, mode, reason, files, fullOnly, shards: criticalShards(map, mode, files, input.shards),
+    takeoffShards: takeoffShards(setup, fullOnly, input.shards), decision };
+}
+
 export function loadImpactMap(root: string): { map: ImpactMap; sha256: string } {
   const bytes = fs.readFileSync(path.join(root, MAP_PATH));
   return { map: JSON.parse(bytes.toString("utf8")) as ImpactMap, sha256: createHash("sha256").update(bytes).digest("hex") };
@@ -835,6 +945,8 @@ export type SelectionRequest = {
   forceFull?: string | null;
   /** The working tree's files; absent, git ls-files lists them. */
   repositoryFiles?: string[];
+  /** The decision listing of decision-listing.ts: narrows a pull request's selection, never widens it. */
+  decisionFile?: string;
 };
 
 /** The command line decision: map checked against the working tree, then selection; any error selects the full suite. */
@@ -864,9 +976,14 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
         ? fs.readFileSync(request.pathsFile, "utf8").split(/[\0\r\n]+/).map((file) => file.trim()).filter(Boolean)
         : changedPathsFromGit(root, base ?? "", head));
     const durations = usableShardDurations(root);
-    return selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
-      forceFull, base, head: givenPaths ? null : head, mapSha256: sha256,
-      shards: { suiteJourneys, durations: durations.durations, durationsSha256: durations.sha256 } });
+    const shards = { suiteJourneys, durations: durations.durations, durationsSha256: durations.sha256 };
+    const selection = selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
+      forceFull, base, head: givenPaths ? null : head, mapSha256: sha256, shards });
+    if (request.decisionFile === undefined) return selection;
+    // An unreadable file is no reason to run the full suite: the selection by impact stands.
+    let listing: unknown = null;
+    try { listing = JSON.parse(fs.readFileSync(request.decisionFile, "utf8")); } catch { /* narrowSelection reports it */ }
+    return narrowSelection({ map, selection, listing, shards });
   } catch (error) {
     const reason = `fail-safe: ${(error as Error).message}`;
     // Unsure of the map: one shard of the runner's own whole suite, as before shards existed.
@@ -901,6 +1018,19 @@ function summary(selection: Selection): string {
   if (fullOnly.files.length) lines.push(...fullOnly.files.map((file) => `- \`${file}\``), "");
   if (fullOnly.mode !== "none") lines.push("#### Jobs parallèles (army-takeoff shard)", "", ...shardLines(selection.takeoffShards));
   if (selection.mode !== "none") lines.push("#### Jobs parallèles (army-critical shard)", "", ...shardLines(selection.shards));
+  const decision = selection.decision;
+  if (decision) {
+    lines.push("#### Filtre par modèle de décision", "", decision.applied
+      ? `Modèle ${decision.model}, seuil ${decision.minPercent} % : ${decision.leftOut.length} fichier(s) de parcours écarté(s). La suite complète tourne sur \`main\` ; le label \`army-full\` la force sur cette PR.`
+      : `Non appliqué : ${decision.reason}. La sélection par impact est conservée.`, "");
+    for (const note of decision.notes) lines.push(`- ${note}`);
+    if (decision.notes.length) lines.push("");
+    if (decision.leftOut.length) {
+      lines.push("<details><summary>Parcours écartés par le modèle</summary>", "", "| Parcours | Suite | Avis du modèle |", "| --- | --- | --- |");
+      for (const entry of decision.leftOut) lines.push(`| \`${entry.file}\` | ${entry.suite} | ${entry.reason.replaceAll("|", "/")} |`);
+      lines.push("", "</details>", "");
+    }
+  }
   if (selection.changedPaths.length) {
     lines.push("<details><summary>Chemins modifiés</summary>", "", "| Chemin | Classe | Parcours |", "| --- | --- | --- |");
     for (const decision of selection.changedPaths.slice(0, 300)) {
@@ -940,7 +1070,7 @@ function publish(args: string[], result: unknown, files: string[], outputs: stri
 
 function main() {
   const args = process.argv.slice(2);
-  const known = new Set(["--event", "--base", "--head", "--paths-file", "--report", "--force-full", "--plan", "--unsharded"]);
+  const known = new Set(["--event", "--base", "--head", "--paths-file", "--report", "--force-full", "--plan", "--unsharded", "--decision"]);
   const seen = new Set<string>();
   for (let index = 0; index < args.length; index += 1) {
     if (!known.has(args[index]) || seen.has(args[index])) throw new Error(`Unknown or repeated argument ${args[index]}.`);
@@ -949,12 +1079,12 @@ function main() {
     index += 1;
   }
   const usage = "Usage: node scripts/tester-army/select-journeys.ts --event pull_request|push|<other> " +
-    "[--base REV --head REV | --paths-file FILE] [--force-full REASON] [--report FILE]" +
+    "[--base REV --head REV | --paths-file FILE] [--force-full REASON] [--decision FILE] [--report FILE]" +
     " | --plan full [--unsharded REASON] [--report FILE]";
   const planned = option(args, "--plan");
   if (planned !== undefined) {
     // The nightly full suite: no impact selection, only its shards.
-    if (planned !== "full" || ["--event", "--base", "--head", "--paths-file", "--force-full"].some((name) => seen.has(name))) throw new Error(usage);
+    if (planned !== "full" || ["--event", "--base", "--head", "--paths-file", "--force-full", "--decision"].some((name) => seen.has(name))) throw new Error(usage);
     const plan = planFullSuite(process.cwd(), { unsharded: option(args, "--unsharded") });
     publish(args, plan, plan.files, `shards=${JSON.stringify(shardMatrix(plan))}\ndevelopment=${plan.development}\n`,
       ["### Suite TesterArmy full : jobs parallèles", "", ...shardLines(plan),
@@ -969,6 +1099,7 @@ function main() {
     head: option(args, "--head") ?? "HEAD",
     pathsFile: option(args, "--paths-file"),
     forceFull: option(args, "--force-full") ?? null,
+    decisionFile: option(args, "--decision"),
   });
   publish(args, result, [...result.files, ...result.fullOnly.files, ...result.shards.files, ...result.takeoffShards.files],
     `mode=${result.mode}\nfiles=${result.files.join(",")}\n` +

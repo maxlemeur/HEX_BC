@@ -66,12 +66,15 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       E2E_TELEMETRY_DISABLED: "1"
       SUPABASE_TELEMETRY_DISABLED: "1"
+      # "true" when the repository holds the key of the decision filter: a fork
+      # or Dependabot pull request has none and keeps the selection by impact.
+      ARMY_DECISION_KEY_SET: ${{ secrets.ARMY_DECISION_FILTER_API_KEY != '' }}
+    # The narrowed plan when the decision model answered, else the selection by impact.
     outputs:
-      mode: ${{ steps.select.outputs.mode }}
-      files: ${{ steps.select.outputs.files }}
-      full_only_mode: ${{ steps.select.outputs.full_only_mode }}
-      critical_shards: ${{ steps.select.outputs.critical_shards }}
-      takeoff_shards: ${{ steps.select.outputs.takeoff_shards }}
+      mode: ${{ steps.narrow.outputs.mode || steps.select.outputs.mode }}
+      full_only_mode: ${{ steps.narrow.outputs.full_only_mode || steps.select.outputs.full_only_mode }}
+      critical_shards: ${{ steps.narrow.outputs.critical_shards || steps.select.outputs.critical_shards }}
+      takeoff_shards: ${{ steps.narrow.outputs.takeoff_shards || steps.select.outputs.takeoff_shards }}
     steps:
       - name: Refuse any Supabase target other than loopback or the distinct staging host
         id: target_guard
@@ -166,8 +169,48 @@ jobs:
               args+=(--base "$PUSH_BEFORE" --head "$(git rev-parse HEAD)")
               ;;
           esac
+          # The narrowing step below selects again with the same arguments.
+          printf '%s\n' "${args[@]}" > "$RUNNER_TEMP/army-select-args"
           # Plain type stripping on a package without "type": silence the notice.
           node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}"
+      # Decision filter (docs/testing/tester-army-ci.md, "Filtre par modèle de
+      # décision"): on a pull request whose selection by impact holds journeys,
+      # the e2e runner lists them with --changed-since and a decision model
+      # rates, from the diff, how likely each one is affected; the journey files
+      # it leaves out entirely start no job. It only removes journeys. The label
+      # army-full, a push to main, a missing key, and any failure of these three
+      # steps keep the selection by impact: each step may fail without failing
+      # the job. The key is given to the listing step alone.
+      - name: Install dependencies for the decision filter
+        id: decision_install
+        if: >-
+          github.event_name == 'pull_request' && env.ARMY_DECISION_KEY_SET == 'true'
+          && !contains(github.event.pull_request.labels.*.name, 'army-full')
+          && (steps.select.outputs.mode == 'files' || steps.select.outputs.mode == 'full' || steps.select.outputs.full_only_mode == 'files' || steps.select.outputs.full_only_mode == 'all')
+        continue-on-error: true
+        run: npm ci
+      - name: Ask the decision model which selected journeys the change can affect
+        id: decision
+        if: steps.decision_install.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          ARMY_DECISION_FILTER_API_KEY: ${{ secrets.ARMY_DECISION_FILTER_API_KEY }}
+        run: node --import tsx scripts/tester-army/decision-listing.ts --selection .e2e/army/ci/selection.json --out .e2e/army/ci/decision.json
+      # The same selection, less what the model left out: its plan replaces the
+      # one above only once it is complete (report moved last).
+      - name: Plan the jobs without the journeys the decision model left out
+        id: narrow
+        if: steps.decision.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mapfile -t args < "$RUNNER_TEMP/army-select-args"
+          for index in "${!args[@]}"; do
+            if [[ "${args[$index]}" == "--report" ]]; then args[index + 1]=.e2e/army/ci/selection-narrowed.json; fi
+          done
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}" --decision .e2e/army/ci/decision.json
+          mv .e2e/army/ci/selection-narrowed.json .e2e/army/ci/selection.json
       # Paths, revisions, map digest and shard plan: why these journeys, or
       # none, ran, and where. The army-critical job reads its plan from here.
       - name: Retain the journey selection

@@ -94,7 +94,11 @@ contract take precedence over historical reports and procedures.
   not duplicate full CI suites.
 - Never weaken, skip or remove the CI quality, smoke, critical, takeoff, SQL/RLS
   and calc-v3 checks to get green. Selection and schedules belong to workflows
-  and the [CI guide](docs/testing/tester-army-ci.md).
+  and the [CI guide](docs/testing/tester-army-ci.md). On a pull request a decision
+  model leaves out critical and takeoff journeys it rates unaffected by the diff
+  ([rule](docs/testing/tester-army-ci.md#filtre-par-modèle-de-décision)): a green
+  check proves the journeys its selection summary lists, `main` runs them all, and
+  the label `army-full` runs them all on the pull request.
 - Record command, source/build and fixture identities, environment, expected/actual
   results and primary evidence paths. Preserve failures and skips; setup failure,
   skips or changing sources cannot qualify a journey. Never put secrets in evidence.

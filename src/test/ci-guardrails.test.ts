@@ -423,7 +423,17 @@ describe("CI and local quality guardrails", () => {
     for (const { file, runStep, command } of ARMY_WORKFLOWS) {
       const workflow = read(file);
       const steps = workflowSteps(workflow);
-      expect(workflow, file).not.toContain("secrets.");
+      // One secret only, the key of the decision filter, in the job that selects the journeys of a pull
+      // request: no job that starts a stack or runs a journey receives a secret.
+      const secrets = workflow.split("\n").filter((line) => line.includes("secrets."));
+      if (file === ".github/workflows/e2e-army-critical.yml") {
+        expect(secrets.map((line) => line.trim())).toEqual([
+          "ARMY_DECISION_KEY_SET: ${{ secrets.ARMY_DECISION_FILTER_API_KEY != '' }}",
+          "ARMY_DECISION_FILTER_API_KEY: ${{ secrets.ARMY_DECISION_FILTER_API_KEY }}",
+        ]);
+        const selection = workflow.slice(workflow.indexOf("\n  army-select:"), workflow.indexOf("\n  army-critical-shard:"));
+        expect(selection.split("secrets.").length - 1).toBe(2);
+      } else expect(secrets, file).toEqual([]);
       expect(workflow, file).not.toContain("environment: e2e-staging");
       expect(workflow, file).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
       expect(workflow, file).not.toContain("pull_request_target");
@@ -438,7 +448,11 @@ describe("CI and local quality guardrails", () => {
       expect(workflow, file).not.toMatch(/install chromium[^\n]*--with-deps/u);
       expect(workflow, file).toContain("steps.journeys.outputs.evidence");
       expect(workflow, file).toContain("if-no-files-found: error");
-      expect(workflow, file).not.toContain("continue-on-error");
+      // No step that runs a stack or a journey may fail unseen. The three steps of the decision filter may:
+      // their failure keeps the selection by impact, which runs more journeys, never fewer.
+      const tolerated = workflowSteps(workflow).filter((step) => step.includes("continue-on-error"));
+      expect(tolerated.map((step) => /^\s+id: (\w+)$/mu.exec(step)?.[1]), file)
+        .toEqual(file === ".github/workflows/e2e-army-critical.yml" ? ["decision_install", "decision", "narrow"] : []);
       expectInstallStepsToHaveNoSecrets(workflow);
     }
     expect(guards.size).toBe(1);
