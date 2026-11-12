@@ -1,5 +1,5 @@
 -- Purchase orders from material requests (TI-691, lot 2 « l'achat », delivery 3a). Written with the migration
--- 20261112185310_material_request_purchase_orders.sql. Failure modes this file guards, with fictional members,
+-- 20261112202147_material_request_purchase_orders.sql. Failure modes this file guards, with fictional members,
 -- suppliers, articles and lines:
 --  1. the two functions reach anon or PUBLIC, run without a pinned search_path, or the ledger and the receipts are
 --     readable by a Data API role; an order may lose both its site and its affaire;

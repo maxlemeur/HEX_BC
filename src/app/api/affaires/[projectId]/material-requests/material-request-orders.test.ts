@@ -199,7 +199,8 @@ function seed(actor: string, role: Role, overrides: { rpc?: Record<string, unkno
       withdraw_material_request_files_for_deletion: ((args, tables) => {
         const rows = (tables.material_request_files ?? []).filter((row) => row.request_id === args.p_request_id);
         for (const row of rows) row.removed_at ??= new Date().toISOString();
-        return { data: rows.map((row) => ({ storage_path: row.storage_path })) };
+        // The paths in one array value (20261112192815), as the deletion reads them.
+        return { data: rows.map((row) => String(row.storage_path)) };
       }) satisfies FakeRpcHandler,
       ...overrides.rpc,
     },
