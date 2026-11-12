@@ -58,10 +58,12 @@ export function useIntakeUploadFeedback(projectId: string, documents = EMPTY_DOC
   useEffect(() => {
     // Retire by server identity, so another file with the same name cannot finish an upload.
     const completed = new Set(documents.filter((document) => document.uploadStatus === "uploaded" && dossierDocumentState(document) !== "processing").map((document) => document.documentId));
-    setEntries((prior) => {
-      const next = prior.filter((entry) => !(entry.projectId === projectId && entry.phase === "integrating" && entry.documentId && completed.has(entry.documentId)));
-      return next.length === prior.length ? prior : next;
-    });
+    const retired = (entry: UploadEntry) => entry.projectId === projectId && entry.phase === "integrating" && Boolean(entry.documentId) && completed.has(entry.documentId!);
+    // Ask for nothing when nothing retires. While React holds an earlier update back behind a
+    // refresh in flight, it replays the later ones at every render and the entries change
+    // identity each time: an update asked here on every change would then render without end.
+    if (!entries.some(retired)) return;
+    setEntries((prior) => prior.filter((entry) => !retired(entry)));
   }, [documents, entries, projectId]);
 
   // One refresh at a time. The router shows nothing new while a refresh is in flight, and a

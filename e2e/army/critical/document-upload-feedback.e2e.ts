@@ -82,8 +82,8 @@ test("Document upload keeps a nonblocking loader through response, integration a
   await expect(drawer.getByRole("combobox", { name: `Catégorie de ${fileName}`, exact: true })).toHaveValue("cctp");
   await expect(drawer.getByRole("checkbox", { name: `Sélectionner ${fileName}`, exact: true })).toBeChecked();
   // The dossier is refreshed every two seconds while a document integrates. Behind a server
-  // that takes longer than that, a refresh asked before the previous one has landed kept the
-  // row on « Intégration au dossier… » for good (runs 43124531608 and 43138683467).
+  // that takes longer than that, a refresh asked before the previous one has landed keeps the
+  // row on « Intégration au dossier… » for good.
   let slowedRefreshes = 0;
   const dossierPage = new RegExp(`/dashboard/affaires/${projectId}(?:\\?|$)`);
   await page.browser.route(dossierPage, async (route) => {
@@ -110,7 +110,28 @@ test("Document upload keeps a nonblocking loader through response, integration a
 });
 
 test("Document upload preserves partial rejection and concurrent network failures without blocking the dossier", options, async ({ ui: page }) => {
+  // Opening the dossier checks its plans and refreshes it, because the plan integrated by
+  // createDossier is new to it. An upload that started while that refresh was still in flight
+  // froze the dossier on its old documents for good (runs 43124531608, 43138683467 and
+  // 43145180005), so the refresh is held here until the upload has been answered.
+  let refreshAsked = () => {};
+  const refreshInFlight = new Promise<void>((resolve) => { refreshAsked = resolve; });
+  let releaseRefresh = () => {};
+  const refreshHeld = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+  const anyDossierPage = /\/dashboard\/affaires\/[0-9a-f-]{36}(?:\?|$)/;
+  await page.browser.route(anyDossierPage, async (route) => {
+    const { headers } = route.request;
+    if (headers.rsc === "1" && !headers["next-router-prefetch"] && !headers["next-router-segment-prefetch"]) {
+      refreshAsked();
+      await refreshHeld;
+    }
+    await route.fallback();
+  });
   const { projectId, integrate } = await createDossier(page);
+  expect(await Promise.race([
+    refreshInFlight.then(() => "asked"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("not asked within 15 s"), 15_000)),
+  ]), "refresh of the dossier after its plan check").toBe("asked");
   const uploadId = randomUUID();
   const documentId = randomUUID();
   let requests = 0;
@@ -134,6 +155,8 @@ test("Document upload preserves partial rejection and concurrent network failure
   ]);
   const drawer = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
   await expect(drawer.getByText("Fichier refusé (fixture).", { exact: true })).toBeVisible();
+  releaseRefresh();
+  await page.browser.unroute(anyDossierPage);
   await drawer.getByRole("button", { name: "Ajouter des fichiers", exact: true }).click();
   await addDialog.getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(path.resolve("e2e/fixtures/word/intake-word.docx"));
   const secondRow = drawer.getByRole("row", { name: "Ajout de intake-word.docx", exact: true });
@@ -147,5 +170,6 @@ test("Document upload preserves partial rejection and concurrent network failure
   await secondRow.getByRole("button", { name: "Masquer", exact: true }).click();
   await expect(secondRow).toHaveCount(0);
   await expect(drawer.getByText("Fichier refusé (fixture).", { exact: true })).toBeVisible();
-  await recordEvidence(page.army, "document-upload-failures", { projectId, requests, partialRejectionRetained: true, concurrentIntegrationRetained: true, serverErrorVisible: true });
+  await recordEvidence(page.army, "document-upload-failures", { projectId, requests, partialRejectionRetained: true, concurrentIntegrationRetained: true, serverErrorVisible: true,
+    uploadAnsweredDuringDossierRefresh: true });
 });

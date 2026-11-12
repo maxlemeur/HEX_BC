@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DossierDocument } from "@/lib/affaires/document-triage";
 import { IntakeUploadFeedback, useIntakeUploadFeedback, type IntakeUploadEvent } from "./IntakeUploadFeedback";
 
-// The router of Next keeps its state as a promise while a refresh is in flight: every
-// refresh() immediately hands React a new pending promise, inside a transition, and
-// refreshes run one after the other (next/dist/client/components/app-router-instance.js,
-// dispatchAction). The stand-in below does the same, so that a refresh requested before
-// the previous one has landed keeps the screen on its old documents, as in the browser.
+// The router of Next renders a refresh inside a transition, on data that stays pending until
+// the server answers (next/dist/client/components/app-router-instance.js, refresh, and
+// router-reducer/reducers/refresh-reducer.js). The stand-in below does the same: every
+// refresh() hands React a new pending promise inside a transition, so that the screen keeps
+// its old documents until that promise settles, as in the browser.
 const router = vi.hoisted(() => ({
   refresh: vi.fn(),
   settle: [] as Array<(documents: unknown[]) => void>,
@@ -90,5 +90,45 @@ describe("useIntakeUploadFeedback", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(router.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps rendering finite when an upload starts behind an entry update held back by a refresh in flight", async () => {
+    // React keeps an update it cannot apply yet, and replays every later update of the same
+    // state at each render until it can: the entries then change identity at every render.
+    // In the browser the update held back is a retirement asked by a commit of lower priority
+    // than the refresh in flight; here it shares the transition of that refresh.
+    let renders = 0;
+    let send: (event: IntakeUploadEvent) => void = () => {};
+    function Probe({ documents }: { documents: DossierDocument[] }) {
+      const feedback = useIntakeUploadFeedback("project-1", documents);
+      const { onUploadEvent } = feedback;
+      useEffect(() => {
+        renders += 1;
+        if (renders > 100) throw new Error("The upload feedback renders without end.");
+        send = onUploadEvent;
+      });
+      return <IntakeUploadFeedback feedback={feedback} />;
+    }
+    function ProbeScreen() {
+      const [state, setState] = useState<DossierDocument[] | Promise<DossierDocument[]>>([]);
+      useEffect(() => { router.publish = setState as (state: unknown) => void; }, []);
+      return <Probe documents={state instanceof Promise ? use(state) : state} />;
+    }
+    const started = (batchId: string, fileName: string): IntakeUploadEvent => ({ type: "started", batchId, fileNames: [fileName], rejectedFiles: [] });
+
+    render(<ProbeScreen />);
+    await act(async () => {
+      startTransition(() => {
+        router.publish(new Promise<unknown[]>((resolve) => { router.settle.push(resolve); }));
+        send(started("batch-1", "plan.pdf"));
+      });
+    });
+    await act(async () => { send(started("batch-2", "cctp.pdf")); });
+    expect(screen.getByText("cctp.pdf — Chargement en cours…")).toBeInTheDocument();
+    expect(renders).toBeLessThan(10);
+
+    await act(async () => { router.settle[0]([]); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("plan.pdf — Chargement en cours…")).toBeInTheDocument();
+    expect(screen.getByText("cctp.pdf — Chargement en cours…")).toBeInTheDocument();
   });
 });
