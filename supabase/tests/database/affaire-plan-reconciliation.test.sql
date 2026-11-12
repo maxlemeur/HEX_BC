@@ -31,6 +31,8 @@ reset role;
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
 select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000002','6c000000-0000-4000-8000-000000000001'),true,'missing plan opens its system entry');
 select is((select is_active from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),true,'plan gap is active');
+select is((select severity from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),'warning','plans are optional by default');
+select is((select metadata->'businessImpact' ? 'blocks_submission' from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),false,'automatic absence does not block submission');
 select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000005'),'confirme','initializing the register does not invalidate a confirmed brief');
 update public.affaire_briefs set status='confirme',confirmed_at=now(),confirmed_by='6c000000-0000-4000-8000-000000000001' where id='6c000000-0000-4000-8000-000000000005';
 
@@ -45,7 +47,7 @@ insert into public.affaire_briefs (id,project_id,upload_id,status,summary,projec
 values ('6c000000-0000-4000-8000-000000000022','6c000000-0000-4000-8000-000000000020','6c000000-0000-4000-8000-000000000021',
   'confirme','Preserve this summary','Object','["Doute CCTP"]',now(),'6c000000-0000-4000-8000-000000000001');
 select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000020',null),true,'a newly discovered missing plan creates an issue and requests brief review');
-select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000022'),'a_confirmer','the newly discovered gap invalidates the old confirmation once');
+select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000022'),'confirme','an optional missing document does not invalidate a confirmed brief');
 update public.affaire_briefs set status='confirme',confirmed_at=now(),confirmed_by='6c000000-0000-4000-8000-000000000001'
 where id='6c000000-0000-4000-8000-000000000022';
 select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000020',null),false,'rechecking an unchanged plan gap does not invalidate a renewed confirmation');
@@ -115,6 +117,7 @@ delete from public.plan_files where id='6c000000-0000-4000-8000-000000000007';
 select is(public.reconcile_affaire_plan_gap('6c000000-0000-4000-8000-000000000002',null),true,'losing the last stored plan reopens the gap');
 select is((select is_active from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),true,'missing plan is active again');
 select is((select status from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),'open','reactivation opens the issue');
+select is((select severity from public.affaire_register_entries where project_id='6c000000-0000-4000-8000-000000000002' and code='missing_plans'),'warning','losing a plan does not make a document mandatory');
 select is((select missing_elements from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000005'),'["Plans manquants","Doute CCTP"]'::jsonb,'a removed plan does not rewrite user-endorsed text');
 select is((select array_agg(entry_index order by entry_index) from public.affaire_brief_source_links where brief_id='6c000000-0000-4000-8000-000000000005'),array[0,1],'existing source links remain attached');
 select is((select status from public.affaire_briefs where id='6c000000-0000-4000-8000-000000000005'),'a_confirmer','a removed plan invalidates a confirmed brief');

@@ -626,6 +626,24 @@ describe("estimate pdf generator", () => {
     }
   });
 
+  // TI-682, lot C, PR 4 (D28): the basis and reason of a written reserve never reach the published copy nor the PDF.
+  it("never publishes nor prints the basis or the reason of a written reserve", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    const ordinaryClients = usePdfClients({ itemOverrides: { offer_choice: null } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const ordinary = publishedCopy(ordinaryClients.serviceRoleSupabase);
+    const reserveClients = usePdfClients({ itemOverrides: { offer_choice: { kind: "reserve", basis: "private_estimate",
+      code: "quantity_not_determinable", note: "RÉSERVE CONFIDENTIELLE du chiffreur", decided_by: "11111111-1111-4111-8111-111111111111",
+      decided_at: "2026-11-11T18:02:23.123456+00:00" } } });
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    const reserved = publishedCopy(reserveClients.serviceRoleSupabase);
+
+    expect(reserved).toEqual(ordinary);
+    for (const printed of [reserved.contract, reserved.document]) {
+      expect(printed).not.toMatch(/RÉSERVE CONFIDENTIELLE|offer_choice|private_estimate|quantity_not_determinable|Devis privé|Quantité impossible/);
+    }
+  });
+
   it("keeps unexpected CGV loading errors visible", async () => {
     const supabase = createSupabasePdfMock({
       termsTemplateError: {

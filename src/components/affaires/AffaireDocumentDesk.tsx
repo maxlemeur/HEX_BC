@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FileText,
   HardDrive,
+  LoaderCircle,
   MoreHorizontal,
   Plus,
   Search,
@@ -43,6 +44,7 @@ import {
 import { IntakeDocumentPreview } from "./IntakeDocumentPreview";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeDropzone } from "./IntakeDropzone";
+import { useIntakeUploadFeedback, type IntakeUploadFeedbackState } from "./IntakeUploadFeedback";
 import { GoogleDriveImport, openGoogleDriveImport } from "./GoogleDriveImport";
 import { PlanDossierSyncNotice } from "@/components/takeoff/PlanDossierSyncNotice";
 import {
@@ -71,6 +73,8 @@ export function AffaireDocumentDesk({
   onOverview,
   onImportDpgf,
   initialAddFiles = false,
+  uploadFeedback: sharedUploadFeedback,
+  uploadRequestId = 0,
 }: {
   projectId: string;
   projectName: string;
@@ -79,9 +83,13 @@ export function AffaireDocumentDesk({
   onOverview: (anchor?: string) => void;
   onImportDpgf: (documentId: string) => void;
   initialAddFiles?: boolean;
+  uploadFeedback?: IntakeUploadFeedbackState;
+  uploadRequestId?: number;
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
+  const uploadFeedback = sharedUploadFeedback ?? localUploadFeedback;
   const [filter, setFilter] = useState(
     params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
   );
@@ -102,6 +110,7 @@ export function AffaireDocumentDesk({
   const [message, setMessage] = useState("");
   const [failures, setFailures] = useState<string[]>([]);
   const [addFiles, setAddFiles] = useState(initialAddFiles);
+  const previousUploadRequest = useRef(uploadRequestId);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const running = useRef(false);
   const appliedFocus = useRef<string | null>(null);
@@ -118,6 +127,7 @@ export function AffaireDocumentDesk({
   const focusedId = params.get("intakeDocument");
   const filtered = documents.filter(
     (document) =>
+      !uploadFeedback.files.some((file) => file.documentId === document.documentId) &&
       (filter === "all" || dossierDocumentState(document) === filter) &&
       document.fileName
         .toLocaleLowerCase("fr")
@@ -154,6 +164,12 @@ export function AffaireDocumentDesk({
     (document) => document.documentId === detailsId,
   );
   const processing = counts.processing > 0;
+
+  useEffect(() => {
+    if (previousUploadRequest.current === uploadRequestId) return;
+    previousUploadRequest.current = uploadRequestId;
+    if (canManage) setAddFiles(true);
+  }, [uploadRequestId, canManage]);
 
   useEffect(() => {
     if (!processing || busy) return;
@@ -577,6 +593,18 @@ export function AffaireDocumentDesk({
                 </tr>
               </thead>
               <tbody>
+                {uploadFeedback.files.map((file) => <tr key={file.key} aria-label={`Ajout de ${file.fileName}`}>
+                  {canManage ? <td /> : null}
+                  <td><span className="document-desk-file"><FileText size={19} /><span>{file.fileName}</span></span></td>
+                  <td>—</td>
+                  <td colSpan={2}>
+                    <span className={`document-desk-status document-desk-status-${file.phase === "failed" ? "unavailable" : "processing"}`} role={file.phase === "failed" ? "alert" : "status"}>
+                      {file.phase !== "failed" ? <LoaderCircle size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
+                      {file.label}
+                    </span>
+                    {file.phase === "failed" ? <button type="button" className="document-desk-text" onClick={() => uploadFeedback.dismissFailure(file.key)}>Masquer</button> : null}
+                  </td>
+                </tr>)}
                 {rows.map((document) => {
                   const state = dossierDocumentState(document);
                   const category =
@@ -667,6 +695,7 @@ export function AffaireDocumentDesk({
                           title={aiConfidence !== null ? "Confiance de l’IA dans la catégorie proposée" : undefined}
                         >
                           {state === "valid" && <Check size={12} />}
+                          {state === "processing" && <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {aiConfidence !== null ? <><span className="sr-only">Confiance de l’IA : </span><span>{aiConfidence} %</span></> : stateLabels[state]}
                         </span>
                       </td>
@@ -708,7 +737,7 @@ export function AffaireDocumentDesk({
                 })}
               </tbody>
             </table>
-            {rows.length === 0 && (
+            {rows.length === 0 && uploadFeedback.files.length === 0 && (
               <div className="document-desk-empty">
                 <Check size={25} />
                 <h2>
@@ -825,7 +854,11 @@ export function AffaireDocumentDesk({
           </DialogHeader>
           <IntakeDropzone
             projectId={projectId}
-            onUploadComplete={uploaded}
+            onUploadComplete={() => router.refresh()}
+            onUploadEvent={(event) => {
+              uploadFeedback.onUploadEvent(event);
+              if (event.type === "started") setAddFiles(false);
+            }}
             onRefresh={() => router.refresh()}
           />
         </DialogContent>

@@ -197,9 +197,16 @@ ce qu'une application écrit ne change.
 
 Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
 
-- **Ligne vectorielle** (TI-662) : réseau, matériau, DN, axes en mètres et polygone
+- **Ligne vectorielle** (TI-662) : réseau, matériau, taille, axes en mètres et polygone
   de pièce, lus dans sa géométrie ; échelle, cotes et surfaces imprimées lues dans
   la page.
+  - La taille garde la notation que son libellé imprime (TI-683, D7) : « Ø 110 » reste
+    « Ø 110 » et « DN 100 » reste « DN 100 », sur la désignation de la ligne, celle de son
+    calorifuge et dans ses entrées (version 2). Deux sections d'un même réseau libellées
+    « DN 100 » et « Ø 100 » sont deux tailles, jamais additionnées.
+  - Une taille écrite avant ce changement (entrées en version 1, toujours « DN n ») ou
+    dont la notation n'est pas connue reste lue des deux façons, comme nominale puis
+    comme diamètre extérieur.
 - **Ligne du modèle** (niveaux B et C) : réseau, matériau et DN lus dans sa
   désignation par le lecteur déterministe du banc
   ([`item-keys.ts`](../../src/lib/takeoff/bench/item-keys.ts)).
@@ -208,6 +215,7 @@ Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
   - Toutes les tailles imprimées comptent, quelle que soit celle que garde le lecteur (il lit « DN 22 » et saute « Ø 23 » à côté).
   - Une taille absente des séries est gardée telle qu'imprimée (« DN 23 », « Ø 23 », « 3/4" »), pour que la règle l'échoue, même à côté d'une taille connue (« DN 22 / Ø 23 »).
   - Deux tailles connues différentes, quelles que soient leurs notations (« DN 22 / Ø 28 »), sont deux DN. Une même taille écrite de deux façons (« DN 20 / Ø 22 » d'un tube cuivre) en est une.
+  - Quand la taille gardée désigne plusieurs tubes, celle qui n'en désigne qu'un la remplace (TI-683) : « EF inox DN 100 / Ø 108 » est le tube à sertir Ø 108, là où « DN 100 » seul est aussi le tube soudé Ø 114,3.
   - Ces tailles se lisent dans la série que la règle DN retient pour le réseau et le matériau lus (D18c, voir « Série retenue ») ; sans réseau lu, dans les séries du matériau. « EU inox DN 100 / Ø 110 » est une seule taille NF EN 1124 ; dans « EU inox DN 100 / Ø 108 », le Ø 108 que cette série n'a pas est gardé tel qu'imprimé, comme « Ø 23 » à côté de « DN 22 » ; « EU inox DN 100 / Ø 125 » porte deux DN.
   - Une épaisseur (« ép. 20 mm », « épaisseur 19 mm », « ép. 2,20 mm ») n'est jamais un DN, et aucune taille ne commence à l'intérieur d'un nombre (« 20 mm » de « 2,20 mm »).
   - « 1"1/4 » et « 1 1/4" » sont une même taille.
@@ -250,7 +258,7 @@ Les contrôles se lisent dans cet ordre ; le premier qui échoue décide :
 | matériau bloqué pour le réseau (multicouche en gaz), quel que soit le DN | `DN_NETWORK_MATERIAL_BLOCKED` (`acceptable: false`) | **non** |
 | matériau ni admis ni à justifier pour le réseau | `DN_NETWORK_MATERIAL_NOT_ALLOWED`, avec les matériaux admis | avec justification |
 | PE en gaz, quel que soit le DN | `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION` | avec un motif de pose du PE gaz |
-| DN non lu, ou deux DN | `DN_NETWORK_DN_MISSING` | avec justification |
+| DN non lu, ou deux DN, ou une taille qui désigne plusieurs tubes sur un couple admis (TI-683) | `DN_NETWORK_DN_MISSING`, avec les tubes possibles | avec justification |
 | DN absent de la série retenue | `DN_NETWORK_DN_NOT_IN_SERIES`, avec sa norme | avec justification |
 | couple à justifier, DN de la série | `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, la raison donne la condition | avec justification |
 | couple admis, DN de la série | passe : `DN_NETWORK_COMPATIBLE` | — |
@@ -263,10 +271,51 @@ Les contrôles se lisent dans cet ordre ; le premier qui échoue décide :
   avec un diamètre non lu (« système à préciser ») ou hors série (« système à justifier »).
 - **Pas de DN minimal par réseau** : un réseau restreint les matériaux, jamais les
   tailles. Pas de seuil WC global : le contrat d'entrée ne rattache pas un tronçon à un WC.
-- **Ligne vectorielle** : sa taille est un nombre, imprimé « DN n » ou « Ø n » sur le plan ; elle est lue des deux façons.
+- **Taille imprimée et DN dérivé** (TI-683, décisions Q7 et D7) : la clé d'une taille est
+  le matériau, le diamètre extérieur, l'épaisseur et le texte imprimé ; le DN nominal en
+  est dérivé. La règle ne réécrit jamais la taille : elle la résout dans la série retenue
+  (`resolveNetworkSize`).
+  - **Un seul tube** : le résultat porte ce tube dans `details.size` (texte imprimé,
+    diamètre extérieur, DN nominal, épaisseur et son origine, imprimée « 22x1,2 » ou
+    usuelle de la série), et la raison le dit : « DN 20 en cuivre (Ø extérieur 22 mm,
+    DN nominal 20) compatible avec le réseau EF ».
+  - **Plusieurs tubes** : un « DN n » qui nomme à la fois un tube par son diamètre
+    extérieur et un autre par son DN nominal ne choisit pas. « DN 15 » en cuivre est le
+    Ø 15 (DN nominal 12) ou le Ø 18 (DN nominal 15) ; « DN 100 » en inox sous pression est
+    le Ø 108 à sertir ou le Ø 114,3 soudé. La ligne échoue en `DN_NETWORK_DN_MISSING`,
+    la raison nomme les tubes et demande le diamètre extérieur, et `details.size_candidates`
+    les porte. Le code est celui d'un DN non lu : l'échec reste un avertissement de
+    quantité que V lève, côté TypeScript comme côté SQL, sans nouvelle migration.
+  - Tailles concernées aujourd'hui, lues dans la table : cuivre « DN 10 », « DN 12 »,
+    « DN 15 » et « DN 32 » ; multicouche « DN 20 », « DN 32 », « DN 40 » et « DN 50 »
+    (le Ø 20 ou le Ø 26 dont le DN nominal est 20) ; inox sous pression « DN 15 »,
+    « DN 20 », « DN 25 », « DN 32 », « DN 40 », « DN 50 » et « DN 100 », que la série
+    à sertir et la série soudée portent avec deux diamètres extérieurs (DN 65, DN 80,
+    DN 125 et DN 150 y partagent le même diamètre : un seul tube) ; en condensats,
+    ceux que porte aussi la série NF EN 1124. Sur un réseau d'évacuation, l'inox n'a
+    qu'une série et son « DN 100 » est le tube de 110 mm.
+  - Sur un couple à justifier (cuivre en condensats, multicouche en eau glycolée), la
+    taille est lue et chacun de ses tubes est dans la série : la ligne garde l'échec
+    `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, qui bloque jusqu'à sa justification,
+    et sa raison nomme aussi les tubes.
+  - « Ø n » ne désigne jamais qu'un diamètre extérieur : celui du tube qui a exactement
+    ce diamètre, avant celui qu'un arrondi atteindrait (« Ø 42 » en inox est le tube à
+    sertir, jamais le tube soudé Ø 42,4 ; « Ø 114 » reste le Ø 114,3, seul à s'en
+    approcher). Ce choix est fait dans la sélection commune, pour la règle, les doublons
+    et l'identité DPGF. « Cuivre 20/22 » reste « 20/22 » et ne devient pas « DN 22 ».
+  - Limite connue : deux tailles hors de la série de leur usage écrites de deux façons
+    (« EU PEHD Ø 20 » et « EU PEHD DN 20 ») ne sont plus rapprochées par leur diamètre
+    mais par leur texte, donc tenues pour différentes. Les deux lignes échouent déjà à
+    la règle DN.
+  - L'épaisseur est portée par le résultat de la règle. Elle n'entre pas encore dans
+    l'identité des doublons ni dans celle des quantités DPGF, qui comparent famille et
+    diamètre extérieur.
+- **Raccords** (D7) : une longueur de tuyau ne contient aucun raccord. Ils sont comptés
+  à part ou portés par un prix au mètre explicitement composé, jamais par un ratio
+  universel appliqué aux longueurs. Aucune règle du métré n'ajoute de raccords.
 
-La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 3 ;
-états de TI-685, séries par réseau de TI-684, D18a et D18b) :
+La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters.ts), version 4 ;
+états de TI-685, séries par réseau de TI-684, D18a et D18b, tailles par usage de TI-683) :
 
 - **Matériaux par réseau** (un réseau de départ ou de retour, CHW-S, HW-R…, suit son
   réseau parent) :
@@ -295,6 +344,12 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
   - Cuivre NF EN 1057, inox à sertir NF EN 10312 série 2, inox soudé NF EN ISO 1127.
   - PVC NF EN 1329-1 et 1452, fonte SMU NF EN 877. Le PVC d'évacuation et le PVC pression partagent une famille de L0 : leurs diamètres sont séparés ici.
   - Acier NF EN 10255 et 10220, multicouche ISO 21003, PER ISO 15875, PE NF EN 12201, PP NF EN 1451 et ISO 15874.
+  - **PE et PP par usage** (TI-683, D7), comme le PVC : chacun partage une famille de L0
+    entre pression et évacuation, et ses diamètres sont séparés ici (`USAGE_SERIES`).
+    PE sous pression NF EN 12201, de Ø 20 à Ø 315 ; PE d'évacuation NF EN 1519, de Ø 32
+    à Ø 315, sans Ø 20, Ø 25 ni Ø 140. PP sous pression NF EN ISO 15874, de Ø 16 à
+    Ø 160 ; PP d'évacuation NF EN 1451, de Ø 32 à Ø 160, sans Ø 16, Ø 20 ni Ø 25. Aucun
+    diamètre n'est ajouté à la famille de L0.
   - **Inox d'évacuation, série NF EN 1124 provisoire** (TI-685) : de Ø 40 (DN 40) à
     Ø 315 (DN 300). « DN 100 » et « Ø 110 » y sont le même tube ; Ø 108 et Ø 114,3
     n'en sont pas. Elle ne s'ajoute jamais aux clés ni aux recherches génériques des
@@ -309,11 +364,18 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
     NF EN 1124 ensemble, une ligne de condensats pouvant être relevée ou gravitaire.
     Ø 22, Ø 40 et Ø 50 y sont admis. Aucune taille absente des tables n'est ajoutée :
     Ø 32, qu'aucune ne porte, reste hors série tant qu'aucune source ne le donne ;
+  - PE et PP (TI-683) : les diamètres d'évacuation sur un réseau d'évacuation, les
+    diamètres sous pression sur tout autre réseau, les deux en condensats (relevés ou
+    gravitaires, comme l'inox) et sur une ligne sans réseau lu. Un « EU PEHD Ø 20 » est
+    hors série ; un « EF PEHD Ø 20 » ne l'est pas ;
+  - PVC : les diamètres de son code matériau (évacuation ou pression), quel que soit le
+    réseau ;
   - tout autre couple, ou une ligne sans réseau lu : les séries du matériau, sans la
     série NF EN 1124.
   - Une seule sélection partout (D18c, TI-684) : la règle DN, la détection des doublons
     entre zones, l'identité des quantités comparées au DPGF et la lecture des tailles
-    dans la désignation (voir « Entrées ») lisent la même série retenue. Un inox
+    dans la désignation (voir « Entrées ») lisent la même série retenue, diamètres par
+    usage du PVC, du PE et du PP compris depuis la version 4. Un inox
     d'évacuation « DN 100 » et « Ø 110 » y est un seul tube, qui ne rejoint jamais un
     « Ø 108 » ; hors évacuation, l'inox garde ses séries sous pression (Ø 108 est le
     DN 100 à sertir).
@@ -336,6 +398,16 @@ voir « Décisions ») : le passage de la version 2 à la version 3 change toute
   sous pression, vérifications acquises en version 2) jusqu'au prochain recalcul de leur
   version. Ce recalcul suit une modification de ligne, un traitement, une relance
   manuelle ou une application ; celui de l'application ne bloque pas s'il échoue.
+
+**Version 4 de la table** (TI-683) : une taille qui désigne plusieurs tubes échoue là où
+elle passait, le PE et le PP se lisent dans les diamètres de leur usage, et les diamètres
+du PVC restreignent toutes les lectures (règle, doublons, identité DPGF, lecteur de
+désignation), plus seulement la règle. Comme pour la version 3, toutes les clés
+`dn_network` changent : les lignes vérifiées qui portent un échec `dn_network` sont
+rouvertes au prochain recalcul, un override enregistré avec des clés de la version 3 est
+à refaire, les jobs appliqués restent figés et aucune migration ne périme les jobs
+terminés. Les entrées déjà écrites (version 1) ne sont pas réécrites : leur taille
+vectorielle reste lue des deux façons.
 
 **Acceptation technique** ([`verification.ts`](../../src/lib/takeoff/rules/verification.ts),
 migrations `20261107123425_takeoff_network_material_decisions.sql`,
@@ -386,7 +458,9 @@ d'échelle ou de surface imprimée demande aussi son motif codé (voir leurs sec
 **Reste ouvert** (`AMBIGUOUS_NETWORK_MATERIALS`, preuve ouverte, jamais une permission) :
 la série NF EN 1124, dont le second fabricant et DN 90 → Ø 82 restent à recouper. Les
 hypothèses non vérifiées (gaz en ERP, cuivre enterré, systèmes RIA, PE d'évacuation
-EN 1519) ne sont pas généralisées.
+EN 1519) ne sont pas généralisées. Le Ø 56 du PE d'évacuation, courant dans les gammes
+des fabricants et absent de la famille de L0, reste hors série tant qu'aucune source
+n'est enregistrée (TI-683, à trancher par le métier).
 
 ### Aucun tronçon compté à la fois dans Z1 et Z2
 
@@ -416,7 +490,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
 **Doublon**
-([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 2) :
+([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 3) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
@@ -437,6 +511,22 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Jamais comparés : un tuyau et son calorifuge, deux lignes d'une même page, deux niveaux, deux pages sans repère commun (« zones non recalées » ne vaut que pour deux lignes qui pourraient être un même tronçon).
 - Chaque ligne d'une page est mesurée contre toutes celles de l'autre en un seul passage : le coût suit le nombre d'axes des pages, pas le nombre de paires de lectures.
 
+**Plans agrandis** (TI-684, décision D14 du 6 nov. 2026 : « à indice cohérent, le détail agrandi fait foi dans son périmètre » ; version 3 de la règle) :
+
+- Une page est le **plan agrandi** d'une autre quand son échelle est au moins 1,5 fois plus fine (1/50 à côté de 1/100 ou de 1/200), les deux échelles étant lues. Deux pages de même échelle, ou dont une échelle n'est pas lue, ne sont jamais un détail et son plan d'ensemble.
+- Une ligne **cède** quand toutes les lignes incluses qui la dessinent aussi sont sur des plans agrandis de sa page. La correction lui revient :
+  - elle échoue en `ZONE_OVERLAP_DUPLICATE` tant que sa propre réduction ne retire pas ce que les plans agrandis dessinent d'elle (l'union des tronçons couverts), à 1 cm près, ou qu'elle n'est pas exclue ;
+  - elle n'entre dans aucun groupe : un plan d'ensemble au-dessus de deux zones se règle par sa réduction, et les deux zones gardent leur propre paire à leur limite ;
+  - le partenaire porte `plan: "enlarged"`, et la raison dit que le plan agrandi fait foi.
+- La ligne du plan agrandi échoue avec elle tant que la copie n'est pas retirée (un doublon détecté ne se règle jamais tout seul, et « Accepter » ne lève que la ligne vérifiée). Son partenaire porte `plan: "overview"` ; la raison dit que la longueur se retire de la ligne du plan d'ensemble, et la revue ciblée ne lui propose ni réduction ni retrait. Une ligne en échec ne nomme que ce qui reste ouvert : ses partenaires de même rang, et les lignes du plan d'ensemble qui n'ont pas encore retiré leur copie.
+- **Deux lignes seules** (une ligne du plan d'ensemble dont l'unique copie est une ligne du plan agrandi sans autre copie) se règlent comme toute paire : la réduction de l'une ou de l'autre retire la longueur commune. Une ligne de détail réduite avant d'être appliquée compte donc toujours. Au-delà, seules les réductions de la ligne qui cède comptent : celles des plans agrandis peuvent régler leurs propres paires, et une réduction ne dit jamais où elle retire.
+- Une copie lue autrement suit la même règle : la lecture du plan agrandi fait foi, et chaque ligne s'accepte (V) si ce sont deux tuyaux distincts.
+- **Ne cède pas** :
+  - une ligne d'un job appliqué (jamais appelée à changer) : la paire reste réglée par la ligne du job courant, comme avec toute ligne figée ;
+  - une ligne qui a aussi une copie sur une page de sa propre échelle, ou sur une page plus grossière : elle se règle comme avant (paire ou groupe). Sur trois échelles (1/200, 1/100, 1/50), la ligne au 1/200 cède aux deux autres, qui gardent entre elles une paire ordinaire ;
+  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon.
+- **À indice cohérent** : la règle ne lit pas l'indice des plans (il est tenu par la préparation du métré, qui refuse déjà deux révisions d'un même document). Deux plans d'indices différents sont à trancher par l'utilisateur ; la raison rappelle la condition.
+
 **Résolution**
 
 - Deux lignes partenaires forment une paire ; les lignes incluses reliées par des paires forment un groupe. Le résultat ne dépend jamais de l'ordre des pages ni de celui des lignes.
@@ -447,18 +537,19 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
   - Exclure une ligne entièrement en double règle aussi la paire.
 - **Groupe de trois lignes ou plus** : aucune correction ne le règle. Chaque ligne reste en `ZONE_OVERLAP_DUPLICATE` jusqu'à ce qu'elle soit exclue (entièrement en double) ou acceptée (V).
   - La raison donne, pour chaque ligne partenaire, la longueur commune ; puis la longueur de la ligne que d'autres lignes dessinent (`overlap_m`) et le nombre de lignes du groupe (`group_size`).
-  - Exclure une ligne entièrement en double peut ramener le groupe à une paire, qui se règle alors par sa réduction. Un plan d'ensemble au-dessus de deux zones qui se touchent, exclu, les laisse sans doublon.
+  - Exclure une ligne entièrement en double peut ramener le groupe à une paire, qui se règle alors par sa réduction. Un plan de même échelle au-dessus de deux zones qui se touchent, exclu, les laisse sans doublon.
 - **Pourquoi** (décision du 4 nov. 2026, après quatre tours Codex et deux revues adverses) : c'est un écart voulu à la résolution par défaut du ticket (« corriger une ligne en retirant cette longueur ») pour les groupes. Régler un groupe par ses réductions exige de savoir où chacune a retiré sa longueur.
   - Chaque modèle essayé a laissé passer un double compte : somme par groupe (une réduction réglait un tronçon que sa ligne ne dessine pas), flot sur des tronçons communs, payeurs d'une couverture minimale (une ligne figée supposée payer ce qu'elle n'a jamais retiré ; des lignes qui sortent d'un tronçon commun, 1,5 m compté deux fois et réglé).
-  - Le parcours d'acceptation du ticket porte sur une paire Z1/Z2 de deux jobs d'une version, qui se règle toujours par correction. Trois zones en enfilade, ou un plan d'ensemble au-dessus de deux zones, forment un groupe : il faut exclure ou accepter. L'erreur tombe du côté d'un blocage, jamais d'un double compte.
+  - Le parcours d'acceptation du ticket porte sur une paire Z1/Z2 de deux jobs d'une version, qui se règle toujours par correction. Trois zones en enfilade, ou un plan de même échelle au-dessus de deux zones, forment un groupe : il faut exclure ou accepter (un plan d'ensemble à une échelle plus grossière cède : voir « Plans agrandis »). L'erreur tombe du côté d'un blocage, jamais d'un double compte.
 - Une ligne exclue ne bloque jamais. Elle est montrée telle qu'elle serait si elle revenait, avec ses partenaires et leurs groupes.
+- Les lectures vectorielles écartées automatiquement à la création sont comparées entre elles et aux lignes retenues, avant toute inclusion. Un recouvrement les fait apparaître dans la revue ciblée comme « Longueur commune à comparer ». Elles restent exclues du devis ; « Inclure » permet de les retenir, puis de corriger le doublon compté. V et la réduction guidée restent indisponibles tant que la lecture n'est pas retenue. Une exclusion décidée et motivée par l'utilisateur retire la lecture de cette comparaison. Les résultats et quantités des lignes retenues ne sont pas modifiés par les lectures non retenues.
 - « Accepter » (V) lève l'échec de la ligne vérifiée seulement. Un recalcul qui lui apporte un échec qu'elle n'avait pas (un nouveau partenaire, une autre règle, un autre code, une autre version) lui retire sa vérification : voir « Décisions ».
 - **Limites connues** :
   - deux tuyaux réellement superposés en plan sur deux pages (une feuille par réseau, par exemple) échouent comme des copies lues autrement : c'est à l'utilisateur de les accepter (V) ;
   - deux copies lues autrement sur deux pages sans repère commun ne sont pas signalées ;
   - une copie mal lue qui prend exactement la lecture d'un tuyau voisin (à moins de 5 cm, dessiné sur les deux pages) passe pour ce voisin : elle n'est pas signalée ;
   - une ligne dont le réseau n'est pas lu n'est comparée à aucune autre : sa copie n'est pas signalée ;
-  - la règle du plan agrandi (D14 : le détail fait foi dans son périmètre, le plan d'ensemble contrôle la couverture) n'est pas appliquée : un détail et son plan d'ensemble se règlent comme tout doublon ;
+  - plans agrandis : le contrôle de couverture de D14 (un tronçon que le plan d'ensemble dessine dans le périmètre d'un plan agrandi et que celui-ci ne dessine pas) n'est pas fait, un tel tronçon compte sans alerte ; l'indice des plans n'est pas lu ; l'échelle sert telle qu'elle est lue, même non vérifiée ; la réduction d'une ligne qui cède à plusieurs lignes n'est pas localisée (réduite pour une autre raison, elle règle aussi ses copies) ; une ligne exclue dont le retour ôterait à une autre le droit de céder est montrée contre les lignes telles qu'elles sont ;
   - une sous-comptabilisation (un tronçon retiré de ses deux copies) n'est pas signalée ;
   - dans une paire, la réduction n'est pas localisée : une ligne réduite pour une autre raison règle aussi sa paire ;
   - un groupe ne se règle que par exclusion ou V, même quand une correction était juste.
@@ -754,8 +845,9 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     (copie commerciale, PDF, portail, classeurs standard, DPGF et BDC) ne porte le marqueur ni la colonne « Provision
     métré » : ces classeurs peuvent partir chez un client ou un fournisseur. Les tests de garde le vérifient
     (`takeoff-provision-exports.test.ts`, `dpgf-export.test.ts`, TKF02).
-  - Le choix explicite d'une réserve dans l'offre (TI-682) sera rangé hors du marqueur, sous la clé réservée
-    `offer_treatment`, que rien n'écrit ni ne lit encore ; le traitement par défaut reste la provision interne.
+  - Le marqueur ne porte aucun choix. La réserve écrite dans l'offre (TI-682, lot C) est une colonne de la ligne,
+    `estimate_items.offer_choice`, déclarée par un administrateur sur une ligne « Non chiffrée » (voir
+    [cycle de vie](cycle-de-vie.md#émission-et-pdf-contractuel)) ; une ligne marquée reste une provision interne.
 - **Faux positifs déclarés au forçage** (TI-686, D10 et H19, migration
   `20261110094505_takeoff_override_consumptions_admin_read.sql`). Le suivi des métrés des administrateurs publie, par
   règle, sur les jobs appliqués de la période (section « Forçages par règle ») :
@@ -1068,5 +1160,6 @@ règles de chaque passe, le profil ChatGPT local revoit les lignes rejetées, et
   run avant sa première page ; le premier arrêt du fournisseur (« Limite du forfait
   ChatGPT », limite de débit, autorisation, profil changé) l'arrête là où il en est. Dans
   les deux cas, rapport partiel et code de sortie 2. L5 n'appelle pas Decisions.
-- Un « Ø 110 » est écrit « DN 110 », comme la lecture vectorielle le fait déjà ; la
-  conversion par la série du matériau reste à faire (fonte, acier, inox soudé).
+- La taille répondue garde sa notation (TI-683, prompt `takeoff-vision-review-v2`) :
+  « Ø 110 » reste « Ø 110 » sur la désignation et dans les entrées de la ligne corrigée.
+  Un nombre seul, sans notation, est écrit « DN n » et lu des deux façons.

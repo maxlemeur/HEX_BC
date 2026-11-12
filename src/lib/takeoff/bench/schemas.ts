@@ -20,8 +20,8 @@ import { freeTakeoffLevelLabel, TAKEOFF_PAGE_TYPES } from "@/lib/takeoff/page-tr
 // Schemas of the private takeoff bench dataset (TI-659). The dataset lives outside
 // Git (`outputs/takeoff-bench-dataset/`): `manifest.json`, `raw/<id>.<ext>`,
 // `truth/<id>.json`, `truth/noise.json`, and the optional `truth/pages/` (page
-// types, owned by TI-663) and `truth/groups/` (path-group classes, owned by
-// TI-662). Objects are strict so that a misspelt field fails instead of being
+// types, owned by TI-663), `truth/groups/` (path-group classes, owned by
+// TI-662) and `truth/measured/` (lengths measured by hand on a plan, TI-662). Objects are strict so that a misspelt field fails instead of being
 // ignored; the pages and groups schemas stay minimal and open for their owners.
 
 type Path = Array<string | number>;
@@ -527,7 +527,48 @@ export const GroupTruthFileSchema = z.looseObject({
   })).optional(),
 });
 
+/** The identity of a length key in a measurement: the fields of its truth key that a length has. */
+export function measuredKey(key: { zone: string | null; level: string | null; network: string | null; material: string | null; dn: string | null }) {
+  return JSON.stringify([key.zone, key.level, key.network, key.material, key.dn]);
+}
+
+/**
+ * truth/measured/<id>.json (TI-662, decision of 11 Nov): the lengths of one plan measured by hand along the axis of
+ * the drawn pipe, plan view only, without drop, allowance or rounding. A devis may price more pipe than the plan
+ * draws; the bench then also judges the lengths of a measured plan on this file, beside the devis (measured.ts).
+ * One line per length the scorer scores on the plan (zone, level, network, material, diameter, as on the truth
+ * line); takeoff:bench:check refuses any other line and names a scored length left out. `length_m` is null when
+ * the measurer could not follow the line on the plan: the key is then left to the devis. It is never 0.
+ */
+export const MeasuredTruthFileSchema = z.strictObject({
+  schema_version: z.literal(1),
+  document: DocumentIdSchema,
+  /** The convention given to the person who measured. */
+  method: Text,
+  measured_by: Text,
+  measured_on: z.iso.date(),
+  notes: NullableText.optional(),
+  lines: z.array(z.strictObject({
+    zone: NullableText,
+    level: NullableText,
+    network: knownCode(NETWORK_CODES, "network"),
+    material: knownCode(MATERIAL_CODES, "material").nullable(),
+    dn: DnSchema.nullable(),
+    length_m: z.number().positive().nullable(),
+    notes: Text.optional(),
+  })).min(1),
+}).superRefine((measured, ctx) => {
+  const seen = new Map<string, number>();
+  for (const [index, line] of measured.lines.entries()) {
+    const identity = measuredKey(line);
+    const first = seen.get(identity);
+    if (first === undefined) seen.set(identity, index);
+    else addIssue(ctx, ["lines", index], `same key as lines[${first}]: one line per key`);
+  }
+});
+
 export type ManifestDocument = z.infer<typeof ManifestDocumentSchema>;
 export type TakeoffBenchManifest = z.infer<typeof ManifestSchema>;
 export type PageTruthFile = z.infer<typeof PageTruthFileSchema>;
 export type GroupTruthFile = z.infer<typeof GroupTruthFileSchema>;
+export type MeasuredTruthFile = z.infer<typeof MeasuredTruthFileSchema>;

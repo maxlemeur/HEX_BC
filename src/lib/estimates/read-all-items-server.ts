@@ -1,4 +1,5 @@
 import { foPriceOriginSchema } from "@/lib/estimates/fo-price-origin";
+import { estimateOfferChoiceSchema } from "@/lib/estimates/offer-choice";
 import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -99,7 +100,9 @@ async function readItemPages(input: ItemsScope, filter?: { column: "id" | "paren
         }
         ids.add(item.id);
         items.push({ ...item, fo_price_origin: foPriceOriginSchema.nullable().default(null).parse(item.fo_price_origin),
-          status_reason: estimateStatusReasonSchema.nullable().default(null).parse(item.status_reason) });
+          status_reason: estimateStatusReasonSchema.nullable().default(null).parse(item.status_reason),
+          // An unreadable choice (another kind, a later application) is no reserve: the send gate keeps the line to classify.
+          offer_choice: estimateOfferChoiceSchema.nullable().default(null).catch(null).parse(item.offer_choice) });
       }
       if (items.length > count || batch.length > pageSize) {
         throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");

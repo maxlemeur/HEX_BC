@@ -20,16 +20,20 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "not_priced_unclassified",
   "priced_line_without_amount",
   "excluded_without_reason",
+  "offer_reserve_declared",
+  "offer_limits_required",
 ] as const;
 
 /**
  * TI-682 (D25): flags no tenant setting can downgrade and no administrator can force. A « Non chiffrée » line is a
  * line still to classify: it is priced, or given the status the client reads (« Inclus », « Pour mémoire », « Hors
- * lot », « Sans objet »). Lot C (D11): a line so classified after « Non chiffrée » says why, internally.
+ * lot », « Sans objet »). Lot C (D11): a line so classified after « Non chiffrée » says why, internally. Lot C, PR 4
+ * (D10, D28): a line reserved in writing leaves unpriced only if the offer's limits text says something.
  */
 export const ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS: readonly EstimateGatingFlagKey[] = [
   "not_priced_unclassified",
   "excluded_without_reason",
+  "offer_limits_required",
 ];
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -116,6 +120,16 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Une prestation laissée « Non chiffrée » puis classée Inclus, Pour mémoire, Hors lot ou Sans objet dit pourquoi avant l'envoi. Ce motif reste interne : le client ne le lit jamais.",
   },
+  offer_reserve_declared: {
+    label: "Réserves écrites dans l'offre",
+    description:
+      "Ces lignes partent « Non chiffrée », avec une réserve déclarée par un administrateur. Vérifiez la base de chaque réserve : en marché public à prix global et forfaitaire, une réserve peut rendre l'offre irrégulière.",
+  },
+  offer_limits_required: {
+    label: "Précisions et limites de prestation à rédiger",
+    description:
+      "Une offre qui réserve des lignes dit par écrit ce qu'elle ne chiffre pas : le texte « Précisions et limites de prestation » ne peut pas rester vide. Insérez la liste des réserves, relisez-la, puis enregistrez.",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -145,6 +159,8 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   not_priced_unclassified: "blocking",
   priced_line_without_amount: "blocking",
   excluded_without_reason: "blocking",
+  offer_reserve_declared: "warning",
+  offer_limits_required: "blocking",
 };
 
 function parseFlagOverride(value: string | null): Set<string> {

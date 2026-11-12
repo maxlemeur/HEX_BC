@@ -11,8 +11,9 @@ import type { Json } from "@/types/database";
  * source saying why it is an hypothesis. It states facts, never a choice: the line prints to the client as an ordinary
  * priced line whose amount is the provision (H9), and only the internal estimate shows it.
  *
- * H18: TI-682's explicit choice (a reserve in the offer) will be stored outside the marker, under the reserved
- * source_metadata key `offer_treatment`, which nothing writes or reads yet. Until then the treatment is the default one.
+ * H18: the marker never carries a choice. TI-682's written reserve in the offer is a column of the line
+ * (estimate_items.offer_choice, src/lib/estimates/offer-choice.ts), declared by an administrator on a « Non chiffrée »
+ * line; a marked line stays an internal provision.
  */
 export const TAKEOFF_PROVISION_KEY = "takeoff_provision";
 

@@ -844,12 +844,12 @@ export function buildPilotageSteps(input: {
     devisStep = {
       key: "devis",
       label: "Structure devis",
-      status: hasConfirmedBrief ? "in_progress" : "waiting",
+      status: "in_progress",
       summary: hasConfirmedBrief
         ? hasReadyPrimaryCctp
           ? "Une structure préliminaire du devis peut être ouverte depuis le CCTP principal, sans DPGF obligatoire."
           : "Le devis peut démarrer en manuel ou s'ouvrir via une structure préliminaire, sans DPGF obligatoire."
-        : "Confirmez le brief, puis démarrez en manuel ou importez un DPGF selon le dossier.",
+        : "Démarrez le devis sur une page blanche, sans pièce ni brief obligatoire. Vous pourrez les ajouter plus tard.",
     };
   } else if (input.dpgfSource.importStatus === "failed") {
     devisStep = {
