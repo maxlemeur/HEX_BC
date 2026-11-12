@@ -43,8 +43,13 @@ export const MATERIAL_REQUEST_QUOTE_STATUS_LABELS: Record<MaterialRequestQuoteSt
   closed: "Clos",
 };
 
-/** Room for 300 lines with their designations and references. */
-export const MATERIAL_REQUEST_QUOTE_MESSAGE_MAX = 20_000;
+/**
+ * Room for the longest message the screen writes (consultation-message.ts): 300 lines of at most 861 characters
+ * (« - », the largest quantity « 999999,999 », a unit of 20, then the technician's words of 500 with size 80, material
+ * 120 and precision 120, or a type of 200 with a reference at the supplier of 255), 258 300 characters, plus the
+ * opening with the affaire's name and the closing lines: 256 KiB of characters. The database holds the same bound.
+ */
+export const MATERIAL_REQUEST_QUOTE_MESSAGE_MAX = 262_144;
 export const MATERIAL_REQUEST_QUOTE_NOTES_MAX = 2000;
 /** Files attached to one quote (a PDF, or the photographed pages of a paper quote). Originals keep their own cap. */
 export const MATERIAL_REQUEST_QUOTE_MAX_FILES = 10;
