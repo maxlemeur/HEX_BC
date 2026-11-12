@@ -57,7 +57,13 @@ import {
   GROUP_DECISIONS_PROMPT_VERSION,
   GROUP_DECISIONS_VERSION,
 } from "@/lib/takeoff/vectors/group-decisions";
-import { classifyVectorGroups, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK } from "@/lib/takeoff/vectors/group-decisions-server";
+import {
+  classifyVectorGroups,
+  GROUP_DECISIONS_BATCH_RESERVE_TOKENS,
+  GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
+  GROUP_DECISIONS_CONCURRENCY,
+  GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+} from "@/lib/takeoff/vectors/group-decisions-server";
 import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
 import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
@@ -287,6 +293,8 @@ function vectorRules() {
       version: GROUP_DECISIONS_VERSION, prompt_version: GROUP_DECISIONS_PROMPT_VERSION, limits_per_page: GROUP_DECISIONS_LIMITS,
       classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
       call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+      // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
+      concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_tokens: GROUP_DECISIONS_BATCH_RESERVE_TOKENS,
       sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
     },
   };

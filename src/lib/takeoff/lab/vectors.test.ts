@@ -21,7 +21,10 @@ import type { GroupImage } from "@/lib/takeoff/vectors/group-sheet-server";
 //   elements: nothing applied in the run's reading, no element to judge;
 // - a dedicated call that fails (HTTP 429: status failed, its answers missing)
 //   erases the probabilities of the batch answer the group keeps (« EU 40 % »
-//   shown without bars).
+//   shown without bars);
+// - with the calls in parallel (TI-704), a dedicated call sent before an
+//   earlier one failed lends its probabilities to the batch answer the group
+//   keeps (« EU 40 % » shown with the bars of « EF 90 % »).
 // The real Decisions client is never reached: it is mocked to throw.
 
 vi.mock("@/lib/ai/decisions", async (importOriginal) => ({
@@ -89,6 +92,19 @@ function decide(dedicated: "ok" | "failed"): GroupDecisionsDecide {
   };
 }
 
+/** One answer per question, `value` at `confidence` for each, or a failed call (HTTP 429). */
+function answered(input: Parameters<GroupDecisionsDecide>[0], value: string, confidence: number, failed = false): OpenAiDecisionsResult {
+  return {
+    status: failed ? "failed" : "available", capability: { status: "available", model: "gpt-6-luna", billing: "separate_api", message: "" },
+    message: failed ? "Decisions limite les demandes (HTTP 429)." : "Fictional answer.",
+    answers: input.questions.map((question) => (failed ? { name: question.name, type: "choice", status: "missing", value: null, confidence: null }
+      : { name: question.name, type: "choice", status: "answered", value, confidence,
+        probabilities: [{ value, probability: confidence }, { value: "autre", probability: Math.round((1 - confidence) * 10) / 10 }] })),
+    provenance: { tenant_id: ACCESS.owner.tenantId, project_id: "takeoff-lab", preparation_fingerprint: "f".repeat(64), request_fingerprint: "r",
+      model: "gpt-6-luna", requested_at: "2026-11-03T10:00:00.000Z", usage: failed ? null : { input_tokens: 90, output_tokens: 10, total_tokens: 100 } },
+  };
+}
+
 function configure(options: { render: GroupDecisionsRender; decide: GroupDecisionsDecide }) {
   const task = findLabTask(LAB_VECTOR_TASK_ID)!;
   return runVectorGroupsConfig({
@@ -126,5 +142,28 @@ describe("lab « classe de calque » configuration (vectors.ts runVectorGroupsCo
     const second = config.answers?.find((answer) => answer.name === "groupe_02");
     expect(second).toMatchObject({ status: "answered", value: "EF", confidence: 0.9 });
     expect(second?.probabilities?.map((option) => [option.value, option.probability])).toEqual([["EF", 0.9], ["autre", 0.1]]);
+  });
+
+  it("keeps a batch answer's own probabilities when a dedicated call sent alongside a failed one answers (TI-704)", async () => {
+    // Both groups EU 0.4 in batch, asked again alone together: groupe_02's dedicated call answers EF 0.9 first, then
+    // groupe_01's, started before it, fails. groupe_02 keeps its batch answer, as when the calls went one at a time.
+    let failFirst = () => {};
+    const firstFails = new Promise<void>((resolve) => {
+      failFirst = resolve;
+    });
+    const racing: GroupDecisionsDecide = async (input) => {
+      if (input.evidence.call === "batch") return answered(input, "EU", 0.4);
+      if (input.questions[0]?.name === "groupe_02") {
+        failFirst();
+        return answered(input, "EF", 0.9);
+      }
+      await firstFails;
+      return answered(input, "EF", 0.9, true);
+    };
+    const config = await configure({ render: render("ok"), decide: racing });
+    expect(config.stop?.reason).toBe("call_failed");
+    const second = config.answers?.find((answer) => answer.name === "groupe_02");
+    expect(second).toMatchObject({ status: "answered", value: "EU", confidence: 0.4 });
+    expect(second?.probabilities?.map((option) => [option.value, option.probability])).toEqual([["autre", 0.6], ["EU", 0.4]]);
   });
 });
