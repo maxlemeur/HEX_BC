@@ -13,6 +13,12 @@ de jetons. Le serveur doit être accessible depuis la boucle locale du navigateu
 un serveur distant nécessite un transfert de port. HTTPS via un proxy vers Next
 HTTP est compatible ; le HTTPS natif de Next seul ne fournit pas ce retour HTTP.
 
+Les ressources de développement Next (dont HMR) autorisent les adresses de boucle
+locale et les adresses réseau présentes sur la machine au démarrage. Pour un
+alias DNS ou un tunnel, définir `MERGEONE_DEV_HOSTS=mergeone.dev.test,autre.dev.test`
+avant `npm run dev`. Cette liste accepte uniquement des noms exacts, sans protocole,
+port ni joker ; les sites sans rapport restent refusés.
+
 ## Utilisation
 
 La migration `20261023222150_chatgpt_local_takeoff_execution.sql` est requise

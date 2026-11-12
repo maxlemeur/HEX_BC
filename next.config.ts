@@ -1,10 +1,14 @@
 import type { NextConfig } from "next";
 
+import { resolveDevelopmentOrigins } from "./src/lib/development-origins";
+
 const armyDevServer = process.env.E2E_ARMY === "1" && process.env.NODE_ENV === "development"
   ? process.env.E2E_ARMY_DEV_SERVER_ID : undefined;
 if (armyDevServer && !/^[a-z0-9-]{1,64}$/.test(armyDevServer)) throw new Error("Invalid Army development server ID.");
 
 const nextConfig: NextConfig = {
+  // Keep development resources available on this machine and explicitly configured domains.
+  ...(process.env.NODE_ENV === "development" ? { allowedDevOrigins: resolveDevelopmentOrigins() } : {}),
   // The server-side spreadsheet parser runs in a Node worker. Keep these
   // packages external so their runtime files can be traced for that worker.
   serverExternalPackages: ["xlsx", "exceljs", "word-extractor"],
