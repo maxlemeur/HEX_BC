@@ -181,7 +181,8 @@ export async function runVectorGroupsConfig(input: {
     input: total.input + (call.usage?.input_tokens ?? 0), output: total.output + (call.usage?.output_tokens ?? 0), reasoning: 0,
     total: total.total + (call.usage?.total_tokens ?? 0),
   }), { input: 0, output: 0, reasoning: 0, total: 0 });
-  const latency = outcome.calls.length === 0 ? null : outcome.calls.reduce((total, call) => total + call.latency_ms, 0);
+  // The time the calls took together (TI-704: they run in parallel), as the other configurations' elapsed time.
+  const latency = outcome.calls_ms;
   const stop = outcome.stop;
   const incomplete = answers.some((answer) => answer.status !== "answered");
   // A stop after answers (provider, ceiling or a dedicated render) keeps them: they are paid, applied and judged.

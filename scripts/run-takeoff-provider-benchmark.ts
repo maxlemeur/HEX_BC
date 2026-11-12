@@ -59,7 +59,7 @@ import {
 } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
-  GROUP_DECISIONS_BATCH_RESERVE_TOKENS,
+  GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
   GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
   GROUP_DECISIONS_CONCURRENCY,
   GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
@@ -294,7 +294,7 @@ function vectorRules() {
       classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
       call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
       // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
-      concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_tokens: GROUP_DECISIONS_BATCH_RESERVE_TOKENS,
+      concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_margin: GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
       sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
     },
   };

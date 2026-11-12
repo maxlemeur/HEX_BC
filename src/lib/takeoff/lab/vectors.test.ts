@@ -24,7 +24,8 @@ import type { GroupImage } from "@/lib/takeoff/vectors/group-sheet-server";
 //   shown without bars);
 // - with the calls in parallel (TI-704), a dedicated call sent before an
 //   earlier one failed lends its probabilities to the batch answer the group
-//   keeps (« EU 40 % » shown with the bars of « EF 90 % »).
+//   keeps (« EU 40 % » shown with the bars of « EF 90 % »); the latency given
+//   to the statistics adds up calls that ran together.
 // The real Decisions client is never reached: it is mocked to throw.
 
 vi.mock("@/lib/ai/decisions", async (importOriginal) => ({
@@ -114,6 +115,24 @@ function configure(options: { render: GroupDecisionsRender; decide: GroupDecisio
 }
 
 describe("lab « classe de calque » configuration (vectors.ts runVectorGroupsConfig)", () => {
+  it("gives the time its calls took, not the sum of calls that ran together (TI-704)", async () => {
+    vi.useFakeTimers();
+    try {
+      // A batch call, then the 2 groups' dedicated calls together, 1 s each: 2 s, not 3.
+      const slow: GroupDecisionsDecide = async (input) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        return answered(input, "EU", 0.4);
+      };
+      const pending = configure({ render: render("ok"), decide: slow });
+      await vi.runAllTimersAsync();
+      const config = await pending;
+      expect(JSON.parse(config.raw ?? "{}").calls).toHaveLength(3);
+      expect(config.latency_ms).toBe(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the paid batch answers as a partial configuration when a dedicated render fails, and says why", async () => {
     const config = await configure({ render: render("timeout"), decide: decide("ok") });
     expect(config.stop?.reason).toBe("render_failed");

@@ -331,15 +331,18 @@ sont faits pour l'utilisateur du métré, sur son tenant
 - Chaque page est lue par mots-clés, ses groupes sont classés, puis la page est relue
   avec les réponses.
 - Les appels d'une page partent 8 à la fois au plus, dans leur ordre
-  (`GROUP_DECISIONS_CONCURRENCY`), les appels dédiés une fois tous les appels groupés
-  revenus. Le contrôle du métré et le plafond de jetons passent avant chaque départ :
-  un appel ne part à côté d'autres que si le plafond tient chacun d'eux, un appel
-  groupé comptant chacun pour 40 000 jetons au moins (`GROUP_DECISIONS_BATCH_RESERVE_TOKENS`).
+  (`GROUP_DECISIONS_CONCURRENCY`). Le premier appel groupé de la page part seul, les
+  appels dédiés une fois tous les appels groupés revenus. Le contrôle du métré et le
+  plafond de jetons passent avant chaque départ : un appel ne part à côté d'autres que
+  si le plafond tient chacun d'eux. Pour un appel groupé, chacun compte alors pour
+  1,25 fois le plus gros appel déjà vu (`GROUP_DECISIONS_BATCH_RESERVE_MARGIN`).
   Les rendus des appels dédiés restent dessinés par lots de 10, un processus à la
   fois, un lot d'avance au plus. Le premier arrêt dans l'ordre des appels décide :
   aucun appel ne part ensuite, ceux déjà partis finissent et les réponses de ceux
   d'après l'arrêt ne sont pas appliquées. La page obtient les mêmes réponses que si
   les appels étaient partis un par un, quel que soit l'ordre où ils reviennent.
+  Son résumé compte tous les appels envoyés et leurs jetons, ceux encore en cours à
+  l'arrêt compris ; sa latence est le temps passé dans les appels, pas leur somme.
 - Plafonds par défaut, modifiables par Thanh :
   - 10 appels groupés et 50 appels dédiés au plus par document et par traitement, sur
     l'ensemble de ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`). Au-delà, les groupes

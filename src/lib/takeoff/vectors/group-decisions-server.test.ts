@@ -7,7 +7,6 @@ import { GROUP_DECISIONS_LIMITS } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
   decisionsOfOutcome,
-  GROUP_DECISIONS_BATCH_RESERVE_TOKENS,
   GROUP_DECISIONS_CONCURRENCY,
   GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
   type GroupDecisionsCallLimits,
@@ -48,9 +47,11 @@ import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 // - a dedicated call before every batch call has answered; dedicated renders
 //   that overlap, run more than one chunk ahead, or go on past a stop;
 // - calls started together past the token ceiling (one check for several
-//   starts, or batch calls reserved at the estimate before one has answered),
-//   or a refusal while calls in flight would have made room (an earlier stop
-//   than in a row);
+//   starts, or batch calls reserved at the estimate or at a smaller call before
+//   the page's first batch has answered), or a refusal while calls in flight
+//   would have made room (an earlier stop than in a row);
+// - a chunk drawn ahead after a stop is known, or the summed latencies of
+//   calls in parallel given for the time they took;
 // - a new call after a failed one or a failed job check is known, the answers
 //   of a call after the failed one applied, or the job check's error lost or
 //   thrown while calls are still in flight;
@@ -348,16 +349,20 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
   it("starts the dedicated calls only once every batch call has answered", async () => {
     const gated = gatedDecide(weak);
     const { render, calls } = fakeRender();
-    // 100 candidates: 3 batch calls, all in flight at once.
+    // 100 candidates: 3 batch calls; the first alone, the 2 others together once it has answered.
     const pending = run(page(100), { decide: gated.decide, render }).outcome;
+    await tick();
+    expect(gated.calls.map((call) => call.kind)).toEqual(["batch"]);
+    gated.calls[0].settle();
     await tick();
     expect(gated.calls.map((call) => call.kind)).toEqual(["batch", "batch", "batch"]);
     gated.calls[2].settle();
-    gated.calls[1].settle();
     await tick();
     expect(gated.calls).toHaveLength(3);
     expect(calls.sheets).toEqual([3]);
-    gated.calls[0].settle();
+    // Held back until now: the second batch call.
+    expect(gated.open().map((call) => call.index)).toEqual([1]);
+    gated.calls[1].settle();
     await tick();
     expect(calls.sheets).toEqual([3, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK]);
     expect(gated.calls.slice(3).map((call) => call.kind)).toEqual(Array<string>(GROUP_DECISIONS_CONCURRENCY).fill("dedicated"));
@@ -385,8 +390,8 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
       const outcome = await drive(run(page(56), { decide: gated.decide, render }).outcome, gated, pick);
       expect(overlapping).toBe(1);
       expect(calls.sheets.slice(1).every((size) => size <= GROUP_DECISIONS_DEDICATED_RENDER_CHUNK)).toBe(true);
-      // The render of chunk n + 1 starts once the calls reach chunk n (every call before it started): one chunk ahead.
-      startedBefore.forEach((started, chunk) => expect(started).toBeGreaterThanOrEqual(Math.max(0, chunk - 1) * GROUP_DECISIONS_DEDICATED_RENDER_CHUNK));
+      // The render of chunk n + 1 starts once the first call of chunk n has: at most one chunk drawn ahead.
+      startedBefore.forEach((started, chunk) => expect(started).toBeGreaterThanOrEqual(chunk === 0 ? 0 : (chunk - 1) * GROUP_DECISIONS_DEDICATED_RENDER_CHUNK + 1));
       if (failing === null) {
         expect(calls.sheets).toEqual([2, 10, 10, 10, 10, 10]);
         expect(outcome.render.sheets_ms).toHaveLength(52);
@@ -398,6 +403,45 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
         expect(outcome.stop).toMatchObject({ reason: "call_failed" });
       }
     }
+  });
+
+  it("draws no chunk ahead once a stop is known, even while it waits for the render of the next one", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gated = gatedDecide(weak);
+    const { render, calls } = fakeRender({ sheets: async (plans) => {
+      calls.sheets.push(plans.length);
+      // The second dedicated chunk, drawn ahead, ends when the test says.
+      if (calls.sheets.length === 3) await held;
+      return { images: plans.map(() => IMAGE), issue: null, render_ms: plans.map(() => 7), duration_ms: 9 };
+    } });
+    const pending = run(page(56), { decide: gated.decide, render }).outcome;
+    for (let turn = 0; gated.calls.every((call) => call.kind === "batch") && turn < 10; turn += 1) {
+      await tick();
+      for (const call of gated.open().filter((open) => open.kind === "batch")) call.settle();
+    }
+    await tick();
+    const dedicated = () => gated.calls.filter((call) => call.kind === "dedicated");
+    expect(dedicated()).toHaveLength(GROUP_DECISIONS_CONCURRENCY);
+    expect(calls.sheets).toEqual([2, 10, 10]);
+    // The last two calls of the first chunk start; the next one waits for the second chunk's render.
+    dedicated()[0].settle();
+    dedicated()[1].settle();
+    dedicated()[2].settle();
+    await tick();
+    expect(dedicated()).toHaveLength(GROUP_DECISIONS_DEDICATED_RENDER_CHUNK);
+    dedicated()[3].settle("failed");
+    await tick();
+    release();
+    await tick();
+    expect(calls.sheets).toEqual([2, 10, 10]);
+    expect(dedicated()).toHaveLength(GROUP_DECISIONS_DEDICATED_RENDER_CHUNK);
+    for (const call of gated.open()) call.settle();
+    const outcome = await pending;
+    expect(outcome.stop).toMatchObject({ reason: "call_failed" });
+    expect(outcome.render.sheets_ms).toHaveLength(12);
   });
 
   it("reserves each call before it starts, waits for the calls in flight rather than refusing early, and refuses as in a row", async () => {
@@ -429,19 +473,23 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     expect(roomy.tryStart()).toBe(false);
   });
 
-  it("counts each batch call in flight at a full batch call at least, so batch calls started together never pass the ceiling", async () => {
-    // Full batch calls (0.82 of GROUP_DECISIONS_BATCH_RESERVE_TOKENS each) under 2.5 of it, the reserve still the
-    // estimate's 1 000: started all at once, the 6 calls would spend twice the ceiling. In a row: 3 calls, the 4th refused.
-    const full = Math.round(0.82 * GROUP_DECISIONS_BATCH_RESERVE_TOKENS);
-    const ceiling = 2.5 * GROUP_DECISIONS_BATCH_RESERVE_TOKENS;
-    const budget = createDecisionsTokenBudget(ceiling, 1_000);
-    const gated = gatedDecide(() => ({ value: "EU", confidence: 0.9 }), { tokens: () => full });
-    const outcome = await drive(run(page(200), { decide: gated.decide, budget }).outcome, gated, shuffled(8));
-    expect(gated.calls.map((call) => call.kind)).toEqual(["batch", "batch", "batch"]);
-    expect(gated.maxInFlight()).toBe(2);
-    expect(outcome.stop).toMatchObject({ reason: "budget_reached" });
-    expect(budget.snapshot()).toMatchObject({ calls: 3, spent_tokens: 3 * full, refused_starts: 1 });
-    expect(budget.snapshot().spent_tokens).toBeLessThanOrEqual(ceiling);
+  it("sends the page's first batch call alone, then batch calls beside others only as the ceiling holds them, as in a row", async () => {
+    // 360 candidates: 10 batch calls of 60 000 tokens under the worker's ceiling, the reserve still the 20 000
+    // estimate: started all at once, 8 would spend 480 000. In a row: 6 calls (360 000), the seventh refused.
+    const shapes: unknown[] = [];
+    for (const pick of [first, last, shuffled(8), shuffled(9)]) {
+      const budget = createDecisionsTokenBudget(400_000, 20_000);
+      const gated = gatedDecide(() => ({ value: "EU", confidence: 0.9 }), { tokens: () => 60_000 });
+      const pending = run(page(360), { decide: gated.decide, budget }).outcome;
+      await tick();
+      expect(gated.calls).toHaveLength(1);
+      const outcome = await drive(pending, gated, pick);
+      expect(gated.maxInFlight()).toBeGreaterThan(1);
+      expect(outcome.stop).toMatchObject({ reason: "budget_reached" });
+      expect(budget.snapshot()).toMatchObject({ calls: 6, spent_tokens: 360_000, refused_starts: 1 });
+      shapes.push(result(outcome));
+    }
+    for (const other of shapes.slice(1)) expect(other).toEqual(shapes[0]);
   });
 
   it("starts no call once one has failed; the calls in flight finish, their answers unused, whichever ends first", async () => {
@@ -449,19 +497,19 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
       for (const failingFirst of [true, false]) {
         const gated = gatedDecide(weak);
         const budget = createDecisionsTokenBudget(10_000_000, 1_000);
-        // 80 candidates: 3 batch calls in flight, then dedicated ones if nothing stops.
+        // 80 candidates: 3 batch calls, the first alone, then 2 in flight, then dedicated ones if nothing stops.
         const pending = run(page(80), { decide: gated.decide, budget }).outcome;
         await tick();
-        const [before, failing, after] = gated.calls;
+        gated.calls[0].settle();
+        await tick();
+        const [, failing, after] = gated.calls;
         expect(gated.calls).toHaveLength(3);
         if (failingFirst) {
           failing.settle(status);
           await tick();
           after.settle();
-          before.settle();
         } else {
           after.settle();
-          before.settle();
           await tick();
           failing.settle(status);
         }
@@ -481,6 +529,7 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     const pending = run(page(56), { decide: gated.decide }).outcome;
     await tick();
     gated.calls[0].settle();
+    await tick();
     gated.calls[1].settle();
     await tick();
     expect(gated.calls).toHaveLength(2 + GROUP_DECISIONS_CONCURRENCY);
@@ -500,7 +549,7 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     const budget = createDecisionsTokenBudget(10_000_000, 1_000);
     const lost = new Error("Bail de traitement perdu.");
     let checks = 0;
-    // 200 candidates: 6 batch calls; the fourth check fails.
+    // 200 candidates: 6 batch calls, the first alone; the fourth check fails with the second and third in flight.
     const pending = run(page(200), { decide: gated.decide, budget, beforeCall: async () => {
       checks += 1;
       if (checks === 4) throw lost;
@@ -508,10 +557,12 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     let ended = false;
     pending.then(() => { ended = true; }, () => { ended = true; });
     await tick();
+    expect(gated.calls).toHaveLength(1);
+    gated.calls[0].settle();
+    await tick();
     expect(gated.calls).toHaveLength(3);
     expect(ended).toBe(false);
     gated.calls[1].settle();
-    gated.calls[0].settle();
     await tick();
     expect(ended).toBe(false);
     gated.calls[2].settle();
@@ -547,7 +598,7 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     }
   });
 
-  it("sends the calls of the 5/11 page with the most calls in a sixth of their time in a row", async () => {
+  it("sends the calls of the 5/11 page with the most calls in a fifth of their time in a row", async () => {
     // Real latencies (ms) of its 2 batch then 50 dedicated calls on the 5/11 bench run, in the order they were sent.
     const latencies = [1881, 1258, 745, 845, 806, 678, 671, 784, 692, 775, 726, 826, 846, 769, 673, 719, 761, 698, 794, 564, 836,
       703, 834, 546, 593, 688, 586, 720, 700, 693, 676, 923, 664, 625, 668, 530, 659, 673, 520, 666, 685, 676, 641, 585, 820, 665, 571,
@@ -568,8 +619,10 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
       const elapsed = Date.now() - started;
       expect(outcome.calls.map((call) => call.latency_ms)).toEqual(latencies);
       expect(latencies.reduce((total, latency) => total + latency, 0)).toBe(38_573);
-      // 6.6 s at 8 in flight: the longest batch call, then the dedicated ones eight at a time.
-      expect(elapsed).toBeLessThanOrEqual(7_000);
+      // 7.8 s at 8 in flight, the latencies of calls sent alone: the 2 batch calls, then the dedicated ones 8 at a time.
+      expect(elapsed).toBeLessThanOrEqual(8_000);
+      // The time the page spent in its calls, not their sum.
+      expect(outcome.calls_ms).toBe(elapsed);
     } finally {
       vi.useRealTimers();
     }

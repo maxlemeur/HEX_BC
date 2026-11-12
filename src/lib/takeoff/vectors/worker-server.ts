@@ -166,18 +166,19 @@ type DecisionsRun = {
 };
 
 function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | null): VectorPageDecisions {
+  // Every call sent, those still in flight at a stop included: their tokens are spent (TI-704).
   const calls = { batch: 0, dedicated: 0, failed: 0 };
-  let tokens = 0, latency = 0;
+  let tokens = 0;
   for (const call of outcome.calls) {
     calls[call.kind] += 1;
     if (call.status === "failed" || call.status === "unavailable" || call.status === "exception") calls.failed += 1;
     tokens += call.usage?.total_tokens ?? 0;
-    latency += call.latency_ms;
   }
   const answered = [...outcome.answers.values()].filter((answer) => answer.status === "answered" && answer.class !== null).length;
   return {
     prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
-    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: Math.round(latency),
+    // The time the page spent in its calls, run in parallel: not the sum of their latencies.
+    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: outcome.calls_ms ?? 0,
     stop: stop === null ? null : { reason: stop.reason, message: stop.message, from_earlier_page: false },
   };
 }

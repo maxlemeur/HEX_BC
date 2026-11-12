@@ -41,23 +41,28 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   per run; the groups past the batch caps are counted in `left_out`, those
 //   whose weak answer is not asked again alone in `dedicated_left_out`;
 // - the calls of each phase run GROUP_DECISIONS_CONCURRENCY at a time (TI-704),
-//   started in their order, the dedicated ones once every batch call has
-//   ended; the dedicated renders are drawn by chunks, one child process at a
-//   time, the next chunk once the calls reach the current one;
+//   started in their order, the page's first batch call alone, the dedicated
+//   ones once every batch call has ended; the dedicated renders are drawn by
+//   chunks, one child process at a time, the next chunk once the first call
+//   of the current one has started, and no longer held once its calls have
+//   their images;
 // - `beforeCall` runs before each start, one at a time, outside of the call's
 //   own failure: the worker renews its lease there, and its failure stops the
 //   job: no call starts after it, the calls in flight are waited for, then its
 //   error leaves this function, whatever they returned;
 // - the token budget reserves each call before it starts and is given its
 //   usage after it; while calls are in flight, a start the ceiling cannot hold
-//   (a batch call counting each at GROUP_DECISIONS_BATCH_RESERVE_TOKENS at
-//   least) waits for one of them to end; a refusal with none in flight stops
-//   the page (budget_reached), as in a row. The first failed or unavailable
-//   result, or an exception before sending, stops it too, never retried;
+//   (a batch call counting each at GROUP_DECISIONS_BATCH_RESERVE_MARGIN times
+//   the largest call seen) waits for one of them to end; a refusal with none
+//   in flight stops the page (budget_reached), as in a row. The first failed or
+//   unavailable result, or an exception before sending, stops it too, never
+//   retried;
 // - the first stop in call order decides: no call starts once a stop is known,
 //   the calls in flight end, the answers of those after the stop are not
 //   applied (logged `after_stop`). Answers, their order and the stop are those
-//   of the same calls one after the other, whatever order they end in;
+//   of the same calls one after the other, whatever order they end in; the
+//   call log, its tokens and `calls_ms` keep every call sent, so after a stop
+//   they count the calls that were in flight then;
 // - without canvas, or when an image cannot be rendered, no call is sent for
 //   the page (canvas_unavailable, render_failed).
 // Whatever stops, the groups without an answer stay « à revoir »; the reading
@@ -71,25 +76,30 @@ export const GROUP_DECISIONS_CALL_ESTIMATE_TOKENS = 20_000;
 export const GROUP_DECISIONS_DEDICATED_RENDER_CHUNK = 10;
 /**
  * Decisions calls in flight at once for a page (TI-704). The 5/11 bench page with the most calls sent 52 (2 batch,
- * 50 dedicated) in 38.6 s, one after the other at 0.5 to 1.9 s each; at 8, its real latencies end in 6.6 s, at 10 in
- * 5.9 s. 8 keeps:
- * - the calls in flight and the chunk drawn ahead within two dedicated chunks of images (8 ≤
- *   GROUP_DECISIONS_DEDICATED_RENDER_CHUNK), one render child at a time, its heap unchanged;
- * - the provider's rate at about 11 calls and 40 000 tokens per second on the dedicated calls (3 to 4 000 tokens
- *   each), 8 times the rate the 5/11 run sent in a row without a 429. A 429 stays a failed call that stops the
- *   job's Decisions, never retried (decisions.ts): the bench records this value (rules.vector.decisions) and a real
- *   pass that meets a 429 lowers it;
+ * 50 dedicated) in 38.6 s, one after the other at 0.5 to 1.9 s each. Replayed with those latencies (measured one call
+ * at a time; 8 in flight may lengthen them), its calls end in 7.8 s at 8, 11.1 s at 4 and 6.9 s at 10; at 8 the page
+ * may meet TI-662's 15 s, at 4 it cannot. 8 keeps:
+ * - the dedicated images in memory within the chunk being sent, the chunk drawn ahead and the calls in flight
+ *   (8 ≤ GROUP_DECISIONS_DEDICATED_RENDER_CHUNK), one render child at a time, its heap unchanged;
  * - the job ceiling's say: each call in flight holds the budget's reserve, the largest call seen (about 33 000 tokens
  *   after a full batch call), so under TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS fewer run at once as the job spends.
+ * The provider's rate limits for this model are not known here. On the dedicated calls (3 to 4 000 tokens each), 8
+ * in flight send about 11 calls and 40 000 tokens per second, 8 times the rate of the 5/11 run, which sent its calls
+ * in a row and met no 429. A 429 stays a failed call that stops the job's Decisions, never retried (decisions.ts).
+ * The bench records this value (rules.vector.decisions): the first real pass checks its calls for a 429 before the
+ * worker relies on it, and lowers it if one comes.
  */
 export const GROUP_DECISIONS_CONCURRENCY = 8;
 /**
- * What each call in flight counts for at least when a batch call starts beside others (TI-704): a batch call of 36
- * groups cost 32 700 tokens on the 5/11 run, more than the estimate a budget reserves before it has seen one. Batch
- * calls started together thus never pass the ceiling unless one costs more than this. A dedicated call (2 to 4 000
- * tokens) needs none: the budget's reserve is never under GROUP_DECISIONS_CALL_ESTIMATE_TOKENS.
+ * A batch call that starts beside others counts each call in flight at this many times the largest call seen (TI-704).
+ * The page's first batch call, its largest (36 groups when it has more), runs alone: the budget has then seen a batch
+ * call of the page, and not only the estimate or an earlier page's smaller calls (a 36-group call cost 32 700 tokens
+ * on 5/11, the estimate is 20 000). Batch calls of one size still differ by their labels and layer names: 25 % leaves
+ * room for that. While no batch call costs more than this, batch calls started together spend and stop exactly as in a
+ * row. A dedicated call (2 to 4 000 tokens) needs no margin: the budget never reserves less than
+ * GROUP_DECISIONS_CALL_ESTIMATE_TOKENS.
  */
-export const GROUP_DECISIONS_BATCH_RESERVE_TOKENS = 40_000;
+export const GROUP_DECISIONS_BATCH_RESERVE_MARGIN = 1.25;
 
 export type GroupDecisionsDecide = (input: Parameters<typeof callOpenAiDecisions>[0]) => Promise<OpenAiDecisionsResult>;
 export type GroupDecisionsRender = {
@@ -130,6 +140,8 @@ export type GroupDecisionsOutcome = {
   /** Groups whose batch answer needed a dedicated call past the dedicated caps: they keep it (« à revoir » under 0.8). */
   dedicated_left_out: number;
   render: { legend_ms: number | null; sheets_ms: number[] };
+  /** From the first call's start to the last call's end (the calls run together: not the sum of their latencies); null without a call. */
+  calls_ms: number | null;
 };
 
 /** Stops that end a series of pages (bench run, worker job): the provider or the ceiling, not a page's render. */
@@ -201,7 +213,13 @@ export async function classifyVectorGroups(input: {
   const selection = selectDecisionCandidates(model, input.reading, limits);
   const outcome: GroupDecisionsOutcome = {
     answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
-    dedicated_left_out: 0, render: { legend_ms: null, sheets_ms: [] },
+    dedicated_left_out: 0, render: { legend_ms: null, sheets_ms: [] }, calls_ms: null,
+  };
+  /** When the calls started and last ended (clock), for calls_ms. */
+  const span = { first: null as number | null, last: 0 };
+  const done = () => {
+    if (span.first !== null) outcome.calls_ms = Math.max(0, Math.round(span.last - span.first));
+    return outcome;
   };
   if (selection.candidates.length === 0) return outcome;
   const { candidates } = selection;
@@ -232,6 +250,7 @@ export async function classifyVectorGroups(input: {
   /** One call, started: its log entry, and its answers or the stop it makes. Never throws. */
   const send = async (kind: DecisionsCallKind, group: readonly DecisionCandidate[], image: CallImage): Promise<SentCall> => {
     const started = clock();
+    span.first ??= started;
     let result: OpenAiDecisionsResult | null = null;
     let error: string | undefined;
     try {
@@ -247,7 +266,9 @@ export async function classifyVectorGroups(input: {
     const usage = result?.provenance.usage ?? null;
     input.budget.finish(usage);
     const status = result?.status ?? "exception";
-    const call: GroupDecisionsCall = { kind, questions: group.length, status, usage, latency_ms: Math.max(0, Math.round(clock() - started)),
+    const ended = clock();
+    span.last = Math.max(span.last, ended);
+    const call: GroupDecisionsCall = { kind, questions: group.length, status, usage, latency_ms: Math.max(0, Math.round(ended - started)),
       render_ms: image.renderMs,
       ...(error !== undefined ? { error } : status === "failed" || status === "unavailable" ? { error: result?.message.slice(0, 300) } : {}) };
     input.log?.(`decisions ${kind} ${group.length} groupe(s): ${status}${usage ? `, ${usage.total_tokens} jetons` : ""}`);
@@ -267,21 +288,24 @@ export async function classifyVectorGroups(input: {
 
   /**
    * The calls of one phase, GROUP_DECISIONS_CONCURRENCY at a time, started in their order: each waits for a free
-   * slot, its image (`imageOf`: a render failure stops there), room in the budget while calls are in flight, the job's
-   * check and the budget's reserve. Ends once every call started has; throws the job check's error then.
+   * slot, its image (`imageOf`: a render failure stops there), room in the budget while calls are in flight (a batch
+   * call: once the first has ended, each counted at the margin), the job's check and the budget's reserve; `started`
+   * runs as it starts. Ends once every call started has; throws the job check's error then.
    */
   const inParallel = async (kind: DecisionsCallKind, groups: readonly (readonly DecisionCandidate[])[],
-    imageOf: (index: number) => Promise<CallImage | GroupDecisionsStop>): Promise<Phase> => {
+    imageOf: (index: number) => Promise<CallImage | GroupDecisionsStop>, started?: (index: number) => void): Promise<Phase> => {
     const phase: Phase = { sent: [], stop: null };
     const stopAt = (index: number, stop: GroupDecisionsStop) => {
       if (phase.stop === null || index < phase.stop.index) phase.stop = { index, stop };
     };
-    /** The job's check failed (or, never expected, a call threw): no call starts, the error leaves once all ended. */
-    const halt: Array<{ error: unknown }> = [];
-    const halted = () => phase.stop !== null || halt.length > 0;
+    /** The job's check failed, or (never expected: send does not throw) a call threw: no call starts, the error leaves once all ended. */
+    const halt: { check: { error: unknown } | null; call: { error: unknown } | null } = { check: null, call: null };
+    const halted = () => phase.stop !== null || halt.check !== null || halt.call !== null;
     const running = new Set<Promise<void>>();
+    let ended = 0;
     const oneEnds = () => Promise.race(running);
-    const fitsBeside = () => input.budget.fits(kind === "batch" ? GROUP_DECISIONS_BATCH_RESERVE_TOKENS : 0);
+    const fitsBeside = () => (kind === "dedicated" ? input.budget.fits()
+      : ended > 0 && input.budget.fits(Math.ceil(GROUP_DECISIONS_BATCH_RESERVE_MARGIN * input.budget.snapshot().largest_call_tokens)));
     try {
       starts: for (const [index, group] of groups.entries()) {
         while (running.size >= GROUP_DECISIONS_CONCURRENCY) await oneEnds();
@@ -291,17 +315,17 @@ export async function classifyVectorGroups(input: {
           stopAt(index, image);
           break;
         }
+        // The check may run again for one start: a call that ended during it may have raised the reserve.
         for (;;) {
           while (running.size > 0 && !fitsBeside()) await oneEnds();
           if (halted()) break starts;
           try {
             await input.beforeCall?.();
           } catch (error) {
-            halt.push({ error });
+            halt.check = { error };
             break starts;
           }
           if (halted()) break starts;
-          // A call that ended during the check may have raised the reserve: wait again rather than refuse.
           if (running.size === 0 || fitsBeside()) break;
         }
         if (!input.budget.tryStart()) {
@@ -312,14 +336,19 @@ export async function classifyVectorGroups(input: {
           phase.sent[index] = entry;
           if (entry.stop) stopAt(index, entry.stop);
         }, (error: unknown) => {
-          halt.push({ error });
-        }).finally(() => running.delete(call));
+          halt.call ??= { error };
+        }).finally(() => {
+          ended += 1;
+          running.delete(call);
+        });
         running.add(call);
+        started?.(index);
       }
     } finally {
       await Promise.all(running);
     }
-    if (halt.length > 0) throw halt[0].error;
+    const failure = halt.check ?? halt.call;
+    if (failure) throw failure.error;
     return phase;
   };
 
@@ -335,39 +364,52 @@ export async function classifyVectorGroups(input: {
   };
 
   const batchImages = sheets.images as GroupImage[];
-  if (!apply(await inParallel("batch", batches, async (index) => ({ image: batchImages[index], renderMs: sheets.render_ms[index] ?? null })))) return outcome;
+  if (!apply(await inParallel("batch", batches, async (index) => ({ image: batchImages[index], renderMs: sheets.render_ms[index] ?? null })))) return done();
   const needing = candidates.filter((candidate) => outcome.answers.has(candidate.id) && needsDedicated(outcome.answers.get(candidate.id)));
   const again = needing.slice(0, limits.maxDedicatedCalls);
   outcome.dedicated_left_out = needing.length - again.length;
   const chunks = decisionBatches(again, GROUP_DECISIONS_DEDICATED_RENDER_CHUNK);
-  // Chunk n + 1 is drawn after chunk n, once the calls reach chunk n: one child at a time, one chunk ahead.
-  const renders: Array<Promise<GroupSheetsResult | null>> = [];
-  const renderOf = (chunk: number): Promise<GroupSheetsResult | null> => (renders[chunk] ??= (chunk === 0 ? Promise.resolve() : renderOf(chunk - 1))
-    .then(() => safely(() => render.sheets(chunks[chunk].map((candidate) => planDedicated(model, candidate))))));
+  // One render child at a time: each chunk is drawn after the one before. `drawing` ends with the last one started and
+  // holds no image; a chunk's images are dropped once its last call has taken its own.
+  let drawing: Promise<unknown> = Promise.resolve();
+  const drawn = new Map<number, Promise<GroupSheetsResult | null>>();
+  const draw = (chunk: number) => {
+    let result = drawn.get(chunk);
+    if (!result) {
+      result = drawing.then(() => safely(() => render.sheets(chunks[chunk].map((candidate) => planDedicated(model, candidate)))));
+      drawing = result.then(() => undefined);
+      drawn.set(chunk, result);
+    }
+    return result;
+  };
   /** Render times of the chunks the calls reached, by chunk. */
   const reached: number[][] = [];
   const dedicatedImage = async (index: number): Promise<CallImage | GroupDecisionsStop> => {
     const chunk = Math.floor(index / GROUP_DECISIONS_DEDICATED_RENDER_CHUNK);
     const at = index % GROUP_DECISIONS_DEDICATED_RENDER_CHUNK;
-    const drawn = await renderOf(chunk);
-    if (!drawn || drawn.issue !== null || drawn.images.some((image) => image === null)) return renderStop(drawn?.issue ?? null);
-    if (at === 0) {
-      reached[chunk] = drawn.render_ms.map((value) => value ?? 0);
-      if (chunk + 1 < chunks.length) void renderOf(chunk + 1);
-    }
-    return { image: drawn.images[at] as GroupImage, renderMs: drawn.render_ms[at] ?? null };
+    const result = await draw(chunk);
+    if (!result || result.issue !== null || result.images.some((image) => image === null)) return renderStop(result?.issue ?? null);
+    if (at === 0) reached[chunk] = result.render_ms.map((value) => value ?? 0);
+    // Only the calls of a later chunk ask for one again, never this one's.
+    if (at === chunks[chunk].length - 1) drawn.delete(chunk);
+    return { image: result.images[at] as GroupImage, renderMs: result.render_ms[at] ?? null };
+  };
+  // The next chunk is drawn once the first call of this one has started: never after a stop, one chunk ahead.
+  const drawAhead = (index: number) => {
+    const chunk = index / GROUP_DECISIONS_DEDICATED_RENDER_CHUNK;
+    if (Number.isInteger(chunk) && chunk + 1 < chunks.length) void draw(chunk + 1);
   };
   let dedicated: Phase;
   try {
-    dedicated = await inParallel("dedicated", again.map((candidate) => [candidate]), dedicatedImage);
+    dedicated = await inParallel("dedicated", again.map((candidate) => [candidate]), dedicatedImage, drawAhead);
   } finally {
     // No render child outlives the page.
-    await Promise.all(renders);
+    await drawing;
   }
   // The renders of the chunks reached up to the stop, as in a row: never one only calls after the stop reached.
   for (const [chunk, renderMs] of reached.entries()) {
     if (renderMs && (dedicated.stop === null || chunk * GROUP_DECISIONS_DEDICATED_RENDER_CHUNK <= dedicated.stop.index)) outcome.render.sheets_ms.push(...renderMs);
   }
   apply(dedicated);
-  return outcome;
+  return done();
 }
