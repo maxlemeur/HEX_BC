@@ -26,12 +26,14 @@ import {
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
 import { readArticleSummaries } from "./articles-server";
+import { MATERIAL_REQUEST_LINE_PRICED } from "./quote-contracts";
 import {
   DUPLICATE_KEYS,
   LINE_COLUMNS,
   REQUEST_COLUMNS,
   assertSuppliersInTenant,
   assertTechnicianInTenant,
+  linePositionsLabel,
   listTenantTechnicians,
   readRequestFiles,
   readRequestLines,
@@ -80,7 +82,8 @@ export async function listMaterialRequests(projectId: string): Promise<{
     readAllRows(() => supabase.from("material_request_lines").select("id, request_id, status", { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id)),
     readAllRows(() => supabase.from("material_request_files").select("id, request_id", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("project_id", access.project.id).not("stored_at", "is", null).is("removed_at", null)),
+      .eq("tenant_id", tenantId).eq("project_id", access.project.id).is("quote_id", null)
+      .not("stored_at", "is", null).is("removed_at", null)),
     listTenantTechnicians(access.context),
   ]);
   if (requests.error) throw mapSupabaseError(requests.error, "Impossible de charger les demandes de matériel.");
@@ -441,6 +444,34 @@ async function writeLines(
   return data ?? [];
 }
 
+/**
+ * TI-691: a line priced by a retained quote is bought from the quote's supplier. Its supplier no longer changes,
+ * and it is not deleted alone (its request still is); the database refuses both too.
+ */
+function linesPriced(lines: ReadonlyArray<Pick<MaterialRequestLine, "id" | "position">>, what: "supplier" | "delete"): ApiError {
+  const positions = lines.map((line) => line.position).sort((left, right) => left - right);
+  const one = positions.length === 1;
+  const subject = one ? `La ligne ${linePositionsLabel(positions)} a` : `Les lignes ${linePositionsLabel(positions)} ont`;
+  const consequence = what === "supplier"
+    ? (one ? "son fournisseur est celui du devis" : "leur fournisseur est celui du devis")
+    : (one ? "elle ne se supprime plus seule" : "elles ne se suppriment plus seules");
+  return conflict(`${subject} un devis retenu : ${consequence}.`, {
+    line_ids: [...lines].sort((left, right) => left.position - right.position || left.id.localeCompare(right.id)).map((line) => line.id),
+    positions,
+  }, MATERIAL_REQUEST_LINE_PRICED);
+}
+
+/** The lines whose supplier a change would replace although a retained quote priced them. */
+function supplierChangesOnPricedLines(lines: readonly MaterialRequestLine[], supplierId: string | null | undefined): MaterialRequestLine[] {
+  if (supplierId === undefined) return [];
+  return lines.filter((line) => line.price_quote_id !== null && line.supplier_id !== supplierId);
+}
+
+/** The database's own refusal of the same, when another session retained a quote meanwhile. */
+function pricedRefusal(lines: readonly MaterialRequestLine[]) {
+  return (error: SupabaseErrorLike) => (error.message === "MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE" ? linesPriced(lines, "supplier") : null);
+}
+
 /** The selected lines as they are after the writes, in the order of the request. */
 function afterWrites(selected: readonly MaterialRequestLine[], written: readonly MaterialRequestLine[]): MaterialRequestLine[] {
   const fresh = new Map(written.map((line) => [line.id, line]));
@@ -456,10 +487,11 @@ export async function updateMaterialRequestLine(
   const access = await requireProjectAccess(projectId, "write");
   const [current] = selectLines(await readRequestLines(access, requestId), [lineId]);
   await assertSuppliersInTenant(access.context, [input.supplier_id]);
+  if (supplierChangesOnPricedLines([current], input.supplier_id).length > 0) throw linesPriced([current], "supplier");
 
   const patch = patchFor(current, sent(input));
   if (!patch) return { line: current };
-  const [line] = await writeLines(access, requestId, [current.id], patch);
+  const [line] = await writeLines(access, requestId, [current.id], patch, pricedRefusal([current]));
   return { line };
 }
 
@@ -471,6 +503,9 @@ export async function bulkUpdateMaterialRequestLines(
   const access = await requireProjectAccess(projectId, "write");
   const selected = selectLines(await readRequestLines(access, requestId), input.ids);
   await assertSuppliersInTenant(access.context, [input.patch.supplier_id]);
+  // All or nothing: one priced line whose supplier would change, and none of the selection is written.
+  const priced = supplierChangesOnPricedLines(selected, input.patch.supplier_id);
+  if (priced.length > 0) throw linesPriced(priced, "supplier");
 
   // One statement per kind of line: those the change returns to draft, those whose kept duplicate it
   // asks again, both, or neither.
@@ -485,7 +520,9 @@ export async function bulkUpdateMaterialRequestLines(
     groups.set(key, group);
   }
   const written: MaterialRequestLine[] = [];
-  for (const group of groups.values()) written.push(...(await writeLines(access, requestId, group.ids, group.patch)));
+  for (const group of groups.values()) {
+    written.push(...(await writeLines(access, requestId, group.ids, group.patch, pricedRefusal(selected))));
+  }
   return { lines: afterWrites(selected, written) };
 }
 
@@ -495,6 +532,17 @@ export async function deleteMaterialRequestLine(
   lineId: string,
 ): Promise<{ deleted: true }> {
   const access = await requireProjectAccess(projectId, "write");
+  const { data: current, error: readError } = await access.context.supabase
+    .from("material_request_lines")
+    .select("id, position, price_quote_id")
+    .eq("id", lineId)
+    .eq("tenant_id", access.context.tenantId)
+    .eq("project_id", access.project.id)
+    .eq("request_id", requestId)
+    .maybeSingle();
+  if (readError) throw mapSupabaseError(readError, "Impossible de charger la ligne.");
+  if (!current) throw notFound("Ligne introuvable dans cette demande.");
+  if (current.price_quote_id !== null) throw linesPriced([current], "delete");
   const { data, error } = await access.context.supabase
     .from("material_request_lines")
     .delete()
@@ -504,7 +552,11 @@ export async function deleteMaterialRequestLine(
     .eq("request_id", requestId)
     .select("id")
     .maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  if (error) {
+    // A quote retained by another session since the line was read.
+    if (error.message === "MATERIAL_REQUEST_LINE_PRICED") throw linesPriced([current], "delete");
+    throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  }
   if (!data) throw notFound("Ligne introuvable dans cette demande.");
   return { deleted: true };
 }

@@ -86,6 +86,8 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     validated_at: null,
     product_id: null,
     product_match: null,
+    unit_price_ht_cents: null,
+    price_quote_id: null,
     ...partial,
   };
 }
@@ -211,7 +213,11 @@ function candidateReads(): Call[] {
 }
 
 async function openEditor(routes: Record<string, Route>) {
-  mockApi({ "GET /api/material-request-technicians": { data: { items: [] } }, ...routes });
+  mockApi({
+    "GET /api/material-request-technicians": { data: { items: [] } },
+    [`GET ${BASE}/quotes`]: { data: { items: [] } },
+    ...routes,
+  });
   const user = userEvent.setup();
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
   await screen.findByRole("heading", { name: "Lignes" });

@@ -17,13 +17,14 @@ import type { MaterialRequestTechnician } from "@/lib/material-requests/contract
 import { ConfirmButton } from "./cells";
 import { ClarificationMessageDialog } from "./ClarificationMessageDialog";
 import { materialRequestsHref } from "./format";
+import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
 import { MaterialRequestHeader } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 
-function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string }>) {
   const router = useRouter();
   const ids = useId();
   const materialListId = `${ids}-materials`;
@@ -84,6 +85,7 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
             </>
           }
         />
+        <MaterialRequestConsultation editor={editor} affaireName={affaireName} headingId={`${ids}-consultation`} />
         {canWrite ? (
           <div className="border-t border-border pt-4">
             <ConfirmButton
@@ -135,7 +137,16 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
  * One material request (TI-690): the original on one side, its rewriting on the other. The operator
  * types; the screen keeps what is missing or doubtful in view and validates nothing by itself.
  */
-export function MaterialRequestEditor({ projectId, requestId }: Readonly<{ projectId: string; requestId: string }>) {
+export function MaterialRequestEditor({
+  projectId,
+  requestId,
+  affaireName = "",
+}: Readonly<{
+  projectId: string;
+  requestId: string;
+  /** Named in the message that asks a supplier for a price. */
+  affaireName?: string;
+}>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
   if (state.status === "loading") return <LoadingState label="Chargement de la demande…" />;
@@ -152,5 +163,5 @@ export function MaterialRequestEditor({ projectId, requestId }: Readonly<{ proje
       </Alert>
     );
   }
-  return <ReadyEditor editor={state.editor} />;
+  return <ReadyEditor editor={state.editor} affaireName={affaireName} />;
 }

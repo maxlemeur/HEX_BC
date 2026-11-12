@@ -23,6 +23,11 @@ import {
   type MaterialRequestFileRotation,
   type MaterialRequestFileUploads,
 } from "./contracts";
+import {
+  MATERIAL_REQUEST_QUOTE_FILE_LIMIT,
+  MATERIAL_REQUEST_QUOTE_MAX_FILES,
+} from "./quote-contracts";
+import { quoteReadOnly, requireOpenQuote, requireQuote } from "./quotes-server";
 import { FILE_COLUMNS, requireProjectAccess, requireRequest, type MaterialRequestAccess } from "./server-shared";
 
 /**
@@ -45,6 +50,9 @@ import { FILE_COLUMNS, requireProjectAccess, requireRequest, type MaterialReques
  * database refuses an upload at the path of a withdrawn or stored row, so a signed upload still in
  * flight cannot land after its photo was cancelled, rejected or discarded, and it refuses to delete
  * the object of a row that is still listed: a listed original always has its bytes.
+ *
+ * TI-691: the files of a quote (the supplier's answer) go the same way, with `quote_id`: a PDF or images, ten per
+ * quote apart from the twelve originals, attached and removed only while the quote is requested or received.
  */
 
 export const MATERIAL_REQUEST_HEIC_UNSUPPORTED = "MATERIAL_REQUEST_HEIC_UNSUPPORTED";
@@ -71,6 +79,9 @@ const REJECTED_MESSAGE = "Les photos reçues ne sont pas celles annoncées : auc
 const ABANDONED_AFTER_MS = 3 * 60 * 60 * 1000;
 
 type ImageMimeType = (typeof MATERIAL_REQUEST_FILE_MIME_TYPES)[number];
+type StoredMimeType = ImageMimeType | "application/pdf";
+/** What a batch is: originals of the request (images), or the answer to one quote (PDF or images). */
+type FileScope = { quoteId: string | null };
 
 const MIME_BY_EXTENSION: Record<(typeof MATERIAL_REQUEST_FILE_EXTENSIONS)[number], ImageMimeType> = {
   jpg: "image/jpeg",
@@ -94,7 +105,8 @@ function ascii(bytes: Uint8Array, start: number, end: number): string {
 }
 
 /** What the first bytes say the file is, whatever its name and declared type claim. */
-function sniffImage(head: Uint8Array): ImageMimeType | "heic" | null {
+function sniffImage(head: Uint8Array): StoredMimeType | "heic" | null {
+  if (ascii(head, 0, 5) === "%PDF-") return "application/pdf";
   if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
   if (ascii(head, 0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
   if (ascii(head, 0, 4) === "RIFF" && ascii(head, 8, 12) === "WEBP") return "image/webp";
@@ -102,18 +114,30 @@ function sniffImage(head: Uint8Array): ImageMimeType | "heic" | null {
   return null;
 }
 
-/** What is announced must be a JPEG, PNG or WebP of at most 20 MiB, whose name and type agree. */
-function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }): ImageMimeType {
+/**
+ * What is announced must be a JPEG, PNG or WebP of at most 20 MiB, whose name and type agree; or, for a quote, also
+ * a PDF.
+ */
+function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }, scope: FileScope): StoredMimeType {
   const extension = extensionOf(file.name);
   const declared = file.mime_type.trim().toLowerCase();
   if (HEIC_EXTENSIONS.has(extension) || HEIC_MIME_TYPES.has(declared)) {
     throw unprocessableEntity(MATERIAL_REQUEST_HEIC_MESSAGE, undefined, MATERIAL_REQUEST_HEIC_UNSUPPORTED);
   }
-  const expected = (MIME_BY_EXTENSION as Record<string, ImageMimeType | undefined>)[extension];
-  if (!expected) throw badRequest(`« ${file.name} » n’est pas une image JPEG, PNG ou WebP.`);
+  const forQuote = scope.quoteId !== null;
+  const expected: StoredMimeType | undefined = forQuote && extension === "pdf"
+    ? "application/pdf"
+    : (MIME_BY_EXTENSION as Record<string, ImageMimeType | undefined>)[extension];
+  if (!expected) {
+    throw badRequest(forQuote
+      ? `« ${file.name} » n’est pas un PDF ni une image JPEG, PNG ou WebP.`
+      : `« ${file.name} » n’est pas une image JPEG, PNG ou WebP.`);
+  }
   // A browser that does not know the type sends none: the extension then decides.
   if (declared && declared !== expected) {
-    throw badRequest(`« ${file.name} » n’est pas l’image que son nom annonce : déposez un fichier JPEG, PNG ou WebP.`);
+    throw badRequest(forQuote
+      ? `« ${file.name} » n’est pas le fichier que son nom annonce : déposez un PDF ou une image JPEG, PNG ou WebP.`
+      : `« ${file.name} » n’est pas l’image que son nom annonce : déposez un fichier JPEG, PNG ou WebP.`);
   }
   if (file.byte_size > MATERIAL_REQUEST_FILE_MAX_BYTES) throw payloadTooLarge(`« ${file.name} » dépasse ${MAX_SIZE_LABEL}.`);
   return expected;
@@ -225,6 +249,25 @@ function fileLimitReached(stored: number, suffix = "") {
   );
 }
 
+function quoteFileLimitReached(stored: number, suffix = "") {
+  return unprocessableEntity(
+    `Un devis garde ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers au plus (${stored} déjà déposés)${suffix}.`,
+    { max: MATERIAL_REQUEST_QUOTE_MAX_FILES, existing: stored },
+    MATERIAL_REQUEST_QUOTE_FILE_LIMIT,
+  );
+}
+
+function limitReached(scope: FileScope, stored: number, suffix = "") {
+  return scope.quoteId === null ? fileLimitReached(stored, suffix) : quoteFileLimitReached(stored, suffix);
+}
+
+/** The end of a cap refusal at completion: the batch was discarded. */
+const NOT_KEPT = { originals: " : ces photos n’ont pas été conservées", quote: " : ces fichiers n’ont pas été conservés" };
+
+function capOf(scope: FileScope) {
+  return scope.quoteId === null ? MATERIAL_REQUEST_MAX_FILES : MATERIAL_REQUEST_QUOTE_MAX_FILES;
+}
+
 function tooManyPending() {
   return unprocessableEntity(
     `Trop de photos sont en cours d’envoi pour cette demande (${MATERIAL_REQUEST_MAX_PENDING_FILES} au plus) : terminez ou annulez les envois en cours, puis réessayez.`,
@@ -233,37 +276,50 @@ function tooManyPending() {
   );
 }
 
-/** The photos of a request by what a reader sees of them: listed, or still waiting for their bytes. */
-async function countOriginals(access: MaterialRequestAccess, requestId: string): Promise<{ listed: number; pending: number }> {
+/**
+ * The files of a request by what a reader sees of them: listed in this scope (the originals, or one quote's files),
+ * and waiting for their bytes on the whole request (the bound the database holds per request).
+ */
+async function countFiles(
+  access: MaterialRequestAccess,
+  requestId: string,
+  scope: FileScope,
+): Promise<{ listed: number; pending: number }> {
   const { data, error } = await access.context.supabase
     .from("material_request_files")
-    .select("id, stored_at")
+    .select("id, quote_id, stored_at")
     .eq("tenant_id", access.context.tenantId)
     .eq("project_id", access.project.id)
     .eq("request_id", requestId)
     .is("removed_at", null);
   if (error) throw mapSupabaseError(error, "Impossible de charger les originaux de la demande.");
-  const listed = (data ?? []).filter((file) => file.stored_at !== null).length;
-  return { listed, pending: (data ?? []).length - listed };
+  const rows = data ?? [];
+  return {
+    listed: rows.filter((file) => file.stored_at !== null && (file.quote_id ?? null) === scope.quoteId).length,
+    pending: rows.filter((file) => file.stored_at === null).length,
+  };
 }
 
 export async function prepareMaterialRequestFiles(
   projectId: string,
   requestId: string,
   announced: ReadonlyArray<{ name: string; mime_type: string; byte_size: number }>,
+  quoteId?: string,
 ): Promise<MaterialRequestFileUploads> {
   const access = await requireProjectAccess(projectId, "write");
   const { context } = access;
   const request = await requireRequest(access, requestId);
+  // A quote's answer goes to a quote of this request still in progress (404, 409 otherwise).
+  const scope: FileScope = { quoteId: quoteId ? (await requireOpenQuote(access, request.id, quoteId)).id : null };
 
   // Every photo is checked before anything is written: one refusal refuses the batch.
-  const mimeTypes = announced.map(checkAnnounced);
+  const mimeTypes = announced.map((file) => checkAnnounced(file, scope));
   await discardLeftovers(access, request.id);
 
   // The cap is on what a reader sees: it is checked again where a batch becomes visible. Photos still
   // waiting for their bytes are bounded apart, so that preparing cannot pile up rows and signed uploads.
-  const { listed, pending } = await countOriginals(access, request.id);
-  if (listed + announced.length > MATERIAL_REQUEST_MAX_FILES) throw fileLimitReached(listed);
+  const { listed, pending } = await countFiles(access, request.id, scope);
+  if (listed + announced.length > capOf(scope)) throw limitReached(scope, listed);
   if (pending + announced.length > MATERIAL_REQUEST_MAX_PENDING_FILES) throw tooManyPending();
 
   const recorded: string[] = [];
@@ -278,11 +334,17 @@ export async function prepareMaterialRequestFiles(
         ...file,
         project_id: access.project.id,
         request_id: request.id,
+        quote_id: scope.quoteId,
         storage_path: path,
         created_by: context.userId,
       });
       if (error) {
         if (error.message === MATERIAL_REQUEST_UPLOADS_PENDING) throw tooManyPending();
+        // The quote was retained or closed by another session since it was read.
+        if (error.message === "MATERIAL_REQUEST_QUOTE_READ_ONLY" && scope.quoteId) {
+          const quote = await requireQuote(access, request.id, scope.quoteId);
+          if (quote.status === "retained" || quote.status === "closed") throw quoteReadOnly(quote.status);
+        }
         throw mapSupabaseError(error, "Impossible d'enregistrer la photo.");
       }
       recorded.push(id);
@@ -350,7 +412,7 @@ export async function completeMaterialRequestFiles(
   // A photo whose deletion has begun is not found.
   const { data: rows, error } = await context.supabase
     .from("material_request_files")
-    .select("id, storage_path, mime_type, byte_size, stored_at")
+    .select("id, quote_id, storage_path, mime_type, byte_size, stored_at")
     .in("id", wanted)
     .eq("tenant_id", context.tenantId)
     .eq("project_id", access.project.id)
@@ -376,12 +438,18 @@ export async function completeMaterialRequestFiles(
 
   if (pending.length > 0) {
     // The cap holds where a batch becomes visible: two uploads prepared side by side cannot both pass.
-    // The database refuses it too, should they complete at the very same time.
-    const { listed } = await countOriginals(access, requestId);
-    const overLimit = () => fileLimitReached(listed, " : ces photos n’ont pas été conservées");
-    if (listed + pending.length > MATERIAL_REQUEST_MAX_FILES) {
+    // The database refuses it too, should they complete at the very same time. Originals and each quote's
+    // files are counted apart.
+    const scopes = [...new Set(pending.map((file) => file.quote_id ?? null))].map((quoteId): FileScope => ({ quoteId }));
+    const counted = await Promise.all(scopes.map(async (scope) => ({
+      scope,
+      listed: (await countFiles(access, requestId, scope)).listed,
+      adding: pending.filter((file) => (file.quote_id ?? null) === scope.quoteId).length,
+    })));
+    const over = counted.find((entry) => entry.listed + entry.adding > capOf(entry.scope));
+    if (over) {
       await discardUnstored(access, requestId, pendingIds);
-      throw overLimit();
+      throw limitReached(over.scope, over.listed, NOT_KEPT[over.scope.quoteId === null ? "originals" : "quote"]);
     }
 
     // One statement makes the whole batch visible. The database sets the time itself and refuses the
@@ -398,7 +466,14 @@ export async function completeMaterialRequestFiles(
     if (markError) {
       // Nothing was marked: the statement failed as a whole.
       await discardUnstored(access, requestId, pendingIds);
-      if (markError.message === MATERIAL_REQUEST_FILE_LIMIT) throw overLimit();
+      if (markError.message === MATERIAL_REQUEST_FILE_LIMIT) {
+        const originals = counted.find((entry) => entry.scope.quoteId === null);
+        throw fileLimitReached(originals?.listed ?? MATERIAL_REQUEST_MAX_FILES, NOT_KEPT.originals);
+      }
+      if (markError.message === MATERIAL_REQUEST_QUOTE_FILE_LIMIT) {
+        const quote = counted.find((entry) => entry.scope.quoteId !== null);
+        throw quoteFileLimitReached(quote?.listed ?? MATERIAL_REQUEST_QUOTE_MAX_FILES, NOT_KEPT.quote);
+      }
       console.error("Material request originals could not be marked stored", { requestId, error: markError });
       throw internalError(COMPLETE_FAILED_MESSAGE);
     }
@@ -433,7 +508,7 @@ export async function completeMaterialRequestFiles(
 async function requireFile(access: MaterialRequestAccess, requestId: string, fileId: string) {
   const { data, error } = await access.context.supabase
     .from("material_request_files")
-    .select("id, storage_path, file_name, mime_type, stored_at, removed_at")
+    .select("id, quote_id, storage_path, file_name, mime_type, stored_at, removed_at")
     .eq("id", fileId)
     .eq("tenant_id", access.context.tenantId)
     .eq("project_id", access.project.id)
@@ -498,6 +573,9 @@ export async function deleteMaterialRequestFile(
 ): Promise<{ deleted: true }> {
   const access = await requireProjectAccess(projectId, "write");
   const file = await requireFile(access, requestId, fileId);
+  // TI-691: a quote's answer stays once the quote is retained or closed; while it is in progress, a file attached by
+  // mistake is removed like an original.
+  if (file.quote_id) await requireOpenQuote(access, requestId, file.quote_id);
   const { storageError } = await withdraw(access, { requestId, ids: [file.id] });
   if (storageError) {
     console.error("Material request original could not be removed", { fileId, error: storageError });

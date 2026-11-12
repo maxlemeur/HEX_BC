@@ -31,7 +31,7 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
         back={{ href: listHref, label: "Retour aux demandes de matériel" }}
       />
 
-      <MaterialRequestEditor projectId={projectId} requestId={requestId} />
+      <MaterialRequestEditor projectId={projectId} requestId={requestId} affaireName={project.name} />
     </>
   );
 }

@@ -86,6 +86,8 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     validated_at: null,
     product_id: ARTICLE_1,
     product_match: "reference",
+    unit_price_ht_cents: null,
+    price_quote_id: null,
     ...partial,
   };
 }
@@ -213,6 +215,7 @@ async function openEditor(routes: Record<string, Route>) {
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+    [`GET ${BASE}/quotes`]: { data: { items: [] } },
     ...routes,
   });
   const user = userEvent.setup();

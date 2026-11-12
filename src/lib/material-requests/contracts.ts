@@ -92,6 +92,11 @@ export type MaterialRequest = {
 export type MaterialRequestFile = {
   id: string;
   request_id: string;
+  /**
+   * Null for an original of the request (an image); the quote it answers otherwise (TI-691, a PDF or an image,
+   * listed with the quote and never among the originals).
+   */
+  quote_id: string | null;
   file_name: string;
   mime_type: string;
   byte_size: number;
@@ -132,6 +137,13 @@ export type MaterialRequestLine = {
   /** The catalogue article the office linked; its wording then fills the line's columns. */
   product_id: string | null;
   product_match: MaterialRequestProductMatch | null;
+  /**
+   * TI-691: the unit price excluding tax, in cents, of the quote retained for the line (`price_quote_id`); both are
+   * null until a quote is retained, and are written by that retaining only. Purchasing information: a validated line
+   * stays validated. The line's supplier is then the quote's and no longer changes.
+   */
+  unit_price_ht_cents: number | null;
+  price_quote_id: string | null;
 };
 
 /** What the screen shows of a catalogue article beside a line. */
@@ -413,6 +425,11 @@ export const updateMaterialRequestFileSchema = z
  */
 export const prepareMaterialRequestFilesSchema = z
   .object({
+    /**
+     * TI-691: the files answer this quote of the request (requested or received): a PDF or images, at most
+     * MATERIAL_REQUEST_QUOTE_MAX_FILES per quote (quote-contracts.ts). Left out: originals of the request, images only.
+     */
+    quote_id: uuid.optional(),
     files: z
       .array(
         z
@@ -448,7 +465,7 @@ export const MATERIAL_REQUEST_FILE_REJECTED = "MATERIAL_REQUEST_FILE_REJECTED";
 export const MATERIAL_REQUEST_FILE_REJECTION_REASONS = ["missing", "size", "type"] as const;
 export type MaterialRequestFileRejection = {
   id: string;
-  /** missing: no bytes were stored; size: not the declared size; type: not the declared image type. */
+  /** missing: no bytes were stored; size: not the declared size; type: not the declared type (image or PDF). */
   reason: (typeof MATERIAL_REQUEST_FILE_REJECTION_REASONS)[number];
 };
 

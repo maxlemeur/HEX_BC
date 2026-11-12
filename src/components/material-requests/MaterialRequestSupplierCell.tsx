@@ -8,6 +8,7 @@ import { safeProductUrl } from "@/lib/catalogue/supplier-items-client";
 import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import type { MaterialRequestLine, MaterialRequestLineInput } from "@/lib/material-requests/contracts";
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
+import { formatEUR } from "@/lib/money";
 
 import { ChoiceCell } from "./cells";
 import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
@@ -96,13 +97,19 @@ export function MaterialRequestSupplierCell({
   const n = line.position;
   const proposalId = `${ids}-proposal`;
 
-  if (!editable) {
+  // A line priced by a retained quote (TI-691) is bought from that quote's supplier: it no longer changes.
+  if (!editable || line.price_quote_id) {
     return (
       <div className="min-w-0 space-y-1">
         <p className="text-sm text-foreground">
           {ownSupplier ?? requestSupplierLabel ?? <span className="text-subtle-foreground">—</span>}
         </p>
         {ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
+        {line.unit_price_ht_cents !== null ? (
+          <p className="text-xs tabular-nums text-foreground-secondary">
+            {`Prix unitaire HT : ${formatEUR(line.unit_price_ht_cents)} (devis retenu)`}
+          </p>
+        ) : null}
       </div>
     );
   }

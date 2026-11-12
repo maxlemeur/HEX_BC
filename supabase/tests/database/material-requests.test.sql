@@ -52,9 +52,11 @@ where relation.oid in ('public.material_request_technicians'::regclass, 'public.
   'public.material_request_files'::regclass, 'public.material_request_lines'::regclass);
 select is(has_table_privilege('authenticated', 'public.material_request_technicians', 'DELETE'), false,
   'a client cannot delete a technician');
+-- TI-691 (delivery 2) adds application/pdf for the files of a quote; an original stays an image, held by the row's
+-- CHECK (counterexample in material-request-quotes.test.sql: an original declared as a PDF is refused).
 select ok((select not public and file_size_limit = 20971520
-    and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp']
-  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images only');
+    and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images and quote PDFs');
 
 -- Members of tenant 101: 1 engineer who owns the affaire, 2 admin, 3 director, 4 viewer, 5 another
 -- engineer, 7 a second admin. Member 6 belongs to tenant 102 only.

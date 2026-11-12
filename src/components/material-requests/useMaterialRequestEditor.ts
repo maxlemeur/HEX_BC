@@ -212,6 +212,18 @@ export type MaterialRequestEditorApi = {
   retainSupplier: (lineId: string, supplierId: string) => Promise<RetainResult>;
   /** One request for all the lines; a line whose supplier choice is not saved is left out and reported. */
   retainSuppliers: (entries: readonly SupplierRetainEntry[]) => Promise<BulkRetainResult>;
+  /**
+   * The reference read for the line at its supplier is current (it may still be null: the catalogue does not
+   * know it). False while it is read, or read again after a change.
+   */
+  supplierReferenceKnown: (lineId: string) => boolean;
+  /**
+   * A write of the consultation (quotes, TI-691 delivery 2), in the same queue as the lines' writes: a quote
+   * retained after a line change is sent once that change has been answered.
+   */
+  queueWrite: <T>(call: () => Promise<T>) => Promise<T>;
+  /** Lines the server changed through another route (a retained quote prices them): they replace ours. */
+  mergeServerLines: (lines: readonly MaterialRequestLine[]) => void;
 };
 
 export type MaterialRequestEditorState =
@@ -886,6 +898,15 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       freshSupplierRead(lineId) ? (supplierProposals.references[lineId] ?? null) : null,
     [freshSupplierRead, supplierProposals.references],
   );
+  const mergeServerLines = useCallback(
+    (lines: readonly MaterialRequestLine[]) => {
+      if (lines.length === 0) return;
+      setData((current) => (current ? mergeLines(current, [...lines]) : current));
+      // A retained quote may change the lines' supplier: their reference there is read again.
+      markSupplierProposalsStale(lines.map((line) => line.id));
+    },
+    [markSupplierProposalsStale],
+  );
 
   const alertContext = useMemo<AlertContext | null>(
     () => (data ? { request: data.request, lines: data.lines } : null),
@@ -930,6 +951,9 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       supplierReferenceOf,
       supplierProposalsStatus: supplierProposals.status,
       retrySupplierProposals,
+      supplierReferenceKnown: freshSupplierRead,
+      queueWrite: enqueue,
+      mergeServerLines,
       ...actions,
     },
   };

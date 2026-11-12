@@ -107,6 +107,8 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     validated_at: null,
     product_id: null,
     product_match: null,
+    unit_price_ht_cents: null,
+    price_quote_id: null,
     ...partial,
   };
 }
@@ -136,6 +138,7 @@ function file(partial: Partial<MaterialRequestFile> = {}): MaterialRequestFile {
   return {
     id: FILE_ID,
     request_id: REQUEST_ID,
+    quote_id: null,
     file_name: "photo-essai.jpg",
     mime_type: "image/jpeg",
     byte_size: 1024,
@@ -203,10 +206,12 @@ function writes(): Call[] {
 }
 
 async function openEditor(routes: Record<string, Route>) {
-  // The article proposals of delivery 3 are read once per page; these journeys have none.
+  // The article proposals of delivery 3 are read once per page; these journeys have none, and no quote
+  // (TI-691, read by the « Consultation » section).
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+    [`GET ${BASE}/quotes`]: { data: { items: [] } },
     ...routes,
   });
   const user = userEvent.setup();

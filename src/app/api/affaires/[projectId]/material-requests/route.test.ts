@@ -381,7 +381,7 @@ describe("material requests of an affaire: scope", () => {
     expect(detail.request).toMatchObject({ id: REQUEST, project_id: PROJECT, material_confirmed: true });
     expect(detail.technician).toEqual({ id: TECHNICIAN, name: "Technicien Bravo", current_project_id: PROJECT, is_active: true });
     expect(detail.files).toEqual([
-      { id: FILE, request_id: REQUEST, file_name: "demande chantier.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: "2026-11-11T09:05:00.000Z" },
+      { id: FILE, request_id: REQUEST, quote_id: null, file_name: "demande chantier.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: "2026-11-11T09:05:00.000Z" },
     ]);
     expect(detail.lines.map((entry) => [entry.id, entry.position, entry.status])).toEqual([
       [LINE_READY, 1, "draft"], [LINE_NO_QUANTITY, 2, "draft"], [LINE_VALIDATED, 3, "validated"],
@@ -1017,8 +1017,8 @@ describe("material requests of an affaire: originals", () => {
     const { status, data } = await complete([ids[1], ids[0]]);
     expect(status).toBe(200);
     expect((data as { files: FakeRow[] }).files).toEqual([
-      { id: ids[1], request_id: REQUEST, file_name: "deux.png", mime_type: "image/png", byte_size: PNG.byteLength, rotation: 0, created_at: expect.any(String) },
-      { id: ids[0], request_id: REQUEST, file_name: "une.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: expect.any(String) },
+      { id: ids[1], request_id: REQUEST, quote_id: null, file_name: "deux.png", mime_type: "image/png", byte_size: PNG.byteLength, rotation: 0, created_at: expect.any(String) },
+      { id: ids[0], request_id: REQUEST, quote_id: null, file_name: "une.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength, rotation: 0, created_at: expect.any(String) },
     ]);
     // Every photo is looked at in storage before the single mark that makes them visible.
     expect(fake.events).toEqual(["info", "download", "info", "download", "update material_request_files"]);

@@ -22,8 +22,8 @@ import type {
 export const REQUEST_COLUMNS =
   "id, project_id, technician_id, requested_on, needed_on, delivery_place, is_urgent, presumed_material, material_confirmed, presumed_supplier_id, supplier_confirmed, source_text, note, created_at, updated_at";
 export const LINE_COLUMNS =
-  "id, request_id, position, original_text, quantity, quantity_doubtful, unit, dimension, no_dimension, product_type, material, material_precision, reference, supplier_id, zone, imputation, overhead_category, duplicate_acknowledged, status, validated_at, product_id, product_match";
-export const FILE_COLUMNS = "id, request_id, file_name, mime_type, byte_size, rotation, created_at";
+  "id, request_id, position, original_text, quantity, quantity_doubtful, unit, dimension, no_dimension, product_type, material, material_precision, reference, supplier_id, zone, imputation, overhead_category, duplicate_acknowledged, status, validated_at, product_id, product_match, unit_price_ht_cents, price_quote_id";
+export const FILE_COLUMNS = "id, request_id, quote_id, file_name, mime_type, byte_size, rotation, created_at";
 export const TECHNICIAN_COLUMNS = "id, name, current_project_id, is_active";
 
 /** What makes two lines the same piece (alerts.ts): once one of these changes, a kept duplicate is asked again. */
@@ -107,7 +107,7 @@ export async function readRequestLines(access: MaterialRequestAccess, requestId:
  * The originals of a request that exist for a reader: those whose bytes are stored and whose deletion
  * has not begun. A row is recorded before its bytes (the storage policy needs it), marked `stored_at`
  * after them, and marked `removed_at` before they go; outside that span it is neither listed, counted
- * nor served.
+ * nor served. The files of a quote (TI-691) are listed with their quote, not here.
  */
 export async function readRequestFiles(access: MaterialRequestAccess, requestId: string): Promise<MaterialRequestFile[]> {
   const { data, error } = await access.context.supabase
@@ -116,6 +116,7 @@ export async function readRequestFiles(access: MaterialRequestAccess, requestId:
     .eq("tenant_id", access.context.tenantId)
     .eq("project_id", access.project.id)
     .eq("request_id", requestId)
+    .is("quote_id", null)
     .not("stored_at", "is", null)
     .is("removed_at", null)
     .order("created_at", { ascending: true })
@@ -173,6 +174,12 @@ export async function assertProjectInTenant(context: MaterialRequestContext, pro
     .maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de vérifier l'affaire.");
   if (!data) throw badRequest("Affaire introuvable.");
+}
+
+/** Line numbers as a sentence reads them: « 3 », « 2 et 3 », « 1, 2 et 4 ». */
+export function linePositionsLabel(positions: readonly number[]): string {
+  const sorted = [...positions].sort((left, right) => left - right).map(String);
+  return sorted.length <= 1 ? sorted.join("") : `${sorted.slice(0, -1).join(", ")} et ${sorted[sorted.length - 1]}`;
 }
 
 /** Counts and technician names of a set of requests, from rows the caller has read whole. */

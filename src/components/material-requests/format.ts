@@ -3,6 +3,7 @@ import {
   MATERIAL_REQUEST_MAX_FILES,
   type MaterialRequestLine,
 } from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_QUOTE_MAX_FILES } from "@/lib/material-requests/quote-contracts";
 
 /** « 2026-11-12 » → « 12/11/2026 », without a time zone in the way. */
 export function formatDateOnly(value: string | null | undefined): string {
@@ -46,4 +47,27 @@ export function checkPhotoSelection(files: readonly File[], alreadyThere: number
   }
   const tooBig = files.find((file) => file.size > MATERIAL_REQUEST_FILE_MAX_BYTES);
   return tooBig ? `« ${tooBig.name} » dépasse 20 Mo.` : null;
+}
+
+/** The same check for the files of a quote (TI-691): a PDF or photographed pages. */
+export function checkQuoteFileSelection(files: readonly File[], alreadyThere: number): string | null {
+  if (alreadyThere + files.length > MATERIAL_REQUEST_QUOTE_MAX_FILES) {
+    return `${MATERIAL_REQUEST_QUOTE_MAX_FILES} pièces au plus par devis.`;
+  }
+  const tooBig = files.find((file) => file.size > MATERIAL_REQUEST_FILE_MAX_BYTES);
+  return tooBig ? `« ${tooBig.name} » dépasse 20 Mo.` : null;
+}
+
+const DAY = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "Europe/Paris",
+});
+
+/** A moment recorded by the server, as the day it was in France (« 12/11/2026 »). */
+export function formatDay(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : DAY.format(date);
 }
