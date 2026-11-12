@@ -1216,10 +1216,12 @@ describe("MaterialRequestEditor", () => {
 
       const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
       expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
-      expect(within(rows[0]).getByText("Négoce Exemple (demande)")).toBeVisible();
+      // TI-691: the office chooses the supplier of a validated line in place (it stays validated), so the
+      // supplier is a select there; what it shows is what the line is bought from.
+      expect(within(rows[0]).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("Négoce Exemple (demande)");
       expect(within(rows[1]).getByText("PVC pression")).toBeVisible();
-      expect(within(rows[1]).getByText("Négoce Exemple")).toBeVisible();
-      expect(within(rows[1]).queryByText(/\(demande\)/)).not.toBeInTheDocument();
+      expect(within(rows[1]).getByLabelText("Fournisseur, ligne 2")).toHaveDisplayValue("Négoce Exemple");
+      expect(within(rows[1]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
       // Overhead is not ordered in the sheet's material.
       expect(within(rows[2]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
     });

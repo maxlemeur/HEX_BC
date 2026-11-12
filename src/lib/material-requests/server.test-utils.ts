@@ -30,9 +30,16 @@ type Filter = (row: FakeRow) => boolean;
 type QueryError = { code: string; message: string; details: null; hint: null };
 type QueryResult = { data: unknown; error: QueryError | null; count?: number | null };
 
+/** What a database function answers from its arguments and the tables, as the database would (pgTAP proves it). */
+export type FakeRpcHandler = (
+  args: Record<string, unknown>,
+  tables: FakeTables,
+) => { data: unknown; error?: { code: string; message: string } | null };
+
 export type FakeSupabaseOptions = {
   userId: string | null;
   tables: FakeTables;
+  /** A fixed answer by function name, or a FakeRpcHandler that reads its arguments. */
   rpc?: Record<string, unknown>;
   /** Stored objects, by path. */
   objects?: Record<string, Uint8Array>;
@@ -78,6 +85,8 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
   const writes: FakeWrite[] = [];
   const storageCalls: FakeStorageCall[] = [];
   const rpcCalls: string[] = [];
+  /** Every database function call with the arguments it was given, in order. */
+  const rpcArgs: Array<{ name: string; args: Record<string, unknown> }> = [];
   /** Every select, by table, in the order it ran: one entry per page read. */
   const reads: string[] = [];
   /** Writes and storage calls in the order they were made: "insert material_request_files", "upload", ... */
@@ -315,6 +324,13 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         filters.push((row) => (readPath(row, column) ?? null) !== null);
         return builder;
       },
+      /** Text searches are not run: every row matches. Tests shape their rows so that they all would. */
+      or() {
+        return builder;
+      },
+      ilike() {
+        return builder;
+      },
       order(column: string, orderOptions?: { ascending?: boolean }) {
         orders.push({ column, ascending: orderOptions?.ascending ?? true });
         return builder;
@@ -344,9 +360,16 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       getUser: async () => ({ data: { user: options.userId ? { id: options.userId } : null }, error: null }),
     },
     from,
-    rpc: async (name: string) => {
+    rpc: async (name: string, args: Record<string, unknown> = {}) => {
       rpcCalls.push(name);
-      return { data: options.rpc?.[name] ?? null, error: null };
+      rpcArgs.push({ name, args });
+      const answer = options.rpc?.[name];
+      if (typeof answer === "function") {
+        const { data, error } = (answer as FakeRpcHandler)(args, tables);
+        if (!error) events.push(`rpc ${name}`);
+        return { data: error ? null : data, error: error ? { ...error, details: null, hint: null } : null };
+      }
+      return { data: answer ?? null, error: null };
     },
     storage: {
       from(bucket: string) {
@@ -410,7 +433,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     },
   };
 
-  return { supabase, tables, writes, storageCalls, rpcCalls, events, objects, reads };
+  return { supabase, tables, writes, storageCalls, rpcCalls, rpcArgs, events, objects, reads };
 }
 
 /** The membership row `getAuthenticatedTenantContext` reads for the signed-in member. */

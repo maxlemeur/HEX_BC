@@ -53,10 +53,13 @@ export type SupplierPricebookRow = {
     | {
         supplier_sku: string | null;
         product_url: string | null;
+        /** TI-691: false once the supplier is withdrawn from the article; its prices are then not proposed. */
+        is_active?: boolean;
       }
     | Array<{
         supplier_sku: string | null;
         product_url: string | null;
+        is_active?: boolean;
       }>
     | null;
 };

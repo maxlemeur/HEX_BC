@@ -63,6 +63,7 @@ type NullableArguments = NullableArgumentSpec<{
   supplier_prices_page: "p_q" | "p_product_id" | "p_supplier_id";
   supplier_prices_summary: "p_product_id" | "p_supplier_id";
   update_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
+  save_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
   commit_estimate_batch: "p_draft_lock_session_id";
   persist_generated_ouvrage_review: "p_expected_review_token";
   commit_generated_ouvrages: "p_draft_lock_session_id";
