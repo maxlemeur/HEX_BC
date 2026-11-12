@@ -32,9 +32,16 @@ type EstimateV3SettingsSectionProps = {
   contractorRoleField?: ReactNode;
   /** Sections communes (informations du devis, précisions) rendues sous les réglages, dans la colonne des champs. */
   commonSections?: ReactNode;
+  /** Rendu à droite du titre « Prix et taxes » (bascule du glossaire) ; un enfant `basis-full` passe dessous. */
+  headingAside?: ReactNode;
 };
 
 const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
+/** Titre d'une section du paramétrage : un cran au-dessus des libellés de champ (14 px, medium). */
+export const SETTINGS_SECTION_TITLE_CLASS = "text-lg font-semibold tracking-tight text-foreground";
+/** Colonne des champs : les libellés s'effacent devant les titres de section et les valeurs saisies. */
+export const SETTINGS_FIELDS_COLUMN_CLASS = "min-w-0 lg:col-span-2 [&_[data-slot=field-label]]:text-foreground-secondary";
+export const SETTINGS_SECTION_HEADER_CLASS = "flex flex-wrap items-center justify-between gap-x-4 gap-y-2";
 const INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full");
 /** Paliers inférieurs proposés en v3 (D7) : aucun arrondi supérieur, au plus proche ni « Réglage conservé ». */
 const ROUNDING_STEPS_CENTS = [100, 1000, 5000, 10000] as const;
@@ -206,6 +213,7 @@ export function EstimateV3SettingsSection({
   onSave,
   contractorRoleField,
   commonSections,
+  headingAside,
 }: Readonly<EstimateV3SettingsSectionProps>) {
   const { draft } = controller;
   const currency = draft?.currency ?? fallbackCurrency;
@@ -226,9 +234,11 @@ export function EstimateV3SettingsSection({
         className="estimate-settings-grid flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3 lg:gap-8"
         data-testid="estimate-v3-settings-section"
       >
-        <div className="min-w-0 space-y-6 lg:col-span-2">
+        <div className={SETTINGS_FIELDS_COLUMN_CLASS}>
+          <section aria-labelledby="estimate-v3-pricing-section-title" className="space-y-5">
+          <div className={SETTINGS_SECTION_HEADER_CLASS}>
           <div className="flex items-center gap-1">
-            <h3 className="text-base font-semibold text-foreground">Prix et taxes</h3>
+            <h3 id="estimate-v3-pricing-section-title" className={SETTINGS_SECTION_TITLE_CLASS}>Prix et taxes</h3>
             <InfoPopover label="Aide : prix et taxes" title="Prix et taxes" className="size-8 sm:size-7">
               <p>
                 <strong>Coefficients.</strong> PU = déboursé fourniture × coefficient FO + déboursé
@@ -247,6 +257,8 @@ export function EstimateV3SettingsSection({
                 et la TVA est calculée après lui.
               </p>
             </InfoPopover>
+          </div>
+          {headingAside}
           </div>
           {controller.unavailableMessage ? (
             <Alert variant="danger">
@@ -344,10 +356,11 @@ export function EstimateV3SettingsSection({
             )}
           </div>
           </div>
+          </section>
           {commonSections}
         </div>
 
-        <div className="estimate-summary lg:sticky lg:top-0 lg:self-start">
+        <div className="estimate-summary">
           <div className="estimate-summary__header">
             <h3>Résumé</h3>
             <p>Aperçu avant enregistrement</p>

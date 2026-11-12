@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
 import { getCommercialRoundingOptions } from "@/components/estimates/rounding-options";
-import { EstimateV3SettingsSection } from "@/components/estimates/v3/EstimateV3SettingsSection";
+import {
+  EstimateV3SettingsSection,
+  SETTINGS_FIELDS_COLUMN_CLASS,
+  SETTINGS_SECTION_HEADER_CLASS,
+  SETTINGS_SECTION_TITLE_CLASS,
+} from "@/components/estimates/v3/EstimateV3SettingsSection";
 import type { EstimateV3SettingsController } from "@/hooks/useEstimateV3Settings";
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
@@ -95,9 +100,10 @@ const DEFAULT_TAX_BP = 2000;
 const GLOSSARY_DISMISSED_STORAGE_KEY = "est-glossary-dismissed";
 const NUMBER_INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full");
 const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
+const READ_ONLY_INPUT_CLASS = "border-transparent bg-surface-subtle text-foreground-secondary shadow-none";
 const GROUP_TITLE_CLASS = "text-sm font-medium text-foreground";
-const SECTION_CLASS = "space-y-4 border-t border-border pt-6";
-const SECTION_TITLE_CLASS = "text-base font-semibold text-foreground";
+const SECTION_CLASS = "mt-8 space-y-5 border-t border-border pt-8";
+const SECTION_TITLE_CLASS = SETTINGS_SECTION_TITLE_CLASS;
 const CHIP_FOCUS_CLASS =
   "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -301,6 +307,7 @@ export function EstimateSettingsPanel({
           <FieldLabel htmlFor="estimate-project-name">Projet</FieldLabel>
           <Input
             id="estimate-project-name"
+            className={READ_ONLY_INPUT_CLASS}
             value={projectName}
             readOnly
           />
@@ -310,6 +317,7 @@ export function EstimateSettingsPanel({
           <FieldLabel htmlFor="estimate-version">Version</FieldLabel>
           <Input
             id="estimate-version"
+            className={READ_ONLY_INPUT_CLASS}
             value={`V${versionNumber}`}
             readOnly
           />
@@ -319,7 +327,7 @@ export function EstimateSettingsPanel({
 
       <section className={SECTION_CLASS}>
       <div className={FIELD_CLASS} data-testid="estimate-exclusions-section">
-        <FieldLabel htmlFor="estimate-exclusions">
+        <FieldLabel htmlFor="estimate-exclusions" className={cn(SECTION_TITLE_CLASS, "text-foreground!")}>
           Précisions et exclusions particulières
         </FieldLabel>
         <FieldDescription id="estimate-exclusions-hint" className="text-xs">
@@ -382,6 +390,30 @@ export function EstimateSettingsPanel({
     </>
   );
 
+  const glossary = (
+    <>
+      <button
+        type="button"
+        className="rounded-sm text-xs font-medium text-info underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        aria-expanded={!glossaryDismissed}
+        aria-controls="estimate-glossary"
+        onClick={() => {
+          const dismissed = !glossaryDismissed;
+          setGlossaryDismissed(dismissed);
+          try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, dismissed ? "1" : "0"); } catch {}
+        }}
+      >
+        Glossaire
+      </button>
+      {!glossaryDismissed && (
+        <p id="estimate-glossary" className="basis-full rounded-md bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
+          <strong>FO</strong> fourniture · <strong>MO</strong> main-d&apos;œuvre · <strong>K</strong> coefficient
+          multiplicateur · <strong>HT</strong> hors taxes · <strong>TTC</strong> toutes taxes comprises
+        </p>
+      )}
+    </>
+  );
+
   return (
     <Card className="p-5 sm:p-8">
       {error && (
@@ -389,28 +421,6 @@ export function EstimateSettingsPanel({
           {error}
         </Alert>
       )}
-
-      <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <button
-          type="button"
-          className="rounded-sm font-medium text-info underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          aria-expanded={!glossaryDismissed}
-          aria-controls="estimate-glossary"
-          onClick={() => {
-            const dismissed = !glossaryDismissed;
-            setGlossaryDismissed(dismissed);
-            try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, dismissed ? "1" : "0"); } catch {}
-          }}
-        >
-          Glossaire
-        </button>
-        {!glossaryDismissed && (
-          <p id="estimate-glossary">
-            <strong>FO</strong> fourniture · <strong>MO</strong> main-d&apos;œuvre · <strong>K</strong> coefficient
-            multiplicateur · <strong>HT</strong> hors taxes · <strong>TTC</strong> toutes taxes comprises
-          </p>
-        )}
-      </div>
 
       {v3 ? (
         <EstimateV3SettingsSection
@@ -421,11 +431,16 @@ export function EstimateSettingsPanel({
           onSave={onSave}
           contractorRoleField={contractorRoleField}
           commonSections={commonSections}
+          headingAside={glossary}
         />
       ) : (
       <div className="estimate-settings-grid flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3 lg:gap-8">
-        <div className="min-w-0 space-y-6 lg:col-span-2">
-          <h3 className={SECTION_TITLE_CLASS}>Prix et taxes</h3>
+        <div className={SETTINGS_FIELDS_COLUMN_CLASS}>
+          <section aria-labelledby="estimate-pricing-section-title" className="space-y-5">
+          <div className={SETTINGS_SECTION_HEADER_CLASS}>
+            <h3 id="estimate-pricing-section-title" className={SECTION_TITLE_CLASS}>Prix et taxes</h3>
+            {glossary}
+          </div>
           <div role="group" aria-labelledby="estimate-margin-mode-label">
             <p id="estimate-margin-mode-label" className={GROUP_TITLE_CLASS}>
               Mode de marge
@@ -674,10 +689,11 @@ export function EstimateSettingsPanel({
               L’arrondi ne s’applique pas en autoliquidation.
             </FieldDescription>
           </div>
+          </section>
           {commonSections}
         </div>
 
-        <div className="estimate-summary lg:sticky lg:top-0 lg:self-start">
+        <div className="estimate-summary">
           <div className="estimate-summary__header">
             <h3>Résumé</h3>
             <p>Calculs en temps réel</p>
