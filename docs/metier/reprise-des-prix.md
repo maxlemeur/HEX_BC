@@ -93,8 +93,9 @@ ventilation atelier/chantier), majoration, K MO et rôles de main-d'œuvre. La
 quantité, la désignation, l'unité, la TVA et la catégorie restent celles de la
 ligne. Un rôle appartient au propriétaire de l'affaire : celui de la référence est
 repris par son nom ; s'il n'existe pas dans le devis, ou si plusieurs rôles portent
-ce nom, la reprise est refusée en le nommant. La provision FO suit le type FO,
-comme pour toute écriture v3. Une offre fournisseur retenue sur la ligne est
+ce nom, la reprise est refusée en le nommant. Le K FO de la référence est copié
+comme un K FO saisi, son ancienne provision comprise : le type FO ne le
+redérive pas. Une offre fournisseur retenue sur la ligne est
 détachée : elle n'explique plus son prix d'achat.
 
 Le PU de vente est recalculé avec les coefficients et les taux horaires du devis.

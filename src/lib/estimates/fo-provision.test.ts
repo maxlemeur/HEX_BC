@@ -144,6 +144,21 @@ it("reconciles an automatic server K FO without overwriting a pending manual inp
   expect(withServerFoProvisions([pending], result)[0]).toMatchObject({ k_fo: 1.0735, k_fo_manual: true });
 });
 
+// docs/metier/regles-de-calcul.md: a price whose transport is included takes the transport share out of a standard
+// base only (tube 1,13 -> 1,10, other families 1,02 -> 1,00); an excluded or unknown transport keeps the base.
+it("removes the transport share from the standard bases when the price includes transport", () => {
+  const included = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "reference", source_id: TUBE, transport_mode: "included" };
+  const excluded = { ...included, transport_mode: "excluded" };
+  const map = new Map([
+    [TUBE, { value: 1.13, transportSensitive: true, unified: true, tube: true }],
+    [RACCORD, { value: 1.02, transportSensitive: false, unified: true, tube: false }],
+  ]);
+  expect([unifiedKfoValue(TUBE, map, included), unifiedKfoValue(RACCORD, map, included)]).toEqual([1.1, 1]);
+  expect([unifiedKfoValue(TUBE, map, excluded), unifiedKfoValue(RACCORD, map, excluded)]).toEqual([1.13, 1.02]);
+  expect([unifiedKfoValue(TUBE, map), unifiedKfoValue(RACCORD, map)]).toEqual([1.13, 1.02]);
+  expect(unifiedKfoValue(TUBE, map, included, "pose_only")).toBe(1);
+});
+
 it("keeps custom and personal unified coefficients authoritative for included transport", () => {
   const included = { selection_id: "53400000-0000-4000-8000-000000000001", kind: "reference", source_id: TUBE, transport_mode: "included" };
   const map = new Map([[TUBE, { value: 1.0735, transportSensitive: true, unified: true, tube: true }]]);
