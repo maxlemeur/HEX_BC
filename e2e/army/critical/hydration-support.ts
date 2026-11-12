@@ -52,7 +52,9 @@ export async function signIn(ui: Ui, origin: string, email: string) {
   try {
     await expect(ui.browser).toHaveURL(/\/dashboard/);
   } catch (error) {
-    throw new Error(`The sign-in did not reach the dashboard: ${JSON.stringify(await readStalledNavigation(ui.browser))}.`, { cause: error });
+    // A page that closes or navigates under the reading must not hide the failure it explains.
+    const reading = await readStalledNavigation(ui.browser).catch((unreadable: unknown) => ({ unreadable: String(unreadable) }));
+    throw new Error(`The sign-in did not reach the dashboard: ${JSON.stringify(reading)}.`, { cause: error });
   }
 }
 
