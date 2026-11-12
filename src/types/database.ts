@@ -39,6 +39,7 @@ type CheckedColumns = CheckedColumnSpec<{
   material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated";
     product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null };
   material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp"; rotation: 0 | 90 | 180 | 270 };
+  assistant_messages: { role: "user" | "assistant"; status: "complete" | "interrupted" | "failed" };
 }>;
 
 // A SQL function argument has no NOT NULL catalog attribute. These existing

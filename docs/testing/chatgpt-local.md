@@ -81,6 +81,10 @@ enregistrés conservent leur fonctionnement tant qu'ils ne sont pas modifiés.
 La fonctionnalité Decisions reste indépendante : si elle est déjà configurée,
 elle utilise son accès API OpenAI distinct et sa facturation propre.
 
+L'assistant de chiffrage (conversation sur une affaire, lecture seule) utilise
+aussi ce forfait. Il s'active à part avec `MERGEONE_ASSISTANT=1` : voir
+[Assistant de chiffrage](../metier/assistant.md).
+
 ## Stockage et frontières
 
 - Jetons : `.private/chatgpt-local/` ignoré par Git, fichiers `0600`, dossier `0700`.

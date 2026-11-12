@@ -5,7 +5,9 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
-import { apiRequest, createEstimateViaWizard, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import {
+  apiRequest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, restrictCriticalBrowser,
+} from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
 import { createPlanSet, readPlanFiles, readPlanSets, uploadSamplePlan } from "../critical/plans-support";
@@ -422,6 +424,96 @@ if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbit
       .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
     await verifyPriceReuseArbitration(ui, army, { userId, tenantId: member.data!.tenant_id }, readTransport);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// Assistant (lot 1): a question asked in the estimate editor is answered from what the application's engine computed,
+// streamed with the reads it took, cited by line, and kept in a conversation private to its author. The provider is
+// the fixture: it proves the loop, the rights and the persistence, not the quality of a real model's answer.
+if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the estimate editor from the engine's amounts and keeps the conversation", {
+  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("ASSIST01 requires its own temporary ChatGPT fixture.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const { client } = await localClient();
+    const prefix = `ARMY-local-assistant-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    await restrictCriticalBrowser(browser, ui.app, army);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Assistant" }, army);
+    const line = await createLineViaApi(browser, ids.versionId, "ARMY tube cuivre assistant", { quantity: 3, unit_price_ht_cents: 1250 });
+    // Independent truth: the totals the estimate API stores for this draft, not what the assistant says.
+    const estimate = await readEstimate(browser, ids.versionId);
+    expect(estimate.version.total_ht_cents).toBeGreaterThan(0);
+    const euros = (cents: number) => `${Math.trunc(cents / 100)},${String(cents % 100).padStart(2, "0")} €`;
+    const total = euros(estimate.version.total_ht_cents);
+    const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map((entry) => JSON.parse(entry) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
+
+    // A conversation cannot be written into by its identifier alone.
+    const unknownThread = await apiRequest(browser, "POST", "/api/assistant/threads/00000000-0000-4000-8000-0000000000a5/messages",
+      { content: "Question sans conversation" });
+    expect(unknownThread.status).toBe(404);
+
+    await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+    const question = "Quel est le total de ce devis ?";
+    await screen.getByTestId("assistant-toggle").click();
+    const panel = screen.getByTestId("assistant-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByTestId("assistant-input").fill(question);
+    await panel.getByTestId("assistant-send").click();
+    const answer = panel.getByTestId("assistant-message-assistant");
+    await expect(answer).toContainText(`Le total HT du devis est de ${total}.`, DEV_SERVER_WORK);
+    await expect(answer).toHaveAttribute("data-status", "complete");
+    await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture du devis");
+    await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture des lignes du devis");
+    await expect(panel.getByTestId("assistant-message-user")).toHaveText(question);
+    // The page behind the docked panel stays usable: the editor's own toolbar still answers.
+    await expect(screen.getByTestId("estimate-page-toolbar-more-actions-button")).toBeEnabled();
+    const screenshot = await app.screenshot("assistant-estimate-answer");
+
+    // Three requests reached the plan: two reads asked by the model, then its answer; nothing else.
+    const sent = (await readTransport()).filter((entry) => entry.task === "assistant");
+    expect(sent.map((entry) => entry.step)).toEqual([0, 1, 2]);
+    expect(sent.every((entry) => entry.question === question && entry.toolChoice === "auto" && entry.model === "army-plan-model")).toBe(true);
+    expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+
+    // Persistence, as its author: the question, then the complete answer with what it read.
+    const saved = await client.from("assistant_messages").select("role, status, content, activity, model").order("created_at");
+    expect(saved.error).toBeNull();
+    expect(saved.data).toEqual([
+      { role: "user", status: "complete", content: question, activity: [], model: null },
+      { role: "assistant", status: "complete", model: "army-plan-model",
+        content: `Le total HT du devis est de ${total}. La ligne [[ligne:${ids.versionId}/${line.id}|${line.title}]] vaut ${total}.`,
+        activity: [{ name: "lire_devis", activity: "Lecture du devis", ok: true },
+          { name: "lire_lignes_devis", activity: "Lecture des lignes du devis", ok: true }] },
+    ]);
+
+    // The cited line opens in the editor, and the conversation is found again after a real reload.
+    const citation = answer.getByTestId("assistant-line-link");
+    await expect(citation).toHaveText(line.title);
+    await citation.click();
+    await expect(ui.browser).toHaveURL(new RegExp(`focusItemId=${line.id}`));
+    await ui.browser.reload();
+    await screen.getByTestId("assistant-toggle").click();
+    await expect(panel.getByTestId("assistant-empty")).toBeVisible();
+    await panel.getByTestId("assistant-thread-select").selectOption({ label: question });
+    await expect(panel.getByTestId("assistant-message-assistant")).toContainText(`Le total HT du devis est de ${total}.`, DEV_SERVER_WORK);
+
+    // Its author deletes it, messages included.
+    const remove = panel.getByTestId("assistant-delete-thread");
+    await remove.click();
+    await remove.click();
+    await expect(panel.getByTestId("assistant-empty")).toBeVisible();
+    await expect.poll(async () => (await client.from("assistant_messages").select("id")).data?.length, DEV_SERVER_WORK).toBe(0);
+    expect((await client.from("assistant_threads").select("id")).data).toEqual([]);
+
+    await recordEvidence(army, "assistant-estimate-answer", { ids, lineId: line.id, totalHtCents: estimate.version.total_ht_cents,
+      providerRequests: sent.length, provider: "fixture", liveModel: false, screenshot });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
