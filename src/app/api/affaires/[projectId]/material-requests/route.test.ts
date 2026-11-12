@@ -14,7 +14,7 @@ import * as validateRoute from "@/app/api/affaires/[projectId]/material-requests
 import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/route";
 import * as requestsRoute from "@/app/api/affaires/[projectId]/material-requests/route";
 import { MATERIAL_REQUEST_FILE_MAX_BYTES, MATERIAL_REQUEST_MAX_LINES } from "@/lib/material-requests/contracts";
-import { createFakeSupabase, fakeMembership, type FakeRow } from "@/lib/material-requests/server.test-utils";
+import { createFakeSupabase, fakeMembership, type FakeRow, type FakeRpcHandler } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -152,7 +152,16 @@ function seed(
 ) {
   const fake = createFakeSupabase({
     userId: actor,
-    rpc: { material_request_material_options: ["Cuivre", "Inox 304L"] },
+    rpc: {
+      material_request_material_options: ["Cuivre", "Inox 304L"],
+      // public.withdraw_material_request_files_for_deletion, as pgTAP proves it (TI-691): every file of the request is
+      // withdrawn, quote files included, and its path answered.
+      withdraw_material_request_files_for_deletion: ((args, tables) => {
+        const rows = (tables.material_request_files ?? []).filter((row) => row.request_id === args.p_request_id);
+        for (const row of rows) row.removed_at ??= new Date().toISOString();
+        return { data: rows.map((row) => ({ storage_path: row.storage_path })) };
+      }) satisfies FakeRpcHandler,
+    },
     objects: overrides.objects ?? { [FILE_PATH]: JPEG, [OTHER_FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG },
     failSign: overrides.failSign,
     refuseUpdate: overrides.refuseUpdate,
@@ -1196,10 +1205,11 @@ describe("material requests of an affaire: originals", () => {
     await call(fileRoute.DELETE, "DELETE", { ...inRequest, fileId: PENDING_FILE });
     expect(pending.events).toEqual(["update material_request_files", "remove", "delete material_request_files"]);
 
+    // TI-691: a request's files, those of retained quotes included, are withdrawn by one database function.
     const whole = seed(OWNER, "engineer");
     await call(requestRoute.DELETE, "DELETE", inRequest);
-    expect(whole.events).toEqual(["update material_request_files", "remove", "delete material_requests"]);
-    expect(whole.writes[0]).toMatchObject({ values: { removed_at: expect.any(String) }, ids: [FILE, PENDING_FILE] });
+    expect(whole.events).toEqual(["rpc withdraw_material_request_files_for_deletion", "remove", "delete material_requests"]);
+    expect(whole.rpcArgs).toContainEqual({ name: "withdraw_material_request_files_for_deletion", args: { p_request_id: REQUEST } });
   });
 
   it.each<[string, unknown]>([

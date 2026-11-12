@@ -2,8 +2,11 @@ import {
   MATERIAL_REQUEST_FILE_MAX_BYTES,
   MATERIAL_REQUEST_MAX_FILES,
   type MaterialRequestLine,
+  type MaterialRequestPricePer,
 } from "@/lib/material-requests/contracts";
 import { MATERIAL_REQUEST_QUOTE_MAX_FILES } from "@/lib/material-requests/quote-contracts";
+import { formatEUR } from "@/lib/money";
+import { isValidOrderQuantity, orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
 
 /** « 2026-11-12 » → « 12/11/2026 », without a time zone in the way. */
 export function formatDateOnly(value: string | null | undefined): string {
@@ -56,6 +59,30 @@ export function checkQuoteFileSelection(files: readonly File[], alreadyThere: nu
   }
   const tooBig = files.find((file) => file.size > MATERIAL_REQUEST_FILE_MAX_BYTES);
   return tooBig ? `« ${tooBig.name} » dépasse 20 Mo.` : null;
+}
+
+/** « 1 000 » with a no-break space: « les 1 000 » never breaks across two lines. */
+export function formatPricePer(per: MaterialRequestPricePer): string {
+  return per === 1000 ? "1 000" : String(per);
+}
+
+/** « 11,50 € », or « 3,40 € les 100 » for a price given for several units. */
+export function formatQuotedPrice(cents: number, per: MaterialRequestPricePer): string {
+  return per === 1 ? formatEUR(cents) : `${formatEUR(cents)} les ${formatPricePer(per)}`;
+}
+
+/**
+ * Quantity × price ÷ the units the price is for, rounded half up to the cent, on exact integers (the quantity in
+ * thousandths, as orders count it). Null when the quantity or the price is not known.
+ */
+export function quotedAmountCents(
+  quantity: number | null,
+  cents: number | null,
+  per: MaterialRequestPricePer,
+): number | null {
+  if (quantity === null || cents === null || !isValidOrderQuantity(quantity)) return null;
+  const divisor = BigInt(1000 * per);
+  return Number((orderQuantityToMilliunits(quantity) * BigInt(cents) + divisor / BigInt(2)) / divisor);
 }
 
 const DAY = new Intl.DateTimeFormat("fr-FR", {

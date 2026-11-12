@@ -8,7 +8,7 @@ import type {
   MaterialRequestFile,
   MaterialRequestLine,
 } from "@/lib/material-requests/contracts";
-import type { MaterialRequestQuote } from "@/lib/material-requests/quote-contracts";
+import type { MaterialRequestQuote, MaterialRequestQuoteLine } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
 
 /** The amount as the screen writes it, spaces as the queries read them (no-break spaces normalised). */
@@ -38,6 +38,14 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 10. a reader is offered a message, a copy, a send, a price input or an action;
  * 11. the supplier's PDF is not attached to its quote (prepared with the quote's id, sent as a PDF), is listed
  *     among the originals, or cannot be opened.
+ * Independent review of delivery 2:
+ * 12. a line whose only words are a reference is put in competition as is, without the office being told it
+ *     needs a type first;
+ * 13. a retained quote keeps its supplier « consulted »: lines added later for that supplier can no longer be asked;
+ *     or a competitor consulted for other lines reads as consulted for these, or the server's refusal for that
+ *     reason is said in code words;
+ * 14. a sub-cent price (0,034 €) cannot be entered, or is entered for 1 unit when the supplier gave it for 100, or a
+ *     total multiplies the price for 100 by the quantity.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -76,7 +84,12 @@ const SUPPLIERS = [
   { id: GAMMA, name: "Dépôt Gamma" },
 ];
 
-function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
+/** `price_per` (review of delivery 2): a price is in whole cents for that many units, on quote and request lines. */
+type Line = MaterialRequestLine;
+type QuoteLine = MaterialRequestQuoteLine;
+type Quote = MaterialRequestQuote;
+
+function line(partial: Partial<Line> = {}): Line {
   return {
     id: LINE_A,
     request_id: REQUEST_ID,
@@ -101,6 +114,7 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     product_id: ARTICLE_1,
     product_match: "reference",
     unit_price_ht_cents: null,
+    price_per: 1,
     price_quote_id: null,
     ...partial,
   };
@@ -145,7 +159,7 @@ function article(partial: Partial<MaterialRequestArticleSummary> = {}): Material
   };
 }
 
-function quote(partial: Partial<MaterialRequestQuote> = {}): MaterialRequestQuote {
+function quote(partial: Partial<Quote> = {}): Quote {
   return {
     id: QUOTE_A,
     request_id: REQUEST_ID,
@@ -161,8 +175,8 @@ function quote(partial: Partial<MaterialRequestQuote> = {}): MaterialRequestQuot
     retained_at: null,
     closed_at: null,
     lines: [
-      { line_id: LINE_A, unit_price_ht_cents: null },
-      { line_id: LINE_B, unit_price_ht_cents: null },
+      { line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 },
+      { line_id: LINE_B, unit_price_ht_cents: null, price_per: 1 },
     ],
     files: [],
     ...partial,
@@ -300,7 +314,7 @@ describe("consultation of suppliers", () => {
           data: {
             item: quote({
               message: input.message,
-              lines: input.line_ids.map((line_id) => ({ line_id, unit_price_ht_cents: null })),
+              lines: input.line_ids.map((line_id) => ({ line_id, unit_price_ht_cents: null, price_per: 1 })),
             }),
           },
         };
@@ -366,7 +380,7 @@ describe("consultation of suppliers", () => {
   });
 
   it("puts other suppliers in competition with a message that names no reference at all (2, 3, 4)", async () => {
-    let quotes: MaterialRequestQuote[] = [];
+    let quotes: Quote[] = [];
     const user = await openEditor({
       // The technician wrote a reference, the article has an internal one, Alpha has its own.
       [`GET ${BASE}`]: { data: detail({ lines: [line({ reference: "471205" })] }) },
@@ -388,7 +402,7 @@ describe("consultation of suppliers", () => {
           supplier_name: "Comptoir Bêta",
           with_references: input.with_references,
           message: input.message,
-          lines: input.line_ids.map((line_id) => ({ line_id, unit_price_ht_cents: null })),
+          lines: input.line_ids.map((line_id) => ({ line_id, unit_price_ht_cents: null, price_per: 1 })),
         });
         quotes = [...quotes, item];
         return { status: 201, data: { item } };
@@ -430,15 +444,175 @@ describe("consultation of suppliers", () => {
     ]);
     expect(within(quoteCard("Comptoir Bêta")).getByText("mise en concurrence")).toBeVisible();
 
-    // A refusal is said beside the button, and the quotes are read again so the screen shows the one recorded.
+    // A refusal is said beside the button in plain words, not the server's code, and the quotes are read again so
+    // the screen shows the consultation recorded meanwhile.
     await user.click(screen.getByRole("checkbox", { name: "Dépôt Gamma" }));
     const readsBefore = reads(QUOTES).length;
     await user.click(screen.getByRole("button", { name: "Consultation envoyée à Dépôt Gamma" }));
     expect(
-      await screen.findByText("Non enregistré : Dépôt Gamma a déjà un devis en cours pour cette demande."),
+      await screen.findByText(
+        "Non enregistré : Dépôt Gamma a déjà une consultation en cours pour cette demande : retenez ou fermez d’abord son devis (« Clore »), puis consultez-le de nouveau.",
+      ),
     ).toBeVisible();
     await waitFor(() => expect(reads(QUOTES).length).toBeGreaterThan(readsBefore));
     expect(await screen.findByRole("article", { name: "Devis Dépôt Gamma" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Consultation envoyée à Dépôt Gamma" })).not.toBeInTheDocument();
+  });
+
+  it("asks for a type before putting in competition a line whose only words carry a reference (12)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: {
+        data: detail({
+          lines: [
+            line(),
+            line({ ...TEE, product_type: null, product_id: null, product_match: null, dimension: null, material: null, original_text: "réf NA-4471 x4", reference: "NA-4471" }),
+          ],
+        }),
+      },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+    });
+
+    // The usual supplier's message is as before: the technician's words are his own reference there.
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\n- 4 u réf NA-4471 x4\nMerci !",
+    );
+    await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
+    expect(screen.getByText("Ligne 2 : donnez-lui un type dans le tableau avant de la mettre en concurrence.")).toBeVisible();
+    await user.click(screen.getByRole("checkbox", { name: "Comptoir Bêta" }));
+
+    const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
+    expect(message).toHaveValue(
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L\n- 4 u Article à préciser (ligne 2)\nMerci !",
+    );
+    expect((message as HTMLTextAreaElement).value).not.toMatch(/NA-4471|r[ée]f/i);
+  });
+
+  it("consults again the lines added after its supplier's quote was retained (13)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: {
+        data: detail({
+          lines: [
+            line({ unit_price_ht_cents: 1250, price_quote_id: QUOTE_A, price_per: 1 }),
+            line({ ...TEE, id: LINE_C, position: 3 }),
+          ],
+        }),
+      },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_C]: null }),
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({
+              status: "retained",
+              received_at: "2026-11-13T10:00:00.000Z",
+              retained_at: "2026-11-14T08:00:00.000Z",
+              lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }],
+            }),
+          ],
+        },
+      },
+      [`POST ${QUOTES}`]: (body) => ({
+        status: 201,
+        data: { item: quote({ id: QUOTE_B, message: (body as { message: string }).message, lines: [{ line_id: LINE_C, unit_price_ht_cents: null, price_per: 1 }] }) },
+      }),
+    });
+
+    const group = await screen.findByRole("group", { name: "Négoce Alpha" });
+    expect(within(group).getByText("2 lignes · 1 au prix retenu")).toBeVisible();
+    expect(within(group).getByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 4 u Té égal, DN 50, Inox 316L\nMerci !",
+    );
+    await user.click(within(group).getByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
+
+    expect(await within(group).findByText("Consultation envoyée le 12/11/2026.")).toBeVisible();
+    expect(writes()).toEqual([
+      {
+        method: "POST",
+        path: QUOTES,
+        body: {
+          supplier_id: ALPHA,
+          line_ids: [LINE_C],
+          with_references: true,
+          message: "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 4 u Té égal, DN 50, Inox 316L\nMerci !",
+        },
+      },
+    ]);
+  });
+
+  it("says plainly that a competitor is already consulted for other lines, and records nothing (13)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: {
+        data: detail({ lines: [line(), line({ ...TEE, id: LINE_C, position: 3, supplier_id: GAMMA })] }),
+      },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_C]: null }),
+      // Bêta is asked for the line bought from Gamma, not for Alpha's.
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({
+              id: QUOTE_B,
+              supplier_id: BETA,
+              supplier_name: "Comptoir Bêta",
+              with_references: false,
+              lines: [{ line_id: LINE_C, unit_price_ht_cents: null, price_per: 1 }],
+            }),
+          ],
+        },
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
+    await user.click(screen.getByRole("checkbox", { name: "Comptoir Bêta" }));
+
+    expect(
+      screen.getByText(
+        "Comptoir Bêta a déjà une consultation en cours pour d’autres lignes de cette demande : retenez ou fermez d’abord son devis (« Clore »), puis consultez-le de nouveau.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Consultation envoyée à Comptoir Bêta" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Consultation envoyée le/)).not.toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("enters a sub-cent price for 100 or 10 units, sends it with the price, and totals it per unit (14)", async () => {
+    let stored = quote({ status: "received", received_at: "2026-11-13T10:00:00.000Z" });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        for (const price of (body as { lines: QuoteLine[] }).lines) {
+          stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
+        }
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+
+    // Chosen before the price: nothing to save yet, the choice goes with the price.
+    await user.selectOptions(within(card).getByRole("combobox", { name: "Prix donné pour, ligne 2, Négoce Alpha" }), "100");
+    expect(writes()).toEqual([]);
+    await user.type(within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 2, Négoce Alpha" }), "3,40");
+    await user.tab();
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `${QUOTES}/${QUOTE_A}`,
+          body: { lines: [{ line_id: LINE_B, unit_price_ht_cents: 340, price_per: 100 }] },
+        },
+      ]),
+    );
+    // 4 u at 3,40 € les 100: 0,136 €, rounded to the cent.
+    expect(await within(card).findByText(`${euros(14)} HT`)).toBeVisible();
+
+    // Chosen after the price: the price is sent again with it.
+    await user.type(within(card).getByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" }), "12,50");
+    await user.tab();
+    await user.selectOptions(within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" }), "10");
+    await waitFor(() => expect(writes()).toHaveLength(3));
+    expect(writes()[2].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 10 }] });
+    expect(await within(card).findByText(`Total des lignes : ${euros(2500 + 14)} HT`)).toBeVisible();
   });
 
   it("saves a typed price in cents, keeps one the server refuses, and sends nothing unreadable (6, 7)", async () => {
@@ -448,7 +622,7 @@ describe("consultation of suppliers", () => {
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
       [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
-        const [price] = (body as { lines: Array<{ line_id: string; unit_price_ht_cents: number | null }> }).lines;
+        const [price] = (body as { lines: QuoteLine[] }).lines;
         if (price.line_id === LINE_B) {
           return { status: 503, error: { code: "UNAVAILABLE", message: "Le service est indisponible, réessayez." } };
         }
@@ -464,7 +638,7 @@ describe("consultation of suppliers", () => {
     await user.tab();
     await waitFor(() =>
       expect(writes()).toEqual([
-        { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250 }] } },
+        { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }] } },
       ]),
     );
     expect(first).toHaveValue("12,50");
@@ -496,13 +670,13 @@ describe("consultation of suppliers", () => {
   });
 
   it("offers « Retenir ce devis » once the quote is received and every line priced, and says why until then (7)", async () => {
-    let stored = quote({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250 }, { line_id: LINE_B, unit_price_ht_cents: null }] });
+    let stored = quote({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: null, price_per: 1 }] });
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
       [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
-        const patch = body as { received?: true; lines?: Array<{ line_id: string; unit_price_ht_cents: number | null }> };
+        const patch = body as { received?: true; lines?: QuoteLine[] };
         if (patch.received) stored = { ...stored, status: "received", received_at: "2026-11-13T10:00:00.000Z" };
         for (const price of patch.lines ?? []) {
           stored = { ...stored, lines: stored.lines.map((entry) => (entry.line_id === price.line_id ? price : entry)) };
@@ -530,7 +704,7 @@ describe("consultation of suppliers", () => {
     expect(retain).not.toHaveAccessibleDescription();
     expect(writes()).toEqual([
       { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { received: true } },
-      { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_B, unit_price_ht_cents: 400 }] } },
+      { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }] } },
     ]);
     expect(screen.getByText(`Total des lignes : ${euros(20 * 1250 + 4 * 400)} HT`)).toBeVisible();
   });
@@ -539,7 +713,7 @@ describe("consultation of suppliers", () => {
     const alpha = quote({
       status: "received",
       received_at: "2026-11-13T10:00:00.000Z",
-      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250 }, { line_id: LINE_B, unit_price_ht_cents: 400 }],
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }],
     });
     const beta = quote({
       id: QUOTE_B,
@@ -548,7 +722,8 @@ describe("consultation of suppliers", () => {
       with_references: false,
       status: "received",
       received_at: "2026-11-13T11:00:00.000Z",
-      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1100 }, { line_id: LINE_B, unit_price_ht_cents: 380 }],
+      // The tees are priced for 100: 3,80 € les 100.
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1100, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 380, price_per: 100 }],
     });
     const retainedAt = "2026-11-14T08:00:00.000Z";
     let items = [alpha, beta];
@@ -566,7 +741,7 @@ describe("consultation of suppliers", () => {
             item: items[1],
             lines: [
               line({ supplier_id: BETA, unit_price_ht_cents: 1100, price_quote_id: QUOTE_B }),
-              line({ ...TEE, supplier_id: BETA, unit_price_ht_cents: 380, price_quote_id: QUOTE_B }),
+              line({ ...TEE, supplier_id: BETA, unit_price_ht_cents: 380, price_per: 100, price_quote_id: QUOTE_B }),
             ],
             closed_quote_ids: [QUOTE_A],
           },
@@ -575,14 +750,17 @@ describe("consultation of suppliers", () => {
     });
 
     const competitor = await screen.findByRole("article", { name: "Devis Comptoir Bêta" });
-    expect(within(competitor).getByText(`Total des lignes : ${euros(20 * 1100 + 4 * 380)} HT`)).toBeVisible();
+    // 4 tees at 3,80 € les 100 are 0,152 €: 0,15 €.
+    expect(within(competitor).getByText(`Total des lignes : ${euros(20 * 1100 + 15)} HT`)).toBeVisible();
+    expect(within(competitor).getByRole("combobox", { name: "Prix donné pour, ligne 2, Comptoir Bêta" })).toHaveValue("100");
     await user.click(screen.getByRole("button", { name: "Retenir ce devis (Comptoir Bêta)" }));
 
     expect(await within(quoteCard("Comptoir Bêta")).findByText("Retenu")).toBeVisible();
+    expect(within(quoteCard("Comptoir Bêta")).getByText(`${euros(380)} les 100`)).toBeVisible();
     expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_B}/retain`, body: null }]);
     // The lines are bought from the retained quote's supplier, at its prices, and that supplier no longer changes.
     expect(screen.getByText(`Prix unitaire HT : ${euros(1100)} (devis retenu)`)).toBeVisible();
-    expect(screen.getByText(`Prix unitaire HT : ${euros(380)} (devis retenu)`)).toBeVisible();
+    expect(screen.getByText(`Prix unitaire HT : ${euros(380)} les 100 (devis retenu)`)).toBeVisible();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 2")).not.toBeInTheDocument();
     expect(screen.getByText("Devis retenu : ses prix unitaires sont ceux des lignes.")).toBeVisible();
@@ -630,7 +808,7 @@ describe("consultation of suppliers", () => {
       [`GET ${BASE}`]: { data: detail({ lines, canWrite: false }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: {
-        data: { items: [quote({ status: "received", received_at: "2026-11-13T10:00:00.000Z", lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250 }, { line_id: LINE_B, unit_price_ht_cents: null }], files: [pdfFile()] })] },
+        data: { items: [quote({ status: "received", received_at: "2026-11-13T10:00:00.000Z", lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: null, price_per: 1 }], files: [pdfFile()] })] },
       },
     });
 
@@ -674,7 +852,8 @@ describe("consultation of suppliers", () => {
 
     const link = await within(quoteCard("Négoce Alpha")).findByRole("link", { name: "devis-alpha.pdf" });
     expect(link).toHaveAttribute("href", `${BASE}/files/${FILE_PDF}`);
-    expect(link).toHaveAttribute("target", "_blank");
+    // The server answers the bytes as an attachment: the link downloads them under their own name.
+    expect(link).toHaveAttribute("download", "devis-alpha.pdf");
     expect(within(quoteCard("Négoce Alpha")).getByText("PDF, 1 Ko")).toBeVisible();
     expect(writes()).toEqual([
       {

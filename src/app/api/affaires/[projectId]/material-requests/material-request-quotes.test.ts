@@ -8,6 +8,7 @@ import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/
 import * as completeRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/complete/route";
 import * as fileRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/route";
 import * as filesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/route";
+import * as lineArticleRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/article/route";
 import * as lineRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/route";
 import * as linesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/route";
 import * as closeRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/quotes/[quoteId]/close/route";
@@ -53,6 +54,16 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     the supplier's name or the files are missing, or it costs one query per quote.
  *  9. Lines: the supplier of a line priced by a retained quote is changed (alone or in a selection), or the line is
  *     deleted alone; a line already priced is consulted again.
+ * Independent review of the delivery:
+ * 10. A priced line changes what it orders and keeps its price (DN 50 priced, then DN 65): its article (linked,
+ *     changed, created or unlinked), type, dimension, material, precision, reference, unit or quantity; or its zone
+ *     and imputation can no longer be edited.
+ * 11. A price below one cent (0,034 € a screw) cannot be recorded: a price is for 1, 10, 100 or 1 000 units, kept
+ *     with its quantity on the quote and on the line it prices; another quantity reaches the database.
+ * 12. A file of a retained or closed quote is turned, or completed after the retaining (its upload began while the
+ *     quote was open), and the leftover stays; a quote's PDF (a supplier's document) is served inline.
+ * 13. A deadlock during a quote write answers a bare 400 instead of « réessayez »; a message of 300 lines (more
+ *     than 4 000 characters) is refused.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -83,6 +94,8 @@ const QUOTE_BETA = "c0000000-0000-4000-8000-000000000002";
 const QUOTE_GAMMA = "c0000000-0000-4000-8000-000000000003";
 const QUOTE_CLOSED = "c0000000-0000-4000-8000-000000000004";
 const QUOTE_OTHER = "c0000000-0000-4000-8000-000000000009";
+const ELBOW_ARTICLE = "90000000-0000-4000-8000-000000000001";
+const SUPPLY_TYPE = "a0000000-0000-4000-8000-000000000001";
 const ORIGINAL = "80000000-0000-4000-8000-000000000001";
 const ALPHA_PDF = "80000000-0000-4000-8000-000000000002";
 const VALIDATED_AT = "2026-11-11T10:00:00.000Z";
@@ -101,7 +114,7 @@ function line(id: string, requestId: string, position: number, extra: FakeRow = 
     no_dimension: false, product_type: "Coude 90°", material: "Inox 304L", material_precision: null, reference: null,
     supplier_id: null, zone: null, imputation: "project", overhead_category: null, duplicate_acknowledged: false,
     status: "draft", validated_at: null, validated_by: null, product_id: null, product_match: null, pre_link_wording: null,
-    unit_price_ht_cents: null, price_quote_id: null,
+    unit_price_ht_cents: null, price_per: 1, price_quote_id: null,
     created_at: "2026-11-10T09:00:00.000Z", updated_at: "2026-11-10T09:00:00.000Z", ...extra,
   };
 }
@@ -116,8 +129,8 @@ function quote(id: string, supplierId: string, status: string, requestedAt: stri
   };
 }
 
-const quoteLine = (quoteId: string, lineId: string, price: number | null, projectId = PROJECT): FakeRow => ({
-  quote_id: quoteId, line_id: lineId, tenant_id: TENANT, project_id: projectId, unit_price_ht_cents: price,
+const quoteLine = (quoteId: string, lineId: string, price: number | null, projectId = PROJECT, pricePer = 1): FakeRow => ({
+  quote_id: quoteId, line_id: lineId, tenant_id: TENANT, project_id: projectId, unit_price_ht_cents: price, price_per: pricePer,
   created_at: "2026-11-12T09:00:00.000Z", updated_at: "2026-11-12T09:00:00.000Z",
 });
 
@@ -164,14 +177,14 @@ const updateQuoteInDatabase: FakeRpcHandler = (args, tables) => {
   if (!target) return { data: null, error: { code: "P0002", message: "MATERIAL_REQUEST_QUOTE_NOT_FOUND" } };
   if (!OPEN.includes(String(target.status))) return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_READ_ONLY" } };
   const changes = args.p_changes as { amount_ht_cents?: number | null; notes?: string | null; received?: true;
-    lines?: Array<{ line_id: string; unit_price_ht_cents: number | null }> };
+    lines?: Array<{ line_id: string; unit_price_ht_cents: number | null; price_per?: number }> };
   const mine = (tables.material_request_quote_lines ?? []).filter((row) => row.quote_id === target.id);
   if (changes.lines?.some((entry) => !mine.some((row) => row.line_id === entry.line_id))) {
     return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_LINE_NOT_IN_QUOTE" } };
   }
   for (const entry of changes.lines ?? []) {
     const row = mine.find((candidate) => candidate.line_id === entry.line_id);
-    if (row) row.unit_price_ht_cents = entry.unit_price_ht_cents;
+    if (row) Object.assign(row, { unit_price_ht_cents: entry.unit_price_ht_cents, price_per: entry.price_per ?? row.price_per });
   }
   if ("amount_ht_cents" in changes) target.amount_ht_cents = changes.amount_ht_cents;
   if ("notes" in changes) target.notes = changes.notes;
@@ -202,7 +215,7 @@ function retainQuoteInDatabase(actor: string): FakeRpcHandler {
     Object.assign(target, { status: "retained", retained_at: now(), retained_by: actor });
     for (const row of mine) {
       Object.assign(lines.find((entry) => entry.id === row.line_id) ?? {}, {
-        supplier_id: target.supplier_id, unit_price_ht_cents: row.unit_price_ht_cents, price_quote_id: target.id,
+        supplier_id: target.supplier_id, unit_price_ht_cents: row.unit_price_ht_cents, price_per: row.price_per, price_quote_id: target.id,
       });
     }
     const shared = new Set(mine.map((row) => row.line_id));
@@ -402,7 +415,7 @@ describe("recording a quote", () => {
       with_references: false, message: createBody().message, requested_at: expect.any(String), received_at: null,
       amount_ht_cents: null, notes: null, retained_at: null, closed_at: null,
       // In the order of the request, whatever the order given.
-      lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: null }, { line_id: LINE_VALVE, unit_price_ht_cents: null }],
+      lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: null, price_per: 1 }, { line_id: LINE_VALVE, unit_price_ht_cents: null, price_per: 1 }],
       files: [],
     } satisfies MaterialRequestQuote);
     expect((await listQuotes())[0]).toEqual(item);
@@ -471,7 +484,7 @@ describe("recording a quote", () => {
     ["no line", { line_ids: [] }],
     ["a line twice", { line_ids: [LINE_VALVE, LINE_VALVE] }],
     ["a blank message", { message: "   " }],
-    ["a message of 4 001 characters", { message: "x".repeat(4001) }],
+    ["a message of 20 001 characters", { message: "x".repeat(20_001) }],
     ["no variant", { with_references: undefined }],
   ])("refuses a quote with %s before the database is called", async (_label, extra) => {
     const fake = seed(OWNER, "engineer");
@@ -519,11 +532,30 @@ describe("pricing a quote", () => {
     ["a status", { status: "retained" }],
     ["nothing", {}],
     ["notes of 2 001 characters", { notes: "x".repeat(2001) }],
+    ["a price for 7 units", { lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: 34, price_per: 7 }] }],
   ])("refuses %s before the database is called", async (_label, body) => {
     const fake = seed(OWNER, "engineer");
     const { status, error } = await call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_GAMMA), body);
     expect([status, error?.code]).toEqual([400, "VALIDATION_ERROR"]);
     expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("records a price below one cent as a price for 100 or 1 000 units, and keeps the quantity of a line left out", async () => {
+    const fake = seed(OWNER, "engineer", {
+      tables: { material_request_quote_lines: [quoteLine(QUOTE_ALPHA, LINE_ELBOW, 1250, PROJECT, 10), quoteLine(QUOTE_ALPHA, LINE_TEE, 3400)] },
+    });
+    // 0,034 € a screw: 340 cents for 100.
+    const { status, data } = await call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_ALPHA), {
+      lines: [{ line_id: LINE_TEE, unit_price_ht_cents: 340, price_per: 100 }, { line_id: LINE_ELBOW, unit_price_ht_cents: 1300 }],
+    });
+    expect(status).toBe(200);
+    expect(fake.rpcArgs.find((entry) => entry.name === "update_material_request_quote")?.args.p_changes).toEqual({
+      lines: [{ line_id: LINE_TEE, unit_price_ht_cents: 340, price_per: 100 }, { line_id: LINE_ELBOW, unit_price_ht_cents: 1300 }],
+    });
+    expect((data as { item: MaterialRequestQuote }).item.lines).toEqual([
+      { line_id: LINE_ELBOW, unit_price_ht_cents: 1300, price_per: 10 },
+      { line_id: LINE_TEE, unit_price_ht_cents: 340, price_per: 100 },
+    ]);
   });
 
   it("answers 404 for a line of the request that the quote does not ask for", async () => {
@@ -574,6 +606,26 @@ describe("retaining a quote", () => {
     expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_LINES_UNPRICED",
       "La ligne 3 de ce devis n’a pas de prix : chiffrez-la avant de le retenir.", { positions: [3], line_ids: [LINE_TUBE] }]);
     expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("gives each line the quantity its price is for", async () => {
+    seed(OWNER, "engineer", {
+      tables: { material_request_quote_lines: [quoteLine(QUOTE_ALPHA, LINE_ELBOW, 1250), quoteLine(QUOTE_ALPHA, LINE_TEE, 340, PROJECT, 100)] },
+    });
+    const { data } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect((data as MaterialRequestQuoteRetained).lines.map((entry) => [entry.id, entry.unit_price_ht_cents, entry.price_per]))
+      .toEqual([[LINE_ELBOW, 1250, 1], [LINE_TEE, 340, 100]]);
+  });
+
+  it.each<[string, () => Promise<{ status: number; error?: { code: string; message: string } }>]>([
+    ["retaining", () => call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA))],
+    ["recording", () => call(quotesRoute.POST, "POST", inRequest, createBody())],
+    ["pricing", () => call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_GAMMA), { notes: "Délai 48 h" })],
+  ])("answers « réessayez » when the database ends a deadlock while %s", async (_label, run) => {
+    const fake = seed(OWNER, "engineer");
+    fake.supabase.rpc = (async () => ({ data: null, error: { code: "40P01", message: "deadlock detected", details: null, hint: null } })) as typeof fake.supabase.rpc;
+    const { status, error } = await run();
+    expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_QUOTE_BUSY", "Une autre modification était en cours : réessayez."]);
   });
 
   it("names every unpriced line when there are several", async () => {
@@ -628,6 +680,7 @@ describe("retained and closed quotes are read-only", () => {
       quote_id: QUOTE_CLOSED, files: [{ name: "devis.pdf", mime_type: "application/pdf", byte_size: PDF.byteLength }],
     })],
     ["deprived of its file, when retained", "Ce devis est retenu : il ne se modifie plus.", () => call(fileRoute.DELETE, "DELETE", { ...inRequest, fileId: ALPHA_PDF })],
+    ["given a turned file, when retained", "Ce devis est retenu : il ne se modifie plus.", () => call(fileRoute.PATCH, "PATCH", { ...inRequest, fileId: ALPHA_PDF }, { rotation: 90 })],
   ])("a quote is not %s", async (_label, message, run) => {
     const fake = retained();
     const { status, error } = await run();
@@ -665,7 +718,7 @@ describe("the list of quotes", () => {
       id: QUOTE_ALPHA, request_id: REQUEST, supplier_id: ALPHA, supplier_name: "Négoce Alpha", status: "received", with_references: true,
       message: "Bonjour, pouvez-vous chiffrer ces articles ?", requested_at: "2026-11-12T09:00:00.000Z", received_at: "2026-11-12T14:00:00.000Z",
       amount_ht_cents: 11800, notes: null, retained_at: null, closed_at: null,
-      lines: [{ line_id: LINE_ELBOW, unit_price_ht_cents: 1250 }, { line_id: LINE_TEE, unit_price_ht_cents: 3400 }],
+      lines: [{ line_id: LINE_ELBOW, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_TEE, unit_price_ht_cents: 3400, price_per: 1 }],
       files: [{
         id: ALPHA_PDF, request_id: REQUEST, quote_id: QUOTE_ALPHA, file_name: "devis-alpha.pdf", mime_type: "application/pdf",
         byte_size: PDF.byteLength, rotation: 0, created_at: "2026-11-12T14:05:00.000Z",
@@ -733,11 +786,26 @@ describe("the files of a quote", () => {
     expect(fake.tables.material_request_files.some((row) => row.id === upload.file.id)).toBe(false);
   });
 
-  it("serves a quote's PDF through the file route, with the type verified at upload", async () => {
+  it("serves a quote's PDF through the file route as a download (a supplier's document), an original inline", async () => {
     seed(DIRECTOR, "director");
     const { status, response } = await call(fileRoute.GET, "GET", { ...inRequest, fileId: ALPHA_PDF });
     expect([status, response.headers.get("content-type")]).toEqual([200, "application/pdf"]);
+    expect(response.headers.get("content-disposition")).toMatch(/^attachment; filename="devis-alpha\.pdf"/);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PDF);
+    const original = await call(fileRoute.GET, "GET", { ...inRequest, fileId: ORIGINAL });
+    expect(original.response.headers.get("content-disposition")).toMatch(/^inline; /);
+  });
+
+  it("does not complete a file whose quote was retained while it was being sent, and takes it back", async () => {
+    const fake = seed(OWNER, "engineer");
+    const prepared = await prepare([{ name: "page-2.jpg", mime_type: "image/jpeg", byte_size: JPEG.byteLength }], QUOTE_GAMMA);
+    const [upload] = (prepared.data as { uploads: Upload[] }).uploads;
+    fake.objects.set(upload.path, JPEG);
+    Object.assign(fake.tables.material_request_quotes.find((row) => row.id === QUOTE_GAMMA) ?? {}, { status: "retained", retained_at: now() });
+    const { status, error } = await complete([upload.file.id]);
+    expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_QUOTE_READ_ONLY", "Ce devis est retenu : il ne se modifie plus."]);
+    expect(fake.tables.material_request_files.some((row) => row.id === upload.file.id)).toBe(false);
+    expect(fake.objects.has(upload.path)).toBe(false);
   });
 
   it("removes a file attached by mistake while the quote is in progress", async () => {
@@ -789,10 +857,53 @@ describe("lines priced by a retained quote", () => {
       material_request_quote_lines: [quoteLine(QUOTE_ALPHA, LINE_ELBOW, 1250)],
       material_request_lines: [
         line(LINE_ELBOW, REQUEST, 1, { status: "validated", validated_at: VALIDATED_AT, validated_by: OWNER, supplier_id: ALPHA,
-          unit_price_ht_cents: 1250, price_quote_id: QUOTE_ALPHA }),
+          unit_price_ht_cents: 1250, price_quote_id: QUOTE_ALPHA, product_id: ELBOW_ARTICLE, product_match: "manual" }),
         line(LINE_TEE, REQUEST, 2),
       ],
+      products: [{ id: ELBOW_ARTICLE, tenant_id: TENANT, reference: null, designation: "Coude 90° inox DN 65", product_type: "Coude 90°",
+        material: "Inox 304L", dimensions: "DN 65", unit: "u", is_active: true, catalogue_status: "validated", supply_type_id: null,
+        created_from_material_request: false, created_by: null }],
+      supply_types: [{ id: SUPPLY_TYPE, tenant_id: TENANT, code: "raccords", name: "Raccords" }],
     },
+  });
+  const ordered = "La ligne 1 a un devis retenu : ce qu’elle commande (article, désignation, dimension, matière, référence, unité, quantité) ne change plus.";
+
+  it.each<[string, FakeRow]>([
+    ["its dimension (DN 50 priced, DN 65 ordered)", { dimension: "DN 65" }],
+    ["whether it has a dimension", { no_dimension: true }],
+    ["its quantity", { quantity: 40 }],
+    ["its unit", { unit: "m" }],
+    ["its type", { product_type: "Coude 45°" }],
+    ["its material", { material: "Inox 316L" }],
+    ["its precision", { material_precision: "PN16" }],
+    ["its reference", { reference: "CO-65" }],
+  ])("refuses to change what a priced line orders: %s", async (_label, patch) => {
+    const fake = priced();
+    const { status, error } = await call(lineRoute.PATCH, "PATCH", { ...inRequest, lineId: LINE_ELBOW }, patch);
+    expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED", ordered]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("refuses the same in a selection, writing none of it, and applies a zone to it", async () => {
+    const fake = priced();
+    const refused = await call(linesRoute.PATCH, "PATCH", inRequest, { ids: [LINE_TEE, LINE_ELBOW], patch: { material: "Inox 316L" } });
+    expect([refused.status, refused.error?.code]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED"]);
+    expect(fake.writes).toEqual([]);
+    const zoned = await call(linesRoute.PATCH, "PATCH", inRequest, { ids: [LINE_TEE, LINE_ELBOW], patch: { zone: "R+2", imputation: "overhead" } });
+    expect(zoned.status).toBe(200);
+  });
+
+  it.each<[string, () => Promise<{ status: number; error?: { code: string; message: string } }>]>([
+    ["linked to another article", () => call(lineArticleRoute.PUT, "PUT", { ...inRequest, lineId: LINE_ELBOW }, { product_id: ELBOW_ARTICLE, via: "manual" })],
+    ["unlinked from its article", () => call(lineArticleRoute.DELETE, "DELETE", { ...inRequest, lineId: LINE_ELBOW })],
+    ["given a new article", () => call(lineArticleRoute.POST, "POST", { ...inRequest, lineId: LINE_ELBOW }, {
+      product_type: "Coude 90°", material: "Inox 304L", unit: "u", supply_type_id: SUPPLY_TYPE,
+    })],
+  ])("refuses a priced line %s", async (_label, run) => {
+    const fake = priced();
+    const { status, error } = await run();
+    expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED", ordered]);
+    expect(fake.writes).toEqual([]);
   });
 
   it("refuses to change the supplier of a priced line, alone or in a selection, and writes none of the selection", async () => {

@@ -13,19 +13,28 @@
 --    One supplier has at most one quote still requested or received per request (partial unique index); a retained
 --    or closed one does not keep it from being consulted again (lines added later can go to the same supplier).
 -- 2. public.material_request_quote_lines: the lines a quote asks for, each a line of the quote's request, with its
---    unit price excluding tax in cents (null until priced). Tenant and affaire are the quote's (project_id is kept on
---    the row so that its policies read like those of the lines, without a subquery per row). Fixed once the quote is
---    retained or closed. A line already priced by a retained quote is not consulted again.
--- 3. material_request_lines.unit_price_ht_cents and price_quote_id: the retained quote's price, both null or both
---    set. Purchasing information, not in the validated-line backstop: a validated line stays validated. How the line
+--    price excluding tax in whole cents (null until priced) for price_per units (1, 10, 100 or 1 000: a screw at
+--    0,034 € is 340 cents for 100). Tenant and affaire are the quote's (project_id is kept on the row so that its
+--    policies read like those of the lines, without a subquery per row). Written only by
+--    public.create_material_request_quote (transaction-local marker app.material_request_quote_creating = the quote
+--    id); fixed once the quote is retained or closed. A line already priced by a retained quote is not consulted again.
+-- 3. material_request_lines.unit_price_ht_cents, price_per and price_quote_id: the retained quote's price for price_per
+--    units, null (price_per 1) or set together. The amount of a line is quantity x price / price_per, rounded half away
+--    from zero to the cent: nothing computes it in this delivery (the purchase that follows will). Purchasing
+--    information, not in the validated-line backstop: a validated line stays validated. How the line
 --    trigger refuses every other write to them: they change only while public.retain_material_request_quote runs for
 --    that very quote (transaction-local marker app.material_request_quote_retaining = the quote id, which only a
 --    database function can set: the Data API runs no SET), a line is priced once (old.price_quote_id null) and never
 --    inserted priced; the only other change is the clearing made by the quote's own deletion (ON DELETE SET NULL,
 --    trigger depth > 1; only the service role or the request's cascade deletes a quote). A priced line keeps the
---    quote's supplier (MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE) and is not deleted alone (MATERIAL_REQUEST_LINE_PRICED;
---    its request still is). private.enforce_material_request_line_write() is copied from
---    20261112152357_purchase_line_suppliers.sql; only the price block is new.
+--    quote's supplier (MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE), keeps what it orders at that price (its article and
+--    match, type, dimension and no_dimension, material, precision, reference, unit and quantity:
+--    MATERIAL_REQUEST_LINE_PRICED; a DN 50 priced does not become a DN 65 at the DN 50 price) and is not deleted alone
+--    (MATERIAL_REQUEST_LINE_PRICED; its request still is). Its zone, imputation, the technician's words, the quantity
+--    doubt and the duplicate acknowledgement stay editable. There is no way back in this delivery: no reopening of a
+--    retained quote, no unpricing of a line (only the quote's deletion by the service role clears it).
+--    private.enforce_material_request_line_write() is copied from 20261112152357_purchase_line_suppliers.sql; only the
+--    price block and the freeze of a priced line are new.
 -- 4. public.retain_material_request_quote(uuid), SECURITY INVOKER, one transaction: the quote received, every line
 --    priced, none already retained (coded refusals, positions in DETAIL); it becomes retained, its lines take its
 --    supplier, price and id, and every other requested or received quote of the request sharing a line is closed.
@@ -35,9 +44,14 @@
 -- 5. Quote files reuse material_request_files (signed upload, stored mark, withdrawal, storage guards unchanged):
 --    quote_id names the quote (cascade); a quote's file may be a PDF or an image, an original stays an image (CHECK);
 --    the bucket accepts application/pdf. Ten listed files per quote (MATERIAL_REQUEST_QUOTE_MAX_FILES), apart from
---    the twelve originals of the request; the 24 uploads waiting for their bytes stay bounded per request. A quote
---    retained or closed takes no new file. private.enforce_material_request_file_write() is copied from
---    20261112014046_material_requests.sql; only the quote checks and the cap per quote are new.
+--    the twelve originals of the request; the 24 uploads waiting for their bytes stay bounded per request. The files
+--    of a retained or closed quote are read-only (the quote row shared-locked against a retaining in progress): no new
+--    file, no stored mark (an upload prepared while the quote was open and completed after its retaining), no
+--    rotation, and a listed file is neither withdrawn nor deleted (a direct statement; cascades still delete it). An
+--    unlisted leftover is withdrawn and deleted as usual. The request's own deletion withdraws them through
+--    public.withdraw_material_request_files_for_deletion (marker app.material_request_deleting = the request id), the
+--    one path, for the writers who may delete the request anyway. private.enforce_material_request_file_write() is
+--    copied from 20261112014046_material_requests.sql; only the quote checks and the cap per quote are new.
 -- Rights: read = whoever reads the affaire's material requests (can_read_affaire_intake_project); write = the owner
 -- of the affaire or an admin, with the role admin or engineer (can_access_affaire_intake_project + has_tenant_role).
 -- Quotes are never deleted by a client: they are closed.
@@ -85,8 +99,8 @@ create table public.material_request_quotes (
   status text not null default 'requested' check (status in ('requested', 'received', 'retained', 'closed')),
   -- The variant copied: with the references (usual supplier), or without them and with full designations.
   with_references boolean not null,
-  -- The message as copied into WhatsApp.
-  message text not null check (char_length(message) between 1 and 4000),
+  -- The message as copied into WhatsApp: room for 300 lines with their designations and references.
+  message text not null check (char_length(message) between 1 and 20000),
   requested_at timestamptz not null default now(),
   received_at timestamptz,
   -- The supplier's total excluding tax; informative, the cost is per line.
@@ -126,6 +140,8 @@ create table public.material_request_quote_lines (
   tenant_id uuid not null default public.current_tenant_id() references public.tenants(id) on delete restrict,
   project_id uuid not null references public.estimate_projects(id) on delete cascade,
   unit_price_ht_cents integer check (unit_price_ht_cents is null or unit_price_ht_cents >= 0),
+  -- How many units the price is for: a price below one cent a unit is given for 100 or 1 000.
+  price_per integer not null default 1 check (price_per in (1, 10, 100, 1000)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (quote_id, line_id)
@@ -135,19 +151,24 @@ create index material_request_quote_lines_tenant_idx on public.material_request_
 create index material_request_quote_lines_project_idx on public.material_request_quote_lines (project_id);
 
 comment on table public.material_request_quote_lines is
-  'TI-691: the lines a quote asks for (lines of its request) and their unit price excluding tax in cents. Fixed once the quote is retained or closed.';
+  'TI-691: the lines a quote asks for (lines of its request) and their price excluding tax in whole cents for price_per units (1, 10, 100 or 1000). Written by create_material_request_quote only; fixed once the quote is retained or closed.';
 
 -- ---------------------------------------------------------------------------
 -- 3. The retained price of a line.
 -- ---------------------------------------------------------------------------
 alter table public.material_request_lines
   add column unit_price_ht_cents integer check (unit_price_ht_cents is null or unit_price_ht_cents >= 0),
+  add column price_per integer not null default 1 check (price_per in (1, 10, 100, 1000)),
   add column price_quote_id uuid references public.material_request_quotes(id) on delete set null,
-  add constraint material_request_lines_price_quote_check check ((price_quote_id is null) = (unit_price_ht_cents is null));
+  add constraint material_request_lines_price_quote_check check (
+    (price_quote_id is null) = (unit_price_ht_cents is null) and (price_quote_id is not null or price_per = 1)
+  );
 create index material_request_lines_price_quote_idx on public.material_request_lines (price_quote_id);
 
 comment on column public.material_request_lines.unit_price_ht_cents is
-  'TI-691: unit price excluding tax, in cents, of the quote retained for the line (price_quote_id). Written only by public.retain_material_request_quote; purchasing information, a validated line stays validated.';
+  'TI-691: price excluding tax, in whole cents for price_per units, of the quote retained for the line (price_quote_id). Written only by public.retain_material_request_quote; purchasing information, a validated line stays validated. The amount is quantity x price / price_per, rounded half away from zero to the cent.';
+comment on column public.material_request_lines.price_per is
+  'TI-691: how many units unit_price_ht_cents is for (1, 10, 100 or 1000), written with it by the retaining; 1 while the line is unpriced.';
 comment on column public.material_request_lines.price_quote_id is
   'TI-691: the retained quote that priced the line; its supplier is then the line''s and no longer changes.';
 
@@ -280,6 +301,11 @@ begin
     raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_READ_ONLY';
   end if;
   if tg_op = 'INSERT' then
+    -- The lines of a quote are those it was created with: only public.create_material_request_quote writes them, for
+    -- the quote it is creating, so that no line is added to a consultation already copied and sent.
+    if pg_catalog.current_setting('app.material_request_quote_creating', true) is distinct from new.quote_id::text then
+      raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_LINES_THROUGH_FUNCTION';
+    end if;
     -- A line of the quote's request, not priced by a retained quote yet: the line is shared-locked against a
     -- retaining that would price it meanwhile.
     select l.request_id, l.price_quote_id into line
@@ -365,18 +391,21 @@ begin
     new.product_match := null;
   end if;
 
-  -- TI-691 delivery 2: the price of a line is its retained quote's, and only the retaining writes it. A line is never
-  -- created priced; it is priced once, while public.retain_material_request_quote runs for that very quote (the
-  -- transaction-local marker it sets, which the Data API cannot set); the price then stays. The only other change is
-  -- its clearing by the deletion of the quote itself (ON DELETE SET NULL, trigger depth > 1), the price going with it.
-  -- A priced line keeps the quote's supplier. Neither is what the line says: a validated line stays validated.
+  -- TI-691 delivery 2: the price of a line (and the quantity it is for) is its retained quote's, and only the
+  -- retaining writes it. A line is never created priced; it is priced once, while public.retain_material_request_quote
+  -- runs for that very quote (the transaction-local marker it sets, which the Data API cannot set); the price then
+  -- stays. The only other change is its clearing by the deletion of the quote itself (ON DELETE SET NULL, trigger
+  -- depth > 1), the price going with it. A priced line keeps the quote's supplier. Neither is what the line says: a
+  -- validated line stays validated.
   if tg_op = 'INSERT' then
-    if new.price_quote_id is not null or new.unit_price_ht_cents is not null then
+    if new.price_quote_id is not null or new.unit_price_ht_cents is not null or new.price_per is distinct from 1 then
       raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_LINE_PRICE_FROM_QUOTE_ONLY';
     end if;
-  elsif (new.price_quote_id, new.unit_price_ht_cents) is distinct from (old.price_quote_id, old.unit_price_ht_cents) then
+  elsif (new.price_quote_id, new.unit_price_ht_cents, new.price_per)
+    is distinct from (old.price_quote_id, old.unit_price_ht_cents, old.price_per) then
     if pg_trigger_depth() > 1 and old.price_quote_id is not null and new.price_quote_id is null then
       new.unit_price_ht_cents := null;
+      new.price_per := 1;
     elsif old.price_quote_id is not null or new.price_quote_id is null
       or pg_catalog.current_setting('app.material_request_quote_retaining', true) is distinct from new.price_quote_id::text
     then
@@ -384,6 +413,20 @@ begin
     end if;
   elsif old.price_quote_id is not null and new.supplier_id is distinct from old.supplier_id then
     raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE';
+  end if;
+
+  -- A priced line orders what its retained quote priced, at that price: its article, type, size, material, precision,
+  -- reference, unit and quantity no longer change (a DN 50 priced is not ordered as a DN 65 at the DN 50 price). There
+  -- is no way back in this delivery: a retained quote is not reopened. Its zone, imputation, the technician's words, the
+  -- quantity doubt and the duplicate acknowledgement stay editable, and an article erased by its own deletion (ON
+  -- DELETE SET NULL, trigger depth > 1) is not an edit.
+  if tg_op = 'UPDATE' and old.price_quote_id is not null and new.price_quote_id is not null and pg_trigger_depth() = 1
+    and (new.product_id, new.product_match, new.product_type, new.dimension, new.no_dimension, new.material,
+      new.material_precision, new.reference, new.unit, new.quantity)
+    is distinct from (old.product_id, old.product_match, old.product_type, old.dimension, old.no_dimension, old.material,
+      old.material_precision, old.reference, old.unit, old.quantity)
+  then
+    raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_LINE_PRICED';
   end if;
 
   -- A validated line always describes what was validated: changing what it says returns it to draft,
@@ -462,6 +505,21 @@ begin
       is distinct from (old.id, old.tenant_id, old.project_id, old.request_id, old.quote_id, old.storage_path,
         old.file_name, old.mime_type, old.byte_size, old.created_at) then
       raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_FILE_IMMUTABLE';
+    end if;
+    -- TI-691: the answer of a retained or closed quote is read-only. The quote row is shared-locked, so that a
+    -- retaining in progress (which locks it for update) is waited for: an upload prepared while the quote was open
+    -- is not completed after its retaining; a listed file is neither turned nor withdrawn, except by the request's
+    -- deletion (withdraw_material_request_files_for_deletion); a file never listed is withdrawn as usual.
+    if new.quote_id is not null then
+      select q.status into quote from public.material_request_quotes q where q.id = new.quote_id for share;
+      if quote.status in ('retained', 'closed') and (
+        (old.stored_at is null and new.stored_at is not null)
+        or new.rotation is distinct from old.rotation
+        or (old.stored_at is not null and old.removed_at is null and new.removed_at is not null
+          and pg_catalog.current_setting('app.material_request_deleting', true) is distinct from new.request_id::text)
+      ) then
+        raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_READ_ONLY';
+      end if;
     end if;
     if new.created_by is not null or pg_trigger_depth() = 1 then new.created_by := old.created_by; end if;
     -- Withdrawn once, at the time the database sees it, and for good.
@@ -558,6 +616,24 @@ begin
 end;
 $$;
 
+-- A listed file of a retained or closed quote is not deleted by a direct statement (its row is withdrawn first by the
+-- application, which the file trigger refuses). Deleting its quote, request or affaire still deletes it (depth > 1).
+create function private.guard_material_request_file_delete()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+declare
+  quote record;
+begin
+  if old.quote_id is not null and old.stored_at is not null and old.removed_at is null and pg_trigger_depth() = 1 then
+    select q.status into quote from public.material_request_quotes q where q.id = old.quote_id for share;
+    if quote.status in ('retained', 'closed') then
+      raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_READ_ONLY';
+    end if;
+  end if;
+  return old;
+end;
+$$;
+
+revoke all on function private.guard_material_request_file_delete() from public, anon, authenticated;
 revoke all on function private.enforce_material_request_quote_write() from public, anon, authenticated;
 revoke all on function private.enforce_material_request_quote_line_write() from public, anon, authenticated;
 revoke all on function private.guard_material_request_line_delete() from public, anon, authenticated;
@@ -571,6 +647,9 @@ create trigger enforce_material_request_quote_line_write
 create trigger guard_material_request_line_delete
   before delete on public.material_request_lines
   for each row execute function private.guard_material_request_line_delete();
+create trigger guard_material_request_file_delete
+  before delete on public.material_request_files
+  for each row execute function private.guard_material_request_file_delete();
 
 -- ---------------------------------------------------------------------------
 -- Rights, in the pattern of the lines.
@@ -648,7 +727,8 @@ create policy "Affaire operators change material request quote lines"
 -- 4. Writing quotes, as the caller (RLS decides who), one statement each.
 -- ---------------------------------------------------------------------------
 -- A quote and the lines it asks for, all or nothing: 1 to 300 distinct lines of the request, none priced yet. The
--- lines are inserted in id order, the order in which a retaining locks them. The one-open-quote-per-supplier rule
+-- lines are inserted in id order, the order in which a retaining locks them, under the marker that lets only this
+-- function write the lines of a quote. The one-open-quote-per-supplier rule
 -- answers 23505 (material_request_quotes_open_supplier_key).
 create function public.create_material_request_quote(
   p_request_id uuid,
@@ -676,8 +756,10 @@ begin
   values (p_request_id, p_supplier_id, p_with_references, p_message, (select auth.uid()))
   returning id into created_id;
 
+  perform pg_catalog.set_config('app.material_request_quote_creating', created_id::text, true);
   insert into public.material_request_quote_lines (quote_id, line_id)
   select created_id, wanted.id from pg_catalog.unnest(p_line_ids) as wanted(id) order by wanted.id;
+  perform pg_catalog.set_config('app.material_request_quote_creating', '', true);
 
   return created_id;
 end;
@@ -689,7 +771,8 @@ comment on function public.create_material_request_quote(uuid, uuid, boolean, te
 -- Prices, total, notes and reception of a requested or received quote, all or nothing. p_changes: an object whose
 -- keys are optional; a key left out is left alone, null clears it.
 --   amount_ht_cents: integer cents >= 0 or null; notes: text or null; received: true (from requested);
---   lines: [{line_id, unit_price_ht_cents: integer cents >= 0 or null}], 1 to 300 distinct lines of this quote.
+--   lines: [{line_id, unit_price_ht_cents: integer cents >= 0 or null, price_per?: 1, 10, 100 or 1000 units, left
+--   alone when omitted}], 1 to 300 distinct lines of this quote.
 create function public.update_material_request_quote(p_quote_id uuid, p_changes jsonb)
 returns void
 language plpgsql
@@ -719,6 +802,8 @@ begin
           or not (entry.line ? 'unit_price_ht_cents')
           or (pg_catalog.jsonb_typeof(entry.line -> 'unit_price_ht_cents') <> 'null'
             and coalesce(entry.line ->> 'unit_price_ht_cents', '') !~ '^[0-9]{1,10}$')
+          or (entry.line ? 'price_per' and (pg_catalog.jsonb_typeof(entry.line -> 'price_per') <> 'number'
+            or (entry.line ->> 'price_per') not in ('1', '10', '100', '1000')))
       )
       or (select count(distinct entry.line ->> 'line_id') from pg_catalog.jsonb_array_elements(p_changes -> 'lines') as entry(line))
         <> pg_catalog.jsonb_array_length(p_changes -> 'lines')
@@ -742,7 +827,8 @@ begin
 
   if p_changes ? 'lines' then
     update public.material_request_quote_lines quote_line
-    set unit_price_ht_cents = (entry.line ->> 'unit_price_ht_cents')::bigint
+    set unit_price_ht_cents = (entry.line ->> 'unit_price_ht_cents')::bigint,
+        price_per = case when entry.line ? 'price_per' then (entry.line ->> 'price_per')::integer else quote_line.price_per end
     from pg_catalog.jsonb_array_elements(p_changes -> 'lines') as entry(line)
     where quote_line.quote_id = target.id and quote_line.line_id = (entry.line ->> 'line_id')::uuid;
     get diagnostics written = row_count;
@@ -761,7 +847,7 @@ end;
 $$;
 
 comment on function public.update_material_request_quote(uuid, jsonb) is
-  'TI-691: changes the prices of a quote''s lines, its total, its notes and/or marks it received (from requested), in one statement, as the caller (RLS), while it is requested or received (MATERIAL_REQUEST_QUOTE_READ_ONLY). Keys left out are left alone (MATERIAL_REQUEST_QUOTE_CHANGES_INVALID for any other key or value); every priced line is one of the quote''s (MATERIAL_REQUEST_QUOTE_LINE_NOT_IN_QUOTE).';
+  'TI-691: changes the prices of a quote''s lines (whole cents for price_per units: 1, 10, 100 or 1000), its total, its notes and/or marks it received (from requested), in one statement, as the caller (RLS), while it is requested or received (MATERIAL_REQUEST_QUOTE_READ_ONLY). Keys left out are left alone (MATERIAL_REQUEST_QUOTE_CHANGES_INVALID for any other key or value); every priced line is one of the quote''s (MATERIAL_REQUEST_QUOTE_LINE_NOT_IN_QUOTE).';
 
 -- Retaining a quote, in one transaction, as the caller (RLS: the writers of the request's lines and quotes):
 --  1. every quote of the request still requested or received is locked for update, in id order: retainings, price
@@ -769,8 +855,8 @@ comment on function public.update_material_request_quote(uuid, jsonb) is
 --  2. the quote must be received, ask for at least one line, every one priced, none already priced by another
 --     retained quote (coded refusals; DETAIL holds the positions of the lines concerned, as a JSON array);
 --  3. it becomes retained (dated and signed by the database);
---  4. its lines, locked in id order, take its supplier, their unit price and the quote's id; a validated line stays
---     validated;
+--  4. its lines, locked in id order, take its supplier, their price and the quantity it is for, and the quote's id; a
+--     validated line stays validated;
 --  5. every other requested or received quote of the request that shares a line with it is closed.
 -- Answers the quotes closed in step 5.
 create function public.retain_material_request_quote(p_quote_id uuid)
@@ -837,6 +923,7 @@ begin
   update public.material_request_lines line
   set supplier_id = target.supplier_id,
       unit_price_ht_cents = quote_line.unit_price_ht_cents,
+      price_per = quote_line.price_per,
       price_quote_id = target.id
   from public.material_request_quote_lines quote_line
   where quote_line.quote_id = target.id and line.id = quote_line.line_id and line.price_quote_id is null;
@@ -870,6 +957,38 @@ $$;
 comment on function public.retain_material_request_quote(uuid) is
   'TI-691: retains a received quote whose lines are all priced, in one transaction, as the caller (RLS): it becomes retained, its lines take its supplier, unit price and id (a validated line stays validated), and every other requested or received quote of the request sharing a line is closed; returns their ids. Refusals: MATERIAL_REQUEST_QUOTE_NOT_FOUND, _WRITERS_ONLY, _NOT_RECEIVED (DETAIL: status), _WITHOUT_LINES, _LINES_UNPRICED and _LINES_ALREADY_RETAINED (DETAIL: JSON array of line positions), _LINES_CHANGED.';
 
+-- The first step of a request's deletion: every file of the request is withdrawn (hidden from every reader, no upload
+-- lands at its path any more), those of retained or closed quotes included, and their paths answered so that the
+-- application removes their bytes before it deletes the request. As the caller (RLS): a file the caller may not
+-- change is not withdrawn, so only the writers of the affaire, who may delete the request itself, reach this.
+create function public.withdraw_material_request_files_for_deletion(p_request_id uuid)
+returns table (storage_path text)
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  paths text[];
+begin
+  perform pg_catalog.set_config('app.material_request_deleting', p_request_id::text, true);
+  with withdrawn as (
+    update public.material_request_files file
+    set removed_at = pg_catalog.now()
+    where file.request_id = p_request_id
+    returning file.storage_path
+  )
+  select coalesce(pg_catalog.array_agg(withdrawn.storage_path order by withdrawn.storage_path), '{}'::text[])
+  into paths from withdrawn;
+  perform pg_catalog.set_config('app.material_request_deleting', '', true);
+  return query select path.value from pg_catalog.unnest(paths) as path(value);
+end;
+$$;
+
+comment on function public.withdraw_material_request_files_for_deletion(uuid) is
+  'TI-691: withdraws every file of a request before its deletion (originals and quote files, retained or closed quotes included), as the caller (RLS), and returns their storage paths for the removal of their bytes.';
+
+revoke all on function public.withdraw_material_request_files_for_deletion(uuid) from public, anon;
+grant execute on function public.withdraw_material_request_files_for_deletion(uuid) to authenticated;
 revoke all on function public.create_material_request_quote(uuid, uuid, boolean, text, uuid[]) from public, anon;
 revoke all on function public.update_material_request_quote(uuid, jsonb) from public, anon;
 revoke all on function public.retain_material_request_quote(uuid) from public, anon;

@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-import { MATERIAL_REQUEST_MAX_LINES, type MaterialRequestFile, type MaterialRequestLine } from "./contracts";
+import {
+  MATERIAL_REQUEST_MAX_LINES,
+  MATERIAL_REQUEST_PRICE_PER,
+  type MaterialRequestFile,
+  type MaterialRequestLine,
+  type MaterialRequestPricePer,
+} from "./contracts";
+
+export { MATERIAL_REQUEST_PRICE_PER, type MaterialRequestPricePer };
 
 /**
  * Consulting suppliers for a material request (TI-691, lot 2 « l'achat », delivery 2 « consultation »). The office
@@ -14,10 +22,11 @@ import { MATERIAL_REQUEST_MAX_LINES, type MaterialRequestFile, type MaterialRequ
  * Life of a quote, held by the database:
  *  - requested: recorded when the message is copied. Its supplier, lines, variant and message never change.
  *  - received: the supplier answered (`received: true`). Prices, total and notes stay editable while requested or
- *    received.
+ *    received. A price is in whole cents for `price_per` units (1, 10, 100 or 1 000): 0,034 € a screw is 340 for 100.
  *  - retained: only through the retain route, from received, with every line priced. Its lines take its supplier,
- *    their unit price and the quote (`MaterialRequestLine.unit_price_ht_cents`, `price_quote_id`), a validated line
- *    staying validated; every other requested or received quote sharing a line is closed. Final in this delivery.
+ *    their price and its quantity, and the quote (`MaterialRequestLine.unit_price_ht_cents`, `price_per`,
+ *    `price_quote_id`), a validated line staying validated; every other requested or received quote sharing a line is
+ *    closed. Final in this delivery: a priced line then keeps what it orders (409 MATERIAL_REQUEST_LINE_PRICED).
  *  - closed: by hand from requested or received, or by the retaining of a competitor. Final.
  * Retained and closed quotes are read-only, their files included. One supplier has at most one quote requested or
  * received per request; a retained or closed one does not keep it from being consulted again (lines added later).
@@ -33,7 +42,8 @@ export const MATERIAL_REQUEST_QUOTE_STATUS_LABELS: Record<MaterialRequestQuoteSt
   closed: "Clos",
 };
 
-export const MATERIAL_REQUEST_QUOTE_MESSAGE_MAX = 4000;
+/** Room for 300 lines with their designations and references. */
+export const MATERIAL_REQUEST_QUOTE_MESSAGE_MAX = 20_000;
 export const MATERIAL_REQUEST_QUOTE_NOTES_MAX = 2000;
 /** Files attached to one quote (a PDF, or the photographed pages of a paper quote). Originals keep their own cap. */
 export const MATERIAL_REQUEST_QUOTE_MAX_FILES = 10;
@@ -71,12 +81,18 @@ export const MATERIAL_REQUEST_QUOTE_WITHOUT_LINES = "MATERIAL_REQUEST_QUOTE_WITH
 /** 422: more files than a quote keeps (MATERIAL_REQUEST_QUOTE_MAX_FILES). */
 export const MATERIAL_REQUEST_QUOTE_FILE_LIMIT = "MATERIAL_REQUEST_QUOTE_FILE_LIMIT";
 /**
- * 409, on the line routes: the line is priced by a retained quote. Its supplier is the quote's and it cannot be
- * deleted (the request can).
+ * 409, on the line routes (PATCH one, PATCH a selection, DELETE, article link, creation and unlink): the line is
+ * priced by a retained quote. Its supplier is the quote's; what it orders (article, type, dimension, material,
+ * precision, reference, unit, quantity) no longer changes; it is not deleted alone (the request can be). Its zone,
+ * imputation, the technician's words, the quantity doubt and the duplicate acknowledgement stay editable.
  */
 export const MATERIAL_REQUEST_LINE_PRICED = "MATERIAL_REQUEST_LINE_PRICED";
 
-export type MaterialRequestQuoteLine = { line_id: string; unit_price_ht_cents: number | null };
+/** 409: another change was being written at the same moment (the database ended a deadlock): try again. */
+export const MATERIAL_REQUEST_QUOTE_BUSY = "MATERIAL_REQUEST_QUOTE_BUSY";
+
+/** A line asked in a quote: its price in whole cents excluding tax for `price_per` units, null until priced. */
+export type MaterialRequestQuoteLine = { line_id: string; unit_price_ht_cents: number | null; price_per: MaterialRequestPricePer };
 
 export type MaterialRequestQuote = {
   id: string;
@@ -137,7 +153,8 @@ export type CreateQuoteData = z.output<typeof createQuoteSchema>;
 
 /**
  * Prices, total and notes, editable while the quote is requested or received; `received: true` marks it received
- * (the database dates it). A key left out is left alone; null clears. Each priced line is one of the quote's.
+ * (the database dates it). A key left out is left alone; null clears. Each priced line is one of the quote's;
+ * `price_per` left out keeps the line's (1 for a line never given one).
  */
 export const updateQuoteSchema = z
   .object({
@@ -151,7 +168,11 @@ export const updateQuoteSchema = z
         return trimmed.length > 0 ? trimmed : null;
       }),
     lines: z
-      .array(z.object({ line_id: uuid, unit_price_ht_cents: z.union([cents, z.null()]) }).strict())
+      .array(z.object({
+        line_id: uuid,
+        unit_price_ht_cents: z.union([cents, z.null()]),
+        price_per: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]).optional(),
+      }).strict())
       .min(1, "Aucune ligne à chiffrer.")
       .max(MATERIAL_REQUEST_MAX_LINES, `${MATERIAL_REQUEST_MAX_LINES} lignes au plus.`)
       .refine((lines) => new Set(lines.map((line) => line.line_id)).size === lines.length, {

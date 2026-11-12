@@ -150,7 +150,7 @@ function checkAnnounced(file: { name: string; mime_type: string; byte_size: numb
  */
 async function withdraw(
   access: MaterialRequestAccess,
-  scope: { requestId: string; ids?: readonly string[]; unstoredOnly?: boolean },
+  scope: { requestId: string; ids?: readonly string[]; unstoredOnly?: boolean; quoteId?: string | null },
 ): Promise<{ ids: string[]; storageError: unknown }> {
   const { supabase, tenantId } = access.context;
   let statement = supabase
@@ -163,7 +163,14 @@ async function withdraw(
   // Never a photo that became visible in the meantime: only what is still waiting for its bytes.
   if (scope.unstoredOnly) statement = statement.is("stored_at", null);
   const { data, error } = await statement.select("id, storage_path");
-  if (error) throw mapSupabaseError(error, "Impossible de retirer les originaux.");
+  if (error) {
+    // TI-691: the quote of a listed file was retained or closed since it was read; the database keeps the file.
+    if (error.message === "MATERIAL_REQUEST_QUOTE_READ_ONLY" && scope.quoteId) {
+      const quote = await requireQuote(access, scope.requestId, scope.quoteId);
+      throw quoteReadOnly(quote.status === "closed" ? "closed" : "retained");
+    }
+    throw mapSupabaseError(error, "Impossible de retirer les originaux.");
+  }
   const withdrawn = data ?? [];
   if (withdrawn.length === 0) return { ids: [], storageError: null };
   const { error: storageError } = await supabase.storage
@@ -232,9 +239,19 @@ async function discardLeftovers(access: MaterialRequestAccess, requestId: string
   }
 }
 
-/** Every original of a request, withdrawn and without its bytes: the request can then be deleted. */
+/**
+ * Every file of a request, withdrawn and without its bytes: the request can then be deleted. The files of a retained
+ * or closed quote are read-only, so the withdrawal goes through public.withdraw_material_request_files_for_deletion,
+ * the one path the database lets withdraw them (for the writers who may delete the request).
+ */
 export async function removeRequestOriginals(access: MaterialRequestAccess, requestId: string) {
-  const { storageError } = await withdraw(access, { requestId });
+  const { data, error } = await access.context.supabase.rpc("withdraw_material_request_files_for_deletion", {
+    p_request_id: requestId,
+  });
+  if (error) throw mapSupabaseError(error, "Impossible de retirer les originaux.");
+  const paths = (data ?? []).map((row) => row.storage_path);
+  if (paths.length === 0) return;
+  const { error: storageError } = await access.context.supabase.storage.from(MATERIAL_REQUESTS_BUCKET).remove(paths);
   if (storageError) {
     console.error("Material request originals could not be removed", { requestId, error: storageError });
     throw internalError("Impossible de supprimer les originaux de la demande.");
@@ -425,6 +442,14 @@ export async function completeMaterialRequestFiles(
   // below, only what is still waiting for its bytes is taken back.
   const pending = rows.filter((row) => row.stored_at === null);
   const pendingIds = pending.map((file) => file.id);
+  // TI-691: a quote retained or closed while its answer was being sent takes no more file; the batch is taken back.
+  for (const quoteId of new Set(pending.flatMap((file) => file.quote_id ?? []))) {
+    const quote = await requireQuote(access, requestId, quoteId);
+    if (quote.status === "retained" || quote.status === "closed") {
+      await discardUnstored(access, requestId, pendingIds);
+      throw quoteReadOnly(quote.status);
+    }
+  }
   const rejected: MaterialRequestFileRejection[] = [];
   for (const file of pending) {
     const reason = await verifyStored(access, file);
@@ -469,6 +494,12 @@ export async function completeMaterialRequestFiles(
       if (markError.message === MATERIAL_REQUEST_FILE_LIMIT) {
         const originals = counted.find((entry) => entry.scope.quoteId === null);
         throw fileLimitReached(originals?.listed ?? MATERIAL_REQUEST_MAX_FILES, NOT_KEPT.originals);
+      }
+      // A quote of the batch was retained or closed between the check above and this mark.
+      if (markError.message === "MATERIAL_REQUEST_QUOTE_READ_ONLY") {
+        const quoteId = pending.find((file) => file.quote_id)?.quote_id;
+        const quote = quoteId ? await requireQuote(access, requestId, quoteId) : null;
+        throw quoteReadOnly(quote?.status === "closed" ? "closed" : "retained");
       }
       if (markError.message === MATERIAL_REQUEST_QUOTE_FILE_LIMIT) {
         const quote = counted.find((entry) => entry.scope.quoteId !== null);
@@ -544,6 +575,9 @@ export async function updateMaterialRequestFile(
   input: { rotation: MaterialRequestFileRotation },
 ): Promise<{ file: MaterialRequestFile }> {
   const access = await requireProjectAccess(projectId, "write");
+  // TI-691: the answer of a retained or closed quote is read-only, its display included.
+  const file = await requireFile(access, requestId, fileId);
+  if (file.quote_id) await requireOpenQuote(access, requestId, file.quote_id);
   const { data, error } = await access.context.supabase
     .from("material_request_files")
     .update({ rotation: input.rotation })
@@ -555,7 +589,13 @@ export async function updateMaterialRequestFile(
     .is("removed_at", null)
     .select(FILE_COLUMNS)
     .maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible d'enregistrer la rotation.");
+  if (error) {
+    if (error.message === "MATERIAL_REQUEST_QUOTE_READ_ONLY" && file.quote_id) {
+      const quote = await requireQuote(access, requestId, file.quote_id);
+      throw quoteReadOnly(quote.status === "closed" ? "closed" : "retained");
+    }
+    throw mapSupabaseError(error, "Impossible d'enregistrer la rotation.");
+  }
   if (!data) throw notFound(FILE_NOT_FOUND_MESSAGE);
   return { file: data };
 }
@@ -576,7 +616,7 @@ export async function deleteMaterialRequestFile(
   // TI-691: a quote's answer stays once the quote is retained or closed; while it is in progress, a file attached by
   // mistake is removed like an original.
   if (file.quote_id) await requireOpenQuote(access, requestId, file.quote_id);
-  const { storageError } = await withdraw(access, { requestId, ids: [file.id] });
+  const { storageError } = await withdraw(access, { requestId, ids: [file.id], quoteId: file.quote_id });
   if (storageError) {
     console.error("Material request original could not be removed", { fileId, error: storageError });
     throw internalError("Impossible de supprimer cet original.");

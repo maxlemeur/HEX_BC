@@ -29,6 +29,8 @@ import {
 import {
   DUPLICATE_KEYS,
   LINE_COLUMNS,
+  pricedLineDatabaseRefusal,
+  pricedLinesRefusal,
   requireProjectAccess,
   requireRequest,
   type MaterialRequestAccess,
@@ -429,7 +431,8 @@ async function writeLine(access: MaterialRequestAccess, stored: StoredLine, next
   if (error) {
     // The article was deleted, or moved out of reach, since it was read.
     if (error.code === "23514" && error.message === "MATERIAL_REQUEST_TENANT_MISMATCH") throw notFound(ARTICLE_NOT_FOUND);
-    throw mapSupabaseError(error, "Impossible d'enregistrer la ligne.");
+    // A quote that prices the line was retained since it was read (TI-691).
+    throw pricedLineDatabaseRefusal([line])(error) ?? mapSupabaseError(error, "Impossible d'enregistrer la ligne.");
   }
   if (data) return data;
   // Nothing reached: the line is gone (404), or it changed since it was read (409).
@@ -494,6 +497,8 @@ export async function linkMaterialRequestLineArticle(
   const access = await requireProjectAccess(projectId, "write");
   const request = await requireRequest(access, requestId);
   const line = await requireLine(access, request.id, lineId);
+  // TI-691: a line priced by a retained quote keeps the article the quote priced.
+  if (line.line.price_quote_id !== null) throw pricedLinesRefusal([line.line], "ordered");
   if (input.expected_line && !saysWhatWasSeen(line.line, input.expected_line)) {
     throw conflict(LINE_CHANGED, undefined, MATERIAL_REQUEST_LINE_CHANGED);
   }
@@ -515,6 +520,7 @@ export async function unlinkMaterialRequestLineArticle(
   const request = await requireRequest(access, requestId);
   const stored = await requireLine(access, request.id, lineId);
   if (stored.line.product_id === null) return { line: stored.line };
+  if (stored.line.price_quote_id !== null) throw pricedLinesRefusal([stored.line], "ordered");
   let restored: LineWrite = {};
   if (stored.preLinkWording) {
     const { quantity: askedQuantity, ...wording } = stored.preLinkWording;
@@ -546,6 +552,8 @@ export async function createMaterialRequestLineArticle(
   if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PRODUCT_WRITE_REFUSAL);
   const request = await requireRequest(access, requestId);
   const line = await requireLine(access, request.id, lineId);
+  // Before the article is created: a line priced by a retained quote keeps the article the quote priced.
+  if (line.line.price_quote_id !== null) throw pricedLinesRefusal([line.line], "ordered");
 
   const { data: supplyType, error: supplyTypeError } = await context.supabase
     .from("supply_types")

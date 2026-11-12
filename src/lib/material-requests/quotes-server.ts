@@ -13,6 +13,7 @@ import type { Json } from "@/types/database";
 
 import type { MaterialRequestFile, MaterialRequestLine } from "./contracts";
 import {
+  MATERIAL_REQUEST_QUOTE_BUSY,
   MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED,
   MATERIAL_REQUEST_QUOTE_LINES_UNPRICED,
   MATERIAL_REQUEST_QUOTE_NOT_RECEIVED,
@@ -58,6 +59,16 @@ const QUOTE_LINES_PAGE = 1000;
 type QuoteRow = Omit<MaterialRequestQuote, "supplier_name" | "lines" | "files">;
 type QuoteLineRow = MaterialRequestQuoteLine & { quote_id: string };
 type LineRef = Pick<MaterialRequestLine, "id" | "position">;
+
+/**
+ * The database ended a deadlock between two writes of the same request (a retaining and a validation of a shared
+ * line, for instance): nothing of this one was written, and trying again succeeds.
+ */
+export function quoteWriteBusy(error: SupabaseErrorLike): ApiError | null {
+  return error.code === "40P01" || error.code === "40001"
+    ? conflict("Une autre modification était en cours : réessayez.", undefined, MATERIAL_REQUEST_QUOTE_BUSY)
+    : null;
+}
 
 /** A retained or closed quote is read-only, its files included. */
 export function quoteReadOnly(status: "retained" | "closed"): ApiError {
@@ -112,7 +123,7 @@ async function readQuoteLines(access: MaterialRequestAccess, quoteIds: readonly 
       const start = chunkRows.length;
       const { data, error, count } = await supabase
         .from("material_request_quote_lines")
-        .select("quote_id, line_id, unit_price_ht_cents", { count: "exact" })
+        .select("quote_id, line_id, unit_price_ht_cents, price_per", { count: "exact" })
         .eq("tenant_id", tenantId)
         .eq("project_id", access.project.id)
         .in("quote_id", chunk)
@@ -193,7 +204,7 @@ async function readQuotes(access: MaterialRequestAccess, requestId: string, only
       supplier_name: names.get(quote.supplier_id) ?? "",
       lines: (linesOf.get(quote.id) ?? [])
         .sort((left, right) => position(left.line_id) - position(right.line_id) || left.line_id.localeCompare(right.line_id))
-        .map((row) => ({ line_id: row.line_id, unit_price_ht_cents: row.unit_price_ht_cents })),
+        .map((row) => ({ line_id: row.line_id, unit_price_ht_cents: row.unit_price_ht_cents, price_per: row.price_per })),
       files: (filesOf.get(quote.id) ?? [])
         .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at) || left.id.localeCompare(right.id)),
     }))
@@ -283,6 +294,8 @@ export async function createMaterialRequestQuote(
     p_line_ids: input.line_ids,
   });
   if (error) {
+    const busy = quoteWriteBusy(error);
+    if (busy) throw busy;
     // Another session consulted the supplier, deleted a line or retained a quote for one since they were read.
     if (error.code === "23505") throw supplierInProgress();
     if (error.message === "MATERIAL_REQUEST_QUOTE_LINE_NOT_IN_REQUEST") throw notFound(LINE_NOT_FOUND);
@@ -360,6 +373,8 @@ export async function updateMaterialRequestQuote(
     p_changes: changes,
   });
   if (error) {
+    const busy = quoteWriteBusy(error);
+    if (busy) throw busy;
     if (error.message === "MATERIAL_REQUEST_QUOTE_LINE_NOT_IN_QUOTE") {
       throw await linesNotInQuote(access, request.id, (input.lines ?? []).map((entry) => entry.line_id));
     }
@@ -420,6 +435,8 @@ export async function retainMaterialRequestQuote(
 
   const { data, error } = await access.context.supabase.rpc("retain_material_request_quote", { p_quote_id: quote.id });
   if (error) {
+    const busy = quoteWriteBusy(error);
+    if (busy) throw busy;
     // Another session changed the quote or its lines since they were read: the refusal says what stands now.
     if (error.code === "23514" && error.message.startsWith("MATERIAL_REQUEST_QUOTE_")) {
       const now = await retainRefusal(access, request.id, await requireQuote(access, request.id, quote.id));
@@ -461,7 +478,7 @@ export async function closeMaterialRequestQuote(
     .in("status", [...OPEN_STATUSES])
     .select("id");
   if (error) {
-    throw (await quoteFunctionRefusal(access, request.id, quote.id, error))
+    throw quoteWriteBusy(error) ?? (await quoteFunctionRefusal(access, request.id, quote.id, error))
       ?? mapSupabaseError(error, "Impossible de clôturer le devis.");
   }
   // Nothing reached: another session retained it (refused) or closed it (done) meanwhile.

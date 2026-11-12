@@ -4,7 +4,7 @@
 --  1. a quote table is readable without RLS, a client deletes a quote (closed quotes must stay readable) or anon
 --     reaches a table or a function; a write function bypasses RLS (security definer); the bucket refuses a PDF;
 --  2. a quote takes its tenant, affaire, status or dates from the client, names a supplier of another tenant, or
---     starts elsewhere than « requested »; its message exceeds 4 000 characters;
+--     starts elsewhere than « requested »; its message exceeds 20 000 characters (300 lines are copied in it);
 --  3. a supplier gets a second quote on a request while one is requested or received, or a retained or closed one
 --     keeps the supplier from being consulted again (lines added later go to the same supplier);
 --  4. a quote asks for a line of another request, the same line twice or no line, or is left without its lines when
@@ -13,22 +13,31 @@
 --     closes or retains a quote, or the readers (owner, admin, director) cannot read the quotes and their lines;
 --  6. update_material_request_quote: a line the quote does not ask for is priced, a batch with one bad line writes
 --     the others, a fraction of a cent is rounded, an unknown key (the status) is accepted, a key left out is
---     cleared, receiving does not date the quote;
+--     cleared, receiving does not date the quote; a price quantity other than 1, 10, 100 or 1 000 units is accepted,
+--     or a price is not kept with its quantity (0,034 € a screw is 340 cents for 100);
 --  7. a requested quote is retained, a quote is retained by a direct write (its lines left unpriced, its
 --     competitors open), the message, supplier or request of a quote changes, a client dates a reception;
 --  8. retain_material_request_quote: a requested, closed or retained quote, one without lines or with an unpriced
 --     line is retained (and the refusal does not name the lines); the lines do not take the quote's supplier, price
---     and id; a validated line returns to draft or loses its stamps; a quote sharing a line is left open, one sharing
+--     and id and price quantity; a validated line returns to draft or loses its stamps; a quote sharing a line is
+--     left open, one sharing
 --     none is closed; the answer does not name what was closed;
 --  9. a retained or closed quote, or its lines, change, are reopened or take a new line; closing by hand does not
---     date the quote; closed quotes are no longer readable;
--- 10. the price or the quote of a line is written by hand (owner or server writer), a line is created priced, a
---     priced line changes supplier or is deleted alone, or its other columns can no longer be edited;
+--     date the quote; closed quotes are no longer readable; a writer adds a line to an existing quote directly
+--     (only create_material_request_quote writes the lines of a quote);
+-- 10. the price, price quantity or quote of a line is written by hand (owner or server writer), a line is created
+--     priced, a priced line changes supplier or is deleted alone, or changes what it orders and keeps the price (its
+--     article, type, dimension, material, precision, reference, unit or quantity: DN 50 priced, then DN 65 ordered
+--     at the DN 50 price), or its other columns (zone, imputation...) can no longer be edited;
 -- 11. a line already priced by a retained quote is consulted again;
 -- 12. an original of the request is a PDF; a quote's file answers a quote of another request, or a retained or
 --     closed quote; a quote keeps more than ten listed files, or its files take the places of the request's twelve
 --     originals; a PDF of an open quote cannot be stored;
--- 13. deleting a quote (service role) leaves its price on the lines; deleting a request with priced lines fails, or
+-- 13. the files of a retained or closed quote change: a file prepared while it was open is completed after the
+--     retaining, a listed file is withdrawn, turned or deleted; or a file attached by mistake to an open quote cannot
+--     be removed, an unstored leftover of a retained quote cannot be cleaned, or the request's deletion cannot
+--     withdraw them (withdraw_material_request_files_for_deletion, for writers only);
+-- 14. deleting a quote (service role) leaves its price on the lines; deleting a request with priced lines fails, or
 --     leaves its quotes behind.
 -- Every member statement goes through pg_temp.pls_run, pg_temp.pls_rows or pg_temp.pls_detail (role and JWT switched
 -- in a sub-block), so a red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
@@ -61,6 +70,9 @@ insert into public.suppliers (id, tenant_id, name) values
   ('a9300000-0000-4000-8000-000000000304', 'a9300000-0000-4000-8000-000000000101', 'TI691 Fournisseur Delta'),
   ('a9300000-0000-4000-8000-000000000305', 'a9300000-0000-4000-8000-000000000101', 'TI691 Fournisseur Epsilon'),
   ('a9300000-0000-4000-8000-000000000309', 'a9300000-0000-4000-8000-000000000102', 'TI691 Fournisseur d''ailleurs');
+insert into public.products (id, tenant_id, designation, unit_price_cents, product_type, material, unit) values
+  ('a9300000-0000-4000-8000-000000000501', 'a9300000-0000-4000-8000-000000000101', 'TI691 Coude 90° inox DN 65', 100,
+    'Coude 90°', 'Inox 304L', 'u');
 insert into public.estimate_projects (id, tenant_id, user_id, name) values
   ('a9300000-0000-4000-8000-000000000201', 'a9300000-0000-4000-8000-000000000101', 'a9300000-0000-4000-8000-000000000001',
     'TI691 Affaire consultée'),
@@ -227,8 +239,8 @@ select throws_ok($$insert into public.material_request_quotes (request_id, suppl
     values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, 'Bonjour', 'received')$$,
   '23514', 'MATERIAL_REQUEST_QUOTE_STATUS_INVALID', '2 a quote starts requested');
 select throws_ok($$insert into public.material_request_quotes (request_id, supplier_id, with_references, message)
-    values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 4001))$$,
-  '23514', null, '2 the message holds 4 000 characters at most');
+    values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 20001))$$,
+  '23514', null, '2 the message holds 20 000 characters at most');
 
 -- ---------------------------------------------------------------------------
 -- 3. One quote in progress (requested or received) per supplier and request.
@@ -356,9 +368,21 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000004',
   'P0002 MATERIAL_REQUEST_QUOTE_NOT_FOUND', '6 a member of another tenant does not find it');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.update_material_request_quote(current_setting('test.alpha')::uuid,
+    '{"lines": [{"line_id": "a9300000-0000-4000-8000-000000000702", "unit_price_ht_cents": 3400, "price_per": 7}]}')$$),
+  '22023 MATERIAL_REQUEST_QUOTE_CHANGES_INVALID', '6 a price is for 1, 10, 100 or 1 000 units, nothing else');
+select is((select price_per from public.material_request_quote_lines
+    where quote_id = current_setting('test.alpha')::uuid and line_id = 'a9300000-0000-4000-8000-000000000701'),
+  1, '6 a price is for one unit unless told otherwise');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select public.update_material_request_quote(current_setting('test.alpha')::uuid,
     '{"received": true, "amount_ht_cents": 11800,
-      "lines": [{"line_id": "a9300000-0000-4000-8000-000000000702", "unit_price_ht_cents": 3400}]}')$$),
-  'ok 1', '6 the owner records Alpha''s answer: received, priced, with its total');
+      "lines": [{"line_id": "a9300000-0000-4000-8000-000000000702", "unit_price_ht_cents": 340, "price_per": 100}]}')$$),
+  'ok 1', '6 the owner records Alpha''s answer: received, line 2 at 3,40 € for 100, with its total');
+select is((select jsonb_agg(jsonb_build_array(ql.line_id, ql.unit_price_ht_cents, ql.price_per) order by ql.line_id)
+    from public.material_request_quote_lines ql where ql.quote_id = current_setting('test.alpha')::uuid),
+  jsonb_build_array(jsonb_build_array('a9300000-0000-4000-8000-000000000701', 1250, 1),
+    jsonb_build_array('a9300000-0000-4000-8000-000000000702', 340, 100)),
+  '6 each price keeps its quantity; a line whose quantity was not sent keeps its own');
 select ok((select status = 'received' and received_at is not null and amount_ht_cents = 11800 and notes = 'Délai 48 h'
   from public.material_request_quotes where id = current_setting('test.alpha')::uuid),
   '6 the database dates the reception; the notes left out are kept');
@@ -426,13 +450,14 @@ select ok((select status = 'retained' and retained_at is not null and retained_b
     and received_at is not null and closed_at is null
   from public.material_request_quotes where id = current_setting('test.alpha')::uuid),
   '8 Alpha is retained, dated and signed by the database');
-select is((select jsonb_agg(jsonb_build_array(position, supplier_id, unit_price_ht_cents, price_quote_id::text) order by position)
+select is((select jsonb_agg(jsonb_build_array(position, supplier_id, unit_price_ht_cents, price_per, price_quote_id::text)
+      order by position)
     from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000601'),
   jsonb_build_array(
-    jsonb_build_array(1, 'a9300000-0000-4000-8000-000000000301', 1250, current_setting('test.alpha')),
-    jsonb_build_array(2, 'a9300000-0000-4000-8000-000000000301', 3400, current_setting('test.alpha')),
-    jsonb_build_array(3, null, null, null)),
-  '8 lines 1 and 2 take Alpha''s supplier, their price and Alpha; line 3 is untouched');
+    jsonb_build_array(1, 'a9300000-0000-4000-8000-000000000301', 1250, 1, current_setting('test.alpha')),
+    jsonb_build_array(2, 'a9300000-0000-4000-8000-000000000301', 340, 100, current_setting('test.alpha')),
+    jsonb_build_array(3, null, null, 1, null)),
+  '8 lines 1 and 2 take Alpha''s supplier, their price with its quantity, and Alpha; line 3 is untouched');
 select ok((select status = 'validated' and validated_by = 'a9300000-0000-4000-8000-000000000001'
     and validated_at = current_setting('test.validated_at')::timestamptz
   from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000701'),
@@ -473,6 +498,14 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$insert into public.material_request_quote_lines (quote_id, line_id)
     values (current_setting('test.alpha')::uuid, 'a9300000-0000-4000-8000-000000000703')$$),
   '23514 MATERIAL_REQUEST_QUOTE_READ_ONLY', '9 a retained quote asks for no new line');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$insert into public.material_request_quote_lines (quote_id, line_id)
+    values ('a9300000-0000-4000-8000-000000000801', 'a9300000-0000-4000-8000-000000000703')$$),
+  '23514 MATERIAL_REQUEST_QUOTE_LINES_THROUGH_FUNCTION',
+  '9 nor does a quote in progress take a line written directly: only its creation writes its lines');
+select throws_ok($$insert into public.material_request_quote_lines (quote_id, line_id)
+    values ('a9300000-0000-4000-8000-000000000801', 'a9300000-0000-4000-8000-000000000703')$$,
+  '23514', 'MATERIAL_REQUEST_QUOTE_LINES_THROUGH_FUNCTION', '9 not even by a server writer');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000002',
   $$update public.material_request_quotes set status = 'closed' where id = current_setting('test.delta')::uuid$$),
   'ok 1', '9 an admin closes Delta by hand');
@@ -499,13 +532,50 @@ select throws_ok($$update public.material_request_lines set unit_price_ht_cents 
 select throws_ok($$insert into public.material_request_lines (request_id, position, unit_price_ht_cents, price_quote_id)
     values ('a9300000-0000-4000-8000-000000000601', 9, 100, current_setting('test.alpha')::uuid)$$,
   '23514', 'MATERIAL_REQUEST_LINE_PRICE_FROM_QUOTE_ONLY', '10 a line is never created priced');
+select throws_ok($$insert into public.material_request_lines (request_id, position, price_per)
+    values ('a9300000-0000-4000-8000-000000000601', 9, 100)$$,
+  '23514', 'MATERIAL_REQUEST_LINE_PRICE_FROM_QUOTE_ONLY', '10 nor with a price quantity');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set price_per = 1000 where id = 'a9300000-0000-4000-8000-000000000702'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICE_FROM_QUOTE_ONLY', '10 the price quantity of a priced line is not changed by hand');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$update public.material_request_lines set supplier_id = 'a9300000-0000-4000-8000-000000000302'
     where id = 'a9300000-0000-4000-8000-000000000701'$$),
   '23514 MATERIAL_REQUEST_LINE_SUPPLIER_FROM_QUOTE', '10 a priced line keeps the supplier of its quote');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
-  $$update public.material_request_lines set zone = 'R+1' where id = 'a9300000-0000-4000-8000-000000000702'$$),
-  'ok 1', '10 counterexample: what else a priced line says is still edited');
+  $$update public.material_request_lines set dimension = 'DN 65' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its dimension (DN 50 priced, DN 65 ordered)');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set no_dimension = true where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: whether it has a dimension');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set quantity = 40 where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its quantity');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set unit = 'm' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its unit');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set product_type = 'Coude 45°' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its type');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set material = 'Inox 316L' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its material');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set material_precision = 'PN16' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its precision');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set reference = 'CO-65' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its reference');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set product_id = 'a9300000-0000-4000-8000-000000000501', product_match = 'manual' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line keeps what its quote priced: its article');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set zone = 'R+1', imputation = 'overhead', overhead_category = 'Atelier',
+    original_text = '2 tés DN 50', quantity_doubtful = true where id = 'a9300000-0000-4000-8000-000000000702'$$),
+  'ok 1', '10 counterexample: its zone, imputation, the technician''s words and the doubt are still edited');
+select ok((select dimension = 'DN 50' and quantity = 4 and status = 'validated' and unit_price_ht_cents = 1250
+  from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000701'),
+  '10 line 1 still orders what Alpha priced, validated, at Alpha''s price');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$delete from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000702'$$),
   '23514 MATERIAL_REQUEST_LINE_PRICED', '10 a priced line is not deleted alone');
@@ -526,6 +596,7 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000301',
     true, 'Bonjour, et le tube ?', array['a9300000-0000-4000-8000-000000000703']::uuid[])$$),
   'ok 1', '11 a retained quote frees its supplier too: Alpha is consulted again for a line it was not asked');
+select set_config('test.alpha2', pg_temp.open_quote('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000301')::text, true);
 select matches(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000301',
     false, 'Bonjour, encore le tube ?', array['a9300000-0000-4000-8000-000000000703']::uuid[])$$),
@@ -598,39 +669,99 @@ select is((select count(*) from public.material_request_files where request_id =
     and stored_at is not null), 22::bigint, '12 ten files of the quote and twelve originals are listed');
 
 -- ---------------------------------------------------------------------------
--- 13. Deletions.
+-- 13. The files of a retained or closed quote are read-only.
+-- ---------------------------------------------------------------------------
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set removed_at = now() where id = 'a9300000-0000-4000-8000-000000000910'$$),
+  'ok 1', '13 a page attached by mistake to a quote in progress is withdrawn');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$delete from public.material_request_files where id = 'a9300000-0000-4000-8000-000000000910'$$),
+  'ok 1', '13 and deleted');
+-- A late page, prepared while the quote is in progress, whose bytes arrive after its retaining.
+insert into public.material_request_files (id, request_id, quote_id, storage_path, file_name, mime_type, byte_size)
+values ('a9300000-0000-4000-8000-000000000950', 'a9300000-0000-4000-8000-000000000601', current_setting('test.beta2')::uuid,
+  current_setting('test.beta2_prefix') || 'a9300000-0000-4000-8000-000000000950' || '/tardive.jpg', 'tardive.jpg', 'image/jpeg', 2048);
+insert into storage.objects (bucket_id, name, metadata)
+values ('material-requests', current_setting('test.beta2_prefix') || 'a9300000-0000-4000-8000-000000000950' || '/tardive.jpg', '{"size":2048}');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$select public.update_material_request_quote(current_setting('test.beta2')::uuid,
+    '{"received": true, "lines": [{"line_id": "a9300000-0000-4000-8000-000000000703", "unit_price_ht_cents": 1890}]}')$$),
+  'ok 1', '13 fixture: Beta answers its second quote');
+select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000001',
+  $$select closed_quote_id from public.retain_material_request_quote(current_setting('test.beta2')::uuid)$$),
+  jsonb_build_array(jsonb_build_object('closed_quote_id', current_setting('test.alpha2'))),
+  '13 fixture: the owner retains it, closing Alpha''s second quote');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set stored_at = now() where id = 'a9300000-0000-4000-8000-000000000950'$$),
+  '23514 MATERIAL_REQUEST_QUOTE_READ_ONLY', '13 a page prepared while the quote was in progress is not completed after its retaining');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set removed_at = now() where id = 'a9300000-0000-4000-8000-000000000911'$$),
+  '23514 MATERIAL_REQUEST_QUOTE_READ_ONLY', '13 a listed file of a retained quote is not withdrawn');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set rotation = 90 where id = 'a9300000-0000-4000-8000-000000000911'$$),
+  '23514 MATERIAL_REQUEST_QUOTE_READ_ONLY', '13 nor turned');
+select throws_ok($$delete from public.material_request_files where id = 'a9300000-0000-4000-8000-000000000911'$$,
+  '23514', 'MATERIAL_REQUEST_QUOTE_READ_ONLY', '13 nor deleted, even by a server writer');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set removed_at = now() where id in ('a9300000-0000-4000-8000-000000000950', 'a9300000-0000-4000-8000-000000000919')$$),
+  'ok 2', '13 counterexample: its leftovers that were never listed are withdrawn');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$delete from public.material_request_files where id in ('a9300000-0000-4000-8000-000000000950', 'a9300000-0000-4000-8000-000000000919')$$),
+  'ok 2', '13 and deleted');
+-- Deleting the request withdraws every file first, those of retained quotes included, through one function.
+select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000006',
+  $$select count(*) as withdrawn from public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')$$),
+  '[{"withdrawn": 0}]'::jsonb, '13 a director, who may not delete the request, withdraws nothing');
+select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000001',
+  $$select count(*) as withdrawn from public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')$$),
+  jsonb_build_array(jsonb_build_object('withdrawn',
+    (select count(*) from public.material_request_files where request_id = 'a9300000-0000-4000-8000-000000000601'))),
+  '13 its owner withdraws every file of the request, with their paths');
+select is((select count(*) from public.material_request_files where request_id = 'a9300000-0000-4000-8000-000000000601' and removed_at is null),
+  0::bigint, '13 the files of the retained quote are withdrawn with the others, ready for the deletion');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_files set removed_at = null where id = 'a9300000-0000-4000-8000-000000000911'$$),
+  'ok 1', '13 a withdrawal is for good (the trigger keeps it)');
+select ok((select removed_at is not null from public.material_request_files where id = 'a9300000-0000-4000-8000-000000000911'), '13 the file stays withdrawn');
+
+-- ---------------------------------------------------------------------------
+-- 14. Deletions.
 -- ---------------------------------------------------------------------------
 select lives_ok($$delete from public.material_request_quotes where id = current_setting('test.alpha')::uuid$$,
-  '13 the service role deletes the retained quote (no client can)');
-select is((select jsonb_agg(jsonb_build_array(position, supplier_id, unit_price_ht_cents, price_quote_id) order by position)
+  '14 the service role deletes the retained quote (no client can)');
+select is((select jsonb_agg(jsonb_build_array(position, supplier_id, unit_price_ht_cents, price_per, price_quote_id)
+      order by position)
     from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000601' and position < 3),
   jsonb_build_array(
-    jsonb_build_array(1, 'a9300000-0000-4000-8000-000000000301', null, null),
-    jsonb_build_array(2, 'a9300000-0000-4000-8000-000000000301', null, null)),
-  '13 its price goes with it from the lines, which keep their supplier');
+    jsonb_build_array(1, 'a9300000-0000-4000-8000-000000000301', null, 1, null),
+    jsonb_build_array(2, 'a9300000-0000-4000-8000-000000000301', null, 1, null)),
+  '14 its price and price quantity go with it from the lines, which keep their supplier');
+select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set dimension = 'DN 65' where id = 'a9300000-0000-4000-8000-000000000701'$$),
+  'ok 1', '14 counterexample: an unpriced line says something else again');
 -- Request 603: one line priced by a retained quote.
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$select public.create_material_request_quote('a9300000-0000-4000-8000-000000000603', 'a9300000-0000-4000-8000-000000000303',
     true, 'Bonjour, 3 manchons PVC DN 32 (réf. MA-32) ?', array['a9300000-0000-4000-8000-000000000705']::uuid[])$$),
-  'ok 1', '13 fixture: the owner consults Gamma on request 603');
+  'ok 1', '14 fixture: the owner consults Gamma on request 603');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   format($$select public.update_material_request_quote(%L,
     '{"received": true, "lines": [{"line_id": "a9300000-0000-4000-8000-000000000705", "unit_price_ht_cents": 0}]}')$$,
     pg_temp.open_quote('a9300000-0000-4000-8000-000000000603', 'a9300000-0000-4000-8000-000000000303'))),
-  'ok 1', '13 fixture: Gamma answers, the sleeves are offered (a price of zero is a price)');
+  'ok 1', '14 fixture: Gamma answers, the sleeves are offered (a price of zero is a price)');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   format($$select * from public.retain_material_request_quote(%L)$$,
     pg_temp.open_quote('a9300000-0000-4000-8000-000000000603', 'a9300000-0000-4000-8000-000000000303'))),
-  'ok 0', '13 fixture: the owner retains it, closing nothing');
+  'ok 0', '14 fixture: the owner retains it, closing nothing');
 select is((select unit_price_ht_cents from public.material_request_lines where id = 'a9300000-0000-4000-8000-000000000705'),
-  0, '13 the line is priced at zero');
+  0, '14 the line is priced at zero');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$delete from public.material_requests where id = 'a9300000-0000-4000-8000-000000000603'$$),
-  'ok 1', '13 the owner deletes the request, priced line included');
+  'ok 1', '14 the owner deletes the request, priced line included');
 select is((select count(*) from public.material_request_quotes where request_id = 'a9300000-0000-4000-8000-000000000603')
   + (select count(*) from public.material_request_lines where request_id = 'a9300000-0000-4000-8000-000000000603')
   + (select count(*) from public.material_request_quote_lines where line_id = 'a9300000-0000-4000-8000-000000000705'),
-  0::bigint, '13 its quotes, lines and quote lines go with it');
+  0::bigint, '14 its quotes, lines and quote lines go with it');
 
 select * from finish();
 rollback;

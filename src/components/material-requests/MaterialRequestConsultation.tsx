@@ -5,16 +5,23 @@ import { Check, CheckCheck, Copy, FileText, Paperclip, Send, Users, X } from "lu
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { materialRequestFileUrl, type MaterialRequestSupplierOption } from "@/lib/material-requests/client";
-import { buildConsultationMessage, consultationLineOf } from "@/lib/material-requests/consultation-message";
+import {
+  buildConsultationMessage,
+  competitionNeedsType,
+  consultationLineOf,
+} from "@/lib/material-requests/consultation-message";
 import type { MaterialRequestFile, MaterialRequestLine } from "@/lib/material-requests/contracts";
 import {
   MATERIAL_REQUEST_QUOTE_MAX_CENTS,
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
   MATERIAL_REQUEST_QUOTE_NOTES_MAX,
   MATERIAL_REQUEST_QUOTE_PICKER_ACCEPT,
+  MATERIAL_REQUEST_PRICE_PER,
   MATERIAL_REQUEST_QUOTE_STATUS_LABELS,
+  type MaterialRequestPricePer,
   type MaterialRequestQuote,
   type MaterialRequestQuoteStatus,
 } from "@/lib/material-requests/quote-contracts";
@@ -23,10 +30,24 @@ import { parseAmountCents } from "@/lib/numeric-input/parsers";
 import { cn } from "@/lib/utils";
 
 import { CellMessages, ConfirmButton, TextCell, usePendingWrites } from "./cells";
-import { checkQuoteFileSelection, formatDay, formatQuantity, lineTitle, plural } from "./format";
+import {
+  checkQuoteFileSelection,
+  formatDay,
+  formatPricePer,
+  formatQuantity,
+  formatQuotedPrice,
+  lineTitle,
+  plural,
+  quotedAmountCents,
+} from "./format";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
-import { QUOTE_PRICE_HELD, useMaterialRequestQuotes, type MaterialRequestQuotesApi } from "./useMaterialRequestQuotes";
+import {
+  QUOTE_PRICE_HELD,
+  supplierAlreadyConsulted,
+  useMaterialRequestQuotes,
+  type MaterialRequestQuotesApi,
+} from "./useMaterialRequestQuotes";
 
 /*
  * « Consultation » (TI-691, lot 2 « l'achat », delivery 2): the office asks suppliers for a price with a short
@@ -46,9 +67,29 @@ const CONTROL =
 
 const AMOUNT_UNREADABLE = "Montant illisible : en euros, avec une virgule et deux décimales au plus (12,50).";
 
-/** The quote of this supplier that is not closed: one at most per request (a retained one counts). */
+/**
+ * The consultation of this supplier in progress (requested or received): one at most per request. A retained or
+ * closed quote frees the supplier, which may be asked again for other lines.
+ */
 function liveQuoteOf(quotes: readonly MaterialRequestQuote[], supplierId: string): MaterialRequestQuote | null {
-  return quotes.find((quote) => quote.supplier_id === supplierId && quote.status !== "closed") ?? null;
+  return (
+    quotes.find((quote) => quote.supplier_id === supplierId && (quote.status === "requested" || quote.status === "received"))
+    ?? null
+  );
+}
+
+/** Where a supplier stands for these lines: asked for all of them, busy with others, or free to ask. */
+type SupplierConsultation = { sent: MaterialRequestQuote | null; busyElsewhere: boolean };
+
+function consultationOf(
+  quotes: readonly MaterialRequestQuote[],
+  supplierId: string,
+  lineIds: readonly string[],
+): SupplierConsultation {
+  const live = liveQuoteOf(quotes, supplierId);
+  if (!live) return { sent: null, busyElsewhere: false };
+  const asked = new Set(live.lines.map((line) => line.line_id));
+  return lineIds.every((id) => asked.has(id)) ? { sent: live, busyElsewhere: false } : { sent: null, busyElsewhere: true };
 }
 
 /** Where a supplier's consultation stands, in one sentence. */
@@ -89,9 +130,12 @@ function retainBlocker(quote: MaterialRequestQuote, refusedPrices: number): stri
   return unpriced > 0 ? `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).` : null;
 }
 
-function lineAmount(line: MaterialRequestLine | undefined, cents: number | null): number | null {
-  if (!line || line.quantity === null || cents === null) return null;
-  return Math.round(line.quantity * cents);
+function lineAmount(
+  line: MaterialRequestLine | undefined,
+  cents: number | null,
+  per: MaterialRequestPricePer,
+): number | null {
+  return line ? quotedAmountCents(line.quantity, cents, per) : null;
 }
 
 function quantityText(line: MaterialRequestLine): string {
@@ -128,13 +172,16 @@ function useCopy() {
 function MessageBlock({
   supplierName,
   message,
-  live,
+  consultation,
   onSend,
 }: Readonly<{
   supplierName: string;
   message: string;
-  /** The supplier's quote that is not closed: the consultation is recorded, it is not sent twice. */
-  live: MaterialRequestQuote | null;
+  /**
+   * The supplier's consultation in progress: for these lines, it is recorded and not sent twice; for others, the
+   * database takes one at a time, and the office is told why before trying.
+   */
+  consultation: SupplierConsultation;
   onSend: (message: string) => Promise<SaveResult>;
 }>) {
   const { stateFor, copyText } = useCopy();
@@ -170,9 +217,9 @@ function MessageBlock({
           {copyState === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           Copier
         </Button>
-        {live ? (
-          <p className="text-sm font-medium text-foreground">{quoteStage(live)}</p>
-        ) : (
+        {consultation.sent ? (
+          <p className="text-sm font-medium text-foreground">{quoteStage(consultation.sent)}</p>
+        ) : consultation.busyElsewhere ? null : (
           <Button
             type="button"
             size="sm"
@@ -185,6 +232,9 @@ function MessageBlock({
           </Button>
         )}
       </div>
+      {consultation.busyElsewhere ? (
+        <p className="text-sm text-foreground">{supplierAlreadyConsulted(supplierName, true)}</p>
+      ) : null}
       <p role="status" className="text-sm text-muted-foreground empty:hidden">
         {copyState === "copied" ? "Message copié." : null}
         {copyState === "refused"
@@ -229,6 +279,8 @@ function supplierGroups(
 function CompetitionPanel({
   id,
   group,
+  lineIds,
+  needType,
   options,
   quotes,
   message,
@@ -236,10 +288,14 @@ function CompetitionPanel({
 }: Readonly<{
   id: string;
   group: SupplierGroup;
+  /** The lines asked: a competitor's consultation in progress counts as sent only when it covers them all. */
+  lineIds: readonly string[];
+  /** Lines whose only words would leak a reference, or name nothing: a type is needed before competing. */
+  needType: readonly MaterialRequestLine[];
   options: readonly MaterialRequestSupplierOption[];
   quotes: readonly MaterialRequestQuote[];
   message: string;
-  onSend: (supplierId: string, message: string) => Promise<SaveResult>;
+  onSend: (supplierId: string, supplierName: string, message: string) => Promise<SaveResult>;
 }>) {
   const [chosen, setChosen] = useState<string[]>([]);
   const others = options.filter((option) => option.id !== group.supplierId);
@@ -251,6 +307,13 @@ function CompetitionPanel({
         <p className="mt-0.5 text-xs text-muted-foreground">
           Leur message ne donne aucune référence : seulement les désignations complètes.
         </p>
+        {needType.length > 0 ? (
+          <ul className="mt-2 space-y-0.5 text-sm font-medium text-warning">
+            {needType.map((line) => (
+              <li key={line.id}>{`Ligne ${line.position} : donnez-lui un type dans le tableau avant de la mettre en concurrence.`}</li>
+            ))}
+          </ul>
+        ) : null}
         {others.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Aucun autre fournisseur dans la liste.</p>
         ) : (
@@ -282,8 +345,8 @@ function CompetitionPanel({
             <MessageBlock
               supplierName={name}
               message={message}
-              live={liveQuoteOf(quotes, supplierId)}
-              onSend={(text) => onSend(supplierId, text)}
+              consultation={consultationOf(quotes, supplierId, lineIds)}
+              onSend={(text) => onSend(supplierId, name, text)}
             />
           </div>
         );
@@ -327,13 +390,15 @@ function SupplierGroupCard({
       withReferences,
       deliveryPlace: data.request.delivery_place,
     });
-  const send = (supplierId: string, withReferences: boolean, text: string) =>
-    quotes.createQuote({
-      supplier_id: supplierId,
-      line_ids: pending.map((line) => line.id),
-      with_references: withReferences,
-      message: text,
-    });
+  const lineIds = pending.map((line) => line.id);
+  const needType = pending.filter((line) =>
+    competitionNeedsType(consultationLineOf(line, { request: data.request, supplierSku: null })),
+  );
+  const send = (supplierId: string, supplierName: string, withReferences: boolean, text: string) =>
+    quotes.createQuote(
+      { supplier_id: supplierId, line_ids: lineIds, with_references: withReferences, message: text },
+      supplierName,
+    );
 
   return (
     <div role="group" aria-labelledby={headingId} className="min-w-0 space-y-3 rounded-lg border border-border bg-surface p-3">
@@ -369,8 +434,8 @@ function SupplierGroupCard({
             <MessageBlock
               supplierName={group.supplierName}
               message={message(true)}
-              live={liveQuoteOf(quotes.items, group.supplierId)}
-              onSend={(text) => send(group.supplierId, true, text)}
+              consultation={consultationOf(quotes.items, group.supplierId, lineIds)}
+              onSend={(text) => send(group.supplierId, group.supplierName, true, text)}
             />
           ) : (
             <p role="status" className="text-sm text-muted-foreground">
@@ -394,10 +459,12 @@ function SupplierGroupCard({
             <CompetitionPanel
               id={panelId}
               group={group}
+              lineIds={lineIds}
+              needType={needType}
               options={data.supplierOptions}
               quotes={quotes.items}
               message={message(false)}
-              onSend={(supplierId, text) => send(supplierId, false, text)}
+              onSend={(supplierId, supplierName, text) => send(supplierId, supplierName, false, text)}
             />
           ) : null}
         </>
@@ -428,11 +495,14 @@ function centsText(cents: number | null): string {
  * Escape gives back the saved amount. A refused save keeps what was typed, with the reason under it.
  */
 function CentsInput({
+  id,
   label,
   value,
   onCommit,
   onAbandon,
 }: Readonly<{
+  /** Given when a visible <label> points at the field; `label` stays its accessible name. */
+  id?: string;
   label: string;
   value: number | null;
   onCommit: (next: number | null) => Promise<SaveResult>;
@@ -470,6 +540,7 @@ function CentsInput({
   return (
     <>
       <input
+        id={id}
         type="text"
         inputMode="decimal"
         autoComplete="off"
@@ -542,8 +613,8 @@ function QuoteFiles({
             <li key={file.id} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
               <a
                 href={materialRequestFileUrl(editor.projectId, editor.requestId, file.id)}
-                target="_blank"
-                rel="noopener noreferrer"
+                // Served as an attachment: the browser saves it under its own name and opens it from there.
+                download={file.file_name}
                 className="inline-flex min-w-0 items-center gap-1 break-all text-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
               >
                 <FileText aria-hidden="true" className="size-4 shrink-0" />
@@ -602,6 +673,90 @@ function QuoteFiles({
   );
 }
 
+/**
+ * The price of one line of a quote, and the units it is for (« pour 100 »: a sub-cent price written exactly). Both
+ * are sent together; a choice made before the price waits for it.
+ */
+function QuotePriceEntry({
+  quotes,
+  quote,
+  entry,
+  position,
+}: Readonly<{
+  quotes: MaterialRequestQuotesApi;
+  quote: MaterialRequestQuote;
+  entry: MaterialRequestQuote["lines"][number];
+  position: number;
+}>) {
+  const ids = useId();
+  const inputId = `${ids}-price`;
+  const errorId = `${ids}-error`;
+  const stored = entry.price_per;
+  const [choice, setChoice] = useState<MaterialRequestPricePer | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const per = choice ?? stored;
+  const supplier = quote.supplier_name;
+
+  const choose = async (next: MaterialRequestPricePer) => {
+    if (next === stored && error) {
+      // The office gives back the stored choice after a refusal: nothing unsaved is left.
+      quotes.forgetPriceFailure(quote.id, entry.line_id);
+      setChoice(null);
+      setError(null);
+      return;
+    }
+    setChoice(next);
+    setError(null);
+    if (entry.unit_price_ht_cents === null) return;
+    const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, next);
+    if (result.ok) setChoice(null);
+    else setError(result.message);
+  };
+
+  return (
+    <div className="min-w-0 space-y-1">
+      <label htmlFor={inputId} className="block text-xs text-muted-foreground">
+        Prix unitaire HT
+      </label>
+      <div className="flex min-w-0 items-start gap-1.5">
+        <div className="min-w-0 flex-1">
+          <CentsInput
+            id={inputId}
+            label={`Prix unitaire HT, ligne ${position}, ${supplier}`}
+            value={entry.unit_price_ht_cents}
+            onCommit={async (cents) => {
+              const result = await quotes.savePrice(quote.id, entry.line_id, cents, per);
+              if (result.ok) setChoice(null);
+              return result;
+            }}
+            onAbandon={() => quotes.forgetPriceFailure(quote.id, entry.line_id)}
+          />
+        </div>
+        <NativeSelect
+          size="sm"
+          wrapperClassName="w-auto shrink-0"
+          className="pl-2"
+          aria-label={`Prix donné pour, ligne ${position}, ${supplier}`}
+          aria-describedby={error ? errorId : undefined}
+          value={String(per)}
+          onChange={(event) => void choose(Number(event.currentTarget.value) as MaterialRequestPricePer)}
+        >
+          {MATERIAL_REQUEST_PRICE_PER.map((option) => (
+            <option key={option} value={String(option)}>
+              {`pour ${formatPricePer(option)}`}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+      {error ? (
+        <p id={errorId} role="alert" className="text-xs font-medium text-danger">
+          Non enregistré : {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function QuoteCard({
   editor,
   quotes,
@@ -615,7 +770,9 @@ function QuoteCard({
   const editable = editor.canWrite && (quote.status === "requested" || quote.status === "received");
   const linesById = new Map(editor.data.lines.map((line) => [line.id, line]));
   const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id));
-  const amounts = quote.lines.map((entry) => lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents));
+  const amounts = quote.lines.map((entry) =>
+    lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per),
+  );
   const total = amounts.every((amount) => amount !== null)
     ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
     : null;
@@ -656,7 +813,7 @@ function QuoteCard({
           const line = linesById.get(entry.line_id);
           const amount = amounts[index];
           return (
-            <li key={entry.line_id} className="grid min-w-0 gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem] sm:items-start">
+            <li key={entry.line_id} className="grid min-w-0 gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_15rem_8rem] sm:items-start">
               <div className="min-w-0">
                 <p className="break-words text-sm font-medium text-foreground">
                   {line ? `Ligne ${line.position} · ${lineTitle(line)}` : "Ligne retirée de la demande"}
@@ -664,20 +821,14 @@ function QuoteCard({
                 {line ? <p className="text-xs text-muted-foreground">{quantityText(line)}</p> : null}
               </div>
               {editable && line ? (
-                <label className="block min-w-0 space-y-1">
-                  <span className="text-xs text-muted-foreground">Prix unitaire HT</span>
-                  <CentsInput
-                    label={`Prix unitaire HT, ligne ${line.position}, ${supplier}`}
-                    value={entry.unit_price_ht_cents}
-                    onCommit={(cents) => quotes.savePrice(quote.id, entry.line_id, cents)}
-                    onAbandon={() => quotes.forgetPriceFailure(quote.id, entry.line_id)}
-                  />
-                </label>
+                <QuotePriceEntry quotes={quotes} quote={quote} entry={entry} position={line.position} />
               ) : (
                 <p className="text-sm text-foreground">
                   <span className="text-xs text-muted-foreground">Prix unitaire HT : </span>
                   <span className="tabular-nums">
-                    {entry.unit_price_ht_cents === null ? "—" : formatEUR(entry.unit_price_ht_cents)}
+                    {entry.unit_price_ht_cents === null
+                      ? "—"
+                      : formatQuotedPrice(entry.unit_price_ht_cents, entry.price_per)}
                   </span>
                 </p>
               )}

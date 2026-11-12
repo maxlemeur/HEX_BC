@@ -49,6 +49,7 @@ function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
     product_id: null,
     product_match: null,
     unit_price_ht_cents: null,
+    price_per: 1,
     price_quote_id: null,
     ...partial,
   };

@@ -27,6 +27,14 @@ export const MATERIAL_REQUEST_LINE_STATUSES = ["draft", "validated"] as const;
 export type MaterialRequestLineStatus = (typeof MATERIAL_REQUEST_LINE_STATUSES)[number];
 
 export const MATERIAL_REQUEST_FILE_ROTATIONS = [0, 90, 180, 270] as const;
+
+/**
+ * TI-691: how many units a price is for. A price stays in whole cents, so a screw at 0,034 € is 340 cents for 100.
+ * The amount of a line is quantity × price / price_per, rounded half away from zero to the cent (computed by the
+ * purchase that follows the consultation; nothing computes it in this delivery).
+ */
+export const MATERIAL_REQUEST_PRICE_PER = [1, 10, 100, 1000] as const;
+export type MaterialRequestPricePer = (typeof MATERIAL_REQUEST_PRICE_PER)[number];
 export type MaterialRequestFileRotation = (typeof MATERIAL_REQUEST_FILE_ROTATIONS)[number];
 
 /**
@@ -138,11 +146,14 @@ export type MaterialRequestLine = {
   product_id: string | null;
   product_match: MaterialRequestProductMatch | null;
   /**
-   * TI-691: the unit price excluding tax, in cents, of the quote retained for the line (`price_quote_id`); both are
-   * null until a quote is retained, and are written by that retaining only. Purchasing information: a validated line
-   * stays validated. The line's supplier is then the quote's and no longer changes.
+   * TI-691: the price excluding tax, in cents, for `price_per` units, of the quote retained for the line
+   * (`price_quote_id`); null (and price_per 1) until a quote is retained, and written by that retaining only.
+   * Purchasing information: a validated line stays validated. Once priced, the line's supplier is the quote's, and
+   * what it orders (article, type, dimension, material, precision, reference, unit, quantity) no longer changes; it is
+   * not deleted alone. There is no way back in this delivery.
    */
   unit_price_ht_cents: number | null;
+  price_per: MaterialRequestPricePer;
   price_quote_id: string | null;
 };
 

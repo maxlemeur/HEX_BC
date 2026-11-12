@@ -2278,7 +2278,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original ou le fichier d'un devis",
-        "description": "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Un fichier dont les octets ne sont pas conservés répond 404.",
+        "description": "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; le PDF d'un devis, document d'un fournisseur, l'est en pièce jointe (Content-Disposition: attachment), jamais affiché dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
         "parameters": [
           {
             "name": "projectId",
@@ -2405,7 +2405,7 @@
           "Demandes de matériel"
         ],
         "summary": "Tourner un original",
-        "description": "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas.",
+        "description": "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas. Le fichier d'un devis retenu ou clos ne tourne plus.",
         "parameters": [
           {
             "name": "projectId",
@@ -2498,11 +2498,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -2718,7 +2718,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande.",
+            "description": "MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2960,7 +2960,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; son fournisseur est celui du devis (le changer est refusé, seul ou dans une sélection, et rien n'est écrit) et elle ne se supprime plus seule (sa demande, si). details : line_ids, positions.",
+            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3081,7 +3081,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; son fournisseur est celui du devis (le changer est refusé, seul ou dans une sélection, et rien n'est écrit) et elle ne se supprime plus seule (sa demande, si). details : line_ids, positions.",
+            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3189,7 +3189,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; son fournisseur est celui du devis (le changer est refusé, seul ou dans une sélection, et rien n'est écrit) et elle ne se supprime plus seule (sa demande, si). details : line_ids, positions.",
+            "description": "MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3310,7 +3310,7 @@
             }
           },
           "409": {
-            "description": "CONFLICT : « Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide. » MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps ; l'article créé est retiré.",
+            "description": "CONFLICT : « Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide. » MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps ; l'article créé est retiré. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; rien n'est créé.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3429,7 +3429,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande.",
+            "description": "MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, son article ne change plus.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3537,7 +3537,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande.",
+            "description": "MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, son article ne change plus.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4129,7 +4129,7 @@
           "Demandes de matériel"
         ],
         "summary": "Enregistrer la consultation d'un fournisseur",
-        "description": "Le bureau consulte un fournisseur par un message qu'il copie dans WhatsApp (MergeOne n'envoie rien) : avec les références pour le fournisseur habituel, sans elles et avec les désignations complètes pour mettre des fournisseurs en concurrence. Le devis est enregistré « demandé » avec ses lignes (1 à 300 lignes de cette demande, chacune une fois), en une seule écriture, tout ou rien. Un fournisseur n'a qu'un devis demandé ou reçu à la fois par demande ; une fois son devis retenu ou clos, il peut être consulté à nouveau.",
+        "description": "Le bureau consulte un fournisseur par un message qu'il copie dans WhatsApp (MergeOne n'envoie rien) : avec les références pour le fournisseur habituel, sans elles et avec les désignations complètes pour mettre des fournisseurs en concurrence. Le devis est enregistré « demandé » avec ses lignes (1 à 300 lignes de cette demande, chacune une fois ; elles ne changent plus ensuite), en une seule écriture, tout ou rien. Un fournisseur n'a qu'un devis demandé ou reçu à la fois par demande ; une fois son devis retenu ou clos, il peut être consulté à nouveau.",
         "parameters": [
           {
             "name": "projectId",
@@ -4151,7 +4151,7 @@
           }
         ],
         "requestBody": {
-          "description": "Fournisseur actif du tenant, lignes, variante et message copié (4 000 caractères au plus).",
+          "description": "Fournisseur actif du tenant, lignes, variante et message copié (20000 caractères au plus).",
           "required": true,
           "content": {
             "application/json": {
@@ -4213,7 +4213,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN : ce fournisseur a déjà un devis demandé ou reçu pour cette demande ; rien n'est écrit.",
+            "description": "MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN : ce fournisseur a déjà un devis demandé ou reçu pour cette demande ; rien n'est écrit. MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était en cours (la base a levé un interblocage) ; rien n'est écrit, réessayer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4251,7 +4251,7 @@
           "Demandes de matériel"
         ],
         "summary": "Chiffrer un devis",
-        "description": "Prix unitaires HT des lignes du devis, total HT et notes, en centimes entiers, tant que le devis est demandé ou reçu ; received: true le marque reçu (daté par la base). Seuls les champs envoyés changent, null efface ; une seule écriture, tout ou rien.",
+        "description": "Prix HT des lignes du devis, total HT et notes, en centimes entiers, tant que le devis est demandé ou reçu ; received: true le marque reçu (daté par la base). Le prix d'une ligne vaut pour price_per unités (1, 10, 100 ou 1 000 ; 1 par défaut) : une vis à 0,034 € s'écrit 340 centimes pour 100 ; price_per omis garde celui de la ligne. Le montant d'une ligne, quantité × prix / price_per arrondi au centime (demi loin de zéro), n'est pas calculé ici. Seuls les champs envoyés changent, null efface ; une seule écriture, tout ou rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -4344,7 +4344,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.",
+            "description": "MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était en cours (la base a levé un interblocage) ; rien n'est écrit, réessayer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4482,7 +4482,7 @@
           "Demandes de matériel"
         ],
         "summary": "Retenir un devis",
-        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix unitaire HT et son identifiant (unit_price_ht_cents, price_quote_id), une ligne validée le restant ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
+        "description": "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
         "parameters": [
           {
             "name": "projectId",
@@ -4564,7 +4564,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.",
+            "description": "MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est déjà retenu ou clos. MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était en cours (la base a levé un interblocage) ; rien n'est écrit, réessayer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30824,6 +30824,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -30861,6 +30881,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -31386,6 +31407,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -31423,6 +31464,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -32799,6 +32841,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -32836,6 +32898,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -33131,6 +33194,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -33168,6 +33251,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -33511,6 +33595,26 @@
                       }
                     ]
                   },
+                  "price_per": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 10
+                      },
+                      {
+                        "type": "number",
+                        "const": 100
+                      },
+                      {
+                        "type": "number",
+                        "const": 1000
+                      }
+                    ]
+                  },
                   "price_quote_id": {
                     "anyOf": [
                       {
@@ -33548,6 +33652,7 @@
                   "product_id",
                   "product_match",
                   "unit_price_ht_cents",
+                  "price_per",
                   "price_quote_id"
                 ],
                 "additionalProperties": false
@@ -33826,6 +33931,26 @@
                       }
                     ]
                   },
+                  "price_per": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 10
+                      },
+                      {
+                        "type": "number",
+                        "const": 100
+                      },
+                      {
+                        "type": "number",
+                        "const": 1000
+                      }
+                    ]
+                  },
                   "price_quote_id": {
                     "anyOf": [
                       {
@@ -33863,6 +33988,7 @@
                   "product_id",
                   "product_match",
                   "unit_price_ht_cents",
+                  "price_per",
                   "price_quote_id"
                 ],
                 "additionalProperties": false
@@ -34247,6 +34373,26 @@
                       }
                     ]
                   },
+                  "price_per": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 10
+                      },
+                      {
+                        "type": "number",
+                        "const": 100
+                      },
+                      {
+                        "type": "number",
+                        "const": 1000
+                      }
+                    ]
+                  },
                   "price_quote_id": {
                     "anyOf": [
                       {
@@ -34284,6 +34430,7 @@
                   "product_id",
                   "product_match",
                   "unit_price_ht_cents",
+                  "price_per",
                   "price_quote_id"
                 ],
                 "additionalProperties": false
@@ -34556,6 +34703,26 @@
                       }
                     ]
                   },
+                  "price_per": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 10
+                      },
+                      {
+                        "type": "number",
+                        "const": 100
+                      },
+                      {
+                        "type": "number",
+                        "const": 1000
+                      }
+                    ]
+                  },
                   "price_quote_id": {
                     "anyOf": [
                       {
@@ -34593,6 +34760,7 @@
                   "product_id",
                   "product_match",
                   "unit_price_ht_cents",
+                  "price_per",
                   "price_quote_id"
                 ],
                 "additionalProperties": false
@@ -34948,6 +35116,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -34985,6 +35173,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -35214,6 +35403,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -35251,6 +35460,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -35474,6 +35684,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -35511,6 +35741,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -35715,11 +35946,32 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "price_per": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "const": 1
+                              },
+                              {
+                                "type": "number",
+                                "const": 10
+                              },
+                              {
+                                "type": "number",
+                                "const": 100
+                              },
+                              {
+                                "type": "number",
+                                "const": 1000
+                              }
+                            ]
                           }
                         },
                         "required": [
                           "line_id",
-                          "unit_price_ht_cents"
+                          "unit_price_ht_cents",
+                          "price_per"
                         ],
                         "additionalProperties": false
                       }
@@ -35862,7 +36114,7 @@
           },
           "message": {
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 20000
           }
         },
         "required": [
@@ -35979,11 +36231,32 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "line_id",
-                        "unit_price_ht_cents"
+                        "unit_price_ht_cents",
+                        "price_per"
                       ],
                       "additionalProperties": false
                     }
@@ -36156,6 +36429,26 @@
                       "type": "null"
                     }
                   ]
+                },
+                "price_per": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 1
+                    },
+                    {
+                      "type": "number",
+                      "const": 10
+                    },
+                    {
+                      "type": "number",
+                      "const": 100
+                    },
+                    {
+                      "type": "number",
+                      "const": 1000
+                    }
+                  ]
                 }
               },
               "required": [
@@ -36278,11 +36571,32 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "line_id",
-                        "unit_price_ht_cents"
+                        "unit_price_ht_cents",
+                        "price_per"
                       ],
                       "additionalProperties": false
                     }
@@ -36507,11 +36821,32 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "line_id",
-                        "unit_price_ht_cents"
+                        "unit_price_ht_cents",
+                        "price_per"
                       ],
                       "additionalProperties": false
                     }
@@ -36736,11 +37071,32 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
                         }
                       },
                       "required": [
                         "line_id",
-                        "unit_price_ht_cents"
+                        "unit_price_ht_cents",
+                        "price_per"
                       ],
                       "additionalProperties": false
                     }
@@ -37013,6 +37369,26 @@
                         }
                       ]
                     },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
                     "price_quote_id": {
                       "anyOf": [
                         {
@@ -37050,6 +37426,7 @@
                     "product_id",
                     "product_match",
                     "unit_price_ht_cents",
+                    "price_per",
                     "price_quote_id"
                   ],
                   "additionalProperties": false
@@ -75423,6 +75800,26 @@
                               }
                             ]
                           },
+                          "price_per": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "const": 1
+                              },
+                              {
+                                "type": "number",
+                                "const": 10
+                              },
+                              {
+                                "type": "number",
+                                "const": 100
+                              },
+                              {
+                                "type": "number",
+                                "const": 1000
+                              }
+                            ]
+                          },
                           "price_quote_id": {
                             "anyOf": [
                               {
@@ -75460,6 +75857,7 @@
                           "product_id",
                           "product_match",
                           "unit_price_ht_cents",
+                          "price_per",
                           "price_quote_id"
                         ],
                         "additionalProperties": false

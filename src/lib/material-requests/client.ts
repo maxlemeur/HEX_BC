@@ -455,6 +455,7 @@ export function createMaterialRequestLineArticle(
 }
 
 /* Consultation of suppliers (TI-691, lot 2 « l'achat », delivery 2): one quote asked of one supplier. */
+
 function quotesPath(projectId: string, requestId: string, ...segments: string[]): string {
   return requestsPath(projectId, requestId, "quotes", ...segments);
 }

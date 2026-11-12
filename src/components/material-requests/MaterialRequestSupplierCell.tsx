@@ -8,9 +8,9 @@ import { safeProductUrl } from "@/lib/catalogue/supplier-items-client";
 import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import type { MaterialRequestLine, MaterialRequestLineInput } from "@/lib/material-requests/contracts";
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
-import { formatEUR } from "@/lib/money";
 
 import { ChoiceCell } from "./cells";
+import { formatQuotedPrice } from "./format";
 import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
 
 /** Why a supplier is proposed, in a few words read after its name. */
@@ -107,7 +107,7 @@ export function MaterialRequestSupplierCell({
         {ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
         {line.unit_price_ht_cents !== null ? (
           <p className="text-xs tabular-nums text-foreground-secondary">
-            {`Prix unitaire HT : ${formatEUR(line.unit_price_ht_cents)} (devis retenu)`}
+            {`Prix unitaire HT : ${formatQuotedPrice(line.unit_price_ht_cents, line.price_per)} (devis retenu)`}
           </p>
         ) : null}
       </div>

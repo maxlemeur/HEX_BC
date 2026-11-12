@@ -16,14 +16,14 @@ import {
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Line = {
   id: string; position: number; product_id: string | null; supplier_id: string | null;
-  unit_price_ht_cents: number | null; price_quote_id: string | null;
+  unit_price_ht_cents: number | null; price_per: number; price_quote_id: string | null;
 };
 type StoredFile = { id: string; quote_id: string | null; file_name: string; mime_type: string; byte_size: number };
 type Detail = { request: { id: string }; lines: Line[]; files: StoredFile[] };
 type Quote = {
   id: string; supplier_id: string; status: "requested" | "received" | "retained" | "closed"; with_references: boolean;
   message: string; received_at: string | null; retained_at: string | null; closed_at: string | null;
-  lines: Array<{ line_id: string; unit_price_ht_cents: number | null }>; files: StoredFile[];
+  lines: Array<{ line_id: string; unit_price_ht_cents: number | null; price_per: number }>; files: StoredFile[];
 };
 
 // TI-691, lot 2 « l'achat », delivery 2 « consultation ». Failure modes, written before the journey was first run
@@ -33,7 +33,8 @@ type Quote = {
 // - « Copier » hands the clipboard another text than the one shown, or « Consultation envoyée » records another
 //   message, other lines or the wrong variant;
 // - the supplier's PDF is not stored as dropped, is listed among the request's originals, or cannot be read back;
-// - a typed price is saved as another amount (French decimals, integer cents);
+// - a typed price is saved as another amount (French decimals, integer cents), or a sub-cent price quoted for 100
+//   units is saved, shown or totalled as if it were for one;
 // - a quote is retained before it is received;
 // - retaining the competitor's quote does not give the lines its supplier and unit prices, or leaves the first quote
 //   open; a closed quote can still be changed.
@@ -215,7 +216,7 @@ armyTest(
     expect([alphaQuote.supplier_id, alphaQuote.status, alphaQuote.with_references, alphaQuote.message]).toEqual([
       alpha, "requested", true, withReferences,
     ]);
-    expect(alphaQuote.lines).toEqual(lineIds.map((line_id) => ({ line_id, unit_price_ht_cents: null })));
+    expect(alphaQuote.lines).toEqual(lineIds.map((line_id) => ({ line_id, unit_price_ht_cents: null, price_per: 1 })));
 
     // The competitor's message names no reference at all: neither Alpha's, nor ours, nor the technician's.
     await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
@@ -259,19 +260,24 @@ armyTest(
     }, `${one}/files/${storedPdf.id}`);
     expect(storedSha).toEqual([200, createHash("sha256").update(pdf).digest("hex")]);
     expect((await read()).files).toEqual([]);
-    await expect(betaCard.getByRole("link", "devis-beta.pdf", { exact: true })).toBeVisible();
+    // Served as an attachment: the link downloads it under its own name.
+    await expect(betaCard.getByRole("link", "devis-beta.pdf", { exact: true })).toHaveAttribute("download", "devis-beta.pdf");
 
-    // Prices typed in French decimals are saved in cents; the quote cannot be retained before it is received.
+    // Prices typed in French decimals are saved in cents; the tees are quoted for 100 (0,038 € each), the choice
+    // made before the price goes with it. The quote cannot be retained before it is received.
     const firstPrice = betaCard.getByLabel(`Prix unitaire HT, ligne 1, ${betaName}`, { exact: true });
     await firstPrice.fill("11,50");
     await firstPrice.press("Tab");
+    await betaCard.getByLabel(`Prix donné pour, ligne 2, ${betaName}`, { exact: true }).selectOption({ value: "100" });
     const secondPrice = betaCard.getByLabel(`Prix unitaire HT, ligne 2, ${betaName}`, { exact: true });
     await secondPrice.fill("3,8");
     await secondPrice.press("Tab");
     await expect.poll(async () => (await quotes()).find((quote) => quote.id === betaQuote.id)!.lines, { timeout: 30_000 }).toEqual([
-      { line_id: lineIds[0], unit_price_ht_cents: 1150 },
-      { line_id: lineIds[1], unit_price_ht_cents: 380 },
+      { line_id: lineIds[0], unit_price_ht_cents: 1150, price_per: 1 },
+      { line_id: lineIds[1], unit_price_ht_cents: 380, price_per: 100 },
     ]);
+    // 10 × 11,50 € + 4 × 3,80 € ÷ 100 (0,152 €, rounded to the cent).
+    await expect(betaCard.getByText(/^Total des lignes : 115,15\s€ HT$/)).toBeVisible();
     const retain = screen.getByRole("button", `Retenir ce devis (${betaName})`, { exact: true });
     await expect(retain).toBeDisabled();
     await expect(betaCard.getByText("Pour retenir ce devis, marquez-le reçu.", { exact: true })).toBeVisible();
@@ -285,8 +291,8 @@ armyTest(
 
     // The lines are bought from the competitor at its prices; Alpha's quote is closed, readable and read-only.
     const priced = (await read()).lines;
-    expect(priced.map((line) => [line.supplier_id, line.unit_price_ht_cents, line.price_quote_id])).toEqual([
-      [beta, 1150, betaQuote.id], [beta, 380, betaQuote.id],
+    expect(priced.map((line) => [line.supplier_id, line.unit_price_ht_cents, line.price_per, line.price_quote_id])).toEqual([
+      [beta, 1150, 1, betaQuote.id], [beta, 380, 100, betaQuote.id],
     ]);
     const final = await quotes();
     const stateOf = (supplierId: string) => {
@@ -295,14 +301,14 @@ armyTest(
     };
     expect([final.length, stateOf(alpha), stateOf(beta)]).toEqual([2, ["closed", true, false], ["retained", false, true]]);
     await expect(screen.getByText(/^Prix unitaire HT : 11,50\s€ \(devis retenu\)$/)).toBeVisible({ timeout: 15_000 });
-    await expect(screen.getByText(/^Prix unitaire HT : 3,80\s€ \(devis retenu\)$/)).toBeVisible();
+    await expect(screen.getByText(/^Prix unitaire HT : 3,80\s€ les 100 \(devis retenu\)$/)).toBeVisible();
     await expect(screen.getByLabel("Fournisseur, ligne 1", { exact: true })).toHaveCount(0);
     const alphaCard = screen.getByRole("article", `Devis ${alphaName}`, { exact: true });
     await expect(alphaCard.getByText("Clos", { exact: true })).toBeVisible();
     await expect(alphaCard.getByText("Devis clos : il reste lisible, rien n’y change.", { exact: true })).toBeVisible();
     await expect(alphaCard.getByLabel(`Prix unitaire HT, ligne 1, ${alphaName}`, { exact: true })).toHaveCount(0);
     const changed = await apiRequest<Envelope<never>>(browser, "PATCH", `${one}/quotes/${alphaQuote.id}`, {
-      lines: [{ line_id: lineIds[0], unit_price_ht_cents: 999 }],
+      lines: [{ line_id: lineIds[0], unit_price_ht_cents: 999, price_per: 1 }],
     });
     expect([changed.status, changed.body.error?.code]).toEqual([409, "MATERIAL_REQUEST_QUOTE_READ_ONLY"]);
 
@@ -311,7 +317,9 @@ armyTest(
       quotes: final.map((quote) => ({ id: quote.id, supplier_id: quote.supplier_id, status: quote.status, with_references: quote.with_references })),
       pdf: { id: storedPdf.id, byte_size: storedPdf.byte_size, sha256: storedSha[1] },
       copies: (await copies()).outcomes,
-      lines: priced.map((line) => ({ id: line.id, supplier_id: line.supplier_id, unit_price_ht_cents: line.unit_price_ht_cents })),
+      lines: priced.map((line) => ({
+        id: line.id, supplier_id: line.supplier_id, unit_price_ht_cents: line.unit_price_ht_cents, price_per: line.price_per,
+      })),
     });
   },
 );

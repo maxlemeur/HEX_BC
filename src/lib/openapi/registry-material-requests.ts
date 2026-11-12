@@ -29,6 +29,7 @@ import {
   type MaterialRequestFileUploads,
   type MaterialRequestLine,
   type MaterialRequestLineArticleResult,
+  type MaterialRequestPricePer,
   type MaterialRequestSummary,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
@@ -50,6 +51,7 @@ import {
 import {
   MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES,
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
+  MATERIAL_REQUEST_QUOTE_MESSAGE_MAX,
   MATERIAL_REQUEST_QUOTE_STATUSES,
   createQuoteSchema,
   updateQuoteSchema,
@@ -68,6 +70,8 @@ import {
 const uuid = z.string().uuid();
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const timestamp = z.string();
+// How many units a price is for (TI-691): a price stays in whole cents.
+const pricePer: z.ZodType<MaterialRequestPricePer> = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
 
 const technician: z.ZodType<MaterialRequestTechnician> = z.object({
   id: uuid, name: z.string(), current_project_id: uuid.nullable(), is_active: z.boolean(),
@@ -100,7 +104,7 @@ const line: z.ZodType<MaterialRequestLine> = z.object({
   overhead_category: z.string().nullable(), duplicate_acknowledged: z.boolean(),
   status: z.enum(MATERIAL_REQUEST_LINE_STATUSES), validated_at: timestamp.nullable(),
   product_id: uuid.nullable(), product_match: z.enum(MATERIAL_REQUEST_PRODUCT_MATCHES).nullable(),
-  unit_price_ht_cents: z.number().int().min(0).nullable(), price_quote_id: uuid.nullable(),
+  unit_price_ht_cents: z.number().int().min(0).nullable(), price_per: pricePer, price_quote_id: uuid.nullable(),
 });
 const articleSummary: z.ZodType<MaterialRequestArticleSummary> = z.object({
   id: uuid, reference: z.string().nullable(), designation: z.string(), product_type: z.string().nullable(),
@@ -152,7 +156,7 @@ const quote: z.ZodType<MaterialRequestQuote> = z.object({
   with_references: z.boolean(), message: z.string(), requested_at: timestamp, received_at: timestamp.nullable(),
   amount_ht_cents: z.number().int().min(0).nullable(), notes: z.string().nullable(), retained_at: timestamp.nullable(),
   closed_at: timestamp.nullable(),
-  lines: z.array(z.object({ line_id: uuid, unit_price_ht_cents: z.number().int().min(0).nullable() })),
+  lines: z.array(z.object({ line_id: uuid, unit_price_ht_cents: z.number().int().min(0).nullable(), price_per: pricePer })),
   files: z.array(file),
 });
 const quoteRetained: z.ZodType<MaterialRequestQuoteRetained> = z.object({
@@ -229,8 +233,8 @@ const technicians = "/api/material-request-technicians";
 const tags = ["Demandes de matériel"];
 const linesData = z.object({ lines: z.array(line) });
 const articleRule = "Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.";
-const lineChanged = refusal("MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande.");
-const linePriced = refusal("MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; son fournisseur est celui du devis (le changer est refusé, seul ou dans une sélection, et rien n'est écrit) et elle ne se supprime plus seule (sa demande, si). details : line_ids, positions.");
+const linePriced = refusal("MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.");
+const quoteBusy = "MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était en cours (la base a levé un interblocage) ; rien n'est écrit, réessayer.";
 const quoteReadOnly = refusal("MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.");
 const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
 const catalogueEditorRefusals = {
@@ -306,13 +310,13 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: {
       "200": success("ApiMaterialRequestFilesCompleted", "Originaux conservés, dans l'ordre demandé.", z.object({ files: z.array(file) })),
       ...writeRefusals,
-      "409": refusal("MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande."),
+      "409": refusal("MATERIAL_REQUEST_UPLOAD_CHANGED : une photo du lot a été annulée entre-temps ; celles déjà visibles le restent, recharger la demande. MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis du lot a été retenu ou clos pendant l'envoi ; le lot est retiré."),
       "422": jsonResponse("MATERIAL_REQUEST_FILE_REJECTED : chaque photo refusée et sa raison (missing, size, type) ; aucune du lot n'est conservée. Même statut, code MATERIAL_REQUEST_FILE_LIMIT, sans details.rejected, quand le lot ferait dépasser 12 originaux (MATERIAL_REQUEST_QUOTE_FILE_LIMIT : les fichiers de son devis) : il est alors écarté en entier.", fileRejected),
     },
   },
   {
     tags, method: "get", path: `${one}/files/{fileId}`, summary: "Lire un original ou le fichier d'un devis",
-    description: "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Un fichier dont les octets ne sont pas conservés répond 404.",
+    description: "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; le PDF d'un devis, document d'un fournisseur, l'est en pièce jointe (Content-Disposition: attachment), jamais affiché dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
     parameters: [project, requestId, fileId],
     responses: {
       "200": { description: "Fichier d'origine, jamais réécrit.", contents: MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES.map((contentType) => ({ contentType })) },
@@ -321,10 +325,10 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "patch", path: `${one}/files/{fileId}`, summary: "Tourner un original",
-    description: "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas.",
+    description: "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas. Le fichier d'un devis retenu ou clos ne tourne plus.",
     parameters: [project, requestId, fileId],
     requestBody: jsonBody({ name: "MaterialRequestFileUpdate", description: "Rotation en degrés.", schema: updateMaterialRequestFileSchema }),
-    responses: { "200": success("ApiMaterialRequestFileUpdated", "Rotation enregistrée.", z.object({ file })), ...writeRefusals },
+    responses: { "200": success("ApiMaterialRequestFileUpdated", "Rotation enregistrée.", z.object({ file })), ...writeRefusals, "409": quoteReadOnly },
   },
   {
     tags, method: "delete", path: `${one}/files/{fileId}`, summary: "Supprimer un original",
@@ -372,39 +376,39 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/quotes`, summary: "Enregistrer la consultation d'un fournisseur",
-    description: `Le bureau consulte un fournisseur par un message qu'il copie dans WhatsApp (MergeOne n'envoie rien) : avec les références pour le fournisseur habituel, sans elles et avec les désignations complètes pour mettre des fournisseurs en concurrence. Le devis est enregistré « demandé » avec ses lignes (1 à ${MATERIAL_REQUEST_MAX_LINES} lignes de cette demande, chacune une fois), en une seule écriture, tout ou rien. Un fournisseur n'a qu'un devis demandé ou reçu à la fois par demande ; une fois son devis retenu ou clos, il peut être consulté à nouveau.`,
+    description: `Le bureau consulte un fournisseur par un message qu'il copie dans WhatsApp (MergeOne n'envoie rien) : avec les références pour le fournisseur habituel, sans elles et avec les désignations complètes pour mettre des fournisseurs en concurrence. Le devis est enregistré « demandé » avec ses lignes (1 à ${MATERIAL_REQUEST_MAX_LINES} lignes de cette demande, chacune une fois ; elles ne changent plus ensuite), en une seule écriture, tout ou rien. Un fournisseur n'a qu'un devis demandé ou reçu à la fois par demande ; une fois son devis retenu ou clos, il peut être consulté à nouveau.`,
     parameters: [project, requestId],
-    requestBody: jsonBody({ name: "MaterialRequestQuoteCreate", description: "Fournisseur actif du tenant, lignes, variante et message copié (4 000 caractères au plus).", schema: createQuoteSchema }),
+    requestBody: jsonBody({ name: "MaterialRequestQuoteCreate", description: `Fournisseur actif du tenant, lignes, variante et message copié (${MATERIAL_REQUEST_QUOTE_MESSAGE_MAX} caractères au plus).`, schema: createQuoteSchema }),
     responses: {
       "201": success("ApiMaterialRequestQuoteCreated", "Devis demandé.", z.object({ item: quote })),
       ...writeRefusals,
       "400": refusal("BAD_REQUEST : fournisseur archivé. VALIDATION_ERROR : aucune ligne, ligne nommée deux fois, message vide ou trop long."),
       "404": refusal("NOT_FOUND : affaire ou demande d'ailleurs, ligne d'une autre demande, fournisseur d'un autre tenant."),
-      "409": refusal("MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN : ce fournisseur a déjà un devis demandé ou reçu pour cette demande ; rien n'est écrit."),
+      "409": refusal(`MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN : ce fournisseur a déjà un devis demandé ou reçu pour cette demande ; rien n'est écrit. ${quoteBusy}`),
       "422": refusal("MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu (details : positions, line_ids) ; rien n'est écrit."),
     },
   },
   {
     tags, method: "patch", path: `${one}/quotes/{quoteId}`, summary: "Chiffrer un devis",
-    description: "Prix unitaires HT des lignes du devis, total HT et notes, en centimes entiers, tant que le devis est demandé ou reçu ; received: true le marque reçu (daté par la base). Seuls les champs envoyés changent, null efface ; une seule écriture, tout ou rien.",
+    description: "Prix HT des lignes du devis, total HT et notes, en centimes entiers, tant que le devis est demandé ou reçu ; received: true le marque reçu (daté par la base). Le prix d'une ligne vaut pour price_per unités (1, 10, 100 ou 1 000 ; 1 par défaut) : une vis à 0,034 € s'écrit 340 centimes pour 100 ; price_per omis garde celui de la ligne. Le montant d'une ligne, quantité × prix / price_per arrondi au centime (demi loin de zéro), n'est pas calculé ici. Seuls les champs envoyés changent, null efface ; une seule écriture, tout ou rien.",
     parameters: [project, requestId, quoteId],
     requestBody: jsonBody({ name: "MaterialRequestQuoteUpdate", description: "Au moins un champ.", schema: updateQuoteSchema }),
     responses: {
       "200": success("ApiMaterialRequestQuoteUpdated", "Devis enregistré.", z.object({ item: quote })),
       ...writeRefusals,
       "404": refusal("NOT_FOUND : devis d'une autre demande, ou ligne que le devis ne demande pas (details : positions, line_ids)."),
-      "409": quoteReadOnly,
+      "409": refusal(`MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. ${quoteBusy}`),
     },
   },
   {
     tags, method: "post", path: `${one}/quotes/{quoteId}/retain`, summary: "Retenir un devis",
-    description: "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix unitaire HT et son identifiant (unit_price_ht_cents, price_quote_id), une ligne validée le restant ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
+    description: "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
     parameters: [project, requestId, quoteId],
     responses: {
       "200": success("ApiMaterialRequestQuoteRetained", "Devis retenu, ses lignes et les devis clos.", quoteRetained),
       ...writeRefusals,
       "404": refusal("NOT_FOUND : devis d'une autre demande."),
-      "409": quoteReadOnly,
+      "409": refusal(`MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est déjà retenu ou clos. ${quoteBusy}`),
       "422": refusal("MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. Rien n'est écrit."),
     },
   },
@@ -478,7 +482,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "200": success("ApiMaterialRequestLineArticleLinked", "Ligne rattachée, article et nom usuel appris (null si rien de nouveau).", articleResult),
       ...writeRefusals,
       "404": refusal("NOT_FOUND : affaire, demande ou ligne d'ailleurs, ou article absent, archivé ou d'un autre tenant."),
-      "409": lineChanged,
+      "409": refusal("MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, son article ne change plus."),
     },
   },
   {
@@ -490,14 +494,18 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "201": success("ApiMaterialRequestLineArticleCreated", "Article créé et ligne rattachée.", articleResult),
       ...writeRefusals,
       "400": refusal("BAD_REQUEST : type de fourniture absent du référentiel du tenant."),
-      "409": refusal("CONFLICT : « Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide. » MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps ; l'article créé est retiré."),
+      "409": refusal("CONFLICT : « Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide. » MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps ; l'article créé est retiré. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu ; rien n'est créé."),
     },
   },
   {
     tags, method: "delete", path: `${one}/lines/{lineId}/article`, summary: "Détacher l'article d'une ligne",
     description: `La ligne retrouve le libellé qu'elle avait avant son premier rattachement (les propositions sont recalculées sur lui) ; une ligne rattachée sans libellé conservé garde ses colonnes. ${articleRule}`,
     parameters: [project, requestId, lineId],
-    responses: { "200": success("ApiMaterialRequestLineArticleUnlinked", "Ligne sans article.", z.object({ line })), ...writeRefusals, "409": lineChanged },
+    responses: {
+      "200": success("ApiMaterialRequestLineArticleUnlinked", "Ligne sans article.", z.object({ line })),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_LINE_CHANGED : la ligne a changé entre-temps (autre session) ; rien n'est écrit, recharger la demande. MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, son article ne change plus."),
+    },
   },
   {
     tags, method: "get", path: `${one}/supplier-proposals`, summary: "Proposer un fournisseur pour les lignes d'une demande",

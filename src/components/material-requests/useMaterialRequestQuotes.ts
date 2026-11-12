@@ -11,7 +11,12 @@ import {
   retainMaterialRequestQuote,
   updateMaterialRequestQuote,
 } from "@/lib/material-requests/client";
-import type { CreateQuoteInput, MaterialRequestQuote } from "@/lib/material-requests/quote-contracts";
+import {
+  MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN,
+  type CreateQuoteInput,
+  type MaterialRequestPricePer,
+  type MaterialRequestQuote,
+} from "@/lib/material-requests/quote-contracts";
 
 import { uploadMaterialRequestQuoteFiles, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
@@ -22,14 +27,24 @@ export type QuotesStatus = "loading" | "ready" | "error";
 export const QUOTE_PRICE_HELD =
   "Un prix saisi sur ce devis n’est pas enregistré : corrigez-le, ou appuyez sur Échap pour revenir au prix enregistré.";
 
+/**
+ * The server refused a consultation because this supplier already has one in progress (requested or received) for
+ * this request, for these lines or for others: one at a time per supplier.
+ */
+export function supplierAlreadyConsulted(supplierName: string, forOtherLines = false): string {
+  const which = forOtherLines ? "pour d’autres lignes de cette demande" : "pour cette demande";
+  return `${supplierName} a déjà une consultation en cours ${which} : retenez ou fermez d’abord son devis (« Clore »), puis consultez-le de nouveau.`;
+}
+
 export type MaterialRequestQuotesApi = {
   status: QuotesStatus;
   /** As the server answered them; the screen orders them itself. */
   items: MaterialRequestQuote[];
   retry: () => void;
   /** « Consultation envoyée »: the quote is recorded with the message the office copied. */
-  createQuote: (input: CreateQuoteInput) => Promise<SaveResult>;
-  savePrice: (quoteId: string, lineId: string, cents: number | null) => Promise<SaveResult>;
+  createQuote: (input: CreateQuoteInput, supplierName: string) => Promise<SaveResult>;
+  /** The price of one line, in cents for `per` units: the two are always sent together. */
+  savePrice: (quoteId: string, lineId: string, cents: number | null, per: MaterialRequestPricePer) => Promise<SaveResult>;
   /** The office dropped a price that could not be saved: the line holds the saved price again. */
   forgetPriceFailure: (quoteId: string, lineId: string) => void;
   /**
@@ -46,7 +61,7 @@ export type MaterialRequestQuotesApi = {
   addFiles: (quoteId: string, files: readonly File[], onStep?: (progress: PhotoUploadStep) => void) => Promise<SaveResult>;
 };
 
-type PriceWrites = { pending: number; value: number | null };
+type PriceWrites = { pending: number; value: number | null; per: MaterialRequestPricePer };
 
 /** The server changed or refused on a state the screen no longer matches: the list is read again. */
 function isStale(error: unknown): boolean {
@@ -85,7 +100,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
       ...item,
       lines: item.lines.map((line) => {
         const writes = sending.get(line.line_id);
-        return writes && writes.pending > 0 ? { ...line, unit_price_ht_cents: writes.value } : line;
+        return writes && writes.pending > 0 ? { ...line, unit_price_ht_cents: writes.value, price_per: writes.per } : line;
       }),
     };
   }, []);
@@ -161,19 +176,31 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   );
 
   const createQuote = useCallback(
-    (input: CreateQuoteInput) =>
-      write(() => createMaterialRequestQuote(projectId, requestId, input), "La consultation n’a pas pu être enregistrée."),
-    [projectId, requestId, write],
+    async (input: CreateQuoteInput, supplierName: string): Promise<SaveResult> => {
+      try {
+        upsert(await queueWrite(() => createMaterialRequestQuote(projectId, requestId, input)));
+        return { ok: true };
+      } catch (error) {
+        if (isStale(error)) reload();
+        // Said in words, not in the server's code: the consultation in progress is read again and shown.
+        if (isEstimateApiError(error) && error.code === MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN) {
+          return { ok: false, message: supplierAlreadyConsulted(supplierName) };
+        }
+        return { ok: false, message: materialRequestErrorMessage(error, "La consultation n’a pas pu être enregistrée.") };
+      }
+    },
+    [projectId, queueWrite, reload, requestId, upsert],
   );
 
   const savePrice = useCallback(
-    async (quoteId: string, lineId: string, cents: number | null): Promise<SaveResult> => {
+    async (quoteId: string, lineId: string, cents: number | null, per: MaterialRequestPricePer): Promise<SaveResult> => {
       const byLine = pending.current.get(quoteId) ?? new Map<string, PriceWrites>();
       pending.current.set(quoteId, byLine);
-      const writes = byLine.get(lineId) ?? { pending: 0, value: null };
+      const writes = byLine.get(lineId) ?? { pending: 0, value: null, per: 1 };
       byLine.set(lineId, writes);
       writes.pending += 1;
       writes.value = cents;
+      writes.per = per;
       publish();
       // Shown at once: the retain gate counts the price typed, and the server's answer has the last word.
       setItems((current) =>
@@ -181,7 +208,9 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
           quote.id === quoteId
             ? {
                 ...quote,
-                lines: quote.lines.map((line) => (line.line_id === lineId ? { ...line, unit_price_ht_cents: cents } : line)),
+                lines: quote.lines.map((line) =>
+                  line.line_id === lineId ? { ...line, unit_price_ht_cents: cents, price_per: per } : line,
+                ),
               }
             : quote,
         ),
@@ -190,7 +219,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         const item = await queueWrite(async () => {
           try {
             const saved = await updateMaterialRequestQuote(projectId, requestId, quoteId, {
-              lines: [{ line_id: lineId, unit_price_ht_cents: cents }],
+              lines: [{ line_id: lineId, unit_price_ht_cents: cents, price_per: per }],
             });
             failed.current.get(quoteId)?.delete(lineId);
             return saved;
