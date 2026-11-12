@@ -55,6 +55,7 @@ export async function GET(request: Request) {
         unit: searchParams.getAll("unit"),
         price_status: searchParams.getAll("price_status"),
         status: searchParams.getAll("status"),
+        catalogue_status: searchParams.getAll("catalogue_status"),
         sort: searchParams.get("sort") ?? "designation",
         dir: searchParams.get("dir") ?? "asc",
         page: parsePositiveInt(searchParams.get("page")) ?? 1,
@@ -69,6 +70,7 @@ export async function GET(request: Request) {
       search: searchParams.get("search"),
       limit: parsePositiveInt(searchParams.get("limit")) ?? 100,
       include_inactive: parseBoolean(searchParams.get("include_inactive")) ?? false,
+      validated_only: parseBoolean(searchParams.get("validated_only")) ?? false,
     });
 
     const data = await listCatalogueItems(query);

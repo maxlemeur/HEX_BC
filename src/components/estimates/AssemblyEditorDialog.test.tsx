@@ -131,6 +131,11 @@ describe("AssemblyEditorDialog", () => {
       expect.stringContaining("search=Tube+DN50+60"),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
+    // TI-690. Failure mode: this lookup prices the component on an exact match, without a click; reading a
+    // draft article here would feed an unreviewed price into every estimate that uses the assembly.
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
+      fetchMock.mock.calls.map(() => expect.stringContaining("validated_only=true"))
+    );
   });
 
   it("allows a supply line to select a labor role and enter labor time", async () => {

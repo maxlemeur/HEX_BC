@@ -64,6 +64,9 @@ describe("ProductFormModal", () => {
         unit: "ml",
         unit_price_cents: 990,
         is_active: true,
+        // TI-690: the form now carries the supply type; untouched, it is "Non classé".
+        // Still no catalogue_status: a creation never sends one.
+        supply_type_id: null,
       });
     });
   });
