@@ -95,6 +95,34 @@ export function isOpeningLayerName(name: string) {
   return layerSegments(name).some((segment) => OPENING_TOKENS.has(segment));
 }
 
+// Layers that never hold a pipe (TI-704, Decisions candidates only: they keep no class, « à revoir »): a frame or
+// title block, and the architecture's furniture, tiling and joinery (isOpeningLayerName).
+const FRAME_LAYER_TOKENS = new Set(["CARTOUCHE", "CARTOUCHES", "CADRE", "CADRES", "FRAME", "FRAMES", "TITLEBLOCK", "BORDER", "BORDERS"]);
+const ARCHITECTURE_LAYER_TOKENS = new Set(["MOBILIER", "FURNITURE", "CALEPINAGE", "ARCHI", "ARCHITECTURE"]);
+
+/** Whether a layer name names a frame or title block (« FICTIF_CARTOUCHE ») or the architecture's furniture or joinery. */
+export function nonNetworkLayerKind(name: string): "frame" | "architecture" | null {
+  const segments = layerSegments(name);
+  if (segments.some((segment) => FRAME_LAYER_TOKENS.has(segment))) return "frame";
+  if (segments.some((segment) => ARCHITECTURE_LAYER_TOKENS.has(segment)) || isOpeningLayerName(name)) return "architecture";
+  return null;
+}
+
+// Air-duct codes of a ventilation legend (TI-704): fresh, supply, return, rejected and extract air, smoke extraction
+// and its make-up air, mechanical ventilation, and their English forms. None is a network code (NETWORK_TOKENS).
+const AIR_DUCT_TOKENS = new Set(["AN", "AS", "AR", "ARJ", "AREJ", "AE", "AEX", "AX", "AT", "VMC", "EXD", "AND", "OA", "SA", "RA", "EA"]);
+
+/**
+ * The air-duct code a legend entry names (« AN », « AEX »), or null: the code alone, written in capitals, so that a
+ * word of a sentence (« an », « as ») never reads as one.
+ */
+export function airDuctOfLegendCode(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed !== trimmed.toUpperCase()) return null;
+  const compact = normalizeToken(trimmed).replace(/\s+/g, "");
+  return AIR_DUCT_TOKENS.has(compact) && NETWORK_TOKENS[compact] === undefined ? compact : null;
+}
+
 /**
  * The network a legend entry names: its code alone (« EU/EV », « EG VC »), spaces removed, with its direction
  * (« CHW-S », « EG-R »). Every part is a code or a direction: « EU - PVC » is a pipe label, not a legend code.

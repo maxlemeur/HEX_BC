@@ -63,6 +63,10 @@ import type { TakeoffItem } from "@/lib/takeoff/types";
 //   page whose images could not be drawn (no canvas) ends the run instead of
 //   staying « à revoir »;
 // - a run Decisions is unavailable for reads pages, or claims calls done.
+// Candidates per page (TI-704, written before the code): without a Decisions
+// hook, the run does not say which groups it would have sent, so a keywords-
+// only run cannot show what the candidate filter keeps; or a filtered group is
+// not listed with its reason; or a raster or failed page claims candidates.
 
 /** An A3 sheet in points (420 × 297 mm). */
 const SHEET = { width: 1190.55, height: 841.89 };
@@ -512,5 +516,32 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(result.vector.passes).toEqual([]);
     const report = buildBenchReport({ metadata, run: result.run, scopes: [], noise: null, pipeline: "vector" });
     expect(renderBenchReportMarkdown(report)).toContain("decisions_unavailable");
+  });
+});
+
+describe("Decisions candidates recorded per page (TI-704)", () => {
+  const GREY: VectorGroupKey = { layer: null, color: "#808080", width: 1, dash: null };
+  const GREY_ID = "c:#808080|w:1|d:";
+
+  it("lists the groups a keyword reading would send, and those filtered with their reason, without any hook", async () => {
+    const withGrey = (number: number, imageCoverage = 0): VectorPageExtraction => {
+      const base = plan(number, 2, imageCoverage);
+      const start = base.points.length / 2;
+      return { ...base, groups: [RED, BLUE, GREY], paths: [...base.paths, { group: 2, start, count: 2, closed: false }],
+        points: Float32Array.from([...base.points, 100, 700, 700, 700]) };
+    };
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1,
+      extract: async (_bytes, pageNumber) => (pageNumber === 1 ? withGrey(1) : withGrey(2, 0.95)),
+    });
+    const [vector, raster] = result.vector.passes[0].documents[0].pages;
+    expect(vector.candidates).toEqual({ sent: [RED_ID, BLUE_ID], eligible: 2, left_out: 0, filtered: [{ group: GREY_ID, reason: "grey" }] });
+    expect(vector.decisions).toBeUndefined();
+    expect(raster.candidates).toEqual({ sent: [], eligible: 0, left_out: 0, filtered: [] });
+    const failed = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1,
+      extract: async () => { throw new VectorExtractionError("timeout", "Fictional timeout."); },
+    });
+    expect(failed.vector.passes[0].documents[0].pages[0].candidates).toBeUndefined();
   });
 });

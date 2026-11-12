@@ -3,7 +3,7 @@ import { isGrey, isNearWhite, parseHexColor } from "@/lib/takeoff/vectors/colors
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
 import { boxContains, emptyBox, extendBox, textFrame, type Box } from "@/lib/takeoff/vectors/geometry";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
-import { networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
+import { airDuctOfLegendCode, networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 
 // Legend of a page without layers (TI-662 step 3, keywords): an entry is a
 // text that is a network code alone (« ECS », « EU/EV », « EG VC »),
@@ -80,22 +80,27 @@ export function readLegend(model: PageModel): PageLegend {
   return other.entries.length > first.entries.length ? other : first;
 }
 
-/** The legend read with the sheet's horizontal along page x (axis 0) or page y (axis 1). */
-function readLegendAlong(model: PageModel, axis: number): PageLegend {
+/** A row of a legend: a code text, what it names, and the colours drawn on its row after it. */
+type LegendRow<T> = { text: VectorText; value: T; colors: string[]; box: Box; sampleLength_pt: number };
+
+/**
+ * The rows of a legend along one axis (0: the sheet's horizontal along page x, 1: along page y): every text that
+ * `codeOf` reads as a code, with the colours of its samples (none black, grey or near-white).
+ */
+function legendRowsAlong<T>(model: PageModel, axis: number, codeOf: (text: string) => T | null): LegendRow<T>[] {
   const { extraction, segments, segmentGroup, groups } = model;
-  const entries: LegendEntry[] = [];
   // Rows are read in the sheet's frame (along its horizontal, up across it), reversed for a code that reads the other way.
   const sheet = textFrame((axis * Math.PI) / 2);
   const codes = extraction.texts.flatMap((text) => {
-    const network = networkOfLegendCode(text.str);
+    const value = codeOf(text.str);
     const quarter = quarterOf(text.angle);
-    if (!network || quarter === null || quarter % 2 !== axis || text.height <= 0) return [];
+    if (value === null || quarter === null || quarter % 2 !== axis || text.height <= 0) return [];
     const sign = quarter === axis ? 1 : -1;
     const start = sign * sheet.along(text.x, text.y);
     // In the code's frame: its row's centre line half a height above its baseline, its end one width along it.
-    return [{ text, network, sign, cu: sign * sheet.up(text.x, text.y) + text.height / 2, end: start + text.width, h: text.height }];
+    return [{ text, value, sign, cu: sign * sheet.up(text.x, text.y) + text.height / 2, end: start + text.width, h: text.height }];
   });
-  if (codes.length === 0) return { version: LEGEND_RULE_VERSION, entries, colors: [], boxes: [] };
+  if (codes.length === 0) return [];
   // A row's samples end before the next text on that row (a multi-column legend puts the next code there).
   const windowEnd = codes.map((code) => Math.min(code.end + 40 * code.h, ...extraction.texts
     .filter((text) => text !== code.text && code.sign * sheet.along(text.x, text.y) > code.end
@@ -127,21 +132,48 @@ function readLegendAlong(model: PageModel, axis: number): PageLegend {
       }
     }
   });
-  const byColor = new Map<string, NetworkCode[]>();
+  const rows: LegendRow<T>[] = [];
   for (const [index, code] of codes.entries()) {
     const sample = samples[index];
     if (sample.colors.size === 0 || sample.last - sample.first > LEGEND_SAMPLE_MAX_HEIGHTS * code.h) continue;
     const box = { ...sample.box };
     // The top of the code's glyphs at its start: they rise along (sin, −cos) of its frame.
     extendBox(box, code.text.x + code.sign * sheet.sin * code.h, code.text.y - code.sign * sheet.cos * code.h);
-    entries.push({ text: code.text.str.trim(), network: code.network, colors: [...sample.colors].sort(), box,
-      sampleLength_pt: Math.max(0, sample.last - sample.first) });
-    for (const color of sample.colors) byColor.set(color, [...(byColor.get(color) ?? []), code.network]);
+    rows.push({ text: code.text, value: code.value, colors: [...sample.colors].sort(), box, sampleLength_pt: Math.max(0, sample.last - sample.first) });
+  }
+  return rows;
+}
+
+/** The legend read with the sheet's horizontal along page x (axis 0) or page y (axis 1). */
+function readLegendAlong(model: PageModel, axis: number): PageLegend {
+  const entries: LegendEntry[] = legendRowsAlong(model, axis, networkOfLegendCode).map((row) => ({
+    text: row.text.str.trim(), network: row.value, colors: row.colors, box: row.box, sampleLength_pt: row.sampleLength_pt,
+  }));
+  const byColor = new Map<string, NetworkCode[]>();
+  for (const entry of entries) {
+    for (const color of entry.colors) byColor.set(color, [...(byColor.get(color) ?? []), entry.network]);
   }
   const colors = [...byColor.entries()].map(([color, networks]) => ({
     color, network: commonNetwork(networks), candidates: [...new Set(networks)].sort(),
   })).sort((left, right) => (left.color < right.color ? -1 : 1));
   return { version: LEGEND_RULE_VERSION, entries, colors, boxes: legendBoxes(entries, axis) };
+}
+
+/** The air-duct rows of a page's legend (TI-704): their codes and the colours of their samples, sorted. */
+export type AirDuctLegend = { codes: string[]; colors: string[] };
+
+/**
+ * The air-duct rows of a ventilation legend (« AN », « AS », « AEX »… alone, vocabulary.ts airDuctOfLegendCode), read
+ * on their rows as the network legend is, along the axis giving more rows (the characters' axis on a tie). Their
+ * colours are ducts, never a network: the Decisions candidates leave them out (group-decisions.ts). They are no
+ * entry of the network legend, and their rows are no legend box: the measure never sees them.
+ */
+export function readAirDuctLegend(model: PageModel): AirDuctLegend {
+  const preferred = readingAxis(model.extraction.texts);
+  const first = legendRowsAlong(model, preferred, airDuctOfLegendCode);
+  const other = legendRowsAlong(model, 1 - preferred, airDuctOfLegendCode);
+  const rows = other.length > first.length ? other : first;
+  return { codes: [...new Set(rows.map((row) => row.value))].sort(), colors: [...new Set(rows.flatMap((row) => row.colors))].sort() };
 }
 
 /** Entries close to each other form one legend box (2 text heights around: a row's thickness, across the sheet's axis). */
@@ -181,6 +213,14 @@ function mixOf(color: { r: number; g: number; b: number }, base: { r: number; g:
   return { t, residual };
 }
 
+/** Whether a colour is a tint of a base colour (mixed with white, 10 to 85 %), within TINT_TOLERANCE on every channel. */
+export function isTint(color: string, base: string) {
+  const rgb = parseHexColor(color), origin = parseHexColor(base);
+  if (!rgb || !origin) return false;
+  const tint = mixOf(rgb, origin, 255);
+  return tint.t >= 0.1 && tint.t <= 0.85 && tint.residual <= TINT_TOLERANCE;
+}
+
 /**
  * Whether a colour is a tint (mixed with white, 10 to 85 %) or a shade (mixed with black, 10 to 60 %) of a base
  * colour, within TINT_TOLERANCE on every channel. A colour is neither a tint nor a shade of itself.
@@ -188,9 +228,8 @@ function mixOf(color: { r: number; g: number; b: number }, base: { r: number; g:
 export function isTintOrShade(color: string, base: string) {
   const rgb = parseHexColor(color), origin = parseHexColor(base);
   if (!rgb || !origin) return false;
-  const tint = mixOf(rgb, origin, 255), shade = mixOf(rgb, origin, 0);
-  return (tint.t >= 0.1 && tint.t <= 0.85 && tint.residual <= TINT_TOLERANCE)
-    || (shade.t >= 0.1 && shade.t <= 0.6 && shade.residual <= TINT_TOLERANCE);
+  const shade = mixOf(rgb, origin, 0);
+  return isTint(color, base) || (shade.t >= 0.1 && shade.t <= 0.6 && shade.residual <= TINT_TOLERANCE);
 }
 
 /**

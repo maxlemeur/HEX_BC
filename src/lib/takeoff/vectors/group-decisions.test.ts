@@ -4,6 +4,7 @@ import type { OpenAiDecisionAnswer } from "@/lib/ai/decisions";
 import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import {
+  aliasOf,
   decisionBatches,
   GROUP_DECISIONS_LIMITS,
   groupEvidence,
@@ -12,10 +13,12 @@ import {
   nearestLabelTexts,
   readGroupAnswers,
   selectDecisionCandidates,
+  type DecisionCandidate,
 } from "@/lib/takeoff/vectors/group-decisions";
+import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
-import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
+import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 
 // Ways the Decisions batches of vector groups (TI-662 L3c, group-decisions.ts)
 // could misreport a page or break the call, written before the code. Every
@@ -48,6 +51,18 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 // - an answer naming a network for a grey group, or a value outside the
 //   choices, is kept; a refused or missing answer gets a class;
 // - a confidence of exactly 0.5 is asked again, or one under it is not.
+// Candidate filter (TI-704, written before the code): on the development plans,
+// 135 of the 171 groups sent could never be a network, at 0 networks found.
+// - a grey or black group (background, frames, insulation hatches drawn in
+//   grey), a pattern stroke, a frame or title-block layer, a furniture or
+//   joinery layer, a legend sample (inside the legend box, or a short thin strip
+//   beside a text) or an air-duct colour (the colour of an air legend row, or a
+//   tint of it) is still sent; or the filter loses a network: a shade of an air
+//   colour (a dark red heating pipe beside a red extract duct), a pale tint of
+//   an air colour that is also the tint of a network classed on the page, a long
+//   straight pipe beside its label, a layer coloured like an air duct;
+// - a filtered group gets a class instead of staying « à revoir », or is not
+//   counted, so the review cannot tell why it was not asked.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const MAGENTA = "#ff00ff";
@@ -117,10 +132,22 @@ function long(color: string, y: number, length: number, style: Omit<Partial<Stro
   return strokes;
 }
 
-function prepared(extraction: VectorPageExtraction) {
+function prepared(extraction: VectorPageExtraction, correspondences?: ReadonlyMap<string, VectorClass>) {
   const model = buildPageModel(extraction);
-  const reading = readVectorPage(extraction, { calibration: CALIBRATION, clock: () => 0 });
+  const reading = readVectorPage(extraction, { calibration: CALIBRATION, correspondences, clock: () => 0 });
   return { model, reading };
+}
+
+/** Candidates built by hand, for the groups the selection no longer sends (a grey group) but the questions still guard. */
+function handCandidates(model: PageModel, groups: readonly number[]): DecisionCandidate[] {
+  return groups.map((group, rank) => ({ alias: aliasOf(rank + 1), group, id: model.groups[group].id,
+    visibleLength_pt: model.groups[group].visibleLength_pt, share: model.groups[group].visibleLength_pt / model.visibleLength_pt }));
+}
+
+function groupIndex(model: PageModel, color: string, width = 0.5) {
+  const index = model.groups.findIndex((group) => group.key.color === color && group.key.width === width && group.layer === null);
+  if (index < 0) throw new Error(`no group ${color} ${width}`);
+  return index;
 }
 
 describe("Decisions candidates (group-decisions.ts selectDecisionCandidates)", () => {
@@ -137,11 +164,13 @@ describe("Decisions candidates (group-decisions.ts selectDecisionCandidates)", (
     const { model, reading } = prepared(extraction);
     const selection = selectDecisionCandidates(model, reading);
     const colours = selection.candidates.map((candidate) => [model.groups[candidate.group].key.color, model.groups[candidate.group].key.width]);
-    expect(colours).toEqual([[MAGENTA, 0.5], [GREY, 1], [GREEN, 0.5], [TEAL, 1]]);
-    expect(selection.candidates.map((candidate) => candidate.alias)).toEqual(["groupe_01", "groupe_02", "groupe_03", "groupe_04"]);
+    // TI-704: the grey group (600 pt, second longest) is no longer sent; it is counted as filtered and stays « à revoir ».
+    expect(colours).toEqual([[MAGENTA, 0.5], [GREEN, 0.5], [TEAL, 1]]);
+    expect(selection.candidates.map((candidate) => candidate.alias)).toEqual(["groupe_01", "groupe_02", "groupe_03"]);
     expect(selection.candidates[0].share).toBeCloseTo(1000 / model.visibleLength_pt, 6);
     expect(selection.candidates.map((candidate) => candidate.id)).toEqual(selection.candidates.map((candidate) => model.groups[candidate.group].id));
-    expect(selection).toMatchObject({ eligible: 4, left_out: 0 });
+    expect(selection).toMatchObject({ eligible: 3, left_out: 0 });
+    expect(selection.filtered).toEqual([{ group: groupIndex(model, GREY, 1), id: model.groups[groupIndex(model, GREY, 1)].id, reason: "grey" }]);
   });
 
   it("never sends a hidden layer, a classed layer, or any group of a raster page", () => {
@@ -150,7 +179,7 @@ describe("Decisions candidates (group-decisions.ts selectDecisionCandidates)", (
     const { model, reading } = prepared(page(strokes, [], { layers }));
     expect(selectDecisionCandidates(model, reading).candidates.map((candidate) => candidate.id)).toEqual(["oc:1R"]);
     const raster = prepared(page(strokes, [], { layers, imageCoverage: 0.95 }));
-    expect(selectDecisionCandidates(raster.model, raster.reading)).toEqual({ candidates: [], eligible: 0, left_out: 0 });
+    expect(selectDecisionCandidates(raster.model, raster.reading)).toEqual({ candidates: [], eligible: 0, left_out: 0, filtered: [] });
   });
 
   it("keeps at most 36 × 10 groups and counts the tail left out", () => {
@@ -173,8 +202,9 @@ describe("Decisions questions and evidence (group-decisions.ts)", () => {
   const longDash = Array.from({ length: 60 }, (_, index) => String(index + 1)).join(",") + "@0";
 
   it("names each question by its alias, offers every class with its label, and a grey group no network", () => {
-    const { model, reading } = prepared(page([...long(MAGENTA, 300, 600, { dash: longDash }), ...long(GREY, 400, 500, { width: 1 })]));
-    const { candidates } = selectDecisionCandidates(model, reading);
+    const { model } = prepared(page([...long(MAGENTA, 300, 600, { dash: longDash }), ...long(GREY, 400, 500, { width: 1 })]));
+    // The grey group is never sent (TI-704); its questions still offer no network if it ever were.
+    const candidates = handCandidates(model, [0, 1]);
     expect(candidates[0].id.length).toBeGreaterThan(160);
     const questions = groupQuestions(model, candidates, "batch");
     expect(questions.map((question) => question.name)).toEqual(["groupe_01", "groupe_02"]);
@@ -244,9 +274,10 @@ describe("Decisions questions and evidence (group-decisions.ts)", () => {
 
 describe("Decisions answers (group-decisions.ts readGroupAnswers)", () => {
   it("keeps only answered classes among the group's choices, never a network for a grey group", () => {
-    const { model, reading } = prepared(page([...long(MAGENTA, 300, 900), ...long(GREY, 400, 800, { width: 1 }), ...long(GREEN, 500, 700),
+    const { model } = prepared(page([...long(MAGENTA, 300, 900), ...long(GREY, 400, 800, { width: 1 }), ...long(GREEN, 500, 700),
       ...long(TEAL, 600, 600)]));
-    const { candidates } = selectDecisionCandidates(model, reading);
+    // By hand: the selection no longer sends the grey group (TI-704), the answers still refuse it a network.
+    const candidates = handCandidates(model, [0, 1, 2, 3]);
     const answer = (name: string, status: OpenAiDecisionAnswer["status"], value: string | null, confidence: number | null): OpenAiDecisionAnswer =>
       ({ name, type: "choice", status, value, confidence });
     const answers = readGroupAnswers(model, candidates, [
@@ -267,5 +298,110 @@ describe("Decisions answers (group-decisions.ts readGroupAnswers)", () => {
     expect(needsDedicated({ class: null, confidence: null, status: "missing" })).toBe(true);
     expect(needsDedicated({ class: null, confidence: null, status: "invalid" })).toBe(true);
     expect(needsDedicated(undefined)).toBe(true);
+  });
+});
+
+describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionCandidates)", () => {
+  const ORANGE = "#ff8000";
+  const AIR_BLUE = "#0000ff";
+  const AIR_RED = "#ff0000";
+  const AIR_CYAN = "#00ffff";
+  /** 30 % white over AIR_BLUE, as a duct's band is shaded: an air-duct colour. */
+  const AIR_BLUE_TINT = "#4d4dff";
+  /** 30 % white over AIR_RED, and no tint of the network red below: an air-duct colour. */
+  const AIR_RED_TINT = "#ff4d4d";
+  /** A shade (13 % black) of AIR_RED: a heating pipe, never taken for the red extract duct. */
+  const NETWORK_RED = "#dd0000";
+  /** A pale pink, the tint of AIR_RED and of NETWORK_RED alike: kept, NETWORK_RED being a network of this page. */
+  const NETWORK_PALE = "#f7abae";
+  const NETWORK_TEAL = "#00cccc";
+
+  function filteredReasons(model: PageModel, selection: ReturnType<typeof selectDecisionCandidates>) {
+    return new Map(selection.filtered.map((entry) => [entry.id, entry.reason]));
+  }
+
+  it("keeps every network of a page with an air legend, and sends none of its ducts, greys, hatches or legend samples", () => {
+    // Legend: a network row (ECS, orange) and three air rows (AN, AEX, AS): their codes are no network.
+    const rows = [legendRow("ECS", 0, [ORANGE]), legendRow("AN", 1, [AIR_BLUE]), legendRow("AEX", 2, [AIR_RED]), legendRow("AS", 3, [AIR_CYAN])];
+    const legendStrokes = rows.flatMap((row) => row.strokes);
+    const legendTexts = rows.flatMap((row) => row.texts);
+    const sampleText = text("XYZ - Réseau fictif", 600, 720, 8);
+    const strokes: Stroke[] = [
+      ...legendStrokes,
+      // Air ducts, in a legend colour (another width) and a white tint of one.
+      ...long(AIR_BLUE, 300, 900, { width: 0.57 }), ...long(AIR_BLUE_TINT, 340, 600), ...long(AIR_RED_TINT, 380, 500),
+      // Networks: a shade of the extract red, the same red classed at another width, its pale tint, a straight pipe beside its label.
+      ...long(NETWORK_RED, 420, 700), ...long(NETWORK_RED, 460, 650, { width: 1 }), ...long(NETWORK_PALE, 500, 550),
+      line(NETWORK_TEAL, 200, 560, 900, 560),
+      // Background and hatches: mid grey, black, a pattern stroke.
+      ...long(GREY, 600, 600, { width: 1 }), ...long("#000000", 640, 500, { width: 0.3 }), ...long("pattern", 680, 450, { width: 0.2 }),
+      // A legend sample: a short thin strip just above a text, in no legend row.
+      line(GREEN, 600, 709, 760, 709), line(GREEN, 600, 711, 760, 711), line(GREEN, 600, 710, 760, 710),
+    ];
+    const texts = [...legendTexts, text("QRS DN 22", 300, 556), sampleText];
+    const extraction = page(strokes, texts);
+    const classed = new Map<string, VectorClass>([[buildPageModel(extraction).groups.find((group) => group.key.color === NETWORK_RED
+      && group.key.width === 1)?.id as string, "HW-S"]]);
+    const { model, reading } = prepared(extraction, classed);
+    const selection = selectDecisionCandidates(model, reading);
+    const sent = new Set(selection.candidates.map((candidate) => candidate.id));
+    const id = (color: string, width = 0.5) => model.groups[groupIndex(model, color, width)].id;
+    expect([...sent].sort()).toEqual([id(NETWORK_RED), id(NETWORK_PALE), id(NETWORK_TEAL)].sort());
+    const reasons = filteredReasons(model, selection);
+    expect(reasons.get(id(AIR_BLUE, 0.57))).toBe("air_duct");
+    expect(reasons.get(id(AIR_BLUE_TINT))).toBe("air_duct");
+    expect(reasons.get(id(AIR_RED_TINT))).toBe("air_duct");
+    expect(reasons.get(id(GREY, 1))).toBe("grey");
+    expect(reasons.get(id("#000000", 0.3))).toBe("grey");
+    expect(reasons.get(id("pattern", 0.2))).toBe("pattern");
+    expect(reasons.get(id(GREEN))).toBe("legend_sample");
+    // The air legend's own samples (AN, AEX, AS at 0.5) are legend samples too, never sent.
+    for (const color of [AIR_BLUE, AIR_RED, AIR_CYAN]) expect(["legend_sample", "air_duct"]).toContain(reasons.get(id(color)));
+    // Filtered groups stay « à revoir »: no class, and counted by the reading as before.
+    for (const entry of selection.filtered) expect(reading.groups[entry.group].class).toBeNull();
+    expect(reading.counts.to_review).toBe(selection.eligible + selection.filtered.length);
+  });
+
+  it("never filters a layer by an air colour, and keeps a pale or straight network layer beside a legend sample layer", () => {
+    const layers = [
+      { id: "1R", name: "FICTIF_CARTOUCHE" }, { id: "2R", name: "Fictif frame" }, { id: "3R", name: "FICTIF_MOBILIER" },
+      { id: "4R", name: "FICTIF_MENUISERIES" }, { id: "5R", name: "FICTIF_EQUIPEMENT" }, { id: "6R", name: "FICTIF_QRS-S" },
+      { id: "7R", name: "FICTIF_LMN" }, { id: "8R", name: "FICTIF_TUV" },
+    ];
+    const air = legendRow("AS", 0, [MAGENTA]);
+    const sample = text("LMN - Réseau fictif", 900, 743, 11.4);
+    const strokes: Stroke[] = [
+      ...air.strokes,
+      ...long(RED, 300, 900, { layer: "1R" }), ...long(GREEN, 340, 600, { layer: "2R" }), ...long("#0037dd", 380, 700, { layer: "3R" }),
+      ...long(BLUE, 420, 650, { layer: "4R" }), ...long("#000000", 460, 800, { layer: "5R" }), ...long(GREY, 470, 300, { layer: "5R" }),
+      // A straight vertical pipe, 12 pt wide and 650 pt long, in a pale colour, beside its label.
+      line("#f7abae", 500, 120, 500, 770, { layer: "6R" }), line("#f7abae", 512, 120, 512, 770, { layer: "6R" }),
+      // A legend sample on its own layer: 230 × 3 pt just above its text (11.4 pt).
+      ...Array.from({ length: 4 }, (_, row) => line("#33ccff", 860, 727 + row, 1090, 727 + row, { layer: "7R" })),
+      // A network layer drawn in the air legend's magenta.
+      ...long(MAGENTA, 600, 700, { layer: "8R" }),
+    ];
+    const { model, reading } = prepared(page(strokes, [...air.texts, text("QRS-S DN 50", 520, 300), sample], { layers }));
+    expect(reading.mode).toBe("layers");
+    const selection = selectDecisionCandidates(model, reading);
+    expect(selection.candidates.map((candidate) => candidate.id).sort()).toEqual(["oc:6R", "oc:8R"]);
+    expect(Object.fromEntries(selection.filtered.filter((entry) => entry.id.startsWith("oc:")).map((entry) => [entry.id, entry.reason]))).toEqual({
+      "oc:1R": "frame_layer", "oc:2R": "frame_layer", "oc:3R": "architecture_layer", "oc:4R": "architecture_layer", "oc:5R": "grey",
+      "oc:7R": "legend_sample",
+    });
+  });
+
+  it("filters only among the groups it would send, before the per-page caps", () => {
+    // 380 grey groups and 10 coloured ones: the coloured ones are all sent, the grey ones are counted, none left out.
+    const strokes = [
+      ...Array.from({ length: 380 }, (_, index) => line(GREY, 100, 1 + 2 * index, 1100 - index, 1 + 2 * index, { width: 0.01 * (index + 1) })),
+      ...Array.from({ length: 10 }, (_, index) => line(MAGENTA, 100, 770 + 2 * index, 900, 770 + 2 * index, { width: 0.01 * (index + 1) })),
+    ];
+    const { model, reading } = prepared({ ...page(strokes), height: 900 });
+    const selection = selectDecisionCandidates(model, reading);
+    expect(selection).toMatchObject({ eligible: 10, left_out: 0 });
+    expect(selection.candidates).toHaveLength(10);
+    expect(selection.filtered).toHaveLength(380);
+    expect(new Set(selection.filtered.map((entry) => entry.reason))).toEqual(new Set(["grey"]));
   });
 });

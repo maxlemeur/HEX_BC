@@ -12,13 +12,15 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 // is the vector reading of the same plans: every page, compared with a level C
 // report given by `--baseline`; no model unless `--max-decisions-tokens` asks
 // Decisions for the classes of the groups the keywords leave (TI-662 L3c),
-// under that ceiling.
+// under that ceiling. `--group-truth <dir>` (TI-704) scores the classes of the
+// groups against a private truth kept out of the dataset (group-score.ts),
+// never applied as correspondences.
 
 export const BENCH_USAGE = "Usage: npm run takeoff:bench -- --dataset <dir> --docs <ids|all> --models <model,...> "
   + `--efforts <auto|${CHATGPT_REASONING_EFFORTS.join("|")},...> [--repeat <n>] [--pages <list> | --pages-from <report.json>] --out <run_path>\n`
   + "       npm run takeoff:bench -- --mode triage --dataset <dir> --docs <ids|all> --max-decisions-tokens <n> --out <run_path>\n"
   + "       npm run takeoff:bench -- --pipeline vector --dataset <dir> --docs <ids|all> [--baseline <report.json>] [--repeat <n>] "
-  + "[--max-decisions-tokens <n>] [--vision-review rejected] --out <run_path>";
+  + "[--max-decisions-tokens <n>] [--vision-review rejected] [--group-truth <dir>] --out <run_path>";
 
 export class BenchUsageError extends Error {
   constructor(message: string) {
@@ -56,11 +58,13 @@ export type BenchArgs =
     visionReview: boolean;
     /** Decisions token ceiling of the group classes (TI-662 L3c); null: keywords only, no model. */
     maxDecisionsTokens: number | null;
+    /** `--group-truth <dir>` (TI-704): the private truth the per-group score reads, outside the dataset; null: no such score. */
+    groupTruth: string | null;
   });
 export type ChatGptBenchArgs = Extract<BenchArgs, { pipeline: "chatgpt" }>;
 
 const FLAGS = ["pipeline", "mode", "dataset", "docs", "models", "efforts", "baseline", "repeat", "out", "max-decisions-tokens", "pages", "pages-from",
-  "vision-review"] as const;
+  "vision-review", "group-truth"] as const;
 type Flag = (typeof FLAGS)[number];
 
 function list(flag: Flag, value: string) {
@@ -134,9 +138,10 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
     const vision = values.get("vision-review");
     if (vision !== undefined && vision !== "rejected") throw new BenchUsageError("--vision-review takes « rejected » (the lines the rules reject).");
     return { pipeline, ...common, repeat: repeatOf(), baseline: values.get("baseline") ?? null, maxDecisionsTokens: ceilingOf(),
-      visionReview: vision === "rejected" };
+      visionReview: vision === "rejected", groupTruth: values.get("group-truth") ?? null };
   }
   if (values.has("baseline")) throw new BenchUsageError("--baseline is for the vector pipeline.");
+  if (values.has("group-truth")) throw new BenchUsageError("--group-truth is for the vector pipeline: it scores the classes of its groups.");
   if (values.has("vision-review")) throw new BenchUsageError("--vision-review is for the vector pipeline.");
   const mode = values.get("mode") ?? "extract";
   if (mode !== "extract" && mode !== "triage") throw new BenchUsageError("--mode is extract or triage.");
