@@ -58,7 +58,7 @@ describe("the reconciliation of a DPGF line other takeoffs feed", () => {
     expect(row.composition).toEqual({
       earlier: [{ job_id: jobOne, job_created_at: "2026-11-10T09:00:00Z", job_level: "B", quantity: 12, read_again: false,
         pages: [{ source_file_name: "plan-fictif.pdf", source_page: 1, quantity: 12 }] }],
-      earlier_quantity: 12, total_quantity: 22, double_counted: [],
+      earlier_quantity: 12, earlier_protective: 0, earlier_printed_gap: 0, total_quantity: 22, double_counted: [],
     });
     expect(row.delta_absolute).toBe(0);
     expect(row.review_status).not.toBe("significant_gap");

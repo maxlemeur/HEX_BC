@@ -194,7 +194,14 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     ...locked.values()]);
   const replacesOtherThan = (page: TakeoffPageReplacementPage, lineId: string | null) => page.lines.some((entry) => entry.id !== lineId
     && (linesById.get(entry.id)!.dpgf_target || replaceableLines.has(entry.id) || !linesById.get(entry.id)!.outside_pages));
-  const replaceable = new Map(proposal.pages.map((page) => [page.key, replacesOtherThan(page, null)]));
+  // A page whose replacement would cut a DPGF part whose share per page is unknown (a policy applied before D4) is never
+  // confirmed replaced alone (dpgf_part_unknown): not recommended there.
+  const cutsUnknownPart = (page: TakeoffPageReplacementPage) => page.lines.some((entry) => {
+    const onPage = new Set(entry.item_ids);
+    return proposal.dpgf_targets.find((target) => target.id === entry.id)?.earlier.some((part) =>
+      part.item_ids.some((id) => onPage.has(id)) && part.item_ids.some((id) => !onPage.has(id))) ?? false;
+  });
+  const replaceable = new Map(proposal.pages.map((page) => [page.key, replacesOtherThan(page, null) && !cutsUnknownPart(page)]));
   const dpgf = proposal.dpgf_targets.map((target) => dpgfOutcome(proposal, target, replacing));
   const dpgfById = new Map(dpgf.map((outcome) => [outcome.target.id, outcome]));
   const pagesByKey = new Map(proposal.pages.map((page) => [page.key, page]));
@@ -325,7 +332,8 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const keepBothOpen = !page.keep_both_refused;
     const keepBoth = { control: `page:${page.key}`, value: "keep_both" };
     const held = page.lines.map((entry) => resolvedLines.get(entry.id)!);
-    if (!replaceable.get(page.key)) {
+    // The DPGF line says why a page cutting its unknown part is kept both.
+    if (!replaceable.get(page.key) && !cutsUnknownPart(page)) {
       // Nothing on the page can be replaced (no new line replaces one of its lines, none can be removed): replacing it
       // is never confirmed (nothing_replaced). Keeping both is what confirms it.
       advice.push({ text: `${label} : Remplacer ne se confirme pas sur cette page : aucune ligne du nouveau métré ne remplace une de ses lignes, `

@@ -57,11 +57,12 @@ begin
   drop table if exists pg_temp._d4_stored;
   create temporary table _d4_stored on commit drop as
   select before.id, (target.target_id is not null) as fed, before.updated_at, before.source_metadata, policy.value as policy,
-    case when pg_catalog.jsonb_typeof(policy.value) is distinct from 'object' then 'none'
-      when policy.value ->> 'version' = '2' then 'v2'
+    -- The policy's version: 2 (a composition), 1 (one takeoff, before D4), 0 (none).
+    case when pg_catalog.jsonb_typeof(policy.value) is distinct from 'object' then 0
+      when policy.value ->> 'version' = '2' then 2
       when private.takeoff_uuid_or_null(policy.value -> 'job_id') is not null
-        and pg_catalog.jsonb_typeof(policy.value -> 'item_ids') = 'array' then 'v1'
-      else 'none' end as kind,
+        and pg_catalog.jsonb_typeof(policy.value -> 'item_ids') = 'array' then 1
+      else 0 end as kind,
     (select reading.value from pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(p_compositions) = 'array'
         then p_compositions else '[]'::jsonb end) as reading(value)
       where private.takeoff_uuid_or_null(reading.value -> 'target_id') = before.id limit 1) as reading,
@@ -80,7 +81,7 @@ begin
   if exists (select 1 from pg_temp._d4_stored as stored
     cross join lateral (select array(select private.takeoff_uuid_or_null(id.value) from pg_catalog.jsonb_array_elements(stored.policy -> 'item_ids') as id(value)
       order by 1) as ids) as own
-    where stored.kind = 'v1' and (stored.reading is null
+    where stored.kind = 1 and (stored.reading is null
       or (stored.reading ->> 'expected_updated_at')::timestamptz is distinct from stored.updated_at
       or private.takeoff_uuid_or_null(stored.reading -> 'job_id') is distinct from private.takeoff_uuid_or_null(stored.policy -> 'job_id')
       or pg_catalog.jsonb_typeof(stored.reading -> 'contributions') is distinct from 'array'
@@ -103,8 +104,8 @@ begin
     case when pg_catalog.jsonb_typeof(part.value -> 'protective') = 'number' then (part.value ->> 'protective')::numeric else 0 end as protective,
     case when pg_catalog.jsonb_typeof(part.value -> 'printed_gap') = 'number' then (part.value ->> 'printed_gap')::numeric else 0 end as printed_gap
   from pg_temp._d4_stored as stored
-  cross join lateral pg_catalog.jsonb_array_elements(case stored.kind when 'v2' then coalesce(stored.policy -> 'contributions', '[]'::jsonb)
-    when 'v1' then stored.reading -> 'contributions' else '[]'::jsonb end) as part(value);
+  cross join lateral pg_catalog.jsonb_array_elements(case stored.kind when 2 then coalesce(stored.policy -> 'contributions', '[]'::jsonb)
+    when 1 then stored.reading -> 'contributions' else '[]'::jsonb end) as part(value);
   if exists (select 1 from pg_temp._d4_parts as part where part.job_id is null or part.quantity is null or part.quantity < 0
       or part.protective < 0 or part.printed_gap < 0 or pg_catalog.cardinality(part.item_ids) = 0
       or pg_catalog.array_position(part.item_ids, null) is not null) then

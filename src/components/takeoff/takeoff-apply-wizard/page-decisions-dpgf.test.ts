@@ -76,3 +76,26 @@ describe("what each DPGF line the application touches will hold", () => {
     expect([outcome.after, outcome.drops[0]?.destinations]).toEqual([0, []]);
   });
 });
+
+describe("a DPGF part whose share per page is unknown (a policy applied before D4)", () => {
+  // One part of two lines, on pages 1 and 2; the relaunch reads page 1 only.
+  const data = proposal({ merge_required: false,
+    pages: [{ key: "page-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [earlierJob],
+      lines: [{ id: id(300), item_ids: [id(101)] }], new_line_ids: [id(202)], dpgf_fed_again: [], ambiguous_document: false, keep_both_refused: null }],
+    lines: [dpgfLine(300, "EF cuivre DN 22", 16)],
+    new_lines: [{ id: id(202), designation: "Vanne d'arrêt", unit: "u", quantity: 3, unit_key: "u", candidates: [{ key: "page-1", line_ids: [] }] }],
+    dpgf_targets: [target({ quantity: 16, reference: 5, earlier: [{ ...part(101, 16, 1), item_ids: [id(101), id(102)] }] })],
+  });
+
+  it("is never cut by replacing one of its pages: the line asks to keep both, and replacing is not recommended", () => {
+    const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
+    expect([resolution.complete, resolution.pages[0].recommended]).toEqual([false, false]);
+    expect(resolution.lines[0].missing).toEqual(["« EF cuivre DN 22 » : sa part sur plan.pdf, page 1 n’est pas connue (métré appliqué avant le "
+      + "cumul) ; remplacer la page la retirerait entière. Gardez les deux mesures de la page."]);
+    expect(resolution.lines[0].advice[0].choose).toEqual([{ control: "page:page-1", value: "keep_both" }]);
+    expect(resolution.introduction.text).toBe("Une page n’entre qu’une fois : gardez les deux avec un motif.");
+    const control = confirmationControls(resolution).find((entry) => entry.id === "page:page-1")!;
+    const kept = resolveConfirmation(data, setConfirmationControl(initialConfirmationDraft(data), control, "keep_both"));
+    expect([kept.lines[0].missing, kept.dpgf[0].after]).toEqual([[], 16]);
+  });
+});

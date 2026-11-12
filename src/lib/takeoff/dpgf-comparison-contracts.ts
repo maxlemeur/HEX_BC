@@ -78,6 +78,9 @@ export const takeoffDpgfCompositionSchema = z.object({
     pages: z.array(z.object({ source_file_name: z.string().nullable(), source_page: page, quantity: quantity.nullable() })),
   })),
   earlier_quantity: quantity,
+  /** What the printed surfaces of the parts it keeps protect, and their gap: with them, the quantity proposed. */
+  earlier_protective: quantity,
+  earlier_printed_gap: quantity,
   total_quantity: quantity,
   double_counted: z.array(z.object({ item_id: uuid, partner_item_id: uuid, partner_job_id: uuid, overlap_m: quantity })),
 });

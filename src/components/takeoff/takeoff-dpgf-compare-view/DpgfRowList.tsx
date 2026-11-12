@@ -10,6 +10,7 @@ import {
   STATUS_LABELS,
   STATUS_PANEL_CSS,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/constants";
+import { DpgfCompositionNote } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfCompositionNote";
 import {
   formatConfidence,
   formatNumber,
@@ -123,6 +124,8 @@ export function DpgfRowList({
                 </p>
               </div>
             </div>
+
+            {row.composition ? <div className="mt-4"><DpgfCompositionNote row={row} /></div> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               {row.linked_takeoff_items.length > 0 ? (

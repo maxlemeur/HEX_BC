@@ -586,6 +586,8 @@ function buildComposition(dpgfId: string, linkedTakeoffItems: readonly Normalize
       earlier: parts.entries.map((entry) => ({ ...entry, job_created_at: jobs.get(entry.job_id)?.created_at ?? null,
         job_level: jobs.get(entry.job_id)?.level ?? null })),
       earlier_quantity: parts.measured,
+      earlier_protective: parts.protective,
+      earlier_printed_gap: parts.printed_gap,
       total_quantity: toStableNumber((measured ?? 0) + parts.measured, 4) ?? parts.measured,
       double_counted: linkedTakeoffItems.flatMap((item) => (context.overlapPartners?.get(item.item_id) ?? [])
         .filter((partner) => !partner.resolved && kept.has(partner.item_id))
