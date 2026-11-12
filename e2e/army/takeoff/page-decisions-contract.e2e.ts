@@ -320,17 +320,21 @@ commit;`);
       .toEqual([[["merge_match", []]], [true]]),
     deadEnd: { elsewhere: ["exclude_at_review", "link_in_dpgf_review"],
       text: /ni remplacer ni garder les deux ne se confirme ici\. Écartez « Lavabo double vasque » à la revue du métré .*, ou liez à « EF cuivre DN 22 \(DPGF\) » une ligne de ce métré lue sur cette page, dans le rapprochement DPGF/,
-      exits: async ({ ui, ids, strategy, relaunchItem, readProposal, confirmable, problem }) => {
+      exits: async ({ ui, ids, relaunchItem, readProposal, confirmable, problem }) => {
         // What the estimator sees: the wizard of the takeoff's review, up to its confirmation.
-        await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
-        await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-        const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-        await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
-        await wizard.getByRole("button", "Suivant", { exact: true }).click();
-        await wizard.getByRole("radio", /^Fusionner/).check();
-        await wizard.getByRole("button", "Suivant", { exact: true }).click();
-        await expect(wizard).toContainText("Calorifuge");
-        await wizard.getByRole("button", "Suivant", { exact: true }).click();
+        const openConfirmation = async () => {
+          await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
+          await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+          const opened = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+          await opened.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
+          await opened.getByRole("button", "Suivant", { exact: true }).click();
+          await opened.getByRole("radio", /^Fusionner/).check();
+          await opened.getByRole("button", "Suivant", { exact: true }).click();
+          await expect(opened).toContainText("Calorifuge");
+          await opened.getByRole("button", "Suivant", { exact: true }).click();
+          return opened;
+        };
+        const wizard = await openConfirmation();
         const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
         await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
         await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
@@ -363,7 +367,7 @@ commit;`);
         if (again.states !== 0) problem("the dead end is not back once the merged line is included again", again);
 
         // Way out 2: a line of the page linked to the DPGF line in the DPGF reconciliation. The page is then replaced,
-        // through the route (its DPGF authorization feeds the DPGF line).
+        // confirmed in the wizard itself (the route's DPGF authorization feeds the DPGF line).
         const target = (await readProposal()).lines.find((line) => line.dpgf_target)!;
         const linked = await apiRequest<Envelope<unknown>>(ui.browser, "PATCH", `/api/takeoff/jobs/${ids.jobId}/dpgf-link`,
           { version_id: ids.versionId, estimate_item_id: target.id, takeoff_item_ids: [relaunchItem("Calorifuge").id] });
@@ -371,9 +375,14 @@ commit;`);
         const fed = await readProposal();
         const resolution = resolveConfirmation(fed, initialConfirmationDraft(fed));
         if (!resolution.complete) problem("linking a line of the page to the DPGF line does not unblock the confirmation", resolution.missing);
-        const applied = await applyOwnedTakeoff(ui.browser, ids.versionId, ids.jobId, { strategy, target_section_id: ids.sectionId, page_decisions: resolution.payload });
-        if (applied.status !== 200) problem("the route refuses the page once the DPGF line is fed", applied.body);
-        return { screenshot, excluded, again: again.states, fed: fed.pages.map((page) => page.dpgf_fed_again), applied: applied.status };
+        const unblocked = await openConfirmation();
+        await expect(unblocked.getByRole("region", "Pages déjà au devis", { exact: true })).not.toContainText("ne se confirme ici");
+        const confirm = unblocked.getByRole("button", "Confirmer l'application", { exact: true });
+        await expect(confirm).toBeEnabled();
+        const [response] = await Promise.all([ui.browser.waitForResponse(`**/api/takeoff/jobs/${ids.jobId}/apply`), confirm.click()]);
+        if (response.status !== 200) problem("the wizard's confirmation is refused once the DPGF line is fed", await response.json());
+        await expect(unblocked).toBeHidden();
+        return { screenshot, excluded, again: again.states, fed: fed.pages.map((page) => page.dpgf_fed_again), applied: response.status };
       } } },
 ];
 
