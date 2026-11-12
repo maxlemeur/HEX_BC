@@ -97,6 +97,7 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         .map(path => ({ path, expected: [200] })),
       { path: `/api/estimates/${absent}`, expected: [404] },
       { path: `/api/estimates/${absent}/suggestion-learning`, expected: [200, 404] },
+      route(`/api/assistant/threads/${absent}/messages`),
       page(`/dashboard/affaires/${absent}/plans`), page(`/dashboard/affaires/${absent}/takeoff`), callback,
       ...[`/api/takeoff/plan-sets/${absent}/files`, `/api/takeoff/plan-sets/${absent}/files/reconcile`]
         .map(path => ({ path, expected: [400, 403, 404, 405] })),

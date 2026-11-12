@@ -169,6 +169,50 @@ globalThis.fetch = async (input, init) => {
     throw new DOMException("Simulated provider timeout", "TimeoutError");
   }
   const body = url.pathname === "/v1/responses" ? JSON.parse(init.body) : null;
+  // Assistant (ASSIST01): the only request that carries tools. The scripted model reads the open estimate, then its
+  // lines, then answers with what the tools returned: every amount in its answer comes from the application's engine.
+  if (!liveProbe && body && Array.isArray(body.tools)) {
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
+    assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
+    assert.deepEqual(body.include, ["reasoning.encrypted_content"], "Reasoning must come back encrypted: nothing is stored at the provider.");
+    assert(body.instructions.includes("assistant de chiffrage"), "The assistant's rules must reach the plan request.");
+    const tools = body.tools.map(tool => tool.name);
+    assert(tools.includes("lire_devis") && tools.includes("lire_lignes_devis"), "The estimate reads must be offered.");
+    assert(!tools.some(name => /modifier|supprimer|ecrire|appliquer/.test(name)), "The assistant only reads.");
+    const versionId = /Devis ouvert : versionId ([0-9a-f-]{36})/.exec(body.instructions)?.[1];
+    assert(versionId, "The open estimate must reach the assistant.");
+    const question = body.input.findLast(entry => entry.role === "user")?.content ?? "";
+    const outputs = body.input.filter(entry => entry.type === "function_call_output").map(entry => JSON.parse(entry.output));
+    assert.equal(body.input.filter(entry => entry.type === "function_call").length, outputs.length, "Each tool result answers a replayed call.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
+      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model }) + "\n");
+    const completed = { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 } } };
+    const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
+      type: "function_call", id: `fc_army_${outputs.length}`, call_id: `call_army_${outputs.length}`, name, arguments: JSON.stringify(args), status: "completed" } }, completed]);
+    if (question.startsWith("ASSIST02 ")) {
+      const jobId = /ASSIST02 ([0-9a-f-]{36})/.exec(question)?.[1];
+      assert(jobId, "The requested fictional job id must be present.");
+      if (outputs.length === 0) return call("lire_metre", { jobId });
+      assert.equal(outputs.length, 1);
+      const result = outputs[0];
+      // A refused read carries its refusal and nothing else: no line of the job reaches the model.
+      if (result.erreur) assert.deepEqual(Object.keys(result), ["erreur"], "A refused takeoff read must return no data.");
+      const text = result.erreur ? `Refus : ${result.erreur}` : result.lignes.map(line => `${line.designation} : ${line.quantite} ${line.unite}`).join("; ");
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
+    if (outputs.length === 0) return call("lire_devis", { versionId });
+    if (outputs.length === 1) return call("lire_lignes_devis", { versionId });
+    const [outline, lines] = outputs;
+    const line = lines.lignes[0];
+    const text = `Le total HT du devis est de ${outline.totaux.total_ht}. La ligne [[ligne:${lines.devis.id}/${line.id}|${line.designation}]] vaut ${line.total_ht}.`;
+    const half = Math.ceil(text.length / 2);
+    return sse([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text.slice(0, half) },
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text.slice(half) },
+      completed,
+    ]);
+  }
   const pdf = body?.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
     .find(part => part.type === "input_file");
   if (pdf) assert(pdf.file_data.startsWith("data:application/pdf;base64,JVBER"), "PDF must reach OpenAI inline.");
