@@ -84,7 +84,11 @@ const payloadWhere = (context: Context, predicate: (resolution: Resolution) => b
 /** Naive decisions every situation meets: no decision at all, a strategy that empties the section, and stale or foreign references. */
 const GENERIC: Naive[] = [
   { reason: "page_already_applied", build: () => ({ payload: [] }) },
-  { reason: "strategy_replace", build: (context) => (context.base ? { payload: context.base.payload, strategy: "replace" } : null) },
+  // « Remplacer la section » beside a replacement (the rule reads a page decided « replace »).
+  { reason: "strategy_replace", build: (context) => {
+    const replacing = complete(context, (resolution) => resolution.payload.some((decision) => decision.decision === "replace"));
+    return replacing ? { payload: replacing.payload, strategy: "replace" } : null;
+  } },
   { reason: "page_twice", build: (context) => (context.base ? { payload: [...context.base.payload, context.base.payload[0]] } : null) },
   { reason: "line_missing", build: (context) => {
     if (!context.base) return null;
@@ -110,8 +114,11 @@ const GENERIC: Naive[] = [
     payload[0].lines[0] = { ...payload[0].lines[0], item_ids: [...payload[0].lines[0].item_ids, context.relaunchIds[0]] };
     return { payload };
   } },
-  // A decision for one page of an application that reads two: the other page's earlier part is neither replaced nor kept.
-  { reason: "page_not_decided", build: (context) => (context.base && context.base.payload.length > 1 ? { payload: context.base.payload.slice(0, 1) } : null) },
+  // A page kept both, its decision left out: its earlier part is then neither replaced nor kept.
+  { reason: "page_not_decided", build: (context) => {
+    const keeping = complete(context, (resolution) => resolution.payload.length > 1 && resolution.payload.some((decision) => decision.decision === "keep_both"));
+    return keeping ? { payload: keeping.payload.filter((decision) => decision.decision !== "keep_both") } : null;
+  } },
   // A pair whose line is not updated, and updates without their pair.
   { reason: "pair_without_update", build: (context) => {
     const pair = context.base?.payload.flatMap((decision) => decision.pairs)[0];
