@@ -64,20 +64,28 @@ describe("assistant conversation", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", error: null, message: { status: "complete" } });
   });
 
-  it("answers the last saved question again on retry, without saving it twice nor replaying its failed attempts", async () => {
+  const QUESTION = "0b9d6c1e-3f4a-4c2b-9d7e-1a2b3c4d5e6f";
+
+  it("answers the question being retried again, without saving it twice nor replaying its failed attempts", async () => {
     threadWith([
       message("m1", "user", "Quel est le total ?"), message("m2", "assistant", "Le total est de 100,00 €."),
-      message("m3", "user", "Et la TVA ?"), message("m4", "assistant", "La TV", "interrupted"),
+      message(QUESTION, "user", "Et la TVA ?"), message("m4", "assistant", "La TV", "interrupted"),
     ]);
-    const prepared = await prepareAssistantReply("thread-1", { content: "ignoré : la question est déjà enregistrée", retry: true });
+    const prepared = await prepareAssistantReply("thread-1", { content: "Et la TVA ?", retryOf: QUESTION });
     expect(appendAssistantMessage).not.toHaveBeenCalled();
-    expect(prepared.question).toMatchObject({ id: "m3", content: "Et la TVA ?" });
+    expect(prepared.question).toMatchObject({ id: QUESTION, content: "Et la TVA ?" });
     expect(prepared.history.map((entry) => entry.id)).toEqual(["m1", "m2"]);
   });
 
-  it("refuses a retry in a conversation that holds no question", async () => {
+  it("refuses a retry when another question was asked since, instead of answering that other question", async () => {
+    // Asked from a second tab after the first one failed.
+    threadWith([message(QUESTION, "user", "Et la TVA ?"), message("m5", "user", "Et la remise ?")]);
+    await expect(prepareAssistantReply("thread-1", { content: "Et la TVA ?", retryOf: QUESTION }))
+      .rejects.toMatchObject({ status: 409, code: "ASSISTANT_RETRY_STALE" });
     threadWith([]);
-    await expect(prepareAssistantReply("thread-1", { content: "Relance", retry: true })).rejects.toThrow("Aucune question à relancer");
+    await expect(prepareAssistantReply("thread-1", { content: "Et la TVA ?", retryOf: QUESTION }))
+      .rejects.toMatchObject({ status: 409, code: "ASSISTANT_RETRY_STALE" });
+    expect(appendAssistantMessage).not.toHaveBeenCalled();
   });
 
   it("keeps what was written when the provider fails mid-answer, and tells the member why", async () => {

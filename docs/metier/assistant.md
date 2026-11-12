@@ -38,6 +38,9 @@ proposer des modifications du devis, fonctionner sur le site hébergé.
      ligne « Non chiffrée » l'est.
    - Un brouillon que le moteur refuse (unité manquante, par exemple) n'affiche
      aucun montant : l'assistant donne la raison du refus.
+   - Un devis modifié pendant sa lecture n'est pas rendu : ses lignes sont lues
+     par pages, et un mélange de deux révisions donnerait des montants qui
+     n'ont jamais existé. L'assistant relit le devis.
    - Limites connues : le taux horaire et la ventilation de la main-d'œuvre ne
      sont pas fournis au modèle, qui ne peut donc pas détailler ce calcul.
 3. **Les droits sont ceux de l'utilisateur.** Chaque lecture passe par les
@@ -60,8 +63,10 @@ proposer des modifications du devis, fonctionner sur le site hébergé.
    l'utilisateur peut l'arrêter. Ce qui était écrit est conservé comme réponse
    interrompue. Fermer le panneau ou quitter l'écran arrête aussi la réponse.
 7. **Pannes** : un forfait déconnecté, un quota atteint ou un délai dépassé
-   s'affichent dans le fil avec « Réessayer », qui relance la dernière question
-   sans la dupliquer. Aucun autre fournisseur n'est essayé.
+   s'affichent dans le fil avec « Réessayer », qui relance la question affichée
+   sans la dupliquer. Si une autre question a été posée entre-temps dans la
+   même conversation (un second onglet), la relance est refusée et la
+   conversation est rechargée. Aucun autre fournisseur n'est essayé.
 
 ## Outils donnés au modèle
 

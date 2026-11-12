@@ -100,7 +100,9 @@ export function buildEstimateReading(source: EstimateReadingSource): EstimateRea
       const gross = item.snapshot_gross_ht_cents;
       const grossFo = item.snapshot_gross_fo_ht_cents;
       amounts.set(item.id, {
-        puHtCents: item.pu_ht_cents, totalHtCents: gross ?? item.line_total_ht_cents, netHtCents: item.line_total_ht_cents,
+        // The published unit price is frozen apart; on the older engines the stored one is before the discount.
+        puHtCents: item.snapshot_pu_ht_cents ?? item.pu_ht_cents,
+        totalHtCents: gross ?? item.line_total_ht_cents, netHtCents: item.line_total_ht_cents,
         costHtCents: null,
         // Engine 3 freezes the shown total and its supply share; the labour share is the rest of that same total.
         foHtCents: isV3 ? grossFo : item.snapshot_fo_ht_cents,

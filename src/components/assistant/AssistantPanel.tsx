@@ -139,7 +139,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
   // Leaving the panel stops the answer being written; what was written is saved by the server.
   useEffect(() => () => request.current?.abort(), []);
 
-  const send = useCallback(async (content: string, retry = false) => {
+  const send = useCallback(async (content: string, retryOf?: string) => {
     const question = content.trim();
     if (!question || request.current || loading) return;
     setFailure(null);
@@ -149,7 +149,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
     request.current = controller;
     setDraft({ text: "", activity: [], running: null });
     const pendingId = `${PENDING}${Date.now()}`;
-    if (!retry) {
+    if (!retryOf) {
       setMessages((current) => [...current, {
         id: pendingId, role: "user", status: "complete", content: question, activity: [], errorCode: null,
         createdAt: new Date().toISOString(),
@@ -175,7 +175,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
       const response = await fetch(`/api/assistant/threads/${threadId}/messages`, {
         method: "POST", credentials: "same-origin", signal: controller.signal,
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ content: question, screen, ...(retry ? { retry: true } : {}) }),
+        body: JSON.stringify({ content: question, screen, ...(retryOf ? { retryOf } : {}) }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { error?: { message?: string; code?: string } } | null;
@@ -211,7 +211,14 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
         setAnnouncement("Réponse interrompue.");
       } else {
         const message = error instanceof AssistantUserError ? error.message : CONNECTION_FAILED;
-        setFailure({ code: error instanceof AssistantUserError ? error.code : "AI_FAILED", message, retryable: true });
+        const code = error instanceof AssistantUserError ? error.code : "AI_FAILED";
+        // Another question was asked in this conversation elsewhere: show it as it is now before any new retry.
+        const stale = code === "ASSISTANT_RETRY_STALE";
+        if (stale && threadId !== null) {
+          const reloaded = await loadAssistantThread(threadId).catch(() => null);
+          if (reloaded?.ok) setMessages(reloaded.data.messages);
+        }
+        setFailure({ code, message, retryable: !stale });
         setAnnouncement(message);
       }
     } finally {
@@ -234,7 +241,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
       setMessages((current) => current.filter((message) => message.id !== lastQuestion.id));
       void send(lastQuestion.content);
     } else {
-      void send(lastQuestion.content, true);
+      void send(lastQuestion.content, lastQuestion.id);
     }
   }
   function submit(event: FormEvent) {

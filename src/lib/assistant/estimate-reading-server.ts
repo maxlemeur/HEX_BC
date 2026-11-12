@@ -4,7 +4,7 @@ import type { EstimateReading } from "@/lib/assistant/estimate-reading";
 import { buildEstimateReading, type EstimateReadingSource } from "@/lib/assistant/estimate-reading-build";
 import { AssistantToolError } from "@/lib/assistant/loop";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
 import { calculateEstimateBreakdownForItems, calculateEstimateV3SnapshotForItems } from "@/lib/estimates/version-totals";
@@ -68,5 +68,12 @@ export async function loadEstimateReading(
       calculation = { kind: "refused", message };
     }
   }
+  // Lines are read by pages: an edit meanwhile would mix two revisions into amounts that never existed.
+  await assertEstimateVersionUnchanged({ supabase: context.supabase, version }).catch((error: unknown) => {
+    if ((error as { code?: unknown } | null)?.code === "VERSION_CONFLICT") {
+      throw new AssistantToolError("Le devis vient d’être modifié pendant la lecture. Relis-le.");
+    }
+    throw error;
+  });
   return buildEstimateReading({ version, items, calculation });
 }

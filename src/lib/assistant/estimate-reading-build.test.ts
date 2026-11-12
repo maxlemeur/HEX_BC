@@ -17,7 +17,7 @@ const version = (overrides: Partial<Version> = {}) => ({
 const item = (overrides: Partial<Item>) => ({
   id: "l-1", item_type: "line", parent_id: null, title: "Radiateur", description: null, position: 1, quantity: 10,
   unit_code: "u", pricing_status: "priced", unit_price_ht_cents: 8_000, k_fo: 1, fo_provision: null, h_mo_per_unit: 0.5,
-  h_mo: null, k_mo: 1, tax_rate_bp: 2000, pu_ht_cents: null, line_total_ht_cents: null, snapshot_gross_ht_cents: null,
+  h_mo: null, k_mo: 1, tax_rate_bp: 2000, pu_ht_cents: null, snapshot_pu_ht_cents: null, line_total_ht_cents: null, snapshot_gross_ht_cents: null,
   snapshot_gross_fo_ht_cents: null, snapshot_fo_ht_cents: null, snapshot_mo_ht_cents: null, source_provider: null,
   source_file_name: null, source_page: null, fo_price_origin: null, product_id: null, ...overrides,
 }) as Item;
@@ -98,6 +98,20 @@ describe("estimate reading built from the engines", () => {
     expect(reading.nodes[1]?.line?.amounts).toBeNull();
     expect(reading.totals).toMatchObject({ grossHtCents: 100_000, discountCents: 5_000, totalHtCents: 95_000, costHtCents: null });
     expect(reading.version.amountsBasis).toBe("frozen");
+  });
+
+  it("reads an issued engine 2 line at its published unit price, not at the one stored before the discount", () => {
+    const reading = buildEstimateReading({
+      version: version({ calc_engine_version: 2, status: "sent", total_ht_cents: 9_000 }),
+      items: [item({ quantity: 1, pu_ht_cents: 10_000, snapshot_pu_ht_cents: 9_000, line_total_ht_cents: 9_000 })],
+      calculation: { kind: "frozen" },
+    });
+    expect(reading.nodes[0]?.line?.amounts).toMatchObject({ puHtCents: 9_000, totalHtCents: 9_000, netHtCents: 9_000 });
+    // An older frozen line without the published column keeps the stored one.
+    expect(buildEstimateReading({
+      version: version({ calc_engine_version: 2, status: "sent" }),
+      items: [item({ pu_ht_cents: 10_000, snapshot_pu_ht_cents: null, line_total_ht_cents: 100_000 })], calculation: { kind: "frozen" },
+    }).nodes[0]?.line?.amounts?.puHtCents).toBe(10_000);
   });
 
   it("shows no amount at all, and says why, when the engine refuses the draft", () => {

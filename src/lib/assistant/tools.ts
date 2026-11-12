@@ -38,6 +38,8 @@ export function buildAssistantTools(scope: { context: AuthenticatedContext; proj
     if (cached) return cached;
     const loaded = loadEstimateReading(scope.context, { versionId, projectId: scope.projectId });
     readings.set(versionId, loaded);
+    // A refused reading (edited meanwhile, no access) is not kept: the next call reads again.
+    loaded.catch(() => { if (readings.get(versionId) === loaded) readings.delete(versionId); });
     return loaded;
   };
 

@@ -10,13 +10,13 @@ import {
   appendAssistantMessage, readAssistantThread, type AssistantActivity, type AssistantMessage,
 } from "@/lib/assistant/threads-server";
 import { buildAssistantTools } from "@/lib/assistant/tools";
-import { notFound } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/estimates/errors";
 
 export const assistantQuestionSchema = z.object({
   content: z.string().trim().min(1, "Écrivez votre question.").max(4000, "La question dépasse 4 000 caractères."),
   screen: assistantScreenSchema.nullish(),
-  /** Answer the conversation's last question again instead of asking a new one. */
-  retry: z.boolean().optional(),
+  /** Answer this saved question again instead of asking a new one. It must still be the conversation's last question. */
+  retryOf: z.string().uuid().optional(),
 }).strict();
 
 /** What the browser receives while an answer is written, then once it is saved. */
@@ -39,11 +39,15 @@ type Prepared = Awaited<ReturnType<typeof prepareAssistantReply>>;
 export async function prepareAssistantReply(threadId: string, payload: unknown) {
   const input = assistantQuestionSchema.parse(payload);
   const { context, project, thread, messages } = await readAssistantThread(threadId);
-  if (input.retry) {
-    // The question is already saved: answer it again, without the attempts that followed it.
+  if (input.retryOf) {
+    // The question is already saved: answer it again, without the attempts that followed it. If another question
+    // was asked since (a second tab), answering « the last one » would answer a question the member is not looking at.
     const index = messages.findLastIndex((message) => message.role === "user");
     const question = messages[index];
-    if (!question) throw notFound("Aucune question à relancer dans cette conversation.");
+    if (!question || question.id !== input.retryOf) {
+      throw conflict("Cette conversation a changé ailleurs. Elle a été rechargée : relancez depuis sa dernière question.",
+        undefined, "ASSISTANT_RETRY_STALE");
+    }
     return { context, project, thread, history: messages.slice(0, index), question, screen: input.screen ?? null };
   }
   const question = await appendAssistantMessage(context, {
