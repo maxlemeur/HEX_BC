@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Sparkles } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
@@ -16,6 +16,8 @@ type AssistantDockValue = {
   hasScope: boolean;
   toggle(): void;
   setScope(scope: AssistantScope | null): void;
+  /** True once after the panel was closed from inside: the button that reappears takes the focus back. */
+  takeFocusRequest(): boolean;
 };
 
 const AssistantDockContext = createContext<AssistantDockValue | null>(null);
@@ -41,10 +43,16 @@ export function AssistantDock({ enabled, children }: { enabled: boolean; childre
     return () => { delete document.documentElement.dataset.assistantOpen; };
   }, [shown]);
 
+  const focusRequested = useRef(false);
   const toggle = useCallback(() => setOpen((current) => !current), []);
+  const takeFocusRequest = useCallback(() => {
+    const requested = focusRequested.current;
+    focusRequested.current = false;
+    return requested;
+  }, []);
   const value = useMemo<AssistantDockValue>(
-    () => ({ enabled, open, hasScope: scope !== null, toggle, setScope }),
-    [enabled, open, scope, toggle],
+    () => ({ enabled, open, hasScope: scope !== null, toggle, setScope, takeFocusRequest }),
+    [enabled, open, scope, toggle, takeFocusRequest],
   );
 
   return (
@@ -57,9 +65,9 @@ export function AssistantDock({ enabled, children }: { enabled: boolean; childre
           activeThreadId={activeThreads[scope.projectId] ?? null}
           onActiveThreadChange={(threadId) => setActiveThreads((current) => ({ ...current, [scope.projectId]: threadId }))}
           onClose={() => {
+            // Closing gives the focus back to the button that opened the panel, once it is shown again.
+            focusRequested.current = true;
             setOpen(false);
-            // Closing gives the focus back to the button that opened the panel.
-            document.querySelector<HTMLElement>('[data-testid="assistant-toggle"]')?.focus();
           }}
         />
       ) : null}
@@ -78,15 +86,26 @@ export function useAssistantScreen(scope: AssistantScope | null) {
   }, [key, setScope]);
 }
 
-/** The header button of a screen that declared itself. Renders nothing where the assistant is off. */
+/**
+ * The header button of a screen that declared itself. It renders nothing where
+ * the assistant is off, and nothing while the panel is open: docked, the panel
+ * takes 420 px of the toolbar's row and carries its own close button.
+ */
 export function AssistantToggle() {
   const dock = useContext(AssistantDockContext);
-  if (!dock?.enabled || !dock.hasScope) return null;
+  const button = useRef<HTMLButtonElement | null>(null);
+  const visible = Boolean(dock?.enabled && dock.hasScope && !dock.open);
+  const takeFocusRequest = dock?.takeFocusRequest;
+  useEffect(() => {
+    if (visible && takeFocusRequest?.()) button.current?.focus();
+  }, [visible, takeFocusRequest]);
+  if (!dock || !visible) return null;
   return (
     <Button
+      ref={button}
       type="button"
-      variant={dock.open ? "secondary" : "outline"}
-      aria-pressed={dock.open}
+      variant="outline"
+      aria-expanded={false}
       aria-controls="assistant-panel"
       onClick={dock.toggle}
       leftIcon={<Sparkles aria-hidden="true" className="size-4" />}
