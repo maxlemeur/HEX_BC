@@ -22,7 +22,8 @@ Les ressources de développement Next (dont HMR) autorisent les adresses de bouc
 locale et les adresses réseau présentes sur la machine au démarrage. Cette liste
 ne donne pas le droit de relayer la connexion ChatGPT. Pour un alias DNS ou un
 tunnel, définir `MERGEONE_DEV_HOSTS=mergeone.dev.test,autre.dev.test` avant
-`npm run dev`. Cette liste accepte uniquement des noms exacts, sans protocole,
+`npm run dev`. Un nom listé dans `MERGEONE_DEV_HOSTS` est accepté sur le port 80 ou 443 (convient derrière un tunnel).
+Cette liste accepte uniquement des noms exacts, sans protocole,
 port ni joker ; les sites sans rapport restent refusés.
 
 ## Utilisation
