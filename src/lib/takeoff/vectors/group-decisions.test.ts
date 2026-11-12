@@ -79,6 +79,12 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 // - on a page with layers and colour strokes, an air legend whose samples lie
 //   on a layer of several colours takes every colour of that layer, so an
 //   unlayered pipe in an unrelated colour of it is filtered as a duct.
+// Re-check of that fix (written before its own fix): a label piece that names a
+// network after a word that does not (« C.12 » then « EF »), or a size glued to
+// a material (« PVC » then « DN 40 », read « PVCDN 40 »), leaves no label block,
+// and its other piece makes the pipe a legend sample again; a label with a
+// corrupt text matrix (far off the sheet, or 1e5 pt high) makes the label index
+// loop or fill memory, and the page never gets its candidates.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const MAGENTA = "#ff00ff";
@@ -455,11 +461,19 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
     // « QRS » then « DN 22 » on one baseline (a font change), and « Fictif » above « DN 25 » (two lines of one label).
     const split = [text("QRS", 300, 508, 6), text("DN 22", 315, 508, 6)];
     const twoLines = [text("Fictif", 300, 608, 6), text("DN 25", 300, 616, 6)];
-    const { model, reading } = prepared(page([...shortPipe(NETWORK_TEAL, 500), ...shortPipe(NETWORK_PALE, 600)], [...split, ...twoLines]));
+    // « C.12 » then « EF » (no block: its head names no network), and « PVC » glued to « DN 40 » (read « PVCDN 40 »).
+    const tagged = [text("C.12", 300, 708, 6), text("EF", 315, 708, 6)];
+    const glued = [text("PVC", 300, 808, 6), text("DN 40", 309.9, 808, 6)];
+    const tagPipe = [line(GREEN, 320, 700, 400, 700), line(GREEN, 320, 701, 400, 701), line(GREEN, 320, 702, 400, 702)];
+    const { model, reading } = prepared(page([...shortPipe(NETWORK_TEAL, 500), ...shortPipe(NETWORK_PALE, 600), ...tagPipe, ...shortPipe(MAGENTA, 800)],
+      [...split, ...twoLines, ...tagged, ...glued]));
     const selection = selectDecisionCandidates(model, reading);
     expect(selection.filtered).toEqual([]);
-    expect(selection.candidates.map((candidate) => candidate.id).sort())
-      .toEqual([model.groups[groupIndex(model, NETWORK_TEAL)].id, model.groups[groupIndex(model, NETWORK_PALE)].id].sort());
+    expect(selection.candidates.map((candidate) => candidate.id).sort()).toEqual([NETWORK_TEAL, NETWORK_PALE, GREEN, MAGENTA]
+      .map((color) => model.groups[groupIndex(model, color)].id).sort());
+    // A plain text keeps the rule: the same short strip under « XYZ fictif » is a legend sample.
+    const plain = prepared(page(shortPipe(NETWORK_TEAL, 500), [text("XYZ fictif", 300, 508, 6)]));
+    expect(selectDecisionCandidates(plain.model, plain.reading).filtered.map((entry) => entry.reason)).toEqual(["legend_sample"]);
   });
 
   it("never takes for an air colour another colour of the layer an air sample is drawn on", () => {
@@ -475,5 +489,30 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
     const selection = selectDecisionCandidates(model, reading);
     expect(selection.candidates.map((candidate) => candidate.id)).toContain(model.groups[groupIndex(model, NETWORK_TEAL, 0.57)].id);
     expect(selection.filtered.some((entry) => entry.reason === "air_duct")).toBe(false);
+    // Counterexample: samples on layers of one colour each are read, and an unlayered duct in one of them is filtered.
+    const single = prepared(page([
+      ...rows[0].strokes.map((stroke) => ({ ...stroke, layer: "1R" })), ...rows[1].strokes.map((stroke) => ({ ...stroke, layer: "2R" })),
+      ...long(MAGENTA, 300, 800, { width: 0.57 }), ...long(NETWORK_TEAL, 400, 700, { width: 0.57 }),
+    ], rows.flatMap((row) => row.texts), { layers: [{ id: "1R", name: "FICTIF_XYZ" }, { id: "2R", name: "FICTIF_LMN" }] }));
+    expect(readAirDuctLegend(single.model).colors).toEqual([BLUE, MAGENTA]);
+    const reasons = filteredReasons(single.model, selectDecisionCandidates(single.model, single.reading));
+    expect(reasons.get(single.model.groups[groupIndex(single.model, MAGENTA, 0.57)].id)).toBe("air_duct");
+    expect(reasons.has(single.model.groups[groupIndex(single.model, NETWORK_TEAL, 0.57)].id)).toBe(false);
   });
+
+  it("selects the candidates of a page whose label texts have a corrupt text matrix, without filling a grid over them", () => {
+    const shortPipe = [line(NETWORK_TEAL, 300, 500, 380, 500), line(NETWORK_TEAL, 300, 501, 380, 501), line(NETWORK_TEAL, 300, 502, 380, 502)];
+    const plain = text("XYZ fictif", 300, 508, 6);
+    // Far off the sheet (past 2^53 cells of 64 pt a loop step no longer moves), and 1e5 pt high over the sheet.
+    const corrupt = [text("DN 20", 1e19, 1e19, 6), { ...text("EF DN 22", 0, 1e5, 1e5), width: 1e5 }];
+    // The reading of the same strokes (the corrupt texts only reach the filter, through the page model).
+    const { reading } = prepared(page(shortPipe, [plain]));
+    const model = buildPageModel(page(shortPipe, [plain, ...corrupt]));
+    const started = performance.now();
+    const selection = selectDecisionCandidates(model, reading);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    // The label box over the whole sheet covers « XYZ fictif » too: the strip is kept, the safe side.
+    expect(selection.candidates.map((candidate) => candidate.id)).toEqual([model.groups[0].id]);
+    expect(selection.filtered).toEqual([]);
+  }, 10_000);
 });

@@ -4,8 +4,8 @@ import { boxContains, boxesOverlap, emptyBox, extendBox, type Box } from "@/lib/
 import { isTint, isTintOrShade, readAirDuctLegend } from "@/lib/takeoff/vectors/legend";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
-import { readLabelBlocks, type LabelBlock } from "@/lib/takeoff/vectors/labels";
-import { nonNetworkLayerKind } from "@/lib/takeoff/vectors/vocabulary";
+import { mergeTextLines, readLabelBlocks } from "@/lib/takeoff/vectors/labels";
+import { nonNetworkLayerKind, parsePipeLabel } from "@/lib/takeoff/vectors/vocabulary";
 
 // The groups never sent to Decisions (TI-704): they can never be a network. On
 // the 8 development plans, 135 of the 171 groups sent were no network and none
@@ -23,10 +23,11 @@ import { nonNetworkLayerKind } from "@/lib/takeoff/vectors/vocabulary";
 //   or as furniture, tiling or joinery (vocabulary.ts nonNetworkLayerKind);
 // - legend_sample: every visible stroke inside the legend box (which the
 //   measure leaves out), or the whole group a short thin strip beside a text
-//   of the page that is no piece of a pipe label (a block of labels.ts naming a
-//   network or a size, however the PDF splits it): at most 25 text heights
-//   long, 1.5 thick, within one text height of it, along it (the sample of a
-//   legend whose code is no network, on a page with layers too);
+//   of the page that is no piece of a pipe label (naming a network or a size
+//   itself, or in a line or a label block of labels.ts that does, however the
+//   PDF splits or glues it): at most 25 text heights long, 1.5 thick, within
+//   one text height of it, along it (the sample of a legend whose code is no
+//   network, on a page with layers too);
 // - air_duct: on a page whose legend has at least 2 air-duct codes (legend.ts
 //   readAirDuctLegend), a colour group (never a layer: its name is its
 //   identity) whose colours are each that of an air row or a tint of one
@@ -54,20 +55,56 @@ function textBox(text: VectorText): { box: Box; horizontal: boolean } {
   return { box, horizontal: Math.abs(cos) >= Math.abs(sin) };
 }
 
-/** Whether a point lies in a line of a pipe label (its glyph box), by a grid of 64 pt cells over the label lines. */
-function labelLineIndex(blocks: readonly LabelBlock[]) {
+/** Cells a box may fill in the text index; a larger box (a corrupt text matrix) is checked on every lookup instead. */
+const BOX_INDEX_CELLS = 4096;
+
+/** The ids of boxes containing a point, by a grid of 64 pt cells (numeric keys, as geometry.ts SegmentIndex). */
+function boxIndex(boxes: readonly Box[]) {
   const cell = 64;
-  const cells = new Map<string, Box[]>();
-  for (const box of blocks.flatMap((block) => block.lines)) {
-    for (let cx = Math.floor(box.x0 / cell); cx <= Math.floor(box.x1 / cell); cx += 1) {
-      for (let cy = Math.floor(box.y0 / cell); cy <= Math.floor(box.y1 / cell); cy += 1) {
-        const key = `${cx}:${cy}`;
-        cells.set(key, [...(cells.get(key) ?? []), box]);
+  const key = (cx: number, cy: number) => (cy + 1048576) * 2097152 + (cx + 1048576);
+  const cells = new Map<number, number[]>();
+  const everywhere: number[] = [];
+  boxes.forEach((box, id) => {
+    if (![box.x0, box.y0, box.x1, box.y1].every(Number.isFinite)) return;
+    const [cx0, cx1, cy0, cy1] = [Math.floor(box.x0 / cell), Math.floor(box.x1 / cell), Math.floor(box.y0 / cell), Math.floor(box.y1 / cell)];
+    // Far off any sheet, or over too many cells: never iterated cell by cell.
+    if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > BOX_INDEX_CELLS || [cx0, cx1, cy0, cy1].some((value) => Math.abs(value) >= 1048576)) {
+      everywhere.push(id);
+      return;
+    }
+    for (let cx = cx0; cx <= cx1; cx += 1) {
+      for (let cy = cy0; cy <= cy1; cy += 1) {
+        const list = cells.get(key(cx, cy));
+        if (list) list.push(id);
+        else cells.set(key(cx, cy), [id]);
       }
     }
-  }
-  return (point: { x: number; y: number }) => (cells.get(`${Math.floor(point.x / cell)}:${Math.floor(point.y / cell)}`) ?? [])
-    .some((box) => boxContains(box, point, 0.01));
+  });
+  return (point: { x: number; y: number }) => {
+    const cx = Math.floor(point.x / cell), cy = Math.floor(point.y / cell);
+    const near = Math.abs(cx) < 1048576 && Math.abs(cy) < 1048576 ? cells.get(key(cx, cy)) ?? [] : [];
+    return [...near, ...everywhere].filter((id) => boxContains(boxes[id], point, 0.01));
+  };
+}
+
+const centreOf = (box: Box) => ({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 });
+const isLabelText = (str: string) => {
+  const label = parsePipeLabel(str);
+  return label.network !== null || label.dn !== null;
+};
+
+/**
+ * Whether a text of the page is a piece of a pipe label, however the PDF writes it: it reads as a label itself, or
+ * lies in a line (labels.ts mergeTextLines) that has such a piece (« C.12 » then « EF », « PVC » glued to « DN 40 »)
+ * or that belongs to a label block (labels.ts readLabelBlocks: « QRS » then « DN 22 », a label on two lines).
+ */
+function labelPieces(texts: readonly VectorText[]) {
+  const lines = mergeTextLines(texts).map((line) => textBox(line).box);
+  const inLines = boxIndex(lines);
+  const labelled = new Set<number>();
+  for (const block of readLabelBlocks(texts)) for (const box of block.lines) for (const id of inLines(centreOf(box))) labelled.add(id);
+  for (const text of texts) if (isLabelText(text.str)) for (const id of inLines(centreOf(textBox(text).box))) labelled.add(id);
+  return (text: VectorText) => isLabelText(text.str) || inLines(centreOf(textBox(text).box)).some((id) => labelled.has(id));
 }
 
 /** Whether a group's whole extent is a legend sample beside one of the page's texts (LEGEND_SAMPLE_STRIP). */
@@ -88,12 +125,20 @@ function isSampleStrip(bbox: Box, texts: ReadonlyArray<{ box: Box; horizontal: b
 export function candidateFilterReasons(model: PageModel, reading: VectorPageReading, wanted: ReadonlySet<number>): Array<CandidateFilterReason | null> {
   const reasons: Array<CandidateFilterReason | null> = model.groups.map(() => null);
   if (wanted.size === 0 || reading.mode === "raster") return reasons;
-  // A pipe label sits beside its pipe: no piece of it is the text of a legend sample, whether the PDF splits it into
-  // several items or writes it on several lines (labels.ts readLabelBlocks rebuilds it whole).
-  const inLabel = labelLineIndex(readLabelBlocks(model.extraction.texts));
-  const texts = model.extraction.texts.filter((text) => text.str.trim().length > 0 && text.height > 0)
-    .map((text) => ({ ...textBox(text), height: text.height }))
-    .filter((text) => !inLabel({ x: (text.box.x0 + text.box.x1) / 2, y: (text.box.y0 + text.box.y1) / 2 }));
+  // A pipe label sits beside its pipe: no piece of it is the text of a legend sample (labelPieces). The pieces are
+  // only sought on a page where some group is a strip beside a text at all.
+  const written = model.extraction.texts.filter((text) => text.str.trim().length > 0 && text.height > 0);
+  const boxed = written.map((text) => ({ ...textBox(text), height: text.height }));
+  const strips = new Set([...wanted].filter((index) => isSampleStrip(model.groups[index].bbox, boxed)));
+  let unlabelled: typeof boxed | null = null;
+  const sampleStrip = (index: number) => {
+    if (!strips.has(index)) return false;
+    if (unlabelled === null) {
+      const piece = labelPieces(written);
+      unlabelled = boxed.filter((_, position) => !piece(written[position]));
+    }
+    return isSampleStrip(model.groups[index].bbox, unlabelled);
+  };
   // The groups judged with every visible segment inside a legend box (by its centre), on a page with a legend.
   const inLegend = new Set<number>();
   if (reading.legend.boxes.length > 0) {
@@ -124,7 +169,7 @@ export function candidateFilterReasons(model: PageModel, reading: VectorPageRead
     else if (group.colors.every((color) => color === "pattern")) reason = "pattern";
     else if (layerKind === "frame") reason = "frame_layer";
     else if (layerKind === "architecture") reason = "architecture_layer";
-    else if (inLegend.has(index) || isSampleStrip(group.bbox, texts)) reason = "legend_sample";
+    else if (inLegend.has(index) || sampleStrip(index)) reason = "legend_sample";
     else if (group.layer === null && air.length > 0 && group.colors.every(isAirColour)) reason = "air_duct";
     reasons[index] = reason;
   }
