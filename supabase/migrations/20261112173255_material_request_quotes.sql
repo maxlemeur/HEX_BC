@@ -102,8 +102,9 @@ create table public.material_request_quotes (
   status text not null default 'requested' check (status in ('requested', 'received', 'retained', 'closed')),
   -- The variant copied: with the references (usual supplier), or without them and with full designations.
   with_references boolean not null,
-  -- The message as copied into WhatsApp: room for 300 lines with their designations and references.
-  message text not null check (char_length(message) between 1 and 20000),
+  -- The message as copied into WhatsApp: room for 300 lines at their field limits (861 characters at most each, see
+  -- MATERIAL_REQUEST_QUOTE_MESSAGE_MAX in quote-contracts.ts) with the opening and closing lines.
+  message text not null check (char_length(message) between 1 and 262144),
   requested_at timestamptz not null default now(),
   received_at timestamptz,
   -- The supplier's total excluding tax; informative, the cost is per line.
@@ -1005,9 +1006,11 @@ comment on function public.retain_material_request_quote(uuid) is
 -- The first step of a request's deletion: every file of the request is withdrawn (hidden from every reader, no upload
 -- lands at its path any more), those of retained or closed quotes included, and their paths answered so that the
 -- application removes their bytes before it deletes the request. As the caller (RLS): a file the caller may not
--- change is not withdrawn, so only the writers of the affaire, who may delete the request itself, reach this.
+-- change is not withdrawn, so only the writers of the affaire, who may delete the request itself, reach this. The
+-- paths come back as one array value: the Data API answers 1 000 rows at most (max_rows), and a request may hold more
+-- files across its quotes (12 originals and 10 files per quote).
 create function public.withdraw_material_request_files_for_deletion(p_request_id uuid)
-returns table (storage_path text)
+returns text[]
 language plpgsql
 security invoker
 set search_path = ''
@@ -1025,12 +1028,12 @@ begin
   select coalesce(pg_catalog.array_agg(withdrawn.storage_path order by withdrawn.storage_path), '{}'::text[])
   into paths from withdrawn;
   perform pg_catalog.set_config('app.material_request_deleting', '', true);
-  return query select path.value from pg_catalog.unnest(paths) as path(value);
+  return paths;
 end;
 $$;
 
 comment on function public.withdraw_material_request_files_for_deletion(uuid) is
-  'TI-691: withdraws every file of a request before its deletion (originals and quote files, retained or closed quotes included), as the caller (RLS), and returns their storage paths for the removal of their bytes.';
+  'TI-691: withdraws every file of a request before its deletion (originals and quote files, retained or closed quotes included), as the caller (RLS), and returns their storage paths, all of them in one array, for the removal of their bytes.';
 
 revoke all on function public.withdraw_material_request_files_for_deletion(uuid) from public, anon;
 grant execute on function public.withdraw_material_request_files_for_deletion(uuid) to authenticated;
