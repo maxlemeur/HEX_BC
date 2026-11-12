@@ -341,10 +341,32 @@ export const materialRequestLineIdsSchema = z
   .strict();
 
 /** Links a line to an existing article: a proposal (`via` as it was proposed) or one chosen by hand. */
+const seenText = z.union([z.string().max(500), z.null()]);
+
+/**
+ * The columns the matcher reads, as the office saw them when it chose the article. The server links only
+ * if the line still says this (409 MATERIAL_REQUEST_LINE_CHANGED otherwise): a proposal chosen on a line
+ * another session has corrected since must not overwrite the correction. Optional for other callers; the
+ * screen always sends it.
+ */
+export const materialRequestLineSeenSchema = z
+  .object({
+    reference: seenText,
+    product_type: seenText,
+    material: seenText,
+    material_precision: seenText,
+    dimension: seenText,
+    unit: seenText,
+    imputation: z.enum(MATERIAL_REQUEST_IMPUTATIONS),
+  })
+  .strict();
+export type MaterialRequestLineSeen = z.output<typeof materialRequestLineSeenSchema>;
+
 export const linkMaterialRequestLineArticleSchema = z
   .object({
     product_id: uuid,
     via: z.enum(["reference", "alias", "ranked", "manual"]),
+    expected_line: materialRequestLineSeenSchema.optional(),
   })
   .strict();
 export type LinkMaterialRequestLineArticleInput = z.input<typeof linkMaterialRequestLineArticleSchema>;

@@ -50,6 +50,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 12. (review) A link or an unlink overwrites an edit made in between by another session, or sends back
  *     columns it does not change; the usual name is learned although the link was refused.
  * 13. (review) « sans dimension » stays checked once the article gives the line a size.
+ * 14. (Codex review of #263) a link chosen from proposals computed on an older version of the line (another
+ *     tab changed DN 20 to DN 25 before the link) overwrites the corrected line with the old proposal.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -404,6 +406,21 @@ describe("linking a line to an article", () => {
     });
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)).toMatchObject({ zone: "R+3", product_id: null });
     expect(fake.writes.filter((write) => write.table === "product_aliases")).toEqual([]);
+  });
+
+  it("refuses a link chosen on an older version of the line, and links when the line is as the office saw it", async () => {
+    const fake = seed(OWNER, "engineer");
+    const seen = { reference: "CX-9050", product_type: "coude 90", material: null, material_precision: null, dimension: "DN 40", unit: "pcs", imputation: "project" };
+    const stale = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", expected_line: seen });
+    expect(stale.status).toBe(409);
+    expect(stale.error).toMatchObject({ code: "MATERIAL_REQUEST_LINE_CHANGED" });
+    expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)).toMatchObject({ dimension: "DN 50", product_id: null });
+    expect(fake.writes.filter((write) => write.table === "product_aliases")).toEqual([]);
+
+    const current = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), {
+      product_id: ELBOW, via: "ranked", expected_line: { ...seen, dimension: " DN 50 " },
+    });
+    expect(current.status).toBe(200);
   });
 
   it("an unlink over an edit made in between is refused too", async () => {

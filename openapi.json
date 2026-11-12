@@ -32446,6 +32446,94 @@
               "ranked",
               "manual"
             ]
+          },
+          "expected_line": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "product_type": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "material": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "material_precision": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dimension": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "unit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "imputation": {
+                "type": "string",
+                "enum": [
+                  "project",
+                  "overhead"
+                ]
+              }
+            },
+            "required": [
+              "reference",
+              "product_type",
+              "material",
+              "material_precision",
+              "dimension",
+              "unit",
+              "imputation"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

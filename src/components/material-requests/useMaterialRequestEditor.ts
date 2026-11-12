@@ -39,6 +39,7 @@ import type {
   MaterialRequestLine,
   MaterialRequestLineArticleResult,
   MaterialRequestLineInput,
+  MaterialRequestLineSeen,
   UpdateMaterialRequestInput,
 } from "@/lib/material-requests/contracts";
 
@@ -93,6 +94,9 @@ const MATCHED_COLUMNS: ReadonlySet<string> = new Set([
   "material_precision",
   "dimension",
   "unit",
+  // Without a material of its own, a line of the affaire is matched in the request's presumed material,
+  // an overhead line in none: its imputation changes its proposals.
+  "imputation",
 ]);
 
 /** The link fills the line's columns from the article: a change still on screen would be overwritten. */
@@ -335,6 +339,14 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
   const holdsUnsavedChange = useCallback((lineId: string) => {
     const record = lineWrites.current.get(lineId);
     return record !== undefined && (record.pending > 0 || record.failed.size > 0);
+  }, []);
+
+  /** The columns the matcher read, as this screen shows them now. */
+  const seenOf = useCallback((lineId: string): MaterialRequestLineSeen | undefined => {
+    const line = latest.current?.lines.find((entry) => entry.id === lineId);
+    if (!line) return undefined;
+    const { reference, product_type, material, material_precision, dimension, unit, imputation } = line;
+    return { reference, product_type, material, material_precision, dimension, unit, imputation };
   }, []);
 
   const setConflict = useCallback((lineId: string, message: string | null) => {
@@ -581,20 +593,28 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           (current) => ({ ...current, files: current.files.filter((file) => file.id !== fileId) }),
           "La photo n’a pas pu être retirée.",
         ),
-      linkArticle: (lineId: string, input: LinkMaterialRequestLineArticleInput) =>
-        settleArticleLink(
+      linkArticle: (lineId: string, input: LinkMaterialRequestLineArticleInput) => {
+        // The line as shown when the office chose: the server refuses the link if it changed since.
+        const withSeen = { ...input, expected_line: input.expected_line ?? seenOf(lineId) };
+        return settleArticleLink(
           lineId,
-          () => linkMaterialRequestLineArticle(projectId, requestId, lineId, input),
+          () => linkMaterialRequestLineArticle(projectId, requestId, lineId, withSeen),
           "L’article n’a pas pu être rattaché.",
-        ),
+        );
+      },
       createArticle: (lineId: string, input: CreateMaterialRequestLineArticleInput) =>
         settleArticleLink(
           lineId,
           () => createMaterialRequestLineArticle(projectId, requestId, lineId, input),
           "L’article n’a pas pu être créé.",
         ),
-      linkArticles: async (entries: readonly ArticleLinkEntry[]): Promise<BulkLinkResult> => {
+      linkArticles: async (chosen: readonly ArticleLinkEntry[]): Promise<BulkLinkResult> => {
         const before = new Map((latest.current?.lines ?? []).map((line) => [line.id, line]));
+        // Taken at the gesture, before any queued save answers: the lines as the proposals were shown on.
+        const entries = chosen.map((entry) => ({
+          ...entry,
+          input: { ...entry.input, expected_line: entry.input.expected_line ?? seenOf(entry.lineId) },
+        }));
         for (const entry of entries) setConflict(entry.lineId, null);
         const outcome = await enqueue(async () => {
           const results: MaterialRequestLineArticleResult[] = [];
@@ -666,6 +686,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       requestId,
       resync,
       run,
+      seenOf,
       setConflict,
       settleArticleLink,
     ],

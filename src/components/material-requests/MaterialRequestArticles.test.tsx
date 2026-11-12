@@ -37,6 +37,9 @@ import type {
  *     technician's words;
  * 14. a link that replaced the unit by the article's (the quantity was counted in another unit) does not
  *     say the quantity is to check.
+ * 15. (Codex review of #263) a change of imputation keeps the proposals computed with the request's presumed
+ *     material, which only holds for the affaire, so a stale safe proposal stays in the bulk link; a link does
+ *     not tell the server which version of the line the office chose it for.
  */
 
 vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: vi.fn() }));
@@ -197,6 +200,12 @@ function writes(): Call[] {
   return calls.filter((call) => call.method !== "GET");
 }
 
+/** The line as the office saw it when choosing: the server refuses the link if it changed since. */
+function seen(of: MaterialRequestLine) {
+  const { reference, product_type, material, material_precision, dimension, unit, imputation } = of;
+  return { reference, product_type, material, material_precision, dimension, unit, imputation };
+}
+
 function candidateReads(): Call[] {
   return calls.filter((call) => call.method === "GET" && call.path === `${BASE}/candidates`);
 }
@@ -237,7 +246,7 @@ describe("linking request lines to catalogue articles", () => {
     expect(writes()[0]).toEqual({
       method: "PUT",
       path: `${BASE}/lines/${LINE_A}/article`,
-      body: { product_id: ARTICLE_1, via: "reference" },
+      body: { product_id: ARTICLE_1, via: "reference", expected_line: seen(line()) },
     });
     expect(await screen.findByText("Nom usuel retenu : « tige »")).toBeVisible();
     expect(screen.getByLabelText("Type, ligne 1")).toHaveValue("Tige filetée");
@@ -312,8 +321,8 @@ describe("linking request lines to catalogue articles", () => {
 
     expect(await screen.findByText("2 lignes rattachées · 2 restent sans article, à choisir une par une.")).toBeVisible();
     expect(writes()).toEqual([
-      { method: "PUT", path: `${BASE}/lines/${LINE_A}/article`, body: { product_id: ARTICLE_1, via: "alias" } },
-      { method: "PUT", path: `${BASE}/lines/${LINE_C}/article`, body: { product_id: ARTICLE_3, via: "reference" } },
+      { method: "PUT", path: `${BASE}/lines/${LINE_A}/article`, body: { product_id: ARTICLE_1, via: "alias", expected_line: seen(lines[0]) } },
+      { method: "PUT", path: `${BASE}/lines/${LINE_C}/article`, body: { product_id: ARTICLE_3, via: "reference", expected_line: seen(lines[2]) } },
     ]);
     expect(screen.getByText("Nom usuel retenu : « rondelle »")).toBeVisible();
     expect(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).toBeEnabled();
@@ -562,6 +571,21 @@ describe("linking request lines to catalogue articles", () => {
     expect(candidateReads()).toHaveLength(2);
   });
 
+  it("asks for proposals again once the line's imputation changes: the presumed material only holds for the affaire (15)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line({ material: null })] }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [candidate({ via: "alias" })] } } },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ material: null, imputation: "overhead" }) } },
+    });
+    await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
+    expect(candidateReads()).toHaveLength(1);
+
+    await user.selectOptions(screen.getByLabelText("Imputation, ligne 1"), "Frais généraux");
+
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    await waitFor(() => expect(candidateReads()).toHaveLength(2));
+  });
+
   it("offers no control that links, unlinks or creates to a reader (8)", async () => {
     await openEditor({
       [`GET ${BASE}`]: {
@@ -620,7 +644,7 @@ describe("linking request lines to catalogue articles", () => {
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(calls.some((call) => call.path === searchPath)).toBe(true);
-    expect(writes()[0].body).toEqual({ product_id: ARTICLE_2, via: "manual" });
+    expect(writes()[0].body).toEqual({ product_id: ARTICLE_2, via: "manual", expected_line: seen(line()) });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Goujon d’ancrage M10")).toBeVisible();
     expect(screen.getByText("Nom usuel retenu : « tige »")).toBeVisible();

@@ -12,6 +12,7 @@ import type {
   MaterialRequestArticleSummary,
   MaterialRequestLine,
   MaterialRequestLineArticleResult,
+  MaterialRequestLineSeen,
   MaterialRequestProductMatch,
 } from "./contracts";
 import { MATERIAL_REQUEST_LINE_CHANGED } from "./contracts";
@@ -275,6 +276,18 @@ async function requireLine(access: MaterialRequestAccess, requestId: string, lin
   return { line, updatedAt, preLinkWording: readWording(preLinkWording) };
 }
 
+/** Whether the line still says what the office saw when it chose the article (blanks and spaces aside). */
+function saysWhatWasSeen(line: MaterialRequestLine, seen: MaterialRequestLineSeen): boolean {
+  const same = (left: string | null, right: string | null) => (left?.trim() || null) === (right?.trim() || null);
+  return same(line.reference, seen.reference)
+    && same(line.product_type, seen.product_type)
+    && same(line.material, seen.material)
+    && same(line.material_precision, seen.material_precision)
+    && same(line.dimension, seen.dimension)
+    && same(line.unit, seen.unit)
+    && line.imputation === seen.imputation;
+}
+
 /** Proposals for every line of the request that has no article yet, draft or validated. */
 export async function listMaterialRequestCandidates(
   projectId: string,
@@ -472,6 +485,9 @@ export async function linkMaterialRequestLineArticle(
   const access = await requireProjectAccess(projectId, "write");
   const request = await requireRequest(access, requestId);
   const line = await requireLine(access, request.id, lineId);
+  if (input.expected_line && !saysWhatWasSeen(line.line, input.expected_line)) {
+    throw conflict(LINE_CHANGED, undefined, MATERIAL_REQUEST_LINE_CHANGED);
+  }
   const article = await readActiveArticle(access.context, input.product_id);
   const names = await readSupplyTypeNames(access.context, [article.supply_type_id]);
   return linkLine(access, line, article, article.supply_type_id ? (names.get(article.supply_type_id) ?? null) : null, input.via);
