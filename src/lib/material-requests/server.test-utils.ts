@@ -83,7 +83,9 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
   /** Writes and storage calls in the order they were made: "insert material_request_files", "upload", ... */
   const events: string[] = [];
   let signed = 0;
-  let clock = Date.parse("2026-11-12T08:00:00.000Z");
+  // Rows are stamped from the real time: the server compares them with `Date.now()` (photos whose upload
+  // was never completed are abandoned after three hours), so a fixed date turns stale as the day goes on.
+  let clock = Date.now() - 60_000;
   const now = () => new Date((clock += 1000)).toISOString();
 
   function parentOf(table: string, id: unknown): FakeRow | undefined {
