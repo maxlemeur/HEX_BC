@@ -24,11 +24,12 @@ import {
   ConfirmButton,
   QuantityCell,
   TextCell,
+  ToggleCell,
   type CellAlerts,
   type ChoiceOption,
 } from "./cells";
 import { formatQuantity } from "./format";
-import type { SaveResult } from "./useMaterialRequestEditor";
+import type { LineChangeState, SaveResult } from "./useMaterialRequestEditor";
 
 /** The fixed order of the columns (TI-690); the table header and the rows both follow it. */
 export const LINE_COLUMNS = [
@@ -63,7 +64,11 @@ type LineRowProps = Readonly<{
   canWrite: boolean;
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
+  /** A change of this line is on its way, or could not be saved and is still on screen. */
+  change: LineChangeState | undefined;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
+  /** The operator dropped a value that could not be saved in these columns. */
+  onForget: (fields: readonly string[]) => void;
   onDelete: () => Promise<SaveResult>;
   onValidate: () => Promise<SaveResult>;
   onReopen: () => Promise<SaveResult>;
@@ -236,7 +241,9 @@ function EditableLineRow({
   supplierOptions,
   selected,
   onSelectedChange,
+  change,
   onSave,
+  onForget,
   onDelete,
   onValidate,
   materialListId,
@@ -250,6 +257,8 @@ function EditableLineRow({
   const requestMaterial = materialFromRequest(line, request);
   const requestSupplier = supplierFromRequest(request, supplierOptions);
   const summaryId = `material-request-line-${line.id}-summary`;
+  // A change the server refused is still in its cell: validating now would validate the older value.
+  const unsaved = change === "failed";
 
   const act = async (action: () => Promise<SaveResult>) => {
     const result = await action();
@@ -277,6 +286,7 @@ function EditableLineRow({
             value={line.quantity}
             alerts={alertsOf(alerts, "quantity")}
             onCommit={(quantity) => onSave({ quantity })}
+            onAbandon={() => onForget(["quantity"])}
           />
         </td>
         <td className={cell("unit")}>
@@ -287,6 +297,7 @@ function EditableLineRow({
             maxLength={20}
             alerts={alertsOf(alerts, "unit")}
             onCommit={(unit) => onSave({ unit })}
+            onAbandon={() => onForget(["unit"])}
           />
         </td>
         <td className={cell("dimension")}>
@@ -297,6 +308,7 @@ function EditableLineRow({
             placeholder={line.no_dimension ? "Sans dimension" : undefined}
             alerts={alertsOf(alerts, "dimension")}
             onCommit={(dimension) => onSave({ dimension })}
+            onAbandon={() => onForget(["dimension"])}
           />
         </td>
         <td className={cell("product_type")}>
@@ -306,6 +318,7 @@ function EditableLineRow({
             maxLength={200}
             alerts={alertsOf(alerts, "product_type")}
             onCommit={(product_type) => onSave({ product_type })}
+            onAbandon={() => onForget(["product_type"])}
           />
         </td>
         <td className={cell("material")}>
@@ -317,6 +330,7 @@ function EditableLineRow({
             placeholder={requestMaterial ? fromRequest(requestMaterial) : undefined}
             alerts={alertsOf(alerts, "material")}
             onCommit={(material) => onSave({ material })}
+            onAbandon={() => onForget(["material"])}
           />
         </td>
         <td className={CELL}>
@@ -325,6 +339,7 @@ function EditableLineRow({
             value={line.material_precision}
             maxLength={120}
             onCommit={(material_precision) => onSave({ material_precision })}
+            onAbandon={() => onForget(["material_precision"])}
           />
         </td>
         <td className={CELL}>
@@ -333,6 +348,7 @@ function EditableLineRow({
             value={line.reference}
             maxLength={120}
             onCommit={(reference) => onSave({ reference })}
+            onAbandon={() => onForget(["reference"])}
           />
         </td>
         <td className={CELL}>
@@ -351,6 +367,7 @@ function EditableLineRow({
             value={line.zone}
             maxLength={80}
             onCommit={(zone) => onSave({ zone })}
+            onAbandon={() => onForget(["zone"])}
           />
         </td>
         <td className={CELL}>
@@ -371,6 +388,7 @@ function EditableLineRow({
                 maxLength={80}
                 placeholder="Catégorie (ex. EPI)"
                 onCommit={(overhead_category) => onSave({ overhead_category })}
+                onAbandon={() => onForget(["overhead_category"])}
               />
             </div>
           ) : null}
@@ -386,9 +404,9 @@ function EditableLineRow({
               variant="outline"
               size="sm"
               loading={validating}
-              disabled={blocking.length > 0}
+              disabled={blocking.length > 0 || unsaved}
               aria-label={`Valider la ligne ${n}`}
-              aria-describedby={blocking.length > 0 ? summaryId : undefined}
+              aria-describedby={blocking.length > 0 || unsaved ? summaryId : undefined}
               onClick={async () => {
                 setValidating(true);
                 await act(onValidate);
@@ -415,32 +433,18 @@ function EditableLineRow({
         <td colSpan={LINE_TABLE_COLUMN_COUNT - 1} className="px-2 pb-3">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <OriginalWording text={line.original_text} />
-            <label className="flex items-center gap-1.5 text-xs text-foreground-secondary">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                aria-label={`Quantité à vérifier, ligne ${n}`}
-                checked={line.quantity_doubtful}
-                onChange={(event) => {
-                  const quantity_doubtful = event.currentTarget.checked;
-                  void act(() => onSave({ quantity_doubtful }));
-                }}
-              />
-              Quantité à vérifier
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-foreground-secondary">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                aria-label={`Sans dimension, ligne ${n}`}
-                checked={line.no_dimension}
-                onChange={(event) => {
-                  const no_dimension = event.currentTarget.checked;
-                  void act(() => onSave({ no_dimension }));
-                }}
-              />
-              Sans dimension
-            </label>
+            <ToggleCell
+              label={`Quantité à vérifier, ligne ${n}`}
+              text="Quantité à vérifier"
+              checked={line.quantity_doubtful}
+              onCommit={(quantity_doubtful) => onSave({ quantity_doubtful })}
+            />
+            <ToggleCell
+              label={`Sans dimension, ligne ${n}`}
+              text="Sans dimension"
+              checked={line.no_dimension}
+              onCommit={(no_dimension) => onSave({ no_dimension })}
+            />
             {duplicate ? (
               <Button
                 type="button"
@@ -454,6 +458,11 @@ function EditableLineRow({
             ) : null}
             <div id={summaryId} className="min-w-0">
               <AlertSummary position={n} alerts={alerts} />
+              {unsaved ? (
+                <p className="text-xs font-medium text-danger">
+                  Une modification de cette ligne n’est pas enregistrée : elle ne peut pas être validée en l’état.
+                </p>
+              ) : null}
             </div>
             {error ? (
               <p role="alert" className="text-xs font-medium text-danger">

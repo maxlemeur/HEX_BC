@@ -314,8 +314,10 @@ async function readHead(stream: ReadableStream<Uint8Array>): Promise<Uint8Array>
       length += part.byteLength;
     }
   } finally {
-    // The rest of the photo is not needed: stop the download.
-    await reader.cancel().catch(() => undefined);
+    // The rest of the photo is not needed: stop the download, without waiting for it. When the first
+    // read already returned the whole body (a small photo), the cancellation of that stream never
+    // settles on this runtime, and the check, then the whole request, would wait for ever.
+    void reader.cancel().catch(() => undefined);
   }
   return head.subarray(0, length);
 }

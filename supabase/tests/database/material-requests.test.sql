@@ -35,6 +35,9 @@
 -- 22. a request holds more than twelve stored originals (two uploads completed side by side), or
 --     unstored rows pile up without bound;
 -- 23. the guards on storage.objects disturb another bucket;
+-- 24. a request grows past three hundred lines: two appends read 299 side by side and both pass, after
+--     which "select all" and "validate all" are refused by their own limit of three hundred ids; or a
+--     batch that crosses the cap is appended in part;
 -- 15. an original is listed before its bytes are stored: it is recorded as stored, marked stored without
 --     bytes, at a chosen time, or unmarked; it is turned before it is stored; or reading stored bytes
 --     comes to depend on that mark (the storage read policy must stay as it was).
@@ -669,6 +672,31 @@ select throws_ok($$insert into public.material_request_files (id, request_id, st
     'a9000000-0000-4000-8000-000000000102/a9000000-0000-4000-8000-000000000203/a9000000-0000-4000-8000-000000000503/a9000000-0000-4000-8000-000000000925/photo.jpg',
     'photo.jpg', 'image/jpeg', 2048)$$,
   '23514', 'MATERIAL_REQUEST_UPLOADS_PENDING', 'a request holds twenty-four originals waiting for their bytes at most');
+
+-- 24: three hundred lines per request. Request 502 holds one line, request 503 one.
+select throws_ok($$insert into public.material_request_lines (request_id, position, product_type)
+  select 'a9000000-0000-4000-8000-000000000503', n, 'Article ' || n from generate_series(2, 301) n$$,
+  '23514', 'MATERIAL_REQUEST_LINE_LIMIT', 'three hundred and one lines are not reached in one statement');
+select is((select count(*) from public.material_request_lines where request_id = 'a9000000-0000-4000-8000-000000000503'),
+  1::bigint, 'and none of that batch is appended');
+select lives_ok($$insert into public.material_request_lines (request_id, position, product_type)
+  select 'a9000000-0000-4000-8000-000000000502', n, 'Article ' || n from generate_series(2, 300) n$$,
+  'a request is filled to three hundred lines');
+select throws_ok($$insert into public.material_request_lines (request_id, position, product_type)
+  values ('a9000000-0000-4000-8000-000000000502', 301, 'Article de trop')$$,
+  '23514', 'MATERIAL_REQUEST_LINE_LIMIT', 'a three hundred and first line is refused');
+delete from public.material_request_lines where request_id = 'a9000000-0000-4000-8000-000000000502' and position in (299, 300);
+select throws_ok($$insert into public.material_request_lines (request_id, position, product_type)
+  values ('a9000000-0000-4000-8000-000000000502', 299, 'A'), ('a9000000-0000-4000-8000-000000000502', 300, 'B'),
+    ('a9000000-0000-4000-8000-000000000502', 301, 'C')$$,
+  '23514', 'MATERIAL_REQUEST_LINE_LIMIT', 'a batch that would cross the cap is refused');
+select is((select count(*) from public.material_request_lines where request_id = 'a9000000-0000-4000-8000-000000000502'),
+  298::bigint, 'whole: none of its lines is appended');
+select lives_ok($$insert into public.material_request_lines (request_id, position, product_type)
+  values ('a9000000-0000-4000-8000-000000000502', 299, 'A'), ('a9000000-0000-4000-8000-000000000502', 300, 'B')$$,
+  'deleting lines frees their places');
+select is((select count(*) from public.material_request_lines where request_id = 'a9000000-0000-4000-8000-000000000501'),
+  5::bigint, 'the cap of one request leaves the lines of another alone');
 
 -- 9: deletions around a request.
 select is((select count(*) from public.material_request_lines where request_id = 'a9000000-0000-4000-8000-000000000501' and status = 'validated'),

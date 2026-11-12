@@ -3,6 +3,7 @@ import { requestJsonUncoordinated } from "@/lib/estimates/client-http";
 
 import {
   MATERIAL_REQUEST_FILE_REJECTED,
+  MATERIAL_REQUEST_PRESUMPTION_CHANGED,
   type BulkUpdateMaterialRequestLinesInput,
   type CompleteMaterialRequestFilesInput,
   type CreateMaterialRequestInput,
@@ -73,6 +74,14 @@ function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", body: unkno
 export function materialRequestErrorMessage(error: unknown, fallback: string): string {
   if (isEstimateApiError(error) && error.message.trim().length > 0) return error.message;
   return fallback;
+}
+
+/**
+ * A confirmation the server refused because the presumed material or supplier is no longer the one the
+ * screen showed (changed from another session): nothing was written.
+ */
+export function isPresumptionChanged(error: unknown): boolean {
+  return isEstimateApiError(error) && error.code === MATERIAL_REQUEST_PRESUMPTION_CHANGED;
 }
 
 /** The lines the server refused to validate, when that is what the error says; null otherwise. */
