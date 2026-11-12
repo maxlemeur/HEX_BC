@@ -134,6 +134,40 @@ describe("a page measured again by a second takeoff (TI-682, lot D PR 3)", () =>
     expect(zone(again.results, "z2-ef")?.details?.partners?.map((partner) => partner.item_id).sort()).toEqual(["m1-ef", "m2-ef"]);
   });
 
+  it("never treats two readings that print two zones as one page, even under one plan reference (independent review)", () => {
+    // Revision B inserted a sheet: its page 1 is Z2 where revision A's page 1 was Z1. A zone not read stays the same page.
+    const zones = measuredTwice(at({ logical_document_id: "PLB-R1", plan_file_id: PLAN }), at({ logical_document_id: "PLB-R1", plan_file_id: OTHER_PLAN }),
+      { m2: { zone: "Z2" } });
+    expect(zone(zones.results, "m2-ef")).toMatchObject(DUPLICATE);
+    const unread = measuredTwice(at({ logical_document_id: "PLB-R1", plan_file_id: PLAN }), at({ logical_document_id: "PLB-R1", plan_file_id: OTHER_PLAN }),
+      { m2: { zone: null } });
+    expect(zone(unread.results, "m2-ef")).toMatchObject(SAME_PAGE);
+  });
+
+  it("keeps an overview measured again beside its enlarged plan one group while its first reading is applied (independent review)", () => {
+    // The overview O (1/100) draws 2–9 m and the enlarged plan E (1/50) 0–5 m: 3 m in common. M1 applied O, M2 reads it
+    // again. The applied reading never yields to E; if M2's alone did, a reduction of E against M1's and of M2's against
+    // E would both pass, and once M2 replaces M1's measure the 3 m would be counted nowhere.
+    const overview = (key: string, quantity: number, frozen = false, excluded = false) => run(`${key}-o`, `${key}#1`, { frozen, quantity,
+      is_excluded: excluded, inputs: inputs({ model_quantity: 7 }),
+      geometry: { segments_m: [[2, 1, 9, 1]], polygon_m: null, length_m: 7, area_m2: null } });
+    const detail = (quantity: number) => run("e-d", "e#1", { quantity, geometry: { segments_m: [[-40, 1, -35, 1]], polygon_m: null, length_m: 5, area_m2: null } });
+    const evaluate = (m2: number, e: number, firstFrozen = true, firstExcluded = false) => evaluateTakeoffRules({
+      pages: [page("m1#1", at({ plan_file_id: PLAN }), { order: 1, denominator: 100 }),
+        page("e#1", at({ plan_file_id: OTHER_PLAN, file_name: "Détail R+1.pdf" }), { order: 5_001, denominator: 50, anchors: sheet(-40) }),
+        page("m2#1", at({ plan_file_id: PLAN }), { order: 10_001, denominator: 100 })],
+      lines: [overview("m1", 7, firstFrozen, firstExcluded), detail(e), overview("m2", m2)] }).results;
+    for (const [m2, e] of [[7, 5], [4, 5], [7, 2], [4, 2]]) {
+      const results = evaluate(m2, e);
+      for (const id of ["m2-o", "e-d"]) expect(zone(results, id), `${id} with M2 ${m2} and E ${e}`).toMatchObject({ ...DUPLICATE, details: { group_size: 3 } });
+    }
+    // Both readings still current: each yields to E and carries its own correction, as an overview does.
+    expect(zone(evaluate(7, 5, false), "m2-o")).toMatchObject({ ...DUPLICATE, details: { partners: [{ item_id: "e-d", plan: "enlarged" }] } });
+    expect(zone(evaluate(4, 5, false), "m2-o")).toMatchObject({ code: "ZONE_OVERLAP_RESOLVED" });
+    // An applied first reading left out of the estimate counts nothing: the second yields alone.
+    expect(zone(evaluate(7, 5, true, true), "m2-o")).toMatchObject({ ...DUPLICATE, details: { partners: [{ item_id: "e-d", plan: "enlarged" }] } });
+  });
+
   it("compares an excluded reading with the included one, and never counts an excluded first reading", () => {
     const excludedAgain = measuredTwice(at({ plan_file_id: PLAN }), at({ plan_file_id: PLAN }), { line: { is_excluded: true } });
     expect(zone(excludedAgain.results, "m2-ef")).toMatchObject(SAME_PAGE);

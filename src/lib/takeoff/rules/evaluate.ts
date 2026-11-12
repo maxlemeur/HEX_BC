@@ -455,12 +455,13 @@ function readingDifferences(left: ZoneLine, right: ZoneLine, sizes: ReadonlyMap<
  * Two readings of one plan page by two takeoffs (TI-682, lot D): the page of page-contributions.ts, known by its plan
  * file, its content hash or its plan reference, and its page number. A file name alone, or a page number unknown, does
  * not prove it here: the pair would no longer be compared, and a real duplicate between two documents of one name would
- * pass. One takeoff reading a page twice is not its own earlier measure: the page decision compares a takeoff with the
- * others only, and Z1/Z2 stays the alarm.
+ * pass. Nor do two zones read on the two pages (a revision that inserted a sheet). One takeoff reading a page twice is
+ * not its own earlier measure: the page decision compares a takeoff with the others only, and Z1/Z2 stays the alarm.
  */
 function readAgain(left: RulePage | undefined, right: RulePage | undefined) {
   if (!left?.identity || !right?.identity || left.job_id === right.job_id) return false;
   if (left.identity.page === null || right.identity.page === null) return false;
+  if (left.zone && right.zone && left.zone.toUpperCase() !== right.zone.toUpperCase()) return false;
   const known = ({ document, page }: TakeoffPageIdentity): TakeoffPageIdentity => ({ document: { ...document, file_name: null }, page });
   return isSamePage(known(left.identity), known(right.identity));
 }
@@ -720,9 +721,13 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
     const enlarges = (detail: ZoneLine, overview: ZoneLine) =>
       isEnlargedPlan(pages.get(detail.page_key)?.denominator, pages.get(overview.page_key)?.denominator);
     const yielding = new Map<string, boolean>();
+    const yieldsAlone = (line: ZoneLine) => !line.frozen && !unregistered.has(line.id) && partnersOf(line.id).every(({ other }) => enlarges(other, line));
+    // A page read again (TI-682, lot D) yields with all its included readings or not at all: an applied first reading never
+    // yields, and the second yielding alone would let a reduction of the enlarged plan and of the second reading both pass,
+    // the run counted nowhere once the second replaces the first. They then stay in one group, as before.
     const yields = (line: ZoneLine) => {
       if (!yielding.has(line.id)) {
-        yielding.set(line.id, !line.frozen && !unregistered.has(line.id) && partnersOf(line.id).every(({ other }) => enlarges(other, line)));
+        yielding.set(line.id, yieldsAlone(line) && (twinsOf.get(line.id) ?? []).every((twin) => twin.is_excluded || yieldsAlone(twin)));
       }
       return yielding.get(line.id) as boolean;
     };

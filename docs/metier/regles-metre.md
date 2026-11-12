@@ -574,7 +574,7 @@ n'est enregistrée (TI-683, à trancher par le métier).
 les pages d'un même niveau, sur tous les jobs de la version, appliqués compris.
 
 - Deux lignes d'une même page ne sont jamais comparées.
-- Deux lectures d'une même page de plan par deux métrés non plus (TI-682, lot D ; version 4 de la règle) : même page au sens de « Pages déjà au devis », par le fichier de la bibliothèque, l'empreinte ou la « Référence du plan », jamais par le seul nom de fichier. Une ligne dont les seules copies sont sur sa page relue passe en `ZONE_OVERLAP_SAME_PAGE` : c'est l'application qui remplace la mesure précédente ou garde les deux.
+- Deux lectures d'une même page de plan par deux métrés non plus (TI-682, lot D ; version 4 de la règle) : même page au sens de « Pages déjà au devis », par le fichier de la bibliothèque, l'empreinte ou la « Référence du plan », jamais par le seul nom de fichier ni quand les deux pages lisent deux zones. Une ligne dont les seules copies sont sur sa page relue passe en `ZONE_OVERLAP_SAME_PAGE` : c'est l'application qui remplace la mesure précédente ou garde les deux.
 - Deux niveaux non plus.
 - Une page sans niveau (ni tri L4, ni nom de fichier) n'est comparée à aucune autre.
 
@@ -631,7 +631,8 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Ne cède pas** :
   - une ligne d'un job appliqué (jamais appelée à changer) : la paire reste réglée par la ligne du job courant, comme avec toute ligne figée ;
   - une ligne qui a aussi une copie sur une page de sa propre échelle, ou sur une page plus grossière : elle se règle comme avant (paire ou groupe). Sur trois échelles (1/200, 1/100, 1/50), la ligne au 1/200 cède aux deux autres, qui gardent entre elles une paire ordinaire ;
-  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon.
+  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon ;
+  - une ligne d'une page relue (TI-682, lot D) dont l'autre lecture, incluse, ne cède pas (lecture d'un job appliqué) : les lignes restent un groupe, comme avant.
 - **À indice cohérent** : la règle ne lit pas l'indice des plans (il est tenu par la préparation du métré, qui refuse déjà deux révisions d'un même document). Deux plans d'indices différents sont à trancher par l'utilisateur ; la raison rappelle la condition.
 
 **Résolution**
