@@ -20,6 +20,7 @@ import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
+import { useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { CircleXIcon, FileSearchIcon } from "lucide-react";
 
 const backToAffairesLink = (
@@ -155,6 +156,7 @@ export function EstimateEditorPage({
   const toolbarProps = readyMeta?.toolbarProps ?? null;
   const summaryBarProps = readyMeta?.summaryBarProps ?? null;
   const projectId = readyMeta?.projectId ?? null;
+  useAssistantScreen(projectId ? { projectId, screen: { screen: "estimate_editor", versionId } } : null);
   const editorTableProps = readyMeta?.editorTableProps ?? null;
   const { feedback: historyFeedback, recovery: historyRecovery } = historyController.state;
   const historyActionFocusRef = useRef<{ versionId: string; element: HTMLElement } | null>(null);
