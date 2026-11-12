@@ -5,6 +5,7 @@ import { normalizeTakeoffDpgfUnit } from "@/lib/takeoff/dpgf-compare";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { takeoffDpgfCompareEstimateItemRowSchema } from "@/lib/takeoff/estimate-line-read-contract";
+import { lengthFactor } from "@/lib/takeoff/page-replacement";
 import type {
   TakeoffDpgfManualLinkRecord,
   TakeoffDpgfReviewDecisionRecord,
@@ -235,6 +236,8 @@ export function normalizeDpgfComparisonEstimateItems(input: {
         source_page: row.source_page,
         source_file_name: row.source_file_name,
         position: row.position,
+        // TI-696: as finalize_takeoff_lengths reads the line: its unit code, else its description.
+        length_factor: lengthFactor({ unit_code: row.unit_code ?? null, description: row.description }),
       };
     });
 }

@@ -15,7 +15,7 @@ import type { TakeoffDpgfComparisonSummary, TakeoffMappingPreviewItem } from "@/
 import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 import { takeoffApplyOverrideItemState, type TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
-import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
+import type { DpgfApplyComposition, DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
 
 /** A line the apply guard reads, with the state an admin override records when it lifts it (TI-677 PR D). */
 export type TakeoffApplyGuardRow = ApplyGuardItem & { override_state: TakeoffApplyOverrideItemState };
@@ -49,6 +49,7 @@ export async function issueTakeoffDpgfApplyAuthorization(input: {
   estimateVersionId: string;
   summary: TakeoffDpgfComparisonSummary;
   quantityPolicy?: DpgfApplyQuantityLine[];
+  compositions?: DpgfApplyComposition[];
   quantitySources?: Array<{ id: string; updated_at: string; quantity: number; designation: string; unit: string; is_excluded: boolean }>;
   quantityComparisonStamp?: string;
   authorizationToken: string;

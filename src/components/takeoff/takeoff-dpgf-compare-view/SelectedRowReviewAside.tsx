@@ -1,7 +1,7 @@
 "use client";
 
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
-import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -29,8 +29,10 @@ import {
   formatConfidence,
   formatProofConfidence,
   getDecisionImpactText,
+  retainedRoundingNote,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 import { FieldLabel } from "@/components/ui/field";
+import { DpgfCompositionNote } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfCompositionNote";
 import { Textarea } from "@/components/ui/textarea";
 
 type RiskActionTarget = {
@@ -190,11 +192,14 @@ export function SelectedRowReviewAside({
             <div className="rounded-2xl border border-border bg-surface-subtle p-4 sm:col-span-2">
               <p className="text-sm font-semibold">Quantité proposée pour chiffrer</p>
               <p className="mt-1 text-lg font-semibold">
-                {dpgfQuantityPolicy(selectedRow)?.priced.toLocaleString("fr-FR", { maximumFractionDigits: 3 }) ?? "À confirmer"} {selectedRow.quantity_unit}
+                {dpgfRowRetainedQuantity(selectedRow)?.toLocaleString("fr-FR", { maximumFractionDigits: 4 }) ?? "À confirmer"} {selectedRow.quantity_unit}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Valeur supérieure retenue. Référence DPGF et métré conservés séparément. Vérification au-delà de 1 % d’écarts cumulés sur cette ligne.
+                {selectedRow.composition ? " La ligne somme les métrés qu’elle garde : l’écart se lit sur ce total." : ""}
+                {retainedRoundingNote(selectedRow) ? ` ${retainedRoundingNote(selectedRow)}` : ""}
               </p>
+              {selectedRow.composition ? <div className="mt-2"><DpgfCompositionNote row={selectedRow} /></div> : null}
             </div>
             <div className="rounded-2xl border border-border bg-surface-subtle p-4">
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
@@ -451,7 +456,8 @@ export function SelectedRowReviewAside({
               {(Object.keys(DECISION_LABELS) as TakeoffDpgfReviewDecision[]).map((decision) => (
                 <DecisionPill
                   key={decision}
-                  disabled={!canRetainDpgfQuantity(decision, selectedRow.dpgf_quantity, selectedRow.takeoff_quantity)}
+                  disabled={!canRetainDpgfQuantity(decision, selectedRow.dpgf_quantity, selectedRow.takeoff_quantity === null ? null
+                    : selectedRow.composition?.total_quantity ?? selectedRow.takeoff_quantity)}
                   active={draftDecision === decision}
                   decision={decision}
                   onClick={onDecisionSelect}

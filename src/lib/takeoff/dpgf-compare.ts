@@ -1,5 +1,6 @@
 import { measurementUnitToken, normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
+import { earlierDpgfParts, type DpgfComposedLinePlace, type DpgfContribution } from "@/lib/takeoff/dpgf-composition";
 import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
 import { haveSameQuantityIdentity, quantityIdentity, type QuantityIdentity } from "@/lib/takeoff/quantity-compatibility";
 import { dpgfReviewQuantitySnapshot, sameQuantitySnapshot } from "@/lib/takeoff/dpgf-review-quantity";
@@ -45,7 +46,33 @@ type BuildTakeoffDpgfComparisonInput = {
   cursor?: string | null;
   pageSize?: number;
   view?: TakeoffDpgfComparisonView;
+  /**
+   * TI-682 D4: what each DPGF target holds of the takeoffs applied (dpgf-composition-server), the earlier takeoff lines
+   * on pages this takeoff reads again, and per line of this takeoff the duplicates the zone rules found.
+   */
+  dpgfCompositions?: {
+    targets: ReadonlyMap<string, { contributions: DpgfContribution[] }>;
+    lines: ReadonlyMap<string, DpgfComposedLinePlace>;
+    jobs: ReadonlyMap<string, { created_at: string; level: string | null }>;
+  };
+  readAgainItemIds?: ReadonlySet<string>;
+  /**
+   * TI-696: the earlier lines on the pages the review reads again, when the application reads others (the mapping plan
+   * leaves lines out): a review decision is judged current on these, as it was recorded; totals and gaps on
+   * `readAgainItemIds`. The same set when absent.
+   */
+  decisionReadAgainItemIds?: ReadonlySet<string>;
+  /**
+   * TI-696: for a DPGF line decided out of scope (its lines left out of `readAgainItemIds`, as the application skips
+   * them), the earlier lines read again were it fed: its totals, its status and the snapshot a decision records read it,
+   * so that changing the decision does not make the one just recorded stale.
+   */
+  readAgainIfFed?: ReadonlyMap<string, ReadonlySet<string>>;
+  overlapPartners?: ReadonlyMap<string, ReadonlyArray<{ item_id: string; job_id: string; overlap_m: number; resolved: boolean }>>;
 };
+
+type CompositionContext = Pick<BuildTakeoffDpgfComparisonInput, "jobId" | "dpgfCompositions" | "readAgainItemIds" | "decisionReadAgainItemIds"
+  | "readAgainIfFed" | "overlapPartners">;
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   quantityIdentity: QuantityIdentity;
@@ -553,6 +580,37 @@ function resolveGlobalAutoMatches(input: {
   return matchByDpgfId;
 }
 
+/**
+ * TI-682 D4: what the DPGF line holds of the other takeoffs, by takeoff and page, and the total it will hold with this
+ * takeoff's measure (the pages it reads again replaced). Null when no other takeoff feeds it.
+ */
+function buildComposition(dpgfId: string, linkedTakeoffItems: readonly NormalizedTakeoffLine[], measured: number | null,
+  context: CompositionContext) {
+  const target = context.dpgfCompositions?.targets.get(dpgfId);
+  if (!target || !context.dpgfCompositions) return null;
+  const parts = earlierDpgfParts(target.contributions, { jobId: context.jobId,
+    readAgainItemIds: context.readAgainItemIds ?? new Set(), lines: context.dpgfCompositions.lines });
+  if (parts.entries.length === 0) return null;
+  // A partner on a page this takeoff reads again counts too: replaced by default, it stays in the sum if both are kept.
+  const held = new Set(target.contributions.filter((entry) => entry.job_id !== context.jobId).flatMap((entry) => entry.item_ids));
+  const jobs = context.dpgfCompositions.jobs;
+  return {
+    earlier: { measured: parts.measured, protective: parts.protective, printed_gap: parts.printed_gap },
+    row: {
+      earlier: parts.entries.map((entry) => ({ ...entry, job_created_at: jobs.get(entry.job_id)?.created_at ?? null,
+        job_level: jobs.get(entry.job_id)?.level ?? null })),
+      earlier_quantity: parts.measured,
+      earlier_protective: parts.protective,
+      earlier_printed_gap: parts.printed_gap,
+      total_quantity: toStableNumber((measured ?? 0) + parts.measured, 4) ?? parts.measured,
+      double_counted: linkedTakeoffItems.flatMap((item) => (context.overlapPartners?.get(item.item_id) ?? [])
+        .filter((partner) => !partner.resolved && held.has(partner.item_id))
+        .map((partner) => ({ item_id: item.item_id, partner_item_id: partner.item_id, partner_job_id: partner.job_id,
+          overlap_m: partner.overlap_m }))),
+    },
+  };
+}
+
 function buildRow(input: {
   dpgf: NormalizedDpgfLine;
   linkedTakeoffItems: NormalizedTakeoffLine[];
@@ -560,26 +618,47 @@ function buildRow(input: {
   matchingScore: number | null;
   threshold: number;
   appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+  composition: CompositionContext;
 }): TakeoffDpgfComparisonRow {
   const aggregatedMetrics = aggregateTakeoffMetrics({
     items: input.linkedTakeoffItems,
     dpgfUnit: input.dpgf.unit,
     dpgf: input.dpgf,
   });
+  // TI-682 D4: the line sums the measures it keeps. Its gap, its review status and the quantity a decision retains are
+  // judged on that total; a decision goes stale when what the line keeps of the other takeoffs changes.
+  // TI-696: judged as it would be fed (a row decided out of scope included), with what its line keeps unfed beside.
+  const fedRead = input.composition.readAgainIfFed?.get(input.dpgf.estimate_item_id);
+  const fedComposition = buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
+    fedRead ? { ...input.composition, readAgainItemIds: fedRead } : input.composition);
+  const unfedComposition = fedRead && fedComposition
+    ? buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity, input.composition) : null;
+  const composition = fedComposition && unfedComposition && (unfedComposition.row.earlier_quantity !== fedComposition.row.earlier_quantity
+    || unfedComposition.row.earlier_protective !== fedComposition.row.earlier_protective)
+    ? { ...fedComposition, row: { ...fedComposition.row, unfed_quantity: unfedComposition.row.earlier_quantity,
+      unfed_protective: unfedComposition.row.earlier_protective } }
+    : fedComposition;
+  const totalQuantity = aggregatedMetrics.quantity === null ? null : composition?.row.total_quantity ?? aggregatedMetrics.quantity;
+  // A decision is current against the pages the review reads again, where it was recorded (TI-696).
+  const decisionComposition = input.composition.decisionReadAgainItemIds
+    && input.composition.decisionReadAgainItemIds !== input.composition.readAgainItemIds
+    ? buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
+      { ...input.composition, readAgainItemIds: fedRead ?? input.composition.decisionReadAgainItemIds })
+    : composition;
   const snapshot = dpgfReviewQuantitySnapshot({ dpgf_quantity: input.dpgf.quantity, dpgf: input.dpgf,
-    linked_takeoff_items: input.linkedTakeoffItems });
+    linked_takeoff_items: input.linkedTakeoffItems, composition: decisionComposition?.row ?? null });
   const decisionCurrent = input.appliedDecision && (input.appliedDecision.decision === "out_of_scope"
     || sameQuantitySnapshot(input.appliedDecision.quantity_snapshot, snapshot));
   const appliedDecision = !aggregatedMetrics.hasUnitConflict && decisionCurrent && input.appliedDecision &&
-    canRetainDpgfQuantity(input.appliedDecision.decision, input.dpgf.quantity, aggregatedMetrics.quantity)
+    canRetainDpgfQuantity(input.appliedDecision.decision, input.dpgf.quantity, totalQuantity)
     ? input.appliedDecision : null;
   const delta = computeDelta({
     dpgfQuantity: input.dpgf.quantity,
-    takeoffQuantity: aggregatedMetrics.quantity,
+    takeoffQuantity: totalQuantity,
   });
   // Judge the unrounded total of this line. Display rounding cannot move a gap below the boundary.
   const quantityPolicy = dpgfQuantityPolicy({ dpgf_quantity: input.dpgf.quantity, takeoff_quantity: aggregatedMetrics.quantity,
-    linked_takeoff_items: input.linkedTakeoffItems });
+    linked_takeoff_items: input.linkedTakeoffItems }, composition?.earlier);
   const provisionalProofs = buildProofs({
     dpgf: input.dpgf,
     linkedTakeoffItems: input.linkedTakeoffItems,
@@ -594,7 +673,7 @@ function buildRow(input: {
     proofs: provisionalProofs,
     appliedDecision,
   });
-  const reviewStatus = deriveReviewStatus({
+  const ruleStatus = deriveReviewStatus({
     linkedTakeoffItems: input.linkedTakeoffItems,
     manualLinkCount: input.manualLinkCount,
     appliedDecision,
@@ -605,10 +684,12 @@ function buildRow(input: {
     aggregatedMetrics,
     threshold: input.threshold,
   });
+  // A line of this takeoff drawn again in a line the target keeps (zone rules): to check, never blocking (TI-681).
+  const reviewStatus = ruleStatus === "reliable_match" && (composition?.row.double_counted.length ?? 0) > 0 ? "to_confirm" : ruleStatus;
   const suggestedDecision = suggestDecision({
     status: reviewStatus,
     dpgfQuantity: input.dpgf.quantity,
-    takeoffQuantity: aggregatedMetrics.quantity,
+    takeoffQuantity: totalQuantity,
     confidenceScore,
     appliedDecision,
   });
@@ -625,6 +706,7 @@ function buildRow(input: {
       source_page: input.dpgf.source_page,
       source_file_name: input.dpgf.source_file_name,
       position: input.dpgf.position,
+      ...(input.dpgf.length_factor === undefined ? {} : { length_factor: input.dpgf.length_factor }),
     },
     linked_takeoff_items: input.linkedTakeoffItems.map((item) => ({
       item_id: item.item_id,
@@ -657,6 +739,7 @@ function buildRow(input: {
           ? "auto"
           : null,
     risk: null,
+    ...(composition ? { composition: composition.row } : {}),
   };
 }
 
@@ -841,6 +924,7 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
           matchingScore: averageMatchingScore,
           threshold,
           appliedDecision: carriedDecision,
+          composition: input,
         })
       );
       continue;
@@ -860,6 +944,7 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
           matchingScore: bestMatch.score,
           threshold,
           appliedDecision: carriedDecision,
+          composition: input,
         })
       );
       continue;
@@ -873,6 +958,7 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
         matchingScore: null,
         threshold,
         appliedDecision: carriedDecision,
+        composition: input,
       })
     );
   }

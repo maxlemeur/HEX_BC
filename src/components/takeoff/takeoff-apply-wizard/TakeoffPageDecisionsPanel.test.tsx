@@ -30,7 +30,7 @@ const newLine = (n: number, designation: string, lineIds: number[], unit = "u") 
   id: id(n), designation, unit, quantity: 5, unit_key: unit, candidates: [{ key: "page-1", line_ids: lineIds.map(id) }],
 });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], ...extra,
 });
 const DPGF = "Réseau de distribution sanitaire EF en tube cuivre DN 22";
 
@@ -38,10 +38,17 @@ const measuredAgain = proposal({ pages: [page([201], [101])], lines: [line(201, 
   pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "same_designation", locked: false }] });
 const nothingToReplace = proposal({ pages: [page([201], [101])], lines: [line(201, "EF cuivre DN 20", { unit_key: "ml", outside_pages: true })],
   new_lines: [newLine(101, "Vanne d'arrêt", [])] });
-const deadEnd = proposal({ merge_required: true, pages: [page([201, 202], [101], { keep_both_refused: "merge_match" })],
-  lines: [line(201, "Lavabo double vasque"), line(202, DPGF, { unit_key: "ml", dpgf_target: true, measured_quantity: null })],
-  new_lines: [newLine(101, "Lavabo double vasque", [201])],
-  pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }] });
+// TI-682 D4: the DPGF line the earlier takeoff fed from the page (40 ml, DPGF reference 30), not fed again; its run is
+// read again but not linked to it. Replacing the page takes its part out: the line falls to its reference.
+const falling = proposal({ merge_required: true, pages: [page([201, 202], [101, 102], { keep_both_refused: "merge_match" })],
+  lines: [line(201, "Lavabo double vasque"), line(202, DPGF, { unit_key: "ml", dpgf_target: true, measured_quantity: null, quantity: 40,
+    length_factor: 1 })],
+  new_lines: [newLine(101, "Lavabo double vasque", [201]), newLine(102, "EF cuivre DN 22", [], "ml")],
+  pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }],
+  jobs: [{ id: id(9000), created_at: "2026-11-10T09:00:00.000Z", level: "B", source_file_name: "plan.pdf" }],
+  dpgf_targets: [{ id: id(202), title: DPGF, unit_key: "ml", quantity: 40, reference: 30, length_factor: 1,
+    earlier: [{ job_id: id(9000), item_ids: [id(1202)], quantity: 40, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 1 }],
+    fed: [] }] });
 
 function show(data: TakeoffPageReplacementResponse) {
   render(<TakeoffPageDecisionsPanel proposal={data} error={null} loading={false} draft={initialConfirmationDraft(data)} strategyNotice={null}
@@ -67,19 +74,12 @@ describe("« Pages déjà au devis » recommends only what can be confirmed", ()
     expect(region).not.toHaveTextContent(/gardez-la/);
   });
 
-  it("in the DPGF dead end, recommends nothing here, says the rest is done elsewhere, and lists each way out with what it opens", () => {
-    const region = show(deadEnd);
-    expect(within(region).getByRole("radio", { name: "Remplacer la mesure précédente" })).toBeInTheDocument();
-    expect(within(region).queryByRole("radio", { name: /recommandé/ })).toBeNull();
-    expect(region).not.toHaveTextContent(/remplacez leur mesure|gardez les deux avec un motif/);
-    expect(region).toHaveTextContent("Une page n’entre qu’une fois : aucune ne se confirme ici, la suite se fait hors de cette étape, comme chaque page l’indique.");
-    const pageGroup = within(region).getByRole("group", { name: "Page plan.pdf, page 1" });
-    expect(pageGroup).toHaveTextContent(`« ${DPGF} » est une ligne DPGF que ce métré n’alimente pas, et la fusion, obligatoire avec un DPGF, met « Lavabo double vasque » sur une ligne de la page : ni remplacer ni garder les deux ne se confirme ici.`);
-    const exits = within(pageGroup).getByRole("list", { name: "Pour débloquer plan.pdf, page 1" });
-    expect(within(exits).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Écarter « Lavabo double vasque » à la revue du métré : garder les deux redevient possible.",
-      "Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure (même unité, matériau et diamètre) : remplacer redevient possible.",
-    ]);
-    expect(pageGroup.textContent!.split(`« ${DPGF} »`)).toHaveLength(2);
+  it("replaces the page of a DPGF line not fed again, and says on the line that it falls, why, and where the page's measure went", () => {
+    const region = show(falling);
+    expect(within(region).getByRole("radio", { name: "Remplacer la mesure précédente (recommandé)" })).toBeChecked();
+    expect(region).toHaveTextContent("Une page n’entre qu’une fois : remplacez leur mesure précédente.");
+    expect(region).not.toHaveTextContent(/ne se confirme ici/);
+    expect(region).toHaveTextContent(`${DPGF} : Baisse : 40 → 30 (−10). plan.pdf, page 1 n’alimente plus cette ligne DPGF ; `
+      + "sa nouvelle mesure est entrée hors DPGF : « EF cuivre DN 22 » (5 ml).");
   });
 });
