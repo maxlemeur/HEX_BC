@@ -17,6 +17,7 @@ const request = () => new NextRequest("http://localhost:3000/auth/chatgpt/callba
 });
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1"); vi.stubEnv("NODE_ENV", "test"); vi.stubEnv("CI", ""); vi.stubEnv("VERCEL", "");
+  vi.stubEnv("PORT", ""); vi.stubEnv("MERGEONE_DEV_HOSTS", "");
   vi.mocked(getAuthenticatedContext).mockResolvedValue({ userId: "fixture-user", tenantId: "fixture-tenant" } as never);
   vi.mocked(finishLocalChatGptSignIn).mockResolvedValue(undefined);
 });
@@ -43,9 +44,36 @@ it("keeps production and malformed-host callbacks disabled", async () => {
   expect(getAuthenticatedContext).not.toHaveBeenCalled();
 });
 
+it("refuses an unlisted host or unexpected protocol before relaying the code", async () => {
+  const cases: Array<Record<string, string>> = [
+    { host: "192.168.1.42:3000" },
+    { host: "mergeone.dev.test", "x-forwarded-proto": "https" },
+    { host: "127.0.0.1:3000", "x-forwarded-proto": "javascript" },
+    { host: "evil.test" },
+  ];
+  for (const headers of cases) {
+    const response = await GET(new NextRequest("http://127.0.0.1:3000/auth/chatgpt/callback?code=fixture-code&state=fixture-state", { headers }));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+  }
+  expect(relayLocalChatGptCallback).not.toHaveBeenCalled();
+  expect(finishLocalChatGptSignIn).not.toHaveBeenCalled();
+  expect(getAuthenticatedContext).not.toHaveBeenCalled();
+});
+
+it("does not redirect a relay target outside the allowlist", async () => {
+  for (const target of ["http://192.168.1.42:3000/auth/chatgpt/callback?code=fixture-code&state=fixture-state", "https://mergeone.dev.test/auth/chatgpt/callback?code=fixture-code&state=fixture-state"]) {
+    vi.mocked(relayLocalChatGptCallback).mockResolvedValueOnce(new URL(target));
+    const response = await GET(request());
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location") ?? "").not.toContain("code=");
+    expect(finishLocalChatGptSignIn).not.toHaveBeenCalled();
+  }
+});
+
 
 it("preserves an HTTPS development origin through the callback and redirect", async () => {
-  vi.stubEnv("NODE_ENV", "development"); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "");
+  vi.stubEnv("NODE_ENV", "development"); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", ""); vi.stubEnv("MERGEONE_DEV_HOSTS", "mergeone.dev.test");
   const response = await GET(new NextRequest("http://localhost:3000/auth/chatgpt/callback?code=fixture-code&state=fixture-state", {
     headers: { host: "mergeone.dev.test", "x-forwarded-proto": "https", cookie: "mergeone-chatgpt-transaction=fixture-state" },
   }));

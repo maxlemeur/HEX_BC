@@ -1,22 +1,28 @@
 # Forfait ChatGPT dans MergeOne local
 
 La connexion personnelle utilise le flux officiel [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source).
-Elle est disponible sur tout serveur en mode développement, sans lanceur spécial,
-avec localhost, une adresse réseau ou un domaine de développement. Les builds de
-production restent désactivés. Les connexions restent propres au compte, au tenant
+Elle est réservée au développement, sur la boucle locale (`127.0.0.1`, `localhost`,
+`::1`) au port du serveur. Un autre hôte n’est accepté que s’il figure dans
+`MERGEONE_DEV_HOSTS` (noms exacts, séparés par des virgules, sans protocole, port
+ni joker). Un en-tête `Host` hors liste, ou un `x-forwarded-proto` autre que
+`http` ou `https`, est refusé avant d’enregistrer l’adresse de retour. Les builds
+de production restent désactivés. Les connexions restent propres au compte, au tenant
 et au serveur qui conserve les identifiants.
 
 Le fournisseur impose un retour OAuth HTTP sur `127.0.0.1`. MergeOne utilise
-le port réel de Next puis relaie ce retour vers l’adresse de départ, où la
-session, le cookie de navigateur et le tenant sont vérifiés avant tout échange
-de jetons. Le serveur doit être accessible depuis la boucle locale du navigateur :
+le port réel de Next puis relaie ce retour seulement vers une origine autorisée,
+où la session, le cookie de navigateur et le tenant sont vérifiés avant tout échange
+de jetons. Le relais revérifie l’origine : une adresse non autorisée n’est pas
+redirigée. Le serveur doit être accessible depuis la boucle locale du navigateur :
 un serveur distant nécessite un transfert de port. HTTPS via un proxy vers Next
-HTTP est compatible ; le HTTPS natif de Next seul ne fournit pas ce retour HTTP.
+HTTP reste compatible pour un hôte autorisé ; le HTTPS natif de Next seul ne fournit
+pas ce retour HTTP.
 
 Les ressources de développement Next (dont HMR) autorisent les adresses de boucle
-locale et les adresses réseau présentes sur la machine au démarrage. Pour un
-alias DNS ou un tunnel, définir `MERGEONE_DEV_HOSTS=mergeone.dev.test,autre.dev.test`
-avant `npm run dev`. Cette liste accepte uniquement des noms exacts, sans protocole,
+locale et les adresses réseau présentes sur la machine au démarrage. Cette liste
+ne donne pas le droit de relayer la connexion ChatGPT. Pour un alias DNS ou un
+tunnel, définir `MERGEONE_DEV_HOSTS=mergeone.dev.test,autre.dev.test` avant
+`npm run dev`. Cette liste accepte uniquement des noms exacts, sans protocole,
 port ni joker ; les sites sans rapport restent refusés.
 
 ## Utilisation
@@ -30,10 +36,13 @@ nécessaire pour la reprise locale des tâches expirées et du dossier. Sur une 
 qui ne l’a pas reçue, la reprise échoue sans appeler les anciennes fonctions de
 reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation séparée.
 
-1. Utiliser le Node de `.nvmrc`, puis lancer `npm run dev` (`dev:chatgpt` reste un alias compatible).
-2. Ouvrir `http://localhost:3000/dashboard/profile` et se connecter à MergeOne.
-   Si le port 3000 est occupé, utiliser `npm run dev -- --port 3015`
-   et ouvrir cette même adresse avec le port 3015. Conserver la même adresse pendant le parcours OAuth.
+1. Utiliser le Node de `.nvmrc`, puis lancer `npm run dev` ou `npm run dev:chatgpt`.
+   `dev:chatgpt` écoute sur `127.0.0.1`. Un autre écoute n’est possible qu’avec
+   `--hostname` (ou `-H`) explicite.
+2. Ouvrir `http://127.0.0.1:3000/dashboard/profile` (ou `localhost` sur le même port)
+   et se connecter à MergeOne. Si le port 3000 est occupé, utiliser
+   `npm run dev -- --port 3015` et ouvrir cette même adresse avec le port 3015.
+   Conserver la même adresse pendant le parcours OAuth.
 3. Dans **Mon forfait ChatGPT**, choisir **Continue with ChatGPT** et consentir
    à l’utilisation du forfait avec un compte éligible. **GPT-6.1 Terra** est
    sélectionné par défaut si le compte le propose et qu’aucun modèle n’est encore
@@ -128,9 +137,10 @@ elle utilise son accès API OpenAI distinct et sa facturation propre.
   conservation de l’inscription pour reconnexion. En cas d’échec réseau, l’écran
   indique de déconnecter aussi l’application dans les paramètres ChatGPT.
 - `NODE_ENV=production` désactive toujours cette intégration, même avec
-  `MERGEONE_CHATGPT_LOCAL=1`. En développement, aucun opt-in ni nom d’hôte
-  particulier n’est requis. Hors développement, l’opt-in CLI/test reste explicite
-  et refusé sur Vercel ou CI.
+  `MERGEONE_CHATGPT_LOCAL=1`. En développement, seuls la boucle locale au port
+  du serveur et les hôtes de `MERGEONE_DEV_HOSTS` sont acceptés. Hors
+  développement, l’opt-in CLI/test reste explicite et refusé sur Vercel ou CI.
+  `npm run dev:chatgpt` lie l’écoute à `127.0.0.1` sauf `--hostname` explicite.
 
 ## Vérification
 

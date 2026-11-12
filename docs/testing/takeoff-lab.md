@@ -8,10 +8,11 @@ dans la base ; ses essais et verdicts sont des fichiers.
 ## Accès
 
 La page et chaque route `/api/admin/takeoff/lab/*` vérifient côté serveur :
-MergeOne local lancé par `npm run dev:chatgpt` et ouvert sur `127.0.0.1`
-(`assertLocalChatGptHost`), un utilisateur connecté (`getUserContext()`) et
-`tenant_role === "admin"`. Les routes répondent 403 sinon ; la page affiche le
-refus, elle n'autorise rien par redirection.
+MergeOne local lancé par `npm run dev:chatgpt` (écoute `127.0.0.1` par défaut)
+et un hôte de boucle locale au port du serveur, ou un hôte listé dans
+`MERGEONE_DEV_HOSTS` (`assertLocalChatGptHost`), un utilisateur connecté
+(`getUserContext()`) et `tenant_role === "admin"`. Les routes répondent 403
+sinon ; la page affiche le refus, elle n'autorise rien par redirection.
 
 ## Lancer le labo
 
