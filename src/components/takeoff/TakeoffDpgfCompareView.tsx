@@ -43,6 +43,7 @@ import {
 } from "@/lib/takeoff/client";
 import type {
   TakeoffDpgfComparisonResponse,
+  TakeoffDpgfComparisonRow,
   TakeoffDpgfComparisonView,
   TakeoffDpgfReviewDecision,
   TakeoffRiskAlert,
@@ -122,6 +123,8 @@ export default function TakeoffDpgfCompareView({
   const [manualLinkSaving, setManualLinkSaving] = useState(false);
   const [decisionReason, setDecisionReason] = useState("");
   const [draftDecision, setDraftDecision] = useState<TakeoffDpgfReviewDecision | null>(null);
+  /** The row the draft decision and its reason were started for. */
+  const [draftRow, setDraftRow] = useState<TakeoffDpgfComparisonRow | null>(null);
   const [decisionSaving, setDecisionSaving] = useState(false);
   const [riskActionTarget, setRiskActionTarget] = useState<RiskActionTarget | null>(null);
   const [riskReviewNote, setRiskReviewNote] = useState("");
@@ -144,13 +147,12 @@ export default function TakeoffDpgfCompareView({
     }
   );
 
-  useEffect(() => {
-    if (data.rows.some((row) => row.line_id === selectedRowId)) {
-      return;
-    }
-
-    setSelectedRowId(data.rows[0]?.line_id ?? null);
-  }, [data.rows, selectedRowId]);
+  // The row shown stays one of the comparison's rows, settled while rendering: an effect ran after the rows were shown
+  // and replaced a row clicked meanwhile (TI-719).
+  if (!data.rows.some((row) => row.line_id === selectedRowId)) {
+    const firstRowId = data.rows[0]?.line_id ?? null;
+    if (firstRowId !== selectedRowId) setSelectedRowId(firstRowId);
+  }
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = deferredSearchQuery.trim().toLocaleLowerCase("fr-FR");
@@ -178,18 +180,13 @@ export default function TakeoffDpgfCompareView({
     data.rows[0] ??
     null;
 
-  useEffect(() => {
-    if (!selectedRow) {
-      setDraftDecision(null);
-      setDecisionReason("");
-      return;
-    }
-
-    setDraftDecision(
-      selectedRow.applied_decision?.decision ?? selectedRow.suggested_decision ?? null
-    );
-    setDecisionReason(selectedRow.applied_decision?.reason ?? "");
-  }, [selectedRow]);
+  // The decision of the row shown starts as the one applied, else the suggested one, settled while rendering so the
+  // row is shown with it: an effect ran after the row was shown and replaced a decision picked meanwhile (TI-719).
+  if (draftRow !== selectedRow) {
+    setDraftRow(selectedRow);
+    setDraftDecision(selectedRow?.applied_decision?.decision ?? selectedRow?.suggested_decision ?? null);
+    setDecisionReason(selectedRow?.applied_decision?.reason ?? "");
+  }
 
   useEffect(() => {
     if (!riskActionTarget) {

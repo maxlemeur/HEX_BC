@@ -115,8 +115,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("line"));
-  const lastIndex = useRef(0);
-  const nextId = useRef<string | null>(null);
+  // Where the line in focus was last seen in the list: its index and the line that followed it (or preceded it, last).
+  const [position, setPosition] = useState<{ index: number; nextId: string | null }>({ index: 0, nextId: null });
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
   // The line V is being justified for (TI-685, TI-686 D9), read live from the lines: a quantity retained from the dialog
@@ -180,21 +180,19 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const visible = useMemo(() => review.lines.filter((line) => (filter === "all" ? true
     : filter === "uncertain" ? line.tier === "uncertain" : line.reasons.includes("rule_failed"))), [filter, review.lines]);
 
-  // A decided line leaves the list: the selection goes to the line that followed it (or, gone too, the one now at
-  // its place), and stays in view.
+  // The line in focus: none chosen, the first line; a decided line leaves the list: the line that followed it (or, gone
+  // too, the one now at its place); a line being saved keeps it. Settled while rendering, so the screen shows the lines
+  // with their focus: an effect ran after they were shown and replaced a line clicked meanwhile (TI-719).
   const selectedIndex = visible.findIndex((line) => line.item.id === selectedId);
-  useEffect(() => {
-    if (!job) return;
-    if (selectedIndex >= 0) {
-      lastIndex.current = selectedIndex;
-      nextId.current = visible[selectedIndex + 1]?.item.id ?? visible[selectedIndex - 1]?.item.id ?? null;
-      return;
-    }
-    if (selectedId && savingRef.current.has(selectedId)) return;
-    const next = (visible.some((line) => line.item.id === nextId.current) ? nextId.current : null)
-      ?? visible[Math.min(lastIndex.current, visible.length - 1)]?.item.id ?? null;
+  if (job && selectedIndex >= 0) {
+    const nextId = visible[selectedIndex + 1]?.item.id ?? visible[selectedIndex - 1]?.item.id ?? null;
+    if (position.index !== selectedIndex || position.nextId !== nextId) setPosition({ index: selectedIndex, nextId });
+  } else if (job && !(selectedId && saving.has(selectedId))) {
+    const next = (visible.some((line) => line.item.id === position.nextId) ? position.nextId : null)
+      ?? visible[Math.min(position.index, visible.length - 1)]?.item.id ?? null;
     if (next !== selectedId) setSelectedId(next);
-  }, [job, selectedId, selectedIndex, visible]);
+  }
+  // It stays in view.
   useEffect(() => {
     if (selectedId) document.getElementById(`targeted-line-${selectedId}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selectedId]);
