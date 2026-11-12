@@ -310,6 +310,26 @@ export async function deleteMaterialRequest(projectId: string, requestId: string
   return { deleted: true };
 }
 
+async function countLines(access: MaterialRequestAccess, requestId: string): Promise<number> {
+  const { count, error } = await access.context.supabase
+    .from("material_request_lines")
+    .select("id", { count: "exact" })
+    .eq("tenant_id", access.context.tenantId)
+    .eq("project_id", access.project.id)
+    .eq("request_id", requestId)
+    .limit(1);
+  if (error) throw mapSupabaseError(error, "Impossible de charger les lignes de la demande.");
+  return count ?? 0;
+}
+
+function lineLimitReached(existing: number): ApiError {
+  return unprocessableEntity(
+    `Une demande compte ${MATERIAL_REQUEST_MAX_LINES} lignes au plus (${existing} déjà saisies).`,
+    { max: MATERIAL_REQUEST_MAX_LINES, existing },
+    MATERIAL_REQUEST_LINE_LIMIT,
+  );
+}
+
 export async function createMaterialRequestLines(
   projectId: string,
   requestId: string,
@@ -319,22 +339,10 @@ export async function createMaterialRequestLines(
   const { context } = access;
   const request = await requireRequest(access, requestId);
 
-  const { count: existing, error: existingError } = await context.supabase
-    .from("material_request_lines")
-    .select("id", { count: "exact" })
-    .eq("tenant_id", context.tenantId)
-    .eq("project_id", access.project.id)
-    .eq("request_id", request.id)
-    .limit(1);
-  if (existingError) throw mapSupabaseError(existingError, "Impossible de charger les lignes de la demande.");
-  const count = existing ?? 0;
-  if (count + lines.length > MATERIAL_REQUEST_MAX_LINES) {
-    throw unprocessableEntity(
-      `Une demande compte ${MATERIAL_REQUEST_MAX_LINES} lignes au plus (${count} déjà saisies).`,
-      { max: MATERIAL_REQUEST_MAX_LINES, existing: count },
-      MATERIAL_REQUEST_LINE_LIMIT,
-    );
-  }
+  // The friendly, early refusal. The cap itself is held by the database, which counts under a lock on
+  // the request: two appends that both saw room here cannot both pass there.
+  const count = await countLines(access, request.id);
+  if (count + lines.length > MATERIAL_REQUEST_MAX_LINES) throw lineLimitReached(count);
   await assertSuppliersInTenant(context, lines.map((line) => line.supplier_id));
 
   // New lines are drafts, appended after the last one in the order given. Positions are unique in a
@@ -360,6 +368,8 @@ export async function createMaterialRequestLines(
       })))
       .select(LINE_COLUMNS);
     if (!error) return { lines: [...(data ?? [])].sort(byPosition) };
+    // The database refused the whole batch for the cap: another session appended since the count above.
+    if (error.message === MATERIAL_REQUEST_LINE_LIMIT) throw lineLimitReached(await countLines(access, request.id));
     if (error.code !== "23505") throw mapSupabaseError(error, "Impossible d'ajouter les lignes.");
   }
   throw conflict("Des lignes viennent d’être ajoutées à cette demande. Rechargez-la, puis réessayez.");

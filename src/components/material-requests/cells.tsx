@@ -124,9 +124,15 @@ export function TextCell({
   maxLength,
   disabled = false,
   hintId,
+  onUnsavedChange,
+  onAbandon,
 }: Readonly<{
   /** Id of a text shown beside the field that the field should be described by. */
   hintId?: string;
+  /** Told whenever the field starts or stops holding a value that is not the saved one. */
+  onUnsavedChange?: (unsaved: boolean) => void;
+  /** Told when a value that could not be saved is dropped (Escape, or the saved value typed back). */
+  onAbandon?: () => void;
   /** Given when a visible <label> names the field; otherwise `label` is the accessible name. */
   id?: string;
   label?: string;
@@ -143,6 +149,12 @@ export function TextCell({
   const [error, setError] = useState<string | null>(null);
   const stored = (value ?? "").trim();
   const writes = usePendingWrites(stored);
+  // Typed, on its way, or refused: in all three the field shows something the server does not hold.
+  const unsaved = draft !== null && draft.trim() !== stored;
+
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+  }, [onUnsavedChange, unsaved]);
 
   const commit = async (raw: string | null) => {
     if (raw === null) return;
@@ -151,6 +163,7 @@ export function TextCell({
       // Nothing to send. With no write on its way the cell shows the saved value again; otherwise the
       // answer on its way settles it (Enter then leaving the cell commits the same value twice).
       if (writes.idle()) {
+        if (error) onAbandon?.();
         setDraft(null);
         setError(null);
       }
@@ -189,6 +202,7 @@ export function TextCell({
             void commit(draft);
           } else if (event.key === "Escape" && (draft !== null || error)) {
             event.preventDefault();
+            if (error) onAbandon?.();
             setDraft(null);
             setError(null);
           }
@@ -213,11 +227,14 @@ export function QuantityCell({
   value,
   onCommit,
   alerts = NO_ALERTS,
+  onAbandon,
 }: Readonly<{
   label: string;
   value: number | null;
   onCommit: (next: number | null) => Promise<SaveResult>;
   alerts?: CellAlerts;
+  /** Told when a quantity that could not be saved is dropped (Escape, or the saved one typed back). */
+  onAbandon?: () => void;
 }>) {
   const messagesId = useId();
   const [failed, setFailed] = useState<{ value: number | null; message: string } | null>(null);
@@ -239,7 +256,10 @@ export function QuantityCell({
   const commit = async (next: number | null) => {
     if (cancelled.current) return;
     if (next === writes.expected()) {
-      if (writes.idle()) setFailed(null);
+      if (writes.idle()) {
+        if (failed) onAbandon?.();
+        setFailed(null);
+      }
       return;
     }
     setSending({ value: next });
@@ -279,6 +299,7 @@ export function QuantityCell({
             // The house input keeps its own draft: a fresh one shows the saved value again.
             event.preventDefault();
             cancelled.current = true;
+            if (failed) onAbandon?.();
             setFailed(null);
             setUnreadable(false);
             setMountKey((current) => current + 1);
@@ -302,7 +323,10 @@ export function ChoiceCell({
   unknownLabel,
   onCommit,
   disabled = false,
+  onUnsavedChange,
 }: Readonly<{
+  /** Told whenever the select starts or stops showing a choice that is not the saved one. */
+  onUnsavedChange?: (unsaved: boolean) => void;
   id?: string;
   label?: string;
   value: string | null;
@@ -320,6 +344,11 @@ export function ChoiceCell({
   const writes = usePendingWrites(value ?? "");
   const shown = pending ?? failed?.value ?? value ?? "";
   const known = shown === "" || options.some((option) => option.value === shown);
+  const unsaved = pending !== null || failed !== null;
+
+  useEffect(() => {
+    onUnsavedChange?.(unsaved);
+  }, [onUnsavedChange, unsaved]);
 
   return (
     <>
@@ -353,6 +382,53 @@ export function ChoiceCell({
       </NativeSelect>
       <CellMessages id={messagesId} error={failed?.message} />
     </>
+  );
+}
+
+/**
+ * A yes/no of a line, saved as soon as it is ticked. Like the other cells, a change the server refused
+ * stays shown with its reason; ticking it back sends the saved state again and clears it.
+ */
+export function ToggleCell({
+  label,
+  text,
+  checked,
+  onCommit,
+}: Readonly<{
+  label: string;
+  text: string;
+  checked: boolean;
+  onCommit: (next: boolean) => Promise<SaveResult>;
+}>) {
+  const messagesId = useId();
+  const [pending, setPending] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState<{ value: boolean; message: string } | null>(null);
+  const writes = usePendingWrites(checked);
+
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-xs text-foreground-secondary">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          aria-label={label}
+          aria-invalid={failed ? true : undefined}
+          aria-describedby={failed ? messagesId : undefined}
+          checked={pending ?? failed?.value ?? checked}
+          onChange={async (event) => {
+            const next = event.currentTarget.checked;
+            setPending(next);
+            setFailed(null);
+            const result = await writes.send(next, () => onCommit(next));
+            if (result === null) return;
+            setPending(null);
+            if (!result.ok) setFailed({ value: next, message: result.message });
+          }}
+        />
+        {text}
+      </label>
+      <CellMessages id={messagesId} error={failed?.message} />
+    </div>
   );
 }
 

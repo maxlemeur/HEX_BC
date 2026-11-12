@@ -40,6 +40,13 @@ export type FakeSupabaseOptions = {
   failSign?: (path: string) => boolean;
   /** Updates the database refuses, as a CHECK or a trigger would (SQLSTATE 23514): the message it raises. */
   refuseUpdate?: (table: string, values: FakeRow) => string | false;
+  /** Inserts the database refuses, as a trigger would (SQLSTATE 23514): the message it raises. */
+  refuseInsert?: (table: string, values: unknown) => string | false;
+  /**
+   * The download stream delivers its bytes but its cancellation never settles, as the runtime's response
+   * body does once it has been read to its end.
+   */
+  stallStreamCancel?: boolean;
   /** Called just before an update runs: what another session did in the meantime. */
   beforeUpdate?: (table: string, values: FakeRow, tables: FakeTables) => void;
 };
@@ -156,6 +163,11 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     function execute(): QueryResult {
       tables[table] ??= [];
       if (operation === "insert") {
+        const refusal = options.refuseInsert?.(table, payload);
+        if (refusal) {
+          events.push(`refused insert ${table}`);
+          return { data: null, error: { code: "23514", message: refusal, details: null, hint: null } };
+        }
         const inserted = (Array.isArray(payload) ? payload : [payload]).map((values) =>
           completeInsert(table, values as FakeRow),
         );
@@ -336,7 +348,22 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
             return {
               asStream: async () => {
                 const bytes = read();
-                return bytes ? { data: new Blob([bytes as BlobPart]).stream(), error: null } : missing;
+                if (!bytes) return missing;
+                if (!options.stallStreamCancel) return { data: new Blob([bytes as BlobPart]).stream(), error: null };
+                // A real ReadableStream cannot stall its cancellation once it has ended, the runtime's
+                // response body can: the bytes come in one read, the next read ends, cancel never settles.
+                let delivered = false;
+                const stalled = {
+                  getReader: () => ({
+                    read: async () => {
+                      if (delivered) return { done: true as const, value: undefined };
+                      delivered = true;
+                      return { done: false as const, value: bytes };
+                    },
+                    cancel: () => new Promise<void>(() => undefined),
+                  }),
+                } as unknown as ReadableStream<Uint8Array>;
+                return { data: stalled, error: null };
               },
               then<Resolved>(resolve: (value: { data: Blob | null; error: unknown }) => Resolved) {
                 const bytes = read();

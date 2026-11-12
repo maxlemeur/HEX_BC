@@ -58,6 +58,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     session changes it to « Inox », and the confirmation that followed « Cuivre » confirms « Inox »
  *     (review of pull request 252); same for the presumed supplier, and for a confirmation sent alone
  *     that says which value it confirms.
+ * 19. Two appends read 299 lines side by side and both pass: the database refuses the one that would cross
+ *     the cap, and the caller gets a bare 400, or the append is tried again and again, instead of the
+ *     same refusal as when the application sees it first.
  * 11. A photo is listed, counted or served before its bytes are stored (found by the end-to-end journey:
  *     the request listed the photo while GET of its bytes answered 500), stays listed after an upload that
  *     failed or was interrupted, or keeps its bytes when its request is deleted; a storage error reaches
@@ -138,6 +141,8 @@ function seed(
     objects?: Record<string, Uint8Array>;
     failSign?: (path: string) => boolean;
     refuseUpdate?: (table: string, values: FakeRow) => string | false;
+    refuseInsert?: (table: string, values: unknown) => string | false;
+    stallStreamCancel?: boolean;
     beforeUpdate?: (table: string, values: FakeRow, tables: Record<string, FakeRow[]>) => void;
   } = {},
 ) {
@@ -147,6 +152,8 @@ function seed(
     objects: overrides.objects ?? { [FILE_PATH]: JPEG, [OTHER_FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG },
     failSign: overrides.failSign,
     refuseUpdate: overrides.refuseUpdate,
+    refuseInsert: overrides.refuseInsert,
+    stallStreamCancel: overrides.stallStreamCancel,
     beforeUpdate: overrides.beforeUpdate,
     tables: {
       tenant_memberships: [fakeMembership(actor, actor === OUTSIDER ? OTHER_TENANT : TENANT, role)],
@@ -643,6 +650,20 @@ describe("material requests of an affaire: lines", () => {
     expect(fake.tables.material_request_lines.filter((row) => row.request_id === REQUEST)).toHaveLength(MATERIAL_REQUEST_MAX_LINES);
   });
 
+  it("answers with the same refusal when the database itself holds the cap against a concurrent append", async () => {
+    // Another session appended after this one counted: the application saw room, the database does not.
+    const fake = seed(OWNER, "engineer", {
+      refuseInsert: (table) => (table === "material_request_lines" ? "MATERIAL_REQUEST_LINE_LIMIT" : false),
+    });
+    const { status, error } = await call(linesRoute.POST, "POST", inRequest, { lines: [{ product_type: "Coude" }, { product_type: "Té" }] });
+    expect([status, error?.code]).toEqual([422, "MATERIAL_REQUEST_LINE_LIMIT"]);
+    expect(error?.message).toMatch(new RegExp(`^Une demande compte ${MATERIAL_REQUEST_MAX_LINES} lignes au plus \\(\\d+ déjà saisies\\)\\.$`));
+    expect(error?.details).toMatchObject({ max: MATERIAL_REQUEST_MAX_LINES });
+    // Refused whole, and not tried again: this is not a position conflict.
+    expect(fake.events.filter((event) => event.includes("insert"))).toEqual(["refused insert material_request_lines"]);
+    expect(fake.tables.material_request_lines.filter((row) => row.request_id === REQUEST)).toHaveLength(3);
+  });
+
   it.each<[string, Record<string, unknown>]>([
     ["a status", { status: "validated" }],
     ["a validation date", { validated_at: "2020-01-01T00:00:00.000Z" }],
@@ -1026,6 +1047,20 @@ describe("material requests of an affaire: originals", () => {
     expect(fake.tables.material_request_files.map((row) => row.id)).toEqual([FILE, PENDING_FILE, OTHER_FILE]);
     expect([...fake.objects.keys()]).toEqual([FILE_PATH, OTHER_FILE_PATH, PENDING_FILE_PATH]);
     expect(await listed()).toEqual([FILE]);
+  });
+
+  // Found by the journey (TI-690): for a small photo the first read returns the whole body, and the
+  // cancellation of that stream then never settled. The check awaited it, so `complete` never answered:
+  // the screen stayed on « Vérification de la photo reçue… » and the photo was never listed.
+  it("answers although the cancellation of the download never settles", async () => {
+    seed(OWNER, "engineer", { stallStreamCancel: true });
+    const answer = await Promise.race([
+      complete([PENDING_FILE]),
+      new Promise<"never answered">((resolve) => setTimeout(() => resolve("never answered"), 2_000)),
+    ]);
+    expect(answer).not.toBe("never answered");
+    expect((answer as { status: number }).status).toBe(200);
+    expect(await listed()).toEqual([FILE, PENDING_FILE]);
   });
 
   it("completes an upload that was interrupted, and leaves alone a photo that is already stored", async () => {
