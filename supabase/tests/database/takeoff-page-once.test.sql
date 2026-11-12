@@ -58,7 +58,10 @@ insert into po_cases (case_no, engine, dpgf) values
   -- The independent review's cases (23 to 28).
   (23, 3, false), (24, 3, false), (25, 3, false), (26, 3, false), (27, 3, true), (28, 3, false),
   -- Codex review of c06cbb1b: a mapping price on a line « Fusionner » pairs, without and with a DPGF line.
-  (30, 3, false), (31, 3, true);
+  (30, 3, false), (31, 3, true),
+  -- Codex review of 251a98a1: one length over two plan files, both measured again, or one replaced and the other's part
+  -- dropped.
+  (32, 3, false), (33, 3, false);
 grant select on po_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -186,7 +189,13 @@ insert into po_items (case_no, job_no, line_no, designation, quantity, unit, fil
   -- 30: a line priced from a site offer (transport included), then a mapping rule pricing the new line on « Fusionner ».
   (30, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (30, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
   -- 31: the same on a version with a DPGF line (the 5-argument overload).
-  (31, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (31, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}');
+  (31, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (31, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 32 and 33: page 1 of plan A and page 1 of plan B, one EF run grouped into one length line (finalize_takeoff_lengths
+  -- groups by title and unit, not by document).
+  (32, 1, 1, 'EF cuivre DN 20', 10, 'ml', 'plan-a.pdf', 1, 'A', '{}'), (32, 1, 2, 'EF cuivre DN 20', 10, 'ml', 'plan-b.pdf', 1, 'B', '{}'),
+  (32, 2, 1, 'EF cuivre DN 20', 12, 'ml', 'plan-a.pdf', 1, 'A', '{}'), (32, 2, 2, 'EF cuivre DN 20', 15, 'ml', 'plan-b.pdf', 1, 'B', '{}'),
+  (33, 1, 1, 'EF cuivre DN 20', 10, 'ml', 'plan-a.pdf', 1, 'A', '{}'), (33, 1, 2, 'EF cuivre DN 20', 10, 'ml', 'plan-b.pdf', 1, 'B', '{}'),
+  (33, 2, 1, 'EF cuivre DN 20', 12, 'ml', 'plan-a.pdf', 1, 'A', '{}'), (33, 2, 2, 'Vanne d''arrêt', 1, 'u', 'plan-b.pdf', 1, 'B', '{}');
 insert into po_items (case_no, job_no, line_no, designation, quantity, unit, file_name, page, document, hypothesis, verified) values
   (15, 1, 1, 'Support mural', 8, 'u', 'plan-fictif.pdf', 1, 'A', true, false),
   (15, 2, 1, 'Support mural', 9, 'u', 'plan-fictif.pdf', 1, 'A', false, true),
@@ -921,6 +930,53 @@ select is(
 from generate_series(30, 31) as case_no;
 select is((pg_temp.po_line(case_no, 'WC suspendu')).quantity, 5::numeric, 'case ' || case_no || ': its quantity takes the new measure')
 from generate_series(30, 31) as case_no;
+
+-- Codex review of 251a98a1: a length line grouped over two plan files. Each new line replaces its own document's part of
+-- the line, on that document's page; the rule « never replace across two documents » reads each pair against the sources
+-- its own decision replaces. Red on 251a98a1: each pair was read against every source the line loses, the other
+-- document's included, and both confirmations were refused (`ambiguous_document`).
+create or replace function pg_temp.po_on_plan_b(p_decision jsonb)
+returns jsonb language sql as $$
+  select p_decision || jsonb_build_object('document', jsonb_build_object('plan_file_id', current_setting('test.plan_b'), 'content_hash', null,
+    'logical_document_id', null, 'file_name', 'plan-b.pdf'))
+$$;
+grant execute on function pg_temp.po_on_plan_b(jsonb) to authenticated;
+select is((select jsonb_agg(jsonb_build_array(pg_temp.po_count(case_no, 'EF cuivre DN 20'), (pg_temp.po_line(case_no, 'EF cuivre DN 20')).quantity))
+    from generate_series(32, 33) as case_no), '[[1, 20], [1, 20]]'::jsonb, 'fixture: one length line over plan A and plan B');
+set local role authenticated;
+-- The cross-document pair stays refused: plan B's new run cannot replace plan A's part.
+select is(pg_temp.po_decide(pg_temp.po_job(32, 2), jsonb_build_array(
+    pg_temp.po_decision(32, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(32, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(32, 1, 1)])),
+      jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(32, 2, 2), 32, 'EF cuivre DN 20')), 1, 'plan-a.pdf'),
+    pg_temp.po_on_plan_b(pg_temp.po_decision(32, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(32, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(32, 1, 2)])),
+      jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(32, 2, 1), 32, 'EF cuivre DN 20')), 1, 'plan-b.pdf')))), 'ok 2', 'fixture: crossed documents');
+select is(pg_temp.po_apply('case 32 crossed documents', pg_temp.po_job(32, 2), 'append', '{}'::jsonb, null), '22023 TAKEOFF_PAGE_DECISION_INVALID',
+  'a new line never replaces another document''s part');
+select is((select detail ->> 'reason' from po_outcome where case_name = 'case 32 crossed documents'), 'ambiguous_document', 'the refusal says why');
+select is(pg_temp.po_decide(pg_temp.po_job(32, 2), jsonb_build_array(
+    pg_temp.po_decision(32, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(32, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(32, 1, 1)])),
+      jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(32, 2, 1), 32, 'EF cuivre DN 20')), 1, 'plan-a.pdf'),
+    pg_temp.po_on_plan_b(pg_temp.po_decision(32, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(32, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(32, 1, 2)])),
+      jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(32, 2, 2), 32, 'EF cuivre DN 20')), 1, 'plan-b.pdf')))), 'ok 2', 'fixture: each document its own');
+select is(pg_temp.po_apply('case 32 two documents', pg_temp.po_job(32, 2), 'append', '{}'::jsonb, null), 'ok',
+  'both documents of the line are replaced together, each by its own new run');
+select is(pg_temp.po_decide(pg_temp.po_job(33, 2), jsonb_build_array(
+    pg_temp.po_decision(33, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(33, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(33, 1, 1)])),
+      jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(33, 2, 1), 33, 'EF cuivre DN 20')), 1, 'plan-a.pdf'),
+    pg_temp.po_on_plan_b(pg_temp.po_decision(33, 'replace', null, null,
+      jsonb_build_array(pg_temp.po_ref(33, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(33, 1, 2)])),
+      '[]'::jsonb, 1, 'plan-b.pdf')))), 'ok 2', 'fixture: plan B''s part dropped');
+select is(pg_temp.po_apply('case 33 a document dropped', pg_temp.po_job(33, 2), 'append', '{}'::jsonb, null), 'ok',
+  'plan A is replaced and plan B''s part of the line dropped, as the estimator chose');
+reset role;
+select is((select jsonb_agg(jsonb_build_array(case_no, (pg_temp.po_line(case_no, 'EF cuivre DN 20')).quantity) order by case_no)
+    from generate_series(32, 33) as case_no), '[[32, 27], [33, 12]]'::jsonb,
+  'the line holds 12 + 15 m, or plan A''s 12 m alone');
 
 -- The decisions table: no direct write, other tenants see nothing and write nothing -------------------------------------
 

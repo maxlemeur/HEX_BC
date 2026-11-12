@@ -899,7 +899,10 @@ begin
     where coalesce(resolved.unit_code, 'status:' || resolved.pricing_status::text) is distinct from line.unit_key
     union all
     -- Never replace across two documents: each earlier source a pair removes is of the new line's document, and a new
-    -- line known only by its name is not paired on a row where two identified documents of that name meet.
+    -- line known only by its name is not paired on a row where two identified documents of that name meet. A pair removes
+    -- the sources its own decision (its page) updates; a pair on a decision that does not update its line is read against
+    -- every source the line loses. Codex review of 251a98a1: a length grouped over two plan files is replaced on both,
+    -- each by its own document's new run, or on one with the other's part dropped.
     select 'ambiguous_document', pair.estimate_item_id, null, null, 8
     from pg_temp._ti682_pairs as pair
     join public.takeoff_items as source on source.id = pair.takeoff_item_id and source.job_id = p_job_id
@@ -907,6 +910,8 @@ begin
     cross join lateral (select private.takeoff_line_page_identity(source.source_file_name, source.source_page,
       source.metadata -> 'source_document', source_job.preparation_snapshot #> '{preparation,sources}') as identity) as new_line
     join pg_temp._ti682_choices as choice on choice.estimate_item_id = pair.estimate_item_id and choice.action = 'update'
+      and (choice.decision_id = pair.decision_id or not exists (select 1 from pg_temp._ti682_choices as own
+        where own.decision_id = pair.decision_id and own.estimate_item_id = pair.estimate_item_id and own.action = 'update'))
     cross join lateral pg_catalog.unnest(choice.item_ids) as removed(id)
     join public.takeoff_items as earlier on earlier.id = removed.id
     join public.takeoff_jobs as earlier_job on earlier_job.id = earlier.job_id
@@ -1330,6 +1335,13 @@ begin
   -- TI-677: the version's lock (the writer's and the review's) before any lock on the job or its lines: a save of
   -- another job's line waits for the application instead of invalidating the job being applied.
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || job_version_id::text, 0));
+  -- TI-682 D (Codex reviews of 708c7fbf and 251a98a1): the version's row, after its advisory lock and before the earlier
+  -- lines are read, as the 5-argument overload takes it: an editor's save in flight (public.commit_estimate_batch locks
+  -- this row) commits before the decisions are checked, never between their check and the replacement. The decisions'
+  -- insert waits on this row too (its foreign key), and race scenario 4 holds while either does.
+  perform 1 from public.estimate_versions as version
+  where version.id = job_version_id and version.tenant_id = job_tenant_id
+  for update;
   perform set_config('app.takeoff_apply_job', 'on', true);
   perform set_config('app.takeoff_apply_atomic', 'on', true);
   perform private.assert_takeoff_single_quantity_source(p_job_id);
