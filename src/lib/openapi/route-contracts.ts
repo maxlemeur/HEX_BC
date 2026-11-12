@@ -539,7 +539,7 @@ const administrationContracts: RouteContract[] = [
       description: "Fichier unique `file` ou lot `files` (maximum 50 fichiers et 100 Mo cumules).",
       contentType: "multipart/form-data",
     },
-    success: [{ status: "201", description: "Upload intake cree." }],
+    success: [{ status: "201", description: "Résultat par fichier. Un contenu identique déjà présent ou en cours d’ajout dans cette affaire est refusé sans nouvelle copie (status rejected, rejectionReason explicite, documentId existant). Le nom seul ne définit pas un doublon. Les liens Drive gardent leur identité fournisseur." }],
   },
   {
     id: "delete-affaire",

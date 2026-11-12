@@ -338,6 +338,7 @@
     "20261112142534_product_reference_check_by_index.sql": "d5dfe577bafaf3861e7d923c8564a9e758fdff4a445c661ed79ef37943b61bf2",
     "20261112152357_purchase_line_suppliers.sql": "71d883ebdbae59f12da8d72446478eb94d7a95aa134d0d4dbe3de31859fdcc91",
     "20261112173255_material_request_quotes.sql": "dafe23748578cd3bf3cbba66a247d69761903f5ecb3a0612cf5c57e05a07680b",
-    "20261112192815_material_request_quote_files_and_message.sql": "3c50337edff1a9543ada538e859ee96bb8c645638522450a8fa89c02f201678b"
+    "20261112192815_material_request_quote_files_and_message.sql": "3c50337edff1a9543ada538e859ee96bb8c645638522450a8fa89c02f201678b",
+    "20261112212058_intake_document_content_identity.sql": "14cfe72bffce427f07cf743ead163dc06e19be12953507d721eec73c0e868aa3"
   }
 }
