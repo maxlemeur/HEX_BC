@@ -57,8 +57,8 @@ insert into po_cases (case_no, engine, dpgf) values
   (16, 2, false), (17, 3, true), (18, 3, false), (19, 3, false), (20, 3, false), (21, 3, false), (22, 3, false),
   -- The independent review's cases (23 to 28).
   (23, 3, false), (24, 3, false), (25, 3, false), (26, 3, false), (27, 3, true), (28, 3, false),
-  -- Codex review of c06cbb1b: a mapping price on a line « Fusionner » pairs.
-  (30, 3, false);
+  -- Codex review of c06cbb1b: a mapping price on a line « Fusionner » pairs, without and with a DPGF line.
+  (30, 3, false), (31, 3, true);
 grant select on po_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -184,7 +184,9 @@ insert into po_items (case_no, job_no, line_no, designation, quantity, unit, fil
   -- 28: a length applied before TI-681, never rounded (its quantity is its raw measure).
   (28, 1, 1, 'EF cuivre DN 20', 10.2, 'ml', 'plan-fictif.pdf', 1, 'A', '{}'), (28, 2, 1, 'EF cuivre DN 20', 8, 'ml', 'plan-fictif.pdf', 1, 'A', '{}'),
   -- 30: a line priced from a site offer (transport included), then a mapping rule pricing the new line on « Fusionner ».
-  (30, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (30, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}');
+  (30, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (30, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}'),
+  -- 31: the same on a version with a DPGF line (the 5-argument overload).
+  (31, 1, 1, 'WC suspendu', 4, 'u', 'plan-fictif.pdf', 1, 'A', '{}'), (31, 2, 1, 'WC suspendu', 5, 'u', 'plan-fictif.pdf', 1, 'A', '{}');
 insert into po_items (case_no, job_no, line_no, designation, quantity, unit, file_name, page, document, hypothesis, verified) values
   (15, 1, 1, 'Support mural', 8, 'u', 'plan-fictif.pdf', 1, 'A', true, false),
   (15, 2, 1, 'Support mural', 9, 'u', 'plan-fictif.pdf', 1, 'A', false, true),
@@ -346,7 +348,11 @@ values
   (current_setting('test.tenant_id')::uuid, pg_temp.po_job(2, 1), pg_temp.po_version(2), pg_temp.po_id(1),
    encode(sha256(convert_to('page-once-2-1', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes'),
   (current_setting('test.tenant_id')::uuid, pg_temp.po_job(2, 2), pg_temp.po_version(2), pg_temp.po_id(1),
-   encode(sha256(convert_to('page-once-2-2', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes');
+   encode(sha256(convert_to('page-once-2-2', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes'),
+  (current_setting('test.tenant_id')::uuid, pg_temp.po_job(31, 1), pg_temp.po_version(31), pg_temp.po_id(1),
+   encode(sha256(convert_to('page-once-31-1', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes'),
+  (current_setting('test.tenant_id')::uuid, pg_temp.po_job(31, 2), pg_temp.po_version(31), pg_temp.po_id(1),
+   encode(sha256(convert_to('page-once-31-2', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes');
 
 create or replace function pg_temp.po_dpgf_permit(p_case integer, p_job integer, p_token text)
 returns void language sql as $$
@@ -379,7 +385,8 @@ set local role authenticated;
 select is(pg_temp.po_apply('M1 ' || c.case_no, pg_temp.po_job(c.case_no, 1), case when c.case_no in (17, 27) then 'merge' else 'append' end,
     case when c.case_no = 25 then jsonb_build_object(pg_temp.po_item(25, 1, 1)::text,
       jsonb_build_object('action', 'apply_assembly', 'assembly_id', pg_temp.po_id(25900))) else '{}'::jsonb end,
-    case c.case_no when 2 then 'page-once-2-1' when 17 then 'page-once-17-1' when 27 then 'page-once-27-1' end), 'ok',
+    case c.case_no when 2 then 'page-once-2-1' when 17 then 'page-once-17-1' when 27 then 'page-once-27-1'
+      when 31 then 'page-once-31-1' end), 'ok',
   'fixture: the first takeoff of case ' || c.case_no || ' applies alone')
 from po_cases c where c.case_no <> 8;
 reset role;
@@ -417,14 +424,16 @@ begin
   perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(12)::text, true);
   update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(12, 'WC suspendu')).id;
   perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(12), '{}'::uuid[]);
-  -- Case 30: the estimator's supply price, typed from a site offer with transport included (TI-541).
-  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(30)::text, true);
-  update public.estimate_items set unit_price_ht_cents = 15000, fo_price_origin = jsonb_build_object(
-    'selection_id', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'kind', 'site', 'source_id', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-    'transport_mode', 'included', 'site', jsonb_build_object('supplier', 'Fournisseur fictif', 'offer_reference', null,
-      'offer_date', '2026-11-01', 'document', null))
-  where id = (pg_temp.po_line(30, 'WC suspendu')).id;
-  perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(30), '{}'::uuid[]);
+  -- Cases 30 and 31: the estimator's supply price, typed from a site offer with transport included (TI-541).
+  for case_no in 30..31 loop
+    perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(case_no)::text, true);
+    update public.estimate_items set unit_price_ht_cents = 15000, fo_price_origin = jsonb_build_object(
+      'selection_id', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'kind', 'site', 'source_id', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      'transport_mode', 'included', 'site', jsonb_build_object('supplier', 'Fournisseur fictif', 'offer_reference', null,
+        'offer_date', '2026-11-01', 'document', null))
+    where id = (pg_temp.po_line(case_no, 'WC suspendu')).id;
+    perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(case_no), '{}'::uuid[]);
+  end loop;
   perform set_config('miaouffrage.estimate_v3_writer', pg_temp.po_version(23)::text, true);
   update public.estimate_items set quantity = 6 where id = (pg_temp.po_line(23, 'WC suspendu')).id;
   perform public.estimate_v3_complete_entry_for_writer(pg_temp.po_version(23), '{}'::uuid[]);
@@ -447,7 +456,8 @@ $edits$;
 create temporary table po_before on commit drop as
 select item.title, to_jsonb(item) as row from public.estimate_items item
 where item.version_id = pg_temp.po_version(9) and item.item_type = 'line';
-insert into po_before select 'case 30', to_jsonb(item) from public.estimate_items item where item.id = (pg_temp.po_line(30, 'WC suspendu')).id;
+insert into po_before select 'case ' || case_no, to_jsonb(item) from public.estimate_items item
+cross join generate_series(30, 31) as case_no where item.id = (pg_temp.po_line(case_no, 'WC suspendu')).id;
 
 -- The relaunches: every second takeoff reads its page again.
 select pg_temp.po_seed(c.case_no, 2) from po_cases c;
@@ -887,24 +897,30 @@ select is((pg_temp.po_line(28, 'EF cuivre DN 20')).quantity, 8::numeric, 'the un
 -- was written on the paired line before the replacement restored it, and the supply provision trigger cleared its site
 -- origin and derived its provision again: the selling price moved. Red on c06cbb1b. No mapping price nor category is
 -- written on a line a decision replaces: every column but the quantity, the provenance and the amounts stays.
-select is(((pg_temp.po_line(30, 'WC suspendu')).fo_price_origin ->> 'kind'), 'site', 'fixture: the line is priced from a site offer');
+select is((select jsonb_agg((pg_temp.po_line(case_no, 'WC suspendu')).fo_price_origin ->> 'kind') from generate_series(30, 31) as case_no),
+  '["site", "site"]'::jsonb, 'fixture: the lines are priced from a site offer');
 set local role authenticated;
-select is(pg_temp.po_decide(pg_temp.po_job(30, 2), jsonb_build_array(pg_temp.po_decision(30, 'replace', null, null,
-    jsonb_build_array(pg_temp.po_ref(30, 'WC suspendu', 'update', null, array[pg_temp.po_item(30, 1, 1)])),
-    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(30, 2, 1), 30, 'WC suspendu'))))), 'ok 1', 'fixture: the line replaced');
-select is(pg_temp.po_apply('mapping price on a pair', pg_temp.po_job(30, 2), 'merge',
-    jsonb_build_object(pg_temp.po_item(30, 2, 1)::text, jsonb_build_object('action', 'set_price', 'unit_price_cents', 999)), null), 'ok',
-  'the replacement applies with « Fusionner » and a mapping price on the new line');
+select is(pg_temp.po_decide(pg_temp.po_job(case_no, 2), jsonb_build_array(pg_temp.po_decision(case_no, 'replace', null, null,
+    jsonb_build_array(pg_temp.po_ref(case_no, 'WC suspendu', 'update', null, array[pg_temp.po_item(case_no, 1, 1)])),
+    jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(case_no, 2, 1), case_no, 'WC suspendu')))))
+  || ' ' || pg_temp.po_apply('mapping price on a pair ' || case_no, pg_temp.po_job(case_no, 2), 'merge',
+    jsonb_build_object(pg_temp.po_item(case_no, 2, 1)::text, jsonb_build_object('action', 'set_price', 'unit_price_cents', 999)),
+    case case_no when 31 then 'page-once-31-2' end), 'ok 1 ok',
+  'case ' || case_no || ': the line replaced, applied with « Fusionner » and a mapping price on the new line'
+    || case case_no when 31 then ' (DPGF version, 5-argument overload)' else '' end)
+from generate_series(30, 31) as case_no;
 reset role;
 select is(
   (select to_jsonb(after) - array['quantity', 'h_mo', 'h_mo_atelier', 'h_mo_chantier', 'source_job_id', 'source_file_name', 'source_page',
       'source_metadata', 'updated_at', 'pu_ht_cents', 'line_total_ht_cents', 'line_tax_cents', 'line_total_ttc_cents']
-    from public.estimate_items after where after.id = (select (row ->> 'id')::uuid from po_before where title = 'case 30')),
+    from public.estimate_items after where after.id = (select (row ->> 'id')::uuid from po_before where title = 'case ' || case_no)),
   (select row - array['quantity', 'h_mo', 'h_mo_atelier', 'h_mo_chantier', 'source_job_id', 'source_file_name', 'source_page',
       'source_metadata', 'updated_at', 'pu_ht_cents', 'line_total_ht_cents', 'line_tax_cents', 'line_total_ttc_cents']
-    from po_before where title = 'case 30'),
-  'the paired line keeps its price, its site origin, its provision and every other column: no mapping price reaches it');
-select is((pg_temp.po_line(30, 'WC suspendu')).quantity, 5::numeric, 'its quantity takes the new measure');
+    from po_before where title = 'case ' || case_no),
+  'case ' || case_no || ': the paired line keeps its price, its site origin, its provision and every other column: no mapping price reaches it')
+from generate_series(30, 31) as case_no;
+select is((pg_temp.po_line(case_no, 'WC suspendu')).quantity, 5::numeric, 'case ' || case_no || ': its quantity takes the new measure')
+from generate_series(30, 31) as case_no;
 
 -- The decisions table: no direct write, other tenants see nothing and write nothing -------------------------------------
 
