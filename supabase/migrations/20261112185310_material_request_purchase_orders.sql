@@ -930,4 +930,172 @@ revoke all on function public.material_request_order_summary(uuid), public.creat
 grant execute on function public.material_request_order_summary(uuid), public.create_material_request_purchase_orders(uuid, uuid)
   to authenticated;
 
+
+-- ---------------------------------------------------------------------------
+-- An affaire with purchase orders is not deleted (purchase_orders.project_id is ON DELETE RESTRICT): the deletion of
+-- draft affaires says so, and the test-data purge never takes such an affaire, instead of failing on it every week.
+-- ---------------------------------------------------------------------------
+create or replace function public.bulk_delete_draft_affaires(
+  p_tenant_id uuid,
+  p_project_ids uuid[]
+)
+returns table (
+  project_id uuid,
+  outcome text,
+  message text
+)
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := (select auth.uid());
+  target_project_id uuid;
+  locked_project_id uuid;
+  locked_is_archived boolean;
+  delete_succeeded boolean;
+  blocking_constraint text;
+begin
+  if current_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTHENTICATION_REQUIRED';
+  end if;
+
+  if p_tenant_id is null
+    or p_project_ids is null
+    or cardinality(p_project_ids) < 1
+    or cardinality(p_project_ids) > 100
+    or array_position(p_project_ids, null) is not null
+  then
+    raise exception using errcode = '22023', message = 'INVALID_BULK_DELETE_INPUT';
+  end if;
+
+  if not coalesce(
+    (select public.has_tenant_role(
+      p_tenant_id,
+      array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+    )),
+    false
+  ) then
+    raise exception using errcode = '42501', message = 'ESTIMATE_WRITE_ROLE_REQUIRED';
+  end if;
+
+  foreach target_project_id in array p_project_ids
+  loop
+    locked_project_id := null;
+    locked_is_archived := null;
+    delete_succeeded := false;
+
+    begin
+      select p.id, p.is_archived
+        into locked_project_id, locked_is_archived
+      from public.estimate_projects p
+      where p.id = target_project_id
+        and p.tenant_id = p_tenant_id
+      for update;
+
+      if locked_project_id is null then
+        project_id := target_project_id;
+        outcome := 'not_found';
+        message := 'Affaire introuvable ou non autorisee.';
+        return next;
+        continue;
+      end if;
+
+      if locked_is_archived
+        or exists (
+          select 1
+          from public.estimate_versions v
+          where v.project_id = locked_project_id
+            and v.tenant_id = p_tenant_id
+            and v.status <> 'draft'
+        )
+      then
+        project_id := target_project_id;
+        outcome := 'not_eligible';
+        message := 'Seules les affaires dont toutes les versions sont en brouillon peuvent etre supprimees.';
+        return next;
+        continue;
+      end if;
+
+      perform set_config('app.bulk_delete_draft_affaires', 'on', true);
+      delete from public.estimate_projects p
+      where p.id = locked_project_id
+        and p.tenant_id = p_tenant_id;
+      delete_succeeded := found;
+      perform set_config('app.bulk_delete_draft_affaires', 'off', true);
+
+      if delete_succeeded then
+        project_id := target_project_id;
+        outcome := 'deleted';
+        message := null;
+      else
+        project_id := target_project_id;
+        outcome := 'failed';
+        message := 'Impossible de supprimer cette affaire.';
+      end if;
+      return next;
+    exception
+      when foreign_key_violation then
+        -- An order holds the affaire (canceled ones included), or a request line of it: the orders are kept, so the
+        -- affaire is not deleted. Read from the constraint, as the caller may not see every order.
+        perform set_config('app.bulk_delete_draft_affaires', 'off', true);
+        get stacked diagnostics blocking_constraint = constraint_name;
+        project_id := target_project_id;
+        if blocking_constraint in (
+          'purchase_orders_project_id_fkey',
+          'purchase_order_items_project_id_fkey',
+          'material_request_line_orders_line_id_fkey'
+        ) then
+          outcome := 'not_eligible';
+          message := 'Cette affaire a des bons de commande : elle ne peut pas être supprimée.';
+        else
+          raise warning 'bulk_delete_draft_affaires failed for project %: [%] %',
+            target_project_id,
+            sqlstate,
+            sqlerrm;
+          outcome := 'failed';
+          message := 'Impossible de supprimer cette affaire.';
+        end if;
+        return next;
+      when others then
+        perform set_config('app.bulk_delete_draft_affaires', 'off', true);
+        raise warning 'bulk_delete_draft_affaires failed for project %: [%] %',
+          target_project_id,
+          sqlstate,
+          sqlerrm;
+        project_id := target_project_id;
+        outcome := 'failed';
+        message := 'Impossible de supprimer cette affaire.';
+        return next;
+    end;
+  end loop;
+end;
+$$;
+
+create or replace function private.test_data_project_is_stale(p_project_id uuid, p_retention_days integer)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.estimate_projects as p
+    where p.id = p_project_id
+      and greatest(p.created_at, p.updated_at)
+        < statement_timestamp() - make_interval(days => p_retention_days)
+      and not exists (
+        select 1
+        from public.estimate_versions as v
+        where v.project_id = p.id
+          and (
+            v.status <> 'draft'
+            or v.updated_at >= statement_timestamp() - make_interval(days => p_retention_days)
+          )
+      )
+      and not exists (select 1 from public.purchase_orders as o where o.project_id = p.id)
+      and not exists (select 1 from public.purchase_order_items as i where i.project_id = p.id)
+  )
+$$;
+
 commit;

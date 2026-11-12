@@ -31,7 +31,10 @@
 -- 12. an archived supplier is ordered from without its name in the refusal;
 -- 13. a line an order that stands holds returns to draft (reopened, or by an edit of what it says), or a line whose
 --     order is canceled cannot be reopened; the summary says a director may create orders, or the owner may not;
---     a replay answers the status the drafts had, not the one they have.
+--     a replay answers the status the drafts had, not the one they have;
+-- 14. an affaire with purchase orders (canceled ones included) is deleted, or its deletion is refused without its
+--     reason, whoever made the orders; the test-data purge takes such an affaire again every week instead of skipping
+--     it, or skips an old draft affaire without orders.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
 -- red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -829,6 +832,42 @@ select is((select jsonb_agg(jsonb_build_object('kind', i->>'line_kind', 'supply_
     jsonb_build_object('kind', 'article', 'supply_type_name', 'TI691 Raccords', 'material_request_id', 'a9310000-0000-4000-8000-000000000601', 'price_per', 1),
     jsonb_build_object('kind', 'article', 'supply_type_name', null, 'material_request_id', 'a9310000-0000-4000-8000-000000000601', 'price_per', 100)),
   '11 and each line its kind, supply type, request and lot');
+
+-- ---------------------------------------------------------------------------
+-- 14. An affaire with purchase orders is not deleted: the deletion says why, the test-data purge skips it.
+-- ---------------------------------------------------------------------------
+-- Affaire 201 holds orders the engineer made; affaire 202 holds only the canceled order an admin made (section 8).
+select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000001',
+  $$select project_id, outcome, message from public.bulk_delete_draft_affaires('a9310000-0000-4000-8000-000000000101',
+      array['a9310000-0000-4000-8000-000000000201'::uuid])$$),
+  jsonb_build_array(jsonb_build_object('project_id', 'a9310000-0000-4000-8000-000000000201', 'outcome', 'not_eligible',
+    'message', 'Cette affaire a des bons de commande : elle ne peut pas être supprimée.')),
+  '14 the deletion of an affaire with orders is refused with its reason');
+select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000005',
+  $$select project_id, outcome, message from public.bulk_delete_draft_affaires('a9310000-0000-4000-8000-000000000101',
+      array['a9310000-0000-4000-8000-000000000202'::uuid])$$),
+  jsonb_build_array(jsonb_build_object('project_id', 'a9310000-0000-4000-8000-000000000202', 'outcome', 'not_eligible',
+    'message', 'Cette affaire a des bons de commande : elle ne peut pas être supprimée.')),
+  '14 and so is an affaire whose only order, canceled, was made by someone else');
+select is((select count(*)::int from public.estimate_projects
+    where id in ('a9310000-0000-4000-8000-000000000201', 'a9310000-0000-4000-8000-000000000202')),
+  2, '14 both affaires stay');
+
+-- The purge, in a dry run over this tenant listed as test data, with its affaires made older than the retention.
+insert into private.test_data_tenants (tenant_id, label) values ('a9310000-0000-4000-8000-000000000101', 'TI691 fixture');
+insert into public.estimate_projects (id, tenant_id, user_id, name, created_at, updated_at) values
+  ('a9310000-0000-4000-8000-000000000204', 'a9310000-0000-4000-8000-000000000101', 'a9310000-0000-4000-8000-000000000001',
+    'TI691 Affaire ancienne sans commande', now() - interval '30 days', now() - interval '30 days');
+set local session_replication_role = replica;
+update public.estimate_projects set created_at = now() - interval '30 days', updated_at = now() - interval '30 days'
+  where id in ('a9310000-0000-4000-8000-000000000201', 'a9310000-0000-4000-8000-000000000202');
+set local session_replication_role = origin;
+select is(
+  (select array_agg(purge.project_id order by purge.project_id)
+     from public.purge_test_tenant_drafts(true, 1000) purge
+     where purge.tenant_id = 'a9310000-0000-4000-8000-000000000101'),
+  array['a9310000-0000-4000-8000-000000000204'::uuid],
+  '14 the test-data purge skips the affaires with orders and keeps an old draft affaire without orders');
 
 select * from finish();
 rollback;
