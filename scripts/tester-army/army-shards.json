@@ -23,7 +23,7 @@
     "critical": {
       "maxShards": 5,
       "secondsPerShard": 300,
-      "workers": 2
+      "workers": 3
     },
     "full": {
       "maxShards": 6,

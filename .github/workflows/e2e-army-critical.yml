@@ -307,7 +307,7 @@ jobs:
           ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
           # Qualified for the critical journeys of the owned ephemeral stack
           # (e2e.config.ts, docs/testing/tester-army-local-development.md).
-          E2E_ARMY_WORKERS: "2"
+          E2E_ARMY_WORKERS: "3"
           # Empty for an unsharded whole-suite plan: the runner's own selection.
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
