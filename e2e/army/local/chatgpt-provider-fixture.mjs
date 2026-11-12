@@ -196,6 +196,8 @@ globalThis.fetch = async (input, init) => {
       if (outputs.length === 0) return call("lire_metre", { jobId });
       assert.equal(outputs.length, 1);
       const result = outputs[0];
+      // A refused read carries its refusal and nothing else: no line of the job reaches the model.
+      if (result.erreur) assert.deepEqual(Object.keys(result), ["erreur"], "A refused takeoff read must return no data.");
       const text = result.erreur ? `Refus : ${result.erreur}` : result.lignes.map(line => `${line.designation} : ${line.quantite} ${line.unite}`).join("; ");
       return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
     }
