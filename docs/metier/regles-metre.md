@@ -274,7 +274,7 @@ seconde fois sans décision.
   l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
   remplacer. La proposition lit la version où l'application écrit (celle du métré).
 - **En base**, sous le verrou de la version, dans la transaction de l'application
-  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112002528_takeoff_page_decisions.sql)) :
+  ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112014358_takeoff_page_decisions.sql)) :
   les décisions, enregistrées dans la transaction même de l'application, sont relues
   après tout enregistrement de l'éditeur en cours (leur insertion attend la ligne de la
   version qu'il verrouille) contre le devis tel qu'il est (une ligne supprimée ou

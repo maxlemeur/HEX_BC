@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { POST } from "@/app/api/suppliers/route";
+import { GET, POST } from "@/app/api/suppliers/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -70,6 +70,9 @@ function createSuppliersSupabase(options: {
   archiveRows?: Array<{ id: string }>;
   deleteRows?: Array<{ id: string }>;
   usageCount?: number;
+  /** Row read back after a write that affected nothing (TI-689); null = not readable. */
+  readableRow?: { id: string } | null;
+  engineersCanEditShared?: boolean;
 } = {}) {
   const inserted: unknown[] = [];
   const updated: Array<{ id: string; payload: unknown }> = [];
@@ -101,12 +104,28 @@ function createSuppliersSupabase(options: {
         };
       }
 
+      if (table === "tenant_catalogue_policies") {
+        const policyBuilder = {
+          select: vi.fn(() => policyBuilder),
+          eq: vi.fn(() => policyBuilder),
+          maybeSingle: vi.fn(async () => ({
+            data:
+              options.engineersCanEditShared === undefined
+                ? null
+                : { engineers_can_edit_shared: options.engineersCanEditShared },
+            error: null,
+          })),
+        };
+        return policyBuilder;
+      }
+
       if (table !== "suppliers") {
         throw new Error(`Unexpected table: ${table}`);
       }
 
       const listBuilder = {
         eq: vi.fn(() => listBuilder),
+        maybeSingle: vi.fn(async () => ({ data: options.readableRow ?? null, error: null })),
         order: vi.fn(async () => options.listResult ?? {
           data: [{ id: SUPPLIER_ID, ...VALID_SUPPLIER }],
           error: null,
@@ -187,6 +206,76 @@ function postRequest(body: unknown) {
 describe("/api/suppliers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("catalogue rights (TI-689)", () => {
+    it("POST lets an engineer add a supplier", async () => {
+      const { supabase, inserted } = createSuppliersSupabase({ role: "engineer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "create", item: VALID_SUPPLIER }));
+
+      expect(response.status).toBe(201);
+      expect(inserted).toHaveLength(1);
+    });
+
+    it("POST refuses a viewer before any write", async () => {
+      const { supabase, inserted, updated, deleted } = createSuppliersSupabase({ role: "viewer" });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const responses = await Promise.all([
+        POST(postRequest({ action: "create", item: VALID_SUPPLIER })),
+        POST(postRequest({ action: "update", id: SUPPLIER_ID, item: { city: "Lyon" } })),
+        POST(postRequest({ action: "delete", id: SUPPLIER_ID })),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([403, 403, 403]);
+      expect([inserted, updated, deleted]).toEqual([[], [], []]);
+    });
+
+    it("POST tells an engineer that a supplier of the shared base is not theirs to change", async () => {
+      const { supabase } = createSuppliersSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: { id: SUPPLIER_ID },
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: SUPPLIER_ID, item: { city: "Lyon" } }));
+      const body = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(JSON.stringify(body)).toContain("base commune");
+    });
+
+    it("POST keeps « introuvable » for a supplier nobody reads", async () => {
+      const { supabase } = createSuppliersSupabase({
+        role: "engineer",
+        updateResult: { data: null, error: null },
+        readableRow: null,
+      });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await POST(postRequest({ action: "update", id: SUPPLIER_ID, item: { city: "Lyon" } }));
+
+      expect(response.status).toBe(404);
+    });
+
+    it.each([
+      ["admin", undefined, { can_add: true, can_edit_shared: true }],
+      ["engineer", undefined, { can_add: true, can_edit_shared: false }],
+      ["engineer", true, { can_add: true, can_edit_shared: true }],
+      ["viewer", true, { can_add: false, can_edit_shared: false }],
+    ] as const)("GET tells a %s (setting %s) what the page may show", async (role, setting, expected) => {
+      const { supabase } = createSuppliersSupabase({ role, engineersCanEditShared: setting });
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+      const response = await GET(new Request("http://localhost/api/suppliers"));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.access).toEqual({ user_id: USER_ID, ...expected });
+    });
   });
 
   it("POST does not report success when an archive affects no row", async () => {

@@ -17317,7 +17317,7 @@
           "Catalogue"
         ],
         "summary": "Proposer une référence interne d’article",
-        "description": "Suggestion provisoire réservée aux administrateurs du catalogue. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+        "description": "Suggestion provisoire réservée aux administrateurs et aux ingénieurs, qui ajoutent des articles. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
         "responses": {
           "200": {
             "description": "Référence proposée.",
@@ -17350,7 +17350,7 @@
             }
           },
           "403": {
-            "description": "Administrateur du catalogue requis.",
+            "description": "Administrateur ou ingénieur requis.",
             "content": {
               "application/json": {
                 "schema": {
