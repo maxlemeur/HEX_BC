@@ -339,6 +339,6 @@
     "20261112152357_purchase_line_suppliers.sql": "71d883ebdbae59f12da8d72446478eb94d7a95aa134d0d4dbe3de31859fdcc91",
     "20261112173255_material_request_quotes.sql": "dafe23748578cd3bf3cbba66a247d69761903f5ecb3a0612cf5c57e05a07680b",
     "20261112192815_material_request_quote_files_and_message.sql": "3c50337edff1a9543ada538e859ee96bb8c645638522450a8fa89c02f201678b",
-    "20261112194023_assistant_threads.sql": "b637cb58e8edbb9b5c60f80e70fc570d6209116a3facabf08e2e5f789385b5ab"
+    "20261112194023_assistant_threads.sql": "36aec96f1f15ec7c67d301fb3a941003cde3a7de77160a12a2cbed845d9efbb6"
   }
 }

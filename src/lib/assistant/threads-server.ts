@@ -6,6 +6,7 @@ import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { isAssistantEnabled } from "@/lib/assistant/model";
 import type { AssistantTokenUsage } from "@/lib/assistant/model-turn";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
+import { inConversationOrder } from "@/lib/assistant/thread-order";
 import { mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/estimates/server-context";
 
@@ -17,14 +18,15 @@ export type AssistantMessage = {
 };
 
 const THREAD_COLUMNS = "id, project_id, title, updated_at";
-const MESSAGE_COLUMNS = "id, role, status, content, activity, error_code, created_at";
+const MESSAGE_COLUMNS = "id, role, reply_to, status, content, activity, error_code, created_at";
+/** The most recent messages read back; an answer whose question is older is left out with it. */
 const MESSAGES_SHOWN = 200;
 const activitySchema = z.array(z.object({ name: z.string(), activity: z.string(), ok: z.boolean() })).catch([]);
 
 type Access = Awaited<ReturnType<typeof requireAffaireProjectReadAccess>>;
 type ThreadRow = { id: string; project_id: string; title: string; updated_at: string };
 type MessageRow = {
-  id: string; role: "user" | "assistant"; status: "complete" | "interrupted" | "failed";
+  id: string; role: "user" | "assistant"; reply_to: string | null; status: "complete" | "interrupted" | "failed";
   content: string; activity: unknown; error_code: string | null; created_at: string;
 };
 
@@ -68,9 +70,10 @@ export async function createAssistantThread(projectId: string, title: string): P
 }
 
 /**
- * A conversation of the caller with its latest messages. Row security already
- * hides other members' conversations; the affaire is read again so that an
- * archived or withdrawn affaire closes its conversations.
+ * A conversation of the caller with its latest messages, each question followed
+ * by its answers. Row security already hides other members' conversations; the
+ * affaire is read again so that an archived or withdrawn affaire closes its
+ * conversations.
  */
 export async function readAssistantThread(threadId: string): Promise<Access & { thread: AssistantThread; messages: AssistantMessage[] }> {
   assertAssistantEnabled();
@@ -84,7 +87,8 @@ export async function readAssistantThread(threadId: string): Promise<Access & { 
     .eq("thread_id", threadId).eq("tenant_id", caller.tenantId).eq("user_id", caller.userId)
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(MESSAGES_SHOWN);
   if (messages.error) throw mapSupabaseError(messages.error, "Impossible de lire la conversation.");
-  return { ...access, thread: toThread(thread.data), messages: messages.data.map(toMessage).reverse() };
+  const saved = messages.data.reverse();
+  return { ...access, thread: toThread(thread.data), messages: inConversationOrder(saved).map(toMessage) };
 }
 
 export async function deleteAssistantThread(threadId: string): Promise<void> {
@@ -96,13 +100,19 @@ export async function deleteAssistantThread(threadId: string): Promise<void> {
   if (data.length === 0) throw notFound("Conversation introuvable.");
 }
 
-export async function appendAssistantMessage(context: Access["context"], input: {
-  threadId: string; role: "user" | "assistant"; status?: AssistantMessage["status"]; content: string;
+type MessageInput = {
+  threadId: string; status?: AssistantMessage["status"]; content: string;
   activity?: AssistantActivity[]; screen?: AssistantScreen | null; model?: string | null;
   tokenUsage?: AssistantTokenUsage | null; errorCode?: string | null;
-}): Promise<AssistantMessage> {
+};
+
+/** Saves a question, or an answer with the question it replies to. */
+export async function appendAssistantMessage(context: Access["context"], input: MessageInput & (
+  { role: "user"; replyTo?: never } | { role: "assistant"; replyTo: string }
+)): Promise<AssistantMessage> {
   const { data, error } = await context.supabase.from("assistant_messages").insert({
     thread_id: input.threadId, tenant_id: context.tenantId, user_id: context.userId, role: input.role,
+    reply_to: input.role === "assistant" ? input.replyTo : null,
     status: input.status ?? "complete", content: input.content, activity: input.activity ?? [],
     screen_context: input.screen ?? null, model: input.model ?? null, token_usage: input.tokenUsage ?? null,
     error_code: input.errorCode ?? null,

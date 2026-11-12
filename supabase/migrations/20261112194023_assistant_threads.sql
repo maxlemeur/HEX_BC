@@ -23,7 +23,8 @@ create index assistant_threads_project_idx on public.assistant_threads (project_
 create index assistant_threads_user_idx on public.assistant_threads (user_id);
 
 -- Messages are written once: the question when it is sent, the answer when it ends,
--- whether complete, interrupted by the member or failed.
+-- whether complete, interrupted by the member or failed. An answer names its question:
+-- two tabs can answer at once, and the conversation is read back question by question.
 create table public.assistant_messages (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default clock_timestamp(),
@@ -31,6 +32,7 @@ create table public.assistant_messages (
   tenant_id uuid not null default public.current_tenant_id() references public.tenants(id) on delete restrict,
   user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
   role text not null,
+  reply_to uuid,
   status text not null default 'complete',
   content text not null,
   -- What the assistant read to answer: [{ name, activity, ok }].
@@ -42,7 +44,12 @@ create table public.assistant_messages (
   error_code text,
   constraint assistant_messages_thread_fkey foreign key (thread_id, tenant_id, user_id)
     references public.assistant_threads(id, tenant_id, user_id) on delete cascade,
+  -- The question an answer replies to, in the same conversation.
+  constraint assistant_messages_thread_key unique (id, thread_id),
+  constraint assistant_messages_reply_fkey foreign key (reply_to, thread_id)
+    references public.assistant_messages(id, thread_id) on delete cascade,
   constraint assistant_messages_role_check check (role in ('user', 'assistant')),
+  constraint assistant_messages_reply_check check ((role = 'assistant') = (reply_to is not null)),
   constraint assistant_messages_status_check check (status in ('complete', 'interrupted', 'failed')),
   constraint assistant_messages_question_check check (role = 'assistant' or status = 'complete'),
   constraint assistant_messages_content_check
@@ -57,6 +64,7 @@ create table public.assistant_messages (
   constraint assistant_messages_error_code_check check (error_code is null or error_code ~ '^[A-Z0-9_]{1,64}$')
 );
 create index assistant_messages_thread_idx on public.assistant_messages (thread_id, created_at, id);
+create index assistant_messages_reply_idx on public.assistant_messages (reply_to, thread_id);
 create index assistant_messages_tenant_idx on public.assistant_messages (tenant_id);
 create index assistant_messages_user_idx on public.assistant_messages (user_id);
 

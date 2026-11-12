@@ -8,6 +8,7 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { prepareAssistantReply, runAssistantReply, type AssistantStreamEvent } from "@/lib/assistant/conversation";
 import type { AssistantModelRequest, CallAssistantModel } from "@/lib/assistant/loop";
 import { createAssistantModel } from "@/lib/assistant/model";
+import { inConversationOrder } from "@/lib/assistant/thread-order";
 import { appendAssistantMessage, readAssistantThread, type AssistantMessage } from "@/lib/assistant/threads-server";
 
 const context = { userId: "user-1", tenantId: "tenant-1" };
@@ -86,6 +87,56 @@ describe("assistant conversation", () => {
     await expect(prepareAssistantReply("thread-1", { content: "Et la TVA ?", retryOf: QUESTION }))
       .rejects.toMatchObject({ status: 409, code: "ASSISTANT_RETRY_STALE" });
     expect(appendAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it("saves the answer linked to the question it answers, whether new or retried", async () => {
+    const answered = async () => ({ text: "Réponse.", toolCalls: [], replayItems: [], usage });
+    threadWith([]);
+    modelAnswering(answered);
+    await reply(await prepareAssistantReply("thread-1", { content: "Total ?" }));
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({ role: "assistant", replyTo: "saved" }));
+    threadWith([message(QUESTION, "user", "Et la TVA ?"), message("m2", "assistant", "", "failed")]);
+    modelAnswering(answered);
+    await reply(await prepareAssistantReply("thread-1", { content: "Et la TVA ?", retryOf: QUESTION }));
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({ role: "assistant", replyTo: QUESTION }));
+  });
+
+  it("sends the model each earlier answer after its own question when a second tab's answer was saved first", async () => {
+    // Saved in this order: question A, question B from a second tab, answer B, then answer A.
+    const saved = [
+      { id: "qa", role: "user" as const, reply_to: null, content: "Quel est le total ?" },
+      { id: "qb", role: "user" as const, reply_to: null, content: "Quelle est la remise ?" },
+      { id: "rb", role: "assistant" as const, reply_to: "qb", content: "La remise est de 5 %." },
+      { id: "ra", role: "assistant" as const, reply_to: "qa", content: "Le total est de 100,00 €." },
+    ];
+    threadWith(inConversationOrder(saved).map((row) => message(row.id, row.role, row.content)));
+    const requests = modelAnswering(async () => ({ text: "20,00 €.", toolCalls: [], replayItems: [], usage }));
+    await reply(await prepareAssistantReply("thread-1", { content: "Et la TVA ?" }));
+    expect(requests[0]?.input).toEqual([
+      { role: "user", content: "Quel est le total ?" }, { role: "assistant", content: "Le total est de 100,00 €." },
+      { role: "user", content: "Quelle est la remise ?" }, { role: "assistant", content: "La remise est de 5 %." },
+      { role: "user", content: "Et la TVA ?" },
+    ]);
+  });
+
+  it("retries the last question with every earlier exchange in order, its own attempts left out", async () => {
+    // Question A failed, was retried, and question B was asked and answered in a second tab before the retry ended.
+    const saved = [
+      { id: "qa", role: "user" as const, reply_to: null, content: "Quel est le total ?", status: "complete" as const },
+      { id: "ra1", role: "assistant" as const, reply_to: "qa", content: "", status: "failed" as const },
+      { id: QUESTION, role: "user" as const, reply_to: null, content: "Quelle est la remise ?", status: "complete" as const },
+      { id: "rb", role: "assistant" as const, reply_to: QUESTION, content: "La remi", status: "interrupted" as const },
+      { id: "ra2", role: "assistant" as const, reply_to: "qa", content: "Le total est de 100,00 €.", status: "complete" as const },
+    ];
+    threadWith(inConversationOrder(saved).map((row) => message(row.id, row.role, row.content, row.status)));
+    const requests = modelAnswering(async () => ({ text: "5 %.", toolCalls: [], replayItems: [], usage }));
+    const prepared = await prepareAssistantReply("thread-1", { content: "Quelle est la remise ?", retryOf: QUESTION });
+    expect(prepared.history.map((entry) => entry.id)).toEqual(["qa", "ra1", "ra2"]);
+    await reply(prepared);
+    expect(requests[0]?.input).toEqual([
+      { role: "user", content: "Quel est le total ?" }, { role: "assistant", content: "Le total est de 100,00 €." },
+      { role: "user", content: "Quelle est la remise ?" },
+    ]);
   });
 
   it("keeps what was written when the provider fails mid-answer, and tells the member why", async () => {

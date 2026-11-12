@@ -137,14 +137,16 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
       signal: AbortSignal.any([interrupted, AbortSignal.timeout(TURN_TIMEOUT_MS)]),
     });
     outcome = {
-      threadId: thread.id, role: "assistant", status: "complete", content: written.trim() || result.text,
+      threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: "complete",
+      content: written.trim() || result.text,
       activity: result.tools, model: model.lastModel(), tokenUsage: result.usage,
     };
   } catch (error) {
     failure = interrupted.aborted ? null : describeFailure(error);
     // Stopped before anything was written or read: there is nothing to keep.
     outcome = !failure && !written.trim() && activity.length === 0 ? null : {
-      threadId: thread.id, role: "assistant", status: failure ? "failed" : "interrupted", content: written.trim(),
+      threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: failure ? "failed" : "interrupted",
+      content: written.trim(),
       activity, model: model?.lastModel() ?? null, errorCode: failure?.code ?? null,
     };
   }
