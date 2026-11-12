@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
 import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
+import { isSamePage, type TakeoffPageIdentity } from "@/lib/takeoff/page-contributions";
 import { surfaceBasis, type SurfaceBasis } from "@/lib/takeoff/quantity-policy";
 import { areaQuantityContexts, expectedSurfaceBasis, type AreaQuantityContext } from "@/lib/takeoff/rules/area-context";
 import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
@@ -91,6 +92,10 @@ import {
 //   an enlarged plan draws, until that length is removed from it or the line
 //   accepted (V). A rule of its own: the duplicate and the uncovered run of
 //   one line are two failures.
+// - A page measured again (TI-682, lot D): two readings of one plan page by two
+//   takeoffs are no pair. The page decision of the application (« Pages déjà au
+//   devis ») replaces or keeps the earlier measure; a line whose only copies are
+//   on its own page read again passes (ZONE_OVERLAP_SAME_PAGE).
 // - Versions: each result carries the version of its rule, which moves with
 //   its thresholds or reference table.
 
@@ -118,6 +123,8 @@ export type RulePage = {
   /** Its scale denominator, when measurable: the band of its drawing sets the smallest duplicate (minCommonLength). */
   denominator?: number | null;
   anchors: PageAnchors | null;
+  /** The plan document and page this page reads (page-contributions.ts); null or absent when unknown. */
+  identity?: TakeoffPageIdentity | null;
 };
 
 export type RuleLine = {
@@ -444,6 +451,20 @@ function readingDifferences(left: ZoneLine, right: ZoneLine, sizes: ReadonlyMap<
   return differs.length > 0 ? differs : [l !== r ? "material" : "dn"];
 }
 
+/**
+ * Two readings of one plan page by two takeoffs (TI-682, lot D): the page of page-contributions.ts, known by its plan
+ * file, its content hash or its plan reference, and its page number. A file name alone, or a page number unknown, does
+ * not prove it here: the pair would no longer be compared, and a real duplicate between two documents of one name would
+ * pass. One takeoff reading a page twice is not its own earlier measure: the page decision compares a takeoff with the
+ * others only, and Z1/Z2 stays the alarm.
+ */
+function readAgain(left: RulePage | undefined, right: RulePage | undefined) {
+  if (!left?.identity || !right?.identity || left.job_id === right.job_id) return false;
+  if (left.identity.page === null || right.identity.page === null) return false;
+  const known = ({ document, page }: TakeoffPageIdentity): TakeoffPageIdentity => ({ document: { ...document, file_name: null }, page });
+  return isSamePage(known(left.identity), known(right.identity));
+}
+
 function byText(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -586,6 +607,13 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         : [registered.transforms.get(left) as TakeoffFrameTransform, registered.transforms.get(right) as TakeoffFrameTransform];
     };
     const unregistered = new Set<string>();
+    // Of each line, the lines of its own page read again by another takeoff that draw it too (readAgain): no pair.
+    const twinsOf = new Map<string, ZoneLine[]>();
+    const twins = (left: ZoneLine, right: ZoneLine) => {
+      twinsOf.set(left.id, [...(twinsOf.get(left.id) ?? []), right]);
+      twinsOf.set(right.id, [...(twinsOf.get(right.id) ?? []), left]);
+    };
+    const again = (left: ZoneLine, right: ZoneLine) => readAgain(pages.get(left.page_key), pages.get(right.page_key));
     const sizes = new Map(levelLines.map((line) => [line.id, sizesOf(line.inputs)]));
     const overlapLine = (line: ZoneLine) => ({ id: line.id, segments: line.geometry.segments_m });
     const minimumOf = (left: string, right: string) => minCommonLength([pages.get(left)?.denominator, pages.get(right)?.denominator]);
@@ -596,7 +624,11 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         if (left.page_key === right.page_key || !sameRun(left, right, sizes)) continue;
         if (left.is_excluded && right.is_excluded) continue;
         if (!together(left.page_key, right.page_key)) {
-          // Two lines that could be one run, on pages with no common frame: « zones non recalées ».
+          // Two lines that could be one run, on pages with no common frame: « zones non recalées », unless one page read again.
+          if (again(left, right)) {
+            twins(left, right);
+            continue;
+          }
           if (!right.is_excluded) unregistered.add(left.id);
           if (!left.is_excluded) unregistered.add(right.id);
           continue;
@@ -661,10 +693,17 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       }
     }
     const byId = new Map(levelLines.map((line) => [line.id, line]));
+    // The pairs of one page read again are its twins, never a duplicate between zones (TI-682, lot D).
+    const zonePairs = pairs.filter((pair) => {
+      const [left, right] = [byId.get(pair.left) as ZoneLine, byId.get(pair.right) as ZoneLine];
+      if (!again(left, right)) return true;
+      twins(left, right);
+      return false;
+    });
     const differsOf = (line: string, other: string) => differences.get(pairKey(line, other)) ?? differences.get(pairKey(other, line));
     const reduction = (line: ZoneLine) => Math.max(0, (line.geometry.length_m ?? line.inputs.model_quantity) - line.quantity);
     const pairsOf = new Map<string, Array<{ other: ZoneLine; overlap_m: number }>>();
-    for (const pair of pairs) {
+    for (const pair of zonePairs) {
       for (const [id, other] of [[pair.left, pair.right], [pair.right, pair.left]]) {
         pairsOf.set(id, [...(pairsOf.get(id) ?? []), { other: byId.get(other) as ZoneLine, overlap_m: pair.overlap_m }]);
       }
@@ -706,7 +745,7 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
       if (root !== id) parent.set(id, root);
       return root;
     };
-    for (const pair of pairs) {
+    for (const pair of zonePairs) {
       const [leftLine, rightLine] = [byId.get(pair.left) as ZoneLine, byId.get(pair.right) as ZoneLine];
       // A line that yields to an enlarged plan is in no group: its pairs are its own to settle.
       if (leftLine.is_excluded || rightLine.is_excluded || planOf(leftLine, rightLine) !== undefined) continue;
@@ -766,6 +805,13 @@ function zoneOverlaps(lines: readonly RuleLine[], pages: ReadonlyMap<string, Rul
         continue;
       }
       const all = partnersOf(line.id);
+      if (all.length === 0 && (twinsOf.get(line.id) ?? []).some((other) => !other.is_excluded)) {
+        // Its only copies are on its own page read again by another takeoff (an excluded one counts nothing).
+        push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_SAME_PAGE",
+          `Même page de plan lue par un autre métré de la version : ce n’est pas un doublon entre zones. À l’application, « Pages déjà au devis » remplace la mesure précédente ou garde les deux.`,
+          { level }));
+        continue;
+      }
       if (all.length === 0) {
         push(results, line.id, result("zone_overlap", "pass", "ZONE_OVERLAP_NONE",
           `Aucun tronçon commun avec une autre page du niveau ${level}.`, { level }));

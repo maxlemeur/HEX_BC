@@ -50,7 +50,9 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 // that fail this rule. Applied jobs stay frozen with their results.
 // 3 (TI-684, enlarged plans of D14): a line of an overview whose copies are all on plans at a finer scale yields to
 // them. It carries the correction of what they draw of it and joins no group.
-export const ZONE_OVERLAP_VERSION = 3;
+// 4 (TI-682, lot D): two readings of one plan page by two takeoffs are no pair; a line read again passes
+// (ZONE_OVERLAP_SAME_PAGE) when that is its only copy.
+export const ZONE_OVERLAP_VERSION = 4;
 
 export const ZONE_OVERLAP = {
   /**
