@@ -221,6 +221,8 @@ export function EditableCell<TCommitValue = string>({
         onChange={(event) => {
           const next = event.target.value;
           setLocalEditingValue(next);
+          // A new draft is not the refused one: only leaving the cell announces a refusal.
+          setRefusedDraft(null);
           event.currentTarget.setCustomValidity(isValidInput && !isValidInput(next) ? NUMERIC_INPUT_ERROR : "");
           // Numeric drafts commit atomically on blur: a valid prefix of a later
           // invalid token must not enter autosave while the user is still typing.

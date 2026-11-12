@@ -108,3 +108,22 @@ it("describes a refused draft while invalid and announces each refusal once", ()
   expect(input).toHaveAccessibleDescription("Coefficient de vente");
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+// Review finding: a refusal already announced must not make a later invalid keystroke an alert.
+it("does not announce while retyping after a refusal", () => {
+  render(<DecimalDraftInput aria-label="K FO" value={1.2} emptyValue={1} onValueChange={vi.fn()} onValueCommit={vi.fn()} />);
+  const input = screen.getByRole("textbox", { name: "K FO" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: "1,2x" } });
+  fireEvent.blur(input);
+  expect(screen.getByRole("alert")).toHaveTextContent(NUMERIC_INPUT_ERROR);
+
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.change(input, { target: { value: "3x" } });
+  expect(input).toHaveAccessibleDescription(NUMERIC_INPUT_ERROR);
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  fireEvent.blur(input);
+  expect(screen.getByRole("alert")).toHaveTextContent(NUMERIC_INPUT_ERROR);
+});

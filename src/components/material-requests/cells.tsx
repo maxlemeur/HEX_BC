@@ -283,6 +283,8 @@ export function QuantityCell({
         value={failed ? failed.value : sending ? sending.value : value}
         emptyValue={0}
         parseValue={readQuantityDraft}
+        // The cell names its own reason (CellMessages), with the range the grammar alone does not know.
+        describesInvalidDraft={false}
         onValueChange={() => undefined}
         onValueCommit={(next) => void commit(next === 0 ? null : next)}
         onInput={(event) => {

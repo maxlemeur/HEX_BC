@@ -44,6 +44,11 @@ type DecimalDraftInputProps = Omit<
    * transmise à `onValueChange` et `onValueCommit`. `null` garde le brouillon visible en erreur.
    */
   parseValue?: (raw: string) => number | null;
+  /**
+   * Whether the field names the reason of a refused draft itself (aria-describedby and one
+   * announcement when the field is left). `false` when the caller already links its own reason.
+   */
+  describesInvalidDraft?: boolean;
 };
 
 export const DecimalDraftInput = forwardRef<
@@ -59,6 +64,7 @@ export const DecimalDraftInput = forwardRef<
     emptyValue,
     commitOnUnchangedBlur = true,
     parseValue = parseDecimalDraft,
+    describesInvalidDraft = true,
     ...inputProps
   },
   ref,
@@ -73,6 +79,7 @@ export const DecimalDraftInput = forwardRef<
     return raw.trim() === "" ? emptyValue ?? 0 : parseValue(raw);
   };
   const invalid = draftValue !== null && resolve(draftValue) === null;
+  const describesReason = invalid && describesInvalidDraft;
 
   return (
     <>
@@ -83,7 +90,7 @@ export const DecimalDraftInput = forwardRef<
         inputMode="decimal"
         value={draftValue ?? formatDecimalInput(value)}
         aria-invalid={invalid || inputProps["aria-invalid"]}
-        aria-describedby={describedByIds(inputProps["aria-describedby"], invalid && errorId)}
+        aria-describedby={describedByIds(inputProps["aria-describedby"], describesReason && errorId)}
         title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
         onFocus={(event) => {
           edited.current = false;
@@ -94,6 +101,8 @@ export const DecimalDraftInput = forwardRef<
           edited.current = true;
           const nextValue = event.currentTarget.value;
           setDraftValue(nextValue);
+          // A new draft is not the refused one: only leaving the field announces a refusal.
+          setRefusedDraft(null);
           const parsed = resolve(nextValue);
           event.currentTarget.setCustomValidity(parsed === null ? NUMERIC_INPUT_ERROR : "");
         }}
@@ -119,7 +128,7 @@ export const DecimalDraftInput = forwardRef<
           onValueCommit(parsed);
         }}
       />
-      {invalid ? (
+      {describesReason ? (
         <InvalidDraftReason id={errorId} refusedDraft={refusedDraft}>{NUMERIC_INPUT_ERROR}</InvalidDraftReason>
       ) : null}
     </>
