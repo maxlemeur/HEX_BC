@@ -555,8 +555,9 @@ export async function fetchMaterialRequestOrders(
   return {
     ready_line_ids: answer.ready_line_ids ?? [],
     not_ready: answer.not_ready ?? [],
-    ordered: answer.ordered ?? [],
-    orders: answer.orders ?? [],
+    // An order is linked only for who may open it (its author, an admin): the server says so for each.
+    ordered: (answer.ordered ?? []).map((entry) => ({ ...entry, can_open: entry.can_open === true })),
+    orders: (answer.orders ?? []).map((order) => ({ ...order, can_open: order.can_open === true })),
     can_create: answer.can_create === true,
   };
 }

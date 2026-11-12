@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+import { purchaseOrderStatusErrorMessage } from "@/lib/purchase-orders/status-errors";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +60,7 @@ export function PurchaseOrderStatusUpdater({
     setSaving(false);
 
     if (updateError) {
-      setError(updateError.message);
+      setError(purchaseOrderStatusErrorMessage(updateError.message));
       return;
     }
 

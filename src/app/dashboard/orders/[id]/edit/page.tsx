@@ -467,7 +467,8 @@ export default function EditOrderPage() {
       return;
     }
 
-    if (!supplierId || (!deliverySiteId && !deliveryMode)) {
+    // An order made from a request belongs to its affaire: it needs no site, even when the request named no place.
+    if (!supplierId || (!deliverySiteId && !deliveryMode && !fromRequestOrder)) {
       setFormError("Sélectionnez un fournisseur et un chantier.");
       return;
     }

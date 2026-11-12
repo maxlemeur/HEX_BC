@@ -223,6 +223,16 @@ describe("purchase order editor", () => {
     ]);
   });
 
+  it("saves a draft made from a request that named no delivery place, without asking for a site (review)", async () => {
+    const user = await openEditor({ ...FROM_REQUEST, delivery_mode: null });
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/dashboard/orders/${ORDER_ID}`));
+    expect(screen.queryByText("Sélectionnez un fournisseur et un chantier.")).not.toBeInTheDocument();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).not.toHaveProperty("deliverySiteId");
+  });
+
   it("refuses a port without its amount, and says so on its line (3)", async () => {
     const user = await openEditor(FROM_REQUEST);
 

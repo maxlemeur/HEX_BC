@@ -22,6 +22,8 @@ export type MaterialRequestOrderLine = {
   purchase_order_id: string;
   purchase_order_reference: string;
   status: string;
+  /** The caller may open the order: its author, or an admin (orders are read by them only). */
+  can_open: boolean;
 };
 
 /** Why a line that is not ordered cannot be ordered yet, in the order the office settles them. */
@@ -49,6 +51,8 @@ export type MaterialRequestOrdersSummary = {
     status: string;
     total_ht_cents: number;
     line_count: number;
+    /** The caller may open the order: its author, or an admin. */
+    can_open: boolean;
   }>;
 };
 

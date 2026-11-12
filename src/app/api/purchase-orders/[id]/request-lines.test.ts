@@ -16,6 +16,7 @@ import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "
  *  2. shipping and discount lines lose their kind on the way, keep an empty name or no unit, or carry an article;
  *  3. a price given for a lot is not passed on, or a lot other than 1, 10, 100 or 1 000 reaches the database;
  *  4. a discount larger than the order reaches the database, or is refused as an amount out of range;
+ *  4. an existing line sent without its lot (it keeps its own) is counted for 1 unit and refused as out of range;
  *  5. an order without a site must send one to be saved;
  *  6. the database's refusals of a request order (its supplier, its negative total) answer a bare 500.
  */
@@ -120,6 +121,14 @@ describe("draft edit of an order made from a material request", () => {
     ] });
     expect([answer.status, answer.body.error]).toEqual([400, "La remise dépasse le montant de la commande."]);
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("4 leaves an existing line sent without its lot to the database, instead of counting it for 1 unit (review)", async () => {
+    // 100 000 units at 250 € the 1 000 are 25 000 €; counted for 1 unit they would be 25 M€, past an order's capacity.
+    const rpc = supabaseMock();
+    const answer = await put({ expectedRevision: 1, items: [{ ...requestLine, quantity: 100_000, unitPriceCents: 25_000 }] });
+    expect(answer.status).toBe(200);
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 
   it("5 saves an order without a site when none is sent", async () => {

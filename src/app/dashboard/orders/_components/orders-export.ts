@@ -10,7 +10,10 @@ import {
   type PurchaseOrderStatus,
 } from "./orders-model";
 
-type ExportOrder = Omit<PurchaseOrderListRow, "devis_count" | "has_devis">;
+/** TI-691: an order made from a material request names its affaire (null otherwise, or when the caller cannot read it). */
+type ExportOrder = Omit<PurchaseOrderListRow, "devis_count" | "has_devis"> & {
+  project?: { id: string; name: string } | null;
+};
 
 type OrderExportSnapshot = {
   orders: ExportOrder[];
@@ -24,6 +27,7 @@ type ItemExportRow = {
   order_created_at: string;
   supplier: string;
   delivery_site: string;
+  affaire: string;
   expected_delivery_date: string | null;
   status: PurchaseOrderStatus;
   order_total_ht_cents: number;
@@ -33,12 +37,14 @@ type ItemExportRow = {
   item_unit: string;
   item_price_unit: string;
   item_unit_price_ht_cents: number | "";
+  /** The units the price is for (1, 10, 100 or 1000): the line total is quantity x price / this. */
+  item_price_per: number | "";
   item_line_total_ht_cents: number | "";
   item_line_tax_cents: number | "";
   item_line_total_ttc_cents: number | "";
 };
 
-const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
+export const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
   { key: "reference", header: "Référence" },
   {
     key: "created_at",
@@ -54,6 +60,11 @@ const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
     key: "delivery_sites",
     header: "Chantier",
     formatter: (value) => relatedName(value as PurchaseOrderListRow["delivery_sites"]),
+  },
+  {
+    key: "project",
+    header: "Affaire",
+    formatter: (value) => relatedName((value ?? null) as PurchaseOrderListRow["delivery_sites"]),
   },
   {
     key: "expected_delivery_date",
@@ -72,7 +83,7 @@ const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
   },
 ];
 
-const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
+export const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   { key: "order_reference", header: "Référence commande" },
   {
     key: "order_created_at",
@@ -81,6 +92,7 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   },
   { key: "supplier", header: "Fournisseur" },
   { key: "delivery_site", header: "Chantier" },
+  { key: "affaire", header: "Affaire" },
   {
     key: "expected_delivery_date",
     header: "Livraison prévue",
@@ -106,6 +118,7 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
     header: "P.U. HT (EUR)",
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
+  { key: "item_price_per", header: "Prix pour (quantité)" },
   {
     key: "item_line_total_ht_cents",
     header: "Total ligne HT (EUR)",
@@ -123,7 +136,7 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   },
 ];
 
-function buildItemsExportRows(
+export function buildItemsExportRows(
   orders: ExportOrder[],
   itemsByOrderId: Record<string, OrderItemRow[]>
 ): ItemExportRow[] {
@@ -133,6 +146,7 @@ function buildItemsExportRows(
       order_created_at: order.created_at,
       supplier: relatedName(order.suppliers),
       delivery_site: relatedName(order.delivery_sites),
+      affaire: relatedName(order.project ?? null),
       expected_delivery_date: order.expected_delivery_date,
       status: order.status,
       order_total_ht_cents: order.total_ht_cents,
@@ -149,6 +163,7 @@ function buildItemsExportRows(
           item_unit: "",
           item_price_unit: "",
           item_unit_price_ht_cents: "" as const,
+          item_price_per: "" as const,
           item_line_total_ht_cents: "" as const,
           item_line_tax_cents: "" as const,
           item_line_total_ttc_cents: "" as const,
@@ -164,6 +179,7 @@ function buildItemsExportRows(
       item_unit: item.unit || "Unité à confirmer",
       item_price_unit: item.price_unit || "Unité à confirmer",
       item_unit_price_ht_cents: item.unit_price_ht_cents,
+      item_price_per: item.price_per ?? 1,
       item_line_total_ht_cents: item.line_total_ht_cents,
       item_line_tax_cents: item.line_tax_cents,
       item_line_total_ttc_cents: item.line_total_ttc_cents,

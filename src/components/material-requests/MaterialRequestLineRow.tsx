@@ -286,7 +286,7 @@ function SettledLineRow(props: LineRowProps) {
               </Button>
             ) : null}
           </div>
-          {ordered ? (
+          {ordered?.can_open ? (
             <Link
               href={purchaseOrderHref(ordered.purchase_order_id)}
               className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
@@ -294,6 +294,11 @@ function SettledLineRow(props: LineRowProps) {
               <ShoppingCart aria-hidden="true" className="size-3.5 shrink-0" />
               {`Commandé : ${ordered.purchase_order_reference}`}
             </Link>
+          ) : ordered ? (
+            <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <ShoppingCart aria-hidden="true" className="size-3.5 shrink-0" />
+              {`Commandé : ${ordered.purchase_order_reference}`}
+            </span>
           ) : null}
         </td>
       </tr>

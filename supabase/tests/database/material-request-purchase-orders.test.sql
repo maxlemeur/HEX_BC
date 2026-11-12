@@ -34,7 +34,10 @@
 --     a replay answers the status the drafts had, not the one they have;
 -- 14. an affaire with purchase orders (canceled ones included) is deleted, or its deletion is refused without its
 --     reason, whoever made the orders; the test-data purge takes such an affaire again every week instead of skipping
---     it, or skips an old draft affaire without orders.
+--     it, or skips an old draft affaire without orders;
+-- 15. a canceled order is reopened with a line that changed since (reopened, validated again with another imputation,
+--     priced or supplied otherwise), or is refused once the line says again what was ordered;
+-- 16. the summary offers to open an order its reader may not open (orders are read by their author and the admins).
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
 -- red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -542,7 +545,7 @@ select is((select count(*) from private.material_request_order_receipts
 select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000001',
   $$select public.material_request_order_summary('a9310000-0000-4000-8000-000000000601') as r$$)->0->'r'->'ordered',
   (select jsonb_agg(jsonb_build_object('line_id', l.id, 'purchase_order_id', po.id, 'purchase_order_reference', po.reference,
-      'status', 'draft') order by l.position)
+      'status', 'draft', 'can_open', po.user_id = 'a9310000-0000-4000-8000-000000000001') order by l.position)
     from public.material_request_lines l join public.purchase_order_items oi on oi.material_request_line_id = l.id
     join public.purchase_orders po on po.id = oi.purchase_order_id
     where l.request_id = 'a9310000-0000-4000-8000-000000000601'),
@@ -786,7 +789,7 @@ select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000001',
 select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000006',
   $$select public.material_request_order_summary('a9310000-0000-4000-8000-000000000601') as r$$)->0->'r'->'orders',
   (select jsonb_agg(jsonb_build_object('id', po.id, 'reference', po.reference, 'supplier_name', s.name, 'status', po.status,
-      'total_ht_cents', po.total_ht_cents, 'line_count', counts.line_count) order by po.order_number)
+      'total_ht_cents', po.total_ht_cents, 'line_count', counts.line_count, 'can_open', false) order by po.order_number)
     from public.purchase_orders po join public.suppliers s on s.id = po.supplier_id
     join (values (current_setting('test.order_alpha')::uuid, 2), (current_setting('test.order_beta')::uuid, 1),
       (current_setting('test.order_beta_again')::uuid, 1)) as counts(order_id, line_count) on counts.order_id = po.id),
@@ -804,6 +807,33 @@ select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
 select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
   $$update public.material_request_lines set status = 'draft' where id = 'a9310000-0000-4000-8000-000000000708'$$),
   'ok 1', '13 a line whose order is canceled is reopened');
+-- (review) A canceled order takes its lines back only as they were ordered: a line reopened since, or validated again
+-- with another imputation, keeps it canceled; once the line says again what was ordered, it may be reopened.
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.purchase_orders set status = 'draft' where id = current_setting('test.order_other')::uuid$$),
+  '23514 MATERIAL_REQUEST_ORDER_LINES_CHANGED', '15 a canceled order does not take back a line reopened since');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.material_request_lines set imputation = 'overhead', overhead_category = 'EPI', status = 'validated'
+    where id = 'a9310000-0000-4000-8000-000000000708'$$),
+  'ok 1', '15 fixture: the line is validated again, imputed to overhead');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.purchase_orders set status = 'draft' where id = current_setting('test.order_other')::uuid$$),
+  '23514 MATERIAL_REQUEST_ORDER_LINES_CHANGED', '15 nor a line validated again with another imputation');
+select is((select status::text from public.purchase_orders where id = current_setting('test.order_other')::uuid), 'canceled',
+  '15 the order stays canceled');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.material_request_lines set imputation = 'project', overhead_category = null
+    where id = 'a9310000-0000-4000-8000-000000000708'$$),
+  'ok 1', '15 fixture: the line says again what was ordered (an edit returns it to draft)');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9310000-0000-4000-8000-000000000708'$$),
+  'ok 1', '15 fixture: and it is validated again');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.purchase_orders set status = 'draft' where id = current_setting('test.order_other')::uuid$$),
+  'ok 1', '15 then the canceled order is reopened, its line held again');
+select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
+  $$update public.purchase_orders set status = 'canceled' where id = current_setting('test.order_other')::uuid$$),
+  'ok 1', '15 fixture: and canceled again');
 select is(pg_temp.pls_run('a9310000-0000-4000-8000-000000000005',
   $$delete from public.material_requests where id = 'a9310000-0000-4000-8000-000000000602'$$),
   'ok 1', '8 a request whose orders are all canceled is deleted');
@@ -868,6 +898,35 @@ select is(
      where purge.tenant_id = 'a9310000-0000-4000-8000-000000000101'),
   array['a9310000-0000-4000-8000-000000000204'::uuid],
   '14 the test-data purge skips the affaires with orders and keeps an old draft affaire without orders');
+
+-- ---------------------------------------------------------------------------
+-- 16. Who may open the orders the summary lists: their author and the admins, as the order page reads them.
+-- ---------------------------------------------------------------------------
+create function pg_temp.summary_can_open(p_user uuid, p_part text)
+returns jsonb language sql as $fn$
+  select coalesce(jsonb_object_agg(coalesce(entry->>'id', entry->>'line_id'), entry->'can_open'), '{}'::jsonb)
+  from jsonb_array_elements(pg_temp.pls_rows(p_user,
+    $$select public.material_request_order_summary('a9310000-0000-4000-8000-000000000601') as r$$)->0->'r'->p_part) entry
+$fn$;
+select ok((select user_id from public.purchase_orders where id = current_setting('test.order_beta_again')::uuid)
+    = 'a9310000-0000-4000-8000-000000000002', '16 fixture: an admin made one of the request''s orders');
+select is(pg_temp.summary_can_open('a9310000-0000-4000-8000-000000000001', 'orders'),
+  (select jsonb_object_agg(po.id, po.user_id = 'a9310000-0000-4000-8000-000000000001')
+   from public.purchase_orders po where po.id in (
+     select oi.purchase_order_id from public.purchase_order_items oi
+     join public.material_request_lines line on line.id = oi.material_request_line_id
+     where line.request_id = 'a9310000-0000-4000-8000-000000000601')),
+  '16 the owner of the affaire may open the orders it made, not the one an admin made');
+select is(pg_temp.summary_can_open('a9310000-0000-4000-8000-000000000001', 'ordered'),
+  (select jsonb_object_agg(held.line_id, po.user_id = 'a9310000-0000-4000-8000-000000000001')
+   from private.material_request_line_orders held join public.purchase_orders po on po.id = held.purchase_order_id
+   join public.material_request_lines line on line.id = held.line_id
+   where line.request_id = 'a9310000-0000-4000-8000-000000000601'),
+  '16 and so for each ordered line');
+select is((select count(*)::int from jsonb_each(pg_temp.summary_can_open('a9310000-0000-4000-8000-000000000006', 'orders'))
+    where value <> 'false'::jsonb), 0, '16 a director opens none');
+select is((select count(*)::int from jsonb_each(pg_temp.summary_can_open('a9310000-0000-4000-8000-000000000002', 'orders'))
+    where value <> 'true'::jsonb), 0, '16 an admin opens every one');
 
 select * from finish();
 rollback;

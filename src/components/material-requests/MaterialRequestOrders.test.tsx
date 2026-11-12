@@ -98,8 +98,8 @@ const NOT_READY = [
 ];
 
 const CREATED = [
-  { id: ORDER_A, reference: "C-2026-0041", supplier_name: "Négoce Alpha", status: "draft", total_ht_cents: 27200, line_count: 2 },
-  { id: ORDER_B, reference: "C-2026-0042", supplier_name: "Comptoir Bêta", status: "draft", total_ht_cents: 850, line_count: 1 },
+  { id: ORDER_A, reference: "C-2026-0041", supplier_name: "Négoce Alpha", status: "draft", total_ht_cents: 27200, line_count: 2, can_open: true },
+  { id: ORDER_B, reference: "C-2026-0042", supplier_name: "Comptoir Bêta", status: "draft", total_ht_cents: 850, line_count: 1, can_open: true },
 ];
 
 /** POST answers the drafts it made, without their status (they are drafts). */
@@ -121,9 +121,9 @@ function summary(stage: "before" | "after") {
         ready_line_ids: [],
         not_ready: NOT_READY,
         ordered: [
-          { line_id: LINE_A, purchase_order_id: ORDER_A, purchase_order_reference: "C-2026-0041", status: "draft" },
-          { line_id: LINE_B, purchase_order_id: ORDER_B, purchase_order_reference: "C-2026-0042", status: "draft" },
-          { line_id: LINE_C, purchase_order_id: ORDER_A, purchase_order_reference: "C-2026-0041", status: "draft" },
+          { line_id: LINE_A, purchase_order_id: ORDER_A, purchase_order_reference: "C-2026-0041", status: "draft", can_open: true },
+          { line_id: LINE_B, purchase_order_id: ORDER_B, purchase_order_reference: "C-2026-0042", status: "draft", can_open: true },
+          { line_id: LINE_C, purchase_order_id: ORDER_A, purchase_order_reference: "C-2026-0041", status: "draft", can_open: true },
         ],
         orders: CREATED,
         can_create: true,
@@ -357,6 +357,29 @@ describe("purchase orders from a request", () => {
     expect(within(section()).getByText("Les bons de commande faits depuis cette demande.")).toBeVisible();
     expect(within(section()).queryByRole("button", { name: /Créer les brouillons de commande/ })).not.toBeInTheDocument();
     expect(creations()).toEqual([]);
+  });
+
+  it("names without a link an order its reader may not open: an admin made it (review)", async () => {
+    const after = summary("after");
+    const { section } = await openEditor({
+      [`GET ${BASE}`]: { data: detail(LINES) },
+      [`GET ${ORDERS}`]: {
+        data: {
+          ...after,
+          orders: after.orders.map((order) => (order.id === ORDER_B ? { ...order, can_open: false } : order)),
+          ordered: after.ordered.map((entry) => (entry.purchase_order_id === ORDER_B ? { ...entry, can_open: false } : entry)),
+        },
+      },
+    });
+
+    const list = await within(section()).findByRole("list", { name: "Bons de commande de la demande" });
+    expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
+    expect(within(list).queryByRole("link", { name: "C-2026-0042" })).not.toBeInTheDocument();
+    expect(within(list).getByText("C-2026-0042")).toBeVisible();
+    const table = screen.getByRole("region", { name: "Tableau des lignes" });
+    expect(within(table).getAllByRole("link", { name: "Commandé : C-2026-0041" })).toHaveLength(2);
+    expect(within(table).queryByRole("link", { name: "Commandé : C-2026-0042" })).not.toBeInTheDocument();
+    expect(within(table).getByText("Commandé : C-2026-0042")).toBeVisible();
   });
 
   it("reads the summary again when a line gets its price, and counts it at once (8)", async () => {

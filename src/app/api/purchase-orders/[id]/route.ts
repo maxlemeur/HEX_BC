@@ -86,9 +86,10 @@ export async function PUT(
   if (input.expectedDeliveryDate !== undefined) header.expected_delivery_date = input.expectedDeliveryDate;
   if (input.notes !== undefined) header.notes = input.notes || null;
   try {
-    // An existing line sent without its kind or lot is checked as an article for 1 unit; the database has the last
-    // word with what it keeps (PURCHASE_ORDER_TOTAL_NEGATIVE, PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE).
-    if (input.items) computeTotalsFromInputs(input.items.map((item) => ({
+    // A friendly check before the database, only when every line's lot is known: an existing line sent without its
+    // lot keeps its own (a request line priced for 1 000), which only the database reads. It has the last word either
+    // way (PURCHASE_ORDER_TOTAL_NEGATIVE, PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE).
+    if (input.items?.every((item) => !item.id || item.pricePer !== undefined)) computeTotalsFromInputs(input.items.map((item) => ({
       quantity: item.quantity, unitPriceHtCents: item.unitPriceCents, taxRateBp: item.taxRateBp,
       pricePer: item.pricePer, kind: item.lineKind,
     })));

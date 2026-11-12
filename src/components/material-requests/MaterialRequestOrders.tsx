@@ -37,12 +37,17 @@ function OrderItem({ order }: Readonly<{ order: MaterialRequestOrder }>) {
   return (
     <li className="min-w-0 space-y-1 rounded-lg border border-border bg-surface p-3">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <Link
-          href={purchaseOrderHref(order.id)}
-          className="font-mono text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
-        >
-          {order.reference}
-        </Link>
+        {order.can_open ? (
+          <Link
+            href={purchaseOrderHref(order.id)}
+            className="font-mono text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            {order.reference}
+          </Link>
+        ) : (
+          // Orders are read by their author and the admins: the others see its reference, not a page they cannot open.
+          <span className="font-mono text-sm font-semibold text-foreground">{order.reference}</span>
+        )}
         <span className="min-w-0 break-words text-sm font-medium text-foreground">{order.supplier_name}</span>
         <Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge>
       </div>
