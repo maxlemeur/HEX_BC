@@ -3,7 +3,7 @@ import type {
   TakeoffDpgfComparisonRow,
   TakeoffDpgfReviewDecision,
 } from "@/lib/takeoff/types";
-import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowRetainedQuantity, dpgfRowUnroundedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 
 import {
   DECISION_LABELS,
@@ -49,6 +49,12 @@ export function getDecisionImpactText(
     case "out_of_scope":
       return "Le métré rapproché ne sera pas appliqué à cette ligne DPGF.";
   }
+}
+
+/** TI-696: the review's note when a length's rounding moves the quantity retained, else an empty text. */
+export function retainedRoundingNote(row: TakeoffDpgfComparisonRow) {
+  const before = dpgfRowUnroundedQuantity(row);
+  return before === null ? "" : `Longueur arrondie une fois à l’unité supérieure (${formatNumber(before, 3)} avant arrondi).`;
 }
 
 /**

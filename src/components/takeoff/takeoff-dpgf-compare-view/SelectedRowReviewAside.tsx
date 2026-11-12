@@ -1,7 +1,7 @@
 "use client";
 
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
-import { dpgfRowQuantityPolicy, dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -29,6 +29,7 @@ import {
   formatConfidence,
   formatProofConfidence,
   getDecisionImpactText,
+  retainedRoundingNote,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 import { FieldLabel } from "@/components/ui/field";
 import { DpgfCompositionNote } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfCompositionNote";
@@ -196,13 +197,7 @@ export function SelectedRowReviewAside({
               <p className="mt-1 text-xs text-muted-foreground">
                 Valeur supérieure retenue. Référence DPGF et métré conservés séparément. Vérification au-delà de 1 % d’écarts cumulés sur cette ligne.
                 {selectedRow.composition ? " La ligne somme les métrés qu’elle garde : l’écart se lit sur ce total." : ""}
-                {(() => {
-                  // TI-696: a length is written rounded up once, on that total: say so when it moves the figure.
-                  const priced = dpgfRowQuantityPolicy(selectedRow)?.priced;
-                  const retained = dpgfRowRetainedQuantity(selectedRow);
-                  return priced !== undefined && retained !== null && retained !== priced
-                    ? ` Longueur arrondie une fois à l’unité supérieure (${priced.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} mesurés).` : "";
-                })()}
+                {retainedRoundingNote(selectedRow) ? ` ${retainedRoundingNote(selectedRow)}` : ""}
               </p>
               {selectedRow.composition ? <div className="mt-2"><DpgfCompositionNote row={selectedRow} /></div> : null}
             </div>

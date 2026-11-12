@@ -32,7 +32,10 @@ export function dpgfQuantityPolicy(row: Pick<TakeoffDpgfComparisonRow, "dpgf_qua
 }
 
 type ReviewedRow = Pick<TakeoffDpgfComparisonRow, "dpgf_quantity" | "takeoff_quantity" | "linked_takeoff_items" | "composition">
-  & { dpgf: Pick<TakeoffDpgfComparisonRow["dpgf"], "unit" | "description"> };
+  & { dpgf: Pick<TakeoffDpgfComparisonRow["dpgf"], "unit" | "description" | "length_factor">;
+    applied_decision?: Pick<NonNullable<TakeoffDpgfComparisonRow["applied_decision"]>, "decision"> | null };
+
+const round4 = (value: number) => Number(value.toFixed(4));
 
 /**
  * TI-696: a reconciliation row's pair on the total its DPGF line will hold, the other takeoffs it keeps and this one, as
@@ -43,12 +46,35 @@ export function dpgfRowQuantityPolicy(row: ReviewedRow) {
     protective: row.composition.earlier_protective, printed_gap: row.composition.earlier_printed_gap } : undefined);
 }
 
+/** The factor the application rounds the row's line with: the line's own unit; the DPGF source unit for an older row. */
+function rowLengthFactor(row: ReviewedRow) {
+  return row.dpgf.length_factor !== undefined ? row.dpgf.length_factor : lengthFactor({ unit_code: row.dpgf.unit, description: row.dpgf.description });
+}
+
 /**
- * TI-696: the quantity the application writes on a reconciliation row's DPGF line: the protective maximum on its total, a
- * length rounded up once on it (finalize_takeoff_lengths, private.takeoff_compose_dpgf_targets). Null while this
- * takeoff's measure cannot be compared. Every figure the review states as retained reads it.
+ * TI-696: the quantity the application writes on a reconciliation row's DPGF line, as it writes it: rounded to four
+ * decimals, a length rounded up once to the line's own unit. Fed by this takeoff (a comparable measure, not decided out
+ * of scope: feedsDpgfRow): the protective maximum on its total. Otherwise what the line keeps of the other takeoffs (the
+ * maximum with its reference), or its DPGF reference when no other takeoff feeds it. Every figure the review states as
+ * retained reads it.
  */
 export function dpgfRowRetainedQuantity(row: ReviewedRow) {
-  const policy = dpgfRowQuantityPolicy(row);
-  return policy ? roundedMeasure(policy.priced, lengthFactor({ unit_code: row.dpgf.unit, description: row.dpgf.description })) : null;
+  const factor = rowLengthFactor(row);
+  const fed = row.linked_takeoff_items.length > 0 && row.applied_decision?.decision !== "out_of_scope";
+  const policy = fed ? dpgfRowQuantityPolicy(row) : null;
+  if (policy) return roundedMeasure(round4(policy.priced), factor);
+  if (fed && row.takeoff_quantity === null && !row.composition) return null;
+  if (row.composition) {
+    return roundedMeasure(round4(Math.max(row.dpgf_quantity ?? 0, row.composition.earlier_quantity + row.composition.earlier_protective)), factor);
+  }
+  return row.dpgf_quantity;
+}
+
+/** TI-696: the value before a length's rounding, when rounding moves it (the review says so); null otherwise. */
+export function dpgfRowUnroundedQuantity(row: ReviewedRow) {
+  const retained = dpgfRowRetainedQuantity(row);
+  const policy = row.linked_takeoff_items.length > 0 && row.applied_decision?.decision !== "out_of_scope" ? dpgfRowQuantityPolicy(row) : null;
+  const before = policy ? round4(policy.priced) : row.composition
+    ? round4(Math.max(row.dpgf_quantity ?? 0, row.composition.earlier_quantity + row.composition.earlier_protective)) : null;
+  return retained !== null && before !== null && retained !== before ? before : null;
 }

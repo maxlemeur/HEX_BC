@@ -691,6 +691,7 @@ function buildRow(input: {
       source_page: input.dpgf.source_page,
       source_file_name: input.dpgf.source_file_name,
       position: input.dpgf.position,
+      ...(input.dpgf.length_factor === undefined ? {} : { length_factor: input.dpgf.length_factor }),
     },
     linked_takeoff_items: input.linkedTakeoffItems.map((item) => ({
       item_id: item.item_id,

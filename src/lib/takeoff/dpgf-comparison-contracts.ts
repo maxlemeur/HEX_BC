@@ -26,6 +26,11 @@ export const takeoffDpgfReviewDecisionSchema = z.enum(["keep_dpgf", "keep_takeof
 export const takeoffDpgfComparisonDpgfLineSchema = z.object({
   estimate_item_id: uuid, title: z.string(), description: z.string().nullable(), quantity: quantity.nullable(),
   unit: z.string().nullable(), source_page: page, source_file_name: z.string().nullable(), position: count,
+  /**
+   * TI-696: metres per unit of the estimate line's own unit when it is a length (the factor the application rounds it
+   * up with, once, on the sum), else null. Read from the line, not the DPGF source unit (`unit`), which may differ.
+   */
+  length_factor: z.number().positive().nullable().optional(),
 });
 
 export const takeoffDpgfComparisonTakeoffLineSchema = z.object({
