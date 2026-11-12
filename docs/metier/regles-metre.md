@@ -218,10 +218,13 @@ seconde fois sans décision.
   accepte. Mesuré sur les sorties du banc (trois relances, sans appel au modèle) :
   70,4 % des lignes vision et 98,6 % des lignes vectorielles sont appariées.
 - **Lignes que le nouveau métré n'a plus** : aucun choix par défaut, « Retirer du
-  devis » ou « Garder », et deux boutons qui règlent toutes les lignes en un clic.
-  La confirmation attend un choix pour chacune. Une ligne qui porte aussi d'autres
-  pages (une longueur regroupée sur deux pages) ne se retire pas : ses autres pages
-  partiraient avec elle ; elle se garde. Une ligne d'ouvrage tient sa quantité de
+  devis » ou « Garder », et deux boutons qui règlent toutes les lignes en un clic
+  quand il y en a plusieurs. La confirmation attend un choix pour chacune. Une ligne
+  qui porte aussi des pages que ce métré ne relit pas ne se retire pas : elles
+  partiraient avec elle ; elle se garde. Une ligne dont toutes les pages sont relues
+  par l'application se retire (revue Codex de 708c7fbf : lue page par page, elle ne se
+  retirait jamais). Une ligne gardée avec une page « garder les deux » ne se retire
+  pas non plus. L'écran dit pourquoi. Une ligne d'ouvrage tient sa quantité de
   l'ouvrage : elle se garde ou se retire, jamais une ligne du métré ne la remplace.
   Une section d'ouvrage n'est pas une ligne de la page.
 - **Rien remplacé** : un « remplacement » qui garde toutes les lignes précédentes
@@ -242,12 +245,39 @@ seconde fois sans décision.
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
+- **Une décision, un seul endroit** (revue Codex de 708c7fbf). La base décide par ligne
+  du devis, sur toutes les pages de l'application : une seule quantité choisie par
+  ligne, un seul retrait, une seule paire par ligne du nouveau métré. L'écran fait de
+  même ([`page-decisions.ts`](../../src/components/takeoff/takeoff-apply-wizard/page-decisions.ts)) :
+  la décision d'une page appartient à la page ; la paire, à la ligne du nouveau métré ;
+  la quantité choisie, le retrait et la part d'une page, à la ligne du devis. Ce que
+  l'écran montre, ce qu'il attend encore et les décisions envoyées se lisent d'une
+  même résolution de ce brouillon. La confirmation est rangée par ligne du devis :
+  les pages remesurées d'abord (remplacer ou garder les deux), puis chaque ligne du
+  devis une fois, avec ses pages, la quantité qu'elle gardera et ses choix, puis chaque
+  ligne du nouveau métré une fois, avec la ligne qu'elle remplace.
+- **Une ligne du nouveau métré sans page** se trouve sur chaque page où elle peut
+  être ; elle n'est proposée qu'une fois et remplace la part de chacune de ces pages
+  sur la ligne qu'elle remplace.
+- **La part d'une page sans nouvelle ligne** : une ligne mise à jour par une page qui
+  porte aussi une autre page remesurée, sans ligne nouvelle qui la remplace là,
+  demande « retirer sa part » ou « la garder ».
+- **Le contrat de l'écran avec la base** (TKD03,
+  [`page-decisions-contract.e2e.ts`](../../e2e/army/takeoff/page-decisions-contract.e2e.ts)) :
+  sur une matrice de situations (une ligne sur une page et sur deux, toutes ses pages
+  ou une seule remesurées, une ligne nouvelle sans page, une ligne disparue, une
+  quantité modifiée à la main, une version DPGF), chaque état que l'écran laisse
+  confirmer est appliqué par la vraie fonction de la base, au nom du chiffreur, puis
+  annulé : il doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit
+  être refusé.
 - **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
   l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
   remplacer. La proposition lit la version où l'application écrit (celle du métré).
 - **En base**, sous le verrou de la version, dans la transaction de l'application
   ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112002528_takeoff_page_decisions.sql)) :
-  les décisions sont relues contre le devis tel qu'il est (une ligne supprimée ou
+  les décisions, enregistrées dans la transaction même de l'application, sont relues
+  après tout enregistrement de l'éditeur en cours (leur insertion attend la ligne de la
+  version qu'il verrouille) contre le devis tel qu'il est (une ligne supprimée ou
   modifiée depuis la proposition, une décision d'une autre personne : 409, à relire),
   le remplacement s'applique, puis le filet `private.assert_takeoff_pages_once`
   vérifie que chaque contribution antérieure restante sur une page du métré est
