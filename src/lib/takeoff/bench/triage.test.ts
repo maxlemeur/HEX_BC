@@ -36,7 +36,7 @@ function truth(id: string, type: string, garder: boolean, statut = "à valider")
 function call(type: string | null, confidence: number | null, proposal: TakeoffPageTriageCall["proposal"], status: TakeoffPageTriageCall["status"] = "available"): TakeoffPageTriageCall {
   return { page: 1, status, duration_ms: 1000, render_ms: 200, usage: status === "available" ? { input_tokens: 90, output_tokens: 10, total_tokens: 100 } : null,
     request_fingerprint: "d".repeat(64), answers: { type: type ? { status: "answered", value: type, confidence } : null, level: null, zone: null },
-    proposal, reason: proposal === "review" ? "low_confidence" : null, thumbnail: { width: 1200, height: 800, bytes: 1000, blank: false }, text_chars: 10, message: null };
+    proposal, reason: proposal === "review" ? "low_confidence" : null, thumbnail: { width: 1200, height: 800, bytes: 1000, blank: false, dropped_images: 0 }, text_chars: 10, message: null };
 }
 
 function run(calls: TakeoffPageTriageCall[], stop: TakeoffPageTriageRun["stop"] = null): TakeoffPageTriageRun {
@@ -129,10 +129,12 @@ describe("bench page triage score", () => {
 
   it("computes the threshold only from pages the rule could exclude, and none above a confidence of 1", () => {
     const partial = { ...call("facade", 0.97, "review", "partial"), reason: "partial_answer" as const };
-    const blank = { ...call("coupe", 0.98, "review"), reason: "thumbnail_missing" as const, thumbnail: { width: 1200, height: 800, bytes: 4000, blank: true } };
+    const blank = { ...call("coupe", 0.98, "review"), reason: "thumbnail_missing" as const, thumbnail: { width: 1200, height: 800, bytes: 4000, blank: true, dropped_images: 0 } };
+    // TI-715: drawn, but without an embedded image too large to read.
+    const lacking = { ...call("coupe", 0.99, "review"), reason: "thumbnail_missing" as const, thumbnail: { width: 1200, height: 800, bytes: 9000, blank: false, dropped_images: 1 } };
     const certain = call("coupe", 1, "exclude");
     const score = (entry: ReturnType<typeof call>) => scoreTakeoffBenchTriage([{ ...doc("a-plan-01", "truth", truth("a-plan-01", "reseau", true)), status: "done", run: run([entry]) }]).main.required_threshold;
-    expect([score(partial), score(blank), score(certain)]).toEqual([0.8, 0.8, null]);
+    expect([score(partial), score(blank), score(lacking), score(certain)]).toEqual([0.8, 0.8, 0.8, null]);
   });
 
   it("leaves pages never run out of the kept recall", () => {

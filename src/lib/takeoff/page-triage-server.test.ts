@@ -14,7 +14,9 @@
 // - a page count that differs from the stored one is paid for, then dropped;
 // - one unreadable page stops the reading of every later page;
 // - a PDF whose every page is unreadable is saved as a proposal (second review).
-import { PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib";
+// TI-715, before its fix: a page drawn over an embedded raster above the bound
+// the reader decodes is excluded on a thumbnail that lacks that raster.
+import { concatTransformationMatrix, drawObject, PDFDocument, PDFName, popGraphicsState, pushGraphicsState, StandardFonts, rgb } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import type { OpenAiDecisionsResult } from "@/lib/ai/decisions";
@@ -74,6 +76,35 @@ describe("page triage run", () => {
     ]);
     expect(run.triage?.usage.total_tokens).toBe(10);
     expect(run.stop).toBeNull();
+  });
+
+  it("sends a thumbnail that lacks an embedded image too large to read, but never excludes its page on it (TI-715)", { timeout: 60_000 }, async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    // Declared 16 MP, above the 8 MP the reader decodes; white, 1 bit, deflated to a few kilobytes.
+    const raster = pdf.context.register(pdf.context.flateStream(new Uint8Array(500 * 4000).fill(0xff), {
+      Type: "XObject", Subtype: "Image", Width: 4000, Height: 4000, ColorSpace: "DeviceGray", BitsPerComponent: 1,
+    }));
+    for (const withRaster of [true, false]) {
+      const page = pdf.addPage([842, 595]);
+      page.drawRectangle({ x: 60, y: 60, width: 700, height: 420, borderColor: rgb(0, 0, 0.8), borderWidth: 6 });
+      if (withRaster) {
+        page.node.setXObject(PDFName.of("Im0"), raster);
+        page.pushOperators(pushGraphicsState(), concatTransformationMatrix(300, 0, 0, 200, 400, 200), drawObject("Im0"), popGraphicsState());
+      }
+      page.drawText("FACADE NORD - ELEVATION", { x: 80, y: 520, size: 18, font });
+    }
+    const seen: Array<Parameters<TakeoffPageTriageDecide>[0]> = [];
+    const run = await base(new Uint8Array(await pdf.save()), async (input) => {
+      seen.push(input);
+      return answer(input);
+    });
+    expect(seen.map((input) => [input.evidence.page, input.images?.length])).toEqual([[1, 1], [2, 1]]);
+    expect(run.calls.map((call) => [call.page, call.thumbnail?.blank, call.thumbnail?.dropped_images])).toEqual([[1, false, 1], [2, false, 0]]);
+    expect(run.triage?.pages.map((page) => [page.page, page.type, page.proposal, page.reason])).toEqual([
+      [1, "facade", "review", "thumbnail_missing"],
+      [2, "facade", "exclude", null],
+    ]);
   });
 
   it("reuses unchanged pages without a call, keeps a correction, and asks again for a failed page", async () => {
