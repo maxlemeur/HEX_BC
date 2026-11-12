@@ -2,13 +2,13 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PastePreviewRow } from "@/components/estimates/PastePreviewDialog";
-import { PastePreviewRowsTable } from "@/components/estimates/PastePreviewRowsTable";
+import { PastePreviewRowsTable, estimatePastePreviewRowHeight } from "@/components/estimates/PastePreviewRowsTable";
 
-// The real virtualizer behind the paste preview: a 430 px region with 64 px
-// rows. jsdom has no layout, so the region height and the row height are
-// stubbed; rows are measured from their layout box, not their bounding rect.
+// The real virtualizer behind the paste preview: a 430 px region whose rows
+// measure what they are estimated at. jsdom has no layout, so the region
+// height and the row height are stubbed; rows are measured from their layout
+// box, not their bounding rect.
 
-const ROW = 64;
 const COLUMNS = ["Désignation", "Quantité", "Unité"];
 
 function makeRows(count: number): PastePreviewRow[] {
@@ -20,6 +20,8 @@ function makeRows(count: number): PastePreviewRow[] {
     invalidReasons: [],
   }));
 }
+
+const ROW = estimatePastePreviewRowHeight(makeRows(1)[0]);
 
 function mountedRows(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLTableRowElement>("tbody tr:not([aria-hidden])"));

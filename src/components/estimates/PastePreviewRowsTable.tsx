@@ -26,14 +26,18 @@ export const PASTE_PREVIEW_VIRTUALIZE_FROM_ROWS = 50;
 const SCROLL_REGION_HEIGHT = 430;
 const OVERSCAN = 8;
 
-// Row height before measurement, with the fixed column widths below.
-const ROW_HEIGHT_INVALID = 120;
-const ROW_HEIGHT_WITH_NOTE = 80;
-const ROW_HEIGHT = 64;
+// Row height before measurement, with the fixed column widths below. Calibrated
+// in Chrome on the OPTIMA hydraulique workbook pasted as an Excel-faithful TSV
+// (2,161 rows) and as the generic sheet_to_csv TSV (2,164 rows, 821 invalid),
+// v2 and v3: measured means 77 px (invalid), 58-75 px (with a note), 58 px
+// (plain). The estimated total is within 10% of the measured one on all four.
+const ROW_HEIGHT_INVALID = 77;
+const ROW_HEIGHT_WITH_NOTE = 68;
+const ROW_HEIGHT = 58;
 
 // Fixed widths (rem) once virtualized: with the automatic table layout the
 // columns would follow the mounted rows and move while scrolling.
-const COLUMN_WIDTH = { toggle: 4, line: 4, source: 9, wideSource: 20, interpretation: 14, status: 7, reasons: 18 } as const;
+const COLUMN_WIDTH = { toggle: 6, line: 5, source: 9, wideSource: 20, interpretation: 14, status: 7, reasons: 18 } as const;
 
 export function estimatePastePreviewRowHeight(row: PastePreviewRow): number {
   if (row.invalidReasons.some((reason) => reason.trim().length > 0)) return ROW_HEIGHT_INVALID;

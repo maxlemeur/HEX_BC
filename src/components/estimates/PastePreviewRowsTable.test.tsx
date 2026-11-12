@@ -269,12 +269,13 @@ describe("PastePreviewRowsTable", () => {
 
   it("estimates a row's height from its data", () => {
     const [row] = makeRows(1);
-    expect(estimatePastePreviewRowHeight(row)).toBe(64);
-    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["  "] })).toBe(64);
-    expect(estimatePastePreviewRowHeight({ ...row, interpretation: [] })).toBe(64);
-    expect(estimatePastePreviewRowHeight({ ...row, interpretation: ["Unité ml"] })).toBe(80);
-    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["Quantité : Nombre invalide"] })).toBe(120);
-    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["Quantité : Nombre invalide"], interpretation: ["Unité ml"] })).toBe(120);
+    // Calibrated in Chrome (see the constants): invalid 77, with a note 68, plain 58.
+    expect(estimatePastePreviewRowHeight(row)).toBe(58);
+    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["  "] })).toBe(58);
+    expect(estimatePastePreviewRowHeight({ ...row, interpretation: [] })).toBe(58);
+    expect(estimatePastePreviewRowHeight({ ...row, interpretation: ["Unité ml"] })).toBe(68);
+    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["Quantité : Nombre invalide"] })).toBe(77);
+    expect(estimatePastePreviewRowHeight({ ...row, invalidReasons: ["Quantité : Nombre invalide"], interpretation: ["Unité ml"] })).toBe(77);
   });
 
   it("writes each note, reason and test id once", () => {
