@@ -22,6 +22,7 @@ import {
   type EstimateAssemblyDetail,
   type EstimateAssemblySummary,
 } from "@/lib/estimates/client";
+import { formatAssemblyTargetPrice } from "@/lib/estimates/assembly-target-price";
 import { formatEUR } from "@/lib/money";
 
 type AssemblyPickerProps = {
@@ -282,7 +283,7 @@ export function AssemblyPicker({
                           {assembly.itemCount} composant{assembly.itemCount > 1 ? "s" : ""}
                         </span>
                         {assembly.unit ? <span>· {assembly.unit}</span> : null}
-                        <span className="tabular-nums">· {formatCurrency(assembly.targetPriceCents)}</span>
+                        <span className="tabular-nums">· {formatAssemblyTargetPrice(assembly.targetPriceCents)}</span>
                       </span>
                     </button>
                   );
@@ -312,7 +313,7 @@ export function AssemblyPicker({
                     {[
                       { label: "Coût direct", value: formatCurrency(selectedDetail.directCostCents) },
                       { label: "Temps MO", value: `${formatHours(selectedDetail.averageTimeHours)} h` },
-                      { label: "Prix cible HT", value: formatCurrency(selectedDetail.targetPriceCents) },
+                      { label: "Prix cible HT", value: formatAssemblyTargetPrice(selectedDetail.targetPriceCents) },
                       { label: "Composants", value: String(selectedDetail.items.length) },
                     ].map((metric) => (
                       <div
@@ -393,7 +394,7 @@ export function AssemblyPicker({
                   >
                     <span className="min-w-0 truncate">
                       {selectedAssembly
-                        ? `Ajouter « ${selectedAssembly.name} » — ${formatCurrency(
+                        ? `Ajouter « ${selectedAssembly.name} » — ${formatAssemblyTargetPrice(
                             selectedAssembly.targetPriceCents
                           )}`
                         : "Ajouter l'ouvrage"}
