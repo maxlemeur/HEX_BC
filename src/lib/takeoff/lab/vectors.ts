@@ -29,13 +29,14 @@ import { readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pi
 //   keywords (pipeline.ts readVectorPage); with a « classe de calque » run of
 //   that document page, read again with the run's answers (readVectorPage's
 //   `decisions`): a Decisions class is applied, classified and measured only
-//   under classify.ts rules (network at confidence ≥ 0.8);
+//   under classify.ts rules (network at its accepted margin), a rule's class
+//   always, a « hors_liste » proposal shown with the group « à revoir »;
 // - the task runs group-decisions-server.ts classifyVectorGroups once, within
 //   what TAKEOFF_LAB_DECISIONS_MAX_TOKENS leaves (asked before each call), its
 //   images drawn by the server; the first failed or unavailable call stops it,
-//   never retried. A stop after answers (provider, ceiling or a dedicated
-//   render) is a partial configuration that keeps them, its message the stop's;
-//   an answer's probabilities come from the call whose answer is kept. Its run
+//   never retried. A stop after answers (the rules', a provider's or the
+//   ceiling's) is a partial configuration that keeps them, its message the
+//   stop's; an answer's probabilities come from the call that gave it. Its run
 //   keeps every call's normalized result (no image, no key) and one question
 //   element per asked group, so the verdicts and stats of the lab read it like
 //   any choice;
@@ -76,21 +77,26 @@ function choiceLabel(task: LabTask, value: unknown) {
 
 const StoredAnswerSchema = z.looseObject({
   group: z.string(),
-  answer: z.looseObject({ class: z.string().nullable(), confidence: z.number().nullable(), status: z.string() }),
+  answer: z.looseObject({ class: z.string().nullable(), confidence: z.number().nullable(), status: z.string(), via: z.string().optional(),
+    proposal: z.string().nullable().optional() }),
 });
 
-/** The answered classes of a « classe de calque » run, by group id (what readVectorPage applies). */
+/**
+ * The answers of a « classe de calque » run, by group id (what readVectorPage applies): Decisions' classes with their
+ * margin, the rules' classes (TI-704, `via` « rule »), and the proposals of groups left « à revoir ».
+ */
 export function decisionsOfLabRun(run: LabRun): Map<string, DecisionsAnswer> {
   const decisions = new Map<string, DecisionsAnswer>();
   for (const config of run.configs) {
     if (config.provider !== "decisions") continue;
     for (const element of config.elements) {
       const parsed = StoredAnswerSchema.safeParse(element.json);
-      if (!parsed.success) continue;
-      const { class: value, confidence, status } = parsed.data.answer;
-      if (status === "answered" && value !== null && confidence !== null && isVectorClass(value)) {
-        decisions.set(parsed.data.group, { class: value, confidence });
-      }
+      if (!parsed.success || parsed.data.answer.status !== "answered") continue;
+      const { class: value, confidence, via, proposal } = parsed.data.answer;
+      if (value === null) {
+        if (proposal) decisions.set(parsed.data.group, { class: null, confidence: null, source: "decisions", proposal });
+      } else if (isVectorClass(value) && via === "rule") decisions.set(parsed.data.group, { class: value, confidence: null, source: "rule" });
+      else if (isVectorClass(value) && confidence !== null) decisions.set(parsed.data.group, { class: value, confidence, source: "decisions" });
     }
   }
   return decisions;
@@ -127,7 +133,7 @@ export async function runVectorGroupsConfig(input: {
   /** Tokens TAKEOFF_LAB_DECISIONS_MAX_TOKENS still allows (pre-flight: at least 1). */
   remainingTokens: number;
   extract?: VectorExtract;
-  /** Tests only: a Decisions fake and fake renders (production: callOpenAiDecisions, group-sheet-server.ts). */
+  /** Tests only: a Decisions fake and a fake drawing (production: callOpenAiDecisions, group-evidence-render-server.ts). */
   decide?: GroupDecisionsDecide;
   render?: GroupDecisionsRender;
 }): Promise<VectorGroupsConfig> {
@@ -158,8 +164,8 @@ export async function runVectorGroupsConfig(input: {
   for (const [groupId, entry] of asked) {
     const index = indexOf.get(groupId) as number;
     const name = vectorGroupName(model.groups[index]);
-    // The probabilities of the call the kept answer comes from (group-decisions-server.ts): the dedicated one when it
-    // replaced the batch answer, never a failed call's nor one sent after the stop.
+    // The probabilities of the call the answer comes from (group-decisions-server.ts), never a failed call's nor one sent
+    // after the stop; a rule's class has none of its own.
     const probabilities = entry.status === "answered" && entry.probabilities ? entry.probabilities.map((option) => ({
       value: String(option.value), label: choiceLabel(task, option.value), probability: option.probability,
     })).sort((left, right) => right.probability - left.probability) : null;
@@ -168,11 +174,14 @@ export async function runVectorGroupsConfig(input: {
       confidence: entry.confidence, probabilities,
     };
     answers.push(answer);
+    const detail = answer.value_label !== null ? `${answer.value_label}${entry.via === "rule" ? " (règles)" : ""}`
+      : entry.status === "answered" ? entry.proposal ?? "À revoir"
+      : `Réponse ${entry.status === "refused" ? "refusée" : entry.status === "missing" ? "manquante" : "invalide"}`;
     elements.push({
       id: elementIdOf(input.runId, input.configId, "question", groupId), kind: "question", key: groupId, label: name,
-      detail: answer.value_label ?? `Réponse ${entry.status === "refused" ? "refusée" : entry.status === "missing" ? "manquante" : "invalide"}`,
-      source_page: page, evidence: null, schema_error: false, answer,
-      json: { group: groupId, alias: entry.alias, page, answer: { class: entry.class, confidence: entry.confidence, status: entry.status, via: entry.via },
+      detail, source_page: page, evidence: null, schema_error: false, answer,
+      json: { group: groupId, alias: entry.alias, page, answer: { class: entry.class, confidence: entry.confidence, status: entry.status, via: entry.via,
+        ...(entry.rule ? { rule: entry.rule } : {}), ...(entry.proposal ? { proposal: entry.proposal } : {}) },
         stats: groupStats(model, reading, index), keyword: keywordGuess(keywords[index]) },
     });
   }
@@ -185,7 +194,7 @@ export async function runVectorGroupsConfig(input: {
   const latency = outcome.calls_ms;
   const stop = outcome.stop;
   const incomplete = answers.some((answer) => answer.status !== "answered");
-  // A stop after answers (provider, ceiling or a dedicated render) keeps them: they are paid, applied and judged.
+  // A stop after answers (the rules', a provider's or the ceiling's) keeps them: they are applied and judged.
   const status: LabConfigResult["status"] = stop ? (answers.length > 0 ? "partial" : "failed") : incomplete ? "partial" : "ok";
   const message = stop?.message
     ?? (outcome.candidates === 0 ? (reading.mode === "raster" ? "Page raster : aucun groupe vectoriel à classer." : "Aucun groupe à classer : les mots-clés ont classé toute la page.")
@@ -242,7 +251,7 @@ export async function readLabVectorPage(input: { document: LabDocument; page: nu
     return {
       id: group.id, name: vectorGroupName(group), layer: group.layer, colors: group.colors.slice(0, 8), width: group.width, dash: group.dash,
       visible: !group.hidden, near_white: group.nearWhite, grey: group.grey,
-      class: entry.class, source: entry.source, confidence: entry.confidence, candidates: entry.candidates,
+      class: entry.class, source: entry.source, confidence: entry.confidence, candidates: entry.candidates, proposal: entry.proposal ?? null,
       keyword: keywordGuess(keywords[index]),
       length_pt: round(group.visibleLength_pt, 1),
       length_m: denominator === null ? null : round(pointsToMetres(group.visibleLength_pt, denominator), 2),
@@ -261,7 +270,7 @@ export async function readLabVectorPage(input: { document: LabDocument; page: nu
       length_pt: round(total.length_pt, 1), length_m: total.length_m === null ? null : round(total.length_m, 2) })),
     surfaces: reading.surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, polygon_m2: surface.polygon_m2, deviation: surface.deviation })),
     run: run ? { id: run.id, campaign: run.campaign, created_at: run.created_at, answers: decisions.size,
-      applied: reading.groups.filter((entry) => entry.source === "decisions").length } : null,
+      applied: reading.groups.filter((entry) => entry.source === "decisions" || entry.source === "rule").length } : null,
     timings: { extraction_ms: extraction.timings.total_ms, reading_ms: reading.timings.reading_ms },
   };
 }

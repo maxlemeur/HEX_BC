@@ -108,7 +108,11 @@ export type VectorPageDecisions = {
   calls: GroupDecisionsCall[];
   stop: GroupDecisionsStop | null;
   render: GroupDecisionsOutcome["render"];
-  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "dedicated" }>;
+  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "rule";
+    rule?: string; proposal?: string }>;
+  /** Groups never asked by reason, and candidates the rules classed (TI-704). */
+  filtered: GroupDecisionsOutcome["filtered"];
+  ruled: GroupDecisionsOutcome["ruled"];
 };
 
 /**
@@ -177,7 +181,7 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates })),
     surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
       polygon_points: surface.polygon_points, deviation: surface.deviation, method: surface.method, fill_rejected: surface.fill_rejected })),
-    // As the detection badge and the measure count them: a Decisions proposal under 0.8 is neither.
+    // As the detection badge and the measure count them: a Decisions proposal under its accepted margin is neither.
     groups_classified: groups.filter((group) => isClassified(group)).length,
     groups_network: groups.filter((group) => isMeasuredNetwork(group)).length,
     near_white_network_groups: groups.filter((group) => group.nearWhite && isNetwork(group)).length,
@@ -234,8 +238,10 @@ export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "do
 function pageDecisions(outcome: GroupDecisionsOutcome): VectorPageDecisions {
   return {
     candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out, calls: outcome.calls, stop: outcome.stop, render: outcome.render,
+    filtered: outcome.filtered, ruled: outcome.ruled,
     answers: [...outcome.answers].map(([group, answer]) => ({ alias: answer.alias, group, class: answer.class, confidence: answer.confidence,
-      status: answer.status, via: answer.via })).sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
+      status: answer.status, via: answer.via, ...(answer.rule ? { rule: answer.rule } : {}), ...(answer.proposal ? { proposal: answer.proposal } : {}) }))
+      .sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
   };
 }
 

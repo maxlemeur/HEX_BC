@@ -115,13 +115,16 @@ globalThis.fetch = async (input, init) => {
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-decisions-fixture");
     const request = JSON.parse(init.body);
     assert.equal(request.model, "gpt-6-luna");
-    // Page triage (TI-663): the evidence names the task; page 1 of the fictional sheet is a facade.
-    const content = request.input?.[0]?.content ?? [];
+    // Page triage (TI-663): the evidence names the task; page 1 of the fictional sheet is a facade. The evidence is the
+    // user's input (a developer message may come first: TI-704).
+    const content = (request.input?.find((entry) => entry.role === "user") ?? request.input?.[0])?.content ?? [];
     const evidence = content.find((part) => part.type === "input_json")?.data ?? {};
     const triage = evidence.task === "takeoff_page_triage";
-    // Vector groups (TI-662 L3c): one choice per group alias; the entry names the task and its images, others keep their shape.
-    const vectorGroups = evidence.task === "takeoff_vector_groups";
-    const images = content.filter((part) => part.type === "input_image").length;
+    // Vector groups (TI-662 L3c, TI-704 v2): one choice per group alias, each with its own image; the entry names the task
+    // and every image sent (shared and in the questions), others keep their shape.
+    const vectorGroups = request.questions.some((question) => question.type === "choice" && question.name.startsWith("groupe_"));
+    const images = content.filter((part) => part.type === "input_image").length + request.questions.reduce((total, question) =>
+      total + (Array.isArray(question.instructions) ? question.instructions.filter((part) => part.type === "input_image").length : 0), 0);
     // `fail` (TI-662 L3d, worker): the provider answers 500, so callOpenAiDecisions returns `failed`; the entry says so.
     const fail = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).fail === true;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length,
@@ -135,11 +138,11 @@ globalThis.fetch = async (input, init) => {
     }
     const answers = request.questions.map((question) => {
       if (vectorGroups && question.type === "choice" && question.name.startsWith("groupe_")) {
-        // Every group is EU at 0.8 (classified and measured at the threshold); the other choices share 0.2.
-        const others = question.choices.filter((candidate) => candidate.value !== "EU");
-        assert.equal(others.length, question.choices.length - 1, "A vector group question must offer EU.");
+        // Every group is EU at 0.9, « fond » at 0.1: a margin of 0.8 (classified and measured from 0.5).
+        assert.ok(question.choices.some((candidate) => candidate.value === "EU") && question.choices.some((candidate) => candidate.value === "fond"),
+          "A vector group question must offer EU and fond.");
         return { name: question.name, type: "choice", choice: "EU", confidence: 0.8,
-          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.8 : 0.2 / others.length })) };
+          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.9 : candidate.value === "fond" ? 0.1 : 0 })) };
       }
       if (question.type === "choice" && question.name.startsWith("page_")) {
         const facade = /FA[ÇC]ADE/i.test(String(evidence.page_text ?? ""));

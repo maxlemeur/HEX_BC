@@ -291,36 +291,38 @@ describe("takeoff bench vector comparison", () => {
 });
 
 describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
-  const call = (kind: "batch" | "dedicated", latency: number, total: number | null, status: "available" | "failed" = "available") => ({
-    kind, questions: kind === "batch" ? 36 : 1, status, latency_ms: latency, render_ms: 50,
+  const call = (latency: number, total: number | null, status: "available" | "failed" = "available") => ({
+    kind: "batch" as const, questions: 20, status, latency_ms: latency, render_ms: null,
     usage: total === null ? null : { input_tokens: total - 100, output_tokens: 100, total_tokens: total },
   });
   const decisions = (calls: VectorPageDecisions["calls"], stop: VectorPageDecisions["stop"] = null): VectorPageDecisions => ({
-    candidates: 40, eligible: 45, left_out: 5, calls, stop, render: { legend_ms: 400, sheets_ms: [100, 300] },
+    candidates: 40, eligible: 45, left_out: 5, calls, stop, render: { page_ms: 400, legends_ms: [50], groups_ms: [100, 300], dropped_images: 0 },
+    filtered: { grey: 3 }, ruled: { same_colour: 1, band: 0, propagated: 0 },
     answers: [
       { alias: "groupe_01", group: "oc:FICTIF_SECRET_LAYER", class: "EF", confidence: 0.9, status: "answered", via: "batch" },
-      { alias: "groupe_02", group: "c:#123456|w:0.5|d:", class: "EU", confidence: 0.6, status: "answered", via: "dedicated" },
+      { alias: "groupe_02", group: "c:#123456|w:0.5|d:", class: "EU", confidence: 0.4, status: "answered", via: "batch" },
       { alias: "groupe_03", group: "c:#654321|w:0.5|d:", class: null, confidence: null, status: "refused", via: "batch" },
+      { alias: "groupe_04", group: "c:#abcdef|w:0.5|d:", class: "CHW", confidence: null, status: "answered", via: "rule", rule: "same_colour" },
     ],
   });
   const passes: VectorBenchPass[] = [{ pass: 1, documents: [
     { id: "a-plan-01", pages: [
       { page: 1, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
-        decisions: decisions([call("batch", 1000, 5000), call("dedicated", 2000, 1500), call("dedicated", 4000, 1500)]) },
+        decisions: decisions([call(1000, 5000), call(2000, 1500), call(4000, 1500)]) },
       { page: 2, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
-        decisions: decisions([call("batch", 3000, null, "failed")], { reason: "call_failed", message: "Fictional failure." }) },
+        decisions: decisions([call(3000, null, "failed")], { reason: "call_failed", message: "Fictional failure." }) },
     ] },
   ] }];
 
-  it("sums calls by kind, tokens of the calls with usage, latency of calls and renders apart, and the stops", () => {
+  it("sums calls, tokens of the calls with usage, latency of calls and drawings apart, the rules' classes apart, and the stops", () => {
     const [document] = vectorDecisionsSummary(passes);
     expect(document).toMatchObject({
-      document: "a-plan-01", calls: { batch: 2, dedicated: 2, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
+      document: "a-plan-01", calls: { batch: 4, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
       latency_ms: { p50: 2000, p95: 4000 }, candidates: 80, left_out: 10,
-      answers: { classified: 2, proposals: 2, review: 76 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
+      answers: { ruled: 2, classified: 2, proposals: 2, review: 74 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
     });
-    // Renders: the legend and the sheets of each page, never the calls.
-    expect(document.render_ms.raw).toEqual([400, 100, 300, 400, 100, 300]);
+    // Drawings: the page's one analysis, its legend blocks and groups, never the calls.
+    expect(document.render_ms.raw).toEqual([400, 50, 100, 300, 400, 50, 100, 300]);
   });
 
   it("counts « autre » and every candidate left unanswered as to review (Codex review of the PR)", () => {
@@ -328,12 +330,12 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
       { page: 1, status: "ok" as const, error: null, reading: null, raster_items_from_baseline: null, decisions }] }] }];
     const autre = { alias: "groupe_01", group: "c:#123456|w:0.5|d:", class: "autre" as const, confidence: 0.95, status: "answered" as const, via: "batch" as const };
     // Four candidates: one answered « autre » at 0.95, three never asked (the budget refused the next call).
-    const [stopped] = vectorDecisionsSummary(page({ ...decisions([call("batch", 1000, 5000)], { reason: "budget_reached", message: "Fictional." }),
+    const [stopped] = vectorDecisionsSummary(page({ ...decisions([call(1000, 5000)], { reason: "budget_reached", message: "Fictional." }),
       candidates: 4, answers: [autre] }));
-    expect(stopped.answers).toEqual({ classified: 0, proposals: 0, review: 4 });
+    expect(stopped.answers).toEqual({ ruled: 0, classified: 0, proposals: 0, review: 4 });
     // No call at all (the images could not be drawn): every candidate stays to review.
     const [undrawn] = vectorDecisionsSummary(page({ ...decisions([]), candidates: 3, answers: [] }));
-    expect(undrawn.answers).toEqual({ classified: 0, proposals: 0, review: 3 });
+    expect(undrawn.answers).toEqual({ ruled: 0, classified: 0, proposals: 0, review: 3 });
   });
 
   it("totals the Decisions of the whole run across documents, calls and renders of every page (review of the PR)", () => {
@@ -341,20 +343,21 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     expect(vectorDecisionsSummary(two)).toHaveLength(2);
     const total = vectorDecisionsTotal(two);
     expect(total).toMatchObject({
-      document: null, pages: 4, calls: { batch: 4, dedicated: 4, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
-      candidates: 160, left_out: 20, answers: { classified: 4, proposals: 4, review: 152 },
+      document: null, pages: 4, calls: { batch: 8, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
+      candidates: 160, left_out: 20, answers: { ruled: 4, classified: 4, proposals: 4, review: 148 },
     });
     expect(total?.latency_ms.raw).toHaveLength(8);
-    expect(total?.render_ms.raw).toHaveLength(12);
+    expect(total?.render_ms.raw).toHaveLength(16);
     expect(vectorDecisionsTotal([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }])).toBeNull();
-    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 4 \/ 4 \|/);
+    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 8 \|/);
   });
 
   it("prints the Decisions section with the budget, never a group id, colour or layer", () => {
     const budget = { max_tokens: 100_000, spent_tokens: 8000, calls: 4, calls_without_usage: 1, refused_starts: 0, largest_call_tokens: 5000 };
     const markdown = renderVectorSections(passes, null, { budget }).join("\n");
     expect(markdown).toContain("## Decisions");
-    expect(markdown).toContain("2 / 2");
+    expect(markdown).toContain("Classes (règles / Decisions ≥ 0,5 / < 0,5 / à revoir)");
+    expect(markdown).toContain("2 / 2 / 2 / 74");
     expect(markdown).toContain("8000 jetons sur 100000");
     expect(markdown).toContain("call_failed");
     for (const secret of ["FICTIF_SECRET_LAYER", "#123456", "#654321", "oc:"]) expect(markdown).not.toContain(secret);

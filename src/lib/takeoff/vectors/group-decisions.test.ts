@@ -1,25 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { OpenAiDecisionAnswer } from "@/lib/ai/decisions";
-import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
-import {
-  aliasOf,
-  decisionBatches,
-  GROUP_DECISIONS_LIMITS,
-  groupEvidence,
-  groupQuestions,
-  needsDedicated,
-  nearestLabelTexts,
-  readGroupAnswers,
-  selectDecisionCandidates,
-  type DecisionCandidate,
-} from "@/lib/takeoff/vectors/group-decisions";
-import type { PageModel } from "@/lib/takeoff/vectors/page-model";
+import { decisionBatches, GROUP_DECISIONS_LIMITS, selectDecisionCandidates } from "@/lib/takeoff/vectors/group-decisions";
 import { readAirDuctLegend } from "@/lib/takeoff/vectors/legend";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
-import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabulary";
+import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 
 // Ways the Decisions batches of vector groups (TI-662 L3c, group-decisions.ts)
 // could misreport a page or break the call, written before the code. Every
@@ -32,26 +18,9 @@ import { OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabular
 // - the 0.1 % share is taken of the stroke length with its near-white strokes
 //   (the architecture background), so a group of 0.13 % of the visible
 //   strokes is left out; or a group of 0.08 % is sent;
-// - candidates are not longest first, or more than 36 × 10 are kept without
-//   counting the left-out tail (which stays « à revoir »).
-// Questions:
-// - a question is named by its group id (« c:#ff0000|w:0.5|d:6,3@0 » can pass
-//   160 characters and Decisions refuses the call), aliases repeat across
-//   batches or are not in sheet order, so an answer lands on another group;
-// - a grey group is offered a network (TI-658: the background is never a
-//   network); a choice misses a network code or its label, or repeats a value;
-// - a batch holds more than 36 questions.
-// Evidence:
-// - long labels or layer names push the evidence past 256 KiB and the call
-//   throws before sending (callOpenAiDecisions refuses it); or the trim drops
-//   a group's alias, so the model cannot tell which tile it answers for;
-// - a length in metres is given on a page whose scale is not measurable; the
-//   bbox is not in page fractions; the share is not of the visible length;
-// - the nearest labels are not the 3 nearest, or include the legend's own codes.
-// Answers:
-// - an answer naming a network for a grey group, or a value outside the
-//   choices, is kept; a refused or missing answer gets a class;
-// - a confidence of exactly 0.5 is asked again, or one under it is not.
+// - candidates are not longest first, or more than 360 are kept without
+//   counting the left-out tail (which stays « à revoir »); a call holds more
+//   than 20 questions (TI-704: the v2 questions, group-evidence.test.ts).
 // Candidate filter (TI-704, written before the code): on the development plans,
 // 135 of the 171 groups sent could never be a network, at 0 networks found.
 // - a grey or black group (background, frames, insulation hatches drawn in
@@ -160,13 +129,7 @@ function prepared(extraction: VectorPageExtraction, correspondences?: ReadonlyMa
   return { model, reading };
 }
 
-/** Candidates built by hand, for the groups the selection no longer sends (a grey group) but the questions still guard. */
-function handCandidates(model: PageModel, groups: readonly number[]): DecisionCandidate[] {
-  return groups.map((group, rank) => ({ alias: aliasOf(rank + 1), group, id: model.groups[group].id,
-    visibleLength_pt: model.groups[group].visibleLength_pt, share: model.groups[group].visibleLength_pt / model.visibleLength_pt }));
-}
-
-function groupIndex(model: PageModel, color: string, width = 0.5) {
+function groupIndex(model: ReturnType<typeof buildPageModel>, color: string, width = 0.5) {
   const index = model.groups.findIndex((group) => group.key.color === color && group.key.width === width && group.layer === null);
   if (index < 0) throw new Error(`no group ${color} ${width}`);
   return index;
@@ -201,125 +164,23 @@ describe("Decisions candidates (group-decisions.ts selectDecisionCandidates)", (
     const { model, reading } = prepared(page(strokes, [], { layers }));
     expect(selectDecisionCandidates(model, reading).candidates.map((candidate) => candidate.id)).toEqual(["oc:1R"]);
     const raster = prepared(page(strokes, [], { layers, imageCoverage: 0.95 }));
-    expect(selectDecisionCandidates(raster.model, raster.reading)).toEqual({ candidates: [], eligible: 0, left_out: 0, filtered: [] });
+    expect(selectDecisionCandidates(raster.model, raster.reading)).toEqual({ candidates: [], eligible: 0, left_out: 0, filtered: [], unclassed: [] });
   });
 
-  it("keeps at most 36 × 10 groups and counts the tail left out", () => {
+  it("keeps at most 360 candidates for the rules and Decisions, counts the tail left out, and asks them 20 per call (TI-704)", () => {
     // 400 magenta groups told apart by their width, the first the longest.
     const strokes = Array.from({ length: 400 }, (_, index) => line(MAGENTA, 100, 1 + 2 * index, 1100 - index, 1 + 2 * index, { width: 0.01 * (index + 1) }));
     const { model, reading } = prepared({ ...page(strokes), height: 900 });
     const selection = selectDecisionCandidates(model, reading);
-    expect(GROUP_DECISIONS_LIMITS.batchSize * GROUP_DECISIONS_LIMITS.maxBatchCalls).toBe(360);
+    expect(GROUP_DECISIONS_LIMITS.maxCandidates).toBe(360);
     expect(selection.candidates).toHaveLength(360);
     expect(selection).toMatchObject({ eligible: 400, left_out: 40 });
+    expect(selection.unclassed).toHaveLength(400);
     expect(model.groups[selection.candidates[0].group].key.width).toBe(0.01);
     expect(selection.candidates[359].alias).toBe("groupe_360");
     const batches = decisionBatches(selection.candidates);
-    expect(batches.map((batch) => batch.length)).toEqual(Array.from({ length: 10 }, () => 36));
+    expect(batches.map((batch) => batch.length)).toEqual(Array.from({ length: 18 }, () => 20));
     expect(new Set(selection.candidates.map((candidate) => candidate.alias)).size).toBe(360);
-  });
-});
-
-describe("Decisions questions and evidence (group-decisions.ts)", () => {
-  const longDash = Array.from({ length: 60 }, (_, index) => String(index + 1)).join(",") + "@0";
-
-  it("names each question by its alias, offers every class with its label, and a grey group no network", () => {
-    const { model } = prepared(page([...long(MAGENTA, 300, 600, { dash: longDash }), ...long(GREY, 400, 500, { width: 1 })]));
-    // The grey group is never sent (TI-704); its questions still offer no network if it ever were.
-    const candidates = handCandidates(model, [0, 1]);
-    expect(candidates[0].id.length).toBeGreaterThan(160);
-    const questions = groupQuestions(model, candidates, "batch");
-    expect(questions.map((question) => question.name)).toEqual(["groupe_01", "groupe_02"]);
-    const [colour, grey] = questions;
-    if (colour.type !== "choice" || grey.type !== "choice") throw new Error("choice questions expected");
-    expect(colour.choices.map((choice) => choice.value)).toEqual([...NETWORK_CODES, ...OTHER_CLASSES]);
-    expect(colour.choices.find((choice) => choice.value === "EU")?.description).toContain("Eaux usées");
-    expect(new Set(colour.choices.map((choice) => choice.value)).size).toBe(colour.choices.length);
-    expect(grey.choices.map((choice) => choice.value)).toEqual([...OTHER_CLASSES]);
-    expect(questions.every((question) => question.instructions.includes(question.name))).toBe(true);
-  });
-
-  it("keeps the evidence under 256 KiB with long labels, and every alias when trimmed harder", () => {
-    // 36 groups, each with 3 labels of 3 000 characters within 10 pt.
-    const strokes: Stroke[] = [];
-    const texts: VectorText[] = [];
-    for (let index = 0; index < 36; index += 1) {
-      const y = 20 + 22 * index;
-      strokes.push(line(MAGENTA, 100, y, 1000 - index, y, { width: 0.1 * (index + 1) }));
-      for (let label = 0; label < 3; label += 1) texts.push({ ...text(`EF ${"x".repeat(3000)} DN 22`, 150 + 250 * label, y - 4, 2), width: 200 });
-    }
-    const { model, reading } = prepared(page(strokes, texts));
-    const { candidates } = selectDecisionCandidates(model, reading);
-    expect(candidates).toHaveLength(36);
-    const labels = nearestLabelTexts(model, reading, candidates);
-    const evidence = groupEvidence({ model, reading, candidates, labels, call: "batch", legendImage: "page_thumbnail" });
-    expect(Buffer.byteLength(JSON.stringify(evidence), "utf8")).toBeLessThanOrEqual(256 * 1024);
-    const small = groupEvidence({ model, reading, candidates, labels, call: "batch", legendImage: "page_thumbnail", maxBytes: 6_000 });
-    expect(Buffer.byteLength(JSON.stringify(small), "utf8")).toBeLessThanOrEqual(6_000);
-    expect((small.groups as Array<{ alias: string }>).map((group) => group.alias)).toEqual(candidates.map((candidate) => candidate.alias));
-  });
-
-  it("describes each group in page fractions and metres only when the scale is measurable, with its 3 nearest labels", () => {
-    const layers = [{ id: "1R", name: "FICTIF_XYZ_RESEAU" }];
-    const strokes = [line(MAGENTA, 119.055, 84.189, 595.275, 84.189, { layer: "1R" }), line(MAGENTA, 595.275, 84.189, 595.275, 420.945, { layer: "1R" })];
-    const texts = [text("EF DN 20", 300, 80), text("EF DN 25", 300, 70), text("EF DN 32", 300, 60), text("EF DN 40", 300, 50), text("Échelle 1/50", 1000, 780, 5)];
-    const extraction = page(strokes, texts, { layers });
-    const { model, reading } = prepared(extraction);
-    const { candidates } = selectDecisionCandidates(model, reading);
-    const labels = nearestLabelTexts(model, reading, candidates);
-    const evidence = groupEvidence({ model, reading, candidates, labels, call: "dedicated", legendImage: "page_thumbnail" });
-    const [group] = evidence.groups as Array<Record<string, unknown>>;
-    expect(group).toMatchObject({
-      alias: "groupe_01", layer: "FICTIF_XYZ_RESEAU", colors: [MAGENTA], width: 0.5, dash: null, paths: 2, segments: 2, closed: 0,
-      length_pt: expect.closeTo(476.22 + 336.756, 1), length_m: expect.closeTo((476.22 + 336.756) * (25.4 / 72) * 50 / 1000, 2), share: 1,
-      labels: ["EF DN 20", "EF DN 25", "EF DN 32"],
-    });
-    expect(group.bbox).toEqual([expect.closeTo(0.1, 3), expect.closeTo(0.1, 3), expect.closeTo(0.5, 3), expect.closeTo(0.5, 3)]);
-    expect(evidence).toMatchObject({ task: "takeoff_vector_groups", call: "dedicated", page: { mode: "layers", scale: { denominator: 50 } } });
-    // Without a measurable scale (no cartouche, no calibration), no metres.
-    const unscaled = readVectorPage(page(strokes, texts.slice(0, 4), { layers }), { clock: () => 0 });
-    const plain = groupEvidence({ model, reading: unscaled, candidates, labels, call: "batch", legendImage: "page_thumbnail" });
-    expect((plain.groups as Array<Record<string, unknown>>)[0].length_m).toBeNull();
-  });
-
-  it("gives the legend entries and leaves the legend's own codes out of the nearest labels", () => {
-    const strokes = [...LEGEND.flatMap((row) => row.strokes), line(MAGENTA, 40, 140, 400, 140)];
-    const texts = [...LEGEND.flatMap((row) => row.texts), text("EU DN 100", 200, 136)];
-    const { model, reading } = prepared(page(strokes, texts));
-    const { candidates } = selectDecisionCandidates(model, reading);
-    const labels = nearestLabelTexts(model, reading, candidates);
-    expect(labels.get(candidates[0].id)).toEqual(["EU DN 100"]);
-    const evidence = groupEvidence({ model, reading, candidates, labels, call: "batch", legendImage: "legend_crop" });
-    expect(evidence.legend).toEqual([{ code: "EF", colors: [BLUE] }, { code: "ECS", colors: [RED] }, { code: "CS", colors: [RED] }]);
-  });
-});
-
-describe("Decisions answers (group-decisions.ts readGroupAnswers)", () => {
-  it("keeps only answered classes among the group's choices, never a network for a grey group", () => {
-    const { model } = prepared(page([...long(MAGENTA, 300, 900), ...long(GREY, 400, 800, { width: 1 }), ...long(GREEN, 500, 700),
-      ...long(TEAL, 600, 600)]));
-    // By hand: the selection no longer sends the grey group (TI-704), the answers still refuse it a network.
-    const candidates = handCandidates(model, [0, 1, 2, 3]);
-    const answer = (name: string, status: OpenAiDecisionAnswer["status"], value: string | null, confidence: number | null): OpenAiDecisionAnswer =>
-      ({ name, type: "choice", status, value, confidence });
-    const answers = readGroupAnswers(model, candidates, [
-      answer("groupe_01", "answered", "EU", 0.9), answer("groupe_02", "answered", "EU", 0.99), answer("groupe_03", "refused", null, null),
-    ]);
-    expect(answers.get(candidates[0].id)).toEqual({ class: "EU", confidence: 0.9, status: "answered" });
-    expect(answers.get(candidates[1].id)).toEqual({ class: null, confidence: null, status: "invalid" });
-    expect(answers.get(candidates[2].id)).toEqual({ class: null, confidence: null, status: "refused" });
-    expect(answers.get(candidates[3].id)).toEqual({ class: null, confidence: null, status: "missing" });
-    const grey = readGroupAnswers(model, [candidates[1]], [answer("groupe_02", "answered", "mur", 0.7)]);
-    expect(grey.get(candidates[1].id)).toEqual({ class: "mur", confidence: 0.7, status: "answered" });
-  });
-
-  it("asks again an unanswered group or one under 0.5, never one at 0.5", () => {
-    expect(GROUP_DECISIONS_LIMITS.dedicatedBelow).toBe(0.5);
-    expect(needsDedicated({ class: "EU", confidence: 0.5, status: "answered" })).toBe(false);
-    expect(needsDedicated({ class: "EU", confidence: 0.49, status: "answered" })).toBe(true);
-    expect(needsDedicated({ class: null, confidence: null, status: "missing" })).toBe(true);
-    expect(needsDedicated({ class: null, confidence: null, status: "invalid" })).toBe(true);
-    expect(needsDedicated(undefined)).toBe(true);
   });
 });
 
@@ -338,7 +199,7 @@ describe("Decisions candidate filter (TI-704, group-decisions.ts selectDecisionC
   const NETWORK_PALE = "#f7abae";
   const NETWORK_TEAL = "#00cccc";
 
-  function filteredReasons(model: PageModel, selection: ReturnType<typeof selectDecisionCandidates>) {
+  function filteredReasons(model: ReturnType<typeof buildPageModel>, selection: ReturnType<typeof selectDecisionCandidates>) {
     return new Map(selection.filtered.map((entry) => [entry.id, entry.reason]));
   }
 

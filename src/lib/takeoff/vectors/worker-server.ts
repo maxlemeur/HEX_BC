@@ -10,7 +10,7 @@ import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
-import { GROUP_DECISIONS_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-decisions";
+import { GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
   decisionsOfOutcome,
@@ -41,14 +41,14 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 // extracted in its killable process and read with keywords. With
 // MERGEONE_TAKEOFF_DECISIONS=1 too (and Decisions configured,
 // getTakeoffDecisionsCapability), the groups left without class are then
-// classified by Decisions (group-decisions-server.ts) and the page read again
-// with its answers (a class under 0.8 is a proposal: kept with its confidence
-// in the page record and counted « à revoir », neither classified nor
-// measured):
-// - per document and run, at most 10 batch and 50 dedicated calls over its
-//   pages (TAKEOFF_VECTOR_DECISIONS_LIMITS); the groups past them stay « à
-//   revoir » (stop « call_limit »): not asked, or their weak batch answer not
-//   asked again alone;
+// classified (group-decisions-server.ts: rules, then Decisions, then the
+// propagation of a colour, TI-704) and the page read again with its answers
+// (a Decisions class under its accepted margin is a proposal: kept with its
+// confidence in the page record and counted « à revoir », neither classified
+// nor measured):
+// - per document and run, at most 10 calls over its pages
+//   (TAKEOFF_VECTOR_DECISIONS_LIMITS); the groups past them stay « à revoir »
+//   (stop « call_limit »);
 // - per job, one token ceiling (TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS);
 // - the first failed or unavailable result, an exception, the ceiling or a
 //   server without canvas stops Decisions for the rest of the job, never
@@ -56,7 +56,8 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 //   why. A page's calls run in bounded parallel (GROUP_DECISIONS_CONCURRENCY):
 //   none starts after the stop, those in flight end, their answers unused;
 // - any error of this step keeps the page's keyword reading and stops
-//   Decisions for the job: it never fails the page nor the job. Only the job's
+//   Decisions for the job: it never fails the page nor the job. A page after
+//   the stop still takes the rules' classes (no call, no drawing). Only the job's
 //   own check before each call (its lease, its tenant) stops the job, as
 //   anywhere else.
 // The page record keeps each group's class, source and confidence, and the
@@ -72,10 +73,10 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 
 export const TAKEOFF_VECTOR_MAX_PAGES = 60;
 /** Decisions calls per document and run (TI-662 step 3, default caps that Thanh may change). */
-export const TAKEOFF_VECTOR_DECISIONS_LIMITS = { batchCalls: 10, dedicatedCalls: 50 } as const;
+export const TAKEOFF_VECTOR_DECISIONS_LIMITS = { batchCalls: 10 } as const;
 /**
  * Decisions tokens per job (TI-658: a named ceiling per run, no tenant flag). Starting value, to recalibrate on the
- * real pass: one document at its caps (10 batch and 50 dedicated calls) with room for a second.
+ * real pass: one document at its caps (10 calls of 20 groups, about 28 000 tokens each) with room for a second.
  */
 export const TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS = 400_000;
 
@@ -170,15 +171,17 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
   const calls = { batch: 0, dedicated: 0, failed: 0 };
   let tokens = 0;
   for (const call of outcome.calls) {
-    calls[call.kind] += 1;
+    calls.batch += 1;
     if (call.status === "failed" || call.status === "unavailable" || call.status === "exception") calls.failed += 1;
     tokens += call.usage?.total_tokens ?? 0;
   }
-  const answered = [...outcome.answers.values()].filter((answer) => answer.status === "answered" && answer.class !== null).length;
+  // Classes Decisions gave (the rules' are counted in `ruled`).
+  const answered = [...outcome.answers.values()].filter((answer) => answer.via === "batch" && answer.status === "answered" && answer.class !== null).length;
   return {
-    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
+    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, rules_version: GROUP_DECISIONS_VERSION, filtered: outcome.filtered, ruled: outcome.ruled,
+    candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
     // The time the page spent in its calls, run in parallel: not the sum of their latencies.
-    dedicated_left_out: outcome.dedicated_left_out, calls, answered, total_tokens: tokens, latency_ms: outcome.calls_ms ?? 0,
+    dedicated_left_out: 0, calls, answered, total_tokens: tokens, latency_ms: outcome.calls_ms ?? 0,
     stop: stop === null ? null : { reason: stop.reason, message: stop.message, from_earlier_page: false },
   };
 }
@@ -186,7 +189,7 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
 /** A page not asked because the job's Decisions stopped before it. */
 function stoppedSummary(stop: PageStop): VectorPageDecisions {
   return {
-    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, candidates: null, eligible: null, left_out: null, dedicated_left_out: null,
+    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, rules_version: GROUP_DECISIONS_VERSION, candidates: null, eligible: null, left_out: null, dedicated_left_out: null,
     calls: { batch: 0, dedicated: 0, failed: 0 }, answered: 0, total_tokens: 0, latency_ms: 0,
     stop: { reason: stop.reason, message: stop.message, from_earlier_page: true },
   };
@@ -202,11 +205,24 @@ async function decidePage(run: DecisionsRun, input: {
   extraction: VectorPageExtraction;
   reading: VectorPageReading;
   readOptions: Parameters<typeof readVectorPage>[1];
-  allowance: { batch: number; dedicated: number };
+  allowance: { batch: number };
   fingerprint: () => string;
   log: { jobId: string | null; tenantId: string | null; document: TakeoffSourceDocumentRef; page: number };
 }): Promise<{ reading: VectorPageReading; decisions: VectorPageDecisions }> {
-  if (run.stop) return { reading: input.reading, decisions: stoppedSummary(run.stop) };
+  if (run.stop) {
+    // The rules need no call nor canvas: a page after the job's stop still takes their classes (TI-704).
+    const stop = run.stop;
+    try {
+      const ruled = await classifyVectorGroups({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
+        context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
+        budget: run.budget, decide: run.hook.decide, render: run.hook.render, limits: { maxBatchCalls: 0 } });
+      const answers = decisionsOfOutcome(ruled);
+      const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
+      return { reading, decisions: { ...pageDecisionsSummary(ruled, null), stop: { reason: stop.reason, message: stop.message, from_earlier_page: true } } };
+    } catch {
+      return { reading: input.reading, decisions: stoppedSummary(stop) };
+    }
+  }
   // Its calls and tokens stay on the page even when an error follows them.
   let outcome: GroupDecisionsOutcome | null = null;
   try {
@@ -214,7 +230,7 @@ async function decidePage(run: DecisionsRun, input: {
       bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
       context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
       budget: run.budget, decide: run.hook.decide, render: run.hook.render,
-      limits: { maxBatchCalls: input.allowance.batch, maxDedicatedCalls: input.allowance.dedicated },
+      limits: { maxBatchCalls: input.allowance.batch },
       beforeCall: run.hook.beforeCall && (async () => {
         try {
           await run.hook.beforeCall?.();
@@ -224,11 +240,10 @@ async function decidePage(run: DecisionsRun, input: {
         }
       }),
     });
-    for (const call of outcome.calls) input.allowance[call.kind] -= 1;
+    input.allowance.batch -= outcome.calls.length;
     run.calls += outcome.calls.length;
     // The provider, the ceiling or a server without canvas end the job's calls; a page's render failure, that page's.
-    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message)
-      : outcome.left_out > 0 || outcome.dedicated_left_out > 0 ? stopOf("call_limit", "") : null;
+    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message) : outcome.left_out > 0 ? stopOf("call_limit", "") : null;
     if (outcome.stop && (isDecisionsRunStop(outcome.stop.reason) || outcome.stop.reason === "canvas_unavailable")) run.stop = stop;
     const answers = decisionsOfOutcome(outcome);
     const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
@@ -267,7 +282,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     const pages = original.pages.length ? original.pages : Array.from({ length: await getPdfPageCount(original.bytes) }, (_, index) => index + 1);
     const location = locationFromFileName(original.fileName, freeLevels);
     // This document's Decisions calls left for the run, over its pages.
-    const allowance = { batch: TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls, dedicated: TAKEOFF_VECTOR_DECISIONS_LIMITS.dedicatedCalls };
+    const allowance = { batch: TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls };
     let fingerprint: string | null = null;
     for (const page of pages) {
       if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) break read;

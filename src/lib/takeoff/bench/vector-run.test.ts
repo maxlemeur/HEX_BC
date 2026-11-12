@@ -403,19 +403,20 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
 });
 
 describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
-  function outcome(answers: Array<[string, string, string | null, number | null, "batch" | "dedicated"]>,
+  function outcome(answers: Array<[string, string, string | null, number | null, "batch" | "rule"]>,
     stop: GroupDecisionsOutcome["stop"] = null): GroupDecisionsOutcome {
     return {
       answers: new Map(answers.map(([id, alias, value, confidence, via]) => [id, {
-        alias, class: value as never, confidence, status: value === null ? "missing" as const : "answered" as const, via,
+        alias, class: value as never, confidence, status: value === null ? "missing" as const : "answered" as const, via, proposal: null,
       }])),
       calls: [{ kind: "batch", questions: answers.length, status: stop?.reason === "call_failed" ? "failed" : "available",
-        usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: 80 }],
-      stop, candidates: answers.length, eligible: answers.length, left_out: 0, dedicated_left_out: 0, render: { legend_ms: 300, sheets_ms: [80] }, calls_ms: null,
+        usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: null }],
+      stop, candidates: answers.length, eligible: answers.length, left_out: 0, filtered: { grey: 1 }, ruled: { same_colour: 0, band: 0, propagated: 0 },
+      render: { page_ms: 300, legends_ms: [], groups_ms: [80], dropped_images: 0 }, calls_ms: null,
     };
   }
 
-  it("reads the page again with the hook's answers, measures 0.8 and more only, and records each group's answer", async () => {
+  it("reads the page again with the hook's answers, measures from a margin of 0.5 only, and records each group's answer", async () => {
     const seen: Array<[string, number, string | null]> = [];
     const result = await runVectorBench({
       documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1, extract: async () => plan(1, 1),
@@ -423,7 +424,7 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
         promptVersion: "fixture-groups-v1",
         classify: async (document, pageNumber, _extraction, reading) => {
           seen.push([document.id, pageNumber, reading.groups.find((group) => group.id === RED_ID)?.class ?? null]);
-          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"], [BLUE_ID, "groupe_02", "EU", 0.62, "dedicated"]]);
+          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"], [BLUE_ID, "groupe_02", "EU", 0.42, "batch"]]);
         },
       },
     });
@@ -433,14 +434,15 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(run.items.map((item) => [item.designation, item.quantity])).toEqual([["EF cuivre DN 22", 12.7]]);
     expect(result.run.couples[0].prompt_version).toMatch(/^vector-v\d+\+fixture-groups-v1$/);
     const summary = result.vector.passes[0].documents[0].pages[0];
-    expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.62 });
-    // The proposal at 0.62 is neither « classé » nor a measured network group in the page summary (review of the PR).
+    expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.42 });
+    // The proposal at 0.42 is neither « classé » nor a measured network group in the page summary (review of the PR).
     expect(summary.reading).toMatchObject({ groups_classified: 1, groups_network: 1 });
     expect(summary.decisions).toMatchObject({
       candidates: 2, left_out: 0, stop: null, calls: [{ kind: "batch", status: "available", usage: { total_tokens: 1000 } }],
+      filtered: { grey: 1 }, ruled: { same_colour: 0, band: 0, propagated: 0 },
       answers: [
         { alias: "groupe_01", group: RED_ID, class: "EF", confidence: 0.9, status: "answered", via: "batch" },
-        { alias: "groupe_02", group: BLUE_ID, class: "EU", confidence: 0.62, status: "answered", via: "dedicated" },
+        { alias: "groupe_02", group: BLUE_ID, class: "EU", confidence: 0.42, status: "answered", via: "batch" },
       ],
     });
     expect(result.run.status).toBe("complete");

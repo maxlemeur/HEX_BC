@@ -9,11 +9,12 @@ import { nonNetworkLayerKind, parsePipeLabel } from "@/lib/takeoff/vectors/vocab
 
 // The groups never sent to Decisions (TI-704): they can never be a network. On
 // the 8 development plans, 135 of the 171 groups sent were no network and none
-// was classed by Decisions at 0.8 or more; these rules leave out 110 of them,
+// was classed by Decisions at 0.8 or more (5/11, v1 questions); these rules leave out 110 of them,
 // and none of the 36 real networks. A filtered group keeps no class: it stays
 // « à revoir », as without a model. Trade-off: a grey group is no longer asked
-// whether it is a wall (fill.ts takes a Decisions « mur » or « cloison » at 0.8
-// or more as a room barrier); none of the 89 grey answers of the 5/11 runs was.
+// whether it is a wall (fill.ts takes a Decisions « mur » or « cloison » it
+// accepts as a room barrier; the v2 questions offer neither since TI-704); none
+// of the 89 grey answers of the 5/11 runs was one at 0.8 or more.
 // - grey: every colour grey or near-white (the background, frames, tables and
 //   the insulation hatches drawn along the pipes): the reading never makes a
 //   network of a grey group, whatever Decisions answers (classify.ts);
@@ -155,7 +156,7 @@ export function candidateFilterReasons(model: PageModel, reading: VectorPageRead
   const colourGroups = [...wanted].some((index) => model.groups[index].layer === null);
   const airLegend = colourGroups ? readAirDuctLegend(model) : null;
   const air = airLegend && airLegend.codes.length >= AIR_LEGEND_MIN_CODES ? airLegend.colors : [];
-  // The colours of the page's networks (keyword, legend, labels, document; Decisions at 0.8 or more).
+  // The colours of the page's networks (keyword, legend, labels, rules, document; Decisions at its accepted margin).
   const networkColours = [...new Set(reading.groups.flatMap((group) => (isMeasuredNetwork(group) ? group.colors : [])))];
   // Its colour, a tint or shade of it, or the colour it is a tint of (a band pipe's outline beside its classed fill); never
   // the colour it is a shade of: the red of an extract duct beside a dark red heating pipe stays a duct.

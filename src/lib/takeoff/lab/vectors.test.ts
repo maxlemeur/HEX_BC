@@ -1,31 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { OpenAiDecisionAnswer, OpenAiDecisionsResult } from "@/lib/ai/decisions";
-import { LAB_VECTOR_TASK_ID } from "@/lib/takeoff/lab/contracts";
+import type { OpenAiDecisionsResult } from "@/lib/ai/decisions";
+import { LAB_VECTOR_TASK_ID, type LabRun } from "@/lib/takeoff/lab/contracts";
 import type { LabDocument } from "@/lib/takeoff/lab/dataset";
 import { findLabTask } from "@/lib/takeoff/lab/tasks";
-import { runVectorGroupsConfig } from "@/lib/takeoff/lab/vectors";
+import { decisionsOfLabRun, runVectorGroupsConfig } from "@/lib/takeoff/lab/vectors";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 import type { GroupDecisionsDecide, GroupDecisionsRender } from "@/lib/takeoff/vectors/group-decisions-server";
-import type { GroupImage } from "@/lib/takeoff/vectors/group-sheet-server";
+import type { GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
 
 // Ways the lab's « classe de calque » configuration (vectors.ts
-// runVectorGroupsConfig) could lose what Decisions already answered, written
-// before the fix. A browser cannot force a dedicated render to fail or a
-// dedicated call to fail after a batch answer (the army fixture always
-// answers, canvas always draws), so these stops are mapped here, with a
-// Decisions fake and fake renders (no network, no child process) on a
-// fictional hand-built page:
-// - a dedicated render that fails (timeout, too_large, render_failed) after
-//   paid batch answers turns the configuration « failed » and drops its
-//   elements: nothing applied in the run's reading, no element to judge;
-// - a dedicated call that fails (HTTP 429: status failed, its answers missing)
-//   erases the probabilities of the batch answer the group keeps (« EU 40 % »
-//   shown without bars);
-// - with the calls in parallel (TI-704), a dedicated call sent before an
-//   earlier one failed lends its probabilities to the batch answer the group
-//   keeps (« EU 40 % » shown with the bars of « EF 90 % »); the latency given
-//   to the statistics adds up calls that ran together.
+// runVectorGroupsConfig) could lose what the classification gave, written
+// before the code. A browser cannot force a drawing or a call to fail after
+// the rules answered, so these stops are mapped here, with a Decisions fake
+// and a fake drawing (no network, no child process) on a fictional page:
+// - a call that fails (HTTP 429: status failed) or a drawing that fails turns
+//   the configuration « failed » and drops the rules' classes it already has;
+// - the run stores a rule's class or a « hors_liste » proposal so that the
+//   reading of the run applies it as a Decisions class (at its missing
+//   confidence) or loses it (TI-704);
+// - the latency given to the statistics adds up calls that ran together.
 // The real Decisions client is never reached: it is mocked to throw.
 
 vi.mock("@/lib/ai/decisions", async (importOriginal) => ({
@@ -40,77 +34,64 @@ const DOCUMENT: LabDocument = {
   summary: { id: "fixture-vector-test", source: "fixture", label: "Plan fictif", pages: 1, truth: null },
   bytes: Buffer.from("%PDF-fictional"), sha256: "a".repeat(64),
 };
+const hex = (value: number) => value.toString(16).padStart(2, "0");
 
-/** Two magenta groups without a layer (Decisions candidates), the first the longest. */
-function page(): VectorPageExtraction {
+/**
+ * `count` groups of distinct colours without a layer (candidates), the first the longest; with `sameColour`, a layer
+ * FICTIF_EF and a stroke of its colour outside it (the rules class it EF).
+ */
+function page(count: number, sameColour = false): VectorPageExtraction {
   const groups: VectorGroupKey[] = [];
   const paths: VectorPath[] = [];
   const coordinates: number[] = [];
-  for (let index = 0; index < 2; index += 1) {
-    groups.push({ layer: null, color: "#ff00ff", width: 0.01 * (index + 1), dash: null });
+  for (let index = 0; index < count; index += 1) {
+    groups.push({ layer: null, color: `#${hex(30 + index)}00ff`, width: 0.01 * (index + 1), dash: null });
     paths.push({ group: index, start: coordinates.length / 2, count: 2, closed: false });
     coordinates.push(100, 10 + 1.5 * index, 1100 - index, 10 + 1.5 * index);
   }
+  if (sameColour) {
+    for (const [layer, y] of [["ef-layer", 700], [null, 740]] as const) {
+      paths.push({ group: groups.length, start: coordinates.length / 2, count: 2, closed: false });
+      groups.push({ layer, color: "#00a0a0", width: layer ? 0.3 : 0.6, dash: null });
+      coordinates.push(100, y, 900, y);
+    }
+  }
   return {
-    page: 1, pages: 1, width: A3.width, height: A3.height, userUnit: 1, rotate: 0, layers: [], groups, texts: [], paths,
+    page: 1, pages: 1, width: A3.width, height: A3.height, userUnit: 1, rotate: 0,
+    layers: sameColour ? [{ id: "ef-layer", name: "FICTIF_EF", visible: true }] : [], groups, texts: [], paths,
     points: Float32Array.from(coordinates),
     counts: { operators: 0, strokePaths: paths.length, fillPaths: 0, clipPaths: 0, images: 0, imageCoverage: 0 },
     timings: { operators_ms: 0, walk_ms: 0, text_ms: 0, total_ms: 0 }, memory: { max_rss_kb: 0, heap_used_mb: 0 },
   };
 }
 
-/** Renders that draw the legend and the batch sheet; `dedicated` answers the second sheets call (the dedicated renders). */
-function render(dedicated: "ok" | "timeout"): GroupDecisionsRender {
-  let sheets = 0;
-  return {
-    legend: async () => ({ image: IMAGE, issue: null, dropped_images: 0, duration_ms: 1 }),
-    sheets: async (plans) => {
-      sheets += 1;
-      if (sheets > 1 && dedicated === "timeout") return { images: plans.map(() => null), issue: "timeout", render_ms: plans.map(() => null), duration_ms: 1 };
-      return { images: plans.map(() => IMAGE), issue: null, render_ms: plans.map(() => 1), duration_ms: 1 };
-    },
-  };
+function render(issue: "timeout" | null = null): GroupDecisionsRender {
+  return () => ({
+    draw: async (plan) => ({ legends: plan.legends.map(() => (issue ? null : IMAGE)), groups: plan.groups.map(() => (issue ? null : IMAGE)), issue,
+      dropped_images: 0, render_ms: { page: 1, legends: [], groups: plan.groups.map(() => 1) }, duration_ms: 1 }),
+    cancel: () => {},
+  });
 }
 
-/** Batch: groupe_01 EU 0.9, groupe_02 EU 0.4 (asked again alone); a dedicated call answers EF 0.9 or fails like an HTTP 429. */
-function decide(dedicated: "ok" | "failed"): GroupDecisionsDecide {
-  return async (input) => {
-    const call = input.evidence.call as "batch" | "dedicated";
-    const failed = call === "dedicated" && dedicated === "failed";
-    const answers: OpenAiDecisionAnswer[] = input.questions.map((question) => {
-      if (failed) return { name: question.name, type: "choice", status: "missing", value: null, confidence: null };
-      const [value, confidence] = call === "dedicated" ? ["EF", 0.9] : question.name === "groupe_02" ? ["EU", 0.4] : ["EU", 0.9];
-      return { name: question.name, type: "choice", status: "answered", value, confidence,
-        probabilities: [{ value, probability: confidence }, { value: "autre", probability: Math.round((1 - confidence) * 10) / 10 }] };
-    });
-    const result: OpenAiDecisionsResult = {
-      status: failed ? "failed" : "available", capability: { status: "available", model: "gpt-6-luna", billing: "separate_api", message: "" },
-      message: failed ? "Decisions limite les demandes (HTTP 429)." : "Fictional answer.", answers,
-      provenance: { tenant_id: ACCESS.owner.tenantId, project_id: "takeoff-lab", preparation_fingerprint: "f".repeat(64), request_fingerprint: "r",
-        model: "gpt-6-luna", requested_at: "2026-11-03T10:00:00.000Z", usage: failed ? null : { input_tokens: 90, output_tokens: 10, total_tokens: 100 } },
-    };
-    return result;
-  };
-}
-
-/** One answer per question, `value` at `confidence` for each, or a failed call (HTTP 429). */
-function answered(input: Parameters<GroupDecisionsDecide>[0], value: string, confidence: number, failed = false): OpenAiDecisionsResult {
+/** One answer per question, `value` at a margin (its probability (1 + margin) / 2, the rest « fond »), or a failed call (HTTP 429). */
+function answered(input: Parameters<GroupDecisionsDecide>[0], value: string, margin: number, failed = false): OpenAiDecisionsResult {
   return {
     status: failed ? "failed" : "available", capability: { status: "available", model: "gpt-6-luna", billing: "separate_api", message: "" },
     message: failed ? "Decisions limite les demandes (HTTP 429)." : "Fictional answer.",
     answers: input.questions.map((question) => (failed ? { name: question.name, type: "choice", status: "missing", value: null, confidence: null }
-      : { name: question.name, type: "choice", status: "answered", value, confidence,
-        probabilities: [{ value, probability: confidence }, { value: "autre", probability: Math.round((1 - confidence) * 10) / 10 }] })),
+      : { name: question.name, type: "choice", status: "answered", value, confidence: margin,
+        probabilities: [{ value, probability: (1 + margin) / 2 }, { value: "fond", probability: (1 - margin) / 2 }] })),
     provenance: { tenant_id: ACCESS.owner.tenantId, project_id: "takeoff-lab", preparation_fingerprint: "f".repeat(64), request_fingerprint: "r",
       model: "gpt-6-luna", requested_at: "2026-11-03T10:00:00.000Z", usage: failed ? null : { input_tokens: 90, output_tokens: 10, total_tokens: 100 } },
   };
 }
 
-function configure(options: { render: GroupDecisionsRender; decide: GroupDecisionsDecide }) {
+function configure(options: { render: GroupDecisionsRender; decide: GroupDecisionsDecide; extraction?: VectorPageExtraction }) {
   const task = findLabTask(LAB_VECTOR_TASK_ID)!;
+  const extraction = options.extraction ?? page(2);
   return runVectorGroupsConfig({
-    access: ACCESS, runId: "20261103-100000-abcdef", configId: "A", task, document: DOCUMENT, page: 1, promptVersion: "takeoff-vector-groups-v1+test",
-    remainingTokens: 1_000_000, extract: async () => page(), ...options,
+    access: ACCESS, runId: "20261103-100000-abcdef", configId: "A", task, document: DOCUMENT, page: 1, promptVersion: "takeoff-vector-groups-v2+test",
+    remainingTokens: 1_000_000, extract: async () => extraction, render: options.render, decide: options.decide,
   });
 }
 
@@ -118,12 +99,12 @@ describe("lab « classe de calque » configuration (vectors.ts runVectorGroupsCo
   it("gives the time its calls took, not the sum of calls that ran together (TI-704)", async () => {
     vi.useFakeTimers();
     try {
-      // A batch call, then the 2 groups' dedicated calls together, 1 s each: 2 s, not 3.
+      // 60 groups: 3 calls of 1 s, the first alone, the 2 others together: 2 s, not 3.
       const slow: GroupDecisionsDecide = async (input) => {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
-        return answered(input, "EU", 0.4);
+        return answered(input, "EU", 0.9);
       };
-      const pending = configure({ render: render("ok"), decide: slow });
+      const pending = configure({ render: render(), decide: slow, extraction: page(60) });
       await vi.runAllTimersAsync();
       const config = await pending;
       expect(JSON.parse(config.raw ?? "{}").calls).toHaveLength(3);
@@ -133,56 +114,34 @@ describe("lab « classe de calque » configuration (vectors.ts runVectorGroupsCo
     }
   });
 
-  it("keeps the paid batch answers as a partial configuration when a dedicated render fails, and says why", async () => {
-    const config = await configure({ render: render("timeout"), decide: decide("ok") });
-    expect(config.stop?.reason).toBe("render_failed");
-    expect(config.status).toBe("partial");
-    expect(config.message).toBe(config.stop?.message);
-    expect(config.message).toMatch(/pas été dessinées à temps/);
-    expect(config.usage).toMatchObject({ total: 100 });
-    expect(config.elements.map((element) => [element.label, element.detail, (element.json as { answer: unknown }).answer])).toEqual([
-      [expect.any(String), "EU", { class: "EU", confidence: 0.9, status: "answered", via: "batch" }],
-      [expect.any(String), "EU", { class: "EU", confidence: 0.4, status: "answered", via: "batch" }],
-    ]);
+  it("keeps the rules' class as a partial configuration when the call fails or the drawing does, and says why", async () => {
+    for (const [options, reason] of [[{ render: render(), decide: async (input: Parameters<GroupDecisionsDecide>[0]) => answered(input, "EU", 0.9, true) }, "call_failed"],
+      [{ render: render("timeout"), decide: async (input: Parameters<GroupDecisionsDecide>[0]) => answered(input, "EU", 0.9) }, "render_failed"]] as const) {
+      const config = await configure({ ...options, extraction: page(1, true) });
+      expect(config.stop?.reason).toBe(reason);
+      expect(config.status).toBe("partial");
+      expect(config.message).toBe(config.stop?.message);
+      expect(config.elements.map((element) => [element.detail, (element.json as { answer: unknown }).answer])).toEqual([
+        ["EF (règles)", { class: "EF", confidence: null, status: "answered", via: "rule", rule: "same_colour" }],
+      ]);
+    }
   });
 
-  it("keeps a batch answer's probabilities when its dedicated call fails without answers", async () => {
-    const config = await configure({ render: render("ok"), decide: decide("failed") });
-    expect(config.stop?.reason).toBe("call_failed");
-    expect(config.status).toBe("partial");
-    const second = config.answers?.find((answer) => answer.name === "groupe_02");
-    expect(second).toMatchObject({ status: "answered", value: "EU", confidence: 0.4 });
-    expect(second?.probabilities?.map((option) => [option.value, option.probability])).toEqual([["autre", 0.6], ["EU", 0.4]]);
-  });
-
-  it("takes a replaced answer's probabilities from the dedicated call that produced it", async () => {
-    const config = await configure({ render: render("ok"), decide: decide("ok") });
+  it("stores an answer with its probabilities, a « hors_liste » proposal, and reads them back as the reading applies them", async () => {
+    const config = await configure({ render: render(), decide: async (input) => answered(input, input.questions.length === 1 ? "hors_liste" : "EU", 0.8),
+      extraction: page(1, true) });
     expect(config).toMatchObject({ status: "ok", stop: null });
-    const second = config.answers?.find((answer) => answer.name === "groupe_02");
-    expect(second).toMatchObject({ status: "answered", value: "EF", confidence: 0.9 });
-    expect(second?.probabilities?.map((option) => [option.value, option.probability])).toEqual([["EF", 0.9], ["autre", 0.1]]);
-  });
-
-  it("keeps a batch answer's own probabilities when a dedicated call sent alongside a failed one answers (TI-704)", async () => {
-    // Both groups EU 0.4 in batch, asked again alone together: groupe_02's dedicated call answers EF 0.9 first, then
-    // groupe_01's, started before it, fails. groupe_02 keeps its batch answer, as when the calls went one at a time.
-    let failFirst = () => {};
-    const firstFails = new Promise<void>((resolve) => {
-      failFirst = resolve;
-    });
-    const racing: GroupDecisionsDecide = async (input) => {
-      if (input.evidence.call === "batch") return answered(input, "EU", 0.4);
-      if (input.questions[0]?.name === "groupe_02") {
-        failFirst();
-        return answered(input, "EF", 0.9);
-      }
-      await firstFails;
-      return answered(input, "EF", 0.9, true);
-    };
-    const config = await configure({ render: render("ok"), decide: racing });
-    expect(config.stop?.reason).toBe("call_failed");
-    const second = config.answers?.find((answer) => answer.name === "groupe_02");
-    expect(second).toMatchObject({ status: "answered", value: "EU", confidence: 0.4 });
-    expect(second?.probabilities?.map((option) => [option.value, option.probability])).toEqual([["autre", 0.6], ["EU", 0.4]]);
+    const [hors] = config.answers ?? [];
+    expect(hors).toMatchObject({ status: "answered", value: null, confidence: 0.8 });
+    expect(hors?.probabilities?.map((option) => [option.value, Math.round(option.probability * 100) / 100])).toEqual([["hors_liste", 0.9], ["fond", 0.1]]);
+    expect(config.elements.map((element) => element.detail)).toEqual(["canalisation hors nomenclature", "EF (règles)"]);
+    const run = { configs: [{ provider: "decisions", elements: config.elements }] } as unknown as LabRun;
+    expect(decisionsOfLabRun(run)).toEqual(new Map([
+      ["c:#1e00ff|w:0.01|d:", { class: null, confidence: null, source: "decisions", proposal: "canalisation hors nomenclature" }],
+      ["c:#00a0a0|w:0.6|d:", { class: "EF", confidence: null, source: "rule" }],
+    ]));
+    // A run of before TI-704 v2 (no `via` « rule »): its classes stay Decisions' at their confidence.
+    const older = { configs: [{ provider: "decisions", elements: [{ json: { group: "g", answer: { class: "EU", confidence: 0.6, status: "answered", via: "batch" } } }] }] } as unknown as LabRun;
+    expect(decisionsOfLabRun(older)).toEqual(new Map([["g", { class: "EU", confidence: 0.6, source: "decisions" }]]));
   });
 });

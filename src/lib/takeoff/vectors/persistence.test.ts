@@ -212,6 +212,21 @@ describe("the Decisions summary of a page record (worker, TI-662 L3d)", () => {
     expect(vectorPageRecord(reading({}), location, summary).decisions).toEqual(summary);
   });
 
+  // TI-704 v2: the rules version, the groups the filter kept out by reason, the rules' classes; a group's proposal.
+  it("keeps the v2 summary and a group's « hors_liste » proposal, and still reads the v1 summary and groups without them", () => {
+    const v2: VectorPageDecisions = { ...summary, prompt_version: "takeoff-vector-groups-v2", rules_version: 3, filtered: { grey: 4, air_duct: 1 },
+      ruled: { same_colour: 2, band: 1, propagated: 1 }, calls: { batch: 2, dedicated: 0, failed: 0 }, stop: null };
+    expect(VectorPageRecordSchema.parse(JSON.parse(JSON.stringify(vectorPageRecord(reading({}), location, v2)))).decisions).toEqual(v2);
+    expect(() => VectorPageRecordSchema.parse({ ...vectorPageRecord(reading({}), location, v2), decisions: { ...v2, filtered: { retry: 1 } } })).toThrow();
+    const group = (id: string, proposal?: string): VectorPageReading["groups"][number] => ({ id, layer: null, layerName: null, colors: ["#ff8000"], width: 0.5,
+      dash: null, paths: 1, segments: 1, closed: 0, nearWhite: false, grey: false, length_pt: 100, bbox: [0, 0, 100, 1], class: null, source: null,
+      confidence: null, candidates: [], ...(proposal ? { proposal } : {}) });
+    const proposed = { ...reading({}), groups: [group("c:#ff8000|w:0.5|d:", "canalisation hors nomenclature : QRS. ".repeat(10)), group("c:#ff8001|w:0.5|d:")] };
+    const record = VectorPageRecordSchema.parse(JSON.parse(JSON.stringify(vectorPageRecord(proposed, location))));
+    expect(record.groups.find((group) => group.proposal)?.proposal).toHaveLength(120);
+    expect(record.groups.filter((group) => group.proposal)).toHaveLength(1);
+  });
+
   it("refuses an unknown stop and cuts a long message to its bound", () => {
     const record = vectorPageRecord(reading({}), location, summary);
     expect(() => VectorPageRecordSchema.parse({ ...record, decisions: { ...summary, stop: { ...summary.stop, reason: "retry" } } })).toThrow();

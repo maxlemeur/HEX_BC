@@ -99,7 +99,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   };
 }
 
-/** Groups measured as a network by this reading (a Decisions proposal under 0.8 is not). */
+/** Groups measured as a network by this reading (a Decisions proposal under its accepted margin is not). */
 export function networkGroups(reading: VectorPageReading) {
   return reading.groups.filter((group) => isMeasuredNetwork(group));
 }
