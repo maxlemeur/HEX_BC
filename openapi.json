@@ -85103,6 +85103,161 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "composition": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "earlier": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "job_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "job_created_at": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "job_level": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "quantity": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "read_again": {
+                                    "type": "boolean"
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "source_file_name": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "source_page": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "quantity": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "source_file_name",
+                                        "source_page",
+                                        "quantity"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "job_id",
+                                  "job_created_at",
+                                  "job_level",
+                                  "quantity",
+                                  "read_again",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "earlier_quantity": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "earlier_protective": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "earlier_printed_gap": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "total_quantity": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "double_counted": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "item_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "partner_item_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "partner_job_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "overlap_m": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  }
+                                },
+                                "required": [
+                                  "item_id",
+                                  "partner_item_id",
+                                  "partner_job_id",
+                                  "overlap_m"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "earlier",
+                            "earlier_quantity",
+                            "earlier_protective",
+                            "earlier_printed_gap",
+                            "total_quantity",
+                            "double_counted"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -87086,7 +87241,6 @@
                         {
                           "type": "string",
                           "enum": [
-                            "dpgf_target",
                             "merge_match"
                           ]
                         },
@@ -87352,6 +87506,162 @@
               },
               "merge_required": {
                 "type": "boolean"
+              },
+              "dpgf_targets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "unit_key": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reference": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "length_factor": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "earlier": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "job_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "item_ids": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "protective": {
+                            "type": "number"
+                          },
+                          "printed_gap": {
+                            "type": "number"
+                          },
+                          "source_file_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_page": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "job_id",
+                          "item_ids",
+                          "quantity",
+                          "protective",
+                          "printed_gap",
+                          "source_file_name",
+                          "source_page"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "fed": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "protective": {
+                            "type": "number"
+                          },
+                          "printed_gap": {
+                            "type": "number"
+                          },
+                          "source_file_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_page": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item_id",
+                          "quantity",
+                          "protective",
+                          "printed_gap",
+                          "source_file_name",
+                          "source_page"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "unit_key",
+                    "quantity",
+                    "reference",
+                    "length_factor",
+                    "earlier",
+                    "fed"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -87363,7 +87673,8 @@
               "pairs",
               "jobs",
               "unidentified_count",
-              "merge_required"
+              "merge_required",
+              "dpgf_targets"
             ],
             "additionalProperties": false
           }
