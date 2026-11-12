@@ -336,23 +336,8 @@ commit;`);
           await opened.getByRole("button", "Suivant", { exact: true }).click();
           return opened;
         };
-        // The draft lease this journey's API calls hold (from the page they run in, before any navigation) is released,
-        // as closing that editor would: the wizard of the review takes its own.
-        const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
-        if (released.status >= 300) problem("the journey's draft lease is released", released.body);
-        const wizard = await openConfirmation();
-        const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
-        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
-        await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
-        await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
-        // Nowhere on this screen is « keep both » advised: no page offers it.
-        await expect(region).not.toContainText("gardez les deux");
-        await expect(region).not.toContainText("Gardez les deux");
-        await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
-        const screenshot = await ui.app.screenshot("ti682-dpgf-dead-end");
-        await wizard.getByRole("button", "Annuler", { exact: true }).click();
-
-        // Way out 1: the merged line excluded at the takeoff's review. The page is then confirmed (keeping both).
+        // Way out 1, first (the journey's draft lease still held, as the estimator's would be): the merged line excluded
+        // at the takeoff's review. The page is then confirmed (keeping both); included again, the dead end is back.
         const washbasin = relaunchItem("Lavabo double vasque");
         const exclude = async (excluded: boolean) => {
           const detail = await apiRequest<Envelope<{ items: { data: Array<{ id: string; updated_at: string }> } }>>(ui.browser, "GET", `/api/takeoff/jobs/${ids.jobId}`);
@@ -371,6 +356,22 @@ commit;`);
         await exclude(false);
         const again = await confirmable(await readProposal());
         if (again.states !== 0) problem("the dead end is not back once the merged line is included again", again);
+
+        // The draft lease this journey's API calls hold (from the page they run in, before any navigation) is released,
+        // as closing that editor would: the wizard of the review takes its own.
+        const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
+        if (released.status >= 300) problem("the journey's draft lease is released", released.body);
+        const wizard = await openConfirmation();
+        const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
+        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
+        await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
+        await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
+        // Nowhere on this screen is « keep both » advised: no page offers it.
+        await expect(region).not.toContainText("gardez les deux");
+        await expect(region).not.toContainText("Gardez les deux");
+        await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+        const screenshot = await ui.app.screenshot("ti682-dpgf-dead-end");
+        await wizard.getByRole("button", "Annuler", { exact: true }).click();
 
         // Way out 2: a line of the page linked to the DPGF line in the DPGF reconciliation. The page is then replaced,
         // confirmed in the wizard itself (the route's DPGF authorization feeds the DPGF line).
