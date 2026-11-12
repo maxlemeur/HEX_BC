@@ -10,6 +10,7 @@ import type { MaterialRequestLine, MaterialRequestLineInput } from "@/lib/materi
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 
 import { ChoiceCell } from "./cells";
+import { formatQuotedPrice } from "./format";
 import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
 
 /** Why a supplier is proposed, in a few words read after its name. */
@@ -96,13 +97,19 @@ export function MaterialRequestSupplierCell({
   const n = line.position;
   const proposalId = `${ids}-proposal`;
 
-  if (!editable) {
+  // A line priced by a retained quote (TI-691) is bought from that quote's supplier: it no longer changes.
+  if (!editable || line.price_quote_id) {
     return (
       <div className="min-w-0 space-y-1">
         <p className="text-sm text-foreground">
           {ownSupplier ?? requestSupplierLabel ?? <span className="text-subtle-foreground">—</span>}
         </p>
         {ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
+        {line.unit_price_ht_cents !== null ? (
+          <p className="text-xs tabular-nums text-foreground-secondary">
+            {`Prix unitaire HT : ${formatQuotedPrice(line.unit_price_ht_cents, line.price_per)} (devis retenu)`}
+          </p>
+        ) : null}
       </div>
     );
   }

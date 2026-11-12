@@ -11,7 +11,11 @@ export const runtime = "nodejs";
 
 type Context = { params: Promise<{ projectId: string; requestId: string; fileId: string }> };
 
-/** The bytes of an original, served by the application to whoever may read the affaire: no signed URL. */
+/**
+ * The bytes of an original, or of a quote's file, served by the application to whoever may read the affaire: no
+ * signed URL. A quote's PDF is a supplier's document, untrusted: it is downloaded, never displayed in the page's
+ * origin; images are shown inline.
+ */
 export async function GET(_request: Request, { params }: Context) {
   try {
     const { projectId, requestId, fileId } = fileParamsSchema.parse(await params);
@@ -25,7 +29,7 @@ export async function GET(_request: Request, { params }: Context) {
       headers: {
         "Content-Type": file.mimeType,
         "Content-Length": String(file.body.size),
-        "Content-Disposition": `inline; filename="${filename}"; filename*=UTF-8''${encoded}`,
+        "Content-Disposition": `${file.mimeType === "application/pdf" ? "attachment" : "inline"}; filename="${filename}"; filename*=UTF-8''${encoded}`,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Cross-Origin-Resource-Policy": "same-origin",

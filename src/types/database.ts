@@ -37,8 +37,10 @@ type CheckedColumns = CheckedColumnSpec<{
   suggestion_corrections: { field_name: "description" | "category_id" | "k_fo" | "k_mo" | "labor_role_id" | "supply_type_id" };
   material_requests: { delivery_place: "site" | "office" | "counter" | null };
   material_request_lines: { imputation: "project" | "overhead"; status: "draft" | "validated";
-    product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null };
-  material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp"; rotation: 0 | 90 | 180 | 270 };
+    product_match: "reference" | "alias" | "ranked" | "manual" | "created" | null; price_per: 1 | 10 | 100 | 1000 };
+  material_request_files: { mime_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf"; rotation: 0 | 90 | 180 | 270 };
+  material_request_quotes: { status: "requested" | "received" | "retained" | "closed" };
+  material_request_quote_lines: { price_per: 1 | 10 | 100 | 1000 };
 }>;
 
 // A SQL function argument has no NOT NULL catalog attribute. These existing

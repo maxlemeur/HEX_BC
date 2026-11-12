@@ -94,6 +94,8 @@ function seed(actor: string, role: Role, extraRequests: FakeRow[] = []) {
       material_request_files: [
         { id: "80000000-0000-4000-8000-000000000001", tenant_id: TENANT, project_id: PROJECT, request_id: requestId(3), storage_path: "x", file_name: "demande.jpg", mime_type: "image/jpeg", byte_size: 10, rotation: 0, created_at: "2026-10-03T09:00:00.000Z", stored_at: "2026-10-03T09:00:02.000Z" },
         { id: "80000000-0000-4000-8000-000000000002", tenant_id: TENANT, project_id: PROJECT, request_id: requestId(3), storage_path: "y", file_name: "interrompue.jpg", mime_type: "image/jpeg", byte_size: 10, rotation: 0, created_at: "2026-10-03T09:01:00.000Z", stored_at: null },
+        // TI-691: a supplier's quote answering the request is not one of its photos.
+        { id: "80000000-0000-4000-8000-000000000003", tenant_id: TENANT, project_id: PROJECT, request_id: requestId(3), quote_id: "c0000000-0000-4000-8000-000000000001", storage_path: "z", file_name: "devis.pdf", mime_type: "application/pdf", byte_size: 10, rotation: 0, created_at: "2026-10-03T09:02:00.000Z", stored_at: "2026-10-03T09:02:02.000Z" },
       ],
     },
   });

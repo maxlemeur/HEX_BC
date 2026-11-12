@@ -34,7 +34,7 @@ type QueryResult = { data: unknown; error: QueryError | null; count?: number | n
 export type FakeRpcHandler = (
   args: Record<string, unknown>,
   tables: FakeTables,
-) => { data: unknown; error?: { code: string; message: string } | null };
+) => { data: unknown; error?: { code: string; message: string; details?: string | null } | null };
 
 export type FakeSupabaseOptions = {
   userId: string | null;
@@ -158,6 +158,11 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     if (table === "material_request_lines" && "status" in values) {
       next.validated_at = next.status === "validated" ? (row.validated_at ?? now()) : null;
       next.validated_by = next.status === "validated" ? (row.validated_by ?? options.userId) : null;
+    }
+    // The quote trigger dates the life of a quote (TI-691).
+    if (table === "material_request_quotes" && next.status !== row.status) {
+      if (next.status === "received") next.received_at = now();
+      if (next.status === "closed") next.closed_at = now();
     }
     return next;
   }
@@ -367,7 +372,8 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       if (typeof answer === "function") {
         const { data, error } = (answer as FakeRpcHandler)(args, tables);
         if (!error) events.push(`rpc ${name}`);
-        return { data: error ? null : data, error: error ? { ...error, details: null, hint: null } : null };
+        // A refusal keeps the DETAIL the function raised with (positions of lines, a status...).
+        return { data: error ? null : data, error: error ? { details: null, hint: null, ...error } : null };
       }
       return { data: answer ?? null, error: null };
     },
