@@ -368,7 +368,7 @@ test("LAB02 a Decisions choice shows its probabilities and a ChatGPT schema erro
   await writeFile(path.join(artifacts, "lab02-evidence.json"), JSON.stringify({ runId: run.id, screenshot }, null, 2));
 });
 
-test("LAB03 development aliases work while writes require their origin and membership remains enforced", {
+test("LAB03 loopback works, an unlisted host is refused, and writes require their origin and membership", {
   tags: ["critical", "local", "chatgpt", "takeoff-lab"], timeout: 120_000,
 }, async () => {
   const runsBefore = (await storedRuns()).length;
@@ -382,13 +382,18 @@ test("LAB03 development aliases work while writes require their origin and membe
     { method: "PUT", path: `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}/verdicts/${"0".repeat(64)}`, body: { verdict: "good" } },
     { method: "POST", path: `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}/undo` },
   ];
-  // Development aliases allow the same admin to read; writes still require an exact Origin.
-  for (const host of [`localhost:${port}`, `192.168.1.20:${port}`]) {
+  // Loopback stays available. An unlisted host is refused before any read or write.
+  for (const route of routes) {
+    const response = await rawRequest({ ...route, host: `localhost:${port}`, cookie: admin.header });
+    const errorCode = response.status >= 400 ? JSON.parse(response.body).error?.code ?? null : null;
+    expect([route.path, response.status, errorCode])
+      .toEqual([route.path, route.method === "GET" ? 200 : 403, route.method === "GET" ? null : "TAKEOFF_LAB_ORIGIN"]);
+  }
+  for (const host of [`192.168.1.20:${port}`, `192.168.1.42:${port}`]) {
     for (const route of routes) {
       const response = await rawRequest({ ...route, host, cookie: admin.header });
-      const errorCode = response.status >= 400 ? JSON.parse(response.body).error?.code ?? null : null;
-      expect([route.path, host, response.status, errorCode])
-        .toEqual([route.path, host, route.method === "GET" ? 200 : 403, route.method === "GET" ? null : "TAKEOFF_LAB_ORIGIN"]);
+      expect([route.path, host, response.status, JSON.parse(response.body).error?.code])
+        .toEqual([route.path, host, 403, "TAKEOFF_LAB_LOCAL_ONLY"]);
     }
   }
   const page = await rawRequest({ method: "GET", path: LAB, host: `localhost:${port}`, cookie: admin.header });

@@ -19,6 +19,11 @@ export async function GET(request: NextRequest) {
     callback.search = new URL(request.url).search;
     const relay = await relayLocalChatGptCallback(callback);
     if (relay) {
+      try {
+        if (assertLocalChatGptHost(relay.host, relay.protocol.slice(0, -1)) !== relay.origin) {
+          return new NextResponse(null, { status: 404 });
+        }
+      } catch { return new NextResponse(null, { status: 404 }); }
       const response = NextResponse.redirect(relay, 303);
       response.headers.set("Cache-Control", "no-store");
       response.headers.set("Referrer-Policy", "no-referrer");
