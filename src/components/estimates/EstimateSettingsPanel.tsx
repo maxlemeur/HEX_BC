@@ -25,12 +25,11 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldDescription, FieldLabel } from "@/components/ui/field";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input, controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Loader2Icon, XIcon } from "lucide-react";
+import { Loader2Icon } from "lucide-react";
 
 export type DiscountMode = "simple" | "cascade";
 
@@ -97,6 +96,8 @@ const GLOSSARY_DISMISSED_STORAGE_KEY = "est-glossary-dismissed";
 const NUMBER_INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full");
 const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
 const GROUP_TITLE_CLASS = "text-sm font-medium text-foreground";
+const SECTION_CLASS = "space-y-4 border-t border-border pt-6";
+const SECTION_TITLE_CLASS = "text-base font-semibold text-foreground";
 const CHIP_FOCUS_CLASS =
   "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -237,48 +238,11 @@ export function EstimateSettingsPanel({
     </div>
   );
 
-  return (
-    <Card className="p-5 sm:p-8">
-      {error && (
-        <Alert variant="danger" className="mb-6">
-          {error}
-        </Alert>
-      )}
-
-      {!glossaryDismissed && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-info-border bg-info-subtle p-3 text-xs text-foreground-secondary">
-          <div className="flex-1">
-            <p className="font-semibold text-info">Glossaire</p>
-            <ul className="mt-1 space-y-0.5">
-              <li><strong>FO</strong> = Fourniture (matériaux, produits)</li>
-              <li><strong>MO</strong> = Main-d&apos;œuvre (travail, pose)</li>
-              <li><strong>K</strong> = Coefficient multiplicateur</li>
-              <li><strong>HT</strong> = Hors taxes / <strong>TTC</strong> = Toutes taxes comprises</li>
-            </ul>
-          </div>
-          <IconButton
-            label="Masquer le glossaire"
-            icon={<XIcon aria-hidden="true" />}
-            size="icon-xs"
-            className="shrink-0 text-info hover:bg-info-light hover:text-info"
-            onClick={() => {
-              setGlossaryDismissed(true);
-              try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, "1"); } catch {}
-            }}
-          />
-        </div>
-      )}
-
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className={cn(FIELD_CLASS, "sm:col-span-2")}>
-          <FieldLabel htmlFor="estimate-project-name">Projet</FieldLabel>
-          <Input
-            id="estimate-project-name"
-            value={projectName}
-            readOnly
-          />
-        </div>
-
+  const commonSections = (
+    <>
+      <section aria-labelledby="estimate-quote-section-title" className={SECTION_CLASS}>
+        <h3 id="estimate-quote-section-title" className={SECTION_TITLE_CLASS}>Informations du devis</h3>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className={cn(FIELD_CLASS, "sm:col-span-2")}>
           <FieldLabel htmlFor="estimate-title">Titre</FieldLabel>
           <Input
@@ -315,15 +279,6 @@ export function EstimateSettingsPanel({
         </div>
 
         <div className={FIELD_CLASS}>
-          <FieldLabel htmlFor="estimate-version">Version</FieldLabel>
-          <Input
-            id="estimate-version"
-            value={`V${versionNumber}`}
-            readOnly
-          />
-        </div>
-
-        <div className={FIELD_CLASS}>
           <FieldLabel htmlFor="estimate-currency">Devise</FieldLabel>
           <NativeSelect
             id="estimate-currency"
@@ -342,9 +297,29 @@ export function EstimateSettingsPanel({
             ))}
           </NativeSelect>
         </div>
-      </div>
 
-      <div className={cn(FIELD_CLASS, "mt-8")} data-testid="estimate-exclusions-section">
+        <div className={cn(FIELD_CLASS, "sm:col-span-2")}>
+          <FieldLabel htmlFor="estimate-project-name">Projet</FieldLabel>
+          <Input
+            id="estimate-project-name"
+            value={projectName}
+            readOnly
+          />
+        </div>
+
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="estimate-version">Version</FieldLabel>
+          <Input
+            id="estimate-version"
+            value={`V${versionNumber}`}
+            readOnly
+          />
+        </div>
+      </div>
+      </section>
+
+      <section className={SECTION_CLASS}>
+      <div className={FIELD_CLASS} data-testid="estimate-exclusions-section">
         <FieldLabel htmlFor="estimate-exclusions">
           Précisions et exclusions particulières
         </FieldLabel>
@@ -355,7 +330,7 @@ export function EstimateSettingsPanel({
         </FieldDescription>
         <Textarea
           id="estimate-exclusions"
-          className="min-h-32 resize-y text-sm"
+          className="min-h-24 resize-y text-sm"
           value={commonSettings.exclusions}
           disabled={commonDisabled}
           maxLength={5000}
@@ -406,6 +381,39 @@ export function EstimateSettingsPanel({
           </div>
         ) : null}
       </div>
+      </section>
+    </>
+  );
+
+  return (
+    <Card className="p-5 sm:p-8">
+      {error && (
+        <Alert variant="danger" className="mb-6">
+          {error}
+        </Alert>
+      )}
+
+      <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <button
+          type="button"
+          className="rounded-sm font-medium text-info underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          aria-expanded={!glossaryDismissed}
+          aria-controls="estimate-glossary"
+          onClick={() => {
+            const dismissed = !glossaryDismissed;
+            setGlossaryDismissed(dismissed);
+            try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, dismissed ? "1" : "0"); } catch {}
+          }}
+        >
+          Glossaire
+        </button>
+        {!glossaryDismissed && (
+          <p id="estimate-glossary">
+            <strong>FO</strong> fourniture · <strong>MO</strong> main-d&apos;œuvre · <strong>K</strong> coefficient
+            multiplicateur · <strong>HT</strong> hors taxes · <strong>TTC</strong> toutes taxes comprises
+          </p>
+        )}
+      </div>
 
       {v3 ? (
         <EstimateV3SettingsSection
@@ -415,10 +423,12 @@ export function EstimateSettingsPanel({
           isSaving={isSaving}
           onSave={onSave}
           contractorRoleField={contractorRoleField}
+          commonSections={commonSections}
         />
       ) : (
-      <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">
+      <div className="estimate-settings-grid flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3 lg:gap-8">
         <div className="min-w-0 space-y-6 lg:col-span-2">
+          <h3 className={SECTION_TITLE_CLASS}>Prix et taxes</h3>
           <div role="group" aria-labelledby="estimate-margin-mode-label">
             <p id="estimate-margin-mode-label" className={GROUP_TITLE_CLASS}>
               Mode de marge
@@ -667,9 +677,10 @@ export function EstimateSettingsPanel({
               L’arrondi ne s’applique pas en autoliquidation.
             </FieldDescription>
           </div>
+          {commonSections}
         </div>
 
-        <div className="estimate-summary lg:sticky lg:top-8 lg:self-start">
+        <div className="estimate-summary lg:sticky lg:top-0 lg:self-start">
           <div className="estimate-summary__header">
             <h3>Résumé</h3>
             <p>Calculs en temps réel</p>

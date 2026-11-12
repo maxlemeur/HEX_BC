@@ -29,6 +29,8 @@ type EstimateV3SettingsSectionProps = {
   onSave: () => unknown;
   /** Régime de TVA, commun à tous les moteurs, rendu par le panneau. */
   contractorRoleField?: ReactNode;
+  /** Sections communes (informations du devis, précisions) rendues sous les réglages, dans la colonne des champs. */
+  commonSections?: ReactNode;
 };
 
 const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
@@ -198,6 +200,7 @@ export function EstimateV3SettingsSection({
   isSaving,
   onSave,
   contractorRoleField,
+  commonSections,
 }: Readonly<EstimateV3SettingsSectionProps>) {
   const { draft } = controller;
   const currency = draft?.currency ?? fallbackCurrency;
@@ -215,10 +218,11 @@ export function EstimateV3SettingsSection({
   return (
     <>
       <div
-        className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3"
+        className="estimate-settings-grid flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3 lg:gap-8"
         data-testid="estimate-v3-settings-section"
       >
         <div className="min-w-0 space-y-6 lg:col-span-2">
+          <h3 className="text-base font-semibold text-foreground">Prix et taxes</h3>
           {controller.unavailableMessage ? (
             <Alert variant="danger">
               Réglages du moteur de calcul 3 illisibles : {controller.unavailableMessage}
@@ -289,6 +293,7 @@ export function EstimateV3SettingsSection({
 
           {contractorRoleField}
 
+          <div className="grid items-start gap-4 sm:grid-cols-2">
           <V3TextField
             controller={controller}
             field="tax_rate"
@@ -326,9 +331,11 @@ export function EstimateV3SettingsSection({
               après lui.
             </FieldDescription>
           </div>
+          </div>
+          {commonSections}
         </div>
 
-        <div className="estimate-summary lg:sticky lg:top-8 lg:self-start">
+        <div className="estimate-summary lg:sticky lg:top-0 lg:self-start">
           <div className="estimate-summary__header">
             <h3>Résumé</h3>
             <p>Aperçu du moteur de calcul 3, recalculé par le serveur à l’enregistrement</p>
