@@ -528,60 +528,80 @@ function centsText(cents: number | null): string {
 }
 
 /**
- * An amount in euros, typed with the house grammar (« 12,50 », « 1 250 »), saved on leaving the field or Enter;
- * Escape gives back the saved amount. A refused save keeps what was typed, with the reason under it.
+ * What an amount field holds: the text typed (null when it shows the saved amount), the reason a save was refused,
+ * and the saving of what it shows. Shared by the field and, for a price, by the choice of the lot it is for.
  */
-function CentsInput({
-  id,
-  label,
-  value,
-  onCommit,
-  onAbandon,
-  onUnreadableChange,
-}: Readonly<{
-  /** Given when a visible <label> points at the field; `label` stays its accessible name. */
-  id?: string;
-  label: string;
-  value: number | null;
-  onCommit: (next: number | null) => Promise<SaveResult>;
-  onAbandon?: () => void;
-  /** Told whenever the field starts or stops showing text that cannot be read, and false when it goes away. */
-  onUnreadableChange?: (unreadable: boolean) => void;
-}>) {
-  const messagesId = useId();
+function useCentsDraft(value: number | null, onAbandon?: () => void) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const writes = usePendingWrites<number | null>(value);
   const unreadable = draft !== null && readCents(draft) === undefined;
-  const shownError = unreadable ? AMOUNT_UNREADABLE : error;
 
-  useEffect(() => {
-    onUnreadableChange?.(unreadable);
-  }, [onUnreadableChange, unreadable]);
-  useEffect(() => () => onUnreadableChange?.(false), [onUnreadableChange]);
-
-  const commit = async () => {
-    if (draft === null) return;
+  /**
+   * Saves the amount shown with `send`. Nothing is sent when nothing was typed or the text cannot be read. `force`:
+   * sent even when it is the amount expected, because what goes with it changed (the lot of a price).
+   */
+  const commit = async (
+    send: (next: number | null) => Promise<SaveResult>,
+    force = false,
+  ): Promise<SaveResult | null> => {
+    if (draft === null) return null;
     const next = readCents(draft);
-    if (next === undefined) return;
-    if (next === writes.expected()) {
+    if (next === undefined) return null;
+    if (!force && next === writes.expected()) {
       if (writes.idle()) {
         if (error) onAbandon?.();
         setDraft(null);
         setError(null);
       }
-      return;
+      return null;
     }
-    const result = await writes.send(next, () => onCommit(next));
-    if (result === null) return;
+    const result = await writes.send(next, () => send(next));
+    if (result === null) return null;
     if (result.ok) {
       setError(null);
       setDraft((current) => (current !== null && readCents(current) === next ? null : current));
     } else {
       setError(result.message);
     }
+    return result;
   };
 
+  /**
+   * Escape: the saved amount is shown again, and what could not be saved is dropped, with what waited for it (the lot
+   * of a price chosen while the text could not be read).
+   */
+  const abandon = () => {
+    if (error || draft !== null) onAbandon?.();
+    setDraft(null);
+    setError(null);
+  };
+
+  return { draft, setDraft, error, unreadable, shownError: unreadable ? AMOUNT_UNREADABLE : error, commit, abandon };
+}
+
+type CentsDraft = ReturnType<typeof useCentsDraft>;
+
+/**
+ * An amount in euros, typed with the house grammar (« 12,50 », « 1 250 »), saved on leaving the field or Enter;
+ * Escape gives back the saved amount. A refused save keeps what was typed, with the reason under it.
+ */
+function CentsField({
+  id,
+  label,
+  value,
+  field,
+  onCommit,
+}: Readonly<{
+  /** Given when a visible <label> points at the field; `label` stays its accessible name. */
+  id?: string;
+  label: string;
+  value: number | null;
+  field: CentsDraft;
+  onCommit: () => void;
+}>) {
+  const messagesId = useId();
+  const { shownError } = field;
   return (
     <>
       <input
@@ -593,24 +613,39 @@ function CentsInput({
         aria-invalid={Boolean(shownError) || undefined}
         aria-describedby={shownError ? messagesId : undefined}
         className={cn(CONTROL, "text-right tabular-nums", shownError && "border-danger")}
-        value={draft ?? centsText(value)}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={() => void commit()}
+        value={field.draft ?? centsText(value)}
+        onChange={(event) => field.setDraft(event.currentTarget.value)}
+        onBlur={onCommit}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            void commit();
-          } else if (event.key === "Escape" && (draft !== null || error)) {
+            onCommit();
+          } else if (event.key === "Escape" && (field.draft !== null || field.error)) {
             event.preventDefault();
-            if (error) onAbandon?.();
-            setDraft(null);
-            setError(null);
+            field.abandon();
           }
         }}
       />
       <CellMessages id={messagesId} error={shownError} />
     </>
   );
+}
+
+function CentsInput({
+  id,
+  label,
+  value,
+  onCommit,
+  onAbandon,
+}: Readonly<{
+  id?: string;
+  label: string;
+  value: number | null;
+  onCommit: (next: number | null) => Promise<SaveResult>;
+  onAbandon?: () => void;
+}>) {
+  const field = useCentsDraft(value, onAbandon);
+  return <CentsField id={id} label={label} value={value} field={field} onCommit={() => void field.commit(onCommit)} />;
 }
 
 function QuoteFiles({
@@ -747,19 +782,43 @@ function QuotePriceEntry({
     [entry.line_id, quote.id, setPriceUnreadable],
   );
 
+  // Escape on the price gives back the saved price and its lot: nothing unsaved is left on the line.
+  const field = useCentsDraft(entry.unit_price_ht_cents, () => {
+    quotes.forgetPriceFailure(quote.id, entry.line_id);
+    setChoice(null);
+  });
+  useEffect(() => {
+    reportUnreadable(field.unreadable);
+  }, [field.unreadable, reportUnreadable]);
+  useEffect(() => () => reportUnreadable(false), [reportUnreadable]);
+
+  // A saved lot is no longer a choice to keep, unless another was chosen while it travelled: that one still waits.
+  const settle = (lot: MaterialRequestPricePer) => setChoice((current) => (current === lot ? null : current));
+  const saveFor = (lot: MaterialRequestPricePer) => async (cents: number | null) => {
+    const result = await quotes.savePrice(quote.id, entry.line_id, cents, lot);
+    if (result.ok) settle(lot);
+    return result;
+  };
+
   const choose = async (next: MaterialRequestPricePer) => {
+    setError(null);
+    if (field.draft !== null) {
+      // The lot goes with the price the field shows, never with the one saved before it: an unreadable text holds
+      // both (its reason is said under it), a readable one is saved with the new lot, refused or not.
+      setChoice(next);
+      if (!field.unreadable) await field.commit(saveFor(next), true);
+      return;
+    }
     if (next === stored && error) {
       // The office gives back the stored choice after a refusal: nothing unsaved is left.
       quotes.forgetPriceFailure(quote.id, entry.line_id);
       setChoice(null);
-      setError(null);
       return;
     }
     setChoice(next);
-    setError(null);
     if (entry.unit_price_ht_cents === null) return;
     const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, next);
-    if (result.ok) setChoice(null);
+    if (result.ok) settle(next);
     else setError(result.message);
   };
 
@@ -770,17 +829,14 @@ function QuotePriceEntry({
       </label>
       <div className="flex min-w-0 items-start gap-1.5">
         <div className="min-w-0 flex-1">
-          <CentsInput
+          <CentsField
             id={inputId}
             label={`Prix unitaire HT, ligne ${position}, ${supplier}`}
             value={entry.unit_price_ht_cents}
-            onCommit={async (cents) => {
-              const result = await quotes.savePrice(quote.id, entry.line_id, cents, per);
-              if (result.ok) setChoice(null);
-              return result;
-            }}
-            onAbandon={() => quotes.forgetPriceFailure(quote.id, entry.line_id)}
-            onUnreadableChange={reportUnreadable}
+            field={field}
+            // A lot chosen while the text could not be read waits for the price: sent with it even when the amount is
+            // the one saved, as what it is for changed.
+            onCommit={() => void field.commit(saveFor(per), per !== stored)}
           />
         </div>
         <NativeSelect

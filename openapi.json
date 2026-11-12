@@ -4151,7 +4151,7 @@
           }
         ],
         "requestBody": {
-          "description": "Fournisseur actif du tenant, lignes, variante et message copié (20000 caractères au plus).",
+          "description": "Fournisseur actif du tenant, lignes, variante et message copié (262144 caractères au plus).",
           "required": true,
           "content": {
             "application/json": {
@@ -36114,7 +36114,7 @@
           },
           "message": {
             "type": "string",
-            "maxLength": 20000
+            "maxLength": 262144
           }
         },
         "required": [

@@ -4,7 +4,8 @@
 --  1. a quote table is readable without RLS, a client deletes a quote (closed quotes must stay readable) or anon
 --     reaches a table or a function; a write function bypasses RLS (security definer); the bucket refuses a PDF;
 --  2. a quote takes its tenant, affaire, status or dates from the client, names a supplier of another tenant, or
---     starts elsewhere than « requested »; its message exceeds 20 000 characters (300 lines are copied in it);
+--     starts elsewhere than « requested »; its message exceeds 262 144 characters (300 lines at their field limits,
+--     about 861 characters each, are copied in it), or a message of 300 such lines is refused;
 --  3. a supplier gets a second quote on a request while one is requested or received, or a retained or closed one
 --     keeps the supplier from being consulted again (lines added later go to the same supplier);
 --  4. a quote asks for a line of another request, the same line twice or no line, or is left without its lines when
@@ -246,8 +247,14 @@ select throws_ok($$insert into public.material_request_quotes (request_id, suppl
     values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, 'Bonjour', 'received')$$,
   '23514', 'MATERIAL_REQUEST_QUOTE_STATUS_INVALID', '2 a quote starts requested');
 select throws_ok($$insert into public.material_request_quotes (request_id, supplier_id, with_references, message)
-    values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 20001))$$,
-  '23514', null, '2 the message holds 20 000 characters at most');
+    values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 262145))$$,
+  '23514', null, '2 the message holds 262 144 characters at most');
+select lives_ok($$insert into public.material_request_quotes (request_id, supplier_id, with_references, message)
+    values ('a9300000-0000-4000-8000-000000000602', 'a9300000-0000-4000-8000-000000000304', false,
+      (select string_agg('- 999999,999 ' || repeat('u', 20) || ' ' || repeat('d', 500) || ', ' || repeat('n', 80) || ', '
+        || repeat('m', 120) || ', ' || repeat('p', 120), chr(10)) from generate_series(1, 300)) || chr(10) || repeat('a', 2000))$$,
+  '2 a message of 300 lines at their field limits, and a long affaire name, is kept');
+delete from public.material_request_quotes where request_id = 'a9300000-0000-4000-8000-000000000602';
 
 -- ---------------------------------------------------------------------------
 -- 3. One quote in progress (requested or received) per supplier and request.
@@ -741,13 +748,31 @@ select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   'ok 2', '13 and deleted');
 -- Deleting the request withdraws every file first, those of retained quotes included, through one function.
 select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000006',
-  $$select count(*) as withdrawn from public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')$$),
+  $$select cardinality(public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')) as withdrawn$$),
   '[{"withdrawn": 0}]'::jsonb, '13 a director, who may not delete the request, withdraws nothing');
 select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000001',
-  $$select count(*) as withdrawn from public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')$$),
+  $$select cardinality(public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000601')) as withdrawn$$),
   jsonb_build_array(jsonb_build_object('withdrawn',
     (select count(*) from public.material_request_files where request_id = 'a9300000-0000-4000-8000-000000000601'))),
   '13 its owner withdraws every file of the request, with their paths');
+-- (Codex review of #279) The paths come back as one value, whatever their number: the Data API answers 1 000 rows at
+-- most, and a request may hold more files across its quotes. The rows are written past their triggers here (rolled
+-- back), as 1 005 listed files would otherwise need a hundred quotes.
+alter table public.material_request_files disable trigger enforce_material_request_file_write;
+insert into public.material_request_files (id, tenant_id, project_id, request_id, storage_path, file_name, mime_type, byte_size,
+    created_by, stored_at)
+select file.id, 'a9300000-0000-4000-8000-000000000101', 'a9300000-0000-4000-8000-000000000202', 'a9300000-0000-4000-8000-000000000602',
+  'a9300000-0000-4000-8000-000000000101/a9300000-0000-4000-8000-000000000202/a9300000-0000-4000-8000-000000000602/'
+    || file.id || '/page.jpg', 'page.jpg', 'image/jpeg', 2048, 'a9300000-0000-4000-8000-000000000005', now()
+from (select gen_random_uuid() as id from generate_series(1, 1005)) file;
+alter table public.material_request_files enable trigger enforce_material_request_file_write;
+select is(pg_temp.pls_rows('a9300000-0000-4000-8000-000000000005',
+  $$select cardinality(paths) as paths, (select count(distinct path) from unnest(paths) path) as distinct_paths
+    from (select public.withdraw_material_request_files_for_deletion('a9300000-0000-4000-8000-000000000602') as paths) answer$$),
+  '[{"paths": 1005, "distinct_paths": 1005}]'::jsonb,
+  '13 1 005 files of a request are withdrawn and answered in a single value, every path once');
+select is((select count(*) from public.material_request_files
+    where request_id = 'a9300000-0000-4000-8000-000000000602' and removed_at is null), 0::bigint, '13 all of them are withdrawn');
 select is((select count(*) from public.material_request_files where request_id = 'a9300000-0000-4000-8000-000000000601' and removed_at is null),
   0::bigint, '13 the files of the retained quote are withdrawn with the others, ready for the deletion');
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',

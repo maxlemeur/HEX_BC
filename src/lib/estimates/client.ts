@@ -4,6 +4,7 @@ import { EstimateApiError, isEstimateApiError, toErrorMessage, extractErrorDetai
 import { type EstimateVersionToken, type BulkUpdateEstimateVersionPatch, parseVersionToken } from "@/lib/estimates/client-version";
 import { readJson, requestJsonUncoordinated } from "@/lib/estimates/client-http";
 import { requestJson } from "@/lib/estimates/client-requests";
+import { assemblyTargetPriceCents } from "@/lib/estimates/assembly-target-price";
 import { type EstimateItem, parseEstimateItems, fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
 import { type EstimatePurchaseOrderDraftPreparation, type CreateEstimatePurchaseOrderDraftsInput, type EstimatePurchaseOrderDraftCreationResult } from "@/lib/estimates/purchase-order-draft-contracts";
 import { parseSaveEstimateVersionResponse, parseEstimateItemWriteResponse, parseBulkUpdateEstimateItemsResponse, parseEstimateStatusResponse, parseCreateEstimateResponse, parseEstimateVersionIdResponse, parsePromoteEstimateVariantResponse, parseEstimateEventsResponse } from "@/lib/estimates/write-response-contracts";
@@ -245,7 +246,8 @@ export type EstimateAssemblySummary = {
   unit?: string | null;
   pricingSource?: string | null;
   directCostCents?: number;
-  targetPriceCents?: number;
+  /** Null when the ouvrage has no target price (see `assemblyTargetPriceCents`). */
+  targetPriceCents?: number | null;
   averageOutputRate?: number | null;
   averageTimeHours?: number | null;
   sourceMetadata?: unknown;
@@ -1725,7 +1727,7 @@ function parseEstimateAssemblySummaryEntity(
     unit: toStringValue(value.unit),
     pricingSource: toStringValue(value.pricing_source),
     directCostCents: toNumber(value.ds_cents) ?? 0,
-    targetPriceCents: toNumber(value.indicative_target_price_cents) ?? 0,
+    targetPriceCents: assemblyTargetPriceCents(value),
     averageOutputRate: toNumber(value.avg_output_rate),
     averageTimeHours: toNumber(value.avg_time_hours),
     sourceMetadata: value.source_metadata ?? null,

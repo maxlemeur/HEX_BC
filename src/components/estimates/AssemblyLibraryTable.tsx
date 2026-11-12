@@ -28,6 +28,7 @@ import type {
   EstimateAssemblyLaborRole,
   EstimateAssemblySummary,
 } from "@/lib/estimates/client";
+import { formatAssemblyTargetPrice } from "@/lib/estimates/assembly-target-price";
 import { formatEUR } from "@/lib/money";
 
 type AssemblyLibraryTableProps = {
@@ -193,7 +194,7 @@ function AssemblyContentPreview({
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <span className="text-xs text-muted-foreground">Prix cible</span>
           <p className="mt-0.5 text-sm font-semibold text-foreground">
-            {formatCurrency(
+            {formatAssemblyTargetPrice(
               detail?.targetPriceCents ?? assembly.targetPriceCents
             )}
           </p>
