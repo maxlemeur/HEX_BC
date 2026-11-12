@@ -155,11 +155,11 @@ function seed(
     rpc: {
       material_request_material_options: ["Cuivre", "Inox 304L"],
       // public.withdraw_material_request_files_for_deletion, as pgTAP proves it (TI-691): every file of the request is
-      // withdrawn, quote files included, and its path answered.
+      // withdrawn, quote files included, and the paths answered as one array, whatever their number.
       withdraw_material_request_files_for_deletion: ((args, tables) => {
         const rows = (tables.material_request_files ?? []).filter((row) => row.request_id === args.p_request_id);
         for (const row of rows) row.removed_at ??= new Date().toISOString();
-        return { data: rows.map((row) => ({ storage_path: row.storage_path })) };
+        return { data: rows.map((row) => String(row.storage_path)) };
       }) satisfies FakeRpcHandler,
     },
     objects: overrides.objects ?? { [FILE_PATH]: JPEG, [OTHER_FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG },
@@ -603,6 +603,27 @@ describe("material requests of an affaire: the request", () => {
     seed(OWNER, "engineer");
     const { status } = await call(requestsRoute.POST, "POST", inProject, { presumed_material: "Cuivre", material_confirmed: true, expected_presumed_material: "Cuivre" });
     expect(status).toBe(400);
+  });
+
+  it("deletes the bytes of every file of a request beyond the Data API's 1 000 rows, in bounded batches", async () => {
+    // (Codex review of #279) 1 205 files across its quotes: before, the paths past the first 1 000 were never removed.
+    const many = Array.from({ length: 1205 }, (_, index) => {
+      const id = `81000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+      return { id, tenant_id: TENANT, project_id: PROJECT, request_id: REQUEST, quote_id: "c0000000-0000-4000-8000-000000000001",
+        storage_path: `${TENANT}/${PROJECT}/${REQUEST}/${id}/page.jpg`, file_name: "page.jpg", mime_type: "image/jpeg",
+        byte_size: JPEG.byteLength, rotation: 0, created_by: OWNER, created_at: "2026-11-12T09:05:00.000Z",
+        stored_at: "2026-11-12T09:05:02.000Z", removed_at: null };
+    });
+    const fake = seed(OWNER, "engineer", {
+      objects: Object.fromEntries([[FILE_PATH, JPEG], [OTHER_FILE_PATH, JPEG], ...many.map((row) => [row.storage_path, JPEG])]),
+    });
+    fake.tables.material_request_files.push(...many);
+    const { status } = await call(requestRoute.DELETE, "DELETE", inRequest);
+    expect(status).toBe(200);
+    const removals = fake.storageCalls.flatMap((entry) => (entry.operation === "remove" ? [entry.paths] : []));
+    expect(removals.every((paths) => paths.length <= 100)).toBe(true);
+    expect(removals.flat().sort()).toEqual([FILE_PATH, PENDING_FILE_PATH, ...many.map((row) => row.storage_path)].sort());
+    expect([...fake.objects.keys()]).toEqual([OTHER_FILE_PATH]);
   });
 
   it("deletes a request with the bytes of its originals", async () => {
