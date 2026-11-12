@@ -263,6 +263,8 @@ export async function evaluateEstimateSendGating(
     project,
   } = input;
 
+  // TI-682, lot C: the lines whose stored offer choice the reader could not read (it hands them a null choice).
+  const unreadableOfferChoiceIds = new Set<string>();
   const [
     items,
     marginTiersResult,
@@ -273,7 +275,7 @@ export async function evaluateEstimateSendGating(
     blockingOverride,
     warningOverride,
   ] = await Promise.all([
-    readAllEstimateItems({ supabase, tenantId, versionId: version.id }),
+    readAllEstimateItems({ supabase, tenantId, versionId: version.id, unreadableOfferChoiceIds }),
     readAllRows(() => supabase
       .from("margin_tiers")
       .select("id", { count: "exact" })
@@ -391,6 +393,12 @@ export async function evaluateEstimateSendGating(
   for (const item of items) {
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";
+    // TI-682, lot C: a declared choice the application cannot read (the database only stores one it reads) blocks the
+    // send. The line would otherwise leave as an undeclared one: no sentence asked, a warning at most. A « Non chiffrée »
+    // line is already blocked until classified (not_priced_unclassified), whatever its choice.
+    const unreadableChoice = isEngine3 && pricingStatus !== "not_priced"
+      && (unreadableOfferChoiceIds.has(item.id) || (item.offer_choice != null && readOfferProvisionalQuantity(item) === null));
+    if (unreadableChoice) itemIdsByFlag.offer_choice_unreadable.add(item.id);
     if (pricingStatus === "not_priced") {
       // TI-682, lot C, PR 4 (D10, D28): a readable reserve declared by an administrator lets the line leave unpriced; the
       // issuer still sees it. Anything else is still to classify.
@@ -406,7 +414,7 @@ export async function evaluateEstimateSendGating(
     // the estimates sent before this lot did not say it either).
     const provisional = readOfferProvisionalQuantity(item);
     if (provisional) provisionalMentions.push({ itemId: item.id, mention: composeProvisionalQuantityMention(item, provisional) });
-    else if (readTakeoffProvision(item.source_metadata)?.kind === "hypothesis") {
+    else if (!unreadableChoice && readTakeoffProvision(item.source_metadata)?.kind === "hypothesis") {
       itemIdsByFlag.takeoff_hypothesis_without_mention.add(item.id);
     }
     const flags = qualityFlagsByItemId[item.id] ?? [];

@@ -192,7 +192,8 @@ function parseRegisterEntries(flag: EstimateSendGatingFlag) {
 
 /** Flags whose lines the window names by their titles (never by identifiers). */
 const LINES_BY_TITLE_FLAG_KEYS = new Set(["excluded_without_reason", "offer_reserve_declared", "offer_limits_required",
-  "provisional_quantity_mention_missing", "takeoff_hypothesis_without_mention", "provisional_quantity_mention_stale"]);
+  "provisional_quantity_mention_missing", "takeoff_hypothesis_without_mention", "provisional_quantity_mention_stale",
+  "offer_choice_unreadable"]);
 
 function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const details = flag.details ?? {};
@@ -448,6 +449,18 @@ function renderReserveEntries(
         </Button>
       </div>
     ) : null;
+  }
+  // TI-682, lot C: the lines whose declared choice the tool cannot read back, by title; an administrator declares it again.
+  if (flag.key === "offer_choice_unreadable") {
+    return (
+      <ul className="mt-2 space-y-2">
+        {flag.itemIds.map((itemId) => (
+          <li key={itemId} className="rounded-lg bg-surface px-2.5 py-2" data-testid="estimate-send-gating-unreadable-choice-line">
+            <span className="block text-xs font-medium text-foreground">{byId.get(itemId)?.title ?? "Ligne sans titre"}</span>
+          </li>
+        ))}
+      </ul>
+    );
   }
   // TI-682, lot C, PR 5: each provisional quantity with the sentence its line asks today; the hypotheses nobody declared.
   if (flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention") {

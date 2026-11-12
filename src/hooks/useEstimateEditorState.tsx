@@ -2815,7 +2815,8 @@ export function useEstimateEditorState({
   // depuis la fenêtre pour y insérer le paragraphe des réserves.
   const reserveItemIds = useMemo(() => [...new Set((sendGating ? [...sendGating.blockingFlags, ...sendGating.warningFlags] : [])
     .filter((flag) => flag.key === "offer_reserve_declared" || flag.key === "offer_limits_required"
-      || flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention")
+      || flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention"
+      || flag.key === "offer_choice_unreadable")
     .flatMap((flag) => flag.itemIds))], [sendGating]);
   // PR 5 : une quantité provisionnelle se lit par la phrase que les précisions doivent porter.
   const reserveLines = useMemo(() => reserveItemIds.map((itemId) => {

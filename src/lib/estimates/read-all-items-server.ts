@@ -13,6 +13,12 @@ type Version = Pick<Database["public"]["Tables"]["estimate_versions"]["Row"],
   "id" | "tenant_id" | "project_id" | "status" | "updated_at" | "content_revision">;
 
 type ItemsScope = { supabase: Supabase; tenantId: string; versionId: string };
+/**
+ * TI-682, lot C: the lines whose stored offer choice this application cannot read are collected here when asked. Their
+ * `offer_choice` is read as null everywhere (no reserve shown, never a refused read); the send gate alone must know
+ * that a declaration is there, and blocks.
+ */
+type UnreadableOfferChoices = { unreadableOfferChoiceIds?: Set<string> };
 
 const PAGE_SIZE = 500;
 const PAGE_CONCURRENCY = 4;
@@ -22,7 +28,7 @@ const IN_FILTER_CHUNK = 100;
 const MAX_SUBTREE_LEVELS = 64;
 
 /** Call after version authorization; never return a partially read estimate. */
-export async function readAllEstimateItems(input: ItemsScope): Promise<Item[]> {
+export async function readAllEstimateItems(input: ItemsScope & UnreadableOfferChoices): Promise<Item[]> {
   return readItemPages(input);
 }
 
@@ -66,7 +72,7 @@ async function readItemsWhereIn(input: ItemsScope, column: "id" | "parent_id", v
 }
 
 /** Every item of the version, or those whose `column` is in `values`, by pages; never a partial set. */
-async function readItemPages(input: ItemsScope, filter?: { column: "id" | "parent_id"; values: readonly string[] }) {
+async function readItemPages(input: ItemsScope & UnreadableOfferChoices, filter?: { column: "id" | "parent_id"; values: readonly string[] }) {
   const pageSize = PAGE_SIZE;
   const items: Item[] = [];
   const ids = new Set<string>();
@@ -99,10 +105,13 @@ async function readItemPages(input: ItemsScope, filter?: { column: "id" | "paren
           throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");
         }
         ids.add(item.id);
+        // An unreadable choice (another kind, a later application) is no reserve: the send gate keeps a « Non chiffrée »
+        // line to classify, and blocks any other line that carries one (offer_choice_unreadable).
+        const offerChoice = estimateOfferChoiceSchema.nullable().default(null).safeParse(item.offer_choice);
+        if (!offerChoice.success) input.unreadableOfferChoiceIds?.add(item.id);
         items.push({ ...item, fo_price_origin: foPriceOriginSchema.nullable().default(null).parse(item.fo_price_origin),
           status_reason: estimateStatusReasonSchema.nullable().default(null).parse(item.status_reason),
-          // An unreadable choice (another kind, a later application) is no reserve: the send gate keeps the line to classify.
-          offer_choice: estimateOfferChoiceSchema.nullable().default(null).catch(null).parse(item.offer_choice) });
+          offer_choice: offerChoice.success ? offerChoice.data : null });
       }
       if (items.length > count || batch.length > pageSize) {
         throw internalError("La lecture des lignes est incohérente. Rechargez le chiffrage.");
