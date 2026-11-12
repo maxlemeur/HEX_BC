@@ -4,11 +4,16 @@ import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/types";
 // The lines a takeoff's application leaves out of the estimate, computed once for the application (apply-server.ts) and
 // for the proposal of the « Pages déjà au devis » step (page-replacement-server.ts), so that both read the same lines.
 
-type ComparisonContext = { comparisonInput: Parameters<typeof computeTakeoffDpgfRows>[0] & { takeoffLines: Array<{ item_id: string }> } };
+type ComparisonContext = {
+  comparisonInput: Parameters<typeof computeTakeoffDpgfRows>[0] & { takeoffLines: Array<{ item_id: string }> };
+  /** TI-696: the earlier lines on the pages read again by the lines the application brings, those `leftOut` set aside. */
+  readAgainItemIdsOf?: (leftOut: ReadonlySet<string>) => ReadonlySet<string>;
+};
 
 /**
  * On a DPGF version, the lines of a row the reconciliation decided out of scope are skipped by the mapping plan, and the
- * lines the plan skips or folds into an assembly leave the reconciliation. Mutates both, as the application always did.
+ * lines the plan skips or folds into an assembly leave the reconciliation, and read no page again. Mutates both, as the
+ * application always did.
  */
 export function excludeDpgfOutOfScope(mappingPreview: TakeoffPreviewConversionResponse, comparisonContext: ComparisonContext | null) {
   if (!comparisonContext) return;
@@ -19,6 +24,10 @@ export function excludeDpgfOutOfScope(mappingPreview: TakeoffPreviewConversionRe
     ? { ...item, action: "skip", transformed: { ...item.transformed, is_excluded: true } } : item);
   const excluded = plannedExclusions(mappingPreview);
   comparisonContext.comparisonInput.takeoffLines = comparisonContext.comparisonInput.takeoffLines.filter(item => !excluded.has(item.item_id));
+  // TI-696: a page whose lines the plan all leaves out is not read again: its earlier part stays in the DPGF totals.
+  if (comparisonContext.readAgainItemIdsOf) {
+    comparisonContext.comparisonInput.readAgainItemIds = comparisonContext.readAgainItemIdsOf(excluded);
+  }
 }
 
 /** The lines the mapping plan skips or folds into an assembly: they bring nothing of their page to the estimate. */

@@ -1,4 +1,4 @@
-import { composeDpgfTarget } from "@/lib/takeoff/dpgf-composition";
+import { composeDpgfTarget, removeDpgfParts } from "@/lib/takeoff/dpgf-composition";
 import { replacementQuantities } from "@/lib/takeoff/page-replacement";
 import {
   TAKEOFF_PAGE_KEEP_BOTH_REASONS,
@@ -100,8 +100,13 @@ export type DpgfTargetOutcome = {
   falls: boolean;
   drops: Array<{ pageKey: string; label: string; refed: boolean;
     destinations: Array<{ designation: string; quantity: number; unit: string }> }>;
-  /** Pages replaced that take only part of a contribution whose share per page is unknown (the database refuses them). */
-  indivisible: string[];
+  /**
+   * The pages replaced that take only part of a contribution whose share per page is unknown, once every page replaced
+   * is counted together (the database refuses them: dpgf_part_unknown), each with the pages read again that hold the
+   * rest of it and are not replaced (replacing them too takes it out whole), or none when part of it lies on a page this
+   * takeoff does not read.
+   */
+  indivisible: Array<{ pageKey: string; label: string; alsoReplace: Array<{ key: string; label: string }> }>;
 };
 export type ResolvedNewLine = {
   newLine: TakeoffPageReplacementNewLine;
@@ -136,12 +141,21 @@ function dpgfOutcome(proposal: TakeoffPageReplacementResponse, target: TakeoffPa
   replacing: ReadonlySet<string>): DpgfTargetOutcome {
   const pages = proposal.pages.filter((page) => replacing.has(page.key));
   const removedOn = new Map(pages.map((page) => [page.key, new Set(page.lines.find((entry) => entry.id === target.id)?.item_ids ?? [])]));
+  // Every page replaced, together, as the application takes them out (removeDpgfParts, the twin of
+  // private.takeoff_compose_dpgf_targets): a part goes whole, or the replacement is refused.
   const removed = new Set([...removedOn.values()].flatMap((ids) => [...ids]));
-  const indivisible = pages.filter((page) => target.earlier.some((part) => {
-    const gone = part.item_ids.filter((id) => removedOn.get(page.key)!.has(id)).length;
-    return gone > 0 && gone < part.item_ids.length;
-  })).map(pageLabel);
-  const kept = target.earlier.filter((part) => !part.item_ids.some((id) => removed.has(id)));
+  const parts = removeDpgfParts(target.earlier, removed);
+  const holding = (itemId: string) => proposal.pages.filter((page) => page.lines.some((entry) => entry.id === target.id
+    && entry.item_ids.includes(itemId)));
+  const indivisible = pages.filter((page) => parts.indivisible.some((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))))
+    .map((page) => {
+      const rest = parts.indivisible.filter((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id)))
+        .flatMap((part) => part.item_ids.filter((id) => !removed.has(id)));
+      const others = rest.every((id) => holding(id).length > 0)
+        ? [...new Map(rest.flatMap(holding).filter((other) => !replacing.has(other.key)).map((other) => [other.key, other])).values()] : [];
+      return { pageKey: page.key, label: pageLabel(page), alsoReplace: others.map((other) => ({ key: other.key, label: pageLabel(other) })) };
+    });
+  const kept = parts.kept;
   const total = composeDpgfTarget(target.reference, [...kept,
     ...target.fed.map((line) => ({ job_id: proposal.job_id, item_ids: [line.item_id], quantity: line.quantity, protective: line.protective,
       printed_gap: line.printed_gap }))]).priced;
@@ -197,12 +211,17 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     ...locked.values()]);
   const replacesOtherThan = (page: TakeoffPageReplacementPage, lineId: string | null) => page.lines.some((entry) => entry.id !== lineId
     && (linesById.get(entry.id)!.dpgf_target || replaceableLines.has(entry.id) || !linesById.get(entry.id)!.outside_pages));
-  // A page whose replacement would cut a DPGF part whose share per page is unknown (a policy applied before D4) is never
-  // confirmed replaced alone (dpgf_part_unknown): not recommended there.
+  // A page holding a DPGF part whose share per page is unknown (a policy applied before D4), part of which lies on a page
+  // this takeoff does not read: no replacement takes it out whole (dpgf_part_unknown), so replacing is not recommended
+  // there. A part whose every page is read again leaves whole with all of them (the database counts the pages replaced
+  // together); the line says so when only some of them are replaced.
+  const readAgainOf = (targetId: string) => new Set(proposal.pages.flatMap((page) => page.lines.filter((entry) => entry.id === targetId)
+    .flatMap((entry) => entry.item_ids)));
   const cutsUnknownPart = (page: TakeoffPageReplacementPage) => page.lines.some((entry) => {
     const onPage = new Set(entry.item_ids);
+    const readAgain = readAgainOf(entry.id);
     return proposal.dpgf_targets.find((target) => target.id === entry.id)?.earlier.some((part) =>
-      part.item_ids.some((id) => onPage.has(id)) && part.item_ids.some((id) => !onPage.has(id))) ?? false;
+      part.item_ids.some((id) => onPage.has(id)) && part.item_ids.some((id) => !readAgain.has(id))) ?? false;
   });
   const replaceable = new Map(proposal.pages.map((page) => [page.key, replacesOtherThan(page, null) && !cutsUnknownPart(page)]));
   const dpgf = proposal.dpgf_targets.map((target) => dpgfOutcome(proposal, target, replacing));
@@ -232,11 +251,15 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       // TI-682 D4: it sums the takeoffs it keeps; a replaced page's part leaves it. A part whose share per page is unknown
       // (a policy applied before D4) cannot leave with one page: the page is kept both.
       const outcome = dpgfById.get(line.id);
-      const advice: Advice[] = (outcome?.indivisible ?? []).map((label) => {
-        const page = onPages.find((entry) => entry.label === label)!;
+      const advice: Advice[] = (outcome?.indivisible ?? []).map(({ pageKey, label, alsoReplace }) => {
+        const keepBoth = keepBothOffered(pageKey);
+        const ways = [...(alsoReplace.length > 0 ? [`remplacez aussi ${alsoReplace.map((other) => other.label).join(", ")}`] : []),
+          ...(keepBoth ? ["gardez les deux mesures de la page"] : [])];
+        const sentence = ways.join(", ou ");
         return { text: `« ${line.title} » : sa part sur ${label} n’est pas connue (métré appliqué avant le cumul) ; remplacer la page la retirerait entière.`
-            + `${keepBothOffered(page.key) ? " Gardez les deux mesures de la page." : ""}`,
-          choose: keepBothOffered(page.key) ? [{ control: `page:${page.key}`, value: "keep_both" }] : [], elsewhere: [], exits: [] };
+            + `${sentence ? ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.` : ""}`,
+          choose: [...alsoReplace.map((other) => ({ control: `page:${other.key}`, value: "replace" })),
+            ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])], elsewhere: [], exits: [] };
       });
       return { ...base, state: "dpgf" as const, after: outcome?.after ?? before, missing: advice.map(adviceMessage), advice, dpgf: outcome ?? null,
         pages: onPages.map((page) => ({ ...page, role: "dpgf" as const, part: null })) };

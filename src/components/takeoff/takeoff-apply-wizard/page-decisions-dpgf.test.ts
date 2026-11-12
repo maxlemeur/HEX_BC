@@ -117,3 +117,34 @@ describe("a DPGF part whose share per page is unknown (a policy applied before D
     expect([kept.lines[0].missing, kept.dpgf[0].after]).toEqual([[], 16]);
   });
 });
+
+describe("a DPGF part whose share per page is unknown, every page of it read again (Codex review of PR 288)", () => {
+  // The same part of two lines, on pages 1 and 2; the relaunch reads both pages. The application takes out the lines of
+  // every page it replaces together (private.takeoff_compose_dpgf_targets): replacing both pages takes the part out whole.
+  const page = (n: number, itemId: number, newLineId: number) => ({ key: `page-${n}`, document, file_name: "plan.pdf", page: n,
+    earlier_job_ids: [earlierJob], lines: [{ id: id(300), item_ids: [id(itemId)] }], new_line_ids: [id(newLineId)], dpgf_fed_again: [],
+    ambiguous_document: false, keep_both_refused: null });
+  const data = proposal({ merge_required: false,
+    pages: [page(1, 101, 202), page(2, 102, 203)],
+    lines: [dpgfLine(300, "EF cuivre DN 22", 16)],
+    new_lines: [{ id: id(202), designation: "Vanne d'arrêt", unit: "u", quantity: 3, unit_key: "u", candidates: [{ key: "page-1", line_ids: [] }] },
+      { id: id(203), designation: "Regard", unit: "u", quantity: 1, unit_key: "u", candidates: [{ key: "page-2", line_ids: [] }] }],
+    dpgf_targets: [target({ quantity: 16, reference: 5, earlier: [{ ...part(101, 16, 1), item_ids: [id(101), id(102)] }] })],
+  });
+
+  it("is taken out whole when every page it lies on is replaced, as the database accepts", () => {
+    const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
+    expect([resolution.complete, resolution.pages.map((entry) => entry.recommended), resolution.lines[0].missing, resolution.dpgf[0].after,
+      resolution.dpgf[0].indivisible]).toEqual([true, [true, true], [], 5, []]);
+  });
+
+  it("is never cut by replacing one of its pages while the other is kept both: replace that one too, or keep both", () => {
+    const initial = initialConfirmationDraft(data);
+    const control = confirmationControls(resolveConfirmation(data, initial)).find((entry) => entry.id === "page:page-2")!;
+    const mixed = resolveConfirmation(data, setConfirmationControl(initial, control, "keep_both"));
+    expect(mixed.lines[0].missing).toEqual(["« EF cuivre DN 22 » : sa part sur plan.pdf, page 1 n’est pas connue (métré appliqué avant le "
+      + "cumul) ; remplacer la page la retirerait entière. Remplacez aussi plan.pdf, page 2, ou gardez les deux mesures de la page."]);
+    expect(mixed.lines[0].advice[0].choose).toEqual([{ control: "page:page-2", value: "replace" }, { control: "page:page-1", value: "keep_both" }]);
+    expect(mixed.complete).toBe(false);
+  });
+});

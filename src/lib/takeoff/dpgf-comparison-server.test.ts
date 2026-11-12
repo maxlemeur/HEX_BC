@@ -15,6 +15,7 @@ function context(): TakeoffDpgfComparisonContext {
   return {
     supabase: {} as TakeoffDpgfComparisonContext["supabase"], tenantId: "tenant", userId: "owner", projectId: "project",
     estimateItems: [], takeoffItems: [], compositions: { targets: new Map(), lines: new Map(), jobs: new Map() },
+    readAgainItemIdsOf: () => new Set(),
     comparisonInput: {
       versionId: "version", jobId: "job", takeoffLines: [], manualLinks: [], reviewDecisions: [], carriedReviewDecisions: new Map(),
       dpgfCompositions: { targets: new Map(), lines: new Map(), jobs: new Map() }, readAgainItemIds: new Set(), overlapPartners: new Map(),

@@ -108,10 +108,10 @@ export function composeDpgfTarget(reference: number | null, contributions: reado
  * The composition once the pages replaced are taken out: the contributions of these takeoff lines go. A block that
  * mixes removed and kept lines cannot be cut: `indivisible` names it (the application refuses the replacement).
  */
-export function removeDpgfParts(contributions: readonly DpgfContribution[], removedItemIds: ReadonlySet<string>) {
-  const kept: DpgfContribution[] = [];
-  const removed: DpgfContribution[] = [];
-  const indivisible: DpgfContribution[] = [];
+export function removeDpgfParts<Part extends DpgfContribution>(contributions: readonly Part[], removedItemIds: ReadonlySet<string>) {
+  const kept: Part[] = [];
+  const removed: Part[] = [];
+  const indivisible: Part[] = [];
   for (const entry of contributions) {
     const gone = entry.item_ids.filter((id) => removedItemIds.has(id)).length;
     if (gone === 0) kept.push(entry);

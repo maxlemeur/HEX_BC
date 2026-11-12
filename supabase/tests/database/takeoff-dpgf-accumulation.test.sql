@@ -75,7 +75,11 @@ insert into da_cases values
   -- 17: an hypothesis in each takeoff.
   (17, 'EF cuivre DN 22', 'ml', 5),
   -- 18: a replaced page whose relaunch writes a line of the target's title onto it, outside the reconciliation.
-  (18, 'EF cuivre DN 22', 'ml', 5);
+  (18, 'EF cuivre DN 22', 'ml', 5),
+  -- 19: the relaunch's only line on page 1 excluded at the review, its line on page 2 feeding the target.
+  (19, 'WC suspendu', 'u', 20),
+  -- 20: a version 1 policy that cannot be split, both its pages replaced.
+  (20, 'EF cuivre DN 22', 'ml', 10);
 grant select on da_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -142,11 +146,18 @@ insert into da_items values
   (15, 1, 1, 'EF cuivre DN 22', 8, 'ml', 1), (15, 2, 1, 'EF cuivre DN 22', 4, 'ml', 2),
   (16, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (16, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (16, 2, 1, 'Vanne d''arrêt', 3, 'u', 1),
   (17, 1, 1, 'EF cuivre DN 22', 8, 'ml', 1), (17, 2, 1, 'EF cuivre DN 22', 4, 'ml', 2),
-  (18, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (18, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (18, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1);
+  (18, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (18, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (18, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1),
+  (19, 1, 1, 'WC suspendu', 12, 'u', 1), (19, 2, 1, 'Vanne d''arrêt', 2, 'u', 1), (19, 2, 2, 'WC suspendu', 10, 'u', 2),
+  (20, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (20, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2),
+  (20, 2, 1, 'EF cuivre DN 22', 8, 'ml', 1), (20, 2, 2, 'EF cuivre DN 22', 5, 'ml', 2);
 -- The lines whose quantity is an hypothesis its author entered (the provision marker's sources).
 create temporary table da_hypotheses (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
   on commit drop;
 insert into da_hypotheses values (15, 1, 1), (16, 1, 1), (17, 1, 1), (17, 2, 1);
+-- The lines excluded at the review: they bring nothing, nor their page.
+create temporary table da_excluded (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
+  on commit drop;
+insert into da_excluded values (19, 2, 1);
 
 create or replace function pg_temp.da_item(p_case integer, p_job integer, p_line integer)
 returns uuid language sql immutable as $$ select pg_temp.da_id(p_case * 1000 + p_job * 100 + p_line) $$;
@@ -178,6 +189,10 @@ returns void language sql as $$
   from da_hypotheses hypothesis
   where hypothesis.case_no = p_case and hypothesis.job_no = p_job
     and item.id = pg_temp.da_item(hypothesis.case_no, hypothesis.job_no, hypothesis.line_no);
+  update public.takeoff_items item set is_excluded = true, exclusion_reason = 'Écartée à la revue (fictif).'
+  from da_excluded excluded
+  where excluded.case_no = p_case and excluded.job_no = p_job
+    and item.id = pg_temp.da_item(excluded.case_no, excluded.job_no, excluded.line_no);
 $$;
 
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
@@ -520,6 +535,51 @@ select is(pg_temp.da_apply('merged onto a target not fed', 18, 2, 'da-18-2'), '4
 reset role;
 select is(jsonb_build_array((pg_temp.da_target(18)).quantity, (pg_temp.da_target(18)).source_provider), '[16, "dpgf"]'::jsonb,
   'the target keeps what it holds');
+
+-- 19. A page whose only new line is excluded at the review is not read again: the application keeps its earlier part,
+-- with no page decision (the reconciliation must judge the same total: TI-696, Codex review of PR 288).
+select pg_temp.da_permit(19, 2, 'da-19-2');
+set local role authenticated;
+select is(pg_temp.da_apply('excluded line on the earlier page', 19, 2, 'da-19-2'), 'ok',
+  'no decision is asked for page 1: its only new line is excluded');
+reset role;
+select is((pg_temp.da_target(19)).quantity, 22::numeric, 'the target holds 12 kept from page 1 + 10 from page 2');
+select is(pg_temp.da_composition(19), '[[1, 1, 12], [2, 2, 10]]'::jsonb, 'its composition keeps the earlier page');
+
+-- 20. A version 1 policy that could not be split, both its pages replaced: it leaves whole (as the confirmation shows).
+create or replace function pg_temp.da_decide_pages(p_case integer, p_pages integer[])
+returns text language plpgsql as $$
+declare
+  failure_detail text;
+begin
+  return 'ok ' || public.record_takeoff_page_decisions(pg_temp.da_job(p_case, 2), (select jsonb_agg(jsonb_build_object(
+    'document', jsonb_build_object('plan_file_id', current_setting('test.plan'), 'content_hash', null, 'logical_document_id', null,
+      'file_name', 'plan-fictif.pdf'), 'source_page', page, 'earlier_job_ids', jsonb_build_array(pg_temp.da_job(p_case, 1)),
+    'decision', 'replace', 'reason_code', null, 'note', null,
+    'lines', jsonb_build_array(jsonb_build_object('estimate_item_id', (pg_temp.da_target(p_case)).id,
+      'expected_updated_at', (pg_temp.da_target(p_case)).updated_at, 'action', 'keep', 'take', null,
+      'item_ids', jsonb_build_array(pg_temp.da_item(p_case, 1, page)))),
+    'pairs', '[]'::jsonb) order by page) from unnest(p_pages) as page));
+exception when others then
+  get stacked diagnostics failure_detail = pg_exception_detail;
+  return sqlstate || ' ' || sqlerrm
+    || coalesce(' ' || (case when failure_detail ~ '^\s*\{' then failure_detail::jsonb ->> 'reason' end), '');
+end;
+$$;
+select pg_temp.da_version_one(20, array[1, 2], 16, 16);
+select pg_temp.da_permit(20, 2, 'da-20-2', jsonb_build_array(jsonb_build_object('target_id', (pg_temp.da_target(20)).id,
+  'expected_updated_at', (pg_temp.da_target(20)).updated_at, 'job_id', pg_temp.da_job(20, 1),
+  'item_ids', jsonb_build_array(pg_temp.da_item(20, 1, 1), pg_temp.da_item(20, 1, 2)),
+  'contributions', jsonb_build_array(jsonb_build_object('job_id', pg_temp.da_job(20, 1),
+    'item_ids', jsonb_build_array(pg_temp.da_item(20, 1, 1), pg_temp.da_item(20, 1, 2)), 'quantity', 16, 'protective', 0,
+    'printed_gap', 0)))));
+set local role authenticated;
+select is(pg_temp.da_decide_pages(20, array[1, 2]), 'ok 2', 'fixture: both pages of the unsplit policy replaced');
+select is(pg_temp.da_apply('block replaced whole', 20, 2, 'da-20-2'), 'ok',
+  'replacing every page of a takeoff whose part per page is unknown takes it out whole');
+reset role;
+select is((pg_temp.da_target(20)).quantity, 13::numeric, 'the target holds max(10, 8 + 5): nothing of the block stays');
+select is(pg_temp.da_composition(20), '[[2, 1, 8], [2, 2, 5]]'::jsonb, 'its composition holds the relaunch only');
 
 select * from finish();
 rollback;

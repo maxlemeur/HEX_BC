@@ -335,6 +335,25 @@ commit;`);
         && resolution.lines.every((entry) => entry.line.dpgf_target || entry.missing.length === 0));
       return replaced ? { payload: replaced.payload } : null;
     } }] },
+  // TI-696 (Codex review of PR 288): the same part, both its pages read again. The application counts the pages replaced
+  // together: replacing both takes the part out whole (the screen recommends it, the database accepts it); replacing one
+  // while keeping the other both still cuts it (dpgf_part_unknown), and the line says to replace that page too or keep both.
+  { name: "a DPGF line of a policy applied before D4, both its pages read again", dpgf: true, earlier: [read("Siphon de cour", 2, "u", 1)],
+    relaunch: [read("Siphon de cour (relevé)", 3, "u", 1), read("Regard de visite", 1, "u", 2)],
+    prepare: feedDpgfTargetBeforeD4,
+    expect: (proposal) => {
+      const initial = resolveConfirmation(proposal, initialConfirmationDraft(proposal));
+      expect([proposal.pages.length, proposal.dpgf_targets.map((target) => target.earlier.map((part) => [part.quantity, part.item_ids.length])),
+        initial.dpgf.map((outcome) => outcome.indivisible), initial.pages.map((page) => page.recommended)])
+        .toEqual([2, [[[45, 2]]], [[]], [true, true]]);
+    },
+    naive: [{ reason: "dpgf_part_unknown", build: (context) => {
+      const mixed = context.reached.find((resolution) => resolution.payload.some((decision) => decision.decision === "replace")
+        && resolution.payload.some((decision) => decision.decision === "keep_both")
+        && resolution.pages.every((page) => page.missing.length === 0)
+        && resolution.lines.every((entry) => entry.line.dpgf_target || entry.missing.length === 0));
+      return mixed ? { payload: mixed.payload } : null;
+    } }] },
   // TI-682 D4 (C1): the DPGF line the earlier takeoff fed from the page (40 ml, DPGF reference 30) is not fed again,
   // and « Fusionner », required with a DPGF, imposes the washbasin onto its earlier line, so keeping both is refused.
   // Until D4 neither choice confirmed (#259's dead end). Replacing now takes the page's part out of the DPGF line, which

@@ -29,7 +29,7 @@ import {
 
 import { loadDpgfDecisionAncestors, resolveDpgfDecisionLineage } from "@/lib/takeoff/dpgf-decision-lineage-server";
 import { loadDpgfTargetCompositions } from "@/lib/takeoff/dpgf-composition-server";
-import { readTakeoffJobPagesAlreadyInEstimate } from "@/lib/takeoff/page-contributions-server";
+import { readTakeoffJobPageReading } from "@/lib/takeoff/page-contributions-server";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 
 export type TakeoffDpgfComparisonAuth = Pick<
@@ -126,12 +126,12 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   const compositions = await loadDpgfTargetCompositions({ supabase, tenantId }, allEstimateItems
     .filter((item) => item.item_type === "line" && item.source_provider === "dpgf")
     .map((item) => ({ id: item.id, updated_at: item.updated_at, source_metadata: item.source_metadata ?? null })));
-  // Only a target that keeps another takeoff's measure has pages this takeoff may read again.
+  // Only a target that keeps another takeoff's measure has pages this takeoff may read again. TI-696: read again only
+  // through the lines the application brings (not excluded; at the application and its « Pages déjà au devis » step, nor
+  // left out by the mapping plan: excludeDpgfOutOfScope reads them again with `readAgainItemIdsOf`).
   const fedByAnother = [...compositions.targets.values()].some((target) => target.contributions.some((part) => part.job_id !== jobId));
-  const readAgainItemIds = new Set(fedByAnother
-    ? (await readTakeoffJobPagesAlreadyInEstimate({ supabase, tenantId }, jobId, versionId)).pages
-      .flatMap((page) => page.earlier.flatMap((earlier) => earlier.takeoff_item_ids))
-    : []);
+  const pageReading = fedByAnother ? await readTakeoffJobPageReading({ supabase, tenantId }, jobId, versionId) : null;
+  const readAgainItemIdsOf = (leftOut: ReadonlySet<string>): ReadonlySet<string> => pageReading?.readAgainItemIds(leftOut) ?? new Set<string>();
   const overlapPartners = new Map(takeoffItems.map((item) => [item.id, ((item.rule_results ?? []) as TakeoffRuleResult[])
     .filter((result) => result.status === "fail" && result.code === "ZONE_OVERLAP_DUPLICATE")
     .flatMap((result) => result.details?.partners ?? [])
@@ -145,6 +145,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
     estimateItems,
     takeoffItems,
     compositions,
+    readAgainItemIdsOf,
     comparisonInput: {
       versionId,
       jobId,
@@ -154,7 +155,7 @@ export async function loadTakeoffDpgfComparisonContext(input: {
       reviewDecisions,
       carriedReviewDecisions,
       dpgfCompositions: compositions,
-      readAgainItemIds,
+      readAgainItemIds: readAgainItemIdsOf(new Set()),
       overlapPartners,
     },
   };
