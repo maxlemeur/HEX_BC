@@ -83,19 +83,24 @@ describe("the reconciliation of a DPGF line other takeoffs feed", () => {
     expect([row.composition?.earlier.map((entry) => [entry.quantity, entry.read_again]), row.composition?.total_quantity]).toEqual([[[45, false]], 55]);
   });
 
-  it("keeps a review decision when only the pages read again change, not what the line keeps (TI-696)", () => {
-    // At the review page 1 is read again; at the application the mapping plan leaves its only line out. The composition
-    // is the same: the decision stands (its gap is judged again on the total).
-    const atReview = input({ reference: 22, current: [takeoffLine(201, 10, 2)], earlier: [part(101, 12), part(102, 6)], readAgain: [id(101)] });
+  it("judges a decision on the pages the review reads again, the total on those the application does (TI-696)", () => {
+    // DPGF reference 14. At the review page 1 is read again (its 12 leaves the total): 10 + 6 = 16, the measure kept.
+    const atReview = input({ reference: 14, current: [takeoffLine(201, 10, 2)], earlier: [part(101, 12), part(102, 6)], readAgain: [id(101)] });
     const [first] = computeTakeoffDpgfRows(atReview).rows;
     const decision = { id: id(501), tenant_id: id(2), version_id: versionId, takeoff_job_id: jobTwo, estimate_item_id: target,
       decision: "keep_takeoff", reason: "Mesure vérifiée (fictif)", review_reference: "ref", line_label: "EF cuivre DN 22", line_position: 1,
       source_file_name: "dpgf-fictif.xlsx", source_page: 1, decided_at: "2026-11-12T08:00:00Z", updated_at: "2026-11-12T08:00:00Z",
       decided_by: id(1), quantity_snapshot: dpgfReviewQuantitySnapshot(first), source: "current_version",
       carried_over_from_version_id: null, carried_over_from_version_number: null } as TakeoffDpgfReviewDecisionRecord;
-    const [atApplication] = computeTakeoffDpgfRows(input({ reference: 22, current: [takeoffLine(201, 10, 2)],
-      earlier: [part(101, 12), part(102, 6)], readAgain: [], decision })).rows;
+    const later = (readAgain: string[]) => input({ reference: 14, current: [takeoffLine(201, 10, 2)], earlier: [part(101, 12), part(102, 6)],
+      readAgain, decision });
+    // At the application the mapping plan leaves the page's only line out: page 1 is no longer read again and the total is
+    // 28; the decision, taken on the pages the review reads again, stands.
+    const [atApplication] = computeTakeoffDpgfRows({ ...later([]), decisionReadAgainItemIds: new Set([id(101)]) }).rows;
     expect([atApplication.composition?.total_quantity, atApplication.applied_decision?.id]).toEqual([28, id(501)]);
+    // At the review, the line of page 1 excluded: the total under review changes, the decision goes stale.
+    const [excluded] = computeTakeoffDpgfRows(later([])).rows;
+    expect([excluded.composition?.total_quantity, excluded.applied_decision]).toEqual([28, null]);
   });
 
   it("shows a count fed by two takeoffs with its composition, whatever the unit", () => {

@@ -24,9 +24,12 @@ export function excludeDpgfOutOfScope(mappingPreview: TakeoffPreviewConversionRe
     ? { ...item, action: "skip", transformed: { ...item.transformed, is_excluded: true } } : item);
   const excluded = plannedExclusions(mappingPreview);
   comparisonContext.comparisonInput.takeoffLines = comparisonContext.comparisonInput.takeoffLines.filter(item => !excluded.has(item.item_id));
-  // TI-696: a page whose lines the plan all leaves out is not read again: its earlier part stays in the DPGF totals.
+  // TI-696: a page whose lines the plan all leaves out is not read again: its earlier part stays in the DPGF totals. A
+  // review decision stays judged on the pages the review reads again, where it was recorded.
   if (comparisonContext.readAgainItemIdsOf) {
-    comparisonContext.comparisonInput.readAgainItemIds = comparisonContext.readAgainItemIdsOf(excluded);
+    const input = comparisonContext.comparisonInput;
+    input.decisionReadAgainItemIds = input.decisionReadAgainItemIds ?? input.readAgainItemIds ?? new Set<string>();
+    input.readAgainItemIds = comparisonContext.readAgainItemIdsOf(excluded);
   }
 }
 

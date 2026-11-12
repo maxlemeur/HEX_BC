@@ -6,6 +6,7 @@ import { normalizeTakeoffComparisonItems } from "@/lib/takeoff/dpgf-comparison-p
 import { buildTakeoffDpgfComparison } from "@/lib/takeoff/dpgf-compare";
 import {
   composeDpgfTarget,
+  earlierLinesTakenOutByDefault,
   dpgfLineContribution,
   readStoredDpgfComposition,
   removeDpgfParts,
@@ -144,5 +145,22 @@ describe("the composition of a DPGF target", () => {
     expect(kept.map((entry) => entry.quantity)).toEqual([5.3, 7]);
     expect(removed.map((entry) => entry.quantity)).toEqual([10.2]);
     expect(indivisible).toEqual([]);
+  });
+});
+
+describe("the earlier lines a takeoff's application takes out by default (TI-696)", () => {
+  // Pages read again: 1 holds a, 2 holds b, b2 and s. Parts of unknown share (policies applied before D4) link pages,
+  // replaced together or kept together; a group one of whose parts lies on a page this takeoff does not read (x) is kept
+  // both, with every earlier line of its pages.
+  const [a, b, b2, s, x] = ["a", "b", "b2", "s", "x"];
+  const pages = [[a], [b, b2, s]];
+
+  it("takes out every earlier line of pages read again when no such part holds them back", () => {
+    expect([...earlierLinesTakenOutByDefault(pages, [[a, b]])].sort()).toEqual([a, b, b2, s].sort());
+  });
+
+  it("keeps the pages a part links to a page this takeoff does not read, through another line's part", () => {
+    expect([...earlierLinesTakenOutByDefault(pages, [[a, b], [b2, x]])]).toEqual([]);
+    expect([...earlierLinesTakenOutByDefault(pages, [[b2, x]])]).toEqual([a]);
   });
 });

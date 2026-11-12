@@ -142,10 +142,9 @@ const samePlace = (place: { source_file_name: string | null; source_page: number
  * TI-696: the pages linked by DPGF parts whose share per page is unknown (a policy applied before D4), by group. The
  * application takes such a part out whole or refuses (dpgf_part_unknown), counting the pages replaced together: a group
  * is replaced together or kept together. `whole`: none of its parts lies on a page this takeoff does not read, so
- * replacing the group takes them out; `forced`: the pages of a group of several that are always replaced (keeping both
- * refused there), so the others cannot be kept both.
+ * replacing the group takes them out.
  */
-type PageGroup = { pages: string[]; whole: boolean; forced: string[] };
+type PageGroup = { pages: string[]; whole: boolean };
 function unknownPartGroups(proposal: TakeoffPageReplacementResponse): Map<string, PageGroup> {
   const parent = new Map(proposal.pages.map((page) => [page.key, page.key]));
   const find = (key: string): string => (parent.get(key) === key ? key : find(parent.get(key)!));
@@ -162,13 +161,11 @@ function unknownPartGroups(proposal: TakeoffPageReplacementResponse): Map<string
   }
   const groups = new Map<string, PageGroup>();
   for (const page of proposal.pages) {
-    const group = groups.get(find(page.key)) ?? { pages: [], whole: true, forced: [] };
+    const group = groups.get(find(page.key)) ?? { pages: [], whole: true };
     group.pages.push(page.key);
-    if (page.keep_both_refused) group.forced.push(page.key);
     groups.set(find(page.key), group);
   }
   for (const key of notWhole) groups.get(find(key))!.whole = false;
-  for (const group of groups.values()) if (group.pages.length < 2) group.forced = [];
   return new Map(proposal.pages.map((page) => [page.key, groups.get(find(page.key))!]));
 }
 
@@ -230,10 +227,42 @@ function dpgfOutcome(proposal: TakeoffPageReplacementResponse, target: TakeoffPa
 export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, draft: ConfirmationDraft): Resolution {
   const labels = new Map(proposal.pages.map((page) => [page.key, pageLabel(page)]));
   const groups = unknownPartGroups(proposal);
+  // TI-696: the pages always replaced: keeping both is refused there (keep_both_refused), and, to a fixed point, on a page
+  // whose part of unknown share a page always replaced takes from, unless the other pages hold all of it (replacing
+  // them takes it out whole without this one). Keeping both there would leave that part cut (dpgf_part_unknown).
+  const idsOn = (page: TakeoffPageReplacementPage, targetId: string) => page.lines.find((entry) => entry.id === targetId)?.item_ids ?? [];
+  const always = new Set(proposal.pages.filter((page) => page.keep_both_refused).map((page) => page.key));
+  const forcedBy = new Map<string, { pages: string[]; leaves: boolean }>();
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const page of proposal.pages.filter((entry) => !always.has(entry.key))) {
+      const forcing = new Set<string>();
+      let leaves = true;
+      for (const target of proposal.dpgf_targets) {
+        const onPage = new Set(idsOn(page, target.id));
+        const elsewhere = new Set(proposal.pages.filter((other) => other.key !== page.key).flatMap((other) => idsOn(other, target.id)));
+        for (const part of target.earlier) {
+          if (part.item_ids.length < 2 || !part.item_ids.some((itemId) => onPage.has(itemId))
+            || part.item_ids.every((itemId) => elsewhere.has(itemId))) continue;
+          const by = proposal.pages.filter((other) => always.has(other.key) && idsOn(other, target.id).some((itemId) => part.item_ids.includes(itemId)));
+          for (const other of by) forcing.add(other.key);
+          // A line on no page this takeoff reads: the part never leaves, whatever is chosen here.
+          if (by.length > 0 && part.item_ids.some((itemId) => !onPage.has(itemId) && !elsewhere.has(itemId))) leaves = false;
+        }
+      }
+      if (forcing.size > 0) {
+        always.add(page.key);
+        forcedBy.set(page.key, { pages: [...forcing], leaves });
+        grew = true;
+      }
+    }
+  }
   const keepBothRefused = new Map(proposal.pages.map((page) => {
-    const forced = groups.get(page.key)!.forced.filter((key) => key !== page.key);
-    return [page.key, keepBothRefusal(page) ?? (forced.length > 0 ? "une ligne DPGF y garde une part d’un métré appliqué avant le cumul, "
-      + `qui ne sort qu’entière avec ${forced.map((key) => labels.get(key)).join(", ")}, toujours remplacée` : null)] as const;
+    const forced = forcedBy.get(page.key);
+    const named = forced?.pages.map((key) => labels.get(key)).join(", ");
+    return [page.key, keepBothRefusal(page) ?? (!forced ? null : forced.leaves
+      ? `une ligne DPGF y garde une part d’un métré appliqué avant le cumul, qui ne sort qu’entière avec ${named}, toujours remplacée`
+      : `une ligne DPGF y garde une part d’un métré appliqué avant le cumul que ${named}, toujours remplacée, coupe : elle ne peut sortir de ce métré`)] as const;
   }));
   const choiceOf = (key: string) => {
     const choice = draft.pages[key] ?? REPLACE;
@@ -283,16 +312,31 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       // TI-682 D4: it sums the takeoffs it keeps; a replaced page's part leaves it. A part whose share per page is unknown
       // (a policy applied before D4) cannot leave with one page: the page is kept both.
       const outcome = dpgfById.get(line.id);
-      const advice: Advice[] = (outcome?.indivisible ?? []).map(({ pageKey, label, alsoReplace }) => {
-        const keepBoth = keepBothOffered(pageKey);
-        const ways = [...(alsoReplace.length > 0 ? [`remplacez aussi ${alsoReplace.map((other) => other.label).join(", ")}`] : []),
-          ...(keepBoth ? ["gardez les deux mesures de la page"] : [])];
-        const sentence = ways.join(", ou ");
-        return { text: `« ${line.title} » : sa part sur ${label} n’est pas connue (métré appliqué avant le cumul) ; remplacer la page la retirerait entière.`
-            + `${sentence ? ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.` : ""}`,
-          choose: [...alsoReplace.map((other) => ({ control: `page:${other.key}`, value: "replace" })),
-            ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])], elsewhere: [], exits: [] };
-      });
+      const cut = outcome?.indivisible ?? [];
+      const advice: Advice[] = cut.filter(({ pageKey, alsoReplace }) => alsoReplace.length > 0 || keepBothOffered(pageKey))
+        .map(({ pageKey, label, alsoReplace }) => {
+          const keepBoth = keepBothOffered(pageKey);
+          const ways = [...(alsoReplace.length > 0 ? [`remplacez aussi ${alsoReplace.map((other) => other.label).join(", ")}`] : []),
+            ...(keepBoth ? ["gardez les deux mesures de la page"] : [])];
+          const sentence = ways.join(", ou ");
+          return { text: `« ${line.title} » : sa part sur ${label} n’est pas connue (métré appliqué avant le cumul) ; remplacer la page la retirerait entière.`
+              + ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`,
+            choose: [...alsoReplace.map((other) => ({ control: `page:${other.key}`, value: "replace" })),
+              ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])], elsewhere: [], exits: [] };
+        });
+      // Neither replacing nor keeping both confirms here: a page « Fusionner » always replaces cuts the part. Once its
+      // imposed lines are set aside at the review, keeping both is possible again.
+      const stuck = cut.filter(({ pageKey, alsoReplace }) => alsoReplace.length === 0 && !keepBothOffered(pageKey));
+      if (stuck.length > 0) {
+        const imposing = new Set(stuck.flatMap(({ pageKey }) => groups.get(pageKey)!.pages)
+          .filter((key) => pagesByKey.get(key)!.keep_both_refused));
+        const named = newLines.filter((entry) => entry.locked && entry.pageKeys.some((key) => imposing.has(key)))
+          .map((entry) => `« ${entry.newLine.designation} »`).join(", ");
+        advice.push({ text: `« ${line.title} » : sa part sur ${stuck.map(({ label }) => label).join(", ")} n’est pas connue (métré appliqué avant `
+            + "le cumul) et ne peut sortir entière ; ni remplacer ni garder les deux ne se confirme ici.",
+          choose: [], elsewhere: named ? ["exclude_at_review"] : [],
+          exits: named ? [`Écarter ${named} à la revue du métré : garder les deux mesures de la page redevient possible.`] : [] });
+      }
       return { ...base, state: "dpgf" as const, after: outcome?.after ?? before, missing: advice.map(adviceMessage), advice, dpgf: outcome ?? null,
         pages: onPages.map((page) => ({ ...page, role: "dpgf" as const, part: null })) };
     }

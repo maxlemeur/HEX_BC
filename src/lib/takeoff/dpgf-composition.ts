@@ -121,6 +121,26 @@ export function removeDpgfParts<Part extends DpgfContribution>(contributions: re
   return { kept, removed, indivisible };
 }
 
+/**
+ * TI-696: the earlier lines of the pages a takeoff reads again that its application takes out by default (each page:
+ * the earlier lines on it). Parts whose share per page is unknown (`blocks`, policies applied before D4) link the pages
+ * they lie on, replaced together or kept together (dpgf_part_unknown): a group one of whose parts lies on a page not read
+ * again is kept both, with every earlier line of its pages; the confirmation does the same.
+ */
+export function earlierLinesTakenOutByDefault(pages: ReadonlyArray<ReadonlyArray<string>>, blocks: ReadonlyArray<ReadonlyArray<string>>) {
+  const parent = pages.map((_page, index) => index);
+  const find = (index: number): number => (parent[index] === index ? index : find(parent[index]));
+  const kept = new Set<number>();
+  for (const block of blocks.filter((ids) => ids.length > 1)) {
+    const holding = pages.flatMap((ids, index) => (ids.some((id) => block.includes(id)) ? [index] : []));
+    if (holding.length === 0) continue;
+    for (const index of holding.slice(1)) parent[find(index)] = find(holding[0]);
+    if (block.some((id) => !pages.some((ids) => ids.includes(id)))) kept.add(holding[0]);
+  }
+  const keptGroups = new Set([...kept].map(find));
+  return new Set(pages.flatMap((ids, index) => (keptGroups.has(find(index)) ? [] : ids)));
+}
+
 /** Where a composition's line was read, as the screens name it. */
 export type DpgfComposedLinePlace = { job_id: string; source_file_name: string | null; source_page: number | null };
 

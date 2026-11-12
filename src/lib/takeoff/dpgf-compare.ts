@@ -56,10 +56,17 @@ type BuildTakeoffDpgfComparisonInput = {
     jobs: ReadonlyMap<string, { created_at: string; level: string | null }>;
   };
   readAgainItemIds?: ReadonlySet<string>;
+  /**
+   * TI-696: the earlier lines on the pages the review reads again, when the application reads others (the mapping plan
+   * leaves lines out): a review decision is judged current on these, as it was recorded; totals and gaps on
+   * `readAgainItemIds`. The same set when absent.
+   */
+  decisionReadAgainItemIds?: ReadonlySet<string>;
   overlapPartners?: ReadonlyMap<string, ReadonlyArray<{ item_id: string; job_id: string; overlap_m: number; resolved: boolean }>>;
 };
 
-type CompositionContext = Pick<BuildTakeoffDpgfComparisonInput, "jobId" | "dpgfCompositions" | "readAgainItemIds" | "overlapPartners">;
+type CompositionContext = Pick<BuildTakeoffDpgfComparisonInput, "jobId" | "dpgfCompositions" | "readAgainItemIds" | "decisionReadAgainItemIds"
+  | "overlapPartners">;
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   quantityIdentity: QuantityIdentity;
@@ -617,8 +624,14 @@ function buildRow(input: {
   const composition = buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
     input.composition);
   const totalQuantity = aggregatedMetrics.quantity === null ? null : composition?.row.total_quantity ?? aggregatedMetrics.quantity;
+  // A decision is current against the pages the review reads again, where it was recorded (TI-696).
+  const decisionComposition = input.composition.decisionReadAgainItemIds
+    && input.composition.decisionReadAgainItemIds !== input.composition.readAgainItemIds
+    ? buildComposition(input.dpgf.estimate_item_id, input.linkedTakeoffItems, aggregatedMetrics.quantity,
+      { ...input.composition, readAgainItemIds: input.composition.decisionReadAgainItemIds })
+    : composition;
   const snapshot = dpgfReviewQuantitySnapshot({ dpgf_quantity: input.dpgf.quantity, dpgf: input.dpgf,
-    linked_takeoff_items: input.linkedTakeoffItems, composition: composition?.row ?? null });
+    linked_takeoff_items: input.linkedTakeoffItems, composition: decisionComposition?.row ?? null });
   const decisionCurrent = input.appliedDecision && (input.appliedDecision.decision === "out_of_scope"
     || sameQuantitySnapshot(input.appliedDecision.quantity_snapshot, snapshot));
   const appliedDecision = !aggregatedMetrics.hasUnitConflict && decisionCurrent && input.appliedDecision &&

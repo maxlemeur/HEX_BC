@@ -6,6 +6,7 @@ import { mapSupabaseError } from "@/lib/estimates/errors";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
+import { earlierLinesTakenOutByDefault } from "@/lib/takeoff/dpgf-composition";
 import {
   estimateLineTakeoffItemIds,
   findPagesAlreadyInEstimate,
@@ -207,11 +208,15 @@ export async function readTakeoffJobPageReading(context: Context, jobId: string,
   const ownLines = await readJobLines(context, jobId);
   const { estimateLines, earlierItems, jobSources, ownSources } = await readPageInputs(context, { jobId, versionId, ownLines });
   return {
-    readAgainItemIds(leftOut: ReadonlySet<string> = new Set()): ReadonlySet<string> {
+    /**
+     * `blocks`: the parts of unknown share the DPGF targets hold (their lines); the pages they link to a page not read
+     * again stay kept both by default (earlierLinesTakenOutByDefault), as the confirmation keeps them.
+     */
+    readAgainItemIds(leftOut: ReadonlySet<string> = new Set(), blocks: ReadonlyArray<ReadonlyArray<string>> = []): ReadonlySet<string> {
       const newLines = ownLines.filter((line) => !line.is_excluded && !leftOut.has(line.id))
         .map((line) => ({ id: line.id, identity: takeoffLinePageIdentity(line, ownSources) }));
       const result = findPagesAlreadyInEstimate({ jobId, newLines, estimateLines, earlierItems, jobSources });
-      return new Set(result.pages.flatMap((page) => page.earlier.flatMap((earlier) => earlier.takeoff_item_ids)));
+      return earlierLinesTakenOutByDefault(result.pages.map((page) => page.earlier.flatMap((earlier) => earlier.takeoff_item_ids)), blocks);
     },
   };
 }

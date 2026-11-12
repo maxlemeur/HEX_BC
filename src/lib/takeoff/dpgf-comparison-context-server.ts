@@ -131,7 +131,11 @@ export async function loadTakeoffDpgfComparisonContext(input: {
   // left out by the mapping plan: excludeDpgfOutOfScope reads them again with `readAgainItemIdsOf`).
   const fedByAnother = [...compositions.targets.values()].some((target) => target.contributions.some((part) => part.job_id !== jobId));
   const pageReading = fedByAnother ? await readTakeoffJobPageReading({ supabase, tenantId }, jobId, versionId) : null;
-  const readAgainItemIdsOf = (leftOut: ReadonlySet<string>): ReadonlySet<string> => pageReading?.readAgainItemIds(leftOut) ?? new Set<string>();
+  // The parts of unknown share (policies applied before D4) that link pages, replaced together or kept together.
+  const blocks = [...compositions.targets.values()].flatMap((entry) => entry.contributions.filter((part) => part.job_id !== jobId
+    && part.item_ids.length > 1).map((part) => part.item_ids));
+  const readAgainItemIdsOf = (leftOut: ReadonlySet<string>): ReadonlySet<string> => pageReading?.readAgainItemIds(leftOut, blocks)
+    ?? new Set<string>();
   const overlapPartners = new Map(takeoffItems.map((item) => [item.id, ((item.rule_results ?? []) as TakeoffRuleResult[])
     .filter((result) => result.status === "fail" && result.code === "ZONE_OVERLAP_DUPLICATE")
     .flatMap((result) => result.details?.partners ?? [])

@@ -88,6 +88,25 @@ const SITUATIONS: Array<[string, TakeoffPageReplacementResponse]> = [
     new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "WC suspendu", [[2, [201]]])],
     pairs: [{ takeoff_item_id: id(102), estimate_item_id: id(201), reason: "merge", locked: true }],
     dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2]])] })],
+  // Its line without a page lies on both pages; its other line on page 2, always replaced: replacing page 2 takes it out
+  // whole, so page 1 can still be kept both.
+  ["a DPGF part of unknown share with a line on both pages, one always replaced", proposal({ merge_required: true,
+    pages: [{ ...page(1, [], [101]), lines: [{ id: id(300), item_ids: [id(7001)] }] },
+      { ...page(2, [201], [102], { keep_both_refused: "merge_match" }), lines: [{ id: id(201), item_ids: [id(1203)] },
+        { id: id(300), item_ids: [id(7001), id(7002)] }] }],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), line(201, "WC suspendu")],
+    new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "WC suspendu", [[2, [201]]])],
+    pairs: [{ takeoff_item_id: id(102), estimate_item_id: id(201), reason: "merge", locked: true }],
+    dpgf_targets: [{ ...unknownParts(300, "EF cuivre DN 22 (DPGF)", []), earlier: [{ job_id: id(9000), item_ids: [id(7001), id(7002)],
+      quantity: 16, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 1 }] }] })],
+  // A part on a page the relaunch does not read, one of its pages always replaced: no state confirms here; nothing is
+  // advised on this step, and the line names the way out.
+  ["a DPGF part of unknown share that cannot leave, one of its pages always replaced", proposal({ merge_required: true,
+    pages: [page(1, [201, 300], [101], { keep_both_refused: "merge_match" }), page(2, [300], [102])],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), line(201, "WC suspendu")],
+    new_lines: [newLine(101, "WC suspendu", [[1, [201]]]), newLine(102, "Regard", [[2, []]])],
+    pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }],
+    dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2, 0]])] })],
 ];
 
 /** What a piece of advice tells the estimator to choose, read from its words. */
@@ -221,5 +240,23 @@ describe("pages a DPGF part of unknown share links (TI-696, Codex review of PR 2
       .find((option) => option.value === "keep_both")!;
     expect([resolution.complete, keepBoth.disabled]).toEqual([true, "une ligne DPGF y garde une part d’un métré appliqué avant le cumul, "
       + "qui ne sort qu’entière avec plan.pdf, page 2, toujours remplacée"]);
+  });
+
+  it("keeps both on a page whose part leaves whole with the page always replaced", () => {
+    const data = situation("a DPGF part of unknown share with a line on both pages, one always replaced");
+    const controls = confirmationControls(resolveConfirmation(data, initialConfirmationDraft(data)));
+    const keepBoth = controls.find((entry) => entry.id === `page:${key(1)}`)!.options.find((option) => option.value === "keep_both")!;
+    expect(keepBoth.disabled).toBeNull();
+    const kept = states(data).find((resolution) => resolution.complete && resolution.pages[0].choice.decision === "keep_both");
+    expect(kept?.payload.map((decision) => decision.decision)).toEqual(["keep_both", "replace"]);
+  });
+
+  it("names the way out where a part can never leave", () => {
+    const data = situation("a DPGF part of unknown share that cannot leave, one of its pages always replaced");
+    const reached = states(data);
+    expect([reached.some((resolution) => resolution.complete), reached.flatMap(recommended)]).toEqual([false, []]);
+    const advice = reached[0].lines.find((entry) => entry.line.id === id(300))!.advice;
+    expect(advice.map((entry) => [entry.elsewhere, entry.exits])).toEqual([[["exclude_at_review"],
+      ["Écarter « WC suspendu » à la revue du métré : garder les deux mesures de la page redevient possible."]]]);
   });
 });
