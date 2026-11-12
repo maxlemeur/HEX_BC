@@ -83,13 +83,21 @@ contract take precedence over historical reports and procedures.
 | Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
 | Pull request of code or journeys | `npm run e2e:army:reach` first: the checks of a pull request run the critical and takeoff journeys and the calc-v3 phases it reaches, but leave out the development phase and the extended journeys, which only run in the Full campaign after the merge. Run the commands it prints for those two; the takeoff journeys and calc-v3 phases it lists run in the pull request. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
-| Final code | `npm run verify:pr` once (about 3 minutes cold, 1.5 warm). Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
+| Final code | `npm run verify:pr` once per push, as the last check on the tree you push: after the independent review's fixes and any merge of `main` (about 3 minutes cold, 1.5 warm). Fix rounds before that use `verify:fast` and the targeted tests. Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
 | Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
 
 - Diagnose failures before rerunning affected checks; never mask them with retries
-  or higher timeouts. Broaden only for a failure or material risk. Once required
-  checks pass, stop testing unchanged inputs; do not duplicate full CI suites.
+  or higher timeouts. A timeout the diagnosis ties to machine load (the failing
+  files pass alone) is rerun once, when the load drops. CI retries a failed
+  journey once, only to classify it: one that then passes is named
+  « intermittent », its check stays red, and the label is not evidence that your
+  change is innocent. `test.fail` is only a quarantine for a journey red on
+  `main`: its reason cites an open ticket (`TI-681`, `#123`) and the campaign
+  summary lists it
+  ([rule](docs/testing/tester-army-ci.md#tentative-unique-et-quarantaine)).
+  Broaden only for a failure or material risk. Once required checks pass, stop
+  testing unchanged inputs; do not duplicate full CI suites.
 - Never weaken, skip or remove the CI quality, smoke, critical, takeoff, SQL/RLS
   and calc-v3 checks to get green. Selection and schedules belong to workflows
   and the [CI guide](docs/testing/tester-army-ci.md).

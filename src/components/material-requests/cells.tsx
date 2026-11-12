@@ -187,7 +187,7 @@ export function TextCell({
         className={controlClass(alerts, Boolean(error))}
         aria-label={id ? undefined : label}
         aria-invalid={cellTone(alerts) === "blocking" || Boolean(error) || undefined}
-        aria-describedby={[describedBy(messagesId, alerts, error), hintId].filter(Boolean).join(" ") || undefined}
+        aria-describedby={[hintId, describedBy(messagesId, alerts, error)].filter(Boolean).join(" ") || undefined}
         value={draft ?? value ?? ""}
         placeholder={placeholder}
         list={list}
@@ -283,6 +283,8 @@ export function QuantityCell({
         value={failed ? failed.value : sending ? sending.value : value}
         emptyValue={0}
         parseValue={readQuantityDraft}
+        // The cell names its own reason (CellMessages), with the range the grammar alone does not know.
+        describesInvalidDraft={false}
         onValueChange={() => undefined}
         onValueCommit={(next) => void commit(next === 0 ? null : next)}
         onInput={(event) => {

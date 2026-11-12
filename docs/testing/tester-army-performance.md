@@ -55,6 +55,28 @@ de son tenant de test, sauf si elle est listée dans
 
 Les métriques viennent des APIs navigateur (navigation, paints/LCP, long tasks,
 CLS et frames), complétées par des assertions de route, contenu et saisie.
+`measure()` (`e2e/army/performance/measure.ts`) relève aussi, là où le
+navigateur expose les Long Animation Frames (Chromium 123+), leur nombre
+(`longAnimationFrameCount`, `null` sans l'API) et les cinq frames les plus
+longues (`longAnimationFrames`) : durée, durée bloquante, mise à jour du rendu
+(`renderUpdateMs`, du début du style/layout à la fin de la frame, peinture
+comprise ; `styleDurationMs` / `layoutDurationMs` quand le navigateur sépare
+style et layout), puis leurs trois scripts les plus longs avec type
+d'invocation, chemin du fichier sans origine ni paramètres, fonction, durée et
+style/layout forcés. Elles disent pourquoi une interaction est lente ; la durée
+d'événement reste un diagnostic de labo, pas l'INP de terrain.
+
+Sur le terrain, `WebVitalsReporter` envoie l'INP tel quel, valeur de référence,
+puis un enregistrement distinct `INP-attribution` qui l'explique (`inp` :
+sous-parties délai d'entrée, traitement et présentation, script le plus long,
+style et layout des frames, cible anonymisée). Chargée après coup, l'attribution
+ne retrouve que les interactions de 104 ms ou plus : sa valeur peut être plus
+basse que l'INP et ne le remplace pas. Le script n'est identifié
+par son chemin que s'il vient de l'origine de l'application. Le sélecteur de
+cible ne garde que les balises, `data-testid` et deux classes stables par
+élément, sur quatre éléments et 160 caractères au plus, et devient `null` s'il
+ne peut être lu exactement ; la règle est documentée dans
+`src/lib/performance/web-vitals.ts` et testée à côté.
 Un temps clic-vers-contenu observé par le runner inclut sa cadence de lecture ;
 il n'est pas un timestamp exact de rendu. Les pages du profil général prennent
 3 échantillons ; ce diagnostic court ne satisfait pas à lui seul le protocole

@@ -2,6 +2,7 @@
 
 import {
   forwardRef,
+  useId,
   useState,
   useRef,
   type FocusEventHandler,
@@ -9,6 +10,7 @@ import {
 } from "react";
 
 import { parseDecimalDraft } from "@/components/estimates/components/estimate-editor-row/shared";
+import { describedByIds, InvalidDraftReason } from "@/components/ui/invalid-draft-reason";
 import { formatDecimalInput, NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 
 type DecimalDraftInputProps = Omit<
@@ -42,6 +44,11 @@ type DecimalDraftInputProps = Omit<
    * transmise à `onValueChange` et `onValueCommit`. `null` garde le brouillon visible en erreur.
    */
   parseValue?: (raw: string) => number | null;
+  /**
+   * Whether the field names the reason of a refused draft itself (aria-describedby and one
+   * announcement when the field is left). `false` when the caller already links its own reason.
+   */
+  describesInvalidDraft?: boolean;
 };
 
 export const DecimalDraftInput = forwardRef<
@@ -57,57 +64,73 @@ export const DecimalDraftInput = forwardRef<
     emptyValue,
     commitOnUnchangedBlur = true,
     parseValue = parseDecimalDraft,
+    describesInvalidDraft = true,
     ...inputProps
   },
   ref,
 ) {
   const edited = useRef(false);
   const [draftValue, setDraftValue] = useState<string | null>(null);
+  // The draft refused when the field was left, announced once (see InvalidDraftReason).
+  const [refusedDraft, setRefusedDraft] = useState<string | null>(null);
+  const errorId = useId();
 
   const resolve = (raw: string): number | null => {
     return raw.trim() === "" ? emptyValue ?? 0 : parseValue(raw);
   };
   const invalid = draftValue !== null && resolve(draftValue) === null;
+  const describesReason = invalid && describesInvalidDraft;
 
   return (
-    <input
-      {...inputProps}
-      ref={ref}
-      type="text"
-      inputMode="decimal"
-      value={draftValue ?? formatDecimalInput(value)}
-      aria-invalid={invalid || inputProps["aria-invalid"]}
-      title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
-      onFocus={(event) => {
-        edited.current = false;
-        setDraftValue(event.currentTarget.value);
-        onFocus?.(event);
-      }}
-      onChange={(event) => {
-        edited.current = true;
-        const nextValue = event.currentTarget.value;
-        setDraftValue(nextValue);
-        const parsed = resolve(nextValue);
-        event.currentTarget.setCustomValidity(parsed === null ? NUMERIC_INPUT_ERROR : "");
-      }}
-      onBlur={(event) => {
-        const nextValue = event.currentTarget.value;
-        onBlur?.(event);
-        if (!commitOnUnchangedBlur && !edited.current) {
+    <>
+      <input
+        {...inputProps}
+        ref={ref}
+        type="text"
+        inputMode="decimal"
+        value={draftValue ?? formatDecimalInput(value)}
+        aria-invalid={invalid || inputProps["aria-invalid"]}
+        aria-describedby={describedByIds(inputProps["aria-describedby"], describesReason && errorId)}
+        title={invalid ? NUMERIC_INPUT_ERROR : inputProps.title}
+        onFocus={(event) => {
+          edited.current = false;
+          setDraftValue(event.currentTarget.value);
+          onFocus?.(event);
+        }}
+        onChange={(event) => {
+          edited.current = true;
+          const nextValue = event.currentTarget.value;
+          setDraftValue(nextValue);
+          // A new draft is not the refused one: only leaving the field announces a refusal.
+          setRefusedDraft(null);
+          const parsed = resolve(nextValue);
+          event.currentTarget.setCustomValidity(parsed === null ? NUMERIC_INPUT_ERROR : "");
+        }}
+        onBlur={(event) => {
+          const nextValue = event.currentTarget.value;
+          onBlur?.(event);
+          if (!commitOnUnchangedBlur && !edited.current) {
+            setDraftValue(null);
+            setRefusedDraft(null);
+            return;
+          }
+          const parsed = resolve(nextValue);
+          if (parsed === null) {
+            event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
+            setRefusedDraft(nextValue);
+            // Leave the invalid draft visible without stealing focus from the next control.
+            return;
+          }
+          event.currentTarget.setCustomValidity("");
           setDraftValue(null);
-          return;
-        }
-        const parsed = resolve(nextValue);
-        if (parsed === null) {
-          event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
-          // Leave the invalid draft visible without stealing focus from the next control.
-          return;
-        }
-        event.currentTarget.setCustomValidity("");
-        setDraftValue(null);
-        onValueChange(parsed);
-        onValueCommit(parsed);
-      }}
-    />
+          setRefusedDraft(null);
+          onValueChange(parsed);
+          onValueCommit(parsed);
+        }}
+      />
+      {describesReason ? (
+        <InvalidDraftReason id={errorId} refusedDraft={refusedDraft}>{NUMERIC_INPUT_ERROR}</InvalidDraftReason>
+      ) : null}
+    </>
   );
 });

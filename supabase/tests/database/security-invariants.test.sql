@@ -191,6 +191,12 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('material_request_technicians', 'SELECT'),
     ('material_request_technicians', 'INSERT'),
     ('material_request_technicians', 'UPDATE'),
+    ('material_request_quotes', 'SELECT'),
+    ('material_request_quotes', 'INSERT'),
+    ('material_request_quotes', 'UPDATE'),
+    ('material_request_quote_lines', 'SELECT'),
+    ('material_request_quote_lines', 'INSERT'),
+    ('material_request_quote_lines', 'UPDATE'),
     ('product_aliases', 'SELECT'),
     ('product_aliases', 'INSERT'),
     ('product_aliases', 'DELETE'),
@@ -240,6 +246,8 @@ with authenticated_data_api_tables(table_name) as (
     ('material_request_lines'),
     ('material_request_files'),
     ('material_request_technicians'),
+    ('material_request_quotes'),
+    ('material_request_quote_lines'),
     ('product_aliases'),
     ('assistant_threads'),
     ('assistant_messages')
@@ -278,6 +286,8 @@ with forbidden_authenticated_dml(table_name, privilege_name) as (
     ('material_request_technicians', 'DELETE'),
     ('assistant_messages', 'UPDATE'),
     ('assistant_messages', 'DELETE'),
+    ('material_request_quotes', 'DELETE'),
+    ('material_request_quote_lines', 'DELETE'),
     ('product_aliases', 'UPDATE')
 )
 select ok(
