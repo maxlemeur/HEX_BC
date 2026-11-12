@@ -137,11 +137,38 @@ commit;`);
   return { versionId, sectionId: String(target.parent_id) };
 }
 
+/**
+ * A choice the screen does not offer, forced past it: the decisions it would send. The database must refuse each one,
+ * or the screen withholds a choice the estimator is entitled to (Codex review of 708c7fbf: « Retirer du devis » was
+ * disabled for a line whose pages were all measured again, which the database accepts).
+ */
+function forcedPayload(proposal: TakeoffPageReplacementResponse, draft: ConfirmationDraft, control: ReturnType<typeof confirmationControls>[number],
+  value: unknown): TakeoffPageDecision[] | null {
+  if (control.kind === "vanished" && value === "remove") {
+    const kept = resolveConfirmation(proposal, { ...draft, vanished: { ...draft.vanished, [control.lineId]: "keep" } });
+    if (!kept.complete) return null;
+    return kept.payload.map((decision) => decision.decision !== "replace" ? decision : { ...decision,
+      lines: decision.lines.map((line) => (line.estimate_item_id === control.lineId ? { ...line, action: "remove" as const } : line)) });
+  }
+  if (control.kind === "page" && value === "keep_both") {
+    const open = { ...proposal, pages: proposal.pages.map((page) => (page.key === control.pageKey ? { ...page, keep_both_refused: null } : page)) };
+    const forced = resolveConfirmation(open, { ...draft, pages: { ...draft.pages, [control.pageKey]: { decision: "keep_both", reason: "other_zone", note: "" } } });
+    return forced.complete ? forced.payload : null;
+  }
+  if (control.kind === "pair") {
+    const open = { ...proposal, pairs: proposal.pairs.map((pair) => ({ ...pair, locked: false })) };
+    const forced = resolveConfirmation(open, { ...draft, pairs: { ...draft.pairs, [control.newLineId]: value as string | null } });
+    return forced.complete ? forced.payload : null;
+  }
+  return null;
+}
+
 /** Every state the screen can reach from its initial state through enabled controls (bounded), each with its resolution. */
-function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 96) {
+function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 400) {
   const seen = new Map<string, ConfirmationDraft>();
   const queue = [initialConfirmationDraft(proposal)];
   const unexplained: string[] = [];
+  const withheld = new Map<string, { choice: string; payload: TakeoffPageDecision[] }>();
   while (queue.length > 0 && seen.size < limit) {
     const draft = queue.shift()!;
     const signature = JSON.stringify(resolveConfirmation(proposal, draft).payload) + JSON.stringify(draft);
@@ -152,6 +179,8 @@ function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 96) {
         // An option the screen does not offer says why; an option it offers takes effect.
         if (option.disabled !== null) {
           if (option.disabled.trim().length < 10) unexplained.push(`${control.id}=${String(option.value)}`);
+          const payload = forcedPayload(proposal, draft, control, option.value);
+          if (payload) withheld.set(JSON.stringify(payload), { choice: `${control.id}=${String(option.value)} (${option.disabled})`, payload });
           continue;
         }
         if (control.kind === "pair" && control.disabled) continue;
@@ -162,7 +191,7 @@ function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 96) {
       }
     }
   }
-  return { states: [...seen.values()], unexplained };
+  return { states: [...seen.values()], unexplained, withheld: [...withheld.values()] };
 }
 
 /** Each payload applied by the real database function as the estimator, then rolled back: « ok » or the refusal. */
@@ -214,6 +243,8 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
     const plain = await engineThreeVersion(army, browser, base.projectId, base.versionId, false);
     const dpgf = await engineThreeVersion(army, browser, base.projectId, base.versionId, true);
     const report: unknown[] = [];
+    // Every situation is walked before anything fails, so that one run reports all of them.
+    const problems: Array<{ situation: string; problem: string; detail: unknown }> = [];
 
     for (const [index, situation] of SITUATIONS.entries()) {
       const { versionId, sectionId } = situation.dpgf ? dpgf : plain;
@@ -242,23 +273,35 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       const proposal = read.body.data;
       situation.expect(proposal);
 
-      const { states, unexplained } = reachableStates(proposal);
-      expect(unexplained, `${situation.name}: every option offered takes effect, every other says why`).toEqual([]);
+      const { states, unexplained, withheld } = reachableStates(proposal);
+      if (unexplained.length > 0) problems.push({ situation: situation.name, problem: "an option without effect or without a reason", detail: unexplained });
       const complete = states.map((draft) => resolveConfirmation(proposal, draft)).filter((resolution) => resolution.complete);
-      const verdicts = await databaseVerdicts({ userId, tenantId: scoped.tenantId, versionId, jobId: relaunch.jobId, sectionId, strategy,
-        dpgf: Boolean(situation.dpgf), payloads: complete.map((resolution) => resolution.payload) });
+      const allVerdicts = await databaseVerdicts({ userId, tenantId: scoped.tenantId, versionId, jobId: relaunch.jobId, sectionId, strategy,
+        dpgf: Boolean(situation.dpgf), payloads: [...complete.map((resolution) => resolution.payload), ...withheld.map((entry) => entry.payload)] });
+      const verdicts = allVerdicts.slice(0, complete.length);
       const refused = complete.flatMap((resolution, at) => (verdicts[at] === "ok" ? [] : [{ payload: resolution.payload, verdict: verdicts[at] }]));
+      // A choice the screen withholds is one the database refuses.
+      const unjustified = withheld.flatMap((entry, at) => (allVerdicts[complete.length + at] === "ok" ? [entry.choice] : []));
       const initial = resolveConfirmation(proposal, initialConfirmationDraft(proposal));
       report.push({ situation: situation.name, versionId, earlier: earlier.jobId, relaunch: relaunch.jobId, pages: proposal.pages.length,
-        states: states.length, complete: complete.length, refused: refused.length, defaultComplete: initial.complete, defaultMissing: initial.missing });
-      expect(verdicts, `${situation.name}: one verdict per confirmable state`).toHaveLength(complete.length);
-      expect(refused, `${situation.name}: a state the screen lets the estimator confirm is refused by the database`).toEqual([]);
-      expect(complete.length, `${situation.name}: some state can be confirmed`).toBeGreaterThan(0);
+        states: states.length, complete: complete.length, refused: refused.length, withheld: withheld.length, unjustified: unjustified.length,
+        withheldVerdicts: withheld.map((entry, at) => [entry.choice, allVerdicts[complete.length + at]]),
+        defaultComplete: initial.complete, defaultMissing: initial.missing });
+      expect(allVerdicts, `${situation.name}: one verdict per state sent`).toHaveLength(complete.length + withheld.length);
+      if (refused.length > 0) {
+        problems.push({ situation: situation.name, problem: "a state the screen lets the estimator confirm is refused by the database",
+          detail: refused.slice(0, 3) });
+      }
+      if (unjustified.length > 0) problems.push({ situation: situation.name, problem: "a choice the screen withholds is accepted by the database", detail: unjustified });
+      if (complete.length === 0) problems.push({ situation: situation.name, problem: "no state can be confirmed", detail: initial.missing });
 
       // Through the route: the default when the screen offers it as complete, else the first complete state reached.
       const chosen = initial.complete ? initial : complete[0];
-      const final = await applyOwnedTakeoff(browser, versionId, relaunch.jobId, { strategy, target_section_id: sectionId, page_decisions: chosen.payload });
-      expect(final.status, `${situation.name}: applied through the route (${JSON.stringify(final.body).slice(0, 400)})`).toBe(200);
+      if (chosen) {
+        const final = await applyOwnedTakeoff(browser, versionId, relaunch.jobId, { strategy, target_section_id: sectionId, page_decisions: chosen.payload });
+        if (final.status !== 200) problems.push({ situation: situation.name, problem: "the route refuses the state applied", detail: final.body });
+      }
     }
-    await recordEvidence(army, "TKD03-contract", { base, plain, dpgf, report });
+    await recordEvidence(army, "TKD03-contract", { base, plain, dpgf, report, problems });
+    expect(problems).toEqual([]);
   });
