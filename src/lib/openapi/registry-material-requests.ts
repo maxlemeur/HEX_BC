@@ -432,14 +432,14 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/quotes/{quoteId}/retain`, summary: "Retenir un devis",
-    description: "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées, devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
+    description: "Un seul devis retenu par ligne. En une transaction : le devis reçu, toutes ses lignes chiffrées et validées (retenir fige ce qu'elles commandent ; un devis peut être demandé et chiffré pour des lignes en brouillon), devient « retenu » (daté et signé par la base) ; ses lignes prennent son fournisseur, leur prix HT, la quantité pour laquelle il vaut et son identifiant (unit_price_ht_cents, price_per, price_quote_id), une ligne validée le restant ; une ligne d'affaire sans matière propre, consultée dans la matière présumée de la demande, reçoit cette matière (qui doit être confirmée), une ligne de frais généraux n'est pas touchée ; ce qu'elles commandent ne change plus ensuite (aucun retour dans cette livraison) ; chaque autre devis demandé ou reçu de la demande qui partage une ligne avec lui est clos (closed_quote_ids) et reste lisible. Le coût imputé ensuite est ce prix, jamais un prix du catalogue. Un devis retenu ne se rouvre pas.",
     parameters: [project, requestId, quoteId],
     responses: {
       "200": success("ApiMaterialRequestQuoteRetained", "Devis retenu, ses lignes et les devis clos.", quoteRetained),
       ...writeRefusals,
       "404": refusal("NOT_FOUND : devis d'une autre demande."),
       "409": refusal(`MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est déjà retenu ou clos. ${quoteBusy}`),
-      "422": refusal("MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. Rien n'est écrit."),
+      "422": refusal("MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). Rien n'est écrit."),
     },
   },
   {
@@ -485,7 +485,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/lines/reopen`, summary: "Rouvrir des lignes validées",
-    description: "Ramène en brouillon les lignes désignées ; auteur et date de validation sont effacés.",
+    description: "Ramène en brouillon les lignes désignées ; auteur et date de validation sont effacés. Une ligne chiffrée par un devis retenu se rouvre et se revalide de même : son prix et ce qu'elle commande ne changent pas.",
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesReopen", description: "Lignes à rouvrir.", schema: materialRequestLineIdsSchema }),
     responses: { "200": success("ApiMaterialRequestLinesReopened", "Lignes désignées, en brouillon.", linesData), ...writeRefusals,

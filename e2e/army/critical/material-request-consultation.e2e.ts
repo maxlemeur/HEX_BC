@@ -13,9 +13,9 @@ import {
   recordEvidence,
 } from "./fixtures";
 
-type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
+type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string; details?: { positions?: number[] } } };
 type Line = {
-  id: string; position: number; product_id: string | null; supplier_id: string | null;
+  id: string; position: number; status: "draft" | "validated"; product_id: string | null; supplier_id: string | null;
   unit_price_ht_cents: number | null; price_per: number; price_quote_id: string | null;
 };
 type StoredFile = { id: string; quote_id: string | null; file_name: string; mime_type: string; byte_size: number };
@@ -35,7 +35,7 @@ type Quote = {
 // - the supplier's PDF is not stored as dropped, is listed among the request's originals, or cannot be read back;
 // - a typed price is saved as another amount (French decimals, integer cents), or a sub-cent price quoted for 100
 //   units is saved, shown or totalled as if it were for one;
-// - a quote is retained before it is received;
+// - a quote is retained before it is received, or while one of its lines is a draft;
 // - retaining the competitor's quote does not give the lines its supplier and unit prices, or leaves the first quote
 //   open; a closed quote can still be changed.
 // The clipboard is the browser's own: the journey records what the screen hands it and what the browser answered,
@@ -285,14 +285,31 @@ armyTest(
     expect([early.status, early.body.error?.code]).toEqual([422, "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED"]);
 
     await screen.getByRole("button", `Marquer reçu le devis ${betaName}`, { exact: true }).tap();
+
+    // Received and priced, but its lines are drafts: what is bought must be what was checked.
+    await expect(betaCard.getByText(
+      "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.", { exact: true },
+    )).toBeVisible({ timeout: 30_000 });
+    await expect(retain).toBeDisabled();
+    const drafts = await apiRequest<Envelope<never>>(browser, "POST", `${one}/quotes/${betaQuote.id}/retain`);
+    expect([drafts.status, drafts.body.error?.code, drafts.body.error?.details?.positions]).toEqual([
+      422, "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED", [1, 2],
+    ]);
+    expect((await read()).lines.map((line) => [line.status, line.price_quote_id])).toEqual([["draft", null], ["draft", null]]);
+
+    // Validated from the lines table, the quote may be retained.
+    await screen.getByRole("button", "Valider les lignes sans alerte (2)", { exact: true }).tap();
+    await expect.poll(async () => (await read()).lines.map((line) => line.status), { timeout: 30_000 }).toEqual([
+      "validated", "validated",
+    ]);
     await expect(retain).toBeEnabled({ timeout: 30_000 });
     await retain.tap();
     await expect(betaCard.getByText("Retenu", { exact: true })).toBeVisible({ timeout: 30_000 });
 
     // The lines are bought from the competitor at its prices; Alpha's quote is closed, readable and read-only.
     const priced = (await read()).lines;
-    expect(priced.map((line) => [line.supplier_id, line.unit_price_ht_cents, line.price_per, line.price_quote_id])).toEqual([
-      [beta, 1150, 1, betaQuote.id], [beta, 380, 100, betaQuote.id],
+    expect(priced.map((line) => [line.supplier_id, line.unit_price_ht_cents, line.price_per, line.price_quote_id, line.status])).toEqual([
+      [beta, 1150, 1, betaQuote.id, "validated"], [beta, 380, 100, betaQuote.id, "validated"],
     ]);
     const final = await quotes();
     const stateOf = (supplierId: string) => {

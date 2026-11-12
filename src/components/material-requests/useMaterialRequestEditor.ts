@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 
 import {
   materialRequestLineAlerts,
@@ -224,6 +224,11 @@ export type MaterialRequestEditorApi = {
   queueWrite: <T>(call: () => Promise<T>) => Promise<T>;
   /** Lines the server changed through another route (a retained quote prices them): they replace ours. */
   mergeServerLines: (lines: readonly MaterialRequestLine[]) => void;
+  /**
+   * The numbers of those lines that are not validated, as the last answer left them (read at a write's turn in
+   * the queue, before any render). A line no longer in the request is not counted.
+   */
+  unvalidatedPositions: (lineIds: readonly string[]) => number[];
 };
 
 export type MaterialRequestEditorState =
@@ -271,7 +276,18 @@ export const SUPPLIER_ALREADY_SET = "La ligne avait déjà un fournisseur : non 
  * operator made them, and the screen then shows what the server answered.
  */
 export function useMaterialRequestEditor(projectId: string, requestId: string): MaterialRequestEditorState {
-  const [data, setData] = useState<MaterialRequestEditorData | null>(null);
+  const [data, setDataState] = useState<MaterialRequestEditorData | null>(null);
+  /**
+   * The request as the last answer left it, before any render: a write queued behind another one reads the line
+   * statuses that answer gave (a quote is not retained on a line just reopened). A link also compares the line's
+   * status before and after with it.
+   */
+  const latest = useRef<MaterialRequestEditorData | null>(null);
+  const setData = useCallback((next: SetStateAction<MaterialRequestEditorData | null>) => {
+    // Every change is applied here and by React in the same order, with the same pure functions.
+    latest.current = typeof next === "function" ? next(latest.current) : next;
+    setDataState(next);
+  }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [blocked, setBlocked] = useState<MaterialRequestBlockedLine[] | null>(null);
@@ -305,11 +321,6 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
    * sent after them and overwrite the choice the operator made first.
    */
   const supplierWrites = useRef(new Map<string, number>());
-  /** The lines as last rendered: a link compares the line's status before and after. */
-  const latest = useRef<MaterialRequestEditorData | null>(null);
-  useEffect(() => {
-    latest.current = data;
-  }, [data]);
 
   const loaded = data !== null;
   const writable = data?.canWrite === true;
@@ -400,7 +411,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         }
       });
     return () => abort.abort();
-  }, [projectId, requestId, attempt]);
+  }, [projectId, requestId, attempt, setData]);
 
   const retry = useCallback(() => {
     setLoadError(null);
@@ -427,7 +438,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         return { ok: false, message: materialRequestErrorMessage(error, fallback) };
       }
     },
-    [enqueue],
+    [enqueue, setData],
   );
 
   /** Positions and counts are the server's: after a removal, read them again without a loading state. */
@@ -438,7 +449,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
     } catch {
       // The screen keeps what it has; the next action or a reload will say what is wrong.
     }
-  }, [enqueue, projectId, requestId]);
+  }, [enqueue, projectId, requestId, setData]);
 
   const publishLineChanges = useCallback(() => {
     const next = new Map<string, LineChangeState>();
@@ -528,7 +539,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         return { ok: false, message: materialRequestErrorMessage(error, fallback) };
       }
     },
-    [enqueue, holdsUnsavedChange, markProposalsStale, markSupplierProposalsStale, reportLineChanged, setConflict],
+    [enqueue, holdsUnsavedChange, markProposalsStale, markSupplierProposalsStale, reportLineChanged, setConflict, setData],
   );
 
   const actions = useMemo(
@@ -869,6 +880,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       run,
       seenOf,
       setConflict,
+      setData,
       settleArticleLink,
     ],
   );
@@ -898,6 +910,13 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       freshSupplierRead(lineId) ? (supplierProposals.references[lineId] ?? null) : null,
     [freshSupplierRead, supplierProposals.references],
   );
+  const unvalidatedPositions = useCallback((lineIds: readonly string[]) => {
+    const wanted = new Set(lineIds);
+    return (latest.current?.lines ?? [])
+      .filter((line) => wanted.has(line.id) && line.status !== "validated")
+      .map((line) => line.position)
+      .sort((left, right) => left - right);
+  }, []);
   const mergeServerLines = useCallback(
     (lines: readonly MaterialRequestLine[]) => {
       if (lines.length === 0) return;
@@ -905,7 +924,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       // A retained quote may change the lines' supplier: their reference there is read again.
       markSupplierProposalsStale(lines.map((line) => line.id));
     },
-    [markSupplierProposalsStale],
+    [markSupplierProposalsStale, setData],
   );
 
   const alertContext = useMemo<AlertContext | null>(
@@ -954,6 +973,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       supplierReferenceKnown: freshSupplierRead,
       queueWrite: enqueue,
       mergeServerLines,
+      unvalidatedPositions,
       ...actions,
     },
   };

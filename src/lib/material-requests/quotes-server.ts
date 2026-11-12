@@ -11,11 +11,13 @@ import {
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { Json } from "@/types/database";
 
-import type { MaterialRequestFile, MaterialRequestLine } from "./contracts";
+import type { MaterialRequest, MaterialRequestFile, MaterialRequestLine } from "./contracts";
 import {
   MATERIAL_REQUEST_QUOTE_BUSY,
   MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED,
+  MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
   MATERIAL_REQUEST_QUOTE_LINES_UNPRICED,
+  MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
   MATERIAL_REQUEST_QUOTE_NOT_RECEIVED,
   MATERIAL_REQUEST_QUOTE_READ_ONLY,
   MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN,
@@ -385,7 +387,8 @@ export async function updateMaterialRequestQuote(
 }
 
 /** Why a quote cannot be retained as it now stands, or null. */
-async function retainRefusal(access: MaterialRequestAccess, requestId: string, quote: QuoteRow): Promise<ApiError | null> {
+async function retainRefusal(access: MaterialRequestAccess, request: MaterialRequest, quote: QuoteRow): Promise<ApiError | null> {
+  const requestId = request.id;
   if (quote.status === "retained" || quote.status === "closed") return quoteReadOnly(quote.status);
   if (quote.status !== "received") {
     return unprocessableEntity(
@@ -413,7 +416,34 @@ async function retainRefusal(access: MaterialRequestAccess, requestId: string, q
     );
   }
   const priced = asked.filter((line) => line.price_quote_id !== null && line.price_quote_id !== quote.id);
-  return priced.length > 0 ? alreadyRetained(priced) : null;
+  if (priced.length > 0) return alreadyRetained(priced);
+  // Retaining freezes what each line orders: every one is validated first, its blocking alerts settled (a quote may
+  // still be asked and priced for drafts).
+  const drafts = asked.filter((line) => line.status !== "validated");
+  if (drafts.length > 0) {
+    const { positions, line_ids } = positionsOf(drafts);
+    return unprocessableEntity(
+      positions.length === 1
+        ? `La ligne ${linePositionsLabel(positions)} n’est pas validée : validez-la avant de retenir ce devis.`
+        : `Les lignes ${linePositionsLabel(positions)} ne sont pas validées : validez-les avant de retenir ce devis.`,
+      { positions, line_ids },
+      MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
+    );
+  }
+  // A project line without its own material was consulted in the request's presumed material: the retaining writes
+  // that material on it, so that its price stays tied to it, and only once the office has confirmed it.
+  const unconfirmed = asked.filter((line) => line.imputation === "project" && !(line.material ?? "").trim());
+  if (unconfirmed.length > 0 && (!(request.presumed_material ?? "").trim() || !request.material_confirmed)) {
+    const { positions, line_ids } = positionsOf(unconfirmed);
+    return unprocessableEntity(
+      positions.length === 1
+        ? `La ligne ${linePositionsLabel(positions)} n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.`
+        : `Les lignes ${linePositionsLabel(positions)} n’ont pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.`,
+      { positions, line_ids },
+      MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
+    );
+  }
+  return null;
 }
 
 /**
@@ -430,7 +460,7 @@ export async function retainMaterialRequestQuote(
   const access = await requireProjectAccess(projectId, "write");
   const request = await requireRequest(access, requestId);
   const quote = await requireQuote(access, request.id, quoteId);
-  const refusal = await retainRefusal(access, request.id, quote);
+  const refusal = await retainRefusal(access, request, quote);
   if (refusal) throw refusal;
 
   const { data, error } = await access.context.supabase.rpc("retain_material_request_quote", { p_quote_id: quote.id });
@@ -439,7 +469,7 @@ export async function retainMaterialRequestQuote(
     if (busy) throw busy;
     // Another session changed the quote or its lines since they were read: the refusal says what stands now.
     if (error.code === "23514" && error.message.startsWith("MATERIAL_REQUEST_QUOTE_")) {
-      const now = await retainRefusal(access, request.id, await requireQuote(access, request.id, quote.id));
+      const now = await retainRefusal(access, await requireRequest(access, request.id), await requireQuote(access, request.id, quote.id));
       if (now) throw now;
       throw conflict("Le devis ou ses lignes ont changé entre-temps : rechargez la demande, puis réessayez.");
     }

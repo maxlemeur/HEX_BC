@@ -23,10 +23,11 @@ export { MATERIAL_REQUEST_PRICE_PER, type MaterialRequestPricePer };
  *  - requested: recorded when the message is copied. Its supplier, lines, variant and message never change.
  *  - received: the supplier answered (`received: true`). Prices, total and notes stay editable while requested or
  *    received. A price is in whole cents for `price_per` units (1, 10, 100 or 1 000): 0,034 € a screw is 340 for 100.
- *  - retained: only through the retain route, from received, with every line priced. Its lines take its supplier,
- *    their price and its quantity, and the quote (`MaterialRequestLine.unit_price_ht_cents`, `price_per`,
- *    `price_quote_id`), a validated line staying validated; every other requested or received quote sharing a line is
- *    closed. Final in this delivery: a priced line then keeps what it orders (409 MATERIAL_REQUEST_LINE_PRICED).
+ *  - retained: only through the retain route, from received, with every line priced and validated. Its lines take its
+ *    supplier, their price and its quantity, and the quote (`MaterialRequestLine.unit_price_ht_cents`, `price_per`,
+ *    `price_quote_id`), a validated line staying validated; a project line without its own material takes the
+ *    request's presumed material, which must then be confirmed; every other requested or received quote sharing a line
+ *    is closed. Final in this delivery: a priced line then keeps what it orders (409 MATERIAL_REQUEST_LINE_PRICED).
  *  - closed: by hand from requested or received, or by the retaining of a competitor. Final.
  * Retained and closed quotes are read-only, their files included. One supplier has at most one quote requested or
  * received per request; a retained or closed one does not keep it from being consulted again (lines added later).
@@ -76,6 +77,18 @@ export const MATERIAL_REQUEST_QUOTE_LINES_UNPRICED = "MATERIAL_REQUEST_QUOTE_LIN
  * retaining; details.positions names them.
  */
 export const MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED = "MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED";
+/**
+ * 422: a line of the quote is not validated: retaining freezes what a line orders, so every line must be complete
+ * (its blocking alerts settled by the validation) first. details.positions names the drafts. A quote may still be
+ * recorded and priced for lines not validated yet.
+ */
+export const MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED = "MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED";
+/**
+ * 422: a project line of the quote has no material of its own, so it was consulted in the request's presumed
+ * material, and that material is not confirmed (or there is none): retaining writes it on the line, so it must be
+ * confirmed first. details.positions names the lines.
+ */
+export const MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED = "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED";
 /** 422: retaining needs a quote that still asks for a line (its lines may have been deleted since). */
 export const MATERIAL_REQUEST_QUOTE_WITHOUT_LINES = "MATERIAL_REQUEST_QUOTE_WITHOUT_LINES";
 /** 422: more files than a quote keeps (MATERIAL_REQUEST_QUOTE_MAX_FILES). */
