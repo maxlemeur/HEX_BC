@@ -4,6 +4,7 @@ import type { TakeoffRuleId, ZoneOverlapDifference } from "@/lib/takeoff/rules/t
 export const TAKEOFF_RULE_LABELS: Record<TakeoffRuleId, string> = {
   dn_network: "DN et réseau",
   zone_overlap: "Doublon entre zones",
+  zone_coverage: "Couverture des plans agrandis",
   scale_dimension: "Échelle et cotes",
   area_printed: "Aire et surface imprimée",
   room_overlap: "Pièces qui se chevauchent",

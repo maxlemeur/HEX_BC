@@ -20,6 +20,7 @@ export const TAKEOFF_RULES_VERSION = 1;
 export const TAKEOFF_RULE_IDS = [
   "dn_network",
   "zone_overlap",
+  "zone_coverage",
   "scale_dimension",
   "area_printed",
   "room_overlap",
@@ -41,6 +42,12 @@ export const TAKEOFF_RULE_CODES = {
   zone_overlap: {
     pass: ["ZONE_OVERLAP_NONE", "ZONE_OVERLAP_RESOLVED"],
     fail: ["ZONE_OVERLAP_DUPLICATE", "ZONE_OVERLAP_UNREGISTERED"],
+  },
+  // Coverage of an overview by its enlarged plans (TI-684, D14): a rule of its own, so that a line carries a duplicate
+  // and an uncovered run as two failures, each accepted or settled apart.
+  zone_coverage: {
+    pass: ["ZONE_COVERAGE_COMPLETE", "ZONE_COVERAGE_RESOLVED"],
+    fail: ["ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN"],
   },
   scale_dimension: { pass: ["SCALE_DIMENSION_CONSISTENT"], fail: ["SCALE_DIMENSION_MISMATCH"] },
   area_printed: { pass: ["AREA_PRINTED_CONSISTENT"], fail: ["AREA_PRINTED_MISMATCH"] },
@@ -100,6 +107,13 @@ export type TakeoffRuleDetails = {
   overlap_m?: number;
   /** Lines of a group of duplicates (three or more): no correction settles it, each line is excluded or accepted. */
   group_size?: number;
+  /**
+   * Coverage (TI-684, D14): the length this line of an overview still keeps inside the perimeter of enlarged plans that
+   * do not draw it.
+   */
+  uncovered_m?: number;
+  /** Coverage: what the line's duplicates still take of a reduction before it removes that length (absent when nothing). */
+  owed_m?: number;
   level?: string | null;
   printed_m2?: number;
   measured_m2?: number;
@@ -113,7 +127,10 @@ export type TakeoffRuleDetails = {
   cause?: string;
   model_quantity?: number;
   scale_reason?: string | null;
-  /** Identity of the full quantity comparison, so a changed partner reopens an earlier acceptance. */
+  /**
+   * Identity of the full quantity comparison, so a changed partner reopens an earlier acceptance. Coverage (TI-684): the
+   * enlarged plans that do not draw the run and its uncovered length, so that a longer run or another plan does too.
+   */
   quantity_context_key?: string;
 };
 
