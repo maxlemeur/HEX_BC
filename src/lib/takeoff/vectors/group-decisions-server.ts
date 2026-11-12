@@ -41,7 +41,8 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   per run; the groups past the batch caps are counted in `left_out`, those
 //   whose weak answer is not asked again alone in `dedicated_left_out`;
 // - the calls of each phase run GROUP_DECISIONS_CONCURRENCY at a time (TI-704),
-//   started in their order, the page's first batch call alone, the dedicated
+//   started in their order, none further than that from the oldest in flight,
+//   the page's first batch call alone, the dedicated
 //   ones once every batch call has ended; the dedicated renders are drawn by
 //   chunks, one child process at a time, the next chunk once the first call
 //   of the current one has started, and no longer held once its calls have
@@ -62,7 +63,7 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   applied (logged `after_stop`). Answers, their order and the stop are those
 //   of the same calls one after the other, whatever order they end in; the
 //   call log, its tokens and `calls_ms` keep every call sent, so after a stop
-//   they count the calls that were in flight then;
+//   they count the calls that were in flight then (7 at most);
 // - without canvas, or when an image cannot be rendered, no call is sent for
 //   the page (canvas_unavailable, render_failed).
 // Whatever stops, the groups without an answer stay « à revoir »; the reading
@@ -77,7 +78,7 @@ export const GROUP_DECISIONS_DEDICATED_RENDER_CHUNK = 10;
 /**
  * Decisions calls in flight at once for a page (TI-704). The 5/11 bench page with the most calls sent 52 (2 batch,
  * 50 dedicated) in 38.6 s, one after the other at 0.5 to 1.9 s each. Replayed with those latencies (measured one call
- * at a time; 8 in flight may lengthen them), its calls end in 7.8 s at 8, 11.1 s at 4 and 6.9 s at 10; at 8 the page
+ * at a time; 8 in flight may lengthen them), its calls end in 8.1 s at 8, 12.6 s at 4 and 7.2 s at 10; at 8 the page
  * may meet TI-662's 15 s, at 4 it cannot. 8 keeps:
  * - the dedicated images in memory within the chunk being sent, the chunk drawn ahead and the calls in flight
  *   (8 ≤ GROUP_DECISIONS_DEDICATED_RENDER_CHUNK), one render child at a time, its heap unchanged;
@@ -140,7 +141,7 @@ export type GroupDecisionsOutcome = {
   /** Groups whose batch answer needed a dedicated call past the dedicated caps: they keep it (« à revoir » under 0.8). */
   dedicated_left_out: number;
   render: { legend_ms: number | null; sheets_ms: number[] };
-  /** From the first call's start to the last call's end (the calls run together: not the sum of their latencies); null without a call. */
+  /** Time with at least one call in flight: the calls' latencies, those run together counted once; null without a call. */
   calls_ms: number | null;
 };
 
@@ -215,10 +216,10 @@ export async function classifyVectorGroups(input: {
     answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
     dedicated_left_out: 0, render: { legend_ms: null, sheets_ms: [] }, calls_ms: null,
   };
-  /** When the calls started and last ended (clock), for calls_ms. */
-  const span = { first: null as number | null, last: 0 };
+  /** Time with at least one call in flight (clock), for calls_ms: neither the renders nor the checks between calls. */
+  const busy = { calls: 0, inFlight: 0, since: 0, total: 0 };
   const done = () => {
-    if (span.first !== null) outcome.calls_ms = Math.max(0, Math.round(span.last - span.first));
+    if (busy.calls > 0) outcome.calls_ms = Math.max(0, Math.round(busy.total));
     return outcome;
   };
   if (selection.candidates.length === 0) return outcome;
@@ -250,7 +251,8 @@ export async function classifyVectorGroups(input: {
   /** One call, started: its log entry, and its answers or the stop it makes. Never throws. */
   const send = async (kind: DecisionsCallKind, group: readonly DecisionCandidate[], image: CallImage): Promise<SentCall> => {
     const started = clock();
-    span.first ??= started;
+    busy.calls += 1;
+    if (busy.inFlight++ === 0) busy.since = started;
     let result: OpenAiDecisionsResult | null = null;
     let error: string | undefined;
     try {
@@ -267,7 +269,7 @@ export async function classifyVectorGroups(input: {
     input.budget.finish(usage);
     const status = result?.status ?? "exception";
     const ended = clock();
-    span.last = Math.max(span.last, ended);
+    if (--busy.inFlight === 0) busy.total += ended - busy.since;
     const call: GroupDecisionsCall = { kind, questions: group.length, status, usage, latency_ms: Math.max(0, Math.round(ended - started)),
       render_ms: image.renderMs,
       ...(error !== undefined ? { error } : status === "failed" || status === "unavailable" ? { error: result?.message.slice(0, 300) } : {}) };
@@ -301,14 +303,20 @@ export async function classifyVectorGroups(input: {
     /** The job's check failed, or (never expected: send does not throw) a call threw: no call starts, the error leaves once all ended. */
     const halt: { check: { error: unknown } | null; call: { error: unknown } | null } = { check: null, call: null };
     const halted = () => phase.stop !== null || halt.check !== null || halt.call !== null;
-    const running = new Set<Promise<void>>();
+    /** The calls in flight, with their index. */
+    const running = new Map<Promise<void>, number>();
     let ended = 0;
-    const oneEnds = () => Promise.race(running);
+    const oneEnds = () => Promise.race(running.keys());
+    /**
+     * A call starts at most GROUP_DECISIONS_CONCURRENCY - 1 places after the oldest in flight (so never more than that
+     * many in flight): a slow call that then fails leaves at most that many calls sent after it, their answers unused.
+     */
+    const inWindow = (index: number) => running.size === 0 || index < Math.min(...running.values()) + GROUP_DECISIONS_CONCURRENCY;
     const fitsBeside = () => (kind === "dedicated" ? input.budget.fits()
       : ended > 0 && input.budget.fits(Math.ceil(GROUP_DECISIONS_BATCH_RESERVE_MARGIN * input.budget.snapshot().largest_call_tokens)));
     try {
       starts: for (const [index, group] of groups.entries()) {
-        while (running.size >= GROUP_DECISIONS_CONCURRENCY) await oneEnds();
+        while (!inWindow(index)) await oneEnds();
         if (halted()) break;
         const image = await imageOf(index);
         if ("reason" in image) {
@@ -341,11 +349,11 @@ export async function classifyVectorGroups(input: {
           ended += 1;
           running.delete(call);
         });
-        running.add(call);
+        running.set(call, index);
         started?.(index);
       }
     } finally {
-      await Promise.all(running);
+      await Promise.all(running.keys());
     }
     const failure = halt.check ?? halt.call;
     if (failure) throw failure.error;

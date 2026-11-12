@@ -51,7 +51,11 @@ import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 //   the page's first batch has answered), or a refusal while calls in flight
 //   would have made room (an earlier stop than in a row);
 // - a chunk drawn ahead after a stop is known, or the summed latencies of
-//   calls in parallel given for the time they took;
+//   calls in parallel (or the renders between them) given for the time they
+//   took;
+// - a slow call that fails letting the rest of the phase leave meanwhile, all
+//   of it spent for nothing (more than GROUP_DECISIONS_CONCURRENCY - 1 calls
+//   after a stop);
 // - a new call after a failed one or a failed job check is known, the answers
 //   of a call after the failed one applied, or the job check's error lost or
 //   thrown while calls are still in flight;
@@ -492,6 +496,66 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
     for (const other of shapes.slice(1)) expect(other).toEqual(shapes[0]);
   });
 
+  it("keeps a margin over the first batch call for the next ones started together, which may cost a little more", async () => {
+    // The first batch call 50 000 tokens, the next ones 60 000 (20 % more): reserved at the first one's size, 8 would
+    // leave together and spend 470 000. In a row: 6 calls (350 000), the seventh refused.
+    for (const pick of [first, shuffled(10)]) {
+      const budget = createDecisionsTokenBudget(400_000, 20_000);
+      const gated = gatedDecide(() => ({ value: "EU", confidence: 0.9 }), { tokens: (call) => (call === 0 ? 50_000 : 60_000) });
+      const outcome = await drive(run(page(360), { decide: gated.decide, budget }).outcome, gated, pick);
+      expect(gated.maxInFlight()).toBeGreaterThan(1);
+      expect(outcome.stop).toMatchObject({ reason: "budget_reached" });
+      expect(budget.snapshot()).toMatchObject({ calls: 6, spent_tokens: 350_000, refused_starts: 1 });
+    }
+  });
+
+  it("starts no call more than GROUP_DECISIONS_CONCURRENCY - 1 places after the oldest in flight: a slow failing call wastes few", async () => {
+    // 360 candidates, 10 batch calls: the second hangs while the others answer, then fails.
+    const gated = gatedDecide(() => ({ value: "EU", confidence: 0.9 }));
+    const pending = run(page(360), { decide: gated.decide }).outcome;
+    await tick();
+    gated.calls[0].settle();
+    await tick();
+    for (let turn = 0; turn < 20; turn += 1) {
+      const answering = gated.open().filter((call) => call.index !== 1);
+      if (answering.length === 0) break;
+      for (const call of answering) call.settle();
+      await tick();
+    }
+    expect(gated.calls.map((call) => call.index)).toEqual(Array.from({ length: GROUP_DECISIONS_CONCURRENCY + 1 }, (_, index) => index));
+    gated.calls[1].settle("failed");
+    const outcome = await pending;
+    expect(outcome.stop).toMatchObject({ reason: "call_failed" });
+    expect(outcome.calls.filter((call) => call.after_stop)).toHaveLength(GROUP_DECISIONS_CONCURRENCY - 1);
+  });
+
+  it("gives the time spent with calls in flight, not the renders between them", async () => {
+    vi.useFakeTimers();
+    try {
+      // 5 candidates: a batch call of 1 s, a dedicated render of 5 s, then 5 dedicated calls together of 1 s.
+      const decide: GroupDecisionsDecide = async (input) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        return resultOf(input, "available", weak);
+      };
+      let drawings = 0;
+      const { render } = fakeRender({ sheets: async (plans) => {
+        // The second drawing: the dedicated renders.
+        drawings += 1;
+        if (drawings === 2) await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return { images: plans.map(() => IMAGE), issue: null, render_ms: plans.map(() => 7), duration_ms: 9 };
+      } });
+      const started = Date.now();
+      const pending = run(page(5), { decide, render, clock: () => Date.now() }).outcome;
+      await vi.runAllTimersAsync();
+      const outcome = await pending;
+      expect(Date.now() - started).toBe(7_000);
+      expect(outcome.calls).toHaveLength(6);
+      expect(outcome.calls_ms).toBe(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts no call once one has failed; the calls in flight finish, their answers unused, whichever ends first", async () => {
     for (const [status, reason] of [["failed", "call_failed"], ["unavailable", "decisions_unavailable"], ["throw", "exception"]] as const) {
       for (const failingFirst of [true, false]) {
@@ -619,8 +683,9 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
       const elapsed = Date.now() - started;
       expect(outcome.calls.map((call) => call.latency_ms)).toEqual(latencies);
       expect(latencies.reduce((total, latency) => total + latency, 0)).toBe(38_573);
-      // 7.8 s at 8 in flight, the latencies of calls sent alone: the 2 batch calls, then the dedicated ones 8 at a time.
-      expect(elapsed).toBeLessThanOrEqual(8_000);
+      // 8.1 s at 8 in flight, with the latencies of calls sent alone: the 2 batch calls one after the other, then the
+      // dedicated ones 8 at a time, none further than 7 places from the oldest in flight.
+      expect(elapsed).toBeLessThanOrEqual(8_200);
       // The time the page spent in its calls, not their sum.
       expect(outcome.calls_ms).toBe(elapsed);
     } finally {
