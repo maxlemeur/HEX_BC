@@ -73393,7 +73393,7 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              "rows": {
+              "pages": {
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -73470,52 +73470,7 @@
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       }
                     },
-                    "new_lines": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "designation": {
-                            "type": "string"
-                          },
-                          "unit": {
-                            "type": "string"
-                          },
-                          "quantity": {
-                            "type": "number"
-                          },
-                          "unit_key": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "candidate_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            }
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "designation",
-                          "unit",
-                          "quantity",
-                          "unit_key",
-                          "candidate_ids"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "earlier_lines": {
+                    "lines": {
                       "minItems": 1,
                       "type": "array",
                       "items": {
@@ -73526,59 +73481,6 @@
                             "format": "uuid",
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                           },
-                          "title": {
-                            "type": "string"
-                          },
-                          "unit_key": {
-                            "type": "string"
-                          },
-                          "quantity": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "measured_quantity": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "changed_by_hand": {
-                            "type": "boolean"
-                          },
-                          "updated_at": {
-                            "type": "string"
-                          },
-                          "unit_price_ht_cents": {
-                            "anyOf": [
-                              {
-                                "type": "integer",
-                                "minimum": -9007199254740991,
-                                "maximum": 9007199254740991
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "job_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "dpgf_target": {
-                            "type": "boolean"
-                          },
-                          "fed_again": {
-                            "type": "boolean"
-                          },
-                          "assembly": {
-                            "type": "boolean"
-                          },
-                          "other_pages": {
-                            "type": "boolean"
-                          },
                           "item_ids": {
                             "type": "array",
                             "items": {
@@ -73586,104 +73488,29 @@
                               "format": "uuid",
                               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                             }
-                          },
-                          "sources": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                "quantity": {
-                                  "type": "number"
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "quantity"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "length_factor": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
                           }
                         },
                         "required": [
                           "id",
-                          "title",
-                          "unit_key",
-                          "quantity",
-                          "measured_quantity",
-                          "changed_by_hand",
-                          "updated_at",
-                          "unit_price_ht_cents",
-                          "job_id",
-                          "dpgf_target",
-                          "fed_again",
-                          "assembly",
-                          "other_pages",
-                          "item_ids",
-                          "sources",
-                          "length_factor"
+                          "item_ids"
                         ],
                         "additionalProperties": false
                       }
                     },
-                    "pairs": {
+                    "new_line_ids": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "takeoff_item_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "estimate_item_id": {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          "source_item_id": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "reason": {
-                            "type": "string",
-                            "enum": [
-                              "same_designation",
-                              "same_network",
-                              "similar_designation",
-                              "merge"
-                            ]
-                          },
-                          "locked": {
-                            "type": "boolean"
-                          }
-                        },
-                        "required": [
-                          "takeoff_item_id",
-                          "estimate_item_id",
-                          "source_item_id",
-                          "reason",
-                          "locked"
-                        ],
-                        "additionalProperties": false
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "dpgf_fed_again": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       }
                     },
                     "ambiguous_document": {
@@ -73710,11 +73537,210 @@
                     "file_name",
                     "page",
                     "earlier_job_ids",
-                    "new_lines",
-                    "earlier_lines",
-                    "pairs",
+                    "lines",
+                    "new_line_ids",
+                    "dpgf_fed_again",
                     "ambiguous_document",
                     "keep_both_refused"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "unit_key": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "measured_quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "changed_by_hand": {
+                      "type": "boolean"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "unit_price_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dpgf_target": {
+                      "type": "boolean"
+                    },
+                    "assembly": {
+                      "type": "boolean"
+                    },
+                    "outside_pages": {
+                      "type": "boolean"
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "quantity": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "length_factor": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "unit_key",
+                    "quantity",
+                    "measured_quantity",
+                    "changed_by_hand",
+                    "updated_at",
+                    "unit_price_ht_cents",
+                    "dpgf_target",
+                    "assembly",
+                    "outside_pages",
+                    "sources",
+                    "length_factor"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "new_lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "line_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "line_ids"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "designation",
+                    "unit",
+                    "quantity",
+                    "unit_key",
+                    "candidates"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "pairs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "takeoff_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "estimate_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "same_designation",
+                        "same_network",
+                        "similar_designation",
+                        "merge"
+                      ]
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "takeoff_item_id",
+                    "estimate_item_id",
+                    "reason",
+                    "locked"
                   ],
                   "additionalProperties": false
                 }
@@ -73766,7 +73792,10 @@
             "required": [
               "job_id",
               "version_id",
-              "rows",
+              "pages",
+              "lines",
+              "new_lines",
+              "pairs",
               "jobs",
               "unidentified_count",
               "merge_required"

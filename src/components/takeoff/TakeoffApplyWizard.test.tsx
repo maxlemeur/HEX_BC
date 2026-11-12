@@ -128,8 +128,8 @@ describe("TakeoffApplyWizard", () => {
     vi.mocked(previewTakeoffConversion).mockResolvedValue(PREVIEW_RESPONSE);
     vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
       unidentified_item_ids: [], other_takeoff_line_count: 0 });
-    vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ job_id: JOB_ID, version_id: VERSION_ID, rows: [], jobs: [],
-      unidentified_count: 0, merge_required: false });
+    vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ job_id: JOB_ID, version_id: VERSION_ID, pages: [], lines: [], new_lines: [],
+      pairs: [], jobs: [], unidentified_count: 0, merge_required: false });
   });
 
   it("requires a fresh preview after an override changes", async () => {
@@ -245,18 +245,19 @@ describe("TakeoffApplyWizard", () => {
     const document = { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: "plan.pdf" };
     const earlierLine = (id: string, title: string, extra: Record<string, unknown> = {}) => ({ id, title, unit_key: "ml", quantity: 13,
       measured_quantity: 13, changed_by_hand: false, updated_at: "2026-11-10T09:30:00.123456+00:00", unit_price_ht_cents: 2500,
-      job_id: EARLIER_JOB, dpgf_target: false, item_ids: [`${id.slice(0, -1)}9`], sources: [{ id: `${id.slice(0, -1)}9`, quantity: 12.4 }],
-      length_factor: 1, assembly: false, other_pages: false, fed_again: false, ...extra });
-    const proposal = (rowExtra: Record<string, unknown> = {}, lineA: Record<string, unknown> = {}): TakeoffPageReplacementResponse => ({
+      dpgf_target: false, sources: [{ id: `${id.slice(0, -1)}9`, quantity: 12.4 }],
+      length_factor: 1, assembly: false, outside_pages: false, ...extra });
+    const proposal = (pageExtra: Record<string, unknown> = {}, lineA: Record<string, unknown> = {}): TakeoffPageReplacementResponse => ({
       job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false,
       jobs: [{ id: EARLIER_JOB, created_at: "2026-11-10T09:30:00.000Z", level: "C", source_file_name: "plan.pdf" }],
-      rows: [{ key: "row-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [EARLIER_JOB],
-        new_lines: [{ id: ITEM_ID, designation: "Tube PVC", unit: "ml", quantity: 15.2, unit_key: "ml", candidate_ids: [LINE_A, LINE_B] },
-          { id: NEW_LINE, designation: "Lave-mains", unit: "u", quantity: 2, unit_key: "u", candidate_ids: [] }],
-        earlier_lines: [earlierLine(LINE_A, "Réseau chiffré", lineA), earlierLine(LINE_B, "Vanne d’arrêt")],
-        pairs: [{ takeoff_item_id: ITEM_ID, estimate_item_id: LINE_A, source_item_id: `${LINE_A.slice(0, -1)}9`, reason: "same_designation",
-          locked: false }],
-        ambiguous_document: false, keep_both_refused: null, ...rowExtra } as TakeoffPageReplacementResponse["rows"][number]],
+      pages: [{ key: "row-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [EARLIER_JOB],
+        lines: [{ id: LINE_A, item_ids: [`${LINE_A.slice(0, -1)}9`] }, { id: LINE_B, item_ids: [`${LINE_B.slice(0, -1)}9`] }],
+        new_line_ids: [ITEM_ID, NEW_LINE], dpgf_fed_again: [],
+        ambiguous_document: false, keep_both_refused: null, ...pageExtra } as TakeoffPageReplacementResponse["pages"][number]],
+      lines: [earlierLine(LINE_A, "Réseau chiffré", lineA), earlierLine(LINE_B, "Vanne d’arrêt")],
+      new_lines: [{ id: ITEM_ID, designation: "Tube PVC", unit: "ml", quantity: 15.2, unit_key: "ml", candidates: [{ key: "row-1", line_ids: [LINE_A, LINE_B] }] },
+        { id: NEW_LINE, designation: "Lave-mains", unit: "u", quantity: 2, unit_key: "u", candidates: [{ key: "row-1", line_ids: [] }] }],
+      pairs: [{ takeoff_item_id: ITEM_ID, estimate_item_id: LINE_A, reason: "same_designation", locked: false }],
     });
     const confirm = () => screen.getByRole("button", { name: "Confirmer l'application" });
 
@@ -288,8 +289,9 @@ describe("TakeoffApplyWizard", () => {
         { strategy: "merge", target_section_id: SECTION_ID, overrides: undefined }, expect.anything());
       // No default for a line the new takeoff no longer has: the confirmation waits for « remove » or « keep ».
       expect(confirm()).toBeDisabled();
-      fireEvent.click(within(panel).getByRole("button", { name: "Retirer les 1 ligne" }));
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "remove" } });
       expect(within(panel).getByLabelText("Choix pour Vanne d’arrêt")).toHaveValue("remove");
+      expect(within(panel).getByRole("listitem", { name: "Vanne d’arrêt" })).toHaveTextContent("13 → retirée du devis");
       await waitFor(() => expect(confirm()).toBeEnabled());
       fireEvent.click(confirm());
       await waitFor(() => expect(onConfirm).toHaveBeenCalled());
@@ -308,9 +310,9 @@ describe("TakeoffApplyWizard", () => {
       await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
       fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
       const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
-      fireEvent.click(within(panel).getByRole("button", { name: "Garder les 1 ligne" }));
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "keep" } });
       expect(confirm()).toBeDisabled();
-      expect(within(panel).getByRole("status")).toHaveTextContent("1 quantité modifiée à la main");
+      expect(within(within(panel).getByRole("listitem", { name: "Réseau chiffré" })).getByRole("status")).toHaveTextContent("quantité modifiée à la main");
       fireEvent.click(within(panel).getByRole("radio", { name: "Garder ma quantité (14)" }));
       await waitFor(() => expect(confirm()).toBeEnabled());
       // The tube now replaces the valve instead: the network line has no new line, so it waits for a choice again.
@@ -344,14 +346,15 @@ describe("TakeoffApplyWizard", () => {
     it("never removes a vanished line that also carries another page, and keeps it waiting for « keep »", async () => {
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, {}));
       const base = proposal();
-      base.rows[0].earlier_lines[1] = { ...base.rows[0].earlier_lines[1], other_pages: true };
+      base.lines[1] = { ...base.lines[1], outside_pages: true };
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(base);
       renderWizard(undefined, { presetStrategy: "append" });
       await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
       fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
       const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
       expect(within(within(panel).getByLabelText("Choix pour Vanne d’arrêt")).getByRole("option", { name: /Retirer du devis/ })).toBeDisabled();
-      fireEvent.click(within(panel).getByRole("button", { name: "Retirer les 1 ligne" }));
+      expect(within(panel).getByRole("listitem", { name: "Vanne d’arrêt" })).toHaveTextContent("Retirer n’est pas possible : elle porte aussi des pages que ce métré ne relit pas");
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "remove" } });
       expect(within(panel).getByLabelText("Choix pour Vanne d’arrêt")).toHaveValue("");
       expect(confirm()).toBeDisabled();
       fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "keep" } });
@@ -360,15 +363,15 @@ describe("TakeoffApplyWizard", () => {
 
     it("asks to keep both, with a reason, when the replacement would replace nothing", async () => {
       const base = proposal();
-      base.rows[0].pairs = [];
+      base.pairs = [];
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(base);
       renderWizard(undefined, { presetStrategy: "append" });
       await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
       fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
       const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
-      fireEvent.click(within(panel).getByRole("button", { name: "Garder les 2 lignes" }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Garder les 2 lignes absentes" }));
       expect(confirm()).toBeDisabled();
-      expect(within(panel).getByRole("status")).toHaveTextContent("Rien n’est remplacé sur cette page");
+      expect(within(panel).getByRole("status")).toHaveTextContent("rien n’y est remplacé");
     });
 
     it("does not offer to keep both where the page feeds a DPGF line another takeoff fed", async () => {

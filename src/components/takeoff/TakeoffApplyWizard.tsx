@@ -41,7 +41,7 @@ import {
 } from "./takeoff-apply-wizard/shared";
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
 import { TakeoffPageDecisionsPanel } from "./takeoff-apply-wizard/TakeoffPageDecisionsPanel";
-import { initialPageDraft, pageDecisionsPayload, pageMissing, type PageDraft } from "./takeoff-apply-wizard/page-decisions";
+import { initialConfirmationDraft, resolveConfirmation, type ConfirmationDraft } from "./takeoff-apply-wizard/page-decisions";
 import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forced-drafts";
@@ -118,7 +118,9 @@ export function TakeoffApplyWizard({
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   // TI-682 lot D: the pages of this takeoff the estimate already holds from another takeoff, decided before the last click.
   const [pageProposal, setPageProposal] = useState<{ key: string; data: TakeoffPageReplacementResponse | null; error: string | null } | null>(null);
-  const [pageDrafts, setPageDrafts] = useState<Record<string, PageDraft>>({});
+  // The estimator's choices at « Pages déjà au devis », one draft for the whole application; kept when the proposal is
+  // read again, over the pairs the new proposal makes.
+  const [pageChoices, setPageChoices] = useState<ConfirmationDraft>({ pages: {}, pairs: {}, vanished: {}, parts: {}, takes: {} });
   const [pageReadCount, setPageReadCount] = useState(0);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
@@ -270,12 +272,17 @@ export function TakeoffApplyWizard({
     if (submitErrorGuard === "page_already_applied" || submitErrorGuard === "page_decision") setPageReadCount((count) => count + 1);
   }, [submitError, submitErrorGuard]);
   const pageRead = pageProposal && pageProposal.key === pageRequest ? pageProposal : null;
-  const pageRows = useMemo(() => pageRead?.data?.rows ?? [], [pageRead]);
-  const pagesReady = pageRequest !== null && pageRead !== null && pageRead.error === null
-    && pageRows.every((row) => pageMissing(row, pageDrafts[row.key] ?? initialPageDraft(row), { rows: pageRows, drafts: pageDrafts }).length === 0);
+  const pageDraft = useMemo(() => {
+    if (!pageRead?.data) return null;
+    const initial = initialConfirmationDraft(pageRead.data);
+    return { ...pageChoices, pairs: { ...initial.pairs, ...pageChoices.pairs } };
+  }, [pageRead, pageChoices]);
+  const pageResolution = useMemo(() => (pageRead?.data && pageDraft ? resolveConfirmation(pageRead.data, pageDraft) : null), [pageRead, pageDraft]);
+  const pageCount = pageRead?.data?.pages.length ?? 0;
+  const pagesReady = pageRequest !== null && pageRead !== null && pageRead.error === null && (pageResolution?.complete ?? true);
   // Outside a DPGF version, a page measured again is applied with « Ajouter »: each earlier line is updated in place,
   // and « Fusionner » by title would replace or move lines the estimator did not see paired.
-  const appliedStrategy: TakeoffApplyStrategy = pageRows.length > 0 && !pageRead?.data?.merge_required ? "append" : strategy;
+  const appliedStrategy: TakeoffApplyStrategy = pageCount > 0 && !pageRead?.data?.merge_required ? "append" : strategy;
   const pageStrategyNotice = appliedStrategy !== strategy
     ? "« Ajouter » est retenu : chaque ligne précédente est mise à jour à sa place ; la fusion par désignation ou le remplacement de section ne s’appliquent pas à des pages déjà au devis."
     : null;
@@ -309,7 +316,7 @@ export function TakeoffApplyWizard({
       targetSectionLabel: selectedSectionLabel,
       strategy: appliedStrategy,
       overrides: serializedOverrides,
-      pageDecisions: pageDecisionsPayload(pageRows, pageDrafts),
+      pageDecisions: pageResolution?.payload ?? [],
     });
   };
 
@@ -326,7 +333,7 @@ export function TakeoffApplyWizard({
       overrides: serializedOverrides,
       override: true,
       forced,
-      pageDecisions: pageDecisionsPayload(pageRows, pageDrafts),
+      pageDecisions: pageResolution?.payload ?? [],
     });
   };
 
@@ -470,8 +477,8 @@ export function TakeoffApplyWizard({
 
               {step === 4 && (
                 <TakeoffPageDecisionsPanel proposal={pageRead?.data ?? null} error={pageRead?.error ?? null}
-                  loading={pageRequest !== null && pageRead === null} drafts={pageDrafts} strategyNotice={pageStrategyNotice}
-                  disabled={isSubmitting} onDraftsChange={setPageDrafts} />
+                  loading={pageRequest !== null && pageRead === null} draft={pageDraft} strategyNotice={pageStrategyNotice}
+                  disabled={isSubmitting} onDraftChange={setPageChoices} />
               )}
 
               {step === 4 && (

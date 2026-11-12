@@ -25,7 +25,11 @@ import {
   type ReplacementSourceLine,
   type RuleIdentity,
 } from "@/lib/takeoff/page-replacement";
-import type { TakeoffPageReplacementResponse, TakeoffPageReplacementRow } from "@/lib/takeoff/page-replacement-contracts";
+import type {
+  TakeoffPageReplacementLine,
+  TakeoffPageReplacementPage,
+  TakeoffPageReplacementResponse,
+} from "@/lib/takeoff/page-replacement-contracts";
 
 // TI-682 lot D, PR 2: the proposal of the « Pages déjà au devis » step, computed from what the server read (no read
 // here, so that it can be checked on its own). For each page of this takeoff the estimate already holds from another
@@ -112,9 +116,17 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
   const fedTargets = input.fedTargets;
   const estimateById = new Map(estimateRows.map((line) => [line.id, line]));
 
-  const rows: TakeoffPageReplacementRow[] = result.pages.map((page) => {
+  // Each page in the reader's order. A new line without a page lies on every page it may be: it is proposed once, on the
+  // first page where it finds a line to replace (the database refuses a new line paired twice), and the pages after it
+  // pair their other lines among the sources left.
+  type Candidate = ReplacementCandidate & { job_id: string; item_ids: string[] };
+  const paired = new Set<string>();
+  const proposedPairs: TakeoffPageReplacementResponse["pairs"] = [];
+  const lineFacts = new Map<string, { candidate: Candidate; pageItems: Map<string, string[]> }>();
+  const newLineFacts = new Map<string, { line: ReplacementNewLine; candidates: Array<{ key: string; line_ids: string[] }> }>();
+  const pages: TakeoffPageReplacementPage[] = result.pages.map((page) => {
     const pageItems = new Set(page.earlier.flatMap((earlier) => earlier.takeoff_item_ids));
-    const candidates = new Map<string, ReplacementCandidate & { job_id: string; item_ids: string[] }>();
+    const candidates = new Map<string, Candidate>();
     for (const earlier of page.earlier) {
       for (const estimateItemId of earlier.estimate_item_ids) {
         const line = estimateById.get(estimateItemId);
@@ -144,12 +156,18 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
     const forced: ProposedPair[] = newLines.flatMap((line) => {
       const target = merged.get(line.id);
       const candidate = target ? candidates.get(target) : undefined;
-      if (!candidate || candidate.source_provider === "dpgf") return [];
+      if (!candidate || candidate.source_provider === "dpgf" || paired.has(line.id)) return [];
       return [{ takeoff_item_id: line.id, estimate_item_id: candidate.id, source_item_id: candidate.item_ids[0] ?? null, reason: "merge" as const }];
     });
-    // A new line « Fusionner » sends onto another line than an earlier one of this page is not paired here.
-    const pairable = newLines.filter((line) => !merged.has(line.id) || forced.some((pair) => pair.takeoff_item_id === line.id));
-    const pairs = proposePagePairs({ newLines: pairable, candidates: [...candidates.values()], forced });
+    // A new line « Fusionner » sends onto another line than an earlier one of this page is not paired here, nor a new line
+    // an earlier page already paired.
+    const pairable = newLines.filter((line) => !paired.has(line.id) && (!merged.has(line.id) || forced.some((pair) => pair.takeoff_item_id === line.id)));
+    for (const pair of proposePagePairs({ newLines: pairable, candidates: [...candidates.values()], forced })) {
+      if (paired.has(pair.takeoff_item_id)) continue;
+      paired.add(pair.takeoff_item_id);
+      proposedPairs.push({ takeoff_item_id: pair.takeoff_item_id, estimate_item_id: pair.estimate_item_id, reason: pair.reason,
+        locked: pair.reason === "merge" });
+    }
     const pageSources = [...candidates.values()].filter((candidate) => candidate.source_provider !== "dpgf").flatMap((candidate) => candidate.sources);
     const identities = newLines.flatMap((line) => (line.identity ? [line.identity] : []));
     const document: TakeoffPageDocument = identities[0]?.document ?? { plan_file_id: null, content_hash: null, logical_document_id: null,
@@ -158,45 +176,63 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
       source.identity && (source.identity.document.plan_file_id || source.identity.document.content_hash)
         ? [source.identity.document.plan_file_id ?? source.identity.document.content_hash!] : [])));
     const nameOnly = identities.some((identity) => !identity.document.plan_file_id && !identity.document.content_hash);
-    const dpgfFedAgain = [...candidates.values()].some((candidate) => candidate.source_provider === "dpgf"
-      && newLines.some((line) => fedTargets.get(line.id) === candidate.id));
+    const pageKey = JSON.stringify([document, page.page]);
+    for (const candidate of candidates.values()) {
+      const facts = lineFacts.get(candidate.id) ?? { candidate, pageItems: new Map<string, string[]>() };
+      facts.pageItems.set(pageKey, candidate.item_ids);
+      lineFacts.set(candidate.id, facts);
+    }
+    for (const line of newLines) {
+      const facts = newLineFacts.get(line.id) ?? { line, candidates: [] };
+      facts.candidates.push({ key: pageKey, line_ids: [...candidates.values()].filter((candidate) => candidate.source_provider !== "dpgf" && !candidate.assembly
+        && unitKey(line.unit) !== null
+        && estimateLineUnitKey(candidate) === unitKey(line.unit)
+        && candidate.sources.every((source) => mayReplaceAcrossDocuments(line, source, pageSources))).map((candidate) => candidate.id) });
+      newLineFacts.set(line.id, facts);
+    }
+    const dpgfFedAgain = [...candidates.values()].filter((candidate) => candidate.source_provider === "dpgf"
+      && newLines.some((line) => fedTargets.get(line.id) === candidate.id)).map((candidate) => candidate.id);
     return {
-      key: JSON.stringify([document, page.page]),
+      key: pageKey,
       document, file_name: page.file_name, page: page.page,
       earlier_job_ids: page.earlier.map((earlier) => earlier.job_id),
-      new_lines: newLines.map((line) => ({ id: line.id, designation: line.designation, unit: line.unit, quantity: line.quantity,
-        unit_key: unitKey(line.unit),
-        candidate_ids: [...candidates.values()].filter((candidate) => candidate.source_provider !== "dpgf" && !candidate.assembly
-          && unitKey(line.unit) !== null
-          && estimateLineUnitKey(candidate) === unitKey(line.unit)
-          && candidate.sources.every((source) => mayReplaceAcrossDocuments(line, source, pageSources))).map((candidate) => candidate.id) })),
-      earlier_lines: [...candidates.values()].map((candidate) => {
-        const line = estimateById.get(candidate.id)!;
-        const allSources = (sourceIdsOf.get(candidate.id) ?? []).flatMap((id) => (lines.get(id) ? [{ id, quantity: lines.get(id)!.quantity }] : []));
-        const quantities = replacementQuantities({ quantity: number(line.quantity), factor: lengthFactor(line), sources: allSources,
-          removedSourceIds: new Set(candidate.item_ids), added: [] });
-        const measuredLine = line.source_provider !== "dpgf" && !candidate.assembly;
-        return { id: line.id, title: line.title, unit_key: estimateLineUnitKey(line), quantity: number(line.quantity),
-          measured_quantity: measuredLine ? quantities.measured : null,
-          changed_by_hand: measuredLine && quantities.changedByHand,
-          updated_at: line.updated_at, unit_price_ht_cents: line.unit_price_ht_cents, job_id: candidate.job_id,
-          dpgf_target: line.source_provider === "dpgf",
-          fed_again: line.source_provider === "dpgf" && newLines.some((newLine) => fedTargets.get(newLine.id) === line.id),
-          assembly: Boolean(candidate.assembly),
-          other_pages: (sourceIdsOf.get(candidate.id) ?? []).some((id) => !candidate.item_ids.includes(id)),
-          item_ids: candidate.item_ids, sources: allSources, length_factor: lengthFactor(line) };
-      }),
-      pairs: pairs.map((pair) => ({ ...pair, locked: pair.reason === "merge" })),
+      lines: [...candidates.values()].map((candidate) => ({ id: candidate.id, item_ids: candidate.item_ids })),
+      new_line_ids: newLines.map((line) => line.id),
+      dpgf_fed_again: dpgfFedAgain,
       ambiguous_document: nameOnly && identifiedDocuments.size > 1,
-      keep_both_refused: dpgfFedAgain ? "dpgf_target" as const : forced.length > 0 ? "merge_match" as const : null,
+      keep_both_refused: dpgfFedAgain.length > 0 ? "dpgf_target" as const : forced.length > 0 ? "merge_match" as const : null,
     };
   });
 
-  const named = new Set(rows.flatMap((row) => row.earlier_job_ids));
+  // Each earlier line once. Removing it is refused only for its sources outside every page this application reads, as
+  // the database's `remove_other_pages` reads them (Codex review of 708c7fbf: per page, a line of two re-measured pages
+  // was never removable).
+  const earlierLines: TakeoffPageReplacementLine[] = [...lineFacts.values()].map(({ candidate, pageItems }) => {
+    const line = estimateById.get(candidate.id)!;
+    const read = new Set([...pageItems.values()].flat());
+    const allSources = (sourceIdsOf.get(candidate.id) ?? []).flatMap((id) => (lines.get(id) ? [{ id, quantity: lines.get(id)!.quantity }] : []));
+    const quantities = replacementQuantities({ quantity: number(line.quantity), factor: lengthFactor(line), sources: allSources,
+      removedSourceIds: new Set(), added: [] });
+    const measuredLine = line.source_provider !== "dpgf" && !candidate.assembly;
+    return { id: line.id, title: line.title, unit_key: estimateLineUnitKey(line), quantity: number(line.quantity),
+      measured_quantity: measuredLine ? quantities.measured : null,
+      changed_by_hand: measuredLine && quantities.changedByHand,
+      updated_at: line.updated_at, unit_price_ht_cents: line.unit_price_ht_cents,
+      dpgf_target: line.source_provider === "dpgf",
+      assembly: Boolean(candidate.assembly),
+      outside_pages: (sourceIdsOf.get(candidate.id) ?? []).some((id) => !read.has(id)),
+      sources: allSources, length_factor: lengthFactor(line) };
+  });
+
+  const named = new Set(pages.flatMap((page) => page.earlier_job_ids));
   return {
     job_id: normalizedJobId,
     version_id: input.versionId,
-    rows,
+    pages,
+    lines: earlierLines,
+    new_lines: [...newLineFacts.values()].map(({ line, candidates }) => ({ id: line.id, designation: line.designation, unit: line.unit,
+      quantity: line.quantity, unit_key: unitKey(line.unit), candidates })),
+    pairs: proposedPairs,
     jobs: [...named].flatMap((id) => {
       const row = jobs.get(id);
       return row ? [{ id: row.id, created_at: row.created_at, level: row.level, source_file_name: row.source_file_name }] : [];
