@@ -15,6 +15,7 @@ import {
   formatConfidence,
   formatNumber,
   formatPercent,
+  measuredQuantityLabel,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 
 type DpgfRowListProps = {
@@ -42,10 +43,7 @@ export function DpgfRowList({
     <section className="min-w-0 space-y-3" aria-label="Lignes DPGF">
       {filteredRows.map((row) => {
         const isSelected = row.line_id === selectedRowId;
-        const quantityLabel =
-          row.takeoff_quantity === null
-            ? "Quantité métrée non consolidée"
-            : `${formatNumber(row.takeoff_quantity)} ${row.quantity_unit ?? ""}`.trim();
+        const quantityLabel = measuredQuantityLabel(row);
 
         return (
           <button

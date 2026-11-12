@@ -3,7 +3,7 @@ import type {
   TakeoffDpgfComparisonRow,
   TakeoffDpgfReviewDecision,
 } from "@/lib/takeoff/types";
-import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 
 import {
   DECISION_LABELS,
@@ -36,17 +36,31 @@ export function getDecisionImpactText(
 ): string | null {
   if (!decision || !row) return null;
   const unit = row.quantity_unit ?? "";
+  // TI-696: what the application writes, the sum the line holds (dpgfRowRetainedQuantity), whatever the decision.
+  const retained = dpgfRowRetainedQuantity(row);
   switch (decision) {
     case "keep_dpgf":
-      return `Quantité retenue : ${formatNumber(dpgfQuantityPolicy(row)?.priced ?? row.dpgf_quantity)} ${unit}`.trim();
+      return `Quantité retenue : ${formatNumber(retained ?? row.dpgf_quantity)} ${unit}`.trim();
     case "keep_takeoff":
       if (row.takeoff_quantity === null) return "Quantité métrée non consolidée";
-      return `Quantité retenue : ${formatNumber(dpgfQuantityPolicy(row)?.priced ?? row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
+      return `Quantité retenue : ${formatNumber(retained ?? row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
     case "manual_fix":
       return "Vous devrez saisir la quantité corrigée manuellement.";
     case "out_of_scope":
       return "Le métré rapproché ne sera pas appliqué à cette ligne DPGF.";
   }
+}
+
+/**
+ * TI-696: what a row shows as measured: the total its DPGF line will hold when other takeoffs feed it (the gap is judged
+ * on it), with this takeoff's own measure; else this takeoff's measure.
+ */
+export function measuredQuantityLabel(row: TakeoffDpgfComparisonRow) {
+  if (row.takeoff_quantity === null) return "Quantité métrée non consolidée";
+  const unit = row.quantity_unit ?? "";
+  return row.composition
+    ? `${formatNumber(row.composition.total_quantity)} ${unit} (ce métré : ${formatNumber(row.takeoff_quantity)})`.replace(/\s+\(/, " (").trim()
+    : `${formatNumber(row.takeoff_quantity)} ${unit}`.trim();
 }
 
 export function formatProofConfidence(value: number | null) {
@@ -91,7 +105,8 @@ function toCsvCell(value: string | number | null | undefined) {
   return `"${stringValue}"`;
 }
 
-export function exportRowsAsCsv(
+/** The review's rows as CSV. TI-696: with the total the gap is judged on and the quantity the application retains. */
+export function buildRowsCsv(
   rows: TakeoffDpgfComparisonRow[],
   statusLabels: Record<TakeoffDpgfComparisonRow["review_status"], string>
 ) {
@@ -105,6 +120,8 @@ export function exportRowsAsCsv(
     "matched_by",
     "quantite_dpgf",
     "quantite_takeoff",
+    "quantite_totale",
+    "quantite_retenue",
     "unite",
     "delta_absolu",
     "delta_percent",
@@ -127,6 +144,8 @@ export function exportRowsAsCsv(
       row.matched_by ?? "",
       row.dpgf_quantity,
       row.takeoff_quantity,
+      row.takeoff_quantity === null ? null : row.composition?.total_quantity ?? row.takeoff_quantity,
+      dpgfRowRetainedQuantity(row),
       row.quantity_unit,
       row.delta_absolute,
       row.delta_percent,
@@ -138,7 +157,14 @@ export function exportRowsAsCsv(
       .join(",")
   );
 
-  const content = [header.join(","), ...lines].join("\n");
+  return [header.join(","), ...lines].join("\n");
+}
+
+export function exportRowsAsCsv(
+  rows: TakeoffDpgfComparisonRow[],
+  statusLabels: Record<TakeoffDpgfComparisonRow["review_status"], string>
+) {
+  const content = buildRowsCsv(rows, statusLabels);
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

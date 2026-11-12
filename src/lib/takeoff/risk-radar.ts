@@ -606,8 +606,10 @@ export function buildTakeoffRiskCandidates(
       );
     }
 
-    const gapReason = row.dpgf_quantity === 0 && row.takeoff_quantity !== null && row.takeoff_quantity > 0
-      ? `Quantité DPGF nulle, métré de ${row.takeoff_quantity} ${row.quantity_unit ?? ""}.`.trim()
+    // TI-696: the gap is judged on the total the DPGF line will hold (the other takeoffs it keeps and this one).
+    const measuredTotal = row.takeoff_quantity === null ? null : row.composition?.total_quantity ?? row.takeoff_quantity;
+    const gapReason = row.dpgf_quantity === 0 && measuredTotal !== null && measuredTotal > 0
+      ? `Quantité DPGF nulle, métré de ${measuredTotal} ${row.quantity_unit ?? ""}.`.trim()
       : row.delta_percent !== null && Math.abs(row.delta_percent) > 20
         ? `Écart de ${row.delta_percent.toFixed(1)}% entre la quantité DPGF et le métré.` : null;
     if (gapReason) {
@@ -627,13 +629,14 @@ export function buildTakeoffRiskCandidates(
             buildInferenceEntry(
               "Delta DPGF / métré",
               "Comparaison DPGF / takeoff",
-              `DPGF ${row.dpgf_quantity ?? "n/a"} ${row.quantity_unit ?? ""} vs métré ${row.takeoff_quantity ?? "n/a"} ${row.quantity_unit ?? ""}`.trim(),
+              `DPGF ${row.dpgf_quantity ?? "n/a"} ${row.quantity_unit ?? ""} vs métré ${measuredTotal ?? "n/a"} ${row.quantity_unit ?? ""}`.trim(),
               row.confidence_score
             )
           ),
           metadata: {
             dpgf_quantity: row.dpgf_quantity,
             takeoff_quantity: row.takeoff_quantity,
+            ...(row.composition ? { total_quantity: measuredTotal } : {}),
             delta_percent: row.delta_percent,
             review_status: row.review_status,
           },

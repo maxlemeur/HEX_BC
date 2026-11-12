@@ -1,7 +1,7 @@
 "use client";
 
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
-import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowQuantityPolicy, dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -191,13 +191,18 @@ export function SelectedRowReviewAside({
             <div className="rounded-2xl border border-border bg-surface-subtle p-4 sm:col-span-2">
               <p className="text-sm font-semibold">Quantité proposée pour chiffrer</p>
               <p className="mt-1 text-lg font-semibold">
-                {dpgfQuantityPolicy(selectedRow, selectedRow.composition ? { measured: selectedRow.composition.earlier_quantity,
-                  protective: selectedRow.composition.earlier_protective, printed_gap: selectedRow.composition.earlier_printed_gap }
-                  : undefined)?.priced.toLocaleString("fr-FR", { maximumFractionDigits: 3 }) ?? "À confirmer"} {selectedRow.quantity_unit}
+                {dpgfRowRetainedQuantity(selectedRow)?.toLocaleString("fr-FR", { maximumFractionDigits: 3 }) ?? "À confirmer"} {selectedRow.quantity_unit}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Valeur supérieure retenue. Référence DPGF et métré conservés séparément. Vérification au-delà de 1 % d’écarts cumulés sur cette ligne.
                 {selectedRow.composition ? " La ligne somme les métrés qu’elle garde : l’écart se lit sur ce total." : ""}
+                {(() => {
+                  // TI-696: a length is written rounded up once, on that total: say so when it moves the figure.
+                  const priced = dpgfRowQuantityPolicy(selectedRow)?.priced;
+                  const retained = dpgfRowRetainedQuantity(selectedRow);
+                  return priced !== undefined && retained !== null && retained !== priced
+                    ? ` Longueur arrondie une fois à l’unité supérieure (${priced.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} mesurés).` : "";
+                })()}
               </p>
               {selectedRow.composition ? <div className="mt-2"><DpgfCompositionNote row={selectedRow} /></div> : null}
             </div>
