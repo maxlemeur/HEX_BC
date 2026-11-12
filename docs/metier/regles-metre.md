@@ -338,7 +338,7 @@ qu'elles sont maintenant.
 | Règle | Échoue | Passe | V lève l'échec |
 |---|---|---|---|
 | `dn_network` | `DN_NETWORK_NETWORK_MISSING`, `DN_NETWORK_MATERIAL_MISSING`, `DN_NETWORK_DN_MISSING`, `DN_NETWORK_MATERIAL_NOT_ALLOWED`, `DN_NETWORK_DN_NOT_IN_SERIES`, `DN_NETWORK_MATERIAL_REQUIRES_JUSTIFICATION`, `DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION`, `DN_NETWORK_MATERIAL_BLOCKED` | `DN_NETWORK_COMPATIBLE` | oui, avec un motif codé et la référence du système ; **jamais** `DN_NETWORK_MATERIAL_BLOCKED` |
-| `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED` | oui |
+| `zone_overlap` | `ZONE_OVERLAP_DUPLICATE`, `ZONE_OVERLAP_UNREGISTERED` | `ZONE_OVERLAP_NONE`, `ZONE_OVERLAP_RESOLVED`, `ZONE_OVERLAP_SAME_PAGE` | oui |
 | `zone_coverage` | `ZONE_COVERAGE_NOT_ON_ENLARGED_PLAN` | `ZONE_COVERAGE_COMPLETE`, `ZONE_COVERAGE_RESOLVED` | oui |
 | `scale_dimension` | `SCALE_DIMENSION_MISMATCH` | `SCALE_DIMENSION_CONSISTENT` | oui, avec un motif codé et ce qui a été vérifié |
 | `area_printed` | `AREA_PRINTED_MISMATCH` | `AREA_PRINTED_CONSISTENT` | oui, avec un motif codé, la base de la surface écrite et une note |
@@ -574,6 +574,7 @@ n'est enregistrée (TI-683, à trancher par le métier).
 les pages d'un même niveau, sur tous les jobs de la version, appliqués compris.
 
 - Deux lignes d'une même page ne sont jamais comparées.
+- Deux lectures d'une même page de plan par deux métrés non plus (TI-682, lot D ; version 4 de la règle) : même page au sens de « Pages déjà au devis », par le fichier de la bibliothèque, l'empreinte ou la « Référence du plan », jamais par le seul nom de fichier ni quand les deux pages lisent deux zones. Une ligne dont les seules copies sont sur sa page relue passe en `ZONE_OVERLAP_SAME_PAGE` : c'est l'application qui remplace la mesure précédente ou garde les deux.
 - Deux niveaux non plus.
 - Une page sans niveau (ni tri L4, ni nom de fichier) n'est comparée à aucune autre.
 
@@ -596,7 +597,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Résultat** : la translation de chaque page est écrite dans `transform` de sa géométrie (TI-662), comme `[1, 0, 0, 1, dx, dy]`.
 
 **Doublon**
-([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 3) :
+([`zone-overlap.ts`](../../src/lib/takeoff/rules/zone-overlap.ts), version 4) :
 
 - Même réseau, même genre (tuyau ou calorifuge) et même DN, lu par la série que la règle DN retient pour ce réseau et ce matériau (D18c, TI-684) : « DN 100 » et « Ø 110 » d'une même fonte, ou d'un même inox d'évacuation, sont le même tuyau ; l'inox d'un réseau d'évacuation se lit par la seule série NF EN 1124 et son « DN 100 » ne rejoint jamais un « Ø 108 ». L'identité des quantités DPGF lit les tailles de la même façon, sur le réseau que nomme la désignation.
 - Un matériau sans série (calorifuge, matériau absent) compare la taille imprimée : « DN 15 » et « DN 20 » d'un calorifuge sont deux tronçons.
@@ -630,7 +631,8 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - **Ne cède pas** :
   - une ligne d'un job appliqué (jamais appelée à changer) : la paire reste réglée par la ligne du job courant, comme avec toute ligne figée ;
   - une ligne qui a aussi une copie sur une page de sa propre échelle, ou sur une page plus grossière : elle se règle comme avant (paire ou groupe). Sur trois échelles (1/200, 1/100, 1/50), la ligne au 1/200 cède aux deux autres, qui gardent entre elles une paire ordinaire ;
-  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon.
+  - une ligne en « zones non recalées » : son résultat ne porterait pas le doublon ;
+  - une ligne d'une page relue (TI-682, lot D) dont l'autre lecture, incluse, ne cède pas (lecture d'un job appliqué) : les lignes restent un groupe, comme avant.
 - **À indice cohérent** : la règle ne lit pas l'indice des plans (il est tenu par la préparation du métré, qui refuse déjà deux révisions d'un même document). Deux plans d'indices différents sont à trancher par l'utilisateur ; la raison rappelle la condition.
 
 **Résolution**
