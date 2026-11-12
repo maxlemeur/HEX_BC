@@ -54,6 +54,10 @@ const ProductPriceTemplateImport = dynamic(
   () => import("@/components/products/ProductPriceTemplateImport").then((module) => module.ProductPriceTemplateImport),
   { ssr: false }
 );
+const CostingWorkbookImport = dynamic(
+  () => import("@/components/products/CostingWorkbookImport").then((module) => module.CostingWorkbookImport),
+  { ssr: false }
+);
 
 type ProductPageResponse = {
   items: ProductView[];
@@ -137,6 +141,7 @@ export default function ProductsPage() {
   const [referenceProduct, setReferenceProduct] = useState<ProductRecord | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
+  const [isWorkbookImportOpen, setIsWorkbookImportOpen] = useState(false);
   const [isSupplyTypesOpen, setIsSupplyTypesOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -372,6 +377,27 @@ export default function ProductsPage() {
     setIsTemplateImportOpen(true);
   }
 
+  function openWorkbookImport() {
+    setSuccessMessage(null);
+    setFormError(null);
+    setIsWorkbookImportOpen(true);
+  }
+
+  /** After the costing workbook import: every draft of the catalogue, whatever was filtered before. */
+  function showDrafts() {
+    setIsWorkbookImportOpen(false);
+    setSearchInput("");
+    updateUrl({
+      q: null,
+      material: null,
+      category: null,
+      unit: null,
+      price_status: null,
+      status: null,
+      catalogue_status: ["draft"],
+    });
+  }
+
   function handleFormOpenChange(open: boolean) {
     if (isSaving) return;
     setIsFormOpen(open);
@@ -514,6 +540,7 @@ export default function ProductsPage() {
               stats={stats}
               onTemplateImport={openTemplateImport}
               onCsvImport={openCsvImport}
+              onCostingWorkbookImport={openWorkbookImport}
               onSupplyTypes={() => setIsSupplyTypesOpen(true)}
             />
           </div>
@@ -697,6 +724,16 @@ export default function ProductsPage() {
             await mutate();
             setSuccessMessage("Produits et tarifs importés, puis actualisés.");
           }}
+        />
+      ) : null}
+      {isWorkbookImportOpen ? (
+        <CostingWorkbookImport
+          open={isWorkbookImportOpen}
+          onClose={() => setIsWorkbookImportOpen(false)}
+          onImported={async () => {
+            await mutate();
+          }}
+          onShowDrafts={showDrafts}
         />
       ) : null}
     </div>

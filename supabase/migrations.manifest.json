@@ -335,6 +335,7 @@
     "20261112093830_unified_kfo.sql": "9c10463cb84ebe509918cf6b7178945c81766d2d417ea9c512fc106ee5423065",
     "20261112100501_estimate_line_provisional_quantity.sql": "d39751dd9fddd251ee51436bb8dade4f101b79999ca562446d9374c2327ab7b6",
     "20261112101124_material_request_articles.sql": "d34f9d94fafb6ae05d6ca6ef9d37b6a9fe6014f9417bd5805bf6b9ac9377184c",
+    "20261112142534_product_reference_check_by_index.sql": "d5dfe577bafaf3861e7d923c8564a9e758fdff4a445c661ed79ef37943b61bf2",
     "20261112152357_purchase_line_suppliers.sql": "48d779a93713810dc21dd94003f46a041f6801f97d7c5e2de968d7f32fc65814"
   }
 }

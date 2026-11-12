@@ -5223,6 +5223,118 @@
         }
       }
     },
+    "/api/catalogue/workbook-import": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Importer le classeur de chiffrage en articles brouillons",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Aucun fournisseur, aucune référence ni aucun prix fournisseur n’est écrit (ils viennent avec les achats, lot 2) : le rapport compte les références fournisseurs des nouveaux articles. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "requestBody": {
+          "description": "Lignes de l’onglet All_data et confirmation.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostingWorkbookImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rapport de l’aperçu ou de l’import.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiCostingWorkbookImportReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Corps invalide, ou lot de brouillons refusé par la base (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Administrateur ou ingénieur requis, ou lot refusé par les droits du catalogue (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Un article du classeur a été ajouté au catalogue entre-temps, ou un calcul de devis est en cours (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Corps de plus de 4 Mio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/currency-rates": {
       "get": {
         "tags": [
@@ -35449,6 +35561,142 @@
           "products",
           "prices"
         ]
+      },
+      "CostingWorkbookImport": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "minItems": 1,
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "maxItems": 60,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rows",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "ApiCostingWorkbookImportReport": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "confirmed": {
+                "type": "boolean"
+              },
+              "articles": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "new_articles": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "already_in_catalogue": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "without_supply_type": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "supplier_references_not_imported": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "reference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "reference",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "issue_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sections": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "confirmed",
+              "articles",
+              "new_articles",
+              "already_in_catalogue",
+              "without_supply_type",
+              "supplier_references_not_imported",
+              "issues",
+              "issue_count",
+              "sections"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "ListCurrencyRatesTenantIdParameter": {
         "type": "string",

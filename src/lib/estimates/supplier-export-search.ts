@@ -6,14 +6,16 @@ type SupplierExportSearch = { ascii: string[]; unicode: string[] };
 const MAX_INDEX_ROWS = 2000;
 
 /** A bounded, request-local negative lookup index. It never ranks or selects an
- * offer: possible matches still go through the existing catalogue comparison. */
+ * offer: possible matches still go through the existing catalogue comparison.
+ * That comparison reaches validated articles only (TI-690: drafts stay out of
+ * estimate suggestions), so the index, and its cap, leave drafts out too. */
 export async function loadSupplierExportSearch(): Promise<SupplierExportSearch | null> {
   const { supabase, tenantId } = await getAuthenticatedTenantContext();
   const limit = MAX_INDEX_ROWS + 1;
   const [products, suppliers, offers] = await Promise.all([
     readAllRows(() => supabase.from("products")
       .select("id, designation, reference, category, product_type, material, grade, dimensions, standard", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("is_active", true), { limit, concurrency: 4 }),
+      .eq("tenant_id", tenantId).eq("is_active", true).eq("catalogue_status", "validated"), { limit, concurrency: 4 }),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" })
       .eq("tenant_id", tenantId), { limit, concurrency: 4 }),
     readAllRows(() => supabase.from("supplier_pricebook").select("id, supplier_sku", { count: "exact" })
