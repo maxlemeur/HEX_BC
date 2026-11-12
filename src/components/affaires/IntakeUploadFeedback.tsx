@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon } from "lucide-react";
 
@@ -64,11 +64,15 @@ export function useIntakeUploadFeedback(projectId: string, documents = EMPTY_DOC
     });
   }, [documents, entries, projectId]);
 
+  // One refresh at a time. The router shows nothing new while a refresh is in flight, and a
+  // refresh asked before the previous one has landed puts it back in flight: on a fixed
+  // two-second rhythm, a server that answers in two seconds or more would never be shown.
+  const [refreshing, startRefresh] = useTransition();
   useEffect(() => {
-    if (!awaitingIntegration) return;
-    const interval = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(interval);
-  }, [awaitingIntegration, router]);
+    if (!awaitingIntegration || refreshing) return;
+    const timeout = setTimeout(() => startRefresh(() => router.refresh()), 2000);
+    return () => clearTimeout(timeout);
+  }, [awaitingIntegration, refreshing, router]);
 
   const dismissFailure = useCallback((key: string) => setEntries((prior) => prior.filter((entry) => entry.key !== key || entry.phase !== "failed")), []);
   return { files, onUploadEvent, dismissFailure };

@@ -81,12 +81,26 @@ test("Document upload keeps a nonblocking loader through response, integration a
   await drawer.getByRole("button", { name: /^Tous/ }).click();
   await expect(drawer.getByRole("combobox", { name: `Catégorie de ${fileName}`, exact: true })).toHaveValue("cctp");
   await expect(drawer.getByRole("checkbox", { name: `Sélectionner ${fileName}`, exact: true })).toBeChecked();
+  // The dossier is refreshed every two seconds while a document integrates. Behind a server
+  // that takes longer than that, a refresh asked before the previous one has landed kept the
+  // row on « Intégration au dossier… » for good (runs 43124531608 and 43138683467).
+  let slowedRefreshes = 0;
+  const dossierPage = new RegExp(`/dashboard/affaires/${projectId}(?:\\?|$)`);
+  await page.browser.route(dossierPage, async (route) => {
+    if (route.request.headers.rsc === "1") {
+      slowedRefreshes += 1;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    await route.fallback();
+  });
   release();
   await expect(pendingRow.getByText("Intégration au dossier…", { exact: true })).toBeVisible();
   // An older stored document with this name must not finish the new upload.
   await expect(pendingRow).toBeVisible();
   await integrate(documentId, uploadId, "processing");
   await expect(pendingRow.getByText("Analyse en cours…", { exact: true })).toBeVisible({ timeout: 20_000 });
+  expect(slowedRefreshes).toBeGreaterThan(0);
+  await page.browser.unroute(dossierPage);
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", classified_at: new Date().toISOString() }).eq("id", documentId)).error).toBeNull();
   await expect(pendingRow).toHaveCount(0, { timeout: 20_000 });
   await drawer.getByRole("button", { name: /^Tous/ }).click();
