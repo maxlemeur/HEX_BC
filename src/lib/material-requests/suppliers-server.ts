@@ -383,10 +383,11 @@ export async function setProductPreferredSupplier(
 }
 
 /**
- * Retains the supplier chosen for several lines at once. Each statement is conditional: it writes only the lines
- * that still have no supplier, so a supplier another session set in the meantime is never overwritten. One
- * statement per supplier chosen, never one per line. Lines not written (already supplied, or not of this request)
- * are named in `skipped`. The supplier is not what the line says: a validated line stays validated.
+ * Retains the supplier chosen for several lines at once, in one database call (public.retain_material_request_line_
+ * suppliers): one statement, all or nothing, that writes only the lines that still have no supplier, so a supplier
+ * another session set in the meantime is never overwritten, and a failing choice writes none of the batch. It runs
+ * with the caller's rights (RLS). Lines not written (already supplied, not of this request) are named in `skipped`.
+ * The supplier is not what the line says: a validated line stays validated.
  */
 export async function retainLineSuppliers(
   projectId: string,
@@ -398,29 +399,31 @@ export async function retainLineSuppliers(
   const { context } = access;
   await assertSuppliersInTenant(context, input.choices.map((choice) => choice.supplier_id));
 
-  const linesBySupplier = new Map<string, string[]>();
-  for (const choice of input.choices) {
-    const ids = linesBySupplier.get(choice.supplier_id) ?? [];
-    ids.push(choice.line_id);
-    linesBySupplier.set(choice.supplier_id, ids);
+  const { data: outcomes, error } = await context.supabase.rpc("retain_material_request_line_suppliers", {
+    p_request_id: request.id,
+    p_choices: input.choices,
+  });
+  if (error) {
+    // A supplier deleted or moved out of reach since it was checked: the whole batch was refused.
+    if (error.message === "MATERIAL_REQUEST_TENANT_MISMATCH") throw badRequest("Fournisseur introuvable.");
+    throw mapSupabaseError(error, "Impossible de retenir les fournisseurs des lignes.");
   }
-  const written: MaterialRequestLine[] = [];
-  for (const [supplierId, lineIds] of linesBySupplier) {
-    const { data, error } = await context.supabase
+  const writtenIds = (outcomes ?? []).filter((outcome) => outcome.retained).map((outcome) => outcome.line_id);
+  let written: MaterialRequestLine[] = [];
+  if (writtenIds.length > 0) {
+    const { data, error: readError } = await context.supabase
       .from("material_request_lines")
-      .update({ supplier_id: supplierId })
-      .in("id", lineIds)
+      .select(LINE_COLUMNS)
+      .in("id", writtenIds)
       .eq("tenant_id", context.tenantId)
       .eq("project_id", access.project.id)
-      .eq("request_id", request.id)
-      .is("supplier_id", null)
-      .select(LINE_COLUMNS);
-    if (error) throw mapSupabaseError(error, "Impossible de retenir les fournisseurs des lignes.");
-    written.push(...(data ?? []));
+      .eq("request_id", request.id);
+    if (readError) throw mapSupabaseError(readError, "Impossible de relire les lignes retenues.");
+    written = data ?? [];
   }
-  const writtenIds = new Set(written.map((line) => line.id));
+  const writtenSet = new Set(writtenIds);
   return {
     lines: written.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id)),
-    skipped: input.choices.map((choice) => choice.line_id).filter((lineId) => !writtenIds.has(lineId)),
+    skipped: input.choices.map((choice) => choice.line_id).filter((lineId) => !writtenSet.has(lineId)),
   };
 }

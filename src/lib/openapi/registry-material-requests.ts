@@ -357,7 +357,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/lines/retain-suppliers`, summary: "Retenir le fournisseur de plusieurs lignes",
-    description: `Écrit le fournisseur choisi de chaque ligne désignée qui n'en a pas encore, et seulement d'elle : une ligne à laquelle une autre session a donné un fournisseur entre-temps garde le sien. Une ligne d'une autre demande n'est pas écrite. Les lignes non écrites sont listées dans skipped. Les fournisseurs appartiennent au tenant actif ; ${MATERIAL_REQUEST_MAX_LINES} lignes au plus, chacune nommée une fois. Le fournisseur n'est pas ce que dit la ligne : une ligne validée le reste.`,
+    description: `Écrit, en une seule opération, tout ou rien, le fournisseur choisi de chaque ligne désignée qui n'en a pas encore, et seulement d'elle (un choix refusé n'en écrit aucun) : une ligne à laquelle une autre session a donné un fournisseur entre-temps garde le sien. Une ligne d'une autre demande n'est pas écrite. Les lignes non écrites sont listées dans skipped. Les fournisseurs appartiennent au tenant actif ; ${MATERIAL_REQUEST_MAX_LINES} lignes au plus, chacune nommée une fois. Le fournisseur n'est pas ce que dit la ligne : une ligne validée le reste.`,
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesRetainSuppliers", description: "Ligne et fournisseur retenu pour elle.", schema: retainLineSuppliersSchema }),
     responses: {

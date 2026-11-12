@@ -20,7 +20,11 @@
 --     last change (as the reference-price sync does);
 --     a member who cannot read the request that names the article, an admin of another tenant, or an article that no
 --     line names gets a row; more than 500 ids are accepted; the office member who reads the request gets nothing
---     because the orders are another member's (the reason it is a definer function).
+--     because the orders are another member's (the reason it is a definer function);
+--  7. retain_material_request_line_suppliers (Codex review of #274): a failing choice leaves the others written (a
+--     batch is not all or nothing); a line that already has a supplier is overwritten; a line of another request or of
+--     another tenant, or a line the caller may not change (RLS), is written; a validated line returns to draft; a line
+--     named twice, an empty or oversized batch is accepted; it bypasses RLS (security definer) or anon calls it.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block),
 -- so a red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -498,6 +502,99 @@ select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000001',
 select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000001',
   $$select * from public.last_purchase_suppliers(array(select gen_random_uuid() from generate_series(1, 500)))$$),
   '[]'::jsonb, '6 500 ids are accepted');
+
+-- ---------------------------------------------------------------------------
+-- 7. Retaining the suppliers of several lines, all or nothing.
+-- ---------------------------------------------------------------------------
+insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, product_type, material, status) values
+  ('a9200000-0000-4000-8000-000000000703', 'a9200000-0000-4000-8000-000000000601', 3, 1, 'u', 'DN 50', 'Bride', 'Inox 304L', 'draft'),
+  ('a9200000-0000-4000-8000-000000000704', 'a9200000-0000-4000-8000-000000000601', 4, 1, 'u', 'DN 50', 'Vanne', 'Inox 304L', 'draft'),
+  ('a9200000-0000-4000-8000-000000000706', 'a9200000-0000-4000-8000-000000000601', 6, 1, 'u', 'DN 50', 'Manchon', 'Inox 304L', 'draft');
+-- A line of the other tenant, in its own affaire and request.
+insert into public.estimate_projects (id, tenant_id, user_id, name) values
+  ('a9200000-0000-4000-8000-000000000202', 'a9200000-0000-4000-8000-000000000102', 'a9200000-0000-4000-8000-000000000004',
+    'TI691 Affaire d''ailleurs');
+insert into public.material_requests (id, project_id, created_by) values
+  ('a9200000-0000-4000-8000-000000000602', 'a9200000-0000-4000-8000-000000000202', 'a9200000-0000-4000-8000-000000000004');
+insert into public.material_request_lines (id, request_id, position, product_type) values
+  ('a9200000-0000-4000-8000-000000000705', 'a9200000-0000-4000-8000-000000000602', 1, 'Coude');
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
+  $$update public.material_request_lines set status = 'validated' where id = 'a9200000-0000-4000-8000-000000000704'$$),
+  'ok 1', 'fixture: the owner validates a line that has no supplier yet');
+select set_config('test.retain_validated_at',
+  (select validated_at::text from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000704'), true);
+
+select ok(not has_function_privilege('anon', 'public.retain_material_request_line_suppliers(uuid, jsonb)', 'EXECUTE')
+    and has_function_privilege('authenticated', 'public.retain_material_request_line_suppliers(uuid, jsonb)', 'EXECUTE')
+    and not (select prosecdef from pg_proc where oid = 'public.retain_material_request_line_suppliers(uuid, jsonb)'::regprocedure),
+  '7 the retain function runs as the caller (RLS applies), signed-in members only');
+
+select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000001', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  jsonb_build_array(
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000703', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'),
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000704', 'supplier_id', 'a9200000-0000-4000-8000-000000000302'),
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000701', 'supplier_id', 'a9200000-0000-4000-8000-000000000302'),
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000705', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'))::text)),
+  '[{"line_id": "a9200000-0000-4000-8000-000000000703", "retained": true},
+    {"line_id": "a9200000-0000-4000-8000-000000000704", "retained": true},
+    {"line_id": "a9200000-0000-4000-8000-000000000701", "retained": false},
+    {"line_id": "a9200000-0000-4000-8000-000000000705", "retained": false}]'::jsonb,
+  '7 the owner retains suppliers: the lines without one are written, the one that had one and a line of another tenant are not');
+select ok((select supplier_id = 'a9200000-0000-4000-8000-000000000301' from public.material_request_lines
+    where id = 'a9200000-0000-4000-8000-000000000701')
+  and (select supplier_id is null from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000705')
+  and (select supplier_id = 'a9200000-0000-4000-8000-000000000301' from public.material_request_lines
+    where id = 'a9200000-0000-4000-8000-000000000703'),
+  '7 a supplier set before is kept, and the line of another tenant is untouched');
+select ok((select status = 'validated' and supplier_id = 'a9200000-0000-4000-8000-000000000302'
+    and validated_at = current_setting('test.retain_validated_at')::timestamptz
+    and validated_by = 'a9200000-0000-4000-8000-000000000001'
+  from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000704'),
+  '7 a validated line keeps its status and stamps when its supplier is retained');
+
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  jsonb_build_array(
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'),
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000706', 'supplier_id', 'a9200000-0000-4000-8000-000000000309'))::text)),
+  '23514 MATERIAL_REQUEST_TENANT_MISMATCH', '7 a choice of a supplier of another tenant fails the batch');
+select ok((select supplier_id is null from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000702')
+    and (select supplier_id is null from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000706'),
+  '7 all or nothing: the valid choice of the failed batch is not written either');
+
+select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000003', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  jsonb_build_array(jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'))::text)),
+  '[{"line_id": "a9200000-0000-4000-8000-000000000702", "retained": false}]'::jsonb,
+  '7 a viewer writes nothing (the update policy applies)');
+select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000004', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  jsonb_build_array(jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'))::text)),
+  '[{"line_id": "a9200000-0000-4000-8000-000000000702", "retained": false}]'::jsonb,
+  '7 nor does an admin of another tenant');
+select is(pg_temp.pls_rows('a9200000-0000-4000-8000-000000000001', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000602',
+  jsonb_build_array(jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'))::text)),
+  '[{"line_id": "a9200000-0000-4000-8000-000000000702", "retained": false}]'::jsonb,
+  '7 a line is written only through its own request');
+select ok((select supplier_id is null from public.material_request_lines where id = 'a9200000-0000-4000-8000-000000000702'),
+  '7 the line refused three times still has no supplier');
+
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  jsonb_build_array(
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000301'),
+    jsonb_build_object('line_id', 'a9200000-0000-4000-8000-000000000702', 'supplier_id', 'a9200000-0000-4000-8000-000000000302'))::text)),
+  '22023 MATERIAL_REQUEST_RETAIN_CHOICES_INVALID', '7 a line named twice is refused');
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_line_suppliers('a9200000-0000-4000-8000-000000000601', '[]'::jsonb)$$),
+  '22023 MATERIAL_REQUEST_RETAIN_CHOICES_INVALID', '7 an empty batch is refused');
+select is(pg_temp.pls_run('a9200000-0000-4000-8000-000000000001', format(
+  $$select * from public.retain_material_request_line_suppliers(%L, %L::jsonb)$$, 'a9200000-0000-4000-8000-000000000601',
+  (select jsonb_agg(jsonb_build_object('line_id', gen_random_uuid(), 'supplier_id', 'a9200000-0000-4000-8000-000000000301'))
+    from generate_series(1, 301))::text)),
+  '22023 MATERIAL_REQUEST_RETAIN_CHOICES_INVALID', '7 more than 300 choices are refused');
 
 select * from finish();
 rollback;

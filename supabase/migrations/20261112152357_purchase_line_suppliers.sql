@@ -21,6 +21,8 @@
 -- 4. public.last_purchase_suppliers: the supplier of the latest confirmed or received order of each article, the
 --    fourth source of a line's proposed supplier (after the technician's, the article's exception and the supply
 --    type's preferred supplier; the order is the application's).
+-- 5. public.retain_material_request_line_suppliers: retains the suppliers chosen for several lines of a request in one
+--    statement, all or nothing, writing only the lines that still have no supplier.
 -- Regression: supabase/tests/database/purchase-line-suppliers.test.sql.
 
 begin;
@@ -448,5 +450,68 @@ comment on function public.last_purchase_suppliers(uuid[]) is
 
 revoke all on function public.last_purchase_suppliers(uuid[]) from public, anon;
 grant execute on function public.last_purchase_suppliers(uuid[]) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5. Retaining the suppliers of several lines, all or nothing.
+-- ---------------------------------------------------------------------------
+-- « Retenir les fournisseurs proposés »: one statement for the whole batch, so a failing choice (a supplier of
+-- another tenant, refused by the line trigger) writes none of them, and the caller is never told « nothing retained »
+-- while part of the batch was written. Security invoker: the policies of material_request_lines decide which lines
+-- the caller may change (owner of the affaire or admin, with the role admin or engineer, active tenant); a line
+-- they may not change, of another request or of another tenant is simply not written. Only lines whose supplier is
+-- still null are written: the condition is re-checked on the row being updated, so a supplier another session set
+-- in the meantime is kept. The supplier is not what a line says: a validated line stays validated (line trigger).
+-- Answer: one row per choice, in the order given, saying whether its line was written.
+create function public.retain_material_request_line_suppliers(p_request_id uuid, p_choices jsonb)
+returns table (line_id uuid, retained boolean)
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  written_line_ids uuid[];
+begin
+  if p_choices is null or pg_catalog.jsonb_typeof(p_choices) <> 'array'
+    or pg_catalog.jsonb_array_length(p_choices) not between 1 and 300
+    or exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_choices) as entry(choice)
+      where pg_catalog.jsonb_typeof(entry.choice) <> 'object'
+        or pg_catalog.jsonb_typeof(entry.choice -> 'line_id') <> 'string'
+        or pg_catalog.jsonb_typeof(entry.choice -> 'supplier_id') <> 'string'
+    )
+    or (select count(distinct entry.choice ->> 'line_id') from pg_catalog.jsonb_array_elements(p_choices) as entry(choice))
+      <> pg_catalog.jsonb_array_length(p_choices)
+  then
+    raise exception using errcode = '22023', message = 'MATERIAL_REQUEST_RETAIN_CHOICES_INVALID';
+  end if;
+
+  with choices as (
+    select (entry.choice ->> 'line_id')::uuid as chosen_line_id,
+      (entry.choice ->> 'supplier_id')::uuid as chosen_supplier_id
+    from pg_catalog.jsonb_array_elements(p_choices) as entry(choice)
+  ),
+  written as (
+    update public.material_request_lines line
+    set supplier_id = choices.chosen_supplier_id
+    from choices
+    where line.id = choices.chosen_line_id
+      and line.request_id = p_request_id
+      and line.supplier_id is null
+    returning line.id as written_line_id
+  )
+  select coalesce(pg_catalog.array_agg(written.written_line_id), '{}'::uuid[]) into written_line_ids from written;
+
+  return query
+  select (entry.choice ->> 'line_id')::uuid, (entry.choice ->> 'line_id')::uuid = any(written_line_ids)
+  from pg_catalog.jsonb_array_elements(p_choices) with ordinality as entry(choice, choice_position)
+  order by entry.choice_position;
+end;
+$$;
+
+comment on function public.retain_material_request_line_suppliers(uuid, jsonb) is
+  'TI-691: retains the suppliers chosen for several lines of a request ([{line_id, supplier_id}], 1 to 300, each line once: MATERIAL_REQUEST_RETAIN_CHOICES_INVALID) in one statement, all or nothing, writing only lines that still have no supplier and that the caller may change (security invoker, RLS). One row per choice: retained or not.';
+
+revoke all on function public.retain_material_request_line_suppliers(uuid, jsonb) from public, anon;
+grant execute on function public.retain_material_request_line_suppliers(uuid, jsonb) to authenticated;
 
 commit;

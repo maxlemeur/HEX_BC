@@ -324,6 +324,13 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         filters.push((row) => (readPath(row, column) ?? null) !== null);
         return builder;
       },
+      /** Text searches are not run: every row matches. Tests shape their rows so that they all would. */
+      or() {
+        return builder;
+      },
+      ilike() {
+        return builder;
+      },
       order(column: string, orderOptions?: { ascending?: boolean }) {
         orders.push({ column, ascending: orderOptions?.ascending ?? true });
         return builder;

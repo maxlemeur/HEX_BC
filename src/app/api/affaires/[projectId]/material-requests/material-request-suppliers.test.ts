@@ -197,6 +197,23 @@ const saveSupplierCatalogItem: FakeRpcHandler = (args, tables) => {
   return { data: next.id };
 };
 
+/**
+ * public.retain_material_request_line_suppliers, as pgTAP proves it: in one statement, each chosen line of the request
+ * that still has no supplier gets it; the answer says, choice by choice, whether its line was written.
+ */
+const retainLineSuppliersInDatabase: FakeRpcHandler = (args, tables) => {
+  const choices = args.p_choices as Array<{ line_id: string; supplier_id: string }>;
+  const writable = new Set(choices
+    .filter((choice) => (tables.material_request_lines ?? []).some((row) =>
+      row.id === choice.line_id && row.request_id === args.p_request_id && row.supplier_id === null))
+    .map((choice) => choice.line_id));
+  for (const choice of choices) {
+    const row = writable.has(choice.line_id) ? tables.material_request_lines.find((entry) => entry.id === choice.line_id) : undefined;
+    if (row) row.supplier_id = choice.supplier_id;
+  }
+  return { data: choices.map((choice) => ({ line_id: choice.line_id, retained: writable.has(choice.line_id) })) };
+};
+
 function seed(actor: string, role: Role, overrides: {
   tables?: Partial<FakeTables>;
   rpc?: Record<string, unknown>;
@@ -209,6 +226,7 @@ function seed(actor: string, role: Role, overrides: {
       material_request_material_options: ["Inox 304L"],
       last_purchase_suppliers: lastPurchaseSuppliers,
       save_supplier_catalog_item: saveSupplierCatalogItem,
+      retain_material_request_line_suppliers: retainLineSuppliersInDatabase,
       ...overrides.rpc,
     },
     refuseUpdate: overrides.refuseUpdate,
@@ -653,34 +671,43 @@ describe("supplier exception of an article", () => {
 describe("retaining the proposed suppliers of several lines", () => {
   const retain = (choices: unknown, params: Record<string, string> = inRequest) =>
     call(retainSuppliersRoute.POST, "POST", params, { choices });
+  const retainCalls = (fake: ReturnType<typeof seed>) =>
+    fake.rpcArgs.filter((entry) => entry.name === "retain_material_request_line_suppliers");
 
-  it("writes only the lines that still have no supplier, keeps a validated line validated, and names the others", async () => {
+  it("writes only the lines that still have no supplier, in one database call, keeps a validated line validated, and names the others", async () => {
     const fake = seed(OWNER, "engineer");
-    const retained = await retain([
+    const choices = [
       { line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER },
       { line_id: LINE_VALIDATED, supplier_id: LAST_SUPPLIER },
       { line_id: LINE_CHOSEN, supplier_id: NAMED_SUPPLIER },
       { line_id: OTHER_LINE, supplier_id: NAMED_SUPPLIER },
-    ]);
+    ];
+    const retained = await retain(choices);
     expect(retained.status).toBe(200);
     const result = retained.data as RetainLineSuppliersResult;
     expect(result.lines.map((entry) => [entry.id, entry.supplier_id, entry.status])).toEqual([
       [LINE_ELBOW, EXCEPTION_SUPPLIER, "draft"], [LINE_VALIDATED, LAST_SUPPLIER, "validated"],
     ]);
-    expect(result.skipped.sort()).toEqual([LINE_CHOSEN, OTHER_LINE].sort());
+    expect(result.skipped).toEqual([LINE_CHOSEN, OTHER_LINE]);
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_CHOSEN)).toMatchObject({ supplier_id: EXCEPTION_SUPPLIER });
     expect(fake.tables.material_request_lines.find((row) => row.id === OTHER_LINE)).toMatchObject({ supplier_id: null });
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_VALIDATED)).toMatchObject({ validated_at: VALIDATED_AT });
-    // One conditional statement per supplier chosen (three here), never one per line.
-    expect(fake.writes.filter((write) => write.table === "material_request_lines")).toHaveLength(3);
+    // Codex review of #274: one transaction (the database function), never one statement per supplier.
+    expect(retainCalls(fake)).toEqual([{
+      name: "retain_material_request_line_suppliers", args: { p_request_id: REQUEST, p_choices: choices },
+    }]);
+    expect(fake.writes.filter((write) => write.table === "material_request_lines")).toEqual([]);
   });
 
-  it("leaves alone a line another session gave a supplier in the meantime", async () => {
+  it("leaves alone a line another session gave a supplier before the write", async () => {
     const fake = seed(OWNER, "engineer", {
-      beforeUpdate: (table, _values, tables) => {
-        if (table !== "material_request_lines") return;
-        const tee = tables.material_request_lines.find((row) => row.id === LINE_TEE);
-        if (tee && tee.supplier_id === null) tee.supplier_id = NAMED_SUPPLIER;
+      rpc: {
+        retain_material_request_line_suppliers: ((args, tables) => {
+          // Another session, just before this batch is written.
+          const tee = tables.material_request_lines.find((row) => row.id === LINE_TEE);
+          if (tee) tee.supplier_id = NAMED_SUPPLIER;
+          return retainLineSuppliersInDatabase(args, tables);
+        }) satisfies FakeRpcHandler,
       },
     });
     const retained = await retain([
@@ -693,6 +720,25 @@ describe("retaining the proposed suppliers of several lines", () => {
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_TEE)).toMatchObject({ supplier_id: NAMED_SUPPLIER });
   });
 
+  it("answers the database's refusal of the batch as one error, with none of its lines written", async () => {
+    const fake = seed(OWNER, "engineer", {
+      rpc: {
+        // The supplier was moved out of reach after the check: the whole batch fails in the database.
+        retain_material_request_line_suppliers: (() => ({
+          data: null, error: { code: "23514", message: "MATERIAL_REQUEST_TENANT_MISMATCH" },
+        })) satisfies FakeRpcHandler,
+      },
+    });
+    const refused = await retain([
+      { line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER },
+      { line_id: LINE_FLANGE, supplier_id: LAST_SUPPLIER },
+    ]);
+    expect(refused.status).toBe(400);
+    expect(refused.error?.message).toBe("Fournisseur introuvable.");
+    expect(fake.tables.material_request_lines.filter((row) => [LINE_ELBOW, LINE_FLANGE].includes(String(row.id))))
+      .toEqual([expect.objectContaining({ supplier_id: null }), expect.objectContaining({ supplier_id: null })]);
+  });
+
   it.each<[string, string, Role, number]>([
     ["a viewer", VIEWER, "viewer", 403],
     ["a director", DIRECTOR, "director", 403],
@@ -701,6 +747,7 @@ describe("retaining the proposed suppliers of several lines", () => {
   ])("refuses %s, and nothing is written", async (_label, actor, role, status) => {
     const fake = seed(actor, role);
     expect((await retain([{ line_id: LINE_ELBOW, supplier_id: EXCEPTION_SUPPLIER }])).status).toBe(status);
+    expect(retainCalls(fake)).toEqual([]);
     expect(fake.writes).toEqual([]);
   });
 
@@ -715,13 +762,14 @@ describe("retaining the proposed suppliers of several lines", () => {
       line_id: `72000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, supplier_id: EXCEPTION_SUPPLIER,
     }));
     expect((await retain(tooMany)).status).toBe(400);
+    expect(retainCalls(fake)).toEqual([]);
     expect(fake.writes).toEqual([]);
   });
 
   it("answers 404 for a request of another affaire reached through this one's URL", async () => {
     const fake = seed(ADMIN, "admin");
     expect((await retain([{ line_id: OTHER_LINE, supplier_id: NAMED_SUPPLIER }], { projectId: PROJECT, requestId: OTHER_REQUEST })).status).toBe(404);
-    expect(fake.writes).toEqual([]);
+    expect(retainCalls(fake)).toEqual([]);
   });
 });
 
