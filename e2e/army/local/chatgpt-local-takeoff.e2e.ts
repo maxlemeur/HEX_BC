@@ -404,8 +404,11 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
     callback.search = new URLSearchParams({ error: "access_denied", state: url.searchParams.get("state")! }).toString();
     await route.fulfill({ status: 302, headers: { location: callback.toString() }, body: "" });
   });
-  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
-  await app.open(`${localOrigin}/dashboard/profile`);
+  const profileOrigin = localOrigin.replace("127.0.0.1", "localhost");
+  // The runner session uses localhost too: cookies span ports, so isolate this fictional owner.
+  await browser.clearCookies({ domain: "localhost" });
+  await signIn({ app, screen, browser }, profileOrigin, fixtureEmail);
+  await app.open(`${profileOrigin}/dashboard/profile`);
   await waitForHydration(browser);
   await expect(screen.getByRole("heading", "Mon forfait ChatGPT", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Continue with ChatGPT", { exact: true }).tap();
@@ -416,6 +419,7 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
   const prefix = `ARMY-chatgpt-${Date.now()}`;
   await recordEvidence({ runPrefix: prefix, projectName: prefix, ownedEstimates: [] }, "chatgpt-local", {
     outcome: "local OAuth start and injected consent refusal", liveChatGptSignIn: false, inference: false,
+    pageOrigin: profileOrigin, callbackOrigin: localOrigin, standardDevWithoutOptIn: true,
     authorization, callbackContainsSecretsInLog: diagnostics.some((entry) => /GET \/auth\/chatgpt\/callback.*state=/.test(entry)),
   });
 });

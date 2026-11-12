@@ -23,8 +23,8 @@ it("follows worker retry and reconciliation outcomes locally without an Edge inv
   expect(fetchFn).not.toHaveBeenCalled();
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-it("rejects a foreign host before scheduling or calling any provider", async () => {
-  vi.mocked(headers).mockResolvedValue(new Headers({ host: "evil.test" }) as never);
+it("rejects a malformed host before scheduling or calling any provider", async () => {
+  vi.mocked(headers).mockResolvedValue(new Headers({ host: "user@evil.test" }) as never);
   const fetchFn = vi.fn();
   await expect(triggerTakeoffJobProcessing({ jobId: "fixture-job", fetchFn })).rejects.toThrow();
   expect(after).not.toHaveBeenCalled(); expect(fetchFn).not.toHaveBeenCalled();

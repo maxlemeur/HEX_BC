@@ -17,11 +17,11 @@ import { describeLabTasks } from "@/lib/takeoff/lab/tasks";
 import { listLabCampaigns } from "@/lib/takeoff/lab/verdicts";
 
 // Server boundary of the takeoff lab (TI-661). The page and every route check,
-// on the server: MergeOne local on 127.0.0.1 (assertLocalChatGptHost),
+// on the server: MergeOne development (assertLocalChatGptHost),
 // getUserContext() and tenant_role === "admin". Routes answer 403; a redirect
 // of the page authorizes nothing.
 
-export const LAB_LOCAL_ONLY = "Le labo métré n’est disponible que dans MergeOne local, sur 127.0.0.1.";
+export const LAB_LOCAL_ONLY = "Le labo métré n’est disponible qu’en développement.";
 export const LAB_ADMIN_ONLY = "Le labo métré est réservé aux administrateurs du tenant.";
 
 export type LabPageAccess = { status: "allowed"; access: LabAccess } | { status: "refused"; message: string };
@@ -61,7 +61,8 @@ export async function requireTakeoffLabAccess(): Promise<LabAccess> {
  */
 export async function requireTakeoffLabWrite(request: Request, options: { json: boolean }): Promise<LabAccess> {
   const access = await requireTakeoffLabAccess();
-  const origin = assertLocalChatGptHost((await headers()).get("host"));
+  const requestHeaders = await headers();
+  const origin = assertLocalChatGptHost(requestHeaders.get("host"), requestHeaders.get("x-forwarded-proto"));
   if (request.headers.get("origin") !== origin) {
     throw forbidden("Origine de requête refusée : le labo n’accepte que ses propres pages.", undefined, "TAKEOFF_LAB_ORIGIN");
   }
