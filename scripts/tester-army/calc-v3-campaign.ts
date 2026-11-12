@@ -18,7 +18,8 @@ import { extractCollectedPdfTexts } from "./pdf-text";
 type Collector = { server: Server; origin: string; directory: string; close: () => Promise<void> };
 
 // Lot 2 baseline campaign on the owned ephemeral stack, started by
-// `scripts/run-tester-army-ci.ts calc-v3` once pgTAP and RLS have passed.
+// `scripts/run-tester-army-ci.ts calc-v3` once the database checks of this stack have passed
+// (pgTAP and RLS among them, unless a pull request delegates them to rls-matrix).
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md. Each phase
 // is its own TesterArmy invocation of e2e.calc-v3.config.ts with fresh
 // fixtures; every phase serves the same owned production build (`next start`),

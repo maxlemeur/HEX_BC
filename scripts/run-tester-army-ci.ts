@@ -15,6 +15,7 @@ import type { Database } from "../src/types/database";
 import { prepareBusinessJourneyFixtures } from "./tester-army/business-journey-fixtures";
 import { startBlockedStatementWatch } from "./tester-army/blocked-statements";
 import { awaitBrowserInstall } from "./tester-army/browser-install";
+import { resolveDelegatedDatabaseChecks } from "./tester-army/database-checks";
 import { runExplorationCampaign } from "./tester-army/exploration-campaign";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
 import {
@@ -258,7 +259,8 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
 // The production build of critical, full and calc-v3 needs only the stack's
 // origin and keys (it never receives the ARMY account or the SQL transport): it
 // starts as soon as the stack runs, while the snapshot, pgTAP and the RLS matrix
-// check the database. runApplication, which runs only after they pass, awaits it.
+// check the database (the snapshot alone when a pull request delegates the other
+// two). runApplication, which runs only after they pass, awaits it.
 // Some SQL maintenance probes require NOWAIT table locks. An explicit serial campaign keeps the build's reads
 // away from that qualification window; every database, build and browser check still runs unchanged.
 const buildsEarly = process.env.E2E_ARMY_SERIAL_BUILD !== "1" && (suite === "critical" ||
@@ -799,9 +801,17 @@ async function main() {
       if (problems.length) throw new Error(`The filtered ${suite} run is refused before any stack: ${problems.join(" ")}`);
     }
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
+    // On a pull request the required check rls-matrix runs pgTAP and the RLS matrix once for every Army job.
+    const delegatedDatabaseChecks = resolveDelegatedDatabaseChecks(process.env);
+    if (delegatedDatabaseChecks && interactive) throw new Error("An interactive session runs its own database checks: it cannot delegate them.");
+    // Recorded only when delegated: this run then proves nothing about pgTAP and the RLS matrix by itself.
+    if (delegatedDatabaseChecks) {
+      manifest.database = { ...(manifest.database as Record<string, unknown>), checks: { status: "delegated", to: delegatedDatabaseChecks } };
+    }
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      ...(delegatedDatabaseChecks ? { delegatedDatabaseChecks } : {}),
       ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.
