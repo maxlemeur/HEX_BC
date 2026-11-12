@@ -10,6 +10,7 @@ import {
   initialConfirmationDraft,
   resolveConfirmation,
   setConfirmationControl,
+  setPageNote,
   type ConfirmationDraft,
   type Resolution,
 } from "@/components/takeoff/takeoff-apply-wizard/page-decisions";
@@ -321,7 +322,7 @@ commit;`);
     expect: (proposal) => expect([proposal.pages.map((page) => [page.keep_both_refused, page.dpgf_fed_again]), proposal.pairs.map((pair) => pair.locked)])
       .toEqual([[["merge_match", []]], [true]]),
     deadEnd: { elsewhere: ["exclude_at_review", "link_in_dpgf_review"],
-      text: /ni remplacer ni garder les deux ne se confirme ici\. Écartez « Lavabo double vasque » à la revue du métré .*, ou liez à « Réseau de distribution sanitaire EF en tube cuivre DN 22, [^»]* », dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure/,
+      text: /« Réseau de distribution sanitaire EF en tube cuivre DN 22, [^»]* » est une ligne DPGF que ce métré n’alimente pas, et la fusion, obligatoire avec un DPGF, met « Lavabo double vasque » sur une ligne de la page : ni remplacer ni garder les deux ne se confirme ici\.$/,
       exits: async ({ ui, ids, relaunchItem, readProposal, confirmable, problem }) => {
         // What the estimator sees: the wizard of the takeoff's review, up to its confirmation.
         const openConfirmation = async () => {
@@ -363,8 +364,15 @@ commit;`);
         if (released.status >= 300) problem("the journey's draft lease is released", released.body);
         const wizard = await openConfirmation();
         const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
-        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici");
-        await expect(region).toContainText("Écartez « Lavabo double vasque » à la revue du métré");
+        await expect(region).toContainText("ni remplacer ni garder les deux ne se confirme ici.");
+        // One sentence for what blocks, then each way out with what it opens; nothing recommended here.
+        const exitList = region.getByRole("list", /^Pour débloquer /);
+        await expect(exitList).toContainText("Écarter « Lavabo double vasque » à la revue du métré : garder les deux redevient possible.");
+        await expect(exitList).toContainText("Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure (même unité, matériau et diamètre) : remplacer redevient possible.");
+        await expect(region.getByRole("radio", "Remplacer la mesure précédente", { exact: true })).toBeVisible();
+        await expect(region).not.toContainText("(recommandé)");
+        await expect(region).not.toContainText("remplacez leur mesure précédente");
+        await expect(region).toContainText("aucune ne se confirme ici, la suite se fait hors de cette étape, comme chaque page l’indique.");
         await expect(region.getByRole("radio", "Garder les deux", { exact: true })).toBeDisabled();
         // Nowhere on this screen is « keep both » advised: no page offers it.
         await expect(region).not.toContainText("gardez les deux");
@@ -384,6 +392,8 @@ commit;`);
         if (!resolution.complete) problem("linking a line of the page to the DPGF line does not unblock the confirmation", resolution.missing);
         const unblocked = await openConfirmation();
         await expect(unblocked.getByRole("region", "Pages déjà au devis", { exact: true })).not.toContainText("ne se confirme ici");
+        // Replacing confirms now: it is recommended again.
+        await expect(unblocked.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
         const confirm = unblocked.getByRole("button", "Confirmer l'application", { exact: true });
         await expect(confirm).toBeEnabled();
         const [response] = await Promise.all([ui.browser.waitForResponse(`**/api/takeoff/jobs/${ids.jobId}/apply`), confirm.click()]);
@@ -501,6 +511,16 @@ function forcedPayload(proposal: TakeoffPageReplacementResponse, draft: Confirma
   return null;
 }
 
+/** Every choice a state recommends or advises: its advice, « (recommandé) » on « Remplacer », its introduction. */
+function recommendations(resolution: Resolution) {
+  return [
+    ...[...resolution.pages.flatMap((entry) => entry.advice), ...resolution.lines.flatMap((entry) => entry.advice), resolution.introduction]
+      .flatMap((advice) => advice.choose.map((choice) => ({ ...choice, by: advice.text }))),
+    ...resolution.pages.filter((entry) => entry.recommended).map((entry) => ({ control: `page:${entry.page.key}`, value: "replace" as string | null,
+      by: "« (recommandé) »" })),
+  ];
+}
+
 /** The advice of a state that chooses an option the screen disables (or does not show). */
 function misadvice(resolution: Resolution) {
   const controls = new Map(confirmationControls(resolution).map((control) => [control.id, control]));
@@ -539,7 +559,10 @@ function reachableStates(proposal: TakeoffPageReplacementResponse, limit = 2_000
           continue;
         }
         if (control.kind === "pair" && control.disabled) continue;
-        const next = setConfirmationControl(draft, control, option.value);
+        const set = setConfirmationControl(draft, control, option.value);
+        // A complementary scope is written, as the estimator must to confirm it.
+        const next = control.kind === "reason" && option.value === "complementary_scope"
+          ? setPageNote(set, control.pageKey, "Réseau du local technique ajouté (fictif).") : set;
         const after = confirmationControls(resolveConfirmation(proposal, next)).find((entry) => entry.id === control.id);
         if (after?.value !== option.value) unexplained.push(`${control.id}=${String(option.value)} has no effect`);
         queue.push(next);
@@ -689,6 +712,13 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       if (refused.length > 0) problems.push({ situation: situation.name, problem: "a state the screen lets the estimator confirm is refused by the database", detail: refused.slice(0, 3) });
       if (unjustified.length > 0) problems.push({ situation: situation.name, problem: "a choice the screen withholds is accepted by the database", detail: unjustified });
       if (naiveMisses.length > 0) problems.push({ situation: situation.name, problem: "a naive decision is not refused for the reason it was built for", detail: naiveMisses });
+      // Everything the screen recommends or advises (its advice, « (recommandé) », its introduction), in any state it
+      // reaches, belongs to at least one state the database accepts.
+      const accepted = confirmable.filter((_resolution, at) => confirmVerdicts[at] === "ok")
+        .map((resolution) => new Map(confirmationControls(resolution).map((control) => [control.id, control.value])));
+      const unconfirmable = new Set(walk.resolutions.flatMap((resolution) => recommendations(resolution).flatMap((choice) =>
+        accepted.some((controls) => controls.get(choice.control) === choice.value) ? [] : [`${choice.control}=${String(choice.value)}, by ${choice.by}`])));
+      if (unconfirmable.size > 0) problems.push({ situation: situation.name, problem: "the screen recommends a choice no accepted state holds", detail: [...unconfirmable] });
       if (situation.deadEnd) {
         // No state confirms here, by rule: the screen says what to do instead, and only that.
         const shown = initial.pages.flatMap((page) => page.advice);

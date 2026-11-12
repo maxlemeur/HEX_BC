@@ -107,9 +107,7 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
         <div className="space-y-1 text-sm">
           <h2 className="font-semibold text-foreground">{PAGE_DECISIONS_TITLE}</h2>
           <p className="text-foreground-secondary">
-            Ces pages sont déjà au devis par un autre métré. Une page n’entre qu’une fois : remplacez leur mesure précédente
-            {/* « Keep both » is named only where a page offers it. */}
-            {resolution.pages.some(({ page }) => !page.keep_both_refused) ? ", ou gardez les deux avec un motif." : "."}
+            Ces pages sont déjà au devis par un autre métré. {resolution.introduction.text}
           </p>
           {strategyNotice ? <p className="text-foreground-secondary">{strategyNotice}</p> : null}
         </div>
@@ -117,7 +115,7 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold">Pages remesurées</h3>
-        {resolution.pages.map(({ page, choice, label, missing }) => {
+        {resolution.pages.map(({ page, choice, label, advice, recommended }) => {
           const decision = controls.get(`page:${page.key}`);
           const reason = controls.get(`reason:${page.key}`);
           const keepBoth = decision?.options.find((option) => option.value === "keep_both");
@@ -129,7 +127,8 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
                 <label className="flex items-center gap-2">
                   <input type="radio" name={`takeoff-page-${page.key}`} value="replace" checked={choice.decision === "replace"} disabled={disabled}
                     onChange={() => set(decision, "replace")} />
-                  Remplacer la mesure précédente (recommandé)
+                  {/* Recommended only where replacing can be confirmed on the page. */}
+                  {recommended ? "Remplacer la mesure précédente (recommandé)" : "Remplacer la mesure précédente"}
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="radio" name={`takeoff-page-${page.key}`} value="keep_both" checked={choice.decision === "keep_both"}
@@ -161,7 +160,16 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
               {page.ambiguous_document ? (
                 <p className="text-xs text-muted-foreground">Deux plans de même nom sont au devis sur cette page : une ligne qui ne connaît que le nom de son plan n’en remplace aucune.</p>
               ) : null}
-              {missing.length > 0 ? <p role="status" className="text-xs font-medium text-warning">{missing.join(" ")}</p> : null}
+              {advice.map((entry) => (
+                <div key={entry.text} className="space-y-1 text-xs font-medium text-warning">
+                  <p role="status">{entry.text}</p>
+                  {entry.exits.length > 0 ? (
+                    <ul aria-label={`Pour débloquer ${label}`} className="list-disc space-y-0.5 pl-5">
+                      {entry.exits.map((exit) => <li key={exit}>{exit}</li>)}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
             </fieldset>
           );
         })}

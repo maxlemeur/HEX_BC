@@ -48,15 +48,21 @@ export function pageLabel(page: Pick<TakeoffPageReplacementPage, "file_name" | "
 
 /**
  * What the screen asks of the estimator to confirm, and how. `choose` names the choices of this screen the text
- * advises (each one enabled where it is advised); `elsewhere` names what is done outside it, when no choice here can
- * confirm. The text is written from these only: no advice names a choice the screen disables.
+ * advises: each one enabled where it is advised, and part of a state that can be confirmed. `elsewhere` names what is
+ * done outside the step when no choice here can confirm, each way out written in `exits` with what it opens. The text
+ * is written from these only.
  */
 export type Advice = {
   text: string;
   choose: Array<{ control: string; value: string | null }>;
   elsewhere: Array<"exclude_at_review" | "link_in_dpgf_review">;
+  exits: string[];
 };
-export type ResolvedPage = { page: TakeoffPageReplacementPage; choice: PageChoice; label: string; missing: string[]; advice: Advice[] };
+/** The text of an advice as one message (its sentence, then its ways out). */
+const adviceMessage = (advice: Advice) => [advice.text, ...advice.exits].join(" ");
+export type ResolvedPage = { page: TakeoffPageReplacementPage; choice: PageChoice; label: string; missing: string[]; advice: Advice[];
+  /** « Remplacer » is marked « (recommandé) »: only where replacing can be confirmed on the page. */
+  recommended: boolean };
 export type LinePageRole = "replaced" | "part" | "kept_both" | "vanished" | "dpgf";
 export type ResolvedLine = {
   line: TakeoffPageReplacementLine;
@@ -90,6 +96,8 @@ export type Resolution = {
   lines: ResolvedLine[];
   newLines: ResolvedNewLine[];
   missing: string[];
+  /** The step's introduction: what it advises for these pages. */
+  introduction: Advice;
   complete: boolean;
   payload: TakeoffPageDecision[];
   counts: { updated: number; added: number; removed: number; kept: number; keptBoth: number };
@@ -107,6 +115,19 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
   const replacing = new Set(proposal.pages.filter((page) => choiceOf(page.key).decision === "replace").map((page) => page.key));
   const locked = new Map(proposal.pairs.filter((pair) => pair.locked).map((pair) => [pair.takeoff_item_id, pair.estimate_item_id]));
   const linesById = new Map(proposal.lines.map((line) => [line.id, line]));
+  // What each page can replace, whatever the estimator chooses on it: a DPGF line it feeds again, a line some new line
+  // can replace, or a line it can remove. « Remplacer » is confirmed on a page only with one of these (else
+  // nothing_replaced), and never beside a DPGF line it no longer feeds (dpgf_not_replaced).
+  const replaceableLines = new Set([...proposal.new_lines.flatMap((newLine) => newLine.candidates.flatMap((candidate) => candidate.line_ids)),
+    ...locked.values()]);
+  const notFedOn = (page: TakeoffPageReplacementPage) => page.lines.map((entry) => linesById.get(entry.id)!)
+    .filter((line) => line.dpgf_target && !page.dpgf_fed_again.includes(line.id));
+  const replacesOtherThan = (page: TakeoffPageReplacementPage, lineId: string | null) => page.dpgf_fed_again.length > 0
+    || page.lines.some((entry) => entry.id !== lineId && !linesById.get(entry.id)!.dpgf_target
+      && (replaceableLines.has(entry.id) || !linesById.get(entry.id)!.outside_pages));
+  const replaceable = new Map(proposal.pages.map((page) => [page.key, notFedOn(page).length === 0 && replacesOtherThan(page, null)]));
+  const pagesByKey = new Map(proposal.pages.map((page) => [page.key, page]));
+  const keepBothOffered = (key: string) => !pagesByKey.get(key)!.keep_both_refused;
 
   const newLines: ResolvedNewLine[] = proposal.new_lines.map((newLine) => {
     const pageKeys = proposal.pages.filter((page) => page.new_line_ids.includes(newLine.id)).map((page) => page.key);
@@ -143,13 +164,20 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       const next = replacementQuantities({ quantity: line.quantity, factor: line.length_factor, sources: line.sources,
         removedSourceIds: removed, added: by.map((entry) => ({ quantity: entry.newLine.quantity })) }).next;
       const advice: Advice[] = [
-        ...pages.filter((page) => page.role === "part" && page.part === null).map((page) => ({
-          text: `« ${line.title} » : ${page.label} est remesurée sans ligne qui la remplace, retirez sa part ou gardez-la.`,
-          choose: [{ control: `part:${line.id}:${page.key}`, value: "drop" }, { control: `part:${line.id}:${page.key}`, value: "keep" }], elsewhere: [] })),
+        ...pages.filter((page) => page.role === "part" && page.part === null && replaceable.get(page.key)).map((page) => {
+          // Keeping its part replaces nothing on a page where nothing else is replaced: the page is then kept both.
+          const keepPart = replacesOtherThan(pagesByKey.get(page.key)!, line.id);
+          const options = ["retirez sa part", ...(keepPart ? ["gardez-la"] : keepBothOffered(page.key) ? ["gardez les deux mesures de la page"] : [])];
+          return { text: `« ${line.title} » : ${page.label} est remesurée sans ligne qui la remplace, ${options.join(", ou ")}.`,
+            choose: [{ control: `part:${line.id}:${page.key}`, value: "drop" },
+              ...(keepPart ? [{ control: `part:${line.id}:${page.key}`, value: "keep" }]
+                : keepBothOffered(page.key) ? [{ control: `page:${page.key}`, value: "keep_both" }] : [])],
+            elsewhere: [], exits: [] };
+        }),
         ...(line.changed_by_hand && take === null ? [{ text: `« ${line.title} » : quantité modifiée à la main, nouvelle mesure ou la vôtre.`,
-          choose: [{ control: `take:${line.id}`, value: "new" }, { control: `take:${line.id}`, value: "keep_mine" }], elsewhere: [] }] : []),
+          choose: [{ control: `take:${line.id}`, value: "new" }, { control: `take:${line.id}`, value: "keep_mine" }], elsewhere: [], exits: [] }] : []),
       ];
-      const missing = advice.map((entry) => entry.text);
+      const missing = advice.map(adviceMessage);
       const decided = pages.every((page) => page.role !== "part" || page.part !== null);
       return { ...base, state: "updated" as const, pages, take, newLineIds: by.map((entry) => entry.newLine.id), measured: decided ? next : null,
         after: !decided ? null : line.changed_by_hand && take === "keep_mine" ? before ?? 0 : line.changed_by_hand && take === null ? null : next,
@@ -164,16 +192,24 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       : keptBoth.length > 0 ? `elle est gardée avec ${keptBoth.map((page) => page.label).join(", ")} (garder les deux)` : null;
     const choice = draft.vanished[line.id] ?? null;
     const vanished = choice === "remove" && removeRefused ? null : choice;
-    // Removal refused: the advice names « keep » alone, and says why removing is not offered.
-    const advice: Advice[] = vanished !== null ? [] : removeRefused
-      ? [{ text: `« ${line.title} » : le nouveau métré ne l’a plus ; gardez-la (la retirer n’est pas possible : ${removeRefused}).`,
-        choose: [{ control: `vanished:${line.id}`, value: "keep" }], elsewhere: [] }]
-      : [{ text: `« ${line.title} » : le nouveau métré ne l’a plus, retirez-la ou gardez-la.`,
-        choose: [{ control: `vanished:${line.id}`, value: "remove" }, { control: `vanished:${line.id}`, value: "keep" }], elsewhere: [] }];
+    // Only what can be confirmed: removing it (unless refused, and why); keeping it, where its pages still replace
+    // something else; else keeping both measures of its page. On a page that cannot be replaced at all, the page says
+    // what to do, not the line.
+    const advisable = replaced.filter((page) => replaceable.get(page.key));
+    const keepLine = advisable.length > 0 && advisable.every((page) => replacesOtherThan(pagesByKey.get(page.key)!, line.id));
+    const keepBothPages = keepLine ? [] : advisable.filter((page) => keepBothOffered(page.key));
+    const options = [...(removeRefused ? [] : ["retirez-la"]), ...(keepLine ? ["gardez-la"] : keepBothPages.length > 0 ? [
+      `gardez les deux mesures ${keepBothPages.length > 1 ? "de ses pages" : "de la page"}`] : [])];
+    const advice: Advice[] = vanished !== null || advisable.length === 0 ? [] : [{
+      text: `« ${line.title} » : le nouveau métré ne l’a plus${options.length > 0 ? `, ${options.join(", ou ")}` : ""}`
+        + `${removeRefused ? ` (la retirer n’est pas possible : ${removeRefused})` : ""}.`,
+      choose: [...(removeRefused ? [] : [{ control: `vanished:${line.id}`, value: "remove" }]),
+        ...(keepLine ? [{ control: `vanished:${line.id}`, value: "keep" }] : keepBothPages.map((page) => ({ control: `page:${page.key}`, value: "keep_both" })))],
+      elsewhere: [], exits: [] }];
     return { ...base, state: "vanished" as const, vanished, removeRefused,
       after: vanished === "keep" ? before : null,
       pages: onPages.map((page) => ({ ...page, role: replacing.has(page.key) ? "vanished" as const : "kept_both" as const, part: null })),
-      missing: advice.map((entry) => entry.text), advice };
+      missing: advice.map(adviceMessage), advice };
   });
 
   const resolvedLines = new Map(lines.map((entry) => [entry.line.id, entry]));
@@ -195,13 +231,13 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const choice = choiceOf(page.key);
     const label = labels.get(page.key)!;
     const advice: Advice[] = [];
-    const done = () => ({ page, choice, label, advice, missing: advice.map((entry) => entry.text) });
+    const done = () => ({ page, choice, label, advice, missing: advice.map(adviceMessage), recommended: replaceable.get(page.key)! });
     if (choice.decision === "keep_both") {
       if (!choice.reason) {
         advice.push({ text: `${label} : choisissez le motif pour garder les deux mesures.`,
-          choose: TAKEOFF_PAGE_KEEP_BOTH_REASONS.map((reason) => ({ control: `reason:${page.key}`, value: reason })), elsewhere: [] });
+          choose: TAKEOFF_PAGE_KEEP_BOTH_REASONS.map((reason) => ({ control: `reason:${page.key}`, value: reason })), elsewhere: [], exits: [] });
       } else if (choice.reason === "complementary_scope" && choice.note.trim().length < TAKEOFF_PAGE_NOTE_MIN) {
-        advice.push({ text: `${label} : décrivez le périmètre complémentaire (10 caractères au moins).`, choose: [], elsewhere: [] });
+        advice.push({ text: `${label} : décrivez le périmètre complémentaire (10 caractères au moins).`, choose: [], elsewhere: [], exits: [] });
       }
       return done();
     }
@@ -214,31 +250,43 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       const targets = notFed.map((entry) => `« ${entry.line.title} »`).join(", ");
       if (keepBothOpen) {
         advice.push({ text: `${label} : ${targets}, ligne DPGF que ce métré n’alimente pas ; sa mesure resterait à côté de la nouvelle. Gardez les deux mesures avec un motif.`,
-          choose: [keepBoth], elsewhere: [] });
+          choose: [keepBoth], elsewhere: [], exits: [] });
       } else {
         // Neither choice confirms here (TI-682, until the DPGF accumulation, D4): replacing would leave the DPGF line's
-        // earlier measure beside the new one, and keeping both is refused. What unblocks it is done before this step.
+        // earlier measure beside the new one, and keeping both is refused. One sentence for what blocks, then each way
+        // out (done before this step) with what it opens.
         const merged = newLines.filter((entry) => entry.locked && entry.pageKeys.includes(page.key));
+        const named = merged.map((entry) => `« ${entry.newLine.designation} »`).join(", ");
+        const plural = notFed.length > 1;
         const why = page.keep_both_refused === "merge_match"
-          ? `et la fusion, obligatoire avec un DPGF, met ${merged.map((entry) => `« ${entry.newLine.designation} »`).join(", ")} sur une ligne de la page`
+          ? `et la fusion, obligatoire avec un DPGF, met ${named} sur une ligne de la page`
           : "et cette page alimente une autre ligne DPGF déjà alimentée par un autre métré, qui ne garde qu’une mesure";
-        const exits = [
-          ...(page.keep_both_refused === "merge_match" && merged.length > 0
-            ? [`écartez ${merged.map((entry) => `« ${entry.newLine.designation} »`).join(", ")} à la revue du métré (vous pourrez alors garder les deux)`] : []),
-          `liez à ${targets}, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure, de même unité, matériau et diamètre (vous pourrez alors remplacer)`,
-        ];
-        advice.push({ text: `${label} : ${targets}, ligne DPGF que ce métré n’alimente pas, ${why} : ni remplacer ni garder les deux ne se confirme ici. `
-            + `${exits.join(", ou ").replace(/^./, (first) => first.toUpperCase())}.`,
+        const excluding = page.keep_both_refused === "merge_match" && merged.length > 0;
+        advice.push({ text: `${label} : ${targets} ${plural ? "sont des lignes DPGF" : "est une ligne DPGF"} que ce métré n’alimente pas, ${why} : `
+            + "ni remplacer ni garder les deux ne se confirme ici.",
           choose: [],
-          elsewhere: [...(page.keep_both_refused === "merge_match" && merged.length > 0 ? ["exclude_at_review" as const] : []), "link_in_dpgf_review" as const] });
+          elsewhere: [...(excluding ? ["exclude_at_review" as const] : []), "link_in_dpgf_review" as const],
+          exits: [
+            ...(excluding ? [`Écarter ${named} à la revue du métré : garder les deux redevient possible.`] : []),
+            `Lier à ${plural ? "chacune de ces lignes DPGF" : "cette ligne DPGF"}, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure `
+              + "(même unité, matériau et diamètre) : remplacer redevient possible.",
+          ] });
       }
+    }
+    if (notFed.length === 0 && !replaceable.get(page.key)) {
+      // Nothing on the page can be replaced (no new line replaces one of its lines, none can be removed): replacing it
+      // is never confirmed (nothing_replaced). Keeping both is what confirms it.
+      advice.push({ text: `${label} : Remplacer ne se confirme pas sur cette page : aucune ligne du nouveau métré ne remplace une de ses lignes, `
+          + `et aucune ne peut en être retirée.${keepBothOpen ? " Gardez les deux mesures avec un motif." : ""}`,
+        choose: keepBothOpen ? [keepBoth] : [], elsewhere: [], exits: [] });
+      return done();
     }
     const pending = held.some((entry) => entry.missing.length > 0);
     const replaces = held.some((entry) => entry.line.dpgf_target || actionOn(entry, page.key) !== "keep");
     if (!replaces && !pending) {
       advice.push(keepBothOpen
-        ? { text: `${label} : rien n’y est remplacé. Gardez les deux mesures avec un motif.`, choose: [keepBoth], elsewhere: [] }
-        : { text: `${label} : rien n’y est remplacé ; remplacez ou retirez au moins une de ses lignes.`, choose: [], elsewhere: [] });
+        ? { text: `${label} : rien n’y est remplacé. Gardez les deux mesures avec un motif.`, choose: [keepBoth], elsewhere: [], exits: [] }
+        : { text: `${label} : rien n’y est remplacé ; remplacez ou retirez au moins une de ses lignes.`, choose: [], elsewhere: [], exits: [] });
     }
     return done();
   });
@@ -264,8 +312,19 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
   });
 
   const missing = [...pages.flatMap((page) => page.missing), ...lines.flatMap((entry) => entry.missing)];
+  // The introduction names a choice only where some page can be confirmed with it.
+  const replaceablePages = proposal.pages.filter((page) => replaceable.get(page.key));
+  const keepablePages = proposal.pages.filter((page) => keepBothOffered(page.key));
+  const advised = [...(replaceablePages.length > 0 ? ["remplacez leur mesure précédente"] : []),
+    ...(keepablePages.length > 0 ? ["gardez les deux avec un motif"] : [])];
+  const introduction: Advice = {
+    text: `Une page n’entre qu’une fois : ${advised.length > 0 ? `${advised.join(", ou ")}.`
+      : "aucune ne se confirme ici, la suite se fait hors de cette étape, comme chaque page l’indique."}`,
+    choose: [...replaceablePages.map((page) => ({ control: `page:${page.key}`, value: "replace" })),
+      ...keepablePages.map((page) => ({ control: `page:${page.key}`, value: "keep_both" }))],
+    elsewhere: [], exits: [] };
   return {
-    pages, lines, newLines, missing, complete: missing.length === 0, payload,
+    pages, lines, newLines, missing, complete: missing.length === 0, payload, introduction,
     counts: {
       updated: lines.filter((entry) => entry.state === "updated").length,
       added: newLines.filter((entry) => entry.pair === null).length,

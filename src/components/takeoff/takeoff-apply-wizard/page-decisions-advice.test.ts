@@ -7,6 +7,7 @@ import {
   initialConfirmationDraft,
   resolveConfirmation,
   setConfirmationControl,
+  setPageNote,
   type ConfirmationDraft,
   type Resolution,
 } from "./page-decisions";
@@ -59,11 +60,15 @@ const SITUATIONS: Array<[string, TakeoffPageReplacementResponse]> = [
   ["a vanished line on two pages, one kept both", proposal({
     pages: [page(1, [201], [101]), page(2, [201], [102])], lines: [line(201, "EF cuivre DN 20", { unit_key: "ml" })],
     new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "Vanne d'arrêt", [[2, []]])] })],
+  ["a line measured again", proposal({ pages: [page(1, [201], [101])], lines: [line(201, "WC suspendu")],
+    new_lines: [newLine(101, "WC suspendu", [[1, [201]]])],
+    pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "same_designation", locked: false }] })],
 ];
 
 /** What a piece of advice tells the estimator to choose, read from its words. */
 const PHRASES: Array<{ pattern: RegExp; control: (scope: string) => string; value: unknown }> = [
   { pattern: /gardez les deux|garder les deux mesures avec un motif/i, control: (scope) => `page:${scope}`, value: "keep_both" },
+  { pattern: /retirez sa part/i, control: (scope) => scope, value: "drop" },
   { pattern: /retirez-la/i, control: (scope) => `vanished:${scope}`, value: "remove" },
   { pattern: /gardez-la/i, control: (scope) => `vanished:${scope}`, value: "keep" },
 ];
@@ -72,16 +77,18 @@ const PHRASES: Array<{ pattern: RegExp; control: (scope: string) => string; valu
 function disabledAdvice(resolution: Resolution) {
   const controls = new Map(confirmationControls(resolution).map((control) => [control.id, control]));
   const shown = [
-    ...resolution.pages.flatMap((entry) => entry.missing.map((text) => ({ text, scope: entry.page.key }))),
-    ...resolution.lines.flatMap((entry) => entry.missing.map((text) => ({ text, scope: entry.line.id }))),
+    ...resolution.pages.flatMap((entry) => entry.missing.map((text) => ({ text, scope: entry.page.key, pages: [entry.page.key] }))),
+    ...resolution.lines.flatMap((entry) => entry.missing.map((text) => ({ text, scope: entry.line.id, pages: entry.pages.map((onPage) => onPage.key) }))),
   ];
   // An explanation of why a choice is not offered, in parentheses, advises nothing.
   const advising = (text: string) => text.replace(/\([^)]*n’est pas possible[^)]*\)/g, "");
-  const byWords = shown.flatMap(({ text, scope }) => PHRASES.filter((phrase) => phrase.pattern.test(advising(text)))
+  const byWords = shown.flatMap(({ text, scope, pages }) => PHRASES.filter((phrase) => phrase.pattern.test(advising(text)))
     .flatMap((phrase) => {
-      const control = controls.get(phrase.control(scope));
-      const option = (control?.options as Array<{ value: unknown; disabled: string | null }> | undefined)?.find((entry) => entry.value === phrase.value);
-      return option && option.disabled === null ? [] : [`« ${text} » names ${phrase.control(scope)}=${String(phrase.value)}, ${option ? `disabled: ${option.disabled}` : "not on screen"}`];
+      // « Gardez les deux » names a page: the page itself, or one of the pages of the line advised.
+      const ids = phrase.value === "keep_both" ? pages.map((key) => `page:${key}`) : [phrase.control(scope)];
+      const enabled = ids.some((controlId) => (controls.get(controlId)?.options as Array<{ value: unknown; disabled: string | null }> | undefined)
+        ?.some((entry) => entry.value === phrase.value && entry.disabled === null));
+      return enabled ? [] : [`« ${text} » names ${ids.join(" or ")}=${String(phrase.value)}, not offered there`];
     }));
   // The advice as the screen states it: each choice it names, enabled where it is named.
   const byStructure = [...resolution.pages.flatMap((entry) => entry.advice), ...resolution.lines.flatMap((entry) => entry.advice)].flatMap((advice) =>
@@ -104,12 +111,41 @@ function states(data: TakeoffPageReplacementResponse) {
     seen.set(signature, resolution);
     for (const control of confirmationControls(resolution)) {
       for (const option of control.options) {
-        if (option.disabled === null && !(control.kind === "pair" && control.disabled)) queue.push(setConfirmationControl(draft, control, option.value));
+        if (option.disabled !== null || (control.kind === "pair" && control.disabled)) continue;
+        const next = setConfirmationControl(draft, control, option.value);
+        // A complementary scope is written, as the estimator must to confirm it.
+        queue.push(control.kind === "reason" && option.value === "complementary_scope"
+          ? setPageNote(next, control.pageKey, "Réseau du local technique ajouté (fictif).") : next);
       }
     }
   }
   return [...seen.values()];
 }
+
+/**
+ * Every choice the screen recommends or advises in a state: its advice (pages and lines), « (recommandé) » on
+ * « Remplacer », and its introduction.
+ */
+function recommended(resolution: Resolution) {
+  return [
+    ...[...resolution.pages.flatMap((entry) => entry.advice), ...resolution.lines.flatMap((entry) => entry.advice), resolution.introduction]
+      .flatMap((advice) => advice.choose.map((choice) => ({ ...choice, by: advice.text }))),
+    ...resolution.pages.filter((entry) => entry.recommended).map((entry) => ({ control: `page:${entry.page.key}`, value: "replace" as string | null,
+      by: "« (recommandé) »" })),
+  ];
+}
+
+describe("the screen recommends only what can be confirmed", () => {
+  // TKD03 checks the same against the database's verdicts; here a state the screen offers as complete stands for it.
+  it.each(SITUATIONS)("%s", (_name, data) => {
+    const reached = states(data);
+    const confirmable = reached.filter((resolution) => resolution.complete)
+      .map((resolution) => new Map(confirmationControls(resolution).map((control) => [control.id, control.value])));
+    const unconfirmable = reached.flatMap((resolution) => recommended(resolution).flatMap((choice) =>
+      confirmable.some((controls) => controls.get(choice.control) === choice.value) ? [] : [`${choice.control}=${String(choice.value)}, by ${choice.by}`]));
+    expect([...new Set(unconfirmable)]).toEqual([]);
+  });
+});
 
 describe("advice never names a disabled choice", () => {
   it.each(SITUATIONS)("%s", (_name, data) => {
@@ -123,21 +159,25 @@ describe("advice never names a disabled choice", () => {
     const advice = resolution.pages[0].missing.join(" ");
     expect(advice).toContain("« WC suspendu »");
     expect(advice).toContain("« EF cuivre DN 22 (DPGF) »");
-    expect(advice).toMatch(/écartez « WC suspendu » à la revue du métré/i);
-    expect(advice).toMatch(/liez à « EF cuivre DN 22 \(DPGF\) », dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure, de même unité, matériau et diamètre/);
+    expect(advice).toMatch(/Écarter « WC suspendu » à la revue du métré : garder les deux redevient possible\./);
+    expect(advice).toMatch(/Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure \(même unité, matériau et diamètre\) : remplacer redevient possible\./);
     expect(advice).not.toMatch(/gardez les deux/i);
-    expect(resolution.pages[0].advice.map((entry) => [entry.choose, entry.elsewhere])).toEqual([[[], ["exclude_at_review", "link_in_dpgf_review"]]]);
+    expect(resolution.pages[0].advice.map((entry) => [entry.choose, entry.elsewhere, entry.exits.length])).toEqual([[[], ["exclude_at_review", "link_in_dpgf_review"], 2]]);
+    expect(resolution.pages[0].recommended).toBe(false);
+    expect(resolution.introduction.choose).toEqual([]);
   });
 
   it("on a page feeding another DPGF line again, the only way out is to feed the line not fed", () => {
     const resolution = resolveConfirmation(SITUATIONS[1][1], initialConfirmationDraft(SITUATIONS[1][1]));
     expect(resolution.pages[0].advice.map((entry) => entry.elsewhere)).toEqual([["link_in_dpgf_review"]]);
-    expect(resolution.pages[0].missing.join(" ")).not.toMatch(/écartez/i);
+    expect(resolution.pages[0].missing.join(" ")).not.toMatch(/écarter/i);
   });
 
-  it("a vanished line whose removal is refused is advised to be kept, and says why it cannot be removed", () => {
+  it("where nothing on the page can be replaced, the page advises keeping both, and the vanished line advises nothing", () => {
     const resolution = resolveConfirmation(SITUATIONS[2][1], initialConfirmationDraft(SITUATIONS[2][1]));
-    expect(resolution.lines[0].missing).toEqual(["« EF cuivre DN 20 » : le nouveau métré ne l’a plus ; gardez-la (la retirer n’est pas possible : "
-      + "elle porte aussi des pages que ce métré ne relit pas, qui partiraient avec elle)."]);
+    expect(resolution.lines[0].missing).toEqual([]);
+    expect(resolution.pages[0].missing).toEqual(["plan.pdf, page 1 : Remplacer ne se confirme pas sur cette page : aucune ligne du nouveau métré ne remplace "
+      + "une de ses lignes, et aucune ne peut en être retirée. Gardez les deux mesures avec un motif."]);
+    expect([resolution.pages[0].recommended, resolution.complete]).toEqual([false, false]);
   });
 });
