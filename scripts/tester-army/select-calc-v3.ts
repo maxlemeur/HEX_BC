@@ -11,8 +11,11 @@ import {
 } from "./select-journeys.ts";
 
 export type CalcSelection = { phases: (CalcV3Phase | "all")[]; reason: string; changedPaths: string[] };
-/** army-shards.json, calcV3: the most group jobs of a campaign and the measured journey seconds of each phase. */
-export type CalcV3GroupDurations = { note?: string; measured?: string[]; maxGroups: number; defaultSeconds: number; seconds: Record<string, number> };
+/**
+ * army-shards.json, calcV3: the most group jobs of a campaign, the measured journey seconds one job carries
+ * before another is worth its own stack, and the measured journey seconds of each phase.
+ */
+export type CalcV3GroupDurations = { note?: string; measured?: string[]; maxGroups: number; secondsPerGroup: number; defaultSeconds: number; seconds: Record<string, number> };
 /** One job: its phases run one after another on one owned stack; seconds: their measured journeys, without the stack. */
 export type CalcV3Group = { group: number; total: number; phases: (CalcV3Phase | "all")[]; seconds: number };
 export type CalcV3GroupPlan = { grouping: string; groups: CalcV3Group[] };
@@ -160,6 +163,7 @@ export function validateCalcV3GroupDurations(durations: unknown): string[] {
   const problems: string[] = [];
   const positive = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0;
   if (!Number.isInteger(section.maxGroups) || section.maxGroups! < 1 || section.maxGroups! > 8) problems.push("army-shards.json calcV3 needs maxGroups from 1 to 8.");
+  if (!positive(section.secondsPerGroup)) problems.push("army-shards.json calcV3 secondsPerGroup must be a positive number of seconds.");
   if (!positive(section.defaultSeconds)) problems.push("army-shards.json calcV3 defaultSeconds must be a positive number of seconds.");
   if (!section.seconds || typeof section.seconds !== "object" || Array.isArray(section.seconds)) {
     return [...problems, "army-shards.json calcV3 seconds must map phases to seconds."];
@@ -183,8 +187,9 @@ export function loadCalcV3GroupDurations(root: string): CalcV3GroupDurations | n
 
 /**
  * Splits the selected phases into group jobs, each running its phases one after
- * another on one owned stack: as many groups as phases up to maxGroups, the
- * longest measured phase first onto the least loaded group. A phase is never
+ * another on one owned stack: as many groups as their measured journeys fill
+ * at secondsPerGroup, never more than phases nor than maxGroups, the longest
+ * measured phase first onto the least loaded group. A phase is never
  * cut and no group is empty. Within a group, the order of the selection. One
  * group for the explicit complete campaign ("all") and without usable durations.
  */
@@ -199,7 +204,7 @@ export function planCalcV3Groups(phases: readonly (CalcV3Phase | "all")[], durat
   }
   if (!durations) return plan(`one group: no usable measured durations (${SHARDS_PATH}, calcV3)`, [selected], [0]);
   const total = selected.reduce((sum, phase) => sum + weight(phase), 0);
-  const count = Math.min(durations.maxGroups, selected.length);
+  const count = Math.min(durations.maxGroups, selected.length, Math.max(1, Math.ceil(total / durations.secondsPerGroup)));
   const bins = Array.from({ length: count }, () => ({ load: 0, phases: [] as (CalcV3Phase | "all")[] }));
   const longestFirst = [...selected].sort((a, b) => weight(b) - weight(a) || selected.indexOf(a) - selected.indexOf(b));
   for (const phase of longestFirst) {
@@ -209,7 +214,7 @@ export function planCalcV3Groups(phases: readonly (CalcV3Phase | "all")[], durat
     bins[target].phases.push(phase);
   }
   const plural = (number: number, noun: string) => `${number} ${noun}${number === 1 ? "" : "s"}`;
-  return plan(`${plural(count, "group")}: ${total} s of measured journeys in ${plural(selected.length, "phase")}, at most ${durations.maxGroups}`,
+  return plan(`${plural(count, "group")}: ${total} s of measured journeys in ${plural(selected.length, "phase")}, ${durations.secondsPerGroup} s per group, at most ${durations.maxGroups}`,
     bins.map((bin) => selected.filter((phase) => bin.phases.includes(phase))), bins.map((bin) => bin.load));
 }
 

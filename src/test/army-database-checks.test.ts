@@ -15,7 +15,16 @@ import { resolveDelegatedDatabaseChecks } from "../../scripts/tester-army/databa
 
 const root = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
-const DELEGATION = "ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}";
+/**
+ * What GitHub computes for a workflow value: each `${{ }}` expression evaluated for one event. The expression
+ * read here only uses comparisons, `&&`, `||`, literals and the `github` context, which JavaScript evaluates
+ * the same way (as src/test/army-main-campaign.test.ts does for the concurrency groups).
+ */
+function evaluate(value: string, github: { event_name: string }): string {
+  const text = value.trim().replace(/^(["'])(.*)\1$/u, "$2");
+  return text.replace(/\$\{\{(.+?)\}\}/gu, (_, expression: string) => String(new Function("github", `return (${expression});`)(github)));
+}
+
 /** The steps of a workflow, each from its `- name:` line. */
 function steps(workflow: string): string[] {
   return workflow.split(/^\s+- name:/mu).slice(1);
@@ -48,7 +57,18 @@ describe("delegated database checks", () => {
       "Run native database and TesterArmy critical journeys", "Run native database and TesterArmy takeoff journeys",
     ]);
     expect(calcV3).toHaveLength(1);
-    for (const step of [...critical, ...calcV3]) expect(step).toContain(`\n          ${DELEGATION}\n`);
+    // What the runner receives for each event, and what it then does with it: the wiring, not its spelling.
+    for (const step of [...critical, ...calcV3]) {
+      const value = /^\s+ARMY_DATABASE_CHECKS_DELEGATED_TO:(.*)$/mu.exec(step)?.[1];
+      expect(value, step.trimStart().split("\n")[0]).toBeDefined();
+      const received = (event: string) => ({ GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: event,
+        ARMY_DATABASE_CHECKS_DELEGATED_TO: evaluate(value!, { event_name: event }) });
+      expect(resolveDelegatedDatabaseChecks(received("pull_request"))).toBe("rls-matrix");
+      for (const event of ["push", "schedule", "workflow_dispatch"]) {
+        expect(received(event).ARMY_DATABASE_CHECKS_DELEGATED_TO, event).toBe("");
+        expect(resolveDelegatedDatabaseChecks(received(event)), event).toBeUndefined();
+      }
+    }
     // The Full campaign never runs on a pull request: its jobs keep their own checks.
     const full = running(".github/workflows/e2e-army-full.yml");
     expect(full).toHaveLength(2);

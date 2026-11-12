@@ -193,6 +193,13 @@ coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
 métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
 un seul job. Les durées ne choisissent pas la couverture.
 
+`secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
+qu'un autre vaille sa pile et son build (environ trois minutes de runner par
+job). Elle vaut ce qu'un shard porte quand la suite entière tourne (715 s en
+critical, à 2 workers) : une sélection partielle remplit donc ses shards comme
+la suite complète, au lieu d'en ouvrir un tous les 300 s. Les parcours du métré
+(environ 320 s à 1 worker) tiennent dans un job, sous le budget de 400 s.
+
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les deux fichiers des
 [parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
@@ -204,9 +211,10 @@ la refuse avant de créer la pile. Sans durées utilisables, le plan n'a qu'un
 shard et la règle ne s'applique pas ; l'exécution de la suite entière dans un
 seul job, repli d'une sélection impossible, ne les sépare pas non plus.
 
-Les phases calc-v3 sélectionnées tournent en groupes : cinq jobs au plus
-(`calcV3.maxGroups` du même fichier), un groupe par phase quand la sélection en
-compte moins. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
+Les phases calc-v3 sélectionnées tournent en groupes : autant de jobs que leurs
+secondes de parcours mesurées en remplissent à `calcV3.secondsPerGroup`
+(480 s), jamais plus que de phases ni que `calcV3.maxGroups` (cinq). Trois
+phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
 seul build, puis exécute ses phases l'une après l'autre
 (`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
 invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
@@ -214,9 +222,9 @@ invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
 phases de la plus longue à la plus courte sur le groupe le moins chargé,
 d'après les secondes de parcours mesurées par phase (`calcV3.seconds`, hors
 préparation de la pile) ; une phase n'est pas coupée et aucun groupe n'est
-vide. La même sélection donne toujours la même répartition. Avec les 19
-phases, chaque job dure environ 9 minutes (6 minutes de parcours, le reste en
-préparation) au lieu de 19 jobs de 3 à 8 minutes. Le déclenchement manuel `all`
+vide. La même sélection donne toujours la même répartition. Les 19 phases
+(environ 1 800 s de parcours) tournent en quatre jobs d'environ 7 min 30 de
+parcours chacun, plus la préparation. Le déclenchement manuel `all`
 garde la campagne complète dans un seul job, et une phase explicite le sien.
 
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie
