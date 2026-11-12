@@ -152,7 +152,8 @@ export function EstimateSettingsPanel({
   reservedLineTitles = [],
   provisionalQuantityMentions = [],
 }: EstimateSettingsPanelProps) {
-  const [glossaryDismissed, setGlossaryDismissed] = useState(false);
+  // Replié par défaut : le glossaire ne s'affiche que si l'utilisateur l'a ouvert (choix mémorisé).
+  const [glossaryDismissed, setGlossaryDismissed] = useState(true);
   // v3 : les champs communs sont ceux du brouillon v3, seule source de sa charge ; v1/v2 : inchangés.
   const commonSettings = v3?.draft ?? settings;
   const changeCommon: (patch: CommonSettingsPatch) => void = v3 ? v3.updateDraft : onChange;
@@ -164,9 +165,9 @@ export function EstimateSettingsPanel({
 
   useEffect(() => {
     try {
-      const dismissed = localStorage.getItem(GLOSSARY_DISMISSED_STORAGE_KEY) === "1";
-      if (!dismissed) return;
-      const rafId = window.requestAnimationFrame(() => setGlossaryDismissed(true));
+      const opened = localStorage.getItem(GLOSSARY_DISMISSED_STORAGE_KEY) === "0";
+      if (!opened) return;
+      const rafId = window.requestAnimationFrame(() => setGlossaryDismissed(false));
       return () => window.cancelAnimationFrame(rafId);
     } catch {
       return undefined;
@@ -196,7 +197,7 @@ export function EstimateSettingsPanel({
         id="estimate-contractor-role"
         disabled={commonDisabled}
         value={commonSettings.contractor_role ?? "principal"}
-        aria-describedby="estimate-contractor-role-hint"
+        aria-describedby={commonSettings.contractor_role === "subcontractor" ? "estimate-contractor-role-hint" : undefined}
         onChange={(event) =>
           changeCommon({
             contractor_role:
@@ -213,21 +214,19 @@ export function EstimateSettingsPanel({
           Autoliquidation — travaux immobiliers sous-traités éligibles
         </option>
       </NativeSelect>
-      <div id="estimate-contractor-role-hint" className="space-y-1">
-        <p className="text-xs text-muted-foreground">
-          {commonSettings.contractor_role === "subcontractor"
-            ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
-            : "Régime normal : la TVA est facturée au taux applicable."}
-        </p>
-        {commonSettings.contractor_role === "subcontractor" ? (
+      {commonSettings.contractor_role === "subcontractor" ? (
+        <div id="estimate-contractor-role-hint" className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur.
+          </p>
           <p className="text-xs font-medium text-warning">
             Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
             séparé, la fabrication ou fourniture de biens, la location
             d’engins et les prestations intellectuelles ne relèvent pas
             automatiquement de ce régime.
           </p>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {/*
         EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
         jamais. Les exclusions du dispositif (nettoyage sous contrat
@@ -324,9 +323,7 @@ export function EstimateSettingsPanel({
           Précisions et exclusions particulières
         </FieldLabel>
         <FieldDescription id="estimate-exclusions-hint" className="text-xs">
-          Indiquez uniquement les prestations, fournitures ou limites propres à cette
-          offre. Évitez d&apos;y recopier les règles commerciales déjà prévues par les
-          CGV.
+          Uniquement les prestations, fournitures ou limites propres à cette offre.
         </FieldDescription>
         <Textarea
           id="estimate-exclusions"
