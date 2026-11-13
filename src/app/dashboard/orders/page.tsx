@@ -28,6 +28,7 @@ import { OrdersTable } from "./_components/OrdersTable";
 import { exportOrdersToCsv, exportOrdersToExcel } from "./_components/orders-export";
 import {
   ORDER_STATUS_OPTIONS,
+  isAffaireOrder,
   type DevisCache,
   type DevisItemRow,
   type ItemsCache,
@@ -45,7 +46,7 @@ type OrdersLookupsResponse = {
   totalOrders: number;
 };
 
-type OrderRef = Pick<PurchaseOrderListRow, "id" | "reference" | "status">;
+type OrderRef = Pick<PurchaseOrderListRow, "id" | "reference" | "status"> & { affaire?: boolean };
 
 const EMPTY_ORDER_LOOKUPS: { id: string; name: string }[] = [];
 
@@ -300,7 +301,7 @@ export default function OrdersPage() {
       order={order}
       isDownloading={downloadingOrderId === order.id}
       onDownloadZip={() => void handleDownloadZip(order)}
-      onChangeStatus={() => setStatusOrder({ id: order.id, reference: order.reference, status: order.status })}
+      onChangeStatus={() => setStatusOrder({ id: order.id, reference: order.reference, status: order.status, affaire: isAffaireOrder(order) })}
       onDelete={() => void handleDeleteOrder(order)}
       triggerClassName={triggerClassName}
     />

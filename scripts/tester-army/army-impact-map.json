@@ -32,6 +32,7 @@
       "e2e/army/critical/intake-google-drive.e2e.ts",
       "e2e/army/critical/material-request-articles.e2e.ts",
       "e2e/army/critical/material-request-consultation.e2e.ts",
+      "e2e/army/critical/material-request-order-confirmation.e2e.ts",
       "e2e/army/critical/material-request-orders.e2e.ts",
       "e2e/army/critical/material-request-suppliers.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
@@ -657,12 +658,13 @@
     },
     {
       "id": "purchase-orders",
-      "note": "US-4.4 rouvre le brouillon de bon de commande créé depuis l'affaire. MR06 ouvre, modifie (port) et imprime les brouillons créés depuis une demande de matériel.",
+      "note": "US-4.4 rouvre le brouillon de bon de commande créé depuis l'affaire. MR06 ouvre, modifie (port) et imprime les brouillons créés depuis une demande de matériel. MR07 et MR08 confirment un brouillon d'affaire au prix réel avec sa preuve, puis le reçoivent daté avec une note.",
       "paths": [
         "src/app/dashboard/orders/**"
       ],
       "journeys": [
         "e2e/army/critical/material-request-orders.e2e.ts",
+        "e2e/army/critical/material-request-order-confirmation.e2e.ts",
         "e2e/army/local/article-association.e2e.ts",
         "e2e/army/local/purchase-decimals.e2e.ts",
         "e2e/army/local/purchase-draft-eligibility.e2e.ts",
@@ -778,7 +780,7 @@
     },
     {
       "id": "material-requests",
-      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne. MR03 : fournisseur proposé par ligne et sa raison (technicien, exception de l'article, type de fourniture), retenu en un geste, ligne validée qui le reste ; fournisseurs de l'article depuis sa fiche. MR05 : consultation des fournisseurs ; message avec références copié, mise en concurrence sans référence, devis PDF joint, prix saisis, devis concurrent retenu, premier devis clos. MR06 : bons de commande depuis la demande ; un brouillon par fournisseur, ligne de frais généraux dans le brouillon de son fournisseur, prix pour 100, créé une fois (double clic, même clé rejouée), port ajouté au brouillon, mode de livraison imprimé.",
+      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne. MR03 : fournisseur proposé par ligne et sa raison (technicien, exception de l'article, type de fourniture), retenu en un geste, ligne validée qui le reste ; fournisseurs de l'article depuis sa fiche. MR05 : consultation des fournisseurs ; message avec références copié, mise en concurrence sans référence, devis PDF joint, prix saisis, devis concurrent retenu, premier devis clos. MR06 : bons de commande depuis la demande ; un brouillon par fournisseur, ligne de frais généraux dans le brouillon de son fournisseur, prix pour 100, créé une fois (double clic, même clé rejouée), port ajouté au brouillon, mode de livraison imprimé. MR07 : un brouillon d'affaire confirmé au prix que le fournisseur a confirmé (vis à 3,52 € les 100 au lieu de 3,42 €), avec son accusé de réception comme preuve, qu'on ne peut plus supprimer ; la ligne de la demande garde le prix du devis. MR08 : un bon confirmé reçu en entier, daté du jour, avec une note de reliquat ; reçu une seule fois et conservé.",
       "paths": [
         "src/app/dashboard/affaires/[projectId]/demandes-materiel/**",
         "src/components/material-requests/**",
@@ -790,11 +792,15 @@
         "src/app/api/catalogue/supply-types/[supplyTypeId]/**",
         "src/components/products/{ProductSuppliers,SupplyTypeSuppliersDialog}.tsx",
         "src/lib/catalogue/supplier-items-client.ts",
+        "src/app/api/purchase-orders/[id]/{confirmation,reception}/**",
+        "src/components/purchase-orders/OrderLifecycle.tsx",
+        "src/lib/purchase-orders/lifecycle{,-contracts,-server}.ts",
         "e2e/army/critical/material-requests.e2e.ts",
         "e2e/army/critical/material-request-articles.e2e.ts",
         "e2e/army/critical/material-request-suppliers.e2e.ts",
         "e2e/army/critical/material-request-consultation.e2e.ts",
         "e2e/army/critical/material-request-orders.e2e.ts",
+        "e2e/army/critical/material-request-order-confirmation.e2e.ts",
         "e2e/fixtures/material-requests/**"
       ],
       "journeys": [
@@ -802,7 +808,8 @@
         "e2e/army/critical/material-request-articles.e2e.ts",
         "e2e/army/critical/material-request-suppliers.e2e.ts",
         "e2e/army/critical/material-request-consultation.e2e.ts",
-        "e2e/army/critical/material-request-orders.e2e.ts"
+        "e2e/army/critical/material-request-orders.e2e.ts",
+        "e2e/army/critical/material-request-order-confirmation.e2e.ts"
       ]
     },
     {

@@ -33,6 +33,8 @@ type PurchaseOrderStatusUpdaterProps = {
   /** Lets a visible label (e.g. a dialog field) name the select instead of the default aria-label. */
   selectId?: string;
   className?: string;
+  /** TI-691: the statuses offered, in this order (an order of an affaire is only canceled or reopened here). */
+  statuses?: readonly PurchaseOrderStatus[];
 };
 
 export function PurchaseOrderStatusUpdater({
@@ -41,6 +43,7 @@ export function PurchaseOrderStatusUpdater({
   onSaved,
   selectId,
   className,
+  statuses,
 }: PurchaseOrderStatusUpdaterProps) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -80,7 +83,7 @@ export function PurchaseOrderStatusUpdater({
         value={value}
         onChange={(event) => setValue(event.target.value as PurchaseOrderStatus)}
       >
-        {STATUS_OPTIONS.map((option) => (
+        {(statuses ? STATUS_OPTIONS.filter((option) => statuses.includes(option.value)) : STATUS_OPTIONS).map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
