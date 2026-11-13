@@ -715,7 +715,7 @@
         },
         "responses": {
           "201": {
-            "description": "Upload intake cree.",
+            "description": "Résultat par fichier. Un contenu identique déjà présent ou en cours d’ajout dans cette affaire est refusé sans nouvelle copie (status rejected, rejectionReason explicite, documentId existant). Le nom seul ne définit pas un doublon. Les liens Drive gardent leur identité fournisseur.",
             "content": {
               "application/json": {
                 "schema": {
