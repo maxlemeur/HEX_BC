@@ -2,8 +2,8 @@
 
 Le 12 novembre 2026, la migration des bons de commande issus des demandes de matériel a été appliquée sur la base
 Supabase partagée, qui sert aussi la production. Elle a été appliquée après la fusion de sa PR et avec le go explicite
-du propriétaire. Aucune donnée métier n'a été écrite pendant cette opération et ses contrôles, et aucun déploiement
-n'a été fait.
+du propriétaire. Aucune donnée métier n'a été écrite pendant cette opération et ses contrôles. Le déploiement de `main`
+qui a suivi, avec son propre go, est consigné [plus bas](#déploiement-et-surveillance).
 
 Le [reçu TI-691 livraison 2](shared-supabase-ti691-delivery2-2026-11-12.md) précède ce lot dans l'historique distant.
 
@@ -53,8 +53,8 @@ L'historique final compte **394 lignes**, SHA-256
 
 ## Compatibilité avec la production déployée
 
-La production sert `1d44b253`, d'après le [reçu TI-692](shared-supabase-ti692-2026-11-12.md), dernier déploiement
-enregistré. Ce code reste compatible avec la migration :
+Au moment de l'application, la production servait `1d44b253`, d'après le [reçu TI-692](shared-supabase-ti692-2026-11-12.md),
+dernier déploiement enregistré. Ce code, conservé pour un éventuel retour arrière, reste compatible avec la migration :
 
 - **Écritures des brouillons :** il appelle `create_purchase_order_draft` et `replace_purchase_order_draft` sans
   `line_kind` ni `price_per`. Les lignes prennent donc `article` et un prix pour 1, et leur total reste
@@ -126,16 +126,74 @@ Les quatre nouveaux avis sont voulus par la migration :
 
 Les avis préexistants restent ouverts.
 
+## Déploiement et surveillance
+
+Le propriétaire a donné son go le 12 novembre 2026 pour déployer `main` au SHA
+`2d6e9b3f93f49558b35aa112365d7b9e7637750b`, qui contient cette livraison.
+
+- **Qualification :** `npm run check:release` sur ce SHA, code de sortie **0**, Node **26.12.1**.
+  - 6 258 tests node verts et 3 ignorés, 974 tests jsdom ;
+  - build Webpack, budgets de performance, runtimes PDF, XLSX et Word, smoke HTTP.
+  - Sur GitHub, Quality Gate, le smoke anonyme, TesterArmy Critical, calc-v3 et Full sont verts sur ce SHA. Full
+    s'est terminé après le déploiement.
+- **Déploiement :** `dpl_zzL2tddZ9T97Y5CoVoLv1saCs8Kq`, **READY** à 23:18:47 UTC.
+  - Il est construit depuis la source Git exacte, sans envoi de fichiers locaux, et sa ligne de clonage cite le SHA.
+  - L'alias de production pointait sur lui au début de la surveillance et à 23:34:21 UTC.
+- **Surveillance :** le 12 novembre, de 23:19:06 à 23:34:18 UTC, 17 passages et 33 requêtes.
+  - `/login` : 16 réponses HTTP 200, formulaire présent à chaque fois.
+  - `/api/health` : 15 réponses HTTP 200 avec `ok: true` et `db: up`, et **deux HTTP 503**, à 23:25:07 et
+    23:25:20 UTC.
+  - Le premier script s'est arrêté sur le premier 503, avant de lire `/login` à ce passage ; sa reprise a contrôlé les
+    deux routes.
+  - Le critère « succès à chaque passage » n'est donc pas atteint.
+- **Logs :** aucun log runtime `error` ou `fatal` pour ce déploiement entre 23:13:46 et 23:34:21 UTC.
+- **Drapeaux :** les trois drapeaux de production sont relevés sur le ticket TI-691. Aucune variable n'a été modifiée
+  pour ce déploiement.
+- **Déploiement précédent conservé :** `dpl_CsSZxB4Ryv4SPPZWcPgfYAE1HbDQ`, SHA
+  `1d44b253e2fbc8085c4ffd59951265668949d78f`. Aucun retour arrière n'a été effectué.
+
+### Les deux 503 de `/api/health`
+
+La sonde de santé interroge la Data API Supabase et répond 503 quand la réponse n'arrive pas en 2 500 ms. Les deux 503
+ont duré 2,585 et 2,595 s, soit ce délai. La sonde n'a pas changé entre `1d44b253` et `2d6e9b3f`.
+
+Les logs du projet Supabase partagé placent la cause dans la base, pas dans le code déployé :
+
+- **PostgREST :** à 23:25:24 UTC, une requête authentifiée de l'application reçoit `PGRST003`, « Timed out acquiring
+  connection from connection pool ».
+- **Connexion interne :** à 23:25:09, une connexion interne à la base met 3,2 s à établir son chiffrement.
+- **PostgreSQL :** ses journaux, qui comptent une ligne toutes les une à deux secondes autour, n'en ont aucune entre
+  23:24:58 et 23:25:31.
+
+Le pool de connexions de la base partagée était saturé pendant une trentaine de secondes. Pendant ce temps, les requêtes
+de l'application vers la Data API pouvaient échouer de la même façon.
+
+Cette saturation précède le déploiement : la même erreur `PGRST003` apparaît trois fois entre 21:31 et 21:32 UTC, quand
+la production servait encore `1d44b253`. Elle ne s'est pas reproduite ensuite : sept sondes entre 23:44:36 et 23:46:54
+UTC ont répondu HTTP 200, `ok: true`, `db: up`. L'origine de la charge n'est pas identifiée.
+
+### Hors de ce déploiement
+
+- **Code :** les PR intégrées après le SHA déployé sont hors production pour ce go : #275, #288, #298, #296, #300,
+  #301, #299, #304, #305, #302, #294 et #306.
+- **Schéma :** la migration `20261112221835_assistant_threads`, de la PR #275, a été appliquée sur la base partagée à
+  23:45:59 UTC, après cette surveillance, par une intervention distincte. Le SHA déployé n'en contient pas le code. Elle
+  relève de son propre reçu.
+
 ## Limites et reprise
 
-Les contrôles prouvent le SQL appliqué, l'historique, le catalogue, les droits et les avis. Ils ne qualifient aucun
-parcours métier en production : les bons de commande issus des demandes n'y sont pas déployés. Leur qualification est
-celle de la PR #291, sur des piles locales possédées :
+Les contrôles prouvent le SQL appliqué, l'historique, le catalogue, les droits, les avis et la disponibilité HTTP. Ils ne
+qualifient aucun parcours métier authentifié en production : la recette authentifiée reste au propriétaire, sur un
+brouillon de test. La qualification des bons de commande issus des demandes est celle de la PR #291, sur des piles
+locales possédées :
 
 - suite pgTAP, dont la course de réouverture d'une commande annulée ;
 - matrice RLS ;
 - parcours MR01 à MR06, BIZ02 et achats décimaux.
 
-Cette PR est documentaire : cohérence, liens et `git diff --check` seulement. Son annulation n'annule pas la migration.
-Privilégier une correction compatible en avant. Toute intervention distante supplémentaire, dont le déploiement de
-`main`, nécessite sa propre autorisation.
+Preuves privées locales, non versionnées : `outputs/production-2d6e9b3f-20261112/` et
+`outputs/check-release-2d6e9b3f/`. Ce reçu publie uniquement les identités techniques et les résultats assainis.
+
+Ce reçu est documentaire : cohérence, liens et `git diff --check` seulement. Son annulation n'annule ni la migration ni
+le déploiement. Privilégier une correction compatible en avant. Toute intervention distante supplémentaire nécessite sa
+propre autorisation.
