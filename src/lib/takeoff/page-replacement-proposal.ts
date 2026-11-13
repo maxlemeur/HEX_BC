@@ -114,9 +114,9 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
 
   // « Fusionner » on a DPGF version: the lines its writer matches by title in the target section are imposed, replayed
   // from the writer of the version's engine on what it is handed (renamed designations, its source order).
+  const mergeLines = input.merge ? mergeSources(ownLines, input.merge.mappingItems) : [];
   const merged = input.merge
-    ? mergeMatches(mergeSources(ownLines, input.merge.mappingItems),
-      estimateRows.filter((line) => (line.parent_id ?? null) === (input.merge!.targetSectionId ?? null)), input.merge.engine)
+    ? mergeMatches(mergeLines, estimateRows.filter((line) => (line.parent_id ?? null) === (input.merge!.targetSectionId ?? null)), input.merge.engine)
     : new Map<string, string>();
   // The DPGF targets this takeoff's lines feed (its reconciliation), to refuse keeping both where one is fed again (D-6).
   const fedTargets = input.fedTargets;
@@ -240,6 +240,21 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
       reference: known.reference, length_factor: lengthFactor(line), earlier: known.earlier, fed: known.fed }] : [];
   }).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
 
+  // TI-723: the lines « Fusionner » sends onto a DPGF line, which the database accepts only when this takeoff feeds that
+  // DPGF line and the reconciliation links the line to some DPGF line (apply_takeoff_job_guarded_atomic): a DPGF line takes
+  // a measure only through its reconciliation, whatever the page decisions.
+  // Named as the writer is handed them (a designation renamed by the mapping), as the database's refusal names them.
+  const fedDpgfLines = new Set(fedTargets.values());
+  const handed = new Map(mergeLines.map((line) => [line.id, line.designation]));
+  const dpgfMergeRefusals = [...merged].flatMap(([takeoffItemId, estimateItemId]) => {
+    const target = estimateById.get(estimateItemId);
+    const line = lines.get(takeoffItemId);
+    if (!target || target.source_provider !== "dpgf" || !line || (fedDpgfLines.has(estimateItemId) && fedTargets.has(takeoffItemId))) return [];
+    return [{ takeoff_item_id: takeoffItemId, designation: handed.get(takeoffItemId) ?? line.designation, quantity: line.quantity, unit: line.unit,
+      estimate_item_id: estimateItemId, title: target.title, dpgf_quantity: number(target.quantity), unit_key: estimateLineUnitKey(target),
+      fed: fedDpgfLines.has(estimateItemId), linked: fedTargets.has(takeoffItemId) }];
+  }).sort((left, right) => left.takeoff_item_id.localeCompare(right.takeoff_item_id));
+
   const named = new Set([...pages.flatMap((page) => page.earlier_job_ids), ...dpgfTargets.flatMap((target) => target.earlier.map((part) => part.job_id))]);
   return {
     job_id: normalizedJobId,
@@ -256,5 +271,6 @@ export function buildPageReplacementProposal(input: PageReplacementInput): Takeo
     unidentified_count: result.unidentified_item_ids.length,
     merge_required: mergeRequired,
     dpgf_targets: dpgfTargets,
+    dpgf_merge_refusals: dpgfMergeRefusals,
   };
 }

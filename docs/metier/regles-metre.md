@@ -267,8 +267,21 @@ seconde fois sans décision.
   nomme les deux lignes ; relier la ligne dans le rapprochement, ou l'exclure à la
   revue. Une ligne qui alimente une ligne DPGF compte dans la somme de celle-ci
   ([`…_takeoff_dpgf_merge_refusals.sql`](../../supabase/migrations/20261113175750_takeoff_dpgf_merge_refusals.sql)).
-  Reste possible : une fusion sur une ligne DPGF que l'application n'alimente pas
-  et dont elle ne remplace aucune page (inchangé depuis D4).
+  Sur une ligne DPGF que l'application n'alimente pas et dont elle ne remplace
+  aucune page (TI-723), la fusion en faisait sans un mot une ligne de métré
+  ordinaire : sa quantité du DPGF et sa composition, max(référence DPGF,
+  Σ mesuré + Σ protecteur), étaient perdues. Elle est refusée de même, même reliée
+  ailleurs, le détail disant que l'application ne compose pas la ligne
+  (`composed`) et ce qu'elle tient (`dpgf_quantity`). L'issue est le rapprochement :
+  reliée à cette ligne DPGF, la ligne l'alimente par sa composition, sa référence
+  gardée. Une fusion ne devient jamais une part de la composition : ce serait
+  changer ce que « Fusionner » veut dire. La règle tient en une phrase : une ligne
+  DPGF ne reçoit une mesure que par le rapprochement ; « Fusionner » n'y envoie une
+  ligne que si l'application l'alimente et que le rapprochement relie cette ligne à
+  une ligne DPGF. La proposition des pages (`dpgf_merge_refusals`) nomme chaque
+  ligne refusée avant l'envoi ; l'assistant le dit, n'offre pas la confirmation et
+  ouvre le rapprochement (TKD06,
+  [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113202356_takeoff_dpgf_merge_any_line.sql)).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.

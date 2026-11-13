@@ -135,6 +135,11 @@ export type Resolution = {
   counts: { updated: number; added: number; removed: number; kept: number; keptBoth: number };
   /** TI-682 D4: every DPGF line the application touches, before and after. */
   dpgf: DpgfTargetOutcome[];
+  /**
+   * TI-723: each line « Fusionner » sends onto a DPGF line outside the reconciliation, which the database refuses whatever
+   * the page decisions: no choice here confirms, the way out is the reconciliation (or the line excluded at the review).
+   */
+  merges: Advice[];
 };
 
 const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
@@ -506,7 +511,23 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
         .map((entry) => ({ takeoff_item_id: entry.newLine.id, estimate_item_id: entry.pair! })) };
   });
 
-  const missing = [...pages.flatMap((page) => page.missing), ...lines.flatMap((entry) => entry.missing)];
+  // TI-723: both lines named, what the database refuses and why, then the reconciliation: linked to the DPGF line, the line
+  // feeds it through its composition (never « Fusionner » turned into a part of it). A line linked elsewhere is counted
+  // there: its links are checked, it is not asked to be linked here too.
+  const merges: Advice[] = proposal.dpgf_merge_refusals.map((refusal) => {
+    const unit = refusal.unit_key.startsWith("status:") ? "" : ` ${refusal.unit_key}`;
+    const dpgf = `la ligne DPGF « ${refusal.title} »${refusal.dpgf_quantity === null ? "" : ` (${quantityFormat.format(refusal.dpgf_quantity)}${unit})`}`;
+    const line = `« ${refusal.designation} » (${quantityFormat.format(refusal.quantity)}${refusal.unit.trim() ? ` ${refusal.unit.trim()}` : ""}) de ce métré`;
+    const why = "Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base refuse cette fusion.";
+    return refusal.linked
+      ? { text: `« Fusionner » enverrait ${line}, que le rapprochement relie à une autre ligne DPGF, aussi sur ${dpgf}, que ce métré n’alimente pas. ${why}`,
+        choose: [], elsewhere: ["link_in_dpgf_review" as const], exits: ["Vérifiez les rattachements DPGF de cette ligne dans le rapprochement."] }
+      : { text: `« Fusionner » enverrait ${line} sur ${dpgf}, ${refusal.fed ? "à laquelle le rapprochement ne la relie pas" : "que ce métré n’alimente pas"}. ${why}`,
+        choose: [], elsewhere: ["link_in_dpgf_review" as const, "exclude_at_review" as const],
+        exits: ["Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.",
+          "Sinon, excluez-la à la revue du métré."] };
+  });
+  const missing = [...pages.flatMap((page) => page.missing), ...lines.flatMap((entry) => entry.missing), ...merges.map(adviceMessage)];
   // The introduction names a choice only where some page can be confirmed with it.
   const replaceablePages = proposal.pages.filter((page) => replaceable.get(page.key));
   const keepablePages = proposal.pages.filter((page) => keepBothOffered(page.key));
@@ -519,7 +540,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       ...keepablePages.map((page) => ({ control: `page:${page.key}`, value: "keep_both" }))],
     elsewhere: [], exits: [] };
   return {
-    pages, lines, newLines, missing, complete: missing.length === 0, payload, introduction, dpgf,
+    pages, lines, newLines, missing, complete: missing.length === 0, payload, introduction, dpgf, merges,
     counts: {
       updated: lines.filter((entry) => entry.state === "updated").length,
       added: newLines.filter((entry) => entry.pair === null).length,

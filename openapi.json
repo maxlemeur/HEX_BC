@@ -25057,7 +25057,7 @@
           "Takeoff"
         ],
         "summary": "Proposition de remplacement des pages deja au devis",
-        "description": "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base.",
+        "description": "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base. TI-723 : sur une version DPGF, dpgf_merge_refusals nomme chaque ligne que « Fusionner » enverrait sur une ligne DPGF hors du rapprochement, que la base refuse (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT).",
         "parameters": [
           {
             "name": "jobId",
@@ -89196,6 +89196,64 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "dpgf_merge_refusals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "takeoff_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "estimate_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "dpgf_quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "unit_key": {
+                      "type": "string"
+                    },
+                    "fed": {
+                      "type": "boolean"
+                    },
+                    "linked": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "takeoff_item_id",
+                    "designation",
+                    "quantity",
+                    "unit",
+                    "estimate_item_id",
+                    "title",
+                    "dpgf_quantity",
+                    "unit_key",
+                    "fed",
+                    "linked"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -89208,7 +89266,8 @@
               "jobs",
               "unidentified_count",
               "merge_required",
-              "dpgf_targets"
+              "dpgf_targets",
+              "dpgf_merge_refusals"
             ],
             "additionalProperties": false
           }

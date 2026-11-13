@@ -68,3 +68,65 @@ describe("the proposal reasons per estimate line, across the pages of the applic
     expect(removable(result, id(201))).toEqual([false]);
   });
 });
+
+// TI-723: « Fusionner » matches a takeoff line to the first line of its title and unit in the section, outside the
+// reconciliation. Sent onto a DPGF line, the database accepts it only when this takeoff feeds that DPGF line and the line
+// itself feeds a DPGF line (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT otherwise, whatever the page decisions). The proposal
+// names each one before anything is sent. Written before the field (red on 4915259f). Fictional values.
+describe("the lines « Fusionner » sends onto a DPGF line outside the reconciliation (TI-723)", () => {
+  const SECTION = id(200);
+  const dpgfRow = (n: number, title: string, quantity: number, position: number): EstimateLineRow => ({
+    id: id(n), title, unit_code: "ml", description: "ml", pricing_status: "priced", quantity, updated_at: "2026-11-11T10:05:00.000000+00:00",
+    unit_price_ht_cents: 1000, parent_id: SECTION, position, item_type: "line", source_provider: "dpgf", source_job_id: null,
+    source_file_name: "dpgf-fictif.xlsx", source_page: 7, takeoff_item_id: null, rounding_item_ids: null, rounding_job_id: null,
+    policy_item_ids: null, policy_job_id: null, replacement_item_ids: null, replacement_job_id: null, mapping_action: null,
+  });
+  const fedLine = dpgfRow(211, "EF cuivre DN 22", 20, 1);
+  const neverFed = dpgfRow(212, "Calorifuge DN 22", 8, 2);
+  const refusalsOf = (ownLines: TakeoffLineRow[], fedTargets: Map<string, string>) => buildPageReplacementProposal({ jobId: NEW,
+    versionId: id(9100), mergeRequired: true, ownLines, referencedLines: [], estimateRows: [fedLine, neverFed],
+    jobs: [{ id: NEW, created_at: "2026-11-12T09:00:00Z", level: "B", source_file_name: "plan-fictif.pdf", sources: null }], leftOut: new Set(),
+    merge: { mappingItems: ownLines.map((line) => ({ item_id: line.id, action: "none" })), targetSectionId: SECTION, engine: 3 },
+    fedTargets }).dpgf_merge_refusals;
+
+  it("names a line sent onto a DPGF line this takeoff does not feed, with both lines", () => {
+    const own = [takeoffLine(311, NEW, "EF cuivre DN 22", 12, "ml", 3), takeoffLine(312, NEW, "Calorifuge DN 22", 9, "ml", 3),
+      takeoffLine(313, NEW, "Vanne d'arrêt", 2, "u", 3)];
+    expect(refusalsOf(own, new Map([[id(311), id(211)]]))).toEqual([{ takeoff_item_id: id(312), designation: "Calorifuge DN 22", quantity: 9,
+      unit: "ml", estimate_item_id: id(212), title: "Calorifuge DN 22", dpgf_quantity: 8, unit_key: "ml", fed: false, linked: false }]);
+  });
+
+  it("names a line the reconciliation does not link, sent onto a DPGF line this takeoff feeds (TI-716)", () => {
+    const own = [takeoffLine(311, NEW, "EF cuivre DN 22", 3, "ml", 3), takeoffLine(314, NEW, "EF cuivre DN 22", 12, "ml", 3)];
+    expect(refusalsOf(own, new Map([[id(314), id(211)]])).map((refusal) => [refusal.takeoff_item_id, refusal.estimate_item_id, refusal.fed,
+      refusal.linked])).toEqual([[id(311), id(211), true, false]]);
+  });
+
+  it("names a line linked elsewhere, sent onto a DPGF line this takeoff does not feed", () => {
+    const own = [takeoffLine(312, NEW, "Calorifuge DN 22", 9, "ml", 3)];
+    expect(refusalsOf(own, new Map([[id(312), id(211)]])).map((refusal) => [refusal.estimate_item_id, refusal.fed, refusal.linked]))
+      .toEqual([[id(212), false, true]]);
+  });
+
+  // Review of the TI-723 diff: a line matched because the mapping renamed it is named as the writer is handed it, as the
+  // database's refusal names it.
+  it("names a line renamed by the mapping by its new designation", () => {
+    const own = [takeoffLine(315, NEW, "Calorifuge 22", 9, "ml", 3)];
+    const result = buildPageReplacementProposal({ jobId: NEW, versionId: id(9100), mergeRequired: true, ownLines: own, referencedLines: [],
+      estimateRows: [fedLine, neverFed], jobs: [{ id: NEW, created_at: "2026-11-12T09:00:00Z", level: "B", source_file_name: "plan-fictif.pdf",
+        sources: null }], leftOut: new Set(), fedTargets: new Map(),
+      merge: { mappingItems: [{ item_id: id(315), action: "rename", transformed: { designation: "Calorifuge DN 22" } }], targetSectionId: SECTION,
+        engine: 3 } });
+    expect(result.dpgf_merge_refusals.map((refusal) => [refusal.designation, refusal.estimate_item_id])).toEqual([["Calorifuge DN 22", id(212)]]);
+  });
+
+  // Counterexamples: the reconciliation links the line to the DPGF line it is sent onto; a line linked elsewhere sent onto
+  // a DPGF line this takeoff feeds counts where it is linked (as TI-716 kept it); outside a DPGF version, no merge replay.
+  it("accepts what the reconciliation feeds", () => {
+    const own = [takeoffLine(311, NEW, "EF cuivre DN 22", 12, "ml", 3), takeoffLine(312, NEW, "Calorifuge DN 22", 9, "ml", 3)];
+    expect(refusalsOf(own, new Map([[id(311), id(211)], [id(312), id(212)]]))).toEqual([]);
+    expect(refusalsOf([takeoffLine(311, NEW, "EF cuivre DN 22", 3, "ml", 3), takeoffLine(314, NEW, "EF cuivre DN 22", 12, "ml", 3)],
+      new Map([[id(311), id(212)], [id(314), id(211)]]))).toEqual([]);
+    expect(proposal([takeoffLine(312, NEW, "Calorifuge DN 22", 9, "ml", 3)]).dpgf_merge_refusals).toEqual([]);
+  });
+});

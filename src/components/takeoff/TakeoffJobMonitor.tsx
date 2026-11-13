@@ -814,6 +814,7 @@ export default function TakeoffJobMonitor({
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
         reviewHref={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review`}
+        dpgfReviewHref={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review?reviewMode=production&view=dpgf`}
       />
     </div>
   );

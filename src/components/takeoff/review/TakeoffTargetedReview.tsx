@@ -637,7 +637,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
-          onReturnToReview={() => setWizardOpen(false)} />
+          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={`${reviewHref}&reviewMode=production&view=dpgf`} />
       ) : null}
     </div>
   );

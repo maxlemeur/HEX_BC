@@ -1425,6 +1425,7 @@ export default function TakeoffReviewPage({
         isAdmin={isAdmin}
         onReturnToReview={() => setApplyWizardOpen(false)}
         targetedReviewHref={targetedReviewHref}
+        onOpenDpgfReview={() => openProductionReview("dpgf")}
       /> : null}
 
       {/* ---- Evidence panel ---- */}

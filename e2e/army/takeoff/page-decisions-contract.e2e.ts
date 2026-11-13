@@ -411,8 +411,8 @@ const OUTSIDE_THE_CONTRACT: Record<string, string> = {
   decisions_not_of_this_application: "the route never records apart from the application (race test, scenario 1)",
   shape: "the decisions' shape is the contract's schema: the route's parser refuses a malformed payload before the database (Vitest apply-server)",
   job_not_completed: "the wizard applies a completed takeoff only; an applied one is frozen (TAKEOFF_PAGE_DECISIONS_FROZEN, Vitest apply-errors, pgTAP)",
-  // TI-716: TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT, not a page decision's refusal.
-  merged_outside_reconciliation: "« Fusionner » sending a takeoff line onto a DPGF line outside the reconciliation is refused whatever the page decisions: no screen state sends it, the mapping and the permit do (pgTAP takeoff-dpgf-accumulation cases 18, 21 and 22, Vitest apply-errors)",
+  // TI-716: TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT, not a page decision's refusal. TI-723: onto any DPGF line.
+  merged_outside_reconciliation: "« Fusionner » sending a takeoff line onto a DPGF line outside the reconciliation is refused whatever the page decisions: the proposal names it (dpgf_merge_refusals) and no screen state confirms it; the mapping and the permit decide it (pgTAP takeoff-dpgf-accumulation cases 18, 21 to 24, Vitest apply-errors and page-decisions-dpgf, TKD06)",
 };
 
 /**
@@ -1016,4 +1016,126 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
       "the DPGF line holds the relaunch's measure, the earlier part out whole").toEqual([22, 22, 2, [[bothPages.jobId, 9], [bothPages.jobId, 13]], false]);
     await recordEvidence(army, "TKD05-dpgf-part-unknown", { versionId, earlier: earlier.jobId, pageOne: pageOne.jobId, bothPages: bothPages.jobId,
       refusal: refused.body.error, named, together, held: [quantity, policy] });
+  });
+
+// TI-723: « Fusionner » matches a takeoff line to the first line of its title and unit in the section, outside the
+// reconciliation. Onto a DPGF line no takeoff feeds and whose page none replaces, it made that line an ordinary takeoff
+// line, its DPGF quantity and its composition lost without a word (until TI-723 the route applied it: 200, the DPGF line
+// « Robinet de puisage » holding the takeoff's 7 u as a takeoff line). It is refused now, both lines named, and the wizard
+// says so before anything is sent and opens the reconciliation; linked there, the line feeds the DPGF line through its
+// composition, its reference kept, read again after a reload. An engine 3 version with two DPGF lines: « EF cuivre DN 22 »
+// (20 ml), which the reconciliation links by its title, and « Robinet de puisage » (6 u), whose detailed text keeps the
+// reconciliation from recognizing a takeoff line of its title alone. Fictional plans and quantities.
+armyTest("TKD06 a line « Fusionner » would send onto a DPGF line the application does not compose is refused, named before it is sent, and fed once the reconciliation links it",
+  options, async (ui) => {
+    const { browser, army } = ui;
+    const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY fusion DPGF" }, army);
+    const { versionId, sectionId } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
+      { title: "EF cuivre DN 22", reference: 20 });
+    await sql(`begin;
+select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description, quantity, unit_code,
+  unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_provider,
+  source_file_name, source_page, source_metadata, fo_provision)
+select gen_random_uuid(), version.tenant_id, version.id, '${sectionId}', 'line', 101, 'Robinet de puisage',
+  'Robinet de puisage à nez fileté, finition chromée, fourni et posé, y compris essais de fonctionnement', 6, 'u', 4500, 2000, 1, 0, 1, 4500,
+  27000, 5400, 32400, 'dpgf', 'dpgf-fictif.xlsx', 8, jsonb_build_object('dpgf_source_quantity', 6, 'dpgf_source_unit', 'u'), 1
+from public.estimate_versions version where version.id = '${versionId}';
+select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items where version_id = '${versionId}'
+  and source_provider = 'dpgf' and title = 'Robinet de puisage'));
+commit;`);
+    const scoped = await localTakeoffFixture(army, { projectId: base.projectId, versionId });
+    const plan = randomUUID();
+    const takeoff = await scoped.seed("C", [
+      { designation: "EF cuivre DN 22", quantity: 24, unit: "ml", confidence: 0.95, source_page: 1, is_excluded: false,
+        metadata: { source_document: { kind: "plan_file", plan_file_id: plan } } },
+      { designation: "Robinet de puisage", quantity: 7, unit: "u", confidence: 0.95, source_page: 1, is_excluded: false,
+        metadata: { source_document: { kind: "plan_file", plan_file_id: plan } } }], "fusion-dpgf.pdf");
+    // A DPGF line: [its quantity, its provider, its DPGF reference, its composition by takeoff].
+    const dpgfLine = async (title: string) => JSON.parse((await sql(`select jsonb_build_array(item.quantity, item.source_provider,
+  item.source_metadata -> 'dpgf_source_quantity', (select jsonb_agg(jsonb_build_array(part ->> 'job_id', (part ->> 'quantity')::numeric))
+    from jsonb_array_elements(item.source_metadata #> '{takeoff_quantity_policy,contributions}') as part))
+from public.estimate_items item where item.version_id = '${versionId}' and item.title = '${title}' and item.item_type = 'line';`))[0]) as
+      [number, string, number, Array<[string, number]> | null];
+    const asRead = (held: Awaited<ReturnType<typeof dpgfLine>>) => [Number(held[0]), held[1], Number(held[2]),
+      held[3]?.map(([job, quantity]) => [job, Number(quantity)]) ?? null];
+
+    // Through the route (what the screen no longer sends): refused, both lines named, the reconciliation pointed to; nothing
+    // written. Until TI-723: 200, the DPGF line overwritten.
+    const refused = await applyOwnedTakeoff(browser, versionId, takeoff.jobId, { strategy: "merge", target_section_id: sectionId }) as
+      { status: number; body: { ok: boolean; error?: { message: string; details?: Record<string, unknown> } } };
+    expect([refused.status, refused.body.error?.details?.reason, refused.body.error?.details?.guard, refused.body.error?.details?.composed],
+      `the merge onto a DPGF line the application does not compose is refused: ${JSON.stringify(refused.body)}`)
+      .toEqual([422, "merged_outside_reconciliation", "dpgf_quantities", false]);
+    expect(refused.body.error?.message, "the refusal names both lines and the way out").toBe("La fusion par désignation enverrait « Robinet de "
+      + "puisage » (7 u) de ce métré sur la ligne DPGF « Robinet de puisage » (6 u), que ce métré n’alimente pas : la fusion en ferait une ligne de "
+      + "métré ordinaire, sans sa quantité du DPGF ni sa composition. Rien n’est appliqué. Reliez cette ligne à la ligne DPGF dans le "
+      + "rapprochement : elle l’alimentera, sa quantité du DPGF gardée. Sinon, excluez-la à la revue du métré. Puis appliquez à nouveau.");
+    expect([asRead(await dpgfLine("Robinet de puisage")), asRead(await dpgfLine("EF cuivre DN 22"))], "nothing was written")
+      .toEqual([[6, "dpgf", 6, null], [20, "dpgf", 20, null]]);
+
+    // The proposal the wizard reads names that line, and only it, before anything is sent.
+    const proposed = await apiRequest<Envelope<TakeoffPageReplacementResponse>>(browser, "POST", `/api/takeoff/jobs/${takeoff.jobId}/page-replacement`,
+      { strategy: "merge", target_section_id: sectionId });
+    expect([proposed.status, proposed.body.data?.dpgf_merge_refusals.map((refusal) => [refusal.designation, refusal.title, refusal.dpgf_quantity,
+      refusal.fed, refusal.linked])], "the proposal names the refused merge").toEqual([200, [["Robinet de puisage", "Robinet de puisage", 6, false, false]]]);
+
+    // The journey's draft lease is released from the page it ran in, as closing that editor would: the wizard takes its own.
+    const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+    expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
+    const openWizard = async () => {
+      await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${takeoff.jobId}/review/targeted?versionId=${versionId}`);
+      await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
+      const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
+      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      await wizard.getByRole("radio", /^Fusionner/).check();
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      await expect(wizard).toContainText("Robinet de puisage");
+      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      return wizard;
+    };
+
+    // The wizard says it before anything is sent, withholds the confirmation and opens the reconciliation.
+    const stuck = await openWizard();
+    const region = stuck.getByRole("region", "Fusion sur une ligne DPGF", { exact: true });
+    await expect(region).toContainText("« Fusionner » enverrait « Robinet de puisage » (7 u) de ce métré sur la ligne DPGF « Robinet de "
+      + "puisage » (6 u), que ce métré n’alimente pas. Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa "
+      + "quantité du DPGF : la base refuse cette fusion.");
+    await expect(region).toContainText("Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.");
+    await expect(stuck.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+    const named = await ui.app.screenshot("ti723-dpgf-merge-named");
+    await region.getByRole("link", "Ouvrir le rapprochement DPGF", { exact: true }).click();
+    await expect(ui.screen.getByRole("heading", "Comparaison DPGF explicable", { exact: true })).toBeVisible();
+    await expect(ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true })).toHaveCount(0);
+
+    // The way out: the takeoff line linked to the DPGF line in the reconciliation.
+    await ui.screen.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("button", /Robinet de puisage/).click();
+    await ui.screen.getByRole("button", "Recomposer les liens", { exact: true }).click();
+    const modal = ui.screen.getByRole("dialog", /Lier manuellement des éléments de métré/);
+    // The modal of that DPGF line (6 u), not of the line the aside showed first.
+    await expect(modal).toContainText("Quantité DPGF : 6");
+    await modal.getByRole("checkbox", /Robinet de puisage/).check();
+    await modal.getByRole("button", "Enregistrer la sélection", { exact: true }).click();
+    await expect(ui.screen.getByText("Lien manuel mis à jour")).toBeVisible();
+    const linked = await ui.app.screenshot("ti723-dpgf-merge-linked");
+
+    // The wizard now names nothing and applies: the DPGF line is fed through its composition, its reference kept.
+    const wizard = await openWizard();
+    await expect(wizard.getByRole("region", "Fusion sur une ligne DPGF", { exact: true })).toHaveCount(0);
+    const target = wizard.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("group", "Ligne DPGF Robinet de puisage", { exact: true });
+    await expect(target).toContainText("Robinet de puisage : 6 → 7 (+1)");
+    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    await expect(confirm).toBeEnabled();
+    const [response] = await Promise.all([browser.waitForResponse(`**/api/takeoff/jobs/${takeoff.jobId}/apply`), confirm.click()]);
+    expect(response.status, "linked by the reconciliation, the application applies").toBe(200);
+    await expect(wizard).toBeHidden();
+
+    // Read again after a reload: max(6, 7) on the DPGF line by its composition, its DPGF reference kept; max(20, 24) on the other.
+    await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${takeoff.jobId}/review/targeted?versionId=${versionId}`);
+    const held = [asRead(await dpgfLine("Robinet de puisage")), asRead(await dpgfLine("EF cuivre DN 22"))];
+    expect(held, "both DPGF lines are fed through their composition, their reference kept")
+      .toEqual([[7, "dpgf", 6, [[takeoff.jobId, 7]]], [24, "dpgf", 20, [[takeoff.jobId, 24]]]]);
+    await recordEvidence(army, "TKD06-dpgf-merge-refused", { versionId, jobId: takeoff.jobId, proposal: proposed.body.data?.dpgf_merge_refusals,
+      refusal: refused.body.error, named, linked, held });
   });
