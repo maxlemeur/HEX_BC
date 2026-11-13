@@ -2,6 +2,7 @@ import "server-only";
 
 import type { z } from "zod";
 
+import type { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import type { AssistantModelDelta, AssistantModelTurn, AssistantTokenUsage } from "@/lib/assistant/model-turn";
 
 /** A read the model may ask for. `run` re-checks the user's access itself: arguments come from the model. */
@@ -11,7 +12,8 @@ export type AssistantTool = {
   /** Shown to the user while the tool runs, e.g. « Lecture du devis ». */
   activity: string;
   input: z.ZodType;
-  run(input: unknown): Promise<unknown>;
+  /** `signal` is the answer's: the member's Stop and its time bound. A read that can pass it on to its download does. */
+  run(input: unknown, signal: AbortSignal): Promise<unknown>;
 };
 
 /**
@@ -35,10 +37,23 @@ export class AssistantToolError extends Error {
   }
 }
 
+/** A refusal the application worded for its user (4xx) is told to the model as is; anything else stays a failure. */
+export async function withUserFacingRefusals<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    const status = (error as { status?: unknown } | null)?.status;
+    if (error instanceof Error && typeof status === "number" && status >= 400 && status < 500) throw new AssistantToolError(error.message);
+    throw error;
+  }
+}
+
 export type AssistantEvent =
   | AssistantModelDelta
   | { type: "tool_started"; callId: string; name: string; activity: string }
-  | { type: "tool_finished"; callId: string; ok: boolean };
+  | { type: "tool_finished"; callId: string; ok: boolean }
+  /** A model request succeeded: what it carried has been seen, and the text it wrote is complete. Not sent to the browser. */
+  | { type: "model_turn_finished" };
 
 export type AssistantModelRequest = { input: unknown[]; toolsAllowed: boolean };
 export type CallAssistantModel = (
@@ -61,7 +76,18 @@ function failure(message: string): ToolOutcome {
   return { ok: false, output: JSON.stringify({ erreur: message }) };
 }
 
-async function runTool(tool: AssistantTool | undefined, rawArguments: string): Promise<ToolOutcome> {
+/** The tool's own promise, unless the answer is stopped first: a stopped answer waits for no read. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return; }
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    work.then((value) => { signal.removeEventListener("abort", stop); resolve(value); },
+      (error: unknown) => { signal.removeEventListener("abort", stop); reject(error); });
+  });
+}
+
+async function runTool(tool: AssistantTool | undefined, rawArguments: string, signal: AbortSignal): Promise<ToolOutcome> {
   if (!tool) return failure("Outil inconnu.");
   let parsed: unknown;
   try {
@@ -75,7 +101,7 @@ async function runTool(tool: AssistantTool | undefined, rawArguments: string): P
     return failure(`Arguments refusés (${fields}). Respecte le schéma de l’outil.`);
   }
   try {
-    const value = await tool.run(input.data);
+    const value = await untilAborted(tool.run(input.data, signal), signal);
     const result = value instanceof AssistantToolResult ? value : new AssistantToolResult(value, null);
     const output = JSON.stringify(result.output ?? null);
     if (output.length > MAX_TOOL_OUTPUT_CHARACTERS) {
@@ -83,6 +109,8 @@ async function runTool(tool: AssistantTool | undefined, rawArguments: string): P
     }
     return { ok: true, output, attachment: result.attachment };
   } catch (error) {
+    // Stopped or out of time: the answer ends here, not with a failed read.
+    if (signal.aborted) throw signal.reason;
     if (error instanceof AssistantToolError) return failure(error.message);
     // The cause stays in the server log, by tool name only: no argument, no provider or database payload.
     console.error("assistant_tool_failed", tool.name, error instanceof Error ? error.name : "unknown");
@@ -103,6 +131,12 @@ export async function runAssistantLoop(options: {
   emit(event: AssistantEvent): void;
   signal: AbortSignal;
   maxToolCalls?: number;
+  /**
+   * The documents this answer reads. It is told when a request leaves and when
+   * it succeeds (its pages are then seen), and it says when the next request
+   * must be the last one: every request sends again all that was read.
+   */
+  documents?: Pick<AssistantDocumentLedger, "allowsMoreReads" | "requestStarting" | "requestSucceeded">;
 }): Promise<AssistantLoopResult> {
   const maxToolCalls = options.maxToolCalls ?? ASSISTANT_MAX_TOOL_CALLS;
   const tools = new Map(options.tools.map((tool) => [tool.name, tool]));
@@ -115,11 +149,16 @@ export async function runAssistantLoop(options: {
 
   for (;;) {
     options.signal.throwIfAborted();
-    const turn = await options.callModel({ input, toolsAllowed: toolCalls < maxToolCalls }, options.emit, options.signal);
+    const toolsAllowed = toolCalls < maxToolCalls && (options.documents?.allowsMoreReads() ?? true);
+    options.documents?.requestStarting();
+    const turn = await options.callModel({ input, toolsAllowed }, options.emit, options.signal);
+    options.documents?.requestSucceeded();
+    options.emit({ type: "model_turn_finished" });
     modelCalls += 1;
     for (const key of ["inputTokens", "outputTokens", "reasoningTokens", "totalTokens"] as const) usage[key] += turn.usage[key];
     if (turn.text.trim()) texts.push(turn.text.trim());
-    if (turn.toolCalls.length === 0) return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
+    // A request without tools is the last one: a call it still makes is not run, and no request follows it.
+    if (turn.toolCalls.length === 0 || !toolsAllowed) return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
 
     input.push(...turn.replayItems);
     // Documents follow the results of the turn: each call is answered first, as the Responses API expects.
@@ -132,7 +171,7 @@ export async function runAssistantLoop(options: {
       options.emit({ type: "tool_started", callId: call.callId, name: call.name, activity });
       const result = toolCalls >= maxToolCalls
         ? failure("Limite de lectures atteinte pour cette réponse. Réponds avec ce que tu as déjà lu.")
-        : await runTool(tool, call.arguments);
+        : await runTool(tool, call.arguments, options.signal);
       toolCalls += 1;
       used.push({ name: call.name, activity, ok: result.ok });
       options.emit({ type: "tool_finished", callId: call.callId, ok: result.ok });

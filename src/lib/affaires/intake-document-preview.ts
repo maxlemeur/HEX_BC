@@ -26,6 +26,8 @@ export async function readAffaireDocumentPreview(
   projectId: string,
   documentId: string,
   download: boolean,
+  /** Stops the download (storage or Drive) when the caller no longer waits for it. */
+  signal?: AbortSignal,
 ) {
   const { context, project } = await requireAffaireProjectReadAccess(projectId);
   const { data, error } = await context.supabase
@@ -56,7 +58,7 @@ export async function readAffaireDocumentPreview(
   if (data.storage_path) {
     const stored = await context.supabase.storage
       .from(AFFAIRE_INTAKE_BUCKET)
-      .download(data.storage_path);
+      .download(data.storage_path, undefined, signal ? { signal } : undefined);
     if (stored.error || !stored.data)
       throw notFound(
         "Le fichier n’est plus disponible. Actualisez le dossier.",
@@ -66,7 +68,7 @@ export async function readAffaireDocumentPreview(
     bytes = new Uint8Array(await stored.data.arrayBuffer());
   } else {
     try {
-      bytes = (await readLinkedDriveDocument(data)).bytes;
+      bytes = (await readLinkedDriveDocument(data, signal)).bytes;
     } catch (cause) {
       if (cause instanceof DriveError)
         throw new ApiError({

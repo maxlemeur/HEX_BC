@@ -5,7 +5,7 @@ import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-previ
 import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
-import { AssistantToolError } from "@/lib/assistant/loop";
+import { AssistantToolError, withUserFacingRefusals } from "@/lib/assistant/loop";
 
 const NO_ACCESS = "Vous n’avez pas accès aux pièces de cette affaire.";
 const NOT_IN_AFFAIRE = "Cette pièce n’appartient pas à l’affaire de cette conversation, ou n’est plus disponible. Liste les pièces pour en choisir une.";
@@ -18,16 +18,6 @@ function isClientError(error: unknown) {
   return error instanceof Error && typeof status === "number" && status >= 400 && status < 500;
 }
 
-/** A refusal the application worded for its user (4xx) is told as is; anything else stays a failure. */
-async function userFacing<T>(read: () => Promise<T>): Promise<T> {
-  try {
-    return await read();
-  } catch (error) {
-    if (isClientError(error)) throw new AssistantToolError((error as Error).message);
-    throw error;
-  }
-}
-
 /** The member may still read the affaire (owner, admin or director): checked again by every read, with their own rights. */
 async function affaireAccess(projectId: string) {
   try {
@@ -38,7 +28,6 @@ async function affaireAccess(projectId: string) {
   }
 }
 
-const mimeOf = (value: string | null) => value?.split(";")[0]?.trim().toLowerCase() ?? null;
 const kindLabel = (kind: string) => AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[kind as AffaireIntakeDocumentKind] ?? "À classer";
 
 /** The affaire's documents that can be opened, as its document classification sorted them, principal ones first. */
@@ -71,7 +60,11 @@ export async function listAffaireDocuments(projectId: string) {
  * of another affaire, even one the member may open, is refused before any byte
  * is read. The bytes come through the dossier's own preview read.
  */
-export async function loadAffaireDocument(input: { projectId: string; documentId: string }) {
+export async function loadAffaireDocument(input: {
+  projectId: string; documentId: string; signal?: AbortSignal;
+  /** The bytes already downloaded by this answer, by document: access and the lookup are checked again all the same. */
+  cache?: Map<string, Promise<Uint8Array>>;
+}) {
   const { context, project } = await affaireAccess(input.projectId);
   const lookup = await context.supabase.from("affaire_intake_documents")
     .select("id, file_name, mime_type, document_kind")
@@ -82,18 +75,26 @@ export async function loadAffaireDocument(input: { projectId: string; documentId
   const row = lookup.data;
   if (!row) throw new AssistantToolError(NOT_IN_AFFAIRE);
   // A format the assistant does not read is refused before its bytes are fetched (up to 50 MB, maybe from Drive).
-  if (documentReadType(row.file_name, row.mime_type) === null) throw new AssistantToolError(UNREADABLE_FORMAT);
-  const document = await userFacing(() => readAffaireDocumentPreview(project.id, row.id, true));
-  return {
-    documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind),
-    mimeType: mimeOf(row.mime_type), bytes: document.bytes,
-  };
+  const mimeType = documentReadType(row.file_name, row.mime_type);
+  if (mimeType === null) throw new AssistantToolError(UNREADABLE_FORMAT);
+  const cache = input.cache;
+  let download = cache?.get(row.id);
+  if (!download) {
+    const fetched = withUserFacingRefusals(() => readAffaireDocumentPreview(project.id, row.id, true, input.signal)).then((read) => read.bytes);
+    download = fetched;
+    if (cache) {
+      cache.set(row.id, fetched);
+      // A failed download is not kept: the next read tries again.
+      fetched.catch(() => { if (cache.get(row.id) === fetched) cache.delete(row.id); });
+    }
+  }
+  return { documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind), mimeType, bytes: await download };
 }
 
 /** The affaire's brief and the latest entries of its register (questions, hypotheses, missing pieces), in short. */
 export async function readAffaireBriefAndRegister(projectId: string) {
   const { project } = await affaireAccess(projectId);
-  const [brief, register] = await userFacing(() => Promise.all([
+  const [brief, register] = await withUserFacingRefusals(() => Promise.all([
     readAffaireBriefDraft(project.id),
     fetchAffaireRegisterPage({ projectId: project.id, size: REGISTER_ENTRIES }),
   ]));

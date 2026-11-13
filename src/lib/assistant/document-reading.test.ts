@@ -1,4 +1,5 @@
-import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
+import { randomBytes } from "node:crypto";
+import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
@@ -26,6 +27,12 @@ async function pagesOf(part: Record<string, unknown>) {
   expect(data.startsWith("data:application/pdf;base64,JVBER")).toBe(true);
   const sent = await PDFDocument.load(Buffer.from(data.slice("data:application/pdf;base64,".length), "base64"));
   return sent.getPageCount();
+}
+
+/** The request carrying what was read has gone and succeeded: the next read starts a new round. */
+function nextRequest(ledger: AssistantDocumentLedger) {
+  ledger.requestStarting();
+  ledger.requestSucceeded();
 }
 
 const read = (bytes: Uint8Array, input: Partial<Parameters<typeof prepareDocumentRead>[0]> = {}) => prepareDocumentRead({
@@ -81,8 +88,10 @@ describe("reading a document for the assistant", () => {
     const bytes = await pdfOf(30);
     const first = await read(bytes, { ledger, limits });
     expect(first.to).toBe(10);
+    nextRequest(ledger);
     const second = await read(bytes, { ledger, limits, pageStart: 11 });
     expect(second).toMatchObject({ from: 11, to: 12, cut: "budget", nextPage: 13 });
+    nextRequest(ledger);
     await expect(read(bytes, { ledger, limits, pageStart: 13 })).rejects.toThrow("Limite de pages");
   });
 
@@ -130,5 +139,59 @@ describe("reading a document for the assistant", () => {
     expect(result).toMatchObject({ pagesTotal: 1, from: 1, to: 1, cut: null });
     const sent = await PDFDocument.load(Buffer.from(String(result.parts[0]!.file_data).split(",")[1]!, "base64"));
     expect(sent.getPage(0).getRotation().angle).toBe(90);
+  });
+  it("continues a long document from where the last read stopped, up to the answer's 30 pages", async () => {
+    const bytes = await pdfOf(40);
+    const ledger = new AssistantDocumentLedger();
+    const first = await read(bytes, { ledger });
+    nextRequest(ledger);
+    const second = await read(bytes, { ledger, pageStart: first.nextPage! });
+    expect([first, second].map(({ from, to, nextPage }) => ({ from, to, nextPage })))
+      .toEqual([{ from: 1, to: 10, nextPage: 11 }, { from: 11, to: 20, nextPage: 21 }]);
+    nextRequest(ledger);
+    await read(bytes, { ledger, pageStart: 21 });
+    nextRequest(ledger);
+    await expect(read(bytes, { ledger, pageStart: 31 })).rejects.toThrow("Limite de pages");
+  });
+
+  it("sends at most one read's worth of pages before the next request, however many reads the model asks at once", async () => {
+    const bytes = await pdfOf(40);
+    const ledger = new AssistantDocumentLedger();
+    await read(bytes, { ledger, pageEnd: 7 });
+    const second = await read(bytes, { ledger, pageStart: 8 });
+    expect(second).toMatchObject({ from: 8, to: 10, cut: "budget", nextPage: 11 });
+    await expect(read(bytes, { ledger, pageStart: 11 })).rejects.toThrow("Limite de pages");
+  });
+
+  it("refuses a real page heavier than one read may carry", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage();
+    page.node.set(PDFName.of("Contents"), pdf.context.register(pdf.context.stream(randomBytes(DOCUMENT_READ_LIMITS.bytesPerRead + 10_000))));
+    await expect(read(new Uint8Array(await pdf.save()))).rejects.toThrow("trop lourde");
+  });
+
+  it("refuses an encrypted PDF and a broken one with the same sentence", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    pdf.context.trailerInfo.Encrypt = pdf.context.obj({ Filter: "Standard" });
+    for (const bytes of [new Uint8Array(await pdf.save()), new TextEncoder().encode("%PDF-1.7 broken")]) {
+      await expect(read(bytes)).rejects.toThrow("ne peut pas être lu");
+    }
+  });
+
+  it("applies what is left of the answer's byte budget to a text file, and says it was cut", async () => {
+    const ledger = new AssistantDocumentLedger();
+    const image = new Uint8Array(DOCUMENT_READ_LIMITS.bytesPerRead - 5);
+    await read(image, { ledger, fileName: "a.png", mimeType: "image/png" });
+    nextRequest(ledger);
+    await read(image, { ledger, fileName: "b.png", mimeType: "image/png" });
+    nextRequest(ledger);
+    const text = await read(new TextEncoder().encode("é".repeat(1_000)), { ledger, fileName: "a.txt", mimeType: "text/plain" });
+    expect(text.bytes).toBeLessThanOrEqual(10);
+    expect(text.cut).toBe("budget");
+    // Never half a character.
+    expect(text.text).toBe("é".repeat(5));
+    nextRequest(ledger);
+    await expect(read(new TextEncoder().encode("a"), { ledger, fileName: "b.txt", mimeType: "text/plain" })).rejects.toThrow("Limite de pages");
   });
 });

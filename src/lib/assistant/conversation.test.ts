@@ -94,6 +94,54 @@ describe("assistant conversation", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", message: { content: saved } });
   });
 
+  describe("a page counts only for what the model wrote after a request that carried it succeeded", () => {
+    const cctp = "11111111-1111-4111-8111-111111111111";
+    function readTool() {
+      vi.mocked(buildAssistantTools).mockImplementationOnce((scope) => [{
+        name: "lire_piece", description: "Lit une pièce.", activity: "Lecture d’une pièce du dossier", input: z.object({}).passthrough(),
+        run: async () => {
+          (scope.documents as AssistantDocumentLedger).recordRead({ documentId: cctp, fileName: "CCTP.pdf", pagesTotal: 8, from: 1, to: 3, pages: 3, bytes: 10 });
+          return { pages_lues: { de: 1, a: 3 } };
+        },
+      }]);
+    }
+
+    it("keeps as text a citation written before the read that fetched its page", async () => {
+      threadWith([]);
+      readTool();
+      let calls = 0;
+      modelAnswering(async (_request, onDelta) => {
+        calls += 1;
+        const text = calls === 1 ? `Le CCTP dit [[doc:${cctp}/2|art. 4]].` : `Je confirme [[doc:${cctp}/2|art. 4]].`;
+        onDelta({ type: "text", delta: text });
+        return calls === 1
+          ? { text, toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage }
+          : { text, toolCalls: [], replayItems: [], usage };
+      });
+      await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+      expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+        status: "complete", content: `Le CCTP dit art. 4 (source non vérifiée).\n\nJe confirme [[doc:${cctp}/2|CCTP.pdf, p. 2]].`,
+      }));
+    });
+
+    it("keeps as text a citation of a page whose request failed", async () => {
+      threadWith([]);
+      readTool();
+      let calls = 0;
+      modelAnswering(async (_request, onDelta) => {
+        calls += 1;
+        if (calls === 1) return { text: "", toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage };
+        onDelta({ type: "text", delta: `Le CCTP dit [[doc:${cctp}/2|art. 4]]` });
+        throw new StructuredAiError("AI_REQUEST_REJECTED", "refusé", 400);
+      });
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+      expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+        status: "failed", content: "Le CCTP dit art. 4 (source non vérifiée)",
+      }));
+    });
+  });
+
   it("answers the question being retried again, without saving it twice nor replaying its failed attempts", async () => {
     threadWith([
       message("m1", "user", "Quel est le total ?"), message("m2", "assistant", "Le total est de 100,00 €."),

@@ -59,8 +59,10 @@ describe("the affaire's documents read by the assistant", () => {
     const { client } = recordingClient({ data: { id: DOCUMENT, file_name: "CCTP.pdf", mime_type: "application/pdf; charset=binary", document_kind: "cctp" }, error: null });
     grantAccess(client);
     vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1, 2]), fileName: "CCTP.pdf", mimeType: "application/octet-stream" });
-    const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT });
-    expect(readAffaireDocumentPreview).toHaveBeenCalledWith(AFFAIRE, DOCUMENT, true);
+    const signal = new AbortController().signal;
+    const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, signal });
+    // The member's Stop and the answer's time bound reach the download (storage or Drive).
+    expect(readAffaireDocumentPreview).toHaveBeenCalledWith(AFFAIRE, DOCUMENT, true, signal);
     expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", bytes: new Uint8Array([1, 2]) });
   });
 
@@ -69,6 +71,40 @@ describe("the affaire's documents read by the assistant", () => {
     grantAccess(client);
     await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toThrow("pas encore lu");
     expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["CCTP.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["DPGF.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    ["Plan.dwg", "application/acad"],
+  ])("refuses %s before fetching any of its bytes", async (fileName, mimeType) => {
+    const { client } = recordingClient({ data: { id: DOCUMENT, file_name: fileName, mime_type: mimeType, document_kind: "annexes" }, error: null });
+    grantAccess(client);
+    await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toThrow("pas encore lu");
+    expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
+  });
+
+  it("downloads a document once for the three ranges an answer reads of it, checking access every time", async () => {
+    const { client, from } = recordingClient({ data: { id: DOCUMENT, file_name: "Plans.pdf", mime_type: "application/pdf", document_kind: "plans" }, error: null });
+    grantAccess(client);
+    vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1, 2, 3]), fileName: "Plans.pdf", mimeType: "application/octet-stream" });
+    const cache = new Map();
+    for (let read = 0; read < 3; read += 1) {
+      expect((await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache })).bytes).toEqual(new Uint8Array([1, 2, 3]));
+    }
+    expect(readAffaireDocumentPreview).toHaveBeenCalledTimes(1);
+    expect(requireAffaireProjectReadAccess).toHaveBeenCalledTimes(3);
+    expect(from).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses the list, a read, the brief and the register before any of their sources once access is lost", async () => {
+    vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
+    await expect(listAffaireDocuments(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);
+    await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toBeInstanceOf(AssistantToolError);
+    await expect(readAffaireBriefAndRegister(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);
+    expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
+    expect(readAffaireBriefDraft).not.toHaveBeenCalled();
+    expect(fetchAffaireRegisterPage).not.toHaveBeenCalled();
   });
 
   it("tells a dossier refusal (gone, too large) to the model as it is worded", async () => {

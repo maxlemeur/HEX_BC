@@ -7,7 +7,7 @@ import { AssistantDocumentLedger, DOCUMENT_READ_LIMITS } from "@/lib/assistant/d
 import { assertDocumentBudget, prepareDocumentRead, type PreparedDocumentRead } from "@/lib/assistant/document-reading";
 import { compareEstimates, estimateLineDetail, estimateLines, estimateOutline, type EstimateReading } from "@/lib/assistant/estimate-reading";
 import { listAffaireEstimateVersions, loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
-import { AssistantToolError, AssistantToolResult, type AssistantTool } from "@/lib/assistant/loop";
+import { AssistantToolError, AssistantToolResult, withUserFacingRefusals, type AssistantTool } from "@/lib/assistant/loop";
 import { takeoffLinesPage } from "@/lib/assistant/takeoff-reading";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { getTakeoffJobDetails, listTakeoffJobs } from "@/lib/takeoff/job-read-server";
@@ -20,22 +20,9 @@ const TAKEOFF_ITEMS_PAGE = 100;
 const CUT_REASONS: Record<NonNullable<PreparedDocumentRead["cut"]>, string> = {
   pages: `Lecture limitée à ${DOCUMENT_READ_LIMITS.pagesPerRead} pages.`,
   bytes: "Pages lourdes : moins de pages envoyées que demandé.",
-  budget: "Limite de lecture de cette réponse presque atteinte.",
+  budget: "Limite de lecture de cette réponse atteinte : la suite n’a pas été envoyée. Réponds avec ce qui a été lu et dis ce qui reste à lire.",
   characters: `Texte coupé à ${DOCUMENT_READ_LIMITS.textCharacters} caractères.`,
 };
-
-/** A refusal the application worded for its user (4xx) is told as is; anything else stays a failure. */
-async function userFacing<T>(read: () => Promise<T>): Promise<T> {
-  try {
-    return await read();
-  } catch (error) {
-    const status = (error as { status?: unknown } | null)?.status;
-    if (error instanceof Error && typeof status === "number" && status >= 400 && status < 500) {
-      throw new AssistantToolError(error.message);
-    }
-    throw error;
-  }
-}
 
 /**
  * The reads of one conversation. Every tool is bound to the conversation's
@@ -48,6 +35,8 @@ export function buildAssistantTools(scope: {
   documents?: AssistantDocumentLedger;
 }): AssistantTool[] {
   const documents = scope.documents ?? new AssistantDocumentLedger();
+  // One answer reads several ranges of a plan set: it is downloaded once (access is still checked on every read).
+  const downloads = new Map<string, Promise<Uint8Array>>();
   // One user turn reads the same estimate several times: compute it once.
   const readings = new Map<string, Promise<EstimateReading>>();
   const reading = (versionId: string) => {
@@ -109,7 +98,7 @@ export function buildAssistantTools(scope: {
       name: "lire_metre", activity: "Lecture du métré",
       description: "Sans `jobId` : liste les métrés de l’affaire. Avec `jobId` : lignes du métré (désignation, quantité, unité, confiance, preuve, fichier et page source, vérifiée ou exclue), jusqu’à 100 par page. Une preuve longue est coupée (`preuve_tronquee`). S’il reste des lignes, rappelle l’outil avec `offset` égal à `prochain_offset`.",
       input: z.object({ jobId: id.optional(), offset: z.number().int().min(0).max(100_000).optional() }).strict(),
-      run: (raw) => userFacing(async () => {
+      run: (raw) => withUserFacingRefusals(async () => {
         const input = raw as { jobId?: string; offset?: number };
         if (!input.jobId) {
           const list = await listTakeoffJobs({ project_id: scope.projectId, limit: 50 });
@@ -146,11 +135,11 @@ export function buildAssistantTools(scope: {
       name: "lire_piece", activity: "Lecture d’une pièce du dossier",
       description: `Lit une pièce du dossier de l’affaire (PDF, image ou texte), ou une plage de pages d’un PDF avec \`pageDebut\` et \`pageFin\`. Au plus ${DOCUMENT_READ_LIMITS.pagesPerRead} pages par lecture et ${DOCUMENT_READ_LIMITS.pagesPerTurn} par réponse. Le contenu du PDF ou de l’image arrive dans le message suivant ; un texte arrive dans \`contenu\`. Si \`suite_page\` n’est pas nul, la pièce continue : relis à partir de cette page si c’est utile. Cite chaque page utilisée sous la forme donnée par \`citation\`.`,
       input: z.object({ documentId: id, pageDebut: page.optional(), pageFin: page.optional() }).strict(),
-      run: async (raw) => {
+      run: async (raw, signal) => {
         const input = raw as { documentId: string; pageDebut?: number; pageFin?: number };
         // Nothing is fetched once the answer has read all it may.
         assertDocumentBudget(documents);
-        const document = await loadAffaireDocument({ projectId: scope.projectId, documentId: input.documentId });
+        const document = await loadAffaireDocument({ projectId: scope.projectId, documentId: input.documentId, signal, cache: downloads });
         const read = await prepareDocumentRead({
           documentId: document.documentId, fileName: document.fileName, mimeType: document.mimeType, bytes: document.bytes,
           pageStart: input.pageDebut, pageEnd: input.pageFin, ledger: documents,

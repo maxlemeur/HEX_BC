@@ -1,5 +1,5 @@
 import type { AssistantStreamEvent } from "@/lib/assistant/conversation";
-import { DOCUMENT_CITATION_SOURCE } from "@/lib/assistant/document-citations";
+import { DOCUMENT_CITATION_SOURCE, UUID_PATTERN as UUID } from "@/lib/assistant/document-citations";
 
 /** Reads the answer's server-sent events as they arrive. A truncated last event is dropped: the stream was cut. */
 export async function readAssistantStream(response: Response, onEvent: (event: AssistantStreamEvent) => void) {
@@ -30,7 +30,6 @@ export type AssistantTextPart =
   | { type: "line"; versionId: string; id: string; label: string }
   | { type: "document"; documentId: string; page: number; label: string };
 
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const LINE_CITATION = `\\[\\[ligne:(${UUID})/(${UUID})\\|([^\\]\\n]{1,160})\\]\\]`;
 const CITATION = new RegExp(`${LINE_CITATION}|${DOCUMENT_CITATION_SOURCE}`, "gi");
 

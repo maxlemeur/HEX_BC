@@ -24,6 +24,22 @@ export type PreparedDocumentRead = {
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const TEXT_TYPES = new Set(["text/plain", "text/csv"]);
+const utf8Length = (text: string) => new TextEncoder().encode(text).byteLength;
+
+/** The longest start of `text` whose UTF-8 bytes fit in `limit`, never half a character. */
+function fitBytes(text: string, limit: number) {
+  if (utf8Length(text) <= limit) return text;
+  let bytes = 0;
+  let end = 0;
+  for (const character of text) {
+    const size = utf8Length(character);
+    if (bytes + size > limit) break;
+    bytes += size;
+    end += character.length;
+  }
+  return text.slice(0, end);
+}
+
 /** What a text read may weigh once JSON-encoded, well within what one tool result may carry (see the loop). */
 const TEXT_RESULT_CHARACTERS = 90_000;
 const BUDGET_SPENT = "Limite de pages lues atteinte pour cette réponse. Réponds avec ce que tu as déjà lu, et dis ce qui reste à lire.";
@@ -121,9 +137,13 @@ async function preparePdf(input: { bytes: Uint8Array; pageStart?: number; pageEn
   };
 }
 
-/** Refuses a read once the answer has spent what it may read; checked again before a document is fetched. */
+/**
+ * What the next read may send, refused once the answer has spent what it may
+ * read or once one read's worth already waits for the next request. Checked
+ * again before a document is fetched.
+ */
 export function assertDocumentBudget(ledger: AssistantDocumentLedger, limits: DocumentReadLimits = DOCUMENT_READ_LIMITS) {
-  const budget = ledger.budget(limits);
+  const budget = ledger.readAllowance(limits);
   if (budget.pagesLeft <= 0 || budget.bytesLeft <= 0) throw new AssistantToolError(BUDGET_SPENT);
   return budget;
 }
@@ -161,10 +181,15 @@ export async function prepareDocumentRead(input: {
       let text = whole.slice(0, limits.textCharacters);
       // Quotes and control characters weigh several characters once encoded: what is recorded as read must reach the model.
       while (JSON.stringify(text).length > TEXT_RESULT_CHARACTERS) text = text.slice(0, Math.floor(text.length * 0.8));
-      prepared = {
-        pagesTotal: 1, from: 1, to: 1, cut: text.length < whole.length ? "characters" : null, nextPage: null,
-        bytes: new TextEncoder().encode(text).byteLength, parts: [], text,
-      };
+      let cut: PreparedDocumentRead["cut"] = text.length < whole.length ? "characters" : null;
+      // What the answer has left to send applies to text as to any file, cut on a whole character.
+      const fitting = fitBytes(text, Math.min(limits.bytesPerRead, budget.bytesLeft));
+      if (fitting.length < text.length) {
+        if (!fitting) throw new AssistantToolError(BUDGET_SPENT);
+        text = fitting;
+        cut = "budget";
+      }
+      prepared = { pagesTotal: 1, from: 1, to: 1, cut, nextPage: null, bytes: utf8Length(text), parts: [], text };
     }
   }
   input.ledger.recordRead({
