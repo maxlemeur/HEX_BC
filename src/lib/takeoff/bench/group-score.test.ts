@@ -12,12 +12,13 @@ import { GroupTruthFileSchema, ManifestDocumentSchema, type GroupTruthFile, type
 // written before the code. Every document, group and answer is fictional.
 // Arithmetic:
 // - a parent-level network (HW for HW-S, or the sibling HW-R) counts as exact,
-//   or not at all; a Decisions network under 0.8 counts as found instead of
-//   proposed (it is never measured); a keyword class of a truth group is
-//   ignored because only Decisions is scored;
+//   or not at all; a Decisions network under its accepted margin (0.5 since
+//   TI-704 v2, 0.8 before) counts as found instead of proposed (it is never
+//   measured); a keyword class of a truth group is ignored because only
+//   Decisions is scored;
 // - a network answered « autre » at 0.91 is not counted as refused, or a
 //   non-network proposed as a network is not counted at all;
-// - « à revoir » leaves out a Decisions answer under 0.8, or counts a
+// - « à revoir » leaves out a Decisions answer under that margin, or counts a
 //   Decisions « autre » at 0.95 (the review reads it as decided);
 // - a group of a failed page, or a truth group the reading no longer has, is
 //   counted as « à revoir » instead of not read; a truth document the run did
@@ -76,13 +77,13 @@ const PASS: GroupScorePassInput = {
     { id: "a-plan-01", pages: [{
       page: 1, status: "ok",
       reading: { groups: [
-        g(NET.N1, "HW-S", "decisions", 0.9), g(NET.N2, "HW", "decisions", 0.85), g(NET.N3, "CHW-S", "decisions", 0.6),
+        g(NET.N1, "HW-S", "decisions", 0.9), g(NET.N2, "HW", "decisions", 0.85), g(NET.N3, "CHW-S", "decisions", 0.45),
         g(NET.N4, "autre", "decisions", 0.91), g(NET.N5, "fond", "decisions", 0.3), g(NET.N6), g(NET.N7, "EF", "legend"),
         g(OTHER.O1), g(OTHER.O2, "EU", "decisions", 0.85), g(OTHER.O3, "CHW", "decisions", 0.4), g(OTHER.O4, "autre", "decisions", 0.95),
         g("c:#123456|w:1|d:", "EF", "legend"),
       ] },
       decisions: { calls: [call("batch", 1000, 2000), call("dedicated", 500, 1000), call("dedicated", null, 300)], answers: [
-        answer(NET.N1, "HW-S", 0.9), answer(NET.N2, "HW", 0.85), answer(NET.N3, "CHW-S", 0.6), answer(NET.N4, "autre", 0.91),
+        answer(NET.N1, "HW-S", 0.9), answer(NET.N2, "HW", 0.85), answer(NET.N3, "CHW-S", 0.45), answer(NET.N4, "autre", 0.91),
         answer(NET.N5, "fond", 0.3), answer(OTHER.O2, "EU", 0.85), answer(OTHER.O3, "CHW", 0.4), answer(OTHER.O4, "autre", 0.95),
       ] },
       candidates: { selected: [NET.N1, NET.N2, NET.N3, NET.N4, NET.N5, OTHER.O2, OTHER.O3, OTHER.O4], eligible: 8, left_out: 0,
@@ -99,7 +100,7 @@ const SET = { sha256: "a".repeat(64), files: 3, groups: 15, documents: TRUTH };
 describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)", () => {
   it("counts found, proposed, refused and left « à revoir » networks at exact and parent level", () => {
     const score = scoreGroupTruth({ passes: [PASS], truth: SET });
-    expect(score).toMatchObject({ threshold: 0.8, truth: { sha256: "a".repeat(64), files: 3, groups: 15, documents_not_run: ["c-plan-03"] } });
+    expect(score).toMatchObject({ threshold: 0.5, truth: { sha256: "a".repeat(64), files: 3, groups: 15, documents_not_run: ["c-plan-03"] } });
     const [pass] = score.passes;
     const a = pass.documents.find((entry) => entry.document === "a-plan-01");
     expect(a).toMatchObject({
@@ -125,10 +126,10 @@ describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)"
   it("bands the Decisions answers by confidence, 0.8 in the classified band, precision over the network proposals", () => {
     const [pass] = scoreGroupTruth({ passes: [PASS], truth: SET }).passes;
     expect(pass.bands.map((band) => band.band)).toEqual(["[0 ; 0,5[", "[0,5 ; 0,6[", "[0,6 ; 0,7[", "[0,7 ; 0,8[", "[0,8 ; 1]"]);
-    expect(pass.bands[0]).toMatchObject({ answers: 2, network_proposals: 1, exact: 0, parent: 0, on_non_networks: 1, true_networks: 1,
+    expect(pass.bands[0]).toMatchObject({ answers: 3, network_proposals: 2, exact: 0, parent: 1, on_non_networks: 1, true_networks: 2,
       true_networks_answered_non_network: 1, true_networks_answered_autre: 0, precision_exact: 0 });
     expect(pass.bands[1]).toMatchObject({ answers: 0, network_proposals: 0, precision_exact: null });
-    expect(pass.bands[2]).toMatchObject({ answers: 1, network_proposals: 1, exact: 0, parent: 1, true_networks: 1 });
+    expect(pass.bands[2]).toMatchObject({ answers: 0, network_proposals: 0, exact: 0, parent: 0, true_networks: 0 });
     expect(pass.bands[4]).toMatchObject({ answers: 5, network_proposals: 3, exact: 1, parent: 2, on_non_networks: 1, true_networks: 3,
       true_networks_answered_non_network: 1, true_networks_answered_autre: 1 });
     expect(pass.bands[4].precision_exact).toBeCloseTo(1 / 3, 6);

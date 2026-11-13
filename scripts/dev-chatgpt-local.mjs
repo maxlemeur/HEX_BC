@@ -1,8 +1,15 @@
 import { spawn } from "node:child_process";
 
-// The explicit local entrypoint binds the listener to loopback. A deployed build
-// cannot activate this personal integration via an environment variable alone.
-const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", ...process.argv.slice(2)], {
+// Bind to loopback unless the caller passes --hostname or -H. That opt-out is
+// explicit. A production build never enables the personal integration.
+const forwarded = process.argv.slice(2);
+const explicitHostname = forwarded.some((arg) =>
+  arg === "--hostname" || arg.startsWith("--hostname=") || arg === "-H" || (arg.startsWith("-H") && arg.length > 2));
+const child = spawn(process.execPath, [
+  "node_modules/next/dist/bin/next", "dev",
+  ...(explicitHostname ? [] : ["--hostname", "127.0.0.1"]),
+  ...forwarded,
+], {
   stdio: "inherit",
   env: { ...process.env, MERGEONE_CHATGPT_LOCAL: "1" },
 });

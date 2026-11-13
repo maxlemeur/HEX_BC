@@ -924,10 +924,10 @@ function createCreateItemSupabaseMock() {
         return {
           select: vi.fn((columns: string) => {
             if (columns === "*") return calculationItemsBuilder;
-            if (columns === "id, version_id, item_type, parent_id") {
+            if (columns === "id, version_id, item_type, parent_id, source_metadata") {
               return estimateItemsParentBuilder;
             }
-            if (columns === "id, parent_id, item_type") {
+            if (columns === "id, parent_id, item_type, source_metadata") {
               return estimateItemsHierarchyBuilder;
             }
             throw new Error(`Unexpected estimate_items select columns: ${columns}`);
@@ -1656,10 +1656,10 @@ function createTemplateInsertSupabaseMock(input?: {
             if (columns === "id, parent_id") {
               return anchorBuilder;
             }
-            if (columns === "id, version_id, item_type, parent_id") {
+            if (columns === "id, version_id, item_type, parent_id, source_metadata") {
               return parentBuilder;
             }
-            if (columns === "id, parent_id, item_type") {
+            if (columns === "id, parent_id, item_type, source_metadata") {
               return hierarchyBuilder;
             }
             if (columns === "*") {

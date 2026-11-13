@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile, rename, rm } from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
@@ -23,6 +24,7 @@ export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
 const jwks = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`));
 const transactionSchema = z.object({
   state: z.string(), nonce: z.string(), verifier: z.string(), redirectUri: z.string(),
+  returnOrigin: z.string().optional(),
   userId: z.string(), tenantId: z.string(), expiresAt: z.number(),
   profileId: z.string().nullable(), clientId: z.string(),
 });
@@ -33,15 +35,101 @@ const tokenSchema = z.object({
 });
 
 export function isLocalChatGptEnabled() {
-  return process.env.MERGEONE_CHATGPT_LOCAL === "1" &&
-    process.env.NODE_ENV !== "production" && !process.env.VERCEL && !process.env.CI;
+  // Development enables the personal integration. The host allowlist is separate.
+  // Test/CLI opt-in remains explicit; a production build can never enable it.
+  return process.env.NODE_ENV === "development" ||
+    (process.env.NODE_ENV !== "production" && process.env.MERGEONE_CHATGPT_LOCAL === "1" && !process.env.VERCEL && !process.env.CI);
 }
 
-export function assertLocalChatGptHost(host: string | null) {
-  if (!isLocalChatGptEnabled() || !host || !/^127\.0\.0\.1:\d+$/.test(host)) {
-    throw new Error("ChatGPT est disponible uniquement dans MergeOne local sur 127.0.0.1.");
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const INVALID_DEV_ORIGIN = "Adresse du serveur de développement invalide.";
+const INVALID_DEV_HOSTS = "MERGEONE_DEV_HOSTS doit contenir des noms d’hôte exacts séparés par des virgules, sans protocole, port ni joker.";
+
+function developmentPort() {
+  const value = process.env.PORT ?? "";
+  if (/^[1-9]\d{0,4}$/.test(value)) {
+    const port = Number(value);
+    if (port <= 65535) return String(port);
   }
-  return `http://${host}`;
+  return "3000";
+}
+
+function canonicalHostname(hostname: string) {
+  const bare = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  return bare.toLowerCase();
+}
+
+/** The name the client sent, before the URL parser rewrites aliases such as 127.1. */
+function sentHostname(host: string) {
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    const rest = end === -1 ? "invalid" : host.slice(end + 1);
+    if (end <= 1 || (rest !== "" && !/^:\d+$/.test(rest))) throw new Error(INVALID_DEV_ORIGIN);
+    return host.slice(1, end).toLowerCase();
+  }
+  const separator = host.lastIndexOf(":");
+  if (separator !== -1) {
+    if (host.indexOf(":") !== separator || !/^\d+$/.test(host.slice(separator + 1))) throw new Error(INVALID_DEV_ORIGIN);
+    return host.slice(0, separator).toLowerCase();
+  }
+  return host.toLowerCase();
+}
+
+function explicitDevelopmentHosts(raw = process.env.MERGEONE_DEV_HOSTS ?? "") {
+  const hosts = new Set<string>();
+  for (const entry of raw.split(",")) {
+    const host = entry.trim().toLowerCase();
+    if (!host) continue;
+    const address = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+    if (isIP(address) === 6) {
+      hosts.add(address.toLowerCase());
+      continue;
+    }
+    if (isIP(address) === 4) {
+      hosts.add(address);
+      continue;
+    }
+    if (host.includes(":") || host.length > 253 || !host.split(".").every((label) =>
+      label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+      throw new Error(INVALID_DEV_HOSTS);
+    }
+    hosts.add(host);
+  }
+  return hosts;
+}
+
+export function assertLocalChatGptHost(host: string | null, protocol: string | null = "http") {
+  if (!isLocalChatGptEnabled()) throw new Error("ChatGPT est disponible uniquement en développement.");
+  // Only an exact http or https scheme. Null means the header was absent.
+  const scheme = (protocol ?? "http").toLowerCase();
+  if ((scheme !== "http" && scheme !== "https") || !host || /[\s/@\\?#]/.test(host)) {
+    throw new Error(INVALID_DEV_ORIGIN);
+  }
+  let url: URL;
+  try { url = new URL(`${scheme}://${host}`); }
+  catch { throw new Error(INVALID_DEV_ORIGIN); }
+  const hostname = canonicalHostname(url.hostname);
+  const port = url.port || (scheme === "https" ? "443" : "80");
+  if (!hostname || sentHostname(host) !== hostname || url.pathname !== "/" || url.search || url.hash ||
+    url.username || url.password || url.protocol !== `${scheme}:`) {
+    throw new Error(INVALID_DEV_ORIGIN);
+  }
+  const devPort = developmentPort();
+  const loopback = LOOPBACK_HOSTS.has(hostname) && port === devPort;
+  // Extra names only. Network interfaces from resolveDevelopmentOrigins stay out of this list.
+  const listed = explicitDevelopmentHosts().has(hostname) && (url.port === "" || url.port === devPort);
+  if (!loopback && !listed) throw new Error(INVALID_DEV_ORIGIN);
+  return url.origin;
+}
+
+/** Refuse before returnOrigin is written, and again before a relay or token exchange. */
+function requireAllowlistedOrigin(value: string) {
+  let url: URL;
+  try { url = new URL(value); }
+  catch { throw new Error(INVALID_DEV_ORIGIN); }
+  const checked = assertLocalChatGptHost(url.host, url.protocol.slice(0, -1));
+  if (checked !== value) throw new Error(INVALID_DEV_ORIGIN);
+  return checked;
 }
 
 export function hasLocalChatGptPlanAccess(profile: ChatGptProfile) {
@@ -66,6 +154,7 @@ export async function getLocalChatGptState(owner: ChatGptOwner) {
 }
 
 export async function beginLocalChatGptSignIn(owner: ChatGptOwner, origin: string, profileId?: string) {
+  const returnOrigin = requireAllowlistedOrigin(origin);
   const store = await readChatGptStore(owner);
   const profile = profileId ? store.profiles.find((entry) => entry.id === profileId) : null;
   if (profileId && !profile) throw new Error("Connexion ChatGPT introuvable.");
@@ -74,7 +163,9 @@ export async function beginLocalChatGptSignIn(owner: ChatGptOwner, origin: strin
   const verifier = randomBytes(48).toString("base64url");
   const transaction = {
     userId: owner.userId, tenantId: owner.tenantId,
-    state, nonce, verifier, redirectUri: `${origin}${CHATGPT_CALLBACK}`,
+    state, nonce, verifier,
+    redirectUri: `http://127.0.0.1:${developmentPort()}${CHATGPT_CALLBACK}`,
+    returnOrigin,
     expiresAt: Date.now() + 10 * 60_000, profileId: profile?.id ?? null,
     clientId: profile?.clientId ?? "dynamic_agent_client",
   };
@@ -106,6 +197,33 @@ async function requestTokens(body: URLSearchParams) {
   catch { throw new ChatGptSignInError("response"); }
 }
 
+/** Relay the provider's loopback callback to the initiating development origin.
+ * The original origin still checks the browser cookie, session and tenant before
+ * consuming the transaction or exchanging the PKCE-bound code.
+ */
+export async function relayLocalChatGptCallback(url: URL): Promise<URL | null> {
+  const state = url.searchParams.get("state");
+  if (!state || !/^[\w-]{43}$/.test(state)) throw new ChatGptSignInError("state");
+  let transaction: z.infer<typeof transactionSchema>;
+  try {
+    transaction = transactionSchema.parse(JSON.parse(await readFile(path.join(await localChatGptDirectory(), `pending-${state}.json`), "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ChatGptSignInError("missing");
+    throw error;
+  }
+  if (transaction.state !== state) throw new ChatGptSignInError("state");
+  if (transaction.expiresAt < Date.now()) throw new ChatGptSignInError("expired");
+  let returnOrigin: string;
+  try { returnOrigin = requireAllowlistedOrigin(transaction.returnOrigin ?? new URL(transaction.redirectUri).origin); }
+  catch { throw new ChatGptSignInError("callback"); }
+  if (url.pathname !== CHATGPT_CALLBACK) throw new ChatGptSignInError("callback");
+  if (url.origin === returnOrigin) return null;
+  if (transaction.redirectUri !== `${url.origin}${url.pathname}`) throw new ChatGptSignInError("callback");
+  const callback = new URL(CHATGPT_CALLBACK, returnOrigin);
+  callback.search = url.search;
+  return callback;
+}
+
 export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, cookieState?: string) {
   const state = url.searchParams.get("state");
   if (!state || !/^[\w-]{43}$/.test(state) || cookieState !== state) throw new ChatGptSignInError("state");
@@ -122,7 +240,10 @@ export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, co
     const transaction = transactionSchema.parse(JSON.parse(await readFile(consumed, "utf8")));
     if (transaction.expiresAt < Date.now()) throw new ChatGptSignInError("expired");
     if (transaction.userId !== owner.userId || transaction.tenantId !== owner.tenantId) throw new ChatGptSignInError("owner");
-    if (transaction.redirectUri !== `${url.origin}${url.pathname}`) throw new ChatGptSignInError("callback");
+    let returnOrigin: string;
+    try { returnOrigin = requireAllowlistedOrigin(transaction.returnOrigin ?? new URL(transaction.redirectUri).origin); }
+    catch { throw new ChatGptSignInError("callback"); }
+    if (`${returnOrigin}${CHATGPT_CALLBACK}` !== `${url.origin}${url.pathname}`) throw new ChatGptSignInError("callback");
     if (url.searchParams.has("error")) {
       throw new ChatGptSignInError(url.searchParams.get("error") === "access_denied" ? "cancelled" : "provider");
     }

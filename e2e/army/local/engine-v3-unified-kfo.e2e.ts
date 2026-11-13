@@ -603,13 +603,19 @@ armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its 
   await expect(picker).toBeHidden();
   const inserted = await readEstimate(ui.browser, draft.versionId);
   const kit = inserted.items.find((row) => row.item_type === "section" && row.title === name)!;
-  expect([kit.parent_id, kit.source_metadata]).toEqual([draft.sectionId, { kit_metier: true, assembly_id: created.assembly.id }]);
+  // TI-718 persists the aggregate's editable quantity and library unit, while
+  // preserving its assembly provenance and every amount announced by the preview.
+  expect([kit.parent_id, kit.source_metadata]).toEqual([draft.sectionId, {
+    kit_metier: true, assembly_id: created.assembly.id, ouvrage_unit: "ens", ouvrage_quantity: 1,
+  }]);
   // 100 x 1.13 x 1.30 + 0.2 h x 40 x 1.20 = 156.50 ; 30 x 1.02 x 1.30 = 39.78 ; kit 196.28 ; with the 13.00 neighbour 209.28.
   expect(inserted.items.filter((row) => row.parent_id === kit.id)
     .map((row) => [row.title, row.unit_code, row.k_fo, row.k_fo_manual, row.h_mo_per_unit, row.line_total_ht_cents])).toEqual([
     [tubeTitle, "ml", 1.13, false, 0.2, 15650], [fittingTitle, "u", 1.02, false, 0, 3978]]);
   expect(inserted.version.total_ht_cents).toBe(20928);
   const kitRow = ui.browser.locator(`[data-estimate-item-id="${kit.id}"]`);
+  await expect(kitRow.getByLabel(`Quantité de l’ouvrage ${name}`, { exact: true })).toHaveValue("1");
+  await expect(ui.browser.locator(`[data-estimate-item-id="${kit.id}"] [data-estimate-column="unit"]`)).toHaveText("ens");
   const footer = ui.browser.locator('[data-testid="estimate-editor-table-footer"] [data-estimate-column="total_price"]');
   await expect(kitRow).toContainText(/HT\s*196[,.]28/);
   await expect(footer).toHaveText(/209[,.]28/);

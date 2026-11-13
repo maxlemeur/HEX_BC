@@ -47,8 +47,8 @@ function formatDenominator(denominator: number) {
   return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
 }
 
-function classText(group: Pick<LabVectorGroup, "class" | "confidence" | "candidates">) {
-  if (group.class === null) return group.candidates.length > 0 ? `${group.candidates.join(" ou ")} ?` : "à revoir";
+function classText(group: Pick<LabVectorGroup, "class" | "confidence" | "candidates" | "proposal">) {
+  if (group.class === null) return group.candidates.length > 0 ? `${group.candidates.join(" ou ")} ?` : group.proposal ? `à revoir · ${group.proposal}` : "à revoir";
   return group.confidence === null ? group.class : `${group.class} ${formatPercent(group.confidence)}`;
 }
 

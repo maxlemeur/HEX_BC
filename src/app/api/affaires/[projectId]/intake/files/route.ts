@@ -1,4 +1,6 @@
 import { after } from "next/server";
+
+import { AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES } from "@/lib/affaires/intake-limits";
 import { z } from "zod";
 
 import { ok, badRequest, toErrorResponse } from "@/lib/estimates/errors";
@@ -12,7 +14,6 @@ export const runtime = "nodejs";
 const paramsSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
 });
-const AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES = 105 * 1024 * 1024;
 
 async function getProjectId(paramsPromise: Promise<{ projectId: string }>) {
   const params = await paramsPromise;

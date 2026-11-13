@@ -44,6 +44,7 @@ type CheckedColumns = CheckedColumnSpec<{
   purchase_orders: { delivery_mode: "site" | "office" | "counter" | null };
   purchase_order_items: { line_kind: "article" | "shipping" | "discount"; price_per: 1 | 10 | 100 | 1000;
     imputation: "project" | "overhead" | null };
+  assistant_messages: { role: "user" | "assistant"; status: "complete" | "interrupted" | "failed" };
 }>;
 
 // A SQL function argument has no NOT NULL catalog attribute. These existing

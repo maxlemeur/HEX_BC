@@ -1,10 +1,17 @@
 import type { NextConfig } from "next";
 
+import { resolveDevelopmentOrigins } from "./src/lib/development-origins";
+
+import { AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES } from "./src/lib/affaires/intake-limits";
+
 const armyDevServer = process.env.E2E_ARMY === "1" && process.env.NODE_ENV === "development"
   ? process.env.E2E_ARMY_DEV_SERVER_ID : undefined;
 if (armyDevServer && !/^[a-z0-9-]{1,64}$/.test(armyDevServer)) throw new Error("Invalid Army development server ID.");
 
 const nextConfig: NextConfig = {
+  // Keep development resources available on this machine and explicitly configured domains.
+  ...(process.env.NODE_ENV === "development" ? { allowedDevOrigins: resolveDevelopmentOrigins() } : {}),
+  experimental: { proxyClientMaxBodySize: AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES },
   // The server-side spreadsheet parser runs in a Node worker. Keep these
   // packages external so their runtime files can be traced for that worker.
   serverExternalPackages: ["xlsx", "exceljs", "word-extractor"],

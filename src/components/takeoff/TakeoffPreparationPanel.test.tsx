@@ -12,6 +12,8 @@
 //    destination, new document of the affaire) from the draft of the render that showed it.
 //    An edit made after that render, before the effect ran, was replaced by the completed
 //    draft and never saved.
+// TI-720: the steps read nothing when they appear; the panel reads what they show with the
+// preparation, in one Server Action (the journey PRE07 holds the requests a step would send).
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -25,19 +27,18 @@ import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparation
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
-const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
-vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
-
-const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), triage: vi.fn() }));
+// Each part of the panel's one read has its own mock, as each part fails on its own on the server.
+const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), chatGpt: vi.fn(), triage: vi.fn() }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
-  loadTakeoffPreparationAction: actions.load,
+  loadTakeoffPreparationPanelAction: async (projectId: string) => {
+    const [preparation, profiles, pageTriage, chatGpt] = await Promise.all([actions.load(projectId), actions.profiles(), actions.triageAvailability(projectId), actions.chatGpt()]);
+    return { preparation, profiles, pageTriage, chatGpt };
+  },
   saveTakeoffPreparationAction: actions.save,
   confirmTakeoffPreparationAction: actions.confirm,
   assistTakeoffPreparationAction: actions.assist,
-  loadTakeoffPreparationProfilesAction: actions.profiles,
   saveTakeoffPreparationProfileAction: actions.saveProfile,
   getTakeoffPreparationSourcePreviewAction: actions.preview,
-  loadTakeoffPageTriageAvailabilityAction: actions.triageAvailability,
   proposeTakeoffPageTriageAction: actions.triage,
 }));
 
@@ -70,13 +71,13 @@ function state() {
 
 beforeEach(() => {
   // Reset rather than clear: a `*Once` queue left by a test that failed early must not answer this one.
-  for (const mock of [loadChatGptConnectionMock, ...Object.values(actions), ...Object.values(pageContributions)]) mock.mockReset();
+  for (const mock of [...Object.values(actions), ...Object.values(pageContributions)]) mock.mockReset();
   pageContributions.launch.mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [], unidentified_item_ids: [], other_takeoff_line_count: 0 });
   stored = completePreparation();
   storedRevision = 5;
   storedConfirmedAt = null;
   availableSources = [SOURCE];
-  loadChatGptConnectionMock.mockResolvedValue(null);
+  actions.chatGpt.mockResolvedValue(null);
   actions.load.mockImplementation(async () => success(state()));
   actions.save.mockImplementation(async ({ draft, expectedRevision }) => {
     if (expectedRevision !== storedRevision) throw new Error("La préparation a changé.");
@@ -98,10 +99,10 @@ afterEach(cleanup);
 
 const props = { projectId: PROJECT_ID, planSetId: PLAN_SET_ID, estimateVersionId: VERSION_ID };
 
-function processingControls({ processing, onProcessingChange, isConfirmed }: PreparationAdvancedControlsContext) {
+function processingControls({ processing, onProcessingChange, isConfirmed, chatGptConnection }: PreparationAdvancedControlsContext) {
   return <div>
     {(["A", "B", "C"] as const).map((level) => <label key={level}><input type="radio" name="persisted-processing-level" checked={processing.level === level} onChange={() => onProcessingChange({ level })} />{{ A: "Rapide", B: "Standard", C: "Détaillé" }[level]}</label>)}
-    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} preserveAutomaticChoice={isConfirmed} />
+    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} connection={chatGptConnection} preserveAutomaticChoice={isConfirmed} />
   </div>;
 }
 
@@ -118,6 +119,42 @@ describe("TakeoffPreparationPanel", () => {
     expect(pageContributions.launch).toHaveBeenCalledWith({ estimate_version_id: VERSION_ID, documents: [
       { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: SOURCE.document_name, pages: [1] }] }, expect.anything());
     expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeEnabled();
+  });
+
+  // TI-720 moved the list of business profiles from the scope step to the panel, which reads it once: a profile
+  // saved on the step must stay listed when the step appears again, without a new read.
+  it("keeps a profile saved on the scope step listed after leaving the step, without reading the list again", async () => {
+    actions.saveProfile.mockImplementation(async ({ profile }) => success(profile));
+    const user = userEvent.setup();
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: /Ce que je veux mesurer/ }));
+    await user.click(screen.getByText("Réutiliser un profil métier"));
+    await user.type(screen.getByLabelText("Nom du nouveau profil"), "Plomberie R+1");
+    await user.click(screen.getByRole("button", { name: "Enregistrer ce cadrage comme profil" }));
+    expect(await screen.findByText(/Profil enregistré/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Mes documents/ }));
+    await user.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
+    expect(screen.getByRole("option", { name: "Plomberie R+1 · version 1" })).toBeInTheDocument();
+    expect(actions.profiles).toHaveBeenCalledTimes(1);
+  });
+
+  // TI-720: the panel's one read answers each part on its own. A refused profile list or page triage availability
+  // names itself on its step and leaves the preparation usable.
+  it("keeps the preparation usable and names the part that could not be read when one part of its read fails", async () => {
+    actions.profiles.mockResolvedValue({ ok: false, error: { status: 503, code: "TAKEOFF_ACTION_UNAVAILABLE", message: "Impossible de charger les profils de préparation.", retryable: true } });
+    actions.triageAvailability.mockResolvedValue({ ok: false, error: { status: 403, code: "FORBIDDEN", message: "Accès refusé.", retryable: false } });
+    stored.scope = { ...stored.scope, confirmed: false };
+    const user = userEvent.setup();
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: /Mes documents/ }));
+    expect(screen.getByRole("region", { name: "Tri des pages" })).toHaveTextContent("La disponibilité du tri des pages n’a pas pu être vérifiée.");
+    expect(screen.getByRole("button", { name: "Proposer le tri des pages" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
+    expect(screen.getByText("Impossible de charger les profils de préparation.")).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Je confirme ce périmètre"));
+    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    expect(await screen.findByText("Préparation enregistrée · révision 6")).toBeInTheDocument();
+    expect(stored.scope.confirmed).toBe(true);
   });
 
   it("keeps the source revision and objective when an initial load arrives late", async () => {
@@ -146,11 +183,15 @@ describe("TakeoffPreparationPanel", () => {
   it("keeps edits made while recovering a preparation and does not silently replace them", async () => {
     actions.save.mockRejectedValueOnce(new Error("Save failed"));
     const scopeStep = () => screen.queryByRole("button", { name: /Ce que je veux mesurer/ });
-    const stepChosen = beforePassiveEffectsOf(() => scopeStep() !== null, () => fireEvent.click(scopeStep()!));
+    let triageAtOpening = true;
+    const stepChosen = beforePassiveEffectsOf(() => scopeStep() !== null, () => {
+      triageAtOpening = screen.queryByRole("region", { name: "Tri des pages" }) !== null;
+      fireEvent.click(scopeStep()!);
+    });
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
     await stepChosen.done();
     // The panel opened on its last step: the documents step and its page triage never mounted.
-    expect(actions.triageAvailability).not.toHaveBeenCalled();
+    expect(triageAtOpening).toBe(false);
     fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 2" } });
     fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     await screen.findByText(/L.enregistrement a échoué/);

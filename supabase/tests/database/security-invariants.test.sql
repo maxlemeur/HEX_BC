@@ -199,7 +199,13 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('material_request_quote_lines', 'UPDATE'),
     ('product_aliases', 'SELECT'),
     ('product_aliases', 'INSERT'),
-    ('product_aliases', 'DELETE')
+    ('product_aliases', 'DELETE'),
+    ('assistant_threads', 'SELECT'),
+    ('assistant_threads', 'INSERT'),
+    ('assistant_threads', 'UPDATE'),
+    ('assistant_threads', 'DELETE'),
+    ('assistant_messages', 'SELECT'),
+    ('assistant_messages', 'INSERT')
 )
 select ok(
   has_table_privilege(
@@ -242,7 +248,9 @@ with authenticated_data_api_tables(table_name) as (
     ('material_request_technicians'),
     ('material_request_quotes'),
     ('material_request_quote_lines'),
-    ('product_aliases')
+    ('product_aliases'),
+    ('assistant_threads'),
+    ('assistant_messages')
 ),
 forbidden_authenticated_grants(privilege_name) as (
   values ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')
@@ -276,6 +284,8 @@ with forbidden_authenticated_dml(table_name, privilege_name) as (
     ('procurement_storage_cleanup_outbox', 'UPDATE'),
     ('procurement_storage_cleanup_outbox', 'DELETE'),
     ('material_request_technicians', 'DELETE'),
+    ('assistant_messages', 'UPDATE'),
+    ('assistant_messages', 'DELETE'),
     ('material_request_quotes', 'DELETE'),
     ('material_request_quote_lines', 'DELETE'),
     ('product_aliases', 'UPDATE')

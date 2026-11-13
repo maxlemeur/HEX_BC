@@ -1,10 +1,12 @@
 import packageMetadata from "../../../package.json";
 
+import { AssistantDock } from "@/components/assistant/AssistantDock";
 import { DashboardShell } from "@/components/DashboardShell";
 import { NavigationFeedbackProvider } from "@/components/navigation/NavigationFeedback";
 import { CommandPaletteLoader } from "@/components/ui-legacy/CommandPaletteLoader";
 import { UserProvider } from "@/components/UserContext";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
+import { isAssistantEnabled } from "@/lib/assistant/model";
 import { getSupabase, getUserContext } from "@/lib/auth/server";
 import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
 
@@ -37,14 +39,16 @@ export default async function DashboardLayout({
   return (
     <UserProvider initialUserEmail={userEmail} initialProfile={profile} tenantName={tenantName}>
       <NavigationFeedbackProvider>
-        <DashboardShell
-          appBuildId={appBuildId}
-          appVersion={packageMetadata.version}
-          displayName={displayName}
-          tenantName={tenantName}
-        >
-          {children}
-        </DashboardShell>
+        <AssistantDock enabled={isAssistantEnabled()}>
+          <DashboardShell
+            appBuildId={appBuildId}
+            appVersion={packageMetadata.version}
+            displayName={displayName}
+            tenantName={tenantName}
+          >
+            {children}
+          </DashboardShell>
+        </AssistantDock>
       </NavigationFeedbackProvider>
       <CommandPaletteLoader />
       <WebVitalsReporter buildId={appBuildId} />

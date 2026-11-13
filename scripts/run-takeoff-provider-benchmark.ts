@@ -49,25 +49,21 @@ import {
 } from "@/lib/takeoff/page-triage-server";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
 import { AIR_LEGEND_MIN_CODES, CANDIDATE_FILTER_REASONS, LEGEND_SAMPLE_STRIP } from "@/lib/takeoff/vectors/candidate-filter";
-import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_ACCEPTED_MARGIN } from "@/lib/takeoff/vectors/classify";
 import { DOOR_ARC, DOOR_HINGE, FILL_CELL_M, FILL_FRAME_SHARE, FILL_HOLE_MAX_M2, FILL_MAX_CELL_M, FILL_MAX_CELLS, FILL_SANITY_RATIO, FILL_SEED_REACH_HEIGHTS, ISLAND_CIRCLE } from "@/lib/takeoff/vectors/fill";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
-import {
-  GROUP_DECISIONS_EVIDENCE_MAX_BYTES,
-  GROUP_DECISIONS_LABELS,
-  GROUP_DECISIONS_LIMITS,
-  GROUP_DECISIONS_PROMPT_VERSION,
-  GROUP_DECISIONS_VERSION,
-} from "@/lib/takeoff/vectors/group-decisions";
+import { GROUP_DECISIONS_LIMITS, GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
   GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
   GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
+  GROUP_DECISIONS_CALL_TIMEOUT_MS,
   GROUP_DECISIONS_CONCURRENCY,
-  GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+  GROUP_DECISIONS_LEGEND_IMAGES,
 } from "@/lib/takeoff/vectors/group-decisions-server";
-import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
-import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
+import { GROUP_EVIDENCE } from "@/lib/takeoff/vectors/group-evidence";
+import { GROUP_EVIDENCE_IMAGES } from "@/lib/takeoff/vectors/group-evidence-images";
+import { GROUP_EVIDENCE_RENDER } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
 import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
 import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LABEL_CUT_MIN_PT, LABEL_FAMILY, LABEL_VOTES, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
@@ -296,12 +292,14 @@ function vectorRules() {
     items: { version: VECTOR_ITEMS_VERSION },
     decisions: {
       version: GROUP_DECISIONS_VERSION, prompt_version: GROUP_DECISIONS_PROMPT_VERSION, limits_per_page: GROUP_DECISIONS_LIMITS,
-      classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
-      call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+      // Decisions' confidence is its margin p1 − p2 (TI-704): a class counts from this margin.
+      accepted_margin: DECISIONS_ACCEPTED_MARGIN, evidence: GROUP_EVIDENCE, images: GROUP_EVIDENCE_IMAGES, render: GROUP_EVIDENCE_RENDER,
+      legend_images: GROUP_DECISIONS_LEGEND_IMAGES, call_timeout_ms: GROUP_DECISIONS_CALL_TIMEOUT_MS,
+      call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
       candidate_filter: { reasons: CANDIDATE_FILTER_REASONS, legend_sample_strip: LEGEND_SAMPLE_STRIP, air_legend_min_codes: AIR_LEGEND_MIN_CODES },
       // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
       concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_margin: GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
-      sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
+      retries: 0,
     },
   };
 }

@@ -544,7 +544,7 @@ function LaunchMetreDialogContent({
                     </NativeSelect>
                     <p className="text-xs text-muted-foreground">{selectedVersionOption?.helper ?? "Aucune version cible disponible."}</p>
                   </div>}
-                  advancedControls={({ processing, onProcessingChange, isConfirmed }) => {
+                  advancedControls={({ processing, onProcessingChange, isConfirmed, chatGptConnection }) => {
                     const selectionWarning = getTakeoffSelectionWarning({ recommendation: selectedPlanSetRecommendation, selectedLevel: processing.level });
                     return <>
                     <fieldset><legend className="mb-2 text-sm font-medium">Niveau d&apos;analyse</legend><div className="space-y-2" role="radiogroup">
@@ -553,7 +553,7 @@ function LaunchMetreDialogContent({
                     {selectedPlanSetRecommendation?.recommendedLevel && <p className="mt-2 text-xs text-muted-foreground">Niveau recommandé : {TAKEOFF_LEVEL_BUSINESS_LABELS[selectedPlanSetRecommendation.recommendedLevel]}. Le format des pièces ne prouve pas leur lisibilité ni leur échelle.</p>}
                     {selectionWarning && <p className="mt-2 text-xs text-warning">{selectionWarning.message}</p>}
                     </fieldset>
-                    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} disabled={isSubmitting} preserveAutomaticChoice={isConfirmed} />
+                    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} connection={chatGptConnection} disabled={isSubmitting} preserveAutomaticChoice={isConfirmed} />
                   </>; }}
                 />
               ) : <div className="space-y-3 py-4 text-center"><p className="text-sm text-muted-foreground">Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.</p><Link href={`/dashboard/affaires/${projectId}/plans`} className={buttonVariants({ variant: "outline" })}>Voir les plans</Link>{planSetsLoadError && <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => void reloadPlanSets()}>Réessayer</button>}</div>}

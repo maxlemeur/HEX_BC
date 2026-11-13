@@ -137,11 +137,13 @@ export function chatGptLocalServer() {
       id: LAB_VECTOR_DOCUMENT, file_type: "pdf", raw_status: "binary", raw_path: LAB_DATASET_LAYOUT.raw(LAB_VECTOR_DOCUMENT), file_size: labBytes.length,
       sha256: createHash("sha256").update(labBytes).digest("hex"), pages: 1, kind: "plan", role: "truth",
     }] }));
-    const child = localServer = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port), "--webpack"], {
-      cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
+    const child = localServer = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port), "--webpack"], {
+      cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", MERGEONE_CHATGPT_LOCAL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
         ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
         TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
+        // The assistant (ASSIST01) exists only where it is switched on, beside the linked ChatGPT plan.
+        MERGEONE_ASSISTANT: "1",
         ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
