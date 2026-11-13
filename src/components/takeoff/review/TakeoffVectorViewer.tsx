@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { LoaderCircle, Maximize2, Minus, Plus } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 
@@ -218,20 +218,20 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [hasPage, planFileId, planSetId, uploadUrl]);
 
-  // `fill`: the frame follows its panel, and the page fits it again when the panel or the window changes width.
+  // The frame's width, measured once the frame is mounted (it appears with the reading, after the loading message)
+  // and before it is painted, then followed: the page fits it again when its panel or the window changes width.
   const [frameWidth, setFrameWidth] = useState(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = frame.current;
-    if (!fill || !element || typeof ResizeObserver === "undefined") return;
+    if (!element) return;
+    setFrameWidth(element.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => setFrameWidth(element.clientWidth));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [fill, reading]);
+  }, [reading]);
   const base = useMemo(() => (page ? { width: page.reading.size_pt[0], height: page.reading.size_pt[1] } : null), [page]);
-  const fit = useMemo(() => {
-    const width = (fill ? frameWidth : 0) || (frame.current?.clientWidth ?? 0);
-    return base && width > 0 ? width / base.width : 0.25;
-  }, [base, fill, frameWidth]);
+  const fit = base && frameWidth > 0 ? frameWidth / base.width : 0.25;
   const scale = fit * zoom;
 
   useEffect(() => {

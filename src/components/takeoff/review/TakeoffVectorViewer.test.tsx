@@ -343,4 +343,62 @@ describe("TakeoffVectorViewer, the view of each page (TI-721)", () => {
     expect(screen.getByLabelText("Page lue")).toHaveValue(pages[0].id);
     expect([geometryWidth(), pan(container)]).toEqual([fitted(1190.55, 1.25), { x: -80, y: -40 }]);
   });
+
+  // Review of PR #317 (Codex), written before the fix: on the review page (no `fill`), the reading replaces the
+  // loading message, so its first render ran before the frame existed. The fit was then computed without a frame
+  // (0.25 px per point) and nothing measured the frame once mounted: the first page, the only one of a one-page plan,
+  // stayed at that size. Here every element measures 800 px wide (jsdom lays nothing out).
+  describe("on the review page, whose frame appears with the reading", () => {
+    let widthOfElements = 800;
+    let measured: { mockRestore: () => void } | null = null;
+    afterEach(() => {
+      measured?.mockRestore();
+      measured = null;
+      widthOfElements = 800;
+    });
+
+    async function renderAfterLoading() {
+      measured = vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(() => widthOfElements);
+      documents.set(UPLOAD, { pages: 1, failing: new Set() });
+      stubPdfjs();
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      stubFetch({ pages: [page(1, null, 1, "plan.pdf")], source_download_url: UPLOAD }, {}, held);
+      const view = render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
+      await settle();
+      expect(screen.getByText("Lecture vectorielle…")).toBeTruthy();
+      release();
+      await settle();
+      return view;
+    }
+
+    it("fits the first page to the frame's width, and « Ajuster » fits it there again", async () => {
+      const { container } = await renderAfterLoading();
+      expect(geometryWidth()).toBe(800);
+      expect(rounded(parseFloat(container.querySelector("canvas")!.style.width))).toBe(800);
+      fireEvent.click(screen.getByRole("button", { name: "Zoom avant" }));
+      await settle();
+      expect(geometryWidth()).toBe(1000);
+      fireEvent.click(screen.getByRole("button", { name: "Ajuster" }));
+      await settle();
+      expect(geometryWidth()).toBe(800);
+    });
+
+    it("fits the page again when the frame changes width, keeping its zoom", async () => {
+      const observers: Array<() => void> = [];
+      vi.stubGlobal("ResizeObserver", class {
+        constructor(private readonly callback: () => void) { observers.push(() => this.callback()); }
+        observe() {}
+        disconnect() {}
+      });
+      await renderAfterLoading();
+      fireEvent.click(screen.getByRole("button", { name: "Zoom avant" }));
+      await settle();
+      expect(geometryWidth()).toBe(1000);
+      widthOfElements = 600;
+      act(() => observers.forEach((notify) => notify()));
+      await settle();
+      expect(geometryWidth()).toBe(750);
+    });
+  });
 });
