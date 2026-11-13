@@ -282,6 +282,23 @@ seconde fois sans décision.
   ligne refusée avant l'envoi ; l'assistant le dit, n'offre pas la confirmation et
   ouvre le rapprochement (TKD06,
   [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113202356_takeoff_dpgf_merge_any_line.sql)).
+- **« Remplacer la section » sur des lignes DPGF** (TI-726). Ce remplacement vide la
+  section cible, sous-sections comprises, avant d'écrire le métré. Avec un DPGF,
+  l'assistant n'offre que « Fusionner » ; envoyé directement à l'API par un métré qui
+  n'alimente aucune ligne DPGF, il supprimait sans un mot les lignes DPGF de la
+  section, leur quantité du DPGF et leur composition avec elles. Une ligne DPGF ne
+  sort jamais du devis sans un geste qui la nomme : la base refuse ce remplacement dès
+  que la section ou l'une de ses sous-sections tient une ligne DPGF, que le métré
+  l'alimente ou non (`TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT`,
+  `replace_deletes_dpgf_lines`). Le refus nomme la section et ses lignes DPGF
+  (désignation, quantité, unité ; les 20 premières, et leur nombre). L'issue est
+  « Fusionner » par le rapprochement : les lignes DPGF restent, une ligne du métré
+  reliée à l'une d'elles l'alimente par sa composition. Une section qui ne tient
+  aucune ligne DPGF se remplace toujours. « Ajouter » à côté d'une ligne DPGF
+  alimentée reste refusé (« Fusionner » obligatoire). Le remplacement de la racine
+  reste désactivé, et une décision de page ne remplace ni ne retire une ligne DPGF
+  (TKD07,
+  [`…_takeoff_dpgf_section_replace.sql`](../../supabase/migrations/20261113211347_takeoff_dpgf_section_replace.sql)).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
