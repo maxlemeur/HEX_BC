@@ -19,6 +19,7 @@
       "e2e/army/critical/deslop-components.e2e.ts",
       "e2e/army/critical/document-upload-feedback.e2e.ts",
       "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
+      "e2e/army/critical/dossier-polling-saves.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
       "e2e/army/critical/editable-ouvrage.e2e.ts",
       "e2e/army/critical/editor-idle-requests.e2e.ts",
@@ -1179,6 +1180,26 @@
         "e2e/fixtures/dpgf-minimal.csv"
       ],
       "journeys": [
+        "e2e/army/critical/document-upload-feedback.e2e.ts"
+      ]
+    },
+    {
+      "id": "dossier-polling-saves",
+      "paths": [
+        "src/app/api/affaires/[projectId]/intake/route.ts",
+        "src/components/affaires/useAffaireDossier.ts",
+        "src/components/affaires/useHubCockpitSuggestions.ts",
+        "src/components/affaires/IntakeUploadFeedback.tsx",
+        "src/components/affaires/AffaireDocumentDesk.tsx",
+        "src/components/affaires/AffaireDocumentsDrawer.tsx",
+        "src/components/affaires/AffaireDocumentPage.tsx",
+        "src/components/affaires/AffaireHub.tsx",
+        "src/components/affaires/IntakeWorkspace.tsx",
+        "e2e/army/critical/dossier-polling-saves.e2e.ts",
+        "e2e/fixtures/sample-plan.pdf"
+      ],
+      "journeys": [
+        "e2e/army/critical/dossier-polling-saves.e2e.ts",
         "e2e/army/critical/document-upload-feedback.e2e.ts"
       ]
     },

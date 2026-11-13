@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
 import type {
@@ -27,6 +27,7 @@ import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentTable } from "./IntakeDocumentTable";
 import { GoogleDriveImport } from "./GoogleDriveImport";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
+import { useDossierPoll } from "./useAffaireDossier";
 import { CircleAlertIcon, CircleCheckBigIcon, FunnelIcon, PlusIcon, } from "lucide-react";
 
 type IntakeWorkspaceProps = {
@@ -38,6 +39,8 @@ type IntakeWorkspaceProps = {
   hideAddFilesAction?: boolean;
   hideMissingPiecesAction?: boolean;
   onUploadEvent?: (event: IntakeUploadEvent) => void;
+  // Reads the dossier again (useAffaireDossier) without refreshing the router (TI-722).
+  onReload: () => Promise<void>;
 };
 
 const FILTER_PARAM = "intakeFilter";
@@ -119,9 +122,9 @@ export function IntakeWorkspace({
   hideAddFilesAction = false,
   hideMissingPiecesAction = false,
   onUploadEvent,
+  onReload,
 }: IntakeWorkspaceProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [showDropzone, setShowDropzone] = useState(!workspace?.uploadId);
   const [announcement, setAnnouncement] = useState("");
@@ -146,15 +149,13 @@ export function IntakeWorkspace({
     setShowDropzone(false);
     setPendingUploadId(uploadId);
     setAnnouncement("Upload terminé. Actualisation du workspace…");
-    router.refresh();
-  }, [router]);
+    void onReload();
+  }, [onReload]);
 
   const handleReclassified = useCallback(() => {
-    router.refresh();
-  }, [router]);
+    void onReload();
+  }, [onReload]);
 
-  // Auto-refresh while documents are still being classified
-  const autoRefreshStartRef = useRef<number | null>(null);
   const lastScrolledFocusKeyRef = useRef<string | null>(null);
   const hasProcessingDocs = workspace?.documents.some(isDocumentProcessing) ?? false;
 
@@ -222,29 +223,15 @@ export function IntakeWorkspace({
     };
   }, [focusBriefBlock, focusBriefEntry, focusDocumentId, workspace?.documents]);
 
+  // Follows the classification, then the upload, through reads of the dossier.
+  const classification = useDossierPoll(hasProcessingDocs, onReload, { intervalMs: AUTO_REFRESH_INTERVAL_MS, maxMs: AUTO_REFRESH_MAX_MS });
   useEffect(() => {
-    if (!hasProcessingDocs) {
-      autoRefreshStartRef.current = null;
-      return;
-    }
+    if (classification.expired) setAnnouncement("La classification prend plus de temps que prévu. Rafraichissez la page manuellement.");
+  }, [classification.expired]);
 
-    if (autoRefreshStartRef.current === null) {
-      autoRefreshStartRef.current = Date.now();
-    }
-
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - (autoRefreshStartRef.current ?? Date.now());
-      if (elapsed > AUTO_REFRESH_MAX_MS) {
-        clearInterval(interval);
-        setAnnouncement("La classification prend plus de temps que prévu. Rafraichissez la page manuellement.");
-        return;
-      }
-      router.refresh();
-    }, AUTO_REFRESH_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [hasProcessingDocs, router]);
-
+  const upload = useDossierPoll(pendingUploadId !== null && workspace?.uploadId !== pendingUploadId, onReload, {
+    intervalMs: UPLOAD_REFRESH_INTERVAL_MS, maxMs: UPLOAD_REFRESH_INTERVAL_MS * UPLOAD_REFRESH_MAX_ATTEMPTS,
+  });
   useEffect(() => {
     if (!pendingUploadId) {
       return;
@@ -256,22 +243,13 @@ export function IntakeWorkspace({
       return;
     }
 
-    let attempts = 0;
-    const interval = setInterval(() => {
-      attempts += 1;
-      router.refresh();
-
-      if (attempts >= UPLOAD_REFRESH_MAX_ATTEMPTS) {
-        clearInterval(interval);
-        setPendingUploadId(null);
-        setAnnouncement(
-          "L'upload est terminé mais le workspace n'est pas encore à jour. Rafraîchissez la page si nécessaire."
-        );
-      }
-    }, UPLOAD_REFRESH_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [pendingUploadId, router, workspace?.uploadId]);
+    if (upload.expired) {
+      setPendingUploadId(null);
+      setAnnouncement(
+        "L'upload est terminé mais le workspace n'est pas encore à jour. Rafraîchissez la page si nécessaire."
+      );
+    }
+  }, [pendingUploadId, upload.expired, workspace?.uploadId]);
 
   useEffect(() => {
     const handleOpenSurface = (event: Event) => {
