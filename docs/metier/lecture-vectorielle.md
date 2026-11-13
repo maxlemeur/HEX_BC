@@ -689,6 +689,27 @@ calculé comme avant, reste le chiffre de tête.
   une clé manquée comptant 100 %) est aussi calculé sur la tranche vecteur. Il n'a pas
   de verdict sur une abstention.
 
+**Comptages** (TI-676). La comparaison et les tranches ont une colonne des comptages
+pour chaque run, à côté des longueurs et des surfaces. C'est une mesure, sans verdict :
+aucun autre chiffre du rapport n'en dépend, et le score ne change pas.
+
+- Les clés comptées sont les clés de comptage notées : unité « u » (u, pce, pièce),
+  observables, non ambiguës. Une clé chiffrée « ens » reste hors score.
+- Pour chaque clé, quatre états :
+  - lue : au moins un item est rattaché à la clé ;
+  - exacte : lue, et exacte au score (u exact) ;
+  - à ±1 : lue, à une unité près de la vérité, les exactes comprises ;
+  - manquée : aucun item. Une clé attendue à 0 qu'aucun item ne lit est manquée ici,
+    même si le score la dit juste.
+- En trop : les clés de comptage lues que la vérité n'a pas. Une clé lue avec un autre
+  DN compte ici, et sa clé de la vérité compte comme manquée. Les lignes illisibles n'y
+  sont pas : leur clé n'est pas connue.
+- Chaque chiffre est la médiane des passes. Les totaux portent sur les mêmes plans que
+  les longueurs. Sur la tranche raster, la lecture vectorielle s'abstient.
+- `report.md` imprime des nombres de clés, jamais une quantité du devis ni d'une lecture.
+- Sur les 8 plans de développement (13/11/2026), 28 clés sont notées. Les vecteurs en
+  lisent 0. La baseline niveau C en trouve 1 exacte et en donne 5 en trop.
+
 **Longueurs jugées à la mesure au trait** (TI-662, décision du 11 nov.). Un devis peut
 compter plus de tuyau que le plan n'en trace : chutes vers les appareils, majorations,
 arrondi de chaque tronçon. Une lecture qui suit le dessin reste alors en dessous du

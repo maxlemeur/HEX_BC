@@ -50,6 +50,18 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // on the judged keys (median, signed): it is what the judgment on the devis
 // asks of a reading beyond the drawing. report.json keeps, per judged plan and
 // key, the devis, the measurement and each run's reading per pass.
+//
+// Count keys (TI-676): a measurement beside the lengths and surfaces, with no
+// verdict, that leaves every other figure as it is. Per scope, total and slice,
+// each run's scored count keys (kind count, unit u as the score reads it), those
+// read (at least one item attached, never the score's status: a key expected at
+// 0 that no item reads is « ok » there), among them exact (ok at the score's u
+// tolerance) and within one of the truth, and missed; and its extra counts, the count
+// keys it read that the truth lacks (false-positive groups of a count, a key
+// read one DN apart from a missed key included; unreadable lines, whose key is
+// unknown, are not). Each figure is the median over the passes. On the raster
+// slice the vector reading abstains, as for the lengths. report.md prints
+// numbers of keys, never a count of the devis or of a reading.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -91,6 +103,34 @@ export type SliceComparison = {
   /** The acceptance rule on the slice's keys (share strictly higher, median error strictly lower, a missed key 100 %); null on an abstention. */
   lengths_gain: boolean | null;
 };
+/** Count keys of a run (TI-676), each figure the median over the passes; null without a scored key (extra: without a scope). */
+export type CountMetrics = {
+  keys: number;
+  /** Keys with at least one item attached; exact and within_one count among them. */
+  found: number | null;
+  exact: number | null;
+  /** Within one of the truth, the exact keys included. */
+  within_one: number | null;
+  missed: number | null;
+  /** Count keys read that the truth lacks: false-positive groups of a count. */
+  extra: number | null;
+};
+export type CountSlice = {
+  plans: string[];
+  /** The vector reading hands the slice's pages to a human: its keys are counted, nothing is read. */
+  abstained: boolean;
+  vector: CountMetrics;
+  baseline: CountMetrics;
+};
+export type CountComparison = {
+  /** A measurement: no verdict, and no other figure of the comparison depends on it. */
+  declared: "measurement_only";
+  scopes: Array<{ scope: string; documents: string[]; role: "truth" | "reserve"; vector: CountMetrics; baseline: CountMetrics }>;
+  /** On the scopes of the comparison's totals. */
+  totals: Record<"reserve" | "truth" | "all", { vector: CountMetrics; baseline: CountMetrics }>;
+  /** On the plans of each slice; null when the pages of the vector run are not given. */
+  slices: Record<"reserve" | "truth" | "all", Record<"vector" | "raster", CountSlice>> | null;
+};
 export type VectorComparison = {
   passes: { vector: number; baseline: number };
   scopes: ScopeComparison[];
@@ -113,6 +153,8 @@ export type VectorComparison = {
     /** Measured plans left to their devis, and why. */
     not_judged: Array<{ scope: string; reason: MeasuredNotJudged }>;
   } | null;
+  /** Count keys of each run (TI-676), beside the lengths and surfaces. */
+  counts: CountComparison;
 };
 /**
  * Why a measured plan is not judged on its measurement: its truth covers several plans; the two runs did not both
@@ -262,6 +304,30 @@ function sliceSide(passes: ScopeScore[][], plans: readonly string[], abstained: 
   return { abstained, lengths: kind(isLength), surfaces: kind(isSurface), silent_errors: abstained ? null : silent };
 }
 
+const NO_COUNTS: CountMetrics = { keys: 0, found: null, exact: null, within_one: null, missed: null, extra: null };
+
+function countsOfPass(scopes: readonly ScopeScore[]) {
+  const scored = scopes.flatMap((scope) => scope.keys).filter((key) => key.key.kind === "count" && key.status !== "out_of_score");
+  // Read: an item attached. The score's status would count a key expected at 0 that no item reads (« ok », actual 0).
+  const found = scored.filter((key) => key.items > 0);
+  return {
+    keys: scored.length, found: found.length, exact: found.filter((key) => key.status === "ok").length,
+    within_one: found.filter((key) => key.actual !== null && key.expected !== null && Math.abs(key.actual - key.expected) <= 1 + 1e-9).length,
+    missed: scored.length - found.length,
+    extra: scopes.reduce((total, scope) => total + scope.false_positives.filter((group) => group.key?.kind === "count").length, 0),
+  };
+}
+
+/** The count keys of some scopes, each figure the median over the passes that hold any of them. */
+function countMetrics(passes: ReadonlyArray<readonly ScopeScore[]>): CountMetrics {
+  const perPass = passes.filter((scopes) => scopes.length > 0).map(countsOfPass);
+  if (perPass.length === 0) return NO_COUNTS;
+  const keys = perPass[0].keys;
+  const of = (pick: (entry: (typeof perPass)[number]) => number) => (keys === 0 ? null : median(perPass.map(pick)));
+  return { keys, found: of((entry) => entry.found), exact: of((entry) => entry.exact), within_one: of((entry) => entry.within_one),
+    missed: of((entry) => entry.missed), extra: median(perPass.map((entry) => entry.extra)) };
+}
+
 function isScoredLength(key: KeyScore) {
   return isLength(key) && key.status !== "out_of_score";
 }
@@ -305,8 +371,10 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
   };
   // Slices use the plans of the totals (scored on both sides in every pass), so each compares the same keys.
   const roleOf = (id: string) => (vectorPasses.flat().find((scope) => scope.id === id) as ScopeScore).role;
+  const slicePlans = (role: "reserve" | "truth" | "all", name: "vector" | "raster") =>
+    common.filter((id) => slices?.get(id) === name && (role === "all" || roleOf(id) === role));
   const slice = (role: "reserve" | "truth" | "all", name: "vector" | "raster"): SliceComparison => {
-    const plans = common.filter((id) => slices?.get(id) === name && (role === "all" || roleOf(id) === role));
+    const plans = slicePlans(role, name);
     const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id)).flatMap((scope) => scope.keys));
     return {
       plans, vector: sliceSide(vectorPasses, plans, name === "raster"), baseline: sliceSide(baselinePasses, plans, false),
@@ -342,6 +410,20 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
       }) };
   };
   const measuredScopes = judgedPlans.map(measuredScope);
+  // Counts (TI-676) on the same scopes as the lengths: per scope, the totals' scopes, and the plans of each slice.
+  const scopesOf = (passes: ScopeScore[][], pick: (scope: ScopeScore) => boolean) => passes.map((scopes) => scopes.filter(pick));
+  const countTotal = (role: "reserve" | "truth" | "all") => {
+    const pick = (scope: ScopeScore) => common.includes(scope.id) && (role === "all" || scope.role === role);
+    return { vector: countMetrics(scopesOf(vectorPasses, pick)), baseline: countMetrics(scopesOf(baselinePasses, pick)) };
+  };
+  const countSlice = (role: "reserve" | "truth" | "all", name: "vector" | "raster"): CountSlice => {
+    const plans = slicePlans(role, name);
+    const pick = (scope: ScopeScore) => plans.includes(scope.id);
+    const vectorCounts = countMetrics(scopesOf(vectorPasses, pick));
+    return { plans, abstained: name === "raster", vector: name === "raster" ? { ...NO_COUNTS, keys: vectorCounts.keys } : vectorCounts,
+      baseline: countMetrics(scopesOf(baselinePasses, pick)) };
+  };
+  const countSlices = (role: "reserve" | "truth" | "all") => ({ vector: countSlice(role, "vector"), raster: countSlice(role, "raster") });
   const judgment = (role: "reserve" | "truth" | "all"): MeasuredJudgment => {
     const judged = measuredScopes.filter((scope) => role === "all" || scope.role === role);
     const plans = judged.map((scope) => scope.scope);
@@ -368,6 +450,14 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
         ...measuredIds.flatMap((scope) => { const reason = notJudged(scope); return reason ? [{ scope, reason }] : []; }),
       ].sort((left, right) => (left.scope < right.scope ? -1 : left.scope > right.scope ? 1 : 0)),
     } : null,
+    counts: {
+      declared: "measurement_only",
+      scopes: scopes.map((entry) => ({ scope: entry.scope, documents: entry.documents, role: entry.role,
+        vector: countMetrics(scopesOf(vectorPasses, (scope) => scope.id === entry.scope)),
+        baseline: countMetrics(scopesOf(baselinePasses, (scope) => scope.id === entry.scope)) })),
+      totals: { reserve: countTotal("reserve"), truth: countTotal("truth"), all: countTotal("all") },
+      slices: slices ? { reserve: countSlices("reserve"), truth: countSlices("truth"), all: countSlices("all") } : null,
+    },
   };
 }
 
@@ -474,6 +564,21 @@ function percent(value: number | null) {
   return value === null ? "–" : `${(value * 100).toFixed(0)} %`;
 }
 
+function plural(value: number | null, one: string, many: string) {
+  return (value ?? 0) >= 2 ? many : one;
+}
+
+/** Numbers of count keys, never a count of the devis or of a reading. */
+function countCell(counts: CountMetrics, abstained = false) {
+  if (abstained) return counts.keys === 0 ? "–" : `abstention (${counts.keys} ${plural(counts.keys, "clé", "clés")})`;
+  if (counts.keys === 0) return counts.extra ? `aucune clé notée, ${counts.extra} en trop` : "–";
+  return `${counts.exact} ${plural(counts.exact, "exacte", "exactes")} sur ${counts.keys}, ${counts.within_one} à ±1, `
+    + `${counts.found} ${plural(counts.found, "lue", "lues")}, ${counts.missed} ${plural(counts.missed, "manquée", "manquées")}, ${counts.extra} en trop`;
+}
+
+const COUNTS_NOTE = "Comptages : clés de comptage notées (u). Lues : au moins un item rattaché à la clé ; parmi elles, exactes comme au score, et "
+  + "« à ±1 », les exactes comprises ; en trop : clés de comptage lues que la vérité n’a pas, une clé lue avec un autre DN comprise. Une mesure, sans verdict.";
+
 function sliceCell(kind: SliceKind, abstained: boolean) {
   if (kind.keys === 0) return "–";
   if (abstained) return `abstention (${kind.keys} clés)`;
@@ -486,7 +591,7 @@ function sliceCell(kind: SliceKind, abstained: boolean) {
 }
 
 /** The slices of the comparison: shares and counts only, declared as added after the v1 results. */
-function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
+function renderSlices(slices: NonNullable<VectorComparison["slices"]>, counts: CountComparison["slices"]) {
   const lines = ["### Tranches vecteur et raster (ajoutées après lecture des résultats v1)", "",
     "Le chiffre global ci-dessus reste le chiffre de tête. Couverture : clés notées lues ; l’erreur médiane ne porte que sur les clés lues. "
     + "Une page raster est confiée à un humain : la lecture vectorielle s’y abstient, ce n’est jamais un succès. "
@@ -499,10 +604,11 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
       sliceCell(entry.vector.lengths, entry.vector.abstained), sliceCell(entry.baseline.lengths, false),
       entry.vector.abstained ? "abstention" : verdict(entry.lengths_gain, "gain", "pas de gain"),
       sliceCell(entry.vector.surfaces, entry.vector.abstained), sliceCell(entry.baseline.surfaces, false),
+      counts ? countCell(counts[role][name].vector, counts[role][name].abstained) : "–", counts ? countCell(counts[role][name].baseline) : "–",
       `${silent(entry.vector)} / ${silent(entry.baseline)}`];
   }));
   lines.push(...table(["Tranche", "Plans", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline",
-    "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
+    "Comptages, vecteurs", "Comptages, baseline", "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
   if (slices.left_out.length > 0) lines.push(`Hors tranches (pages vecteur et raster mêlées, ou passes qui ne s’accordent pas) : ${slices.left_out.join(", ")}.`, "");
   return lines;
 }
@@ -614,22 +720,26 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
   }
   if (comparison) {
     lines.push(`## Comparaison avec la baseline niveau C (médianes de ${comparison.passes.vector} passes vectorielles et ${comparison.passes.baseline} passes de la baseline, re-notée au score courant)`, "");
+    const counts = comparison.counts;
+    const scopeCounts = (id: string) => counts.scopes.find((entry) => entry.scope === id);
     const rows = [
       ...(["reserve", "truth", "all"] as const).map((role) => {
         const entry = comparison.totals[role];
         return [role === "reserve" ? "**Réserve**" : role === "truth" ? "**Hors réserve**" : "**Tous**", share(entry.vector.lengths), share(entry.baseline.lengths),
           verdict(entry.lengths_gain, "gain", "pas de gain"), share(entry.vector.surfaces), share(entry.baseline.surfaces),
-          verdict(entry.surfaces_no_regression, "sans régression", "régression")];
+          verdict(entry.surfaces_no_regression, "sans régression", "régression"), countCell(counts.totals[role].vector), countCell(counts.totals[role].baseline)];
       }),
       ...comparison.scopes.map((scope) => [`${scope.documents.join(", ")}${scope.role === "reserve" ? " (réserve)" : ""}`, share(scope.vector.lengths),
         share(scope.baseline.lengths), verdict(scope.lengths_gain, "gain", "pas de gain"), share(scope.vector.surfaces), share(scope.baseline.surfaces),
-        verdict(scope.surfaces_no_regression, "sans régression", "régression")]),
+        verdict(scope.surfaces_no_regression, "sans régression", "régression"), countCell(scopeCounts(scope.scope)?.vector ?? NO_COUNTS),
+        countCell(scopeCounts(scope.scope)?.baseline ?? NO_COUNTS)]),
     ];
-    lines.push(...table(["Périmètre", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline", "Surfaces"], rows), "");
+    lines.push(...table(["Périmètre", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline", "Surfaces",
+      "Comptages, vecteurs", "Comptages, baseline"], rows), "", COUNTS_NOTE, "");
     if (comparison.left_out_of_totals.length > 0) {
       lines.push(`Hors totaux (non notés par les deux runs à chaque passe) : ${comparison.left_out_of_totals.join(", ")}.`, "");
     }
-    if (comparison.slices) lines.push(...renderSlices(comparison.slices));
+    if (comparison.slices) lines.push(...renderSlices(comparison.slices, comparison.counts.slices));
     if (comparison.measured) lines.push(...renderMeasured(comparison.measured));
   }
   return lines;
