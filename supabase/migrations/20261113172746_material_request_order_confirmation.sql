@@ -437,6 +437,7 @@ declare
   today date := (pg_catalog.now() at time zone 'Europe/Paris')::date;
   ordered_value date;
   delivery_value date;
+  kept_delivery date;
   reference_value text;
   document_value uuid;
   proof_path text;
@@ -502,8 +503,18 @@ begin
   if pg_catalog.char_length(reference_value) > 120 then
     raise exception using errcode = '22023', message = 'PURCHASE_ORDER_INPUT_INVALID';
   end if;
-  -- Passed today at the latest (Paris), delivered on that day or after when a delivery date is given.
-  if ordered_value > today or delivery_value < ordered_value then
+  -- Passed today at the latest (Paris), delivered on that day or after: the date given, else the one the draft keeps
+  -- when it is a day (« TBD », a delivery still to be determined, stays as it is).
+  if p_confirmation ? 'expected_delivery_date' then
+    kept_delivery := delivery_value;
+  elsif po.expected_delivery_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+    begin
+      kept_delivery := po.expected_delivery_date::date;
+    exception when invalid_datetime_format or datetime_field_overflow then
+      kept_delivery := null;
+    end;
+  end if;
+  if ordered_value > today or kept_delivery < ordered_value then
     raise exception using errcode = '22023', message = 'PURCHASE_ORDER_CONFIRMATION_DATE_INVALID';
   end if;
   -- The proof and its stored file are share-locked: a deletion of either that has not committed is waited for, then

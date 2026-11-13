@@ -403,6 +403,17 @@ select results_eq(
   $$select status::text, total_ht_cents from public.purchase_orders where id = current_setting('test.order_beta')::uuid$$,
   $$values ('draft'::text, 2 * 999 - 1000)$$,
   '5 Beta''s draft stays as it was');
+-- Codex review of #311: Beta's draft is due on 10/11; confirmed as ordered on 12/11 without a delivery date, it would
+-- keep a delivery before its order.
+select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
+  format($$select public.replace_purchase_order_draft(%L::uuid, '{"expected_delivery_date": "2026-11-10"}'::jsonb, null, %s)$$,
+    current_setting('test.order_beta'), pg_temp.revision('test.order_beta'))),
+  'ok 1', 'fixture: Beta''s draft is due on 10/11');
+select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
+  format($$select public.confirm_material_request_purchase_order(%L::uuid, %s, %L::jsonb)$$,
+    current_setting('test.order_beta'), pg_temp.revision('test.order_beta'), jsonb_build_object(
+      'ordered_on', '2026-11-12', 'document_id', 'a9320000-0000-4000-8000-00000000d003')::text)),
+  '22023 PURCHASE_ORDER_CONFIRMATION_DATE_INVALID', '5 the delivery date the draft keeps is not before the order either');
 select results_eq(
   $$select status::text, order_date, expected_delivery_date, total_ht_cents from public.purchase_orders
     where id = current_setting('test.order_alpha')::uuid$$,
