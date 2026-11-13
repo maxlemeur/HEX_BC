@@ -299,6 +299,20 @@ seconde fois sans décision.
   reste désactivé, et une décision de page ne remplace ni ne retire une ligne DPGF
   (TKD07,
   [`…_takeoff_dpgf_section_replace.sql`](../../supabase/migrations/20261113211347_takeoff_dpgf_section_replace.sql)).
+- **Une ligne DPGF arrivée pendant l'application** (TI-728). Une version sans ligne
+  DPGF s'applique sans autorisation DPGF ; une version qui en tient une est refusée
+  (`TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED`) et passe par le rapprochement. Ce
+  contrôle se lisait avant les verrous : une ligne DPGF copiée dans le brouillon à cet
+  instant (« Importer la DPGF » liée, copie de section) y échappait, puis « Remplacer
+  la section » la supprimait ou « Fusionner » la réécrivait en ligne de métré, sa
+  quantité du DPGF perdue sans un mot. Il se lit maintenant sous le verrou de la ligne
+  de la version, que toute écriture d'une ligne du devis tient jusqu'à sa validation
+  (les copies le prennent avant d'insérer) : une
+  copie validée avant est vue et l'application est refusée ; une copie qui arrive
+  après attend la fin de l'application, puis se pose à côté de ses lignes. Le serveur
+  dit que la validation DPGF n'est plus valable et la relance relit la version (pgTAP
+  `takeoff-apply-dpgf-check-race`,
+  [`…_takeoff_apply_dpgf_check_under_lock.sql`](../../supabase/migrations/20261113224854_takeoff_apply_dpgf_check_under_lock.sql)).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
