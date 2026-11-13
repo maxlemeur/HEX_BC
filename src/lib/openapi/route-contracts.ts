@@ -431,6 +431,14 @@ const administrationContracts: RouteContract[] = [
     } }],
   },
   {
+    id: "read-affaire-intake-workspace", method: "get", path: "/api/affaires/{projectId}/intake",
+    summary: "Lire le dossier de l'affaire", tags: ["Affaires"],
+    description: "Lecture privée sans cache du dossier de l'affaire accessible (pièces, pièces manquantes, brief), telle que la page de l'affaire la rend. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+    pathParameters: [projectIdParameter],
+    queryParameters: [{ name: "plans", schema: z.literal("1"), description: "Ajouter le résumé des plans et métrés de l'affaire." }],
+    success: [{ status: "200", description: "Dossier de l'affaire, avec Cache-Control private/no-store." }],
+  },
+  {
     id: "reconcile-affaire-plan-dossier", method: "post", path: "/api/affaires/{projectId}/intake/reconcile-plans",
     summary: "Actualiser les plans du dossier", tags: ["Affaires"],
     description: "Synchronise les pièces manquantes et le brief avec les plans du projet accessible.", pathParameters: [projectIdParameter],
