@@ -14,6 +14,19 @@ export type AssistantTool = {
   run(input: unknown): Promise<unknown>;
 };
 
+/**
+ * What a document read gives back besides its text result: the content parts of
+ * the document itself (a PDF file, an image), sent to the model as the next
+ * input item. A tool result is text; a file reaches the model the way the
+ * dossier classification already sends it through the plan, in a message whose
+ * opening `intro` says it is data read by a tool, not the member speaking.
+ */
+export type AssistantToolAttachment = { intro: string; parts: Record<string, unknown>[] };
+
+export class AssistantToolResult {
+  constructor(readonly output: unknown, readonly attachment: AssistantToolAttachment | null) {}
+}
+
 /** A refusal worded for the model. Any other error reaches it as a fixed message only. */
 export class AssistantToolError extends Error {
   constructor(message: string) {
@@ -42,11 +55,13 @@ export type AssistantLoopResult = {
 export const ASSISTANT_MAX_TOOL_CALLS = 8;
 const MAX_TOOL_OUTPUT_CHARACTERS = 120_000;
 
-function failure(message: string) {
+type ToolOutcome = { ok: boolean; output: string; attachment?: AssistantToolAttachment | null };
+
+function failure(message: string): ToolOutcome {
   return { ok: false, output: JSON.stringify({ erreur: message }) };
 }
 
-async function runTool(tool: AssistantTool | undefined, rawArguments: string) {
+async function runTool(tool: AssistantTool | undefined, rawArguments: string): Promise<ToolOutcome> {
   if (!tool) return failure("Outil inconnu.");
   let parsed: unknown;
   try {
@@ -60,11 +75,13 @@ async function runTool(tool: AssistantTool | undefined, rawArguments: string) {
     return failure(`Arguments refusés (${fields}). Respecte le schéma de l’outil.`);
   }
   try {
-    const output = JSON.stringify(await tool.run(input.data) ?? null);
+    const value = await tool.run(input.data);
+    const result = value instanceof AssistantToolResult ? value : new AssistantToolResult(value, null);
+    const output = JSON.stringify(result.output ?? null);
     if (output.length > MAX_TOOL_OUTPUT_CHARACTERS) {
       return failure("Résultat trop volumineux pour être lu en une fois. Affine la demande (une section, une ligne, un filtre).");
     }
-    return { ok: true, output };
+    return { ok: true, output, attachment: result.attachment };
   } catch (error) {
     if (error instanceof AssistantToolError) return failure(error.message);
     // The cause stays in the server log, by tool name only: no argument, no provider or database payload.
@@ -105,6 +122,8 @@ export async function runAssistantLoop(options: {
     if (turn.toolCalls.length === 0) return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
 
     input.push(...turn.replayItems);
+    // Documents follow the results of the turn: each call is answered first, as the Responses API expects.
+    const attachments: AssistantToolAttachment[] = [];
     for (const call of turn.toolCalls) {
       options.signal.throwIfAborted();
       const tool = tools.get(call.name);
@@ -118,6 +137,11 @@ export async function runAssistantLoop(options: {
       used.push({ name: call.name, activity, ok: result.ok });
       options.emit({ type: "tool_finished", callId: call.callId, ok: result.ok });
       input.push({ type: "function_call_output", call_id: call.callId, output: result.output });
+      if (result.attachment) attachments.push(result.attachment);
+    }
+    // The lowest role there is: a document never speaks as the application's rules (developer) do.
+    for (const attachment of attachments) {
+      input.push({ role: "user", content: [{ type: "input_text", text: attachment.intro }, ...attachment.parts] });
     }
   }
 }

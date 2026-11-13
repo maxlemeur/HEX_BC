@@ -57,4 +57,14 @@ describe("assistant answer text", () => {
     // Once the answer is final, nothing is hidden.
     expect(splitAssistantText("Le prix de [[ligne:", false)).toEqual([{ type: "text", value: "Le prix de [[ligne:" }]);
   });
+  it("turns a document citation into a document part with its page", () => {
+    const documentId = "11111111-1111-4111-8111-111111111111";
+    expect(splitAssistantText(`Le CCTP impose du cuivre [[doc:${documentId}/12|CCTP plomberie.pdf, p. 12]].`, false)).toEqual([
+      { type: "text", value: "Le CCTP impose du cuivre " },
+      { type: "document", documentId, page: 12, label: "CCTP plomberie.pdf, p. 12" },
+      { type: "text", value: "." },
+    ]);
+    // Page 0 is no page.
+    expect(splitAssistantText(`[[doc:${documentId}/0|x]]`, false)).toEqual([{ type: "text", value: `[[doc:${documentId}/0|x]]` }]);
+  });
 });

@@ -982,6 +982,13 @@ export async function requireAffaireProjectReadAccess(
   return requireAffaireProjectAccess(projectId, "reader");
 }
 
+/** The affaire's brief as its readers see it (owner, admin or director), or null when none was drafted yet. */
+export async function readAffaireBriefDraft(projectId: string) {
+  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const brief = await fetchAffaireBriefForProject({ supabase: context.supabase, projectId: project.id });
+  return brief?.draft ?? null;
+}
+
 async function requireAffaireProjectBriefEditor(
   projectId: string
 ): Promise<{

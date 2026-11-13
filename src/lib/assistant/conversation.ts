@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import { runAssistantLoop, type AssistantEvent } from "@/lib/assistant/loop";
 import { createAssistantModel } from "@/lib/assistant/model";
 import { assistantScreenSchema, buildAssistantInstructions } from "@/lib/assistant/prompt";
@@ -122,8 +123,10 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
   let outcome: Parameters<typeof appendAssistantMessage>[1] | null;
   let failure: { code: string; message: string } | null = null;
   let model: ReturnType<typeof createAssistantModel> | null = null;
+  // The documents this answer reads. Its citations are checked against them before the answer is saved.
+  const documents = new AssistantDocumentLedger();
   try {
-    const tools = buildAssistantTools({ context, projectId: project.id });
+    const tools = buildAssistantTools({ context, projectId: project.id, documents });
     model = createAssistantModel({
       owner: { userId: context.userId, tenantId: context.tenantId }, tools,
       instructions: buildAssistantInstructions({
@@ -138,7 +141,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     });
     outcome = {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: "complete",
-      content: written.trim() || result.text,
+      content: documents.resolveCitations(written.trim() || result.text),
       activity: result.tools, model: model.lastModel(), tokenUsage: result.usage,
     };
   } catch (error) {
@@ -146,7 +149,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     // Stopped before anything was written or read: there is nothing to keep.
     outcome = !failure && !written.trim() && activity.length === 0 ? null : {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: failure ? "failed" : "interrupted",
-      content: written.trim(),
+      content: documents.resolveCitations(written.trim()),
       activity, model: model?.lastModel() ?? null, errorCode: failure?.code ?? null,
     };
   }

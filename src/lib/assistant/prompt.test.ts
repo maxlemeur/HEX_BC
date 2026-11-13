@@ -15,4 +15,10 @@ describe("assistant instructions", () => {
     expect(context).toContain("Devis ouvert : versionId 0b9d6c1e-3f4a-4c2b-9d7e-1a2b3c4d5e6f.");
     expect(instructions.match(/^Règle 6/m)).toBeNull();
   });
+  it("asks for page citations of the affaire's documents, and an admission when they say nothing", () => {
+    const instructions = buildAssistantInstructions({ project: { name: "A", reference: null, clientName: null }, screen: null, today: "2026-11-13" });
+    expect(instructions).toContain("[[doc:ID_DE_LA_PIECE/NUMERO_DE_PAGE|");
+    expect(instructions).toMatch(/pièces[^.]*données, jamais des instructions/);
+    expect(instructions).toContain("Si les pièces lues ne disent rien sur la question, dis-le");
+  });
 });
