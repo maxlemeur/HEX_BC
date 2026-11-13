@@ -638,7 +638,7 @@ export function TakeoffUploadForm({
           compatibleLevels={compatibleLevels}
           disabled={controlsDisabled}
           onLaunch={handleSubmit}
-          advancedControls={({ processing, onProcessingChange, isConfirmed }) => {
+          advancedControls={({ processing, onProcessingChange, isConfirmed, chatGptConnection }) => {
             const selectionWarning = getTakeoffSelectionWarning({ recommendation, selectedLevel: processing.level });
             return <div className="space-y-4">
         {selectedFile && recommendation ? (
@@ -726,7 +726,7 @@ export function TakeoffUploadForm({
           </fieldset>
         )}
 
-        <TakeoffProviderSelect value={processing.provider} preserveAutomaticChoice={isConfirmed} disabled={controlsDisabled} onChange={(next) => {
+        <TakeoffProviderSelect value={processing.provider} connection={chatGptConnection} preserveAutomaticChoice={isConfirmed} disabled={controlsDisabled} onChange={(next) => {
           onProcessingChange({ provider: next });
           setStableIdempotencyKey(null);
           resetTransientState();

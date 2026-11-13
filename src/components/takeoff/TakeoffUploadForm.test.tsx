@@ -1,23 +1,23 @@
-vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: vi.fn().mockResolvedValue(null) }));
 import { webcrypto } from "node:crypto";
 import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
-import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,onTestFinished,vi } from "vitest";
 
-import { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
 import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
 import {
 createTakeoffJob,
 TakeoffApiError,
 } from "@/lib/takeoff/client";
 
+// The connection the panel reads when it opens and hands to its advanced controls.
+const panelConnection = vi.hoisted(() => ({ current: null as import("@/components/takeoff/TakeoffProviderSelect").ChatGptConnection }));
 vi.mock("@/components/takeoff/TakeoffPreparationPanel", async () => {
   const { useState } = await import("react");
   return {
     TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) => {
       const [processing, setProcessing] = useState<import("@/lib/takeoff/preparation").TakeoffPreparation["processing"]>({ level: props.recommendedLevel ?? "A", provider: "auto" });
-      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false }) : props.advancedControls;
+      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false, chatGptConnection: panelConnection.current }) : props.advancedControls;
       return <><p>Préparation de {props.uploadSource?.document_name}</p><details><summary>Options avancées</summary>{controls}</details><button type="button" disabled={props.disabled || !processing.level || !props.compatibleLevels?.includes(processing.level)} onClick={() => void props.onLaunch(7, processing)}>Confirmer et lancer le métré</button></>;
     },
   };
@@ -125,7 +125,8 @@ describe("TakeoffUploadForm", () => {
 });
 
 it("sends an explicit provider choice and uses a fresh idempotency key when it changes", async () => {
-  vi.mocked(loadChatGptConnection).mockReset().mockResolvedValueOnce({ enabled: true, selectedId: "profile", model: "plan-model", reasoningEffort: null, sharing: true, profiles: [] });
+  panelConnection.current = { enabled: true, selectedId: "profile", model: "plan-model", reasoningEffort: null, sharing: true, profiles: [] };
+  onTestFinished(() => { panelConnection.current = null; });
   vi.mocked(createTakeoffJob).mockReset().mockRejectedValue(new Error("Temporary failure"));
   const user = userEvent.setup();
   render(<TakeoffUploadForm projectId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
