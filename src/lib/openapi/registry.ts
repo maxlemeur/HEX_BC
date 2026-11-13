@@ -3233,7 +3233,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/takeoff/jobs/{jobId}/review-context",
     summary: "Recommandations financieres du controle cible",
-    description: "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants.",
+    description: "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants. item_pricing (TI-701) : chaque ligne de metre retenue rattachee a une ligne de devis, au prix unitaire de celle-ci (null hors statut chiffre) et avec son lot ; la revue ciblee en tire ses filtres « Gros montants » et « Non chiffre ». Version scellee : listes vides.",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter],
     responses: {

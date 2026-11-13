@@ -5,7 +5,7 @@ import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
 import { readAllEstimateItems, assertEstimateVersionUnchanged } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateBreakdownForItems, calculateEstimateV3SnapshotForItems } from "@/lib/estimates/version-totals";
-import { buildFinancialReviewPosts } from "@/lib/takeoff/financial-review";
+import { buildFinancialReviewPosts, buildTakeoffItemPricing, engineTwoUnitPrice } from "@/lib/takeoff/financial-review";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
@@ -26,7 +26,9 @@ export async function getTakeoffReviewContext(jobId: string) {
   if (!version) throw notFound("Version introuvable.");
   const rows = computeTakeoffDpgfRows(context.comparisonInput).rows;
   // A historical sealed version is never recalculated at today's catalogue or labor rates.
-  if (version.status !== "draft") return takeoffReviewContextResponseSchema.parse({ version_id: versionId, posts: [], unlinked_item_ids: [] });
+  if (version.status !== "draft") {
+    return takeoffReviewContextResponseSchema.parse({ version_id: versionId, posts: [], unlinked_item_ids: [], item_pricing: [] });
+  }
   const [items, project] = await Promise.all([
     readAllEstimateItems({ supabase: auth.supabase, tenantId: auth.tenantId, versionId }),
     auth.supabase.from("estimate_projects").select("user_id").eq("id", version.project_id).eq("tenant_id", auth.tenantId).single(),
@@ -35,12 +37,20 @@ export async function getTakeoffReviewContext(jobId: string) {
   if (!project.data) throw notFound("Affaire introuvable.");
   const scope = { supabase: auth.supabase, tenantId: auth.tenantId, projectUserId: project.data.user_id, version, lineItems: items };
   const amounts = new Map<string, number>();
+  const unitPrices = new Map<string, number | null>();
   if (usesSaleCoefficients(requireEstimateEngineVersion(version))) {
     const result = await calculateEstimateV3SnapshotForItems(scope);
-    for (const line of result.breakdown.lines) amounts.set(line.id, line.line_total_ht_cents);
+    for (const line of result.breakdown.lines) {
+      amounts.set(line.id, line.line_total_ht_cents);
+      unitPrices.set(line.id, line.pu_ht_cents);
+    }
   } else {
     const result = await calculateEstimateBreakdownForItems(scope);
-    for (const [id, line] of result.lineById) amounts.set(id, line.saleNetHtCents);
+    const quantities = new Map(items.map(item => [item.id, item.quantity]));
+    for (const [id, line] of result.lineById) {
+      amounts.set(id, line.saleNetHtCents);
+      unitPrices.set(id, engineTwoUnitPrice(quantities.get(id) ?? null, line.puNetHtCents));
+    }
   }
   const matches = rows.map(row => ({ line_id: row.line_id,
     item_ids: row.linked_takeoff_items.map(item => item.item_id), delta_absolute: row.delta_absolute }));
@@ -67,8 +77,10 @@ export async function getTakeoffReviewContext(jobId: string) {
   }
   await assertEstimateVersionUnchanged({ supabase: auth.supabase, version });
   const linked = new Set(matches.flatMap(match => match.item_ids));
+  const included = new Set(context.takeoffItems.filter(item => !item.is_excluded).map(item => item.id));
   return takeoffReviewContextResponseSchema.parse({ version_id: versionId,
     unlinked_item_ids: context.takeoffItems.filter(item => !item.is_excluded && !linked.has(item.id)).map(item => item.id),
+    item_pricing: buildTakeoffItemPricing(items, unitPrices, matches).filter(entry => included.has(entry.item_id)),
     posts: buildFinancialReviewPosts(items, amounts, matches, new Map(context.takeoffItems.flatMap(item => {
       const comparison = quantitySourceComparison(item.metadata);
       return comparison ? [[item.id, comparison] as const] : [];
