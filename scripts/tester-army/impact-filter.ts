@@ -19,7 +19,7 @@ import type { TestFilter } from "e2e";
 
 import {
   MAP_PATH, SELECTION_DATA, buildSourceGraph, classifyPath, expandJourneys, loadImpactMap, mapChangesBeyondRules, matchesAny,
-  selectFromRepository, type ImpactMap,
+  selectFromRepository, type ImpactMap, type SourceGraph,
 } from "./select-journeys";
 
 /** The decision model: the one the application's own Decisions use (src/lib/ai/decisions.ts). */
@@ -31,6 +31,21 @@ export const DECISION_KEY = "ARMY_DECISION_FILTER_API_KEY";
  * the model answers 5 % when it sees no link (two thirds of its ratings) and 8 to 19 % when it sees a weak one.
  */
 export const DECISION_MIN_PERCENT = 8;
+
+/**
+ * The source graph of a checkout, built once per process and map: the runner calls a filter once per listing, and
+ * classifying a change needs the whole graph.
+ */
+const graphs = new Map<string, SourceGraph>();
+function sourceGraph(root: string, map: ImpactMap): SourceGraph {
+  const key = `${root}\n${JSON.stringify(map)}`;
+  let graph = graphs.get(key);
+  if (!graph) {
+    graph = buildSourceGraph(root, map);
+    graphs.set(key, graph);
+  }
+  return graph;
+}
 
 /** The journeys the rules of a map tie directly to these files. */
 function tiedJourneys(map: ImpactMap, files: readonly string[]): string[] {
@@ -87,7 +102,7 @@ export function armyDecisionFilter(create: () => Promise<TestFilter> = stockDeci
       // layout, auth, calculation engine, migrations; what the runner or the shared core loads) and what the map
       // does not know: a model reading their diff cannot tell which journey they reach. As decisionSkipped in the
       // army-select job, which classifies the same paths the same way.
-      const graph = buildSourceGraph(context.projectRoot, map);
+      const graph = sourceGraph(context.projectRoot, map);
       for (const file of changed) {
         const decision = classifyPath(map, graph, file, "pull_request");
         if (decision.class === "full" || decision.class === "unmapped") {
