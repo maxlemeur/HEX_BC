@@ -107,6 +107,8 @@ type SupabaseMockOptions = {
   removeError?: ErrorLike | null;
   signedUrlErrorPath?: string;
   signedUrlError?: ErrorLike;
+  /** TI-691: the confirmations whose proof is the document looked up (purchase_order_confirmations). */
+  proofData?: { purchase_order_id: string }[] | null;
 };
 
 export function createDevisSupabaseMock(options: SupabaseMockOptions = {}) {
@@ -153,6 +155,7 @@ export function createDevisSupabaseMock(options: SupabaseMockOptions = {}) {
       data: reorderData,
       error: options.reorderFetchError ?? null,
     }),
+    proof: createQueryHarness({ data: options.proofData ?? [], error: null }),
   };
 
   const select = vi.fn((columns: string) => {
@@ -165,6 +168,9 @@ export function createDevisSupabaseMock(options: SupabaseMockOptions = {}) {
   const update = vi.fn(() => queries.update);
   const deleteRows = vi.fn(() => queries.delete);
   const from = vi.fn((table: string) => {
+    if (table === "purchase_order_confirmations") {
+      return { select: vi.fn(() => queries.proof) };
+    }
     if (table !== "purchase_order_devis") {
       throw new Error(`Unexpected table: ${table}`);
     }

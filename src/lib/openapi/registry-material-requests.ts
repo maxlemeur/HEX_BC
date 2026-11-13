@@ -66,6 +66,12 @@ import {
 } from "@/lib/material-requests/order-contracts";
 import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import {
+  confirmPurchaseOrderSchema,
+  receivePurchaseOrderSchema,
+  type PurchaseOrderConfirmed,
+  type PurchaseOrderReceived,
+} from "@/lib/purchase-orders/lifecycle-contracts";
+import {
   jsonBody, jsonResponse, pathParameter, queryParameter, schemaDefinition,
   successResponseSchemaDefinition, type OpenApiOperationDefinition, type OpenApiResponseDefinition,
 } from "@/lib/openapi/registry-helpers";
@@ -257,6 +263,21 @@ const base = "/api/affaires/{projectId}/material-requests";
 const one = `${base}/{requestId}`;
 const technicians = "/api/material-request-technicians";
 const tags = ["Demandes de matériel"];
+
+// TI-691, delivery 3b-1: ordering and receiving an order of an affaire (src/lib/purchase-orders/lifecycle-contracts.ts).
+const purchaseOrderId = pathParameter({ name: "id", description: "Bon de commande d'une affaire, lisible par l'appelant.", schemaName: "PurchaseOrderLifecycleId", schema: uuid });
+const orderConfirmed: z.ZodType<PurchaseOrderConfirmed> = z.object({
+  id: uuid, status: z.literal("confirmed"), edit_revision: z.number().int().min(0), order_date: date,
+  // AAAA-MM-JJ, or « TBD » for a delivery still to be determined (the draft editor's value).
+  expected_delivery_date: z.string().nullable(), total_ht_cents: z.number().int(), total_tax_cents: z.number().int(),
+  total_ttc_cents: z.number().int(),
+});
+const orderReceived: z.ZodType<PurchaseOrderReceived> = z.object({
+  id: uuid, status: z.literal("received"), edit_revision: z.number().int().min(0),
+});
+const lifecycleRights = refusal("FORBIDDEN : seuls l'auteur du bon et les administrateurs, avec le rôle admin ou engineer, l'écrivent.");
+const lifecycleNotFound = refusal("NOT_FOUND : bon introuvable ou illisible pour l'appelant.");
+const lifecycleTags = ["Achats"];
 const linesData = z.object({ lines: z.array(line) });
 const articleRule = "Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.";
 const linePriced = refusal("MATERIAL_REQUEST_LINE_PRICED : la ligne a un devis retenu, sans retour possible dans cette livraison ; son fournisseur est celui du devis, ce qu'elle commande (article, type, dimension ou sans dimension, matière, précision, référence, unité, quantité) ne change plus, et elle ne se supprime plus seule (sa demande, si). Refusé seul ou dans une sélection, rien n'est écrit ; zone, imputation, mots du technicien, doute sur la quantité et doublon vu restent modifiables. details : line_ids, positions.");
@@ -665,6 +686,32 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "200": success("ApiMaterialRequestTechnicianHistory", "Demandes du technicien, la plus récente d'abord.", z.object({
         items: z.array(z.object({ request: z.object({ ...summaryShape, project_name: z.string() }), lines: z.array(line) })),
       })),
+    },
+  },
+  {
+    tags: lifecycleTags, method: "post", path: "/api/purchase-orders/{id}/confirmation", summary: "Confirmer la commande d'un brouillon d'affaire",
+    description: "Enregistre qu'un brouillon de bon de commande d'une affaire a été passé : le prix réel et le lot des lignes données (les autres gardent le leur), la date de commande (aujourd'hui au plus tard, heure de Paris), la livraison annoncée (pas avant la commande ; absente, la date du brouillon reste, et elle non plus ne précède pas la commande, sauf « TBD »), la référence du fournisseur et la preuve, un document déjà joint au bon (POST /api/purchase-orders/{id}/devis). Le brouillon devient confirmé ; ses lignes et son en-tête sont alors figés. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Dans un brouillon, le prix d'une ligne de demande ne change qu'ici.",
+    parameters: [purchaseOrderId],
+    requestBody: jsonBody({ name: "PurchaseOrderConfirmation", description: "Révision lue, dates, référence, preuve et prix réels.", schema: confirmPurchaseOrderSchema }),
+    responses: {
+      "200": success("ApiPurchaseOrderConfirmed", "Bon confirmé, avec ses totaux au prix réel.", orderConfirmed),
+      "403": lifecycleRights,
+      "404": lifecycleNotFound,
+      "409": refusal("PURCHASE_ORDER_CONFIRMATION_NOT_DRAFT : le bon n'est plus un brouillon. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. PURCHASE_ORDER_ITEMS_INVALID : une ligne n'est pas de ce bon ou est donnée deux fois. Rien n'est écrit."),
+      "422": refusal("PURCHASE_ORDER_AFFAIRE_ONLY : bon sans affaire. PURCHASE_ORDER_CONFIRMATION_DATE_INVALID : commande dans le futur ou livraison avant la commande. PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED : aucun document de ce bon. PURCHASE_ORDER_CONFIRMATION_EMPTY : aucun article. PURCHASE_ORDER_TOTAL_NEGATIVE : les remises dépassent les articles. PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE : montant hors capacité. Rien n'est écrit."),
+    },
+  },
+  {
+    tags: lifecycleTags, method: "post", path: "/api/purchase-orders/{id}/reception", summary: "Enregistrer la réception d'un bon d'affaire",
+    description: "Enregistre la réception d'un bon d'affaire confirmé, en entier : sa date, entre la date de commande et aujourd'hui (heure de Paris), et une note libre pour ce qui reste à venir. Le bon devient reçu. Une fois commandé, un bon d'affaire n'est plus ni annulé ni supprimé.",
+    parameters: [purchaseOrderId],
+    requestBody: jsonBody({ name: "PurchaseOrderReception", description: "Révision lue, date de réception et note.", schema: receivePurchaseOrderSchema }),
+    responses: {
+      "200": success("ApiPurchaseOrderReceived", "Bon reçu.", orderReceived),
+      "403": lifecycleRights,
+      "404": lifecycleNotFound,
+      "409": refusal("PURCHASE_ORDER_RECEPTION_NOT_CONFIRMED : seul un bon confirmé est reçu. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. Rien n'est écrit."),
+      "422": refusal("PURCHASE_ORDER_AFFAIRE_ONLY : bon sans affaire. PURCHASE_ORDER_RECEPTION_DATE_INVALID : réception avant la commande ou dans le futur. Rien n'est écrit."),
     },
   },
 ];

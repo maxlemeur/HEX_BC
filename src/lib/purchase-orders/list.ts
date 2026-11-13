@@ -24,6 +24,8 @@ export type PurchaseOrderListItem = {
   delivery_sites: PurchaseOrderListRelated;
   /** TI-691: an order made from a material request names its affaire (null when unread) and how it is delivered. */
   delivery_mode: "site" | "office" | "counter" | null;
+  /** TI-691, delivery 3b-1: the order's own affaire id, which RLS does not hide as it may hide the affaire itself. */
+  project_id: string | null;
   project: PurchaseOrderListRelated;
   devis_count: number;
   has_devis: "with" | "without";
@@ -71,7 +73,7 @@ type Client = Awaited<ReturnType<typeof getAuthenticatedClient>>;
 // The legacy `count` embed works with db-aggregates-enabled=false. `count()`
 // requires a different server setting; retain this compatible, bounded form.
 // TI-691: the affaire is named through the order's own foreign key (its lines also reference affaires).
-const LIST_COLUMNS = "id, reference, created_at, status, expected_delivery_date, total_ht_cents, total_tax_cents, total_ttc_cents, edit_revision, suppliers ( id, name ), delivery_sites ( id, name ), delivery_mode, project:estimate_projects!purchase_orders_project_id_fkey ( id, name ), quote_counts:purchase_order_devis(count)";
+const LIST_COLUMNS = "id, reference, created_at, status, expected_delivery_date, total_ht_cents, total_tax_cents, total_ttc_cents, edit_revision, suppliers ( id, name ), delivery_sites ( id, name ), delivery_mode, project_id, project:estimate_projects!purchase_orders_project_id_fkey ( id, name ), quote_counts:purchase_order_devis(count)";
 const SELECTION_COLUMNS = "id, edit_revision, suppliers(name), delivery_sites(name)";
 
 // Preserve the previous accent-insensitive literal substring search while

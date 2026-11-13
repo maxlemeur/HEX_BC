@@ -12,6 +12,18 @@ describe("purchase order status change refusals", () => {
     );
   });
 
+  it("says that an order of an affaire is confirmed, received and kept through its own actions (TI-691 3b-1)", () => {
+    expect(purchaseOrderStatusErrorMessage("PURCHASE_ORDER_CONFIRM_THROUGH_FUNCTION")).toBe(
+      "Un bon d’affaire se confirme depuis sa page, avec ses prix réels et la confirmation du fournisseur.",
+    );
+    expect(purchaseOrderStatusErrorMessage("PURCHASE_ORDER_RECEIVE_THROUGH_FUNCTION")).toBe(
+      "Un bon d’affaire se reçoit depuis sa page, avec la date de réception.",
+    );
+    expect(purchaseOrderStatusErrorMessage("PURCHASE_ORDER_STATUS_TRANSITION_INVALID")).toBe(
+      "Un bon d’affaire commandé ne change plus de statut : il ne peut être ni annulé ni remis en brouillon.",
+    );
+  });
+
   it("never shows a database message it does not know", () => {
     expect(purchaseOrderStatusErrorMessage('new row violates row-level security policy for table "purchase_orders"')).toBe(
       "Le statut n’a pas pu être enregistré. Réessayez.",
