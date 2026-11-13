@@ -26,7 +26,7 @@ const previewName = "Aperçu du collage";
 async function prepare(ui: Ui, army: ArmyState, suffix: string, manualKfo?: number) {
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix,
-    { tag: suffix === "copie TSV" ? "LGCLIP1" : "LGCLIP2", uiMode: "expert", calcPolicy: "absent" });
+    { tag: suffix === "copie TSV" ? "LGCLIP1" : suffix === "grand collage" ? "LGCLIP5" : "LGCLIP2", uiMode: "expert", calcPolicy: "absent" });
   const observation = ui.browser.waitForResponse("**/api/estimates").then(async (response) => {
     const body = await response.json<{ ok: boolean; data?: ArmyEstimate; error?: { code: string; message: string } }>();
     await recordEvidence(army, "clipboard-v3-creation-response", { status: response.status, ok: body.ok, error: body.error ?? null,
@@ -72,6 +72,19 @@ async function focusGridCell(ui: Ui, id: string) {
     return active instanceof HTMLElement && active.getAttribute("data-cell-id") === `${cellId}::title` &&
       !active.matches("input, textarea, [contenteditable=true]");
   }, id)).toBe(true);
+}
+
+// A real DOM paste event on the grid, as LEGCLIP02 and the other Army paste
+// journeys dispatch it; the application's parser, preview and writes run as is.
+async function dispatchGridPaste(browser: Browser, tsv: string) {
+  await browser.evaluate((text) => {
+    const grid = document.querySelector('[role="grid"][aria-label="Lignes de devis"]');
+    if (!(grid instanceof HTMLElement)) throw new Error("Estimate paste target missing.");
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    grid.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    return true;
+  }, tsv);
 }
 
 async function observeNativeCopy(browser: Browser) {
@@ -364,4 +377,107 @@ armyTest("LEGCLIP04 copying a historical effective K FO and a manual one preserv
     }
     expect(after.version.total_ht_cents).toBe(before.version.total_ht_cents * 2);
     await recordEvidence(army, "clipboard-historical-and-neutral-kfo", { before, after, tsv });
+  });
+
+
+// From 50 rows the preview mounts a window of rows (PastePreviewRowsTable).
+// A 200-row paste proves the structural bound, the full-row counts and Confirm
+// gating, keyboard access across the initial window, a far row reached by
+// scrolling, the focused row kept mounted when scrolled away, and that the
+// persisted rows are exactly the included ones. No time threshold here: the
+// timings are measured on demand (docs/testing/tester-army-performance.md).
+armyTest("LEGCLIP05 a 200-row paste mounts a bounded accessible window and persists exactly the included rows", options,
+  async ({ app, browser, screen, army }) => {
+    const ui = { app, browser, screen };
+    const draft = await prepare(ui, army, "grand collage");
+    const lineNumbers = Array.from({ length: 200 }, (_, index) => index + 2);
+    const invalidLine = 201;
+    const title = (line: number) => `${army.runPrefix} L${line}`;
+    const tsv = [headers.join("\t"), ...lineNumbers.map((line) =>
+      [title(line), line === invalidLine ? "abc" : String(line), "u", "10", "", "1", "", "1", "100"].join("\t"))].join("\n");
+    const included = (excluded: number) => `${lineNumbers.length - excluded}/${lineNumbers.length} ligne(s) incluse(s)`;
+    await focusGridCell(ui, draft.seed.id);
+    await dispatchGridPaste(browser, tsv);
+    const dialog = screen.getByRole("dialog", previewName, { exact: true });
+    await expect(dialog).toBeVisible();
+    // The invalid line is excluded by default, from data, although it is not mounted.
+    await expect(dialog.getByText(included(1), { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("paste-preview-dialog-close-button")).toBeFocused();
+
+    const structure = await browser.evaluate(() => {
+      const region = document.querySelector('[data-testid="paste-preview-rows-table"]');
+      if (!(region instanceof HTMLElement)) throw new Error("Paste preview rows missing.");
+      return {
+        mountedRows: region.querySelectorAll('tbody tr:not([aria-hidden="true"])').length,
+        rowCount: region.querySelector("table")?.getAttribute("aria-rowcount") ?? null,
+      };
+    });
+    expect(structure.mountedRows).toBeGreaterThan(0);
+    expect(structure.mountedRows).toBeLessThanOrEqual(40);
+    expect(structure.rowCount).toBe(String(lineNumbers.length + 1));
+
+    const confirm = dialog.getByTestId("paste-preview-dialog-confirm-button");
+    const firstRow = dialog.getByLabel("Inclure la ligne 2", { exact: true });
+    await firstRow.focus();
+    await browser.keyboard.press("Space");
+    await expect(firstRow).not.toBeChecked();
+    await expect(dialog.getByText(included(2), { exact: true })).toBeVisible();
+    // One tabbable per row: Tab walks the rows past the initial window.
+    for (let press = 0; press < 20; press += 1) await browser.keyboard.press("Tab");
+    await expect(dialog.getByLabel("Inclure la ligne 22", { exact: true })).toBeFocused();
+
+    // The last row exists only once the region is scrolled to it. One End press
+    // in the focused region must show it whole, although the rows measured at
+    // the end can be taller than their estimate.
+    await dialog.getByTestId("paste-preview-rows-table").focus();
+    await browser.keyboard.press("End");
+    const lastRow = dialog.getByLabel(`Inclure la ligne ${invalidLine}`, { exact: true });
+    await expect(lastRow).toBeVisible();
+    await expect.poll(() => browser.evaluate((label) => {
+      const region = document.querySelector('[data-testid="paste-preview-rows-table"]');
+      if (!(region instanceof HTMLElement)) throw new Error("Paste preview rows missing.");
+      const row = region.querySelector(`[aria-label="${label}"]`)?.closest("tr");
+      if (!row) return "not mounted";
+      const box = row.getBoundingClientRect();
+      const top = region.getBoundingClientRect().top + region.clientTop;
+      return box.top >= top - 1 && box.bottom <= top + region.clientHeight + 1 ? "in view" : "out of view";
+    }, `Inclure la ligne ${invalidLine}`)).toBe("in view");
+    await lastRow.check();
+    await expect(lastRow).toBeChecked();
+    await expect(confirm).toBeDisabled();
+    await expect(dialog.getByText("1 ligne(s) invalide(s) sont encore incluses.", { exact: true })).toBeVisible();
+
+    // Scrolled back to the top, the focused last row stays mounted and focused.
+    await browser.evaluate(() => {
+      const region = document.querySelector('[data-testid="paste-preview-rows-table"]');
+      if (!(region instanceof HTMLElement)) throw new Error("Paste preview rows missing.");
+      region.scrollTop = 0;
+      return true;
+    });
+    await expect(dialog.getByLabel("Inclure la ligne 3", { exact: true })).toBeVisible();
+    await expect(lastRow).toBeFocused();
+    await browser.keyboard.press("Space");
+    await expect(lastRow).not.toBeChecked();
+    await expect(confirm).toBeEnabled();
+    await expect(dialog.getByText(included(2), { exact: true })).toBeVisible();
+    expect((await readEstimate(browser, draft.versionId)).items).toEqual(draft.before.items);
+
+    await confirm.click();
+    await expect(dialog).toBeHidden();
+    const expectedLines = 1 + lineNumbers.length - 2;
+    await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items
+      .filter((item) => item.item_type === "line").length, { timeout: 60_000 }).toBe(expectedLines);
+    const after = await readEstimate(browser, draft.versionId);
+    const lines = after.items.filter((item) => item.item_type === "line");
+    const titles = new Set(lines.map((item) => item.title));
+    expect(titles.has(title(2))).toBe(false);
+    expect(titles.has(title(invalidLine))).toBe(false);
+    expect(titles.has(title(3))).toBe(true);
+    expect(lines.find((item) => item.title === title(200))?.quantity).toBe(200);
+    expect(lines.filter((item) => item.title.startsWith(`${army.runPrefix} L`))).toHaveLength(lineNumbers.length - 2);
+    await recordEvidence(army, "legclip05-window", {
+      ids: { projectId: draft.projectId, versionId: draft.versionId }, owner: draft.owner,
+      mountedRows: structure.mountedRows, rowCount: lineNumbers.length, ariaRowCount: structure.rowCount,
+      persistedLines: lines.length, excluded: [title(2), title(invalidLine)],
+    });
   });

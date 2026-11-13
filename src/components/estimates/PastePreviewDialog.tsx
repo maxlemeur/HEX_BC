@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
 import { NativeSelect } from "@/components/ui/native-select";
+import { PastePreviewRowsTable } from "@/components/estimates/PastePreviewRowsTable";
 import type { PasteLaborRoleField } from "@/components/estimates/hooks/useEstimateClipboard";
 
 export type PastePreviewDetectedFormat = "bdc" | "optima" | "generic" | null;
@@ -83,12 +84,6 @@ function getDetectedFormatBadge(
   };
 }
 
-function normalizeCellValue(value: PastePreviewCellValue | undefined): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  return String(value);
-}
-
 function uniqueRowsErrors(rows: PastePreviewRow[]) {
   const unique = new Set<string>();
 
@@ -131,6 +126,14 @@ export function PastePreviewDialog({
     return Object.keys(firstRow.values);
   }, [mapping, rows]);
 
+  // Given the wide fixed width once the rows table is virtualized.
+  const wideColumns = useMemo(
+    () => new Set(mapping
+      .filter((entry) => entry.targetField === "designation")
+      .map((entry) => entry.sourceColumn)),
+    [mapping]
+  );
+
   const targetUsage = useMemo(() => {
     const usage = new Map<string, number>();
 
@@ -168,7 +171,10 @@ export function PastePreviewDialog({
 
   const hasErrors = errors.length > 0;
   const hasDuplicateMapping = duplicateTargets.size > 0;
-  const showsInterpretation = rows.some((row) => row.interpretation !== undefined);
+  const showsInterpretation = useMemo(
+    () => rows.some((row) => row.interpretation !== undefined),
+    [rows]
+  );
   const canConfirm =
     includedRowsCount > 0 && includedInvalidRowsCount === 0 && !hasErrors && !hasDuplicateMapping &&
     !laborRole?.blocking;
@@ -357,97 +363,19 @@ export function PastePreviewDialog({
                 Aucune ligne détectée.
               </div>
             ) : (
-              <div
-                className="table-scroll max-h-[430px]"
-                data-testid="paste-preview-rows-table"
-                role="region"
-                aria-labelledby="paste-preview-rows-title"
-                tabIndex={0}
-              >
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th className="w-16">Inclure</th>
-                      <th className="w-16">#</th>
-                      {sourceColumns.map((column) => (
-                        <th key={column}>{column}</th>
-                      ))}
-                      {showsInterpretation ? <th>Valeurs écrites (moteur 3)</th> : null}
-                      <th>État</th>
-                      <th>Raisons invalides</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => {
-                      const invalidReasons = row.invalidReasons.filter(
-                        (reason) => reason.trim().length > 0
-                      );
-                      const isInvalid = invalidReasons.length > 0;
-
-                      return (
-                        <tr key={row.id} className={row.include ? undefined : "opacity-75"}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              className="size-4 accent-primary"
-                              checked={row.include}
-                              onChange={(event) =>
-                                onToggleRow(row.id, event.target.checked)
-                              }
-                              aria-label={`Inclure la ligne ${row.rowNumber}`}
-                              data-testid="paste-preview-row-include-checkbox"
-                            />
-                          </td>
-                          <td className="tabular-nums">{row.rowNumber}</td>
-                          {sourceColumns.map((column) => (
-                            <td key={`${row.id}:${column}`}>
-                              {normalizeCellValue(row.values[column])}
-                            </td>
-                          ))}
-                          {showsInterpretation ? (
-                            <td data-testid="paste-preview-row-interpretation">
-                              {(row.interpretation ?? []).map((note) => (
-                                <span key={`${row.id}:${note}`} className="block text-xs">{note}</span>
-                              ))}
-                            </td>
-                          ) : null}
-                          <td>
-                            {!row.include ? (
-                              <Badge variant="neutral" size="sm" dot>Exclue</Badge>
-                            ) : isInvalid ? (
-                              <Badge variant="danger" size="sm" dot>Invalide</Badge>
-                            ) : (
-                              <Badge variant="success" size="sm" dot>Valide</Badge>
-                            )}
-                          </td>
-                          <td>
-                            {invalidReasons.length === 0 ? (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            ) : (
-                              <div className="space-y-1">
-                                {invalidReasons.map((reason, reasonIndex) => (
-                                  <p
-                                    key={`${row.id}:invalid:${reasonIndex}`}
-                                    className="text-xs text-danger"
-                                    data-testid="paste-preview-row-invalid-reason"
-                                  >
-                                    {reason}
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <PastePreviewRowsTable
+                rows={rows}
+                sourceColumns={sourceColumns}
+                wideColumns={wideColumns}
+                showsInterpretation={showsInterpretation}
+                onToggleRow={onToggleRow}
+                measurementKey={mapping}
+              />
             )}
 
             <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
               {allRowsErrors.size === 0
-                ? "Aucune erreur de validation détectée sur les lignes affichées."
+                ? "Aucune erreur de validation détectée dans l'aperçu."
                 : `${allRowsErrors.size} type(s) d'erreur détecté(s) dans cet aperçu.`}
             </div>
           </section>
