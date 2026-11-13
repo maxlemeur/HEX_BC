@@ -1,5 +1,5 @@
 -- TI-691, delivery 3b-1 (Codex review of #311): the proof of a confirmed order and its file are not lost to a deletion
--- running at the same time (migration 20261113172746_material_request_order_confirmation.sql). Isolation justified: the
+-- running at the same time (migration 20261113190113_material_request_order_confirmation.sql). Isolation justified: the
 -- failure needs two sessions whose writes interleave, which no journey does deterministically.
 -- Cases written before the fix:
 --  A. one session deletes the proof's file from storage and has not committed; another confirms the order with that

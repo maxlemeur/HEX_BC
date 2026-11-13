@@ -1,5 +1,5 @@
 -- Ordering and receiving the purchase orders of an affaire (TI-691, lot 2 « l'achat », delivery 3b-1). Written before
--- the migration 20261113172746_material_request_order_confirmation.sql. Failure modes this file guards, with fictional
+-- the migration 20261113190113_material_request_order_confirmation.sql. Failure modes this file guards, with fictional
 -- members, suppliers, articles and lines:
 --  1. the two functions reach anon or PUBLIC or run without a pinned search_path; the confirmation and reception
 --     tables are written by a Data API role, read by a member who may not open the order, or read without RLS;
