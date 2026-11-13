@@ -281,7 +281,7 @@ seconde fois sans décision.
   une ligne DPGF. La proposition des pages (`dpgf_merge_refusals`) nomme chaque
   ligne refusée avant l'envoi ; l'assistant le dit, n'offre pas la confirmation et
   ouvre le rapprochement (TKD06,
-  [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113192109_takeoff_dpgf_merge_any_line.sql)).
+  [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113202356_takeoff_dpgf_merge_any_line.sql)).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
