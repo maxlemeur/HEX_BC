@@ -25,6 +25,7 @@ import { fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributio
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
+import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
 // TI-664 L5c, the targeted review's decisions as the browser drives them. Ways it fails, written before the screen:
 // - F6: a quantity the plan cannot show, already right, cannot be settled: confirming it never sends its attestation;
@@ -382,6 +383,45 @@ describe("TakeoffTargetedReview", () => {
     expect(within(section).getByText(/Réglez d’abord le doublon/)).toBeInTheDocument();
     expect(within(section).queryByRole("button", { name: /^Retirer/ })).toBeNull();
     expect(within(screen.getByRole("region", { name: "Doublon entre zones" })).getByRole("button", { name: /^Retirer 1,00 m/ })).toBeInTheDocument();
+  });
+
+  // TI-719, written before the fix: the screen chose its line in an effect, which runs after the lines are shown. A
+  // click landing in between (a user quick on a list just shown, open() returning there under CI load) was replaced by
+  // the first line, and a click right after a decision by the line that followed the decided one.
+  // beforePassiveEffectsOf replays that ordering on every run.
+  it("keeps the line clicked as soon as the lines are shown instead of the first line", async () => {
+    let load: (value: unknown) => void = () => undefined;
+    vi.mocked(fetchTakeoffJobWithAllItems).mockReturnValue(new Promise((resolve) => { load = resolve; }) as never);
+    render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
+    const list = screen.getByRole("listbox", { name: "Lignes à trancher" });
+
+    const clicked = beforePassiveEffectsOf(() => within(list).queryByText("EF Z1") !== null, () => choose(list, "EF Z1"));
+    load({ job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+      items: { data: ITEMS, pagination: { total: 3, offset: 0, limit: 200 } } });
+    await clicked.done();
+
+    expect(within(list).getByRole("option", { name: /EF Z1/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(list).getByRole("option", { name: /Soudures des réseaux/ })).toHaveAttribute("aria-selected", "false");
+    expect(within(screen.getByRole("region", { name: "Décision sur la ligne" })).getByRole("heading", { level: 2 })).toHaveTextContent("EF Z1");
+  });
+
+  it("keeps the line clicked right after a decision took the decided line out of the list", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    vi.mocked(patchTakeoffItems).mockReturnValue(new Promise((resolve) => { answer = resolve; }) as never);
+    const list = await open();
+    choose(list, "EF Z1");
+    fireEvent.click(screen.getByRole("button", { name: /^Retirer 1,00 m/ }));
+    expect(patchTakeoffItems).toHaveBeenCalledTimes(1);
+
+    // Z1 settled and Z2 not read back: Z1 leaves the list, the line that followed it (Z2) would take the focus.
+    const clicked = beforePassiveEffectsOf(() => within(list).queryByText("EF Z1") === null, () => choose(list, "Soudures des réseaux"));
+    answer({ results: [{ item_id: ids.z1, success: true, item: { ...ITEMS[1], quantity: 4, rule_results: [resolved(ids.z2, "Z2")],
+      updated_at: "2026-11-04T10:01:00.000Z" } }], succeeded: 1, failed: 0 });
+    await clicked.done();
+
+    expect(within(list).getByRole("option", { name: /Soudures des réseaux/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(list).getByRole("option", { name: /EF Z2/ })).toHaveAttribute("aria-selected", "false");
+    expect(within(screen.getByRole("region", { name: "Décision sur la ligne" })).getByRole("heading", { level: 2 })).toHaveTextContent("Soudures des réseaux");
   });
 
   it("reads the partner of a settled pair back with the saved line", async () => {

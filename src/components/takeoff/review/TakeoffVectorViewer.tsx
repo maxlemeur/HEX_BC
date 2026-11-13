@@ -126,14 +126,17 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [jobId]);
 
-  // The page of the first focused line that has geometry; a line without geometry leaves the page as it is.
+  // The page of the first focused line that has geometry, turned to when the reading or the focus changes; a line
+  // without geometry leaves the page as it is. Settled while rendering, so the page list shows it: an effect ran after
+  // the list was shown and replaced a page picked meanwhile (TI-719).
   const focusKey = (focusItemIds ?? []).join(",");
-  useEffect(() => {
-    if (!reading || focusKey === "") return;
-    const ids = focusKey.split(",");
-    const target = ids.map((id) => reading.pages.find((entry) => entry.items.some((item) => item.takeoff_item_id === id))).find(Boolean);
-    if (target) setPageId(target.id);
-  }, [focusKey, reading]);
+  const [turnedFor, setTurnedFor] = useState<{ reading: TakeoffVectorReadingResponse | null; focusKey: string }>({ reading: null, focusKey: "" });
+  if (reading && (turnedFor.reading !== reading || turnedFor.focusKey !== focusKey)) {
+    setTurnedFor({ reading, focusKey });
+    const target = focusKey.split(",").filter(Boolean)
+      .map((id) => reading.pages.find((entry) => entry.items.some((item) => item.takeoff_item_id === id))).find(Boolean);
+    if (target && target.id !== pageId) setPageId(target.id);
+  }
   const focus = useMemo(() => new Set(focusKey === "" ? [] : focusKey.split(",")), [focusKey]);
 
   const page = reading?.pages.find((entry) => entry.id === pageId) ?? null;

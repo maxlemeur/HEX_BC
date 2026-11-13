@@ -29,6 +29,7 @@ const { getDocument, documents } = vi.hoisted(() => ({
 vi.mock("pdfjs-dist", () => ({ getDocument, GlobalWorkerOptions: {} }));
 
 import { TakeoffVectorViewer } from "@/components/takeoff/review/TakeoffVectorViewer";
+import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
 const JOB = "11111111-1111-4111-8111-111111111111";
 const PLAN_SET = "44444444-4444-4444-8444-444444444444";
@@ -74,8 +75,10 @@ function stubPdfjs() {
   });
 }
 
-function stubFetch(data: { pages: unknown[]; source_download_url: string | null }, fileUrls: Record<string, string | null>) {
+/** `held`: the reading answers once it resolves. */
+function stubFetch(data: { pages: unknown[]; source_download_url: string | null }, fileUrls: Record<string, string | null>, held?: Promise<void>) {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (held && url.includes("/vector-pages")) await held;
     const file = Object.keys(fileUrls).find((id) => url.includes(`/files/${id}`));
     const body = url.includes("/vector-pages") ? { job_id: JOB, ...data } : { plan_file: { id: file, download_url: file ? fileUrls[file] : null } };
     return { ok: true, status: 200, json: async () => ({ ok: true, data: body }) };
@@ -179,5 +182,49 @@ describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => 
     fireEvent.change(screen.getByLabelText("Page lue"), { target: { value: "77777772-7777-4777-8777-777777777777" } });
     await settle();
     expect(screen.queryByText(/à revoir/)).toBeNull();
+  });
+});
+
+// TI-719, written before the fix: the page of the line in focus (the targeted review's focusItemIds) was chosen in an
+// effect, which runs after the reading and its page list are shown. A page picked in between was replaced by that
+// line's page. beforePassiveEffectsOf replays that ordering on every run.
+describe("TakeoffVectorViewer, the page of the line in focus (TI-719)", () => {
+  it("keeps a page picked as soon as the reading is shown instead of the focused line's page", async () => {
+    documents.set(UPLOAD, { pages: 3, failing: new Set() });
+    stubPdfjs();
+    const pages = [page(1, null, 1, "plan.pdf"), page(2, null, 2, "plan.pdf"), page(3, null, 3, "plan.pdf")];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch({ pages, source_download_url: UPLOAD }, {}, held);
+    render(<TakeoffVectorViewer jobId={JOB} planSetId={null} focusItemIds={[pages[1].items[0].takeoff_item_id]} />);
+
+    const picked = beforePassiveEffectsOf(() => screen.queryByLabelText("Page lue") !== null,
+      () => fireEvent.change(screen.getByLabelText("Page lue"), { target: { value: pages[2].id } }));
+    release();
+    await picked.done();
+    await settle();
+
+    expect(screen.getByLabelText("Page lue")).toHaveValue(pages[2].id);
+    expect(rendered.at(-1)).toEqual({ url: UPLOAD, page: 3 });
+  });
+
+  it("turns to the page of the line in focus, and to the next one's when the focus moves", async () => {
+    documents.set(UPLOAD, { pages: 3, failing: new Set() });
+    stubPdfjs();
+    const pages = [page(1, null, 1, "plan.pdf"), page(2, null, 2, "plan.pdf"), page(3, null, 3, "plan.pdf")];
+    stubFetch({ pages, source_download_url: UPLOAD }, {});
+    const { rerender } = render(<TakeoffVectorViewer jobId={JOB} planSetId={null} focusItemIds={[pages[1].items[0].takeoff_item_id]} />);
+    await settle();
+    expect(screen.getByLabelText("Page lue")).toHaveValue(pages[1].id);
+
+    fireEvent.change(screen.getByLabelText("Page lue"), { target: { value: pages[0].id } });
+    rerender(<TakeoffVectorViewer jobId={JOB} planSetId={null} focusItemIds={[pages[2].items[0].takeoff_item_id]} />);
+    await settle();
+    expect(screen.getByLabelText("Page lue")).toHaveValue(pages[2].id);
+    // A line without geometry leaves the page as it is.
+    fireEvent.change(screen.getByLabelText("Page lue"), { target: { value: pages[0].id } });
+    rerender(<TakeoffVectorViewer jobId={JOB} planSetId={null} focusItemIds={["99999999-9999-4999-8999-999999999999"]} />);
+    await settle();
+    expect(screen.getByLabelText("Page lue")).toHaveValue(pages[0].id);
   });
 });
