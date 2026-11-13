@@ -28,7 +28,7 @@
   },
   "sharedTest": {
     "interface": "Real local HTTP API, shared QA tenant, Storage, local worker and live OpenAI Responses.",
-    "testData": "One fictional CSV line; no Nirvana or business documents.",
+    "testData": "One fictional CSV line; no client project or business documents.",
     "tenantId": "a8d1292a-bfd1-4a44-9820-dc9536ecad25",
     "estimateProjectId": "24d98889-859f-44c8-84ed-b8b411d8eb08",
     "estimateVersionId": "4def4484-a0b3-4398-afdc-03f9fb865e09",

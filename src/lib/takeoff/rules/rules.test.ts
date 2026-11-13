@@ -918,7 +918,7 @@ describe("duplicate runs between zones", () => {
       z2: { geometry: { segments_m: legs.map(([a, b, c, d]) => [a - 40, b, c - 40, d] as [number, number, number, number]), polygon_m: null,
         length_m: 0.6, area_m2: null } } });
     expect(rule(chained.results, "z1", "zone_overlap")).toMatchObject({ code: "ZONE_OVERLAP_DUPLICATE" });
-    // A dashed run (20 cm dashes, 5 cm gaps, as on B R+4) drawn on both plans: one stretch of its dashes, a duplicate.
+    // A dashed run (20 cm dashes, 5 cm gaps, as on a bench plan) drawn on both plans: one stretch of its dashes, a duplicate.
     const dashes = Array.from({ length: 12 }, (_, index) => [index * 0.25, 1, index * 0.25 + 0.2, 1] as [number, number, number, number]);
     const dashed = (shift: number) => ({ segments_m: dashes.map(([a, b, c, d]) => [a + shift, b, c + shift, d] as [number, number, number, number]),
       polygon_m: null, length_m: 2.4, area_m2: null });
@@ -1880,7 +1880,7 @@ describe("scale, rooms and boxes", () => {
   it("fails a bathtub, cupboard or shaft label and a four-sided box far smaller than its printed surface", () => {
     const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [
       room("cupboard", square(0, 0, 1), 1, 1, "Placard"), room("shaft", square(5, 0, 1), 1, 1, "Gaine technique"),
-      room("box", square(10, 0, 2), 4, 13.6, "Infirmerie"), room("room", square(20, 0, 3.7), 13.69, 13.6, "Infirmerie"),
+      room("box", square(10, 0, 2), 4, 11.6, "Bureau"), room("room", square(20, 0, 3.4), 11.56, 11.6, "Bureau"),
     ] });
     expect(rule(results, "cupboard", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_LABEL" });
     expect(rule(results, "shaft", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_LABEL" });
@@ -1892,7 +1892,7 @@ describe("scale, rooms and boxes", () => {
     // m A l B l C l D l A h: the extraction repeats A twice at the end.
     const drawn = [10, 0, 12, 0, 12, 2, 10, 2, 10, 0, 10, 0];
     expect(polygonPoints(drawn)).toHaveLength(4);
-    const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [room("box", drawn, 4, 13.6, "Infirmerie")] });
+    const { results } = evaluateTakeoffRules({ pages: [page("job-z1#1")], lines: [room("box", drawn, 4, 11.6, "Bureau")] });
     expect(rule(results, "box", "closed_box")).toMatchObject({ status: "fail", code: "CLOSED_BOX_SHAPE" });
   });
 });
