@@ -236,3 +236,74 @@ describe("mapApplyTakeoffRpcError, a line « Fusionner » sends onto a DPGF line
     expect(error.message).toContain("à laquelle le rapprochement ne la relie pas : la ligne DPGF tient la somme de ce qui l’alimente");
   });
 });
+
+// TI-726: « Remplacer la section » empties the section, its subsections included, before it writes the takeoff. Over DPGF
+// lines the database refuses (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT, replace_deletes_dpgf_lines) and names them. Written
+// before the message (red on 8dd6bb71: the general « Vérifiez les quantités… » named neither the section nor a line, and
+// pointed to no way out). Ways it fails: a line left unnamed, the count of the lines the detail no longer lists dropped,
+// a way out the version does not offer (« Ajouter », a replace).
+describe("mapApplyTakeoffRpcError, « Remplacer la section » over DPGF lines (TI-726)", () => {
+  const replaceOf = (details: string | null) => mapApplyTakeoffRpcError(
+    { code: "22023", message: "TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT", details, hint: null }, { jobId: JOB_ID });
+  const line = (title: string, quantity: number, unit: string | null, fed = false, at = 1) => ({
+    estimate_item_id: `00000000-0000-4000-8000-${String(300 + at).padStart(12, "0")}`, title, quantity, unit, fed });
+  const detail = (lines: ReturnType<typeof line>[], extra: Record<string, unknown> = {}) => JSON.stringify({
+    reason: "replace_deletes_dpgf_lines", section_id: "00000000-0000-4000-8000-000000000201", section_title: "Lot fictif",
+    dpgf_line_count: lines.length, dpgf_lines: lines, ...extra });
+
+  it("names the section, each DPGF line with its quantity and unit, and « Fusionner » through the reconciliation", () => {
+    const error = replaceOf(detail([line("EF cuivre DN 22", 20, "ml", false, 1), line("Robinet de puisage", 6, "u", false, 2)]));
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false, jobId: JOB_ID });
+    expect(error.details).toMatchObject({ guard: "dpgf_quantities", reason: "replace_deletes_dpgf_lines", dpgf_line_count: 2,
+      section_id: "00000000-0000-4000-8000-000000000201" });
+    expect(error.message).toBe("« Remplacer la section » supprimerait le contenu de la section « Lot fictif », dont 2 lignes DPGF : "
+      + "« EF cuivre DN 22 » (20 ml) et « Robinet de puisage » (6 u). Une ligne DPGF ne sort jamais du devis sans un geste qui la nomme : "
+      + "rien n’est appliqué. Choisissez « Fusionner » : les lignes DPGF restent en place. Si une ligne de ce métré mesure l’une d’elles, "
+      + "reliez-les dans le rapprochement : la ligne DPGF en recevra la mesure, sa quantité du DPGF gardée. Puis appliquez à nouveau.");
+  });
+
+  // Review of the TI-726 diff: a DPGF line the reconciliation already links to this takeoff needs no link; « Fusionner » feeds it.
+  it("says that « Fusionner » feeds the DPGF lines the reconciliation already links to this takeoff", () => {
+    expect(replaceOf(detail([line("EF cuivre DN 22", 10, "ml", true, 1), line("Calorifuge DN 22", 8, "ml", false, 2),
+      line("Robinet de puisage", 6, "u", false, 3)])).message).toBe("« Remplacer la section » supprimerait le contenu de la section "
+      + "« Lot fictif », dont 3 lignes DPGF : « EF cuivre DN 22 » (10 ml), « Calorifuge DN 22 » (8 ml) et « Robinet de puisage » (6 u). "
+      + "Une ligne DPGF ne sort jamais du devis sans un geste qui la nomme : rien n’est appliqué. Choisissez « Fusionner » : les lignes "
+      + "DPGF restent en place, et celles que le rapprochement relie déjà à ce métré en recevront la mesure, leur quantité du DPGF "
+      + "gardée. Si une ligne de ce métré en mesure une autre, reliez-les dans le rapprochement. Puis appliquez à nouveau.");
+    expect(replaceOf(detail([line("EF cuivre DN 22", 10, "ml", true)])).message).toContain("Choisissez « Fusionner » : la ligne DPGF "
+      + "reste en place et, déjà reliée à ce métré par le rapprochement, en recevra la mesure, sa quantité du DPGF gardée. Puis appliquez "
+      + "à nouveau.");
+  });
+
+  it("speaks of one DPGF line in the singular", () => {
+    expect(replaceOf(detail([line("Robinet de puisage", 6, "u")])).message).toBe("« Remplacer la section » supprimerait le contenu de la "
+      + "section « Lot fictif », dont la ligne DPGF « Robinet de puisage » (6 u). Une ligne DPGF ne sort jamais du devis sans un geste qui "
+      + "la nomme : rien n’est appliqué. Choisissez « Fusionner » : la ligne DPGF reste en place. Si une ligne de ce métré la mesure, "
+      + "reliez-les dans le rapprochement : la ligne DPGF en recevra la mesure, sa quantité du DPGF gardée. Puis appliquez à nouveau.");
+  });
+
+  // The database lists the first lines only; its count is every DPGF line the replace would delete.
+  it("names five lines and counts the others, those the detail lists and those it does not", () => {
+    const lines = Array.from({ length: 7 }, (_value, at) => line(`Poste ${at + 1}`, at + 1, "u", false, at + 1));
+    const message = replaceOf(detail(lines, { dpgf_line_count: 31 })).message;
+    expect(message).toContain("dont 31 lignes DPGF : « Poste 1 » (1 u), « Poste 2 » (2 u), « Poste 3 » (3 u), « Poste 4 » (4 u), "
+      + "« Poste 5 » (5 u) et 26 autres. Une ligne DPGF");
+  });
+
+  it("says « la section choisie » without its title, and names a line without its unit by its quantity", () => {
+    expect(replaceOf(detail([line("Forfait essais", 1, null)], { section_title: null })).message)
+      .toContain("« Remplacer la section » supprimerait le contenu de la section choisie, dont la ligne DPGF « Forfait essais » (1). ");
+  });
+
+  it("never offers « Ajouter » nor a replace as the way out", () => {
+    const message = replaceOf(detail([line("EF cuivre DN 22", 10, "ml")])).message;
+    expect(message).not.toMatch(/Ajouter|Remplacez|remplacer la section/);
+  });
+
+  // Counterexample: TI-723's refusal of the same code keeps its own message.
+  it("leaves the refusal of a line « Fusionner » sends onto a DPGF line to its own message", () => {
+    const error = replaceOf(JSON.stringify({ reason: "merged_outside_reconciliation", dpgf_title: "Calorifuge DN 22", dpgf_quantity: 8,
+      dpgf_unit: "ml", designation: "Calorifuge DN 22", quantity: 9, unit: "ml", fed: false, composed: false, linked: false }));
+    expect(error.message).toMatch(/^La fusion par désignation enverrait « Calorifuge DN 22 » \(9 ml\)/);
+  });
+});

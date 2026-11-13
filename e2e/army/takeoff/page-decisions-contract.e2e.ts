@@ -713,7 +713,12 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
         if (entry.reason === "page_already_applied" && proposal.pairs.some((pair) => pair.locked)) {
           return [{ reason: "merged_without_decision", call: { payload: [], strategy } }];
         }
-        if (entry.reason === "strategy_replace" && situation.dpgf) return [];
+        // TI-726: on a DPGF version « Remplacer la section » would delete the section's DPGF lines: refused for that before any
+        // page decision is read, a replacement among them or not (TKD07 through the route).
+        if (entry.reason === "strategy_replace" && situation.dpgf) {
+          const payload = entry.build(context)?.payload ?? context.base?.payload;
+          return payload ? [{ reason: "replace_deletes_dpgf_lines", call: { payload, strategy: "replace" } }] : [];
+        }
         const built = entry.build(context);
         return built ? [{ reason: entry.reason, call: { payload: built.payload, strategy: built.strategy ?? strategy } }] : [];
       });
@@ -1138,4 +1143,103 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
       .toEqual([[7, "dpgf", 6, [[takeoff.jobId, 7]]], [24, "dpgf", 20, [[takeoff.jobId, 24]]]]);
     await recordEvidence(army, "TKD06-dpgf-merge-refused", { versionId, jobId: takeoff.jobId, proposal: proposed.body.data?.dpgf_merge_refusals,
       refusal: refused.body.error, named, linked, held });
+  });
+
+// TI-726: « Remplacer la section » empties the section, its subsections included, before it writes the takeoff. On a version
+// with DPGF lines the wizard offers « Fusionner » only; sent to the route directly by a takeoff that feeds no DPGF line, it
+// deleted them without a word (until TI-726: 200, both DPGF lines gone). An engine 3 version whose deepest section holds two
+// DPGF lines beside a line typed by hand; a takeoff of two lines no DPGF line names. Fictional plan and quantities.
+armyTest("TKD07 « Remplacer la section » sent to the apply route over DPGF lines is refused, names them, and leaves them as they were",
+  options, async (ui) => {
+    const { browser, army } = ui;
+    const base = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY remplacement DPGF" }, army);
+    const { versionId, sectionId, target } = await engineThreeVersion(army, browser, base.projectId, base.versionId, true,
+      { title: "EF cuivre DN 22", reference: 20 });
+    await sql(`begin;
+select set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description, quantity, unit_code,
+  unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_provider,
+  source_file_name, source_page, source_metadata, fo_provision)
+select gen_random_uuid(), version.tenant_id, version.id, '${sectionId}', 'line', 101, 'Robinet de puisage',
+  'Robinet de puisage à nez fileté, finition chromée, fourni et posé, y compris essais de fonctionnement', 6, 'u', 4500, 2000, 1, 0, 1, 4500,
+  27000, 5400, 32400, 'dpgf', 'dpgf-fictif.xlsx', 8, jsonb_build_object('dpgf_source_quantity', 6, 'dpgf_source_unit', 'u'), 1
+from public.estimate_versions version where version.id = '${versionId}';
+select public.estimate_v3_complete_entry_for_writer('${versionId}', array(select id from public.estimate_items where version_id = '${versionId}'
+  and source_provider = 'dpgf' and title = 'Robinet de puisage'));
+commit;`);
+    const sections = (await readEstimate(browser, versionId)).items.filter((item) => item.item_type === "section");
+    const outermost = sections.find((section) => section.parent_id === null)!;
+    expect([sections.length, sections.find((section) => section.id === sectionId)?.title, outermost.title],
+      "the lines sit three sections deep").toEqual([3, "ARMY section 3", "ARMY section 1"]);
+    const scoped = await localTakeoffFixture(army, { projectId: base.projectId, versionId });
+    const plan = randomUUID();
+    const takeoff = await scoped.seed("C", [
+      { designation: "Siphon de sol", quantity: 2, unit: "u", confidence: 0.95, source_page: 1, is_excluded: false,
+        metadata: { source_document: { kind: "plan_file", plan_file_id: plan } } },
+      { designation: "Regard de visite", quantity: 1, unit: "u", confidence: 0.95, source_page: 1, is_excluded: false,
+        metadata: { source_document: { kind: "plan_file", plan_file_id: plan } } }], "remplacement-dpgf.pdf");
+    // Every line of the version: [title, its section, quantity, provider, DPGF reference, composition by takeoff].
+    type Held = [string, string, number, string | null, number | null, Array<[string, number]> | null];
+    const lines = async () => JSON.parse((await sql(`select coalesce(jsonb_agg(jsonb_build_array(item.title, parent.title, trim_scale(item.quantity),
+  item.source_provider, item.source_metadata -> 'dpgf_source_quantity', (select jsonb_agg(jsonb_build_array(part ->> 'job_id', (part ->> 'quantity')::numeric))
+    from jsonb_array_elements(item.source_metadata #> '{takeoff_quantity_policy,contributions}') as part)) order by item.position, item.id), '[]'::jsonb)
+from public.estimate_items item join public.estimate_items parent on parent.id = item.parent_id
+where item.version_id = '${versionId}' and item.item_type = 'line';`))[0]) as Held[];
+    const dpgf = (held: Held[]) => held.filter((line) => line[3] === "dpgf");
+    const jobStatus = async () => (await sql(`select status from public.takeoff_jobs where id = '${takeoff.jobId}';`))[0];
+    const before = await lines();
+    expect(dpgf(before), "the section holds two DPGF lines").toEqual([["EF cuivre DN 22", "ARMY section 3", 20, "dpgf", 20, null],
+      ["Robinet de puisage", "ARMY section 3", 6, "dpgf", 6, null]]);
+    expect(before.map((line) => line[0]), "and the line typed by hand").toContain(target.title);
+
+    type Refusal = { status: number; body: { ok: boolean; error?: { message: string; details?: Record<string, unknown> } } };
+    const replace = async (section: string) => await applyOwnedTakeoff(browser, versionId, takeoff.jobId,
+      { strategy: "replace", target_section_id: section }) as Refusal;
+    const named = (refusal: Refusal) => [refusal.status, refusal.body.error?.details?.reason, refusal.body.error?.details?.guard,
+      refusal.body.error?.details?.section_title, refusal.body.error?.details?.dpgf_line_count,
+      (refusal.body.error?.details?.dpgf_lines as Array<{ title: string; quantity: number; unit: string; fed: boolean }> | undefined)
+        ?.map((line) => [line.title, line.quantity, line.unit, line.fed])];
+    const both = [["EF cuivre DN 22", 20, "ml", false], ["Robinet de puisage", 6, "u", false]];
+
+    // Through the route, onto the section that holds them: refused, each DPGF line named, « Fusionner » pointed to.
+    const direct = await replace(sectionId);
+    expect(named(direct), `« Remplacer la section » over DPGF lines is refused: ${JSON.stringify(direct.body)}`)
+      .toEqual([422, "replace_deletes_dpgf_lines", "dpgf_quantities", "ARMY section 3", 2, both]);
+    expect(direct.body.error?.message, "the refusal names the section, both DPGF lines and the way out").toBe("« Remplacer la section » "
+      + "supprimerait le contenu de la section « ARMY section 3 », dont 2 lignes DPGF : « EF cuivre DN 22 » (20 ml) et « Robinet de "
+      + "puisage » (6 u). Une ligne DPGF ne sort jamais du devis sans un geste qui la nomme : rien n’est appliqué. Choisissez « Fusionner » : "
+      + "les lignes DPGF restent en place. Si une ligne de ce métré mesure l’une d’elles, reliez-les dans le rapprochement : la ligne DPGF "
+      + "en recevra la mesure, sa quantité du DPGF gardée. Puis appliquez à nouveau.");
+    // Two sections up, the DPGF lines are in its subsections: the same refusal.
+    const nested = await replace(outermost.id);
+    expect(named(nested), `« Remplacer la section » over the subsections that hold them is refused: ${JSON.stringify(nested.body)}`)
+      .toEqual([422, "replace_deletes_dpgf_lines", "dpgf_quantities", "ARMY section 1", 2, both]);
+    expect([await lines(), await jobStatus()], "nothing was written, the takeoff is still to apply").toEqual([before, "completed"]);
+
+    // The way out the refusal names: « Fusionner » applies the same takeoff beside the DPGF lines.
+    const merged = await applyOwnedTakeoff(browser, versionId, takeoff.jobId, { strategy: "merge", target_section_id: sectionId });
+    expect(merged.status, `« Fusionner » applies: ${JSON.stringify(merged.body)}`).toBe(200);
+
+    // After a reload of the editor: every line is there, the DPGF lines as they were.
+    const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+    expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
+    await ui.app.open(`/dashboard/estimates/${versionId}/edit`);
+    await expect(ui.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const shown = [target.title, "EF cuivre DN 22", "Robinet de puisage", "Siphon de sol", "Regard de visite"];
+    const missing = async () => {
+      const titles = await browser.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('[data-testid="estimate-line-title-input"]'))
+        .map((input) => input.value));
+      return shown.filter((title) => !titles.includes(title));
+    };
+    await expect.poll(missing, { timeout: 30_000 }).toEqual([]);
+    const kept = await ui.app.screenshot("ti726-dpgf-lines-kept");
+    const after = await lines();
+    expect(dpgf(after), "the DPGF lines keep their quantity and their DPGF reference").toEqual(dpgf(before));
+    // Seeded in one insert, the two takeoff lines share their creation time: their order in the section is their ids'.
+    expect(after.filter((line) => line[3] === "takeoff").map((line) => line.slice(0, 4))
+      .sort((left, right) => String(left[0]).localeCompare(String(right[0]))), "the takeoff's lines entered beside them")
+      .toEqual([["Regard de visite", "ARMY section 3", 1, "takeoff"], ["Siphon de sol", "ARMY section 3", 2, "takeoff"]]);
+    expect(after.map((line) => line[0]), "the line typed by hand stays").toContain(target.title);
+    await recordEvidence(army, "TKD07-dpgf-section-replace-refused", { versionId, jobId: takeoff.jobId, direct: direct.body.error,
+      nested: nested.body.error, before, after, kept });
   });

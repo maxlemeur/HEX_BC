@@ -12,6 +12,9 @@
 -- TI-723 (cases 23 and 24, and case 5's fixture), written before …_takeoff_dpgf_merge_any_line.sql (red on 4915259f): a line
 -- « Fusionner » sent onto a DPGF line the application neither feeds nor replaces a page of overwrote it (an ordinary takeoff
 -- line, its DPGF reference and its composition lost), and a linked line sent there was refused without a name.
+-- TI-726 (cases 25 to 27), written before …_takeoff_dpgf_section_replace.sql: « Remplacer la section » sent to the
+-- 5-argument overload by a takeoff that feeds no DPGF line deleted the section's DPGF lines without a word (cases 25 and
+-- 27, nested ones included), and over a section that mixes fed and non-fed DPGF lines it was refused without naming them.
 -- One draft per case (engine 3), section ...<case>002, DPGF target ...<case>003 (a second one ...<case>004 in case 5),
 -- takeoffs M1 ...<case>011, M2 ...<case>012, M3 ...<case>013; their lines ...<case><job>nn. All values are fictional.
 begin;
@@ -93,12 +96,20 @@ insert into da_cases values
   -- 23 (TI-723): a relaunch line of a second DPGF line's title, which no takeoff feeds and whose page none replaces.
   (23, 'EF cuivre DN 22', 'ml', 5),
   -- 24 (TI-723): two DPGF lines of one title; the relaunch's second line, linked to the first, merged onto the second.
-  (24, 'EF cuivre DN 22', 'ml', 4);
+  (24, 'EF cuivre DN 22', 'ml', 4),
+  -- 25 (TI-726): « Remplacer la section » by a takeoff that feeds no DPGF line, over three DPGF lines (one in a
+  -- subsection); a second section holds no DPGF line.
+  (25, 'EF cuivre DN 22', 'ml', 5),
+  -- 26 (TI-726): « Remplacer la section » over a fed DPGF line and one the takeoff does not feed.
+  (26, 'EF cuivre DN 22', 'ml', 5),
+  -- 27 (TI-726): the same over 22 DPGF lines, 21 of them in a subsection placed before the target.
+  (27, 'EF cuivre DN 22', 'ml', 5);
 grant select on da_cases to authenticated;
 -- A second DPGF line of a case (...<case>004), after its target in the section.
 create temporary table da_seconds (case_no integer primary key, title text not null, unit text not null, reference numeric not null)
   on commit drop;
-insert into da_seconds values (5, 'Calorifuge DN 22', 'ml', 8), (23, 'Calorifuge DN 22', 'ml', 8), (24, 'EF cuivre DN 22', 'ml', 4);
+insert into da_seconds values (5, 'Calorifuge DN 22', 'ml', 8), (23, 'Calorifuge DN 22', 'ml', 8), (24, 'EF cuivre DN 22', 'ml', 4),
+  (25, 'Calorifuge DN 22', 'ml', 8), (26, 'Calorifuge DN 22', 'ml', 8);
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
   currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
@@ -138,10 +149,52 @@ begin
 end;
 $sections$;
 
+-- TI-726, case 25: a subsection of the section (...25005) holding a third DPGF line (...25006), and a second section
+-- (...25007) holding a line typed by hand (...25008), no DPGF line.
+do $case25$
+begin
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_id(25001)::text, true);
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+  values (pg_temp.da_id(25005), current_setting('test.tenant_id')::uuid, pg_temp.da_id(25001), pg_temp.da_id(25002), 'section', 3,
+      'Sous-lot fictif'),
+    (pg_temp.da_id(25007), current_setting('test.tenant_id')::uuid, pg_temp.da_id(25001), null, 'section', 2, 'Lot sans DPGF');
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
+    quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
+    line_tax_cents, line_total_ttc_cents, source_provider, source_file_name, source_page, source_metadata, fo_provision)
+  values (pg_temp.da_id(25006), current_setting('test.tenant_id')::uuid, pg_temp.da_id(25001), pg_temp.da_id(25005), 'line', 1,
+      'Robinet de puisage', 'u', 6, 'u', 4500, 2000, 1, 0, 1, 4500, 27000, 5400, 32400, 'dpgf', 'dpgf-fictif.xlsx', 9,
+      jsonb_build_object('dpgf_source_quantity', 6, 'dpgf_source_unit', 'u'), 1),
+    (pg_temp.da_id(25008), current_setting('test.tenant_id')::uuid, pg_temp.da_id(25001), pg_temp.da_id(25007), 'line', 1,
+      'Dépose d''appareils', 'u', 1, 'u', 9000, 2000, 1, 0, 1, 9000, 9000, 1800, 10800, null, null, null, '{}'::jsonb, 1);
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(25001), '{}'::uuid[]);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$case25$;
+
+-- TI-726, case 27: a subsection (...27005) placed before the target, holding 21 DPGF lines (...27500 to ...27520): in the
+-- section's order they come before the target, in the order of their ids after it.
+do $case27$
+begin
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_id(27001)::text, true);
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+  values (pg_temp.da_id(27005), current_setting('test.tenant_id')::uuid, pg_temp.da_id(27001), pg_temp.da_id(27002), 'section', 0,
+    'Sous-lot fictif');
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
+    quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
+    line_tax_cents, line_total_ttc_cents, source_provider, source_file_name, source_page, source_metadata, fo_provision)
+  select pg_temp.da_id(27500 + n), current_setting('test.tenant_id')::uuid, pg_temp.da_id(27001), pg_temp.da_id(27005), 'line', n + 1,
+    'Poste fictif ' || lpad((n + 1)::text, 2, '0'), 'u', n + 1, 'u', 1000, 2000, 1, 0, 1, 1000, (n + 1) * 1000, (n + 1) * 200,
+    (n + 1) * 1200, 'dpgf', 'dpgf-fictif.xlsx', 10, jsonb_build_object('dpgf_source_quantity', n + 1, 'dpgf_source_unit', 'u'), 1
+  from generate_series(0, 20) as n;
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(27001), '{}'::uuid[]);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$case27$;
+
 insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
 select pg_temp.da_id(c.case_no * 1000 + 10 + job_no), current_setting('test.tenant_id')::uuid,
   pg_temp.da_id(c.case_no * 1000 + 1), 'B', 'completed', 'plan-fictif.pdf', pg_temp.da_id(1)
-from da_cases c cross join generate_series(1, case when c.case_no = 11 then 3 else 2 end) as job_no;
+from da_cases c cross join generate_series(1, case when c.case_no in (11, 25) then 3 else 2 end) as job_no;
 
 -- Lines: case, job, line, designation, quantity, unit, page.
 create temporary table da_items (
@@ -177,7 +230,13 @@ insert into da_items values
   -- 23: the relaunch reads page 2 only; its one line has the title of the second DPGF line, fed by no takeoff.
   (23, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (23, 2, 1, 'Calorifuge DN 22', 9, 'ml', 2),
   -- 24: the relaunch's two lines feed the target; « Fusionner » sends the second onto the second line of their title.
-  (24, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (24, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (24, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2);
+  (24, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (24, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (24, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2),
+  -- 25: the relaunch's line (page 2) and a third takeoff's (page 3) are of no DPGF line's title: they feed none.
+  (25, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (25, 2, 1, 'Vanne d''arrêt', 3, 'u', 2), (25, 3, 1, 'Siphon de sol', 2, 'u', 3),
+  -- 26: the relaunch's line feeds the target from page 2; the second DPGF line is fed by none.
+  (26, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (26, 2, 1, 'EF cuivre DN 22', 7, 'ml', 2),
+  -- 27: the relaunch's line is of no DPGF line's title.
+  (27, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (27, 2, 1, 'Vanne d''arrêt', 3, 'u', 2);
 -- The lines whose quantity is an hypothesis its author entered (the provision marker's sources).
 create temporary table da_hypotheses (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
   on commit drop;
@@ -242,8 +301,10 @@ returns jsonb language sql security definer as $$
 $$;
 grant execute on function pg_temp.da_plan(uuid) to authenticated;
 
--- The application as the signed-in user, through the real 5-argument overload (« Fusionner », required with a DPGF).
-create or replace function pg_temp.da_apply(p_case_name text, p_case integer, p_job integer, p_token text)
+-- The application as the signed-in user, through the real 5-argument overload (« Fusionner », required with a DPGF, onto
+-- the case's section, unless TI-726 sends another strategy or section).
+create or replace function pg_temp.da_apply(p_case_name text, p_case integer, p_job integer, p_token text,
+  p_strategy text default 'merge', p_section uuid default null)
 returns text language plpgsql as $$
 declare
   failure_detail text;
@@ -252,8 +313,8 @@ begin
   perform set_config('app.takeoff_apply_atomic', '', true);
   perform set_config('app.takeoff_apply_job', '', true);
   begin
-    select * into result_row from public.apply_takeoff_job_guarded_atomic(pg_temp.da_job(p_case, p_job), 'merge',
-      pg_temp.da_id(p_case * 1000 + 2), pg_temp.da_plan(pg_temp.da_job(p_case, p_job)), p_token);
+    select * into result_row from public.apply_takeoff_job_guarded_atomic(pg_temp.da_job(p_case, p_job), p_strategy,
+      coalesce(p_section, pg_temp.da_id(p_case * 1000 + 2)), pg_temp.da_plan(pg_temp.da_job(p_case, p_job)), p_token);
     insert into da_outcome values (p_case_name, 'ok', null, null);
   exception when others then
     get stacked diagnostics failure_detail = pg_exception_detail;
@@ -263,7 +324,7 @@ begin
   return (select case when state = 'ok' then 'ok' else state || ' ' || message end from da_outcome where case_name = p_case_name);
 end;
 $$;
-grant execute on function pg_temp.da_apply(text, integer, integer, text) to authenticated;
+grant execute on function pg_temp.da_apply(text, integer, integer, text, text, uuid) to authenticated;
 
 create or replace function pg_temp.da_decide(p_case integer, p_decision text, p_reason text, p_earlier integer[])
 returns text language plpgsql as $$
@@ -752,6 +813,108 @@ reset role;
 select is(jsonb_build_array(pg_temp.da_line(24, 4), pg_temp.da_line(24, 3)),
   '[[4, "dpgf", 4, [[2, 1, 3]]], [18, "dpgf", 4, [[1, 1, 10], [2, 2, 8]]]]'::jsonb,
   'each counts where the reconciliation links it: max(4, 3) and max(4, 10 + 8), the references kept');
+
+-- 25 (TI-726). « Remplacer la section » sent to the apply API by a takeoff that feeds no DPGF line (its permit feeds none;
+-- the wizard offers only « Fusionner » with a DPGF). The writer empties the section, its subsections included, before it
+-- writes the takeoff. Written before the migration: accepted, the three DPGF lines deleted with their references and the
+-- target's composition. Refused, each DPGF line named; never deleted.
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+select current_setting('test.tenant_id')::uuid, pg_temp.da_job(25, permit.job_no), pg_temp.da_version(25), pg_temp.da_id(1),
+  encode(sha256(convert_to(permit.token, 'UTF8')), 'hex'), '{"quantity_policy": []}'::jsonb, now() + interval '5 minutes'
+from (values (2, 'da-25-2'), (2, 'da-25-2-merge'), (3, 'da-25-3')) as permit(job_no, token);
+select pg_temp.da_seed(25, 3);
+set local role authenticated;
+select is(pg_temp.da_apply('section replaced over DPGF lines', 25, 2, 'da-25-2', 'replace'),
+  '22023 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT',
+  '« Remplacer la section » over DPGF lines the takeoff does not feed is refused, never deleting them');
+reset role;
+select is((select detail from da_outcome where case_name = 'section replaced over DPGF lines'), jsonb_build_object(
+    'reason', 'replace_deletes_dpgf_lines', 'section_id', pg_temp.da_id(25002), 'section_title', 'Lot fictif', 'dpgf_line_count', 3,
+    'dpgf_lines', jsonb_build_array(
+      jsonb_build_object('estimate_item_id', pg_temp.da_id(25003), 'title', 'EF cuivre DN 22', 'quantity', 10, 'unit', 'ml', 'fed', false),
+      jsonb_build_object('estimate_item_id', pg_temp.da_id(25004), 'title', 'Calorifuge DN 22', 'quantity', 8, 'unit', 'ml', 'fed', false),
+      jsonb_build_object('estimate_item_id', pg_temp.da_id(25006), 'title', 'Robinet de puisage', 'quantity', 6, 'unit', 'u', 'fed', false))),
+  'the refusal names the section and each DPGF line it holds, its subsection''s included: title, quantity and unit, in the section''s order');
+select is(jsonb_build_array(pg_temp.da_line(25, 3), pg_temp.da_line(25, 4), pg_temp.da_line(25, 6)),
+  '[[10, "dpgf", 5, [[1, 1, 10]]], [8, "dpgf", 8, null], [6, "dpgf", 6, null]]'::jsonb,
+  'the DPGF lines keep their reference and their quantity, the target its composition');
+select is((select jsonb_build_array(job.status::text, (select count(*) from public.estimate_items item
+    where item.version_id = pg_temp.da_version(25) and item.id in (pg_temp.da_id(25005), pg_temp.da_id(25008))))
+  from public.takeoff_jobs job where job.id = pg_temp.da_job(25, 2)), '["completed", 2]'::jsonb,
+  'nothing is applied: the takeoff stays to apply, the subsection and the line typed by hand stay');
+-- The way out the refusal names, « Fusionner »: the DPGF lines stay, the takeoff's line enters beside them.
+set local role authenticated;
+select is(pg_temp.da_apply('merged beside DPGF lines', 25, 2, 'da-25-2-merge'), 'ok', '« Fusionner » applies the same takeoff');
+reset role;
+select is(jsonb_build_array(pg_temp.da_line(25, 3), pg_temp.da_line(25, 4), pg_temp.da_line(25, 6)),
+  '[[10, "dpgf", 5, [[1, 1, 10]]], [8, "dpgf", 8, null], [6, "dpgf", 6, null]]'::jsonb, 'the DPGF lines are untouched by the merge');
+select is((select jsonb_agg(jsonb_build_array(item.title, item.quantity, item.source_provider)) from public.estimate_items item
+    where item.version_id = pg_temp.da_version(25) and item.parent_id = pg_temp.da_id(25002)
+      and item.source_metadata ->> 'takeoff_item_id' = pg_temp.da_item(25, 2, 1)::text),
+  '[["Vanne d''arrêt", 3, "takeoff"]]'::jsonb, 'the takeoff''s line enters the section beside them');
+-- Counterexample: on a DPGF version, a section that holds no DPGF line is still replaced. Its line typed by hand goes, the
+-- third takeoff's line enters; the DPGF lines of the other section are untouched.
+set local role authenticated;
+select is(pg_temp.da_apply('section without DPGF line replaced', 25, 3, 'da-25-3', 'replace', pg_temp.da_id(25007)), 'ok',
+  '« Remplacer la section » applies to a section that holds no DPGF line');
+reset role;
+select is((select jsonb_agg(jsonb_build_array(item.title, item.quantity, item.source_provider) order by item.position)
+    from public.estimate_items item where item.version_id = pg_temp.da_version(25) and item.parent_id = pg_temp.da_id(25007)),
+  '[["Siphon de sol", 2, "takeoff"]]'::jsonb, 'the section holds the takeoff''s line only, the line typed by hand replaced');
+select is(jsonb_build_array(pg_temp.da_line(25, 3), pg_temp.da_line(25, 4), pg_temp.da_line(25, 6)),
+  '[[10, "dpgf", 5, [[1, 1, 10]]], [8, "dpgf", 8, null], [6, "dpgf", 6, null]]'::jsonb,
+  'the DPGF lines of the other section are untouched');
+
+-- 26 (TI-726). « Remplacer la section » over a section that mixes a DPGF line the takeoff feeds and one it does not. Written
+-- before the migration: refused (TAKEOFF_DPGF_QUANTITY_MERGE_REQUIRED) without naming them. Refused as in case 25, each
+-- line named with whether this takeoff feeds it.
+select pg_temp.da_permit(26, 2, 'da-26-2');
+select pg_temp.da_permit(26, 2, 'da-26-2-append');
+select pg_temp.da_permit(26, 2, 'da-26-2-merge');
+set local role authenticated;
+select is(pg_temp.da_apply('section replaced over fed and non-fed DPGF lines', 26, 2, 'da-26-2', 'replace'),
+  '22023 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT', '« Remplacer la section » over a fed and a non-fed DPGF line is refused');
+reset role;
+select is((select detail from da_outcome where case_name = 'section replaced over fed and non-fed DPGF lines'), jsonb_build_object(
+    'reason', 'replace_deletes_dpgf_lines', 'section_id', pg_temp.da_id(26002), 'section_title', 'Lot fictif', 'dpgf_line_count', 2,
+    'dpgf_lines', jsonb_build_array(
+      jsonb_build_object('estimate_item_id', pg_temp.da_id(26003), 'title', 'EF cuivre DN 22', 'quantity', 10, 'unit', 'ml', 'fed', true),
+      jsonb_build_object('estimate_item_id', pg_temp.da_id(26004), 'title', 'Calorifuge DN 22', 'quantity', 8, 'unit', 'ml', 'fed', false))),
+  'the refusal names both DPGF lines, and which one this takeoff feeds');
+select is(jsonb_build_array(pg_temp.da_line(26, 3), pg_temp.da_line(26, 4)), '[[10, "dpgf", 5, [[1, 1, 10]]], [8, "dpgf", 8, null]]'::jsonb,
+  'both DPGF lines keep what they hold');
+-- Counterexample: « Ajouter », which deletes nothing, keeps its own refusal beside a fed DPGF line.
+set local role authenticated;
+select is(pg_temp.da_apply('appended beside a fed DPGF line', 26, 2, 'da-26-2-append', 'append'),
+  '22023 TAKEOFF_DPGF_QUANTITY_MERGE_REQUIRED', '« Ajouter » beside a fed DPGF line is still refused as a merge required');
+-- The way out: « Fusionner » feeds the target through its composition and leaves the other DPGF line.
+select is(pg_temp.da_apply('merged over fed and non-fed DPGF lines', 26, 2, 'da-26-2-merge'), 'ok', '« Fusionner » applies');
+reset role;
+select is(jsonb_build_array(pg_temp.da_line(26, 3), pg_temp.da_line(26, 4)),
+  '[[17, "dpgf", 5, [[1, 1, 10], [2, 1, 7]]], [8, "dpgf", 8, null]]'::jsonb,
+  'the target holds max(5, 10 + 7) by its composition, the other DPGF line what it held');
+
+-- 27 (TI-726). Over 22 DPGF lines, the refusal names the first 20 in the section's order (the subsection placed before the
+-- target first, although the target's id is lower) and counts all 22; none is deleted.
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+values (current_setting('test.tenant_id')::uuid, pg_temp.da_job(27, 2), pg_temp.da_version(27), pg_temp.da_id(1),
+  encode(sha256(convert_to('da-27-2', 'UTF8')), 'hex'), '{"quantity_policy": []}'::jsonb, now() + interval '5 minutes');
+set local role authenticated;
+select is(pg_temp.da_apply('section replaced over 22 DPGF lines', 27, 2, 'da-27-2', 'replace'),
+  '22023 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT', '« Remplacer la section » over 22 DPGF lines is refused');
+reset role;
+select is((select jsonb_build_array(detail -> 'dpgf_line_count', jsonb_array_length(detail -> 'dpgf_lines'),
+    (select jsonb_agg(line ->> 'title' order by ordinality) from jsonb_array_elements(detail -> 'dpgf_lines') with ordinality as named(line, ordinality)
+      where ordinality in (1, 2, 10, 20)),
+    (select bool_or(line ->> 'estimate_item_id' in (pg_temp.da_id(27003)::text, pg_temp.da_id(27520)::text))
+      from jsonb_array_elements(detail -> 'dpgf_lines') as named(line)))
+  from da_outcome where case_name = 'section replaced over 22 DPGF lines'),
+  '[22, 20, ["Poste fictif 01", "Poste fictif 02", "Poste fictif 10", "Poste fictif 20"], false]'::jsonb,
+  'the first 20 in the section''s order are named (positions read as numbers), the 21st and the target counted only');
+select is((select count(*)::integer from public.estimate_items item where item.version_id = pg_temp.da_version(27)
+    and item.item_type = 'line' and item.source_provider = 'dpgf'), 22, 'the 22 DPGF lines stay');
 
 select * from finish();
 rollback;

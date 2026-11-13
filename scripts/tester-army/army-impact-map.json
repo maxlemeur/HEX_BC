@@ -1128,7 +1128,7 @@
     },
     {
       "id": "takeoff-page-once",
-      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues et notice du lancement (TKD01) ; remplacer la mesure précédente ou garder les deux à la confirmation, refus sans décision (TKD02) ; contrat de l'écran avec la base, chaque confirmation permise acceptée, sur une matrice de situations (TKD03) ; somme d'une ligne DPGF alimentée par deux métrés (TKD04) ; part DPGF de part par page inconnue, ses issues nommées et ses pages remplacées ensemble (TKD05, TI-716) ; « Fusionner » sur une ligne DPGF que l'application ne compose pas, nommé avant l'envoi et refusé, puis le lien du rapprochement qui l'alimente (TKD06, TI-723) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
+      "note": "Une page de plan n'entre qu'une fois au devis (TI-682, lot D) : pages déjà au devis par un autre métré, lues dans les lignes du devis ; bandeau des deux revues et notice du lancement (TKD01) ; remplacer la mesure précédente ou garder les deux à la confirmation, refus sans décision (TKD02) ; contrat de l'écran avec la base, chaque confirmation permise acceptée, sur une matrice de situations (TKD03) ; somme d'une ligne DPGF alimentée par deux métrés (TKD04) ; part DPGF de part par page inconnue, ses issues nommées et ses pages remplacées ensemble (TKD05, TI-716) ; « Fusionner » sur une ligne DPGF que l'application ne compose pas, nommé avant l'envoi et refusé, puis le lien du rapprochement qui l'alimente (TKD06, TI-723) ; « Remplacer la section » sur des lignes DPGF refusé par la route, les lignes nommées et gardées (TKD07, TI-726) ; contrôle négatif de deux plans de zone (TKR01, TKR02).",
       "paths": [
         "src/lib/takeoff/page-contributions*.ts",
         "src/app/api/takeoff/page-contributions/**",
@@ -1141,6 +1141,7 @@
         "supabase/migrations/*_takeoff_dpgf_accumulation.sql",
         "supabase/migrations/*_takeoff_dpgf_merge_refusals.sql",
         "supabase/migrations/*_takeoff_dpgf_merge_any_line.sql",
+        "supabase/migrations/*_takeoff_dpgf_section_replace.sql",
         "src/components/takeoff/takeoff-apply-wizard/TakeoffDpgfMergePanel.tsx",
         "src/lib/takeoff/apply-errors.ts",
         "src/components/takeoff/review/TakeoffPagesAlreadyInEstimate.tsx",
