@@ -905,34 +905,45 @@ describe("count keys in the vector comparison (TI-676)", () => {
     expect(comparison.totals).toEqual(before.totals);
   });
 
-  it("scores the count lines the scorer builds: u and pce, a key priced « ens » out of score, a key the truth lacks extra", () => {
+  /** One fictional plan scored by the real scorer: its count lines (count, Z1, R+1, u, 1 by default) and the items read. */
+  function scoredScope(lines: Array<Record<string, unknown>>, items: Array<[designation: string, quantity: number, unit: string]>): ScopeScore {
     const manifest = ManifestDocumentSchema.parse({
       id: "a-plan-01", lot: "a", kind: "plan", drive_id: "fixture-a-plan-01", original_title: "Fictional a-plan-01", project: null, file_type: "pdf",
       file_size: 100, modified_time: "2026-01-06T10:00:00.000Z", raw_status: "binary", raw_path: "raw/a-plan-01.pdf", sha256: "0".repeat(64),
       structure_check: { status: "passed", method: "fixture", detail: null }, pages: 1, format: "A0", scale: "1/50", index: "A", vector: true,
       ocg_count: 0, level: "R+1", zone: "Z1", role: "truth", duplicate_of: null, notes: null,
     });
-    const line = (row: number, overrides: Record<string, unknown>) => ({
-      kind: "count", zone: "Z1", level: "R+1", network: "EF", material: null, dn: null, organ: null, room: null, unit: "u", quantity: 1,
-      observable_on_plan: true, source: { document: "a-devis-01", sheet: "Lot", row, row_basis: "workbook", text: "Fictional row" }, ...overrides,
-    });
     const truthFile = TruthFileSchema.parse({ schema_version: 1, lot: "a", scope: "document", documents: ["a-plan-01"], source_document: "a-devis-01",
-      rules: "Fictional rule.", lines: [
-        line(1, { dn: "DN 20", organ: "vanne", quantity: 3 }), line(2, { organ: "purgeur", quantity: 2 }),
-        line(3, { dn: "DN 20", organ: "compteur", unit: "ens" }),
-        line(4, { kind: "network", material: "cuivre", dn: "DN 22", unit: "ml", quantity: 10 }),
-      ] });
-    const item = (designation: string, quantity: number, unit: string): TakeoffItem =>
-      ({ designation, quantity, unit, source_page: 1, confidence: 0.9, evidence: "Fictional evidence" });
-    const [scored] = scoreScopes(buildScoreScopes([{ file: "truth/a-plan-01.json", truth: truthFile }], [manifest]), new Map([["a-plan-01", [
-      item("Vanne DN 20", 3, "u"), item("Purgeur d'air", 1, "pce"), item("Clapet anti-retour DN 20", 2, "u"), item("Compteur DN 20", 1, "u"),
-      item("Tube cuivre EF DN 22", 10, "ml"),
-    ]]]));
+      rules: "Fictional rule.", lines: lines.map((overrides, index) => ({
+        kind: "count", zone: "Z1", level: "R+1", network: "EF", material: null, dn: null, organ: null, room: null, unit: "u", quantity: 1,
+        observable_on_plan: true, source: { document: "a-devis-01", sheet: "Lot", row: index + 1, row_basis: "workbook", text: "Fictional row" }, ...overrides,
+      })) });
+    const read = items.map(([designation, quantity, unit]): TakeoffItem =>
+      ({ designation, quantity, unit, source_page: 1, confidence: 0.9, evidence: "Fictional evidence" }));
+    return scoreScopes(buildScoreScopes([{ file: "truth/a-plan-01.json", truth: truthFile }], [manifest]), new Map([["a-plan-01", read]]))[0];
+  }
+
+  it("scores the count lines the scorer builds: u and pce, a key priced « ens » out of score, a key the truth lacks extra", () => {
+    const scored = scoredScope([
+      { dn: "DN 20", organ: "vanne", quantity: 3 }, { organ: "purgeur", quantity: 2 }, { dn: "DN 20", organ: "compteur", unit: "ens" },
+      { kind: "network", material: "cuivre", dn: "DN 22", unit: "ml", quantity: 10 },
+    ], [["Vanne DN 20", 3, "u"], ["Purgeur d'air", 1, "pce"], ["Clapet anti-retour DN 20", 2, "u"], ["Compteur DN 20", 1, "u"], ["Tube cuivre EF DN 22", 10, "ml"]]);
     const run = report([[scored]], "vector");
     const comparison = compareVectorWithBaseline(run, report([[scored]]));
     // The vanne exact, the purgeur one apart, the clapet a key the truth lacks; the compteur's key is priced « ens ».
     expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 2, 1, 2, 0, 1));
     expect(comparison.scopes[0].vector.lengths).toEqual(metrics(1, 1, 1, 0));
+  });
+
+  it("counts a key expected at 0 that no item reads as missed, though the score calls it ok (Codex review of #327)", () => {
+    // Written before the fix: the scorer adds no item as 0, within the u tolerance of 0, so the key is « ok » with no
+    // item. Taken from its status, the column would report it read, exact and within one.
+    const scored = scoredScope([{ organ: "purgeur", quantity: 0 }, { dn: "DN 20", organ: "vanne", quantity: 1 }], [["Vanne DN 20", 2, "u"]]);
+    // The score stays as it is: the key is ok, with no item.
+    expect(scored.keys.find((entry) => entry.key.organ === "purgeur")).toMatchObject({ status: "ok", items: 0, expected: 0 });
+    const comparison = compareVectorWithBaseline(report([[scored]], "vector"), report([[scored]]));
+    // The vanne read one apart; the purgeur missed: neither read, nor exact, nor within one.
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 1, 0, 1, 1, 0));
   });
 
   it("prints the counts in the comparison and the slices as numbers of keys, never a quantity", () => {

@@ -54,8 +54,9 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // Count keys (TI-676): a measurement beside the lengths and surfaces, with no
 // verdict, that leaves every other figure as it is. Per scope, total and slice,
 // each run's scored count keys (kind count, unit u as the score reads it), those
-// read (an item attached), exact (the score's u tolerance), within one of the
-// truth (the exact ones included) and missed; and its extra counts, the count
+// read (at least one item attached, never the score's status: a key expected at
+// 0 that no item reads is « ok » there), among them exact (ok at the score's u
+// tolerance) and within one of the truth, and missed; and its extra counts, the count
 // keys it read that the truth lacks (false-positive groups of a count, a key
 // read one DN apart from a missed key included; unreadable lines, whose key is
 // unknown, are not). Each figure is the median over the passes. On the raster
@@ -105,6 +106,7 @@ export type SliceComparison = {
 /** Count keys of a run (TI-676), each figure the median over the passes; null without a scored key (extra: without a scope). */
 export type CountMetrics = {
   keys: number;
+  /** Keys with at least one item attached; exact and within_one count among them. */
   found: number | null;
   exact: number | null;
   /** Within one of the truth, the exact keys included. */
@@ -306,10 +308,11 @@ const NO_COUNTS: CountMetrics = { keys: 0, found: null, exact: null, within_one:
 
 function countsOfPass(scopes: readonly ScopeScore[]) {
   const scored = scopes.flatMap((scope) => scope.keys).filter((key) => key.key.kind === "count" && key.status !== "out_of_score");
-  const found = scored.filter((key) => key.status !== "missed");
+  // Read: an item attached. The score's status would count a key expected at 0 that no item reads (« ok », actual 0).
+  const found = scored.filter((key) => key.items > 0);
   return {
-    keys: scored.length, found: found.length, exact: scored.filter((key) => key.status === "ok").length,
-    within_one: found.filter((key) => key.status === "ok" || (key.actual !== null && key.expected !== null && Math.abs(key.actual - key.expected) <= 1 + 1e-9)).length,
+    keys: scored.length, found: found.length, exact: found.filter((key) => key.status === "ok").length,
+    within_one: found.filter((key) => key.actual !== null && key.expected !== null && Math.abs(key.actual - key.expected) <= 1 + 1e-9).length,
     missed: scored.length - found.length,
     extra: scopes.reduce((total, scope) => total + scope.false_positives.filter((group) => group.key?.kind === "count").length, 0),
   };
@@ -573,8 +576,8 @@ function countCell(counts: CountMetrics, abstained = false) {
     + `${counts.found} ${plural(counts.found, "lue", "lues")}, ${counts.missed} ${plural(counts.missed, "manquée", "manquées")}, ${counts.extra} en trop`;
 }
 
-const COUNTS_NOTE = "Comptages : clés de comptage notées (u). Exactes comme au score ; « à ±1 » compte aussi les exactes ; lues : un item rattaché "
-  + "à la clé ; en trop : clés de comptage lues que la vérité n’a pas, une clé lue avec un autre DN comprise. Une mesure, sans verdict.";
+const COUNTS_NOTE = "Comptages : clés de comptage notées (u). Lues : au moins un item rattaché à la clé ; parmi elles, exactes comme au score, et "
+  + "« à ±1 », les exactes comprises ; en trop : clés de comptage lues que la vérité n’a pas, une clé lue avec un autre DN comprise. Une mesure, sans verdict.";
 
 function sliceCell(kind: SliceKind, abstained: boolean) {
   if (kind.keys === 0) return "–";

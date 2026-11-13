@@ -697,9 +697,10 @@ aucun autre chiffre du rapport n'en dépend, et le score ne change pas.
   observables, non ambiguës. Une clé chiffrée « ens » reste hors score.
 - Pour chaque clé, quatre états :
   - lue : au moins un item est rattaché à la clé ;
-  - exacte : au score, en u exact ;
-  - à ±1 : à une unité près de la vérité, les exactes comprises ;
-  - manquée : aucun item.
+  - exacte : lue, et exacte au score (u exact) ;
+  - à ±1 : lue, à une unité près de la vérité, les exactes comprises ;
+  - manquée : aucun item. Une clé attendue à 0 qu'aucun item ne lit est manquée ici,
+    même si le score la dit juste.
 - En trop : les clés de comptage lues que la vérité n'a pas. Une clé lue avec un autre
   DN compte ici, et sa clé de la vérité compte comme manquée. Les lignes illisibles n'y
   sont pas : leur clé n'est pas connue.
