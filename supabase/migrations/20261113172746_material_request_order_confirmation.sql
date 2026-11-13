@@ -15,7 +15,8 @@
 --    draft -> confirmed through the confirmation only, confirmed -> received through the reception only, and nowhere
 --    else: such an order is ordered and confirmed, not sent. One marked « envoyée » before this migration (its status
 --    was free) returns to draft or is canceled. Deleting stays as it was: a member deletes drafts only (restrictive
---    policy « Draft purchase orders can be deleted »). The file of a proof is not deleted from storage either.
+--    policy « Draft purchase orders can be deleted »). The file of a proof is not deleted from storage either
+--    (private.keep_purchase_order_proof_file).
 -- 3. private.normalize_purchase_order_item: in a draft, the price and the lot of a request line stay its retained
 --    quote's until the confirmation writes the real ones (this settles what 3a left: the API accepted a new price).
 -- 4. public.create_material_request_purchase_orders: a draft is delivered on the date its request needs the material.
@@ -103,37 +104,29 @@ create trigger guard_purchase_order_lifecycle
   before update of status on public.purchase_orders
   for each row execute function private.guard_purchase_order_lifecycle();
 
--- The file of a proof stays in storage: the delete policy of the bucket devis (20260713140454) is restated with one more
--- condition, so neither the browser's storage client nor a race with the route removes the file a confirmation names.
-drop policy if exists "Authorized users can delete purchase order devis" on storage.objects;
-create policy "Authorized users can delete purchase order devis"
-  on storage.objects for delete to authenticated
-  using (
-    bucket_id = 'devis'
-    and coalesce(array_length(storage.foldername(objects.name), 1), 0) = 2
-    and coalesce((storage.foldername(objects.name))[1], '') = 'purchase-orders'
-    and coalesce((storage.foldername(objects.name))[2], '') <> ''
-    and coalesce(storage.filename(objects.name), '') <> ''
-    and exists (
-      select 1 from public.purchase_orders po
-      where po.id::text = coalesce((storage.foldername(objects.name))[2], '')
-        and po.status <> 'canceled'
-        and (select public.has_tenant_role(
-          po.tenant_id,
-          array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
-        ))
-        and (
-          po.user_id = (select auth.uid())
-          or (select public.has_tenant_role(po.tenant_id, array['admin'::public.tenant_role]))
-        )
-    )
-    -- 3b: not the file of a proof.
-    and not exists (
-      select 1 from public.purchase_order_confirmations confirmation
-      join public.purchase_order_devis document on document.id = confirmation.document_id
-      where document.storage_path = objects.name
-    )
-  );
+-- The file of a proof stays in storage, whoever deletes it (a member through the Storage API or the route, the service
+-- role): a before-delete trigger reads, once the row is locked, whether a confirmation names it. The confirmation
+-- share-locks the stored file of its proof (5), so a deletion and a confirmation running at the same time are
+-- serialized either way (material-request-order-proof-race.test.sql). Same pattern as guard_intake_plan_storage_delete.
+create function private.keep_purchase_order_proof_file()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if old.bucket_id <> 'devis' then
+    return old;
+  end if;
+  if exists (
+    select 1 from public.purchase_order_confirmations confirmation
+    join public.purchase_order_devis document on document.id = confirmation.document_id
+    where document.storage_path = old.name
+  ) then
+    raise exception using errcode = '23514', message = 'PURCHASE_ORDER_PROOF_FILE_KEPT';
+  end if;
+  return old;
+end;
+$$;
+create trigger keep_purchase_order_proof_file
+  before delete on storage.objects
+  for each row execute function private.keep_purchase_order_proof_file();
 
 -- ---------------------------------------------------------------------------
 -- 3. The price of a request line changes at the confirmation only.
@@ -446,6 +439,7 @@ declare
   delivery_value date;
   reference_value text;
   document_value uuid;
+  proof_path text;
   lines_value jsonb;
   line jsonb;
   line_ids uuid[];
@@ -512,10 +506,17 @@ begin
   if ordered_value > today or delivery_value < ordered_value then
     raise exception using errcode = '22023', message = 'PURCHASE_ORDER_CONFIRMATION_DATE_INVALID';
   end if;
-  if document_value is null or not exists (
-    select 1 from public.purchase_order_devis document
-    where document.id = document_value and document.purchase_order_id = po.id and document.tenant_id = tenant_value
-  ) then
+  -- The proof and its stored file are share-locked: a deletion of either that has not committed is waited for, then
+  -- they are read as they stand; once this commits, keep_purchase_order_proof_file keeps the file.
+  select document.storage_path into proof_path
+  from public.purchase_order_devis document
+  where document.id = document_value and document.purchase_order_id = po.id and document.tenant_id = tenant_value
+  for share;
+  if not found then
+    raise exception using errcode = '22023', message = 'PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED';
+  end if;
+  perform 1 from storage.objects stored where stored.bucket_id = 'devis' and stored.name = proof_path for share;
+  if not found then
     raise exception using errcode = '22023', message = 'PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED';
   end if;
   if pg_catalog.cardinality(line_ids) <> (select count(distinct wanted.id) from pg_catalog.unnest(line_ids) wanted(id))
@@ -624,7 +625,8 @@ $$;
 comment on function public.receive_material_request_purchase_order(uuid, bigint, jsonb) is
   'TI-691: records the reception of a whole confirmed order of an affaire, on a day between its order date and today (Paris), with a free note for what is still to come; the order becomes received. Caller: admin or engineer of the active tenant who is the order''s author or an admin (PURCHASE_ORDER_ACCESS_DENIED). Refusals: PURCHASE_ORDER_INPUT_INVALID, _AFFAIRE_ONLY, _RECEPTION_NOT_CONFIRMED, _REVISION_REQUIRED, _REVISION_CONFLICT, _RECEPTION_DATE_INVALID.';
 
-revoke all on function private.guard_purchase_order_lifecycle() from public, anon, authenticated, service_role;
+revoke all on function private.guard_purchase_order_lifecycle(), private.keep_purchase_order_proof_file()
+  from public, anon, authenticated, service_role;
 revoke all on function public.confirm_material_request_purchase_order(uuid, bigint, jsonb),
   public.receive_material_request_purchase_order(uuid, bigint, jsonb)
   from public, anon, authenticated, service_role;

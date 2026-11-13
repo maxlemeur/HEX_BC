@@ -222,6 +222,13 @@ export async function DELETE(
     .remove([devis.storage_path]);
 
   if (removeError) {
+    // A confirmation committed since the check above: the database keeps the file of a proof.
+    if (removeError.message.includes("PURCHASE_ORDER_PROOF_FILE_KEPT")) {
+      return NextResponse.json(
+        { error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: removeError.message }, { status: 400 });
   }
 

@@ -15,8 +15,9 @@
 --     before the order date or an overlong supplier reference; a refusal writes nothing;
 --  6. the confirmation does not record the real prices (a price for 100 not divided, rounded otherwise than half away
 --     from zero, a price written 1234.0 refused), the totals, the order date, the delivery date, the proof, the
---     supplier reference and who confirmed; discounts larger than the real prices are refused only at commit; the
---     proof, or its file in storage, can then be deleted; a second confirmation is accepted;
+--     supplier reference and who confirmed; discounts larger than the real prices are refused only at commit; a proof
+--     whose file is not stored is accepted; the proof, or its file in storage, can then be deleted, by a member or by
+--     the service role; a second confirmation is accepted (the races with a deletion: order-proof-race.test.sql);
 --  7. a reception is accepted on a draft, before the order date, in the future, with an overlong note, by a viewer, on a
 --     stale revision or twice; it does not record its date, note and author; a received order changes again.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
@@ -178,6 +179,12 @@ select ('a9320000-0000-4000-8000-00000000d00' || n)::uuid, 'a9320000-0000-4000-8
   'purchase-orders/' || current_setting(case when n in (1, 2) then 'test.order_alpha' when n = 3 then 'test.order_beta'
     else 'test.order_manual' end) || '/confirmation-' || n || '.pdf', 1024, 'application/pdf', n
 from generate_series(1, 4) n;
+-- Their files are stored, except D2's (the local Storage API sets the delete guard below for its own deletes).
+insert into storage.objects (bucket_id, name, metadata)
+select 'devis', storage_path, '{"size": 1024}'::jsonb from public.purchase_order_devis
+where id in ('a9320000-0000-4000-8000-00000000d001', 'a9320000-0000-4000-8000-00000000d003',
+  'a9320000-0000-4000-8000-00000000d004');
+select set_config('storage.allow_delete_query', 'true', true);
 
 -- Confirms Alpha's draft as a member: the screws at 3,52 € for 100, the elbows unchanged, ordered on 12/11/2026.
 create function pg_temp.confirm_alpha(p_user uuid, p_revision text, p_patch jsonb default '{}'::jsonb)
@@ -313,6 +320,10 @@ select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
   pg_temp.confirm_alpha('a9320000-0000-4000-8000-000000000001', pg_temp.revision('test.order_alpha'),
     '{"document_id": "a9320000-0000-4000-8000-00000000d003"}')),
   '22023 PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED', '5 joined to this order, not to another');
+select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
+  pg_temp.confirm_alpha('a9320000-0000-4000-8000-000000000001', pg_temp.revision('test.order_alpha'),
+    '{"document_id": "a9320000-0000-4000-8000-00000000d002"}')),
+  '22023 PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED', '5 whose file is stored');
 select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000003',
   pg_temp.confirm_alpha('a9320000-0000-4000-8000-000000000003', pg_temp.revision('test.order_alpha'))),
   '42501 PURCHASE_ORDER_ACCESS_DENIED', '5 a viewer does not confirm');
@@ -459,13 +470,14 @@ values ('a9320000-0000-4000-8000-00000000d005', 'a9320000-0000-4000-8000-0000000
   'a9320000-0000-4000-8000-000000000001', 'Plan libre', 'libre.pdf',
   'purchase-orders/' || current_setting('test.order_alpha') || '/libre.pdf', 1024, 'application/pdf', 5);
 insert into storage.objects (bucket_id, name, metadata) values
-  ('devis', 'purchase-orders/' || current_setting('test.order_alpha') || '/confirmation-1.pdf', '{"size": 1024}'),
   ('devis', 'purchase-orders/' || current_setting('test.order_alpha') || '/libre.pdf', '{"size": 1024}');
-select set_config('storage.allow_delete_query', 'true', true);
 select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
   format($$delete from storage.objects where bucket_id = 'devis' and name = %L$$,
     'purchase-orders/' || current_setting('test.order_alpha') || '/confirmation-1.pdf')),
-  'ok 0', '6 the proof''s file is not deleted from storage');
+  '23514 PURCHASE_ORDER_PROOF_FILE_KEPT', '6 the proof''s file is not deleted from storage');
+select throws_ok(format($$delete from storage.objects where bucket_id = 'devis' and name = %L$$,
+    'purchase-orders/' || current_setting('test.order_alpha') || '/confirmation-1.pdf'),
+  '23514', 'PURCHASE_ORDER_PROOF_FILE_KEPT', '6 not even by a privileged role (the service role, a cleanup)');
 select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
   format($$delete from storage.objects where bucket_id = 'devis' and name = %L$$,
     'purchase-orders/' || current_setting('test.order_alpha') || '/libre.pdf')),

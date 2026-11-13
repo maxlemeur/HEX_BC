@@ -270,6 +270,13 @@ describe("OrderLifecycle — status and reception", () => {
     expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["Brouillon", "Annulée"]);
   });
 
+  // Codex review of #311: an order of an affaire marked « Envoyée » before this delivery was offered nothing.
+  it("offers a sent order of an affaire to return to draft or to be canceled", () => {
+    render(<OrderLifecycle {...props({ status: "sent" })} />);
+    const select = screen.getByLabelText("Statut de la commande");
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["Brouillon", "Envoyée", "Annulée"]);
+  });
+
   it("offers a confirmed order no direct status change, only its reception, and says how it was ordered", () => {
     render(<OrderLifecycle {...props({
       status: "confirmed", orderDate: "2026-11-12", expectedDeliveryDate: "2026-11-19",
