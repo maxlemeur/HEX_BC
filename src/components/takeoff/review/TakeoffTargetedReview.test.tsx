@@ -630,7 +630,10 @@ describe("TakeoffTargetedReview", () => {
       expect(screen.getByText("« EF cuivre DN 28 » ne correspond pas aux filtres : elle reste affichée tant qu’elle est ouverte.")).toBeInTheDocument();
       choose(list, "EF cuivre DN 22");
       await waitFor(() => expect(names(list)).toEqual(["EF cuivre DN 22", "EU PVC DN 100"]));
-      expect(within(group()).getByText(/^Gros montants : 2 lignes du métré, 97 % du montant chiffré .*, dont 2 à revoir\.$/)).toBeInTheDocument();
+      // An estimate to rank the lines, never an HT total (owner review): no euro figure.
+      expect(within(group()).getByText("Gros montants : 2 lignes du métré, 97 % du montant estimé (quantité × prix unitaire), dont 2 à revoir."))
+        .toBeInTheDocument();
+      expect(group().textContent).not.toMatch(/€|\bHT\b/);
       await user.click(within(group()).getByRole("button", { name: "Réseau ou lot" }));
       expect(within(group()).getByRole("button", { name: "Réseau ou lot" })).toHaveAttribute("aria-expanded", "true");
       await user.click(within(group()).getByRole("checkbox", { name: "EF · Eau froide 1" }));

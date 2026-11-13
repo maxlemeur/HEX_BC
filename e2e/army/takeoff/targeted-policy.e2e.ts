@@ -196,6 +196,8 @@ armyTest("TKQ04 the targeted review filters by large amounts and one network, ke
       material: run.designation.includes("PVC") ? "pvc" : "cuivre", dn: null, non_observable: null, model_quantity: run.quantity } } })),
   "Plan RDC Z1.pdf");
   const idOf = (designation: string) => seed.items.find(item => item.designation === designation)!.id;
+  // An estimate to rank the lines (quantity × unit price), never an HT total of the estimate: no euro figure.
+  const LARGE_AMOUNTS = "Gros montants : 2 lignes du métré, 95 % du montant estimé (quantité × prix unitaire), dont 2 à revoir.";
 
   // The review context prices each run at its estimate line and names the run no line holds.
   const context = await apiRequest<{ data: { unlinked_item_ids: string[];
@@ -219,7 +221,8 @@ armyTest("TKQ04 the targeted review filters by large amounts and one network, ke
 
   await filters.getByRole("button", "Gros montants 2", { exact: true }).click();
   await expect(filters.getByRole("button", "Gros montants 2", { exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(filters.getByText(/^Gros montants : 2 lignes du métré, 95 % du montant chiffré .*, dont 2 à revoir\.$/)).toBeVisible();
+  await expect(filters.getByText(LARGE_AMOUNTS, { exact: true })).toBeVisible();
+  await expect(filters).not.toContainText("€");
   await expect(list.getByRole("option")).toHaveCount(2);
   await filters.getByRole("button", "Réseau ou lot", { exact: true }).click();
   await filters.getByRole("checkbox", "EF · Eau froide 1", { exact: true }).check();
@@ -242,7 +245,7 @@ armyTest("TKQ04 the targeted review filters by large amounts and one network, ke
 
   await ui.browser.reload();
   await expected();
-  await expect(filters.getByText(/^Gros montants : 2 lignes du métré, 95 % du montant chiffré .*, dont 2 à revoir\.$/)).toBeVisible();
+  await expect(filters.getByText(LARGE_AMOUNTS, { exact: true })).toBeVisible();
 
   // On a phone the filters stay in view and usable: the list widens again, then narrows back.
   await ui.browser.setViewport({ width: 390, height: 844 });

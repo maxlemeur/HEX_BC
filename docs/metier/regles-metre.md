@@ -1229,9 +1229,12 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
     (`quantityAmountCents`, arrondi à l'unité la plus proche, moitié vers l'extérieur).
     Des lignes de même montant entrent ensemble à la coupure : la liste ne dépend jamais
     de l'ordre de lecture. Une ligne non chiffrée, ou chiffrée à zéro, n'en fait jamais
-    partie et ne compte pas dans le total. Le filtre actif dit la part couverte et ce
-    qu'il en reste à revoir (« 2 lignes du métré, 95 % du montant chiffré (820,00 € sur
-    855,00 € HT), dont 2 à revoir ») ;
+    partie et ne compte pas dans le total. Ce montant classe les lignes ; ce n'est pas un
+    total HT du devis : le prix unitaire est pris avant la remise commerciale au moteur 3,
+    après elle au moteur 2, et plusieurs lignes du métré partagent une ligne de devis dont
+    la quantité arrondit leur somme. Le filtre actif dit donc seulement la part couverte et
+    ce qu'il en reste à revoir, sans montant en euros (« 2 lignes du métré, 95 % du montant
+    estimé (quantité × prix unitaire), dont 2 à revoir ») ;
   - **Hypothèses** : les lignes dont la quantité est une hypothèse de TI-682
     (`takeoffHypothesisCause`), pas une confiance. Le filtre de confiance de la revue de
     validation garde son nom, « Confiance à confirmer » ;

@@ -12,7 +12,8 @@ import type { ApplyGuardItem } from "@/lib/takeoff/guards";
 //   Règle en échec, Incertaines;
 // - Gros montants: the lines that together make 80 % of the takeoff's priced amount, largest first (Pareto), each at
 //   its quantity × its estimate line's unit price, in integer cents (money.ts). No euro threshold: 80 % of the amount
-//   reads the same on a small or a large affaire. An unpriced line is never one: it has its own filter;
+//   reads the same on a small or a large affaire. An unpriced line is never one: it has its own filter. The amount
+//   ranks the lines; it is no HT total of the estimate, and the screen shows only its share (largeAmountsSummary);
 // - Hypothèses: the lines whose quantity is one of TI-682's hypotheses (takeoffHypothesisCause), not a confidence;
 // - Non chiffré: the lines the review context links to no estimate line, or only to a line « Non chiffrée »;
 // - Réseau ou lot, Niveau ou zone, Plan et indice: values the lines hold (network class, else the lot of the priced
@@ -83,6 +84,18 @@ export function largeAmounts(lines: ReadonlyArray<{ id: string; amount_cents: nu
   }
   return { ids, covered_cents: Number(covered), total_cents: Number(total),
     covered_percent: total > BigInt(0) ? Number((covered * BigInt(100)) / total) : 0 };
+}
+
+/**
+ * What « Gros montants » says once chosen: how many lines of the takeoff make what share of its estimated amount, and
+ * how many of them are to review. A takeoff line's amount is its quantity × its estimate line's unit price (before
+ * engine 3's commercial discount, after engine 2's), and several takeoff lines share one estimate line, whose quantity
+ * rounds their sum: an estimate to rank the lines, never the estimate's HT total. So no euro figure is shown.
+ */
+export function largeAmountsSummary(large: LargeAmounts, toReview: number) {
+  const count = large.ids.size;
+  return `Gros montants : ${count} ligne${count > 1 ? "s" : ""} du métré, ${large.covered_percent} % du montant estimé`
+    + ` (quantité × prix unitaire), dont ${toReview} à revoir.`;
 }
 
 /** One takeoff line as the review context links it to an estimate line (review-context-contracts.ts). */

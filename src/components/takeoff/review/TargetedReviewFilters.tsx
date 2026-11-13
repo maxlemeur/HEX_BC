@@ -4,13 +4,13 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { formatEUR } from "@/lib/money";
 import { NETWORKS, NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import {
   EMPTY_TARGETED_REVIEW_FILTERS,
   LOT_VALUE_PREFIX,
   TARGETED_REVIEW_FACETS,
   hasTargetedReviewFilters,
+  largeAmountsSummary,
   type LargeAmounts,
   type TargetedReviewFacet,
   type TargetedReviewFilterResult,
@@ -94,10 +94,7 @@ export function TargetedReviewFilterBar({ filters, result, available, pricingPen
         ) : null}
       </div>
       {filters.large && available.large && large ? (
-        <p role="status" className="text-xs text-foreground-secondary">
-          {`Gros montants : ${large.ids.size} ligne${large.ids.size > 1 ? "s" : ""} du métré, ${large.covered_percent} % du montant chiffré`}
-          {` (${formatEUR(large.covered_cents)} sur ${formatEUR(large.total_cents)} HT), dont ${largeToReview} à revoir.`}
-        </p>
+        <p role="status" className="text-xs text-foreground-secondary">{largeAmountsSummary(large, largeToReview)}</p>
       ) : null}
       {pricingPending ? <p role="status" className="text-xs text-muted-foreground">Chargement des montants du métré…</p>
         : ignoredFlags.length > 0 ? (

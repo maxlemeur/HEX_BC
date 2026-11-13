@@ -4,6 +4,7 @@ import {
   EMPTY_TARGETED_REVIEW_FILTERS,
   filterTargetedReview,
   largeAmounts,
+  largeAmountsSummary,
   readTargetedReviewFilters,
   takeoffPricingIndex,
   targetedReviewLineValues,
@@ -59,6 +60,23 @@ describe("largeAmounts: the lines that make 80 % of the priced amount, largest f
     expect(largeAmounts([money("a", 8000), money("b", 1001), money("c", 999)])).toMatchObject({ covered_cents: 8000, covered_percent: 80 });
     expect(largeAmounts([money("a", 9_007_199_254_740), money("b", 9_007_199_254_740), money("c", 1)]))
       .toMatchObject({ covered_percent: 99 });
+  });
+});
+
+// Owner review of TI-701: the message gave « 820,00 € sur 855,00 € HT ». A takeoff line's amount is its quantity × its
+// estimate line's unit price, before engine 3's commercial discount and after engine 2's: an estimate to rank the lines,
+// never the estimate's HT total. Ways the message fails: it shows a euro figure or « HT », or calls the share « chiffré ».
+describe("largeAmountsSummary: the share of the estimated amount, never an HT total", () => {
+  it("says how many lines make what share of the estimated amount, and how many are to review", () => {
+    const large = largeAmounts([money("a", 50_000), money("b", 32_000), money("c", 2000), money("d", 1500)]);
+    expect(largeAmountsSummary(large, 2)).toBe("Gros montants : 2 lignes du métré, 95 % du montant estimé (quantité × prix unitaire), dont 2 à revoir.");
+    expect(largeAmountsSummary(largeAmounts([money("a", 1000)]), 0))
+      .toBe("Gros montants : 1 ligne du métré, 100 % du montant estimé (quantité × prix unitaire), dont 0 à revoir.");
+  });
+
+  it("never shows a euro figure nor « HT »", () => {
+    const text = largeAmountsSummary(largeAmounts([money("a", 82_000_00), money("b", 3_500_00)]), 1);
+    expect(text).not.toMatch(/€|\bHT\b|chiffré|\d+,\d{2}/);
   });
 });
 
