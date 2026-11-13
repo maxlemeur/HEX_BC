@@ -126,4 +126,14 @@ describe("document citations of an answer", () => {
   it("counts the pages and bytes spent by the answer", () => {
     expect(ledger().budget()).toEqual({ pagesLeft: DOCUMENT_READ_LIMITS.pagesPerTurn - 13, bytesLeft: DOCUMENT_READ_LIMITS.bytesPerTurn - 1_500 });
   });
+  it("keeps the text of a citation whose shape it does not recognise, with its warning, and drops what is left of it", () => {
+    const cases: Array<[string, string]> = [
+      [`[[doc:${cctp}/9|a|b]]`, "a b (source non vérifiée)"],
+      [`[[doc:${cctp}/9|Art. 3 [voir plan]]]`, "Art. 3 (voir plan) (source non vérifiée)"],
+      [`[[doc:${cctp}/9]]`, "(source non vérifiée)"],
+      [`[[doc:${cctp}/9 Art 3]]`, "Art 3 (source non vérifiée)"],
+      [`[[doc:${cctp}/9|${"x".repeat(250)}]]`, `${"x".repeat(250)} (source non vérifiée)`],
+    ];
+    for (const [written, saved] of cases) expect(ledger().resolveCitations(`Voir ${written} ici.`), written).toBe(`Voir ${saved} ici.`);
+  });
 });

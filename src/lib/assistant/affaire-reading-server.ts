@@ -62,7 +62,11 @@ export async function listAffaireDocuments(projectId: string) {
  */
 export async function loadAffaireDocument(input: {
   projectId: string; documentId: string; signal?: AbortSignal;
-  /** The bytes already downloaded by this answer, by document: access and the lookup are checked again all the same. */
+  /**
+   * The bytes of the document this answer read last (several ranges of one plan set are read in turn): access and
+   * the lookup are checked again all the same. It holds one document only, so that an answer never keeps several
+   * files of up to 50 MB in memory.
+   */
   cache?: Map<string, Promise<Uint8Array>>;
 }) {
   const { context, project } = await affaireAccess(input.projectId);
@@ -83,6 +87,7 @@ export async function loadAffaireDocument(input: {
     const fetched = withUserFacingRefusals(() => readAffaireDocumentPreview(project.id, row.id, true, input.signal)).then((read) => read.bytes);
     download = fetched;
     if (cache) {
+      cache.clear();
       cache.set(row.id, fetched);
       // A failed download is not kept: the next read tries again.
       fetched.catch(() => { if (cache.get(row.id) === fetched) cache.delete(row.id); });

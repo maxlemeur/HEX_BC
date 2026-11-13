@@ -138,13 +138,20 @@ déjà.
   lues avant elle. Une réponse envoie au plus 60 pages et 32 Mo, toutes requêtes
   comptées : dès que le budget de lecture est épuisé, ou qu'une lecture et une
   requête de plus pourraient dépasser ce plafond, la requête suivante est la
-  dernière, sans outils, et le modèle doit répondre. Un appel d'outil qu'elle
-  ferait quand même n'est pas exécuté.
+  dernière, sans outils : ses règles portent une consigne de plus, qui dit que
+  la lecture est terminée pour cette réponse, de répondre avec ce qui a été lu,
+  de dire quelles pièces ou pages restent à lire et de proposer de reposer la
+  question pour elles. La lecture peut donc s'arrêter avant 30 pages. Un appel
+  d'outil que cette dernière requête ferait quand même n'est pas exécuté ; si
+  elle ne donne aucun texte, la réponse échoue comme une réponse incomplète,
+  avec « Réessayer ».
 - **Arrêt** : « Arrêter », la fermeture du panneau et la borne des 3 minutes
   interrompent aussi une lecture en cours ; le téléchargement depuis le stockage
-  ou Google Drive est annulé. Une pièce lue plusieurs fois dans la même réponse
-  (trois plages d'un jeu de plans) n'est téléchargée qu'une fois ; l'accès et
-  l'appartenance à l'affaire sont revérifiés à chaque lecture.
+  ou Google Drive est annulé. La dernière pièce lue est gardée en mémoire le
+  temps de la réponse, et elle seule : trois plages d'un jeu de plans lues à la
+  suite ne le téléchargent qu'une fois, sans jamais garder plusieurs fichiers.
+  L'accès et l'appartenance à l'affaire sont revérifiés à chaque lecture, avant
+  la mémoire.
 - **Ce que coûte une question** : rien n'est stocké chez le fournisseur, donc
   chaque requête d'une réponse renvoie tout ce qui a été lu avant elle. Une page
   de PDF compte de l'ordre de 1 000 à 3 000 jetons (son texte et son image),
@@ -167,8 +174,12 @@ déjà.
   nom de la pièce et sa page (« CCTP.pdf, p. 12 »), jamais un texte choisi par
   le modèle. Toute autre citation (pièce non lue, page hors de la plage lue,
   pièce d'une autre affaire, citation mal formée ou imbriquée dans une autre)
-  devient son libellé suivi de « (source non vérifiée) » ; à la fin, il ne reste
-  dans le texte enregistré aucun `[[doc:` qui ne soit un lien vérifié. Pendant l'écriture de la
+  devient son libellé suivi de « (source non vérifiée) ». Une citation d'une
+  forme inconnue (barre ou crochets dans le libellé, pas de libellé, libellé
+  trop long, texte sans barre) garde son texte jusqu'à sa fermeture `]]` sur la
+  même ligne, crochets changés en parenthèses, suivi du même avertissement. À
+  la fin, il ne reste dans le texte enregistré aucun `[[doc:` qui ne soit un
+  lien vérifié. Pendant l'écriture de la
   réponse, ou si elle n'a pas pu être enregistrée, les citations restent du
   texte. Quand les pièces lues ne disent rien, l'assistant le dit en nommant ce
   qu'il a lu, au lieu de répondre de mémoire. Une page citée dans une réponse

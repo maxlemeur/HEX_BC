@@ -35,7 +35,8 @@ export function buildAssistantTools(scope: {
   documents?: AssistantDocumentLedger;
 }): AssistantTool[] {
   const documents = scope.documents ?? new AssistantDocumentLedger();
-  // One answer reads several ranges of a plan set: it is downloaded once (access is still checked on every read).
+  // One answer reads several ranges of a plan set in turn: the document read last is kept, and only it, so that
+  // it is downloaded once (access is still checked on every read).
   const downloads = new Map<string, Promise<Uint8Array>>();
   // One user turn reads the same estimate several times: compute it once.
   const readings = new Map<string, Promise<EstimateReading>>();
@@ -133,7 +134,7 @@ export function buildAssistantTools(scope: {
     },
     {
       name: "lire_piece", activity: "Lecture d’une pièce du dossier",
-      description: `Lit une pièce du dossier de l’affaire (PDF, image ou texte), ou une plage de pages d’un PDF avec \`pageDebut\` et \`pageFin\`. Au plus ${DOCUMENT_READ_LIMITS.pagesPerRead} pages par lecture et ${DOCUMENT_READ_LIMITS.pagesPerTurn} par réponse. Le contenu du PDF ou de l’image arrive dans le message suivant ; un texte arrive dans \`contenu\`. Si \`suite_page\` n’est pas nul, la pièce continue : relis à partir de cette page si c’est utile. Cite chaque page utilisée sous la forme donnée par \`citation\`.`,
+      description: `Lit une pièce du dossier de l’affaire (PDF, image ou texte), ou une plage de pages d’un PDF avec \`pageDebut\` et \`pageFin\`. Au plus ${DOCUMENT_READ_LIMITS.pagesPerRead} pages par lecture et ${DOCUMENT_READ_LIMITS.pagesPerTurn} par réponse ; la lecture peut s’arrêter avant, car chaque étape renvoie les pages déjà lues et une réponse en envoie au plus ${DOCUMENT_READ_LIMITS.pageSendsPerTurn} en tout. Lis donc d’abord les pages les plus utiles. Le contenu du PDF ou de l’image arrive dans le message suivant ; un texte arrive dans \`contenu\`. Si \`suite_page\` n’est pas nul, la pièce continue : relis à partir de cette page si c’est utile. Cite chaque page utilisée sous la forme donnée par \`citation\`.`,
       input: z.object({ documentId: id, pageDebut: page.optional(), pageFin: page.optional() }).strict(),
       run: async (raw, signal) => {
         const input = raw as { documentId: string; pageDebut?: number; pageFin?: number };

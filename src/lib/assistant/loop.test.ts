@@ -237,23 +237,27 @@ describe("assistant loop", () => {
     /** A read of `pages` pages that spends them in the answer's ledger, and an estimate read that spends nothing. */
     function documentTools(ledger: AssistantDocumentLedger): AssistantTool[] {
       return [{
-        name: "lire_piece", description: "Lit.", activity: "Lecture d’une pièce", input: z.object({ pages: z.number() }).strict(),
+        name: "lire_piece", description: "Lit.", activity: "Lecture d’une pièce",
+        input: z.object({ pages: z.number(), bytes: z.number().optional() }).strict(),
         run: async (raw) => {
           const allowance = ledger.readAllowance();
-          if (allowance.pagesLeft <= 0) throw new AssistantToolError("Limite de pages lues atteinte.");
-          const pages = Math.min((raw as { pages: number }).pages, allowance.pagesLeft);
-          ledger.recordRead({ documentId: "11111111-1111-4111-8111-111111111111", fileName: "a.pdf", pagesTotal: 99, from: 1, to: pages, pages, bytes: pages * 1_000 });
-          return new AssistantToolResult({ pages }, { intro: "données", parts: [{ type: "input_file", pages }] });
+          const asked = raw as { pages: number; bytes?: number };
+          if (allowance.pagesLeft <= 0 || allowance.bytesLeft <= 0) throw new AssistantToolError("Limite de pages lues atteinte.");
+          const pages = Math.min(asked.pages, allowance.pagesLeft);
+          const bytes = Math.min(asked.bytes ?? pages * 1_000, allowance.bytesLeft);
+          ledger.recordRead({ documentId: "11111111-1111-4111-8111-111111111111", fileName: "a.pdf", pagesTotal: 99, from: 1, to: pages, pages, bytes });
+          return new AssistantToolResult({ pages }, { intro: "données", parts: [{ type: "input_file", pages, bytes }] });
         },
       }, { ...readEstimate(async () => ({ ok: true })), input: z.object({}).passthrough() }];
     }
     /** Pages carried by one request: every document attached so far is sent again. */
-    const pagesIn = (request: AssistantModelRequest) => request.input
-      .flatMap((item) => Array.isArray((item as { content?: unknown }).content) ? (item as { content: Array<{ pages?: number }> }).content : [])
-      .reduce((sum, part) => sum + (part.pages ?? 0), 0);
+    const partsIn = (request: AssistantModelRequest) => request.input
+      .flatMap((item) => Array.isArray((item as { content?: unknown }).content) ? (item as { content: Array<{ pages?: number; bytes?: number }> }).content : []);
+    const pagesIn = (request: AssistantModelRequest) => partsIn(request).reduce((sum, part) => sum + (part.pages ?? 0), 0);
+    const bytesIn = (request: AssistantModelRequest) => partsIn(request).reduce((sum, part) => sum + (part.bytes ?? 0), 0);
 
     /** A model that reads by `plan`, then asks for estimate reads as long as it may call tools at all. */
-    async function adversary(plan: number[]) {
+    async function adversary(plan: Array<number | { pages: number; bytes: number }>) {
       const ledger = new AssistantDocumentLedger();
       const requests: AssistantModelRequest[] = [];
       let call = 0;
@@ -264,19 +268,33 @@ describe("assistant loop", () => {
           requests.push(structuredClone(request));
           if (!request.toolsAllowed) return textTurn("Réponse.");
           call += 1;
-          const pages = plan[call - 1];
-          return pages === undefined
+          const read = plan[call - 1];
+          return read === undefined
             ? toolTurn({ callId: `c${call}`, name: "lire_devis", arguments: "{}" })
-            : toolTurn({ callId: `c${call}`, name: "lire_piece", arguments: JSON.stringify({ pages }) });
+            : toolTurn({ callId: `c${call}`, name: "lire_piece", arguments: JSON.stringify(typeof read === "number" ? { pages: read } : read) });
         },
       });
-      return { requests, sent: requests.reduce((sum, request) => sum + pagesIn(request), 0) };
+      return {
+        requests, sent: requests.reduce((sum, request) => sum + pagesIn(request), 0),
+        bytesSent: requests.reduce((sum, request) => sum + bytesIn(request), 0),
+      };
     }
 
-    it("makes the request after the answer's pages are spent its last one, without tools", async () => {
+    it("makes the request after the answer's pages are spent its last one, without tools, and tells the model why", async () => {
       const { requests } = await adversary([10, 10, 10]);
       expect(requests.map(pagesIn)).toEqual([0, 10, 20, 30]);
       expect(requests.at(-1)?.toolsAllowed).toBe(false);
+      expect(requests.at(-1)?.finalInstruction).toContain("La lecture est terminée pour cette réponse");
+      expect(requests.at(-1)?.finalInstruction).toContain("restent à lire");
+      expect(requests.slice(0, -1).map((request) => request.finalInstruction)).toEqual([undefined, undefined, undefined]);
+    });
+
+    it("never sends more than the documented worst case of bytes in one answer either", async () => {
+      const MB = 1024 * 1024;
+      const plans = [[8 * MB, 8 * MB], [4 * MB, 4 * MB, 4 * MB, 4 * MB], [2 * MB], [8 * MB], [6 * MB, 7 * MB, 3 * MB], [1 * MB, 8 * MB, 7 * MB]];
+      const sent = await Promise.all(plans.map(async (plan) => (await adversary(plan.map((bytes) => ({ pages: 1, bytes })))).bytesSent));
+      for (const total of sent) expect(total).toBeLessThanOrEqual(DOCUMENT_READ_LIMITS.byteSendsPerTurn);
+      expect(Math.max(...sent)).toBeGreaterThan(DOCUMENT_READ_LIMITS.bytesPerTurn);
     });
 
     it("never sends more than the documented worst case of pages in one answer, whatever the model reads", async () => {
@@ -302,5 +320,12 @@ describe("assistant loop", () => {
     })).rejects.toMatchObject({ name: "AbortError" });
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(received?.aborted).toBe(true);
+  });
+  it("fails a last request that answers with a tool call and no text, instead of keeping an empty answer", async () => {
+    const tool = readEstimate(vi.fn(async () => ({ ok: true })));
+    const call = (id: number) => ({ callId: `call_${id}`, name: "lire_devis", arguments: '{"versionId":"v-1"}' });
+    await expect(run({ tools: [tool], maxToolCalls: 1, turns: [toolTurn(call(1)), toolTurn(call(2))] }))
+      .rejects.toMatchObject({ code: "AI_PROVIDER_FAILED" });
+    expect(tool.run).toHaveBeenCalledTimes(1);
   });
 });

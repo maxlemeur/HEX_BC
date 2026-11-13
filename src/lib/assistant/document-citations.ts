@@ -32,8 +32,18 @@ export const DOCUMENT_CITATION_SOURCE = `\\[\\[doc:(${UUID_PATTERN})/([1-9][0-9]
  * innermost out, and an unterminated one counts up to the end of its line.
  */
 const CITATION_CANDIDATE = /\[\[doc:([^[\]|\n]{0,200})\|([^[\]|\n]{0,200})(\]\]|(?=\n)|$)/gi;
-/** What is left of a citation that resolved to nothing: its opening, reference and bar. */
-const CITATION_OPENING = /\[\[doc:[^[\]|\n]{0,200}\|?/i;
+/**
+ * A citation of a shape the candidate does not take (a bar or a bracket in its
+ * label, no label, a label too long): its opening up to its closing `]]` on the
+ * same line, a closing followed by one more `]` being the end of a label's own
+ * bracket, or else up to the end of the line.
+ */
+const LEFTOVER = /\[\[doc:([^\n]*?)(?:\]\](?!\])|(?=\n)|$)/i;
+/** Openings or references of other citations inside a leftover's text: they go, its words stay. */
+const INNER_REFERENCE = /\[{0,2}doc:[^\s|[\]]*\|?/gi;
+const ANY_OPENING = /\[\[doc:/i;
+/** Far beyond any answer: a guard, so that the cleaning ends whatever was written. */
+const MAX_PASSES = 1_000;
 const VALID_REFERENCE = new RegExp(`^(${UUID_PATTERN})/([1-9][0-9]{0,4})$`, "i");
 const UNVERIFIED = "(source non vérifiée)";
 /** Characters of the private use area hold kept citations while the rest is cleaned; a model's own are dropped. */
@@ -128,6 +138,7 @@ export class AssistantDocumentLedger {
    */
   resolveCitations(text: string) {
     const kept: string[] = [];
+    const unverified = (visible: string) => !visible ? UNVERIFIED : visible.endsWith(UNVERIFIED) ? visible : `${visible} ${UNVERIFIED}`;
     const resolve = (value: string) => value.replace(CITATION_CANDIDATE, (_match, reference: string, label: string, closing: string) => {
       const valid = VALID_REFERENCE.exec(reference.trim());
       const documentId = valid?.[1]?.toLowerCase();
@@ -140,17 +151,25 @@ export class AssistantDocumentLedger {
         const held = HOLDS_KEPT.test(visible) || visible.includes(UNVERIFIED);
         return `${held ? `${visible} ` : ""}\uE000${kept.length - 1}\uE001`;
       }
-      if (!visible) return UNVERIFIED;
-      return visible.endsWith(UNVERIFIED) ? visible : `${visible} ${UNVERIFIED}`;
+      return unverified(visible);
     });
-    // Resolve, then drop one opening that belongs to no citation, until nothing changes: dropping it can join what
-    // is around it into a new citation, which is then checked like any other. None is left unchecked at the end.
+    // The text of a leftover, after its reference: kept, with no bracket or bar left that could build a citation.
+    const leftover = (_match: string, content: string) => {
+      const end = content.search(/[|\s]/);
+      const words = end === -1 ? "" : content.slice(end + 1);
+      return unverified(words.replace(INNER_REFERENCE, " ").replace(/\[/g, "(").replace(/\]/g, ")").replace(/\|/g, " ")
+        .replace(/\s+/g, " ").trim());
+    };
+    // Resolve, then turn one citation of an unknown shape into its words, until nothing changes: what is around it
+    // can join into a new citation, which is then checked like any other.
     let current = text.replace(/[\uE000\uE001]/g, "");
-    for (let previous = ""; previous !== current;) {
+    for (let pass = 0, previous = ""; previous !== current && pass < MAX_PASSES; pass += 1) {
       previous = current;
-      for (let resolved = resolve(current); resolved !== current; resolved = resolve(current)) current = resolved;
-      current = current.replace(CITATION_OPENING, "");
+      for (let resolved = resolve(current); resolved !== current && pass < MAX_PASSES; resolved = resolve(current), pass += 1) current = resolved;
+      current = current.replace(LEFTOVER, leftover);
     }
+    // None is left unchecked at the end: an opening still there (past the guard) is no longer one.
+    while (ANY_OPENING.test(current)) current = current.replace(/\[\[doc:/gi, "doc:");
     return current.replace(KEPT, (_match, index: string) => kept[Number(index)] ?? "");
   }
 }

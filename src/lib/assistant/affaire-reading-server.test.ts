@@ -97,6 +97,33 @@ describe("the affaire's documents read by the assistant", () => {
     expect(from).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps only the document read last: going back to an earlier one downloads it again", async () => {
+    const OTHER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const rows = { [DOCUMENT]: "Plans.pdf", [OTHER]: "CCTP.pdf" };
+    let asked = DOCUMENT;
+    const query: Record<string, unknown> = {};
+    for (const method of ["select", "is"]) query[method] = () => query;
+    query.eq = (column: string, value: string) => { if (column === "id") asked = value; return query; };
+    query.maybeSingle = async () => ({ data: { id: asked, file_name: rows[asked as keyof typeof rows], mime_type: "application/pdf", document_kind: "plans" }, error: null });
+    grantAccess({ from: () => query });
+    vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1]), fileName: "x.pdf", mimeType: "application/octet-stream" });
+    const cache = new Map();
+    for (const documentId of [DOCUMENT, DOCUMENT, OTHER, DOCUMENT]) await loadAffaireDocument({ projectId: AFFAIRE, documentId, cache });
+    expect(vi.mocked(readAffaireDocumentPreview).mock.calls.map((call) => call[1])).toEqual([DOCUMENT, OTHER, DOCUMENT]);
+    expect(cache.size).toBe(1);
+  });
+
+  it("refuses a document already downloaded by this answer once access to the affaire is lost", async () => {
+    const { client } = recordingClient({ data: { id: DOCUMENT, file_name: "Plans.pdf", mime_type: "application/pdf", document_kind: "plans" }, error: null });
+    grantAccess(client);
+    vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1]), fileName: "Plans.pdf", mimeType: "application/octet-stream" });
+    const cache = new Map();
+    await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache });
+    vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
+    await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache })).rejects.toThrow("Vous n’avez pas accès aux pièces de cette affaire.");
+    expect(readAffaireDocumentPreview).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses the list, a read, the brief and the register before any of their sources once access is lost", async () => {
     vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
     await expect(listAffaireDocuments(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);

@@ -68,4 +68,16 @@ describe("a document read by the assistant, as the plan request carries it", () 
     expect(input.indexOf(message)).toBe(input.findIndex((item) => item.type === "function_call_output") + 1);
     expect(second.store).toBe(false);
   });
+  it("adds the loop's closing instruction to the rules of the last request only, never to its input", async () => {
+    const model = createAssistantModel({ owner: { userId: "u", tenantId: "t" }, instructions: "Règles.", tools: [] });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: "ok" }, completed]);
+    }));
+    const signal = new AbortController().signal;
+    await model.callModel({ input: [{ role: "user", content: "Q" }], toolsAllowed: true }, () => undefined, signal);
+    await model.callModel({ input: [{ role: "user", content: "Q" }], toolsAllowed: false, finalInstruction: "La lecture est terminée." }, () => undefined, signal);
+    expect(bodies.map((body) => [body.instructions, body.tool_choice])).toEqual([["Règles.", "auto"], ["Règles.\n\nLa lecture est terminée.", "none"]]);
+    expect(JSON.stringify(bodies[1]!.input)).not.toContain("La lecture est terminée.");
+  });
 });

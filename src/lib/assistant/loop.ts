@@ -2,6 +2,7 @@ import "server-only";
 
 import type { z } from "zod";
 
+import { chatGptIncompleteError } from "@/lib/ai/chatgpt-local-inference";
 import type { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import type { AssistantModelDelta, AssistantModelTurn, AssistantTokenUsage } from "@/lib/assistant/model-turn";
 
@@ -55,7 +56,16 @@ export type AssistantEvent =
   /** A model request succeeded: what it carried has been seen, and the text it wrote is complete. Not sent to the browser. */
   | { type: "model_turn_finished" };
 
-export type AssistantModelRequest = { input: unknown[]; toolsAllowed: boolean };
+/**
+ * One request of the answer. `finalInstruction` is set on the last one, which
+ * offers no tool: the loop's own words, added to the rules, never to the input.
+ */
+export type AssistantModelRequest = { input: unknown[]; toolsAllowed: boolean; finalInstruction?: string };
+
+/** Why the model may not read any more: said once, on the last request, so that it does not promise a read it cannot make. */
+export const FINAL_REQUEST_INSTRUCTION = "La lecture est terminée pour cette réponse : tu ne peux plus appeler d’outil. "
+  + "Réponds maintenant avec ce qui a été lu. Dis quelles pièces ou quelles pages restent à lire, "
+  + "et propose à l’utilisateur de reposer la question pour qu’elles soient lues.";
 export type CallAssistantModel = (
   request: AssistantModelRequest, onDelta: (delta: AssistantModelDelta) => void, signal: AbortSignal,
 ) => Promise<AssistantModelTurn>;
@@ -151,14 +161,22 @@ export async function runAssistantLoop(options: {
     options.signal.throwIfAborted();
     const toolsAllowed = toolCalls < maxToolCalls && (options.documents?.allowsMoreReads() ?? true);
     options.documents?.requestStarting();
-    const turn = await options.callModel({ input, toolsAllowed }, options.emit, options.signal);
+    const turn = await options.callModel(
+      toolsAllowed ? { input, toolsAllowed } : { input, toolsAllowed, finalInstruction: FINAL_REQUEST_INSTRUCTION },
+      options.emit, options.signal,
+    );
     options.documents?.requestSucceeded();
     options.emit({ type: "model_turn_finished" });
     modelCalls += 1;
     for (const key of ["inputTokens", "outputTokens", "reasoningTokens", "totalTokens"] as const) usage[key] += turn.usage[key];
     if (turn.text.trim()) texts.push(turn.text.trim());
-    // A request without tools is the last one: a call it still makes is not run, and no request follows it.
-    if (turn.toolCalls.length === 0 || !toolsAllowed) return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
+    if (turn.toolCalls.length === 0) return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
+    // A request without tools is the last one: a call it still makes is not run, and no request follows it. Without
+    // any text it is no answer: the turn fails as an incomplete response does, and the member can ask again.
+    if (!toolsAllowed) {
+      if (!turn.text.trim()) throw chatGptIncompleteError();
+      return { text: texts.join("\n\n"), tools: used, usage, modelCalls };
+    }
 
     input.push(...turn.replayItems);
     // Documents follow the results of the turn: each call is answered first, as the Responses API expects.

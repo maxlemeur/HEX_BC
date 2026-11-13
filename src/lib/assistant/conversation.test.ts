@@ -279,4 +279,24 @@ describe("assistant conversation", () => {
     const events = await reply(prepared);
     expect(events.at(-1)).toMatchObject({ type: "done", message: null, error: { code: "AI_NOT_SAVED" } });
   });
+  it("saves a failed answer, with Réessayer, when the forced last request only asks for a tool", async () => {
+    threadWith([]);
+    vi.mocked(buildAssistantTools).mockImplementationOnce((scope) => [{
+      name: "lire_piece", description: "Lit une pièce.", activity: "Lecture d’une pièce du dossier", input: z.object({}).passthrough(),
+      run: async () => {
+        (scope.documents as AssistantDocumentLedger).recordRead({ documentId: "11111111-1111-4111-8111-111111111111", fileName: "a.pdf", pagesTotal: 99, from: 1, to: 30, pages: 30, bytes: 10 });
+        return { pages_lues: { de: 1, a: 30 } };
+      },
+    }]);
+    const call = { text: "", toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage };
+    const requests = modelAnswering(async () => call);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const events = await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+    // The reading budget is spent: the second request is the last one and offers no tool.
+    expect(requests.map((request) => request.toolsAllowed)).toEqual([true, false]);
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+      role: "assistant", status: "failed", errorCode: "AI_PROVIDER_FAILED",
+    }));
+    expect(events.at(-1)).toMatchObject({ type: "done", error: { code: "AI_PROVIDER_FAILED" } });
+  });
 });
