@@ -337,13 +337,15 @@ export default function TakeoffReviewPage({
   const [applySelectionError, setApplySelectionError] = useState<string | null>(null);
 
   // ---- DPGF comparison state
-  const [dpgfCompareData, setDpgfCompareData] = useState<TakeoffDpgfComparisonResponse | null>(null);
+  const [dpgfCompare, setDpgfCompare] = useState<{
+    data: TakeoffDpgfComparisonResponse;
+    mode: DpgfFetchMode;
+  } | null>(null);
+  const dpgfCompareData = dpgfCompare?.data ?? null;
   const [dpgfCompareLoading, setDpgfCompareLoading] = useState(false);
   const [dpgfCompareError, setDpgfCompareError] = useState<string | null>(null);
-  const dpgfCompareFetchedRef = useRef<{
-    mode: DpgfFetchMode;
-    view: TakeoffDpgfComparisonView;
-  } | null>(null);
+  // TI-721: the read in flight. A newer read aborts it, so the comparison shown is always the last one asked for.
+  const dpgfCompareReadRef = useRef<AbortController | null>(null);
 
   // ---- Assisted review state
   const [assistedReviewedIds, setAssistedReviewedIds] = useState<Set<string>>(
@@ -563,7 +565,10 @@ export default function TakeoffReviewPage({
 
   // ---- DPGF comparison lazy loading
   const loadDpgfComparison = useCallback(
-    async (mode: DpgfFetchMode, signal?: AbortSignal) => {
+    async (mode: DpgfFetchMode) => {
+      dpgfCompareReadRef.current?.abort();
+      const read = new AbortController();
+      dpgfCompareReadRef.current = read;
       try {
         setDpgfCompareLoading(true);
         setDpgfCompareError(null);
@@ -576,7 +581,7 @@ export default function TakeoffReviewPage({
                   page_size: DPGF_COMPARE_PAGE_SIZE,
                   view: dpgfCompareView,
                 },
-                { signal }
+                { signal: read.signal }
               )
             : await fetchTakeoffDpgfComparison(
                 jobId,
@@ -585,68 +590,59 @@ export default function TakeoffReviewPage({
                   page_size: 1,
                   view: dpgfCompareView,
                 },
-                { signal }
+                { signal: read.signal }
               );
-        setDpgfCompareData(response);
-        dpgfCompareFetchedRef.current = {
-          mode,
-          view: dpgfCompareView,
-        };
+        if (read.signal.aborted) return;
+        setDpgfCompare({ data: response, mode });
       } catch (error) {
-        if (signal?.aborted) return;
-        setDpgfCompareData(null);
-        dpgfCompareFetchedRef.current = null;
+        if (read.signal.aborted) return;
+        // A failed refresh keeps the comparison shown, and what is typed in it, under the error.
+        setDpgfCompare((current) =>
+          current?.mode === "detail" && current.data.view === dpgfCompareView ? current : null
+        );
         setDpgfCompareError(
           isTakeoffApiError(error)
             ? error.message
             : "Impossible de charger la comparaison DPGF."
         );
       } finally {
-        setDpgfCompareLoading(false);
+        if (dpgfCompareReadRef.current === read) {
+          dpgfCompareReadRef.current = null;
+          setDpgfCompareLoading(false);
+        }
       }
     },
     [dpgfCompareView, jobId, versionId]
   );
 
-  useEffect(() => {
-    dpgfCompareFetchedRef.current = null;
-    setDpgfCompareData((current) =>
-      current?.view === dpgfCompareView ? current : null
-    );
-  }, [dpgfCompareView]);
+  useEffect(() => () => dpgfCompareReadRef.current?.abort(), []);
+
+  // The comparison of another view is dropped while rendering, so the read below starts once for the new view.
+  if (dpgfCompare && dpgfCompare.data.view !== dpgfCompareView) {
+    setDpgfCompare(null);
+  }
 
   useEffect(() => {
-    const nextMode: DpgfFetchMode | null =
-      activeTab === "dpgf"
-        ? "detail"
-        : "summary";
-
-    if (!nextMode) return;
-
-    const hasMatchingPayload = dpgfCompareData?.view === dpgfCompareView;
-    const fetchedState = dpgfCompareFetchedRef.current;
+    const nextMode: DpgfFetchMode = activeTab === "dpgf" ? "detail" : "summary";
     const hasRequiredData =
-      hasMatchingPayload &&
-      fetchedState?.view === dpgfCompareView &&
-      (fetchedState.mode === "detail" || fetchedState.mode === nextMode);
+      dpgfCompare?.data.view === dpgfCompareView &&
+      (dpgfCompare.mode === "detail" || dpgfCompare.mode === nextMode);
 
     if (hasRequiredData) {
       return;
     }
 
-    const abortController = new AbortController();
-    void loadDpgfComparison(nextMode, abortController.signal);
+    void loadDpgfComparison(nextMode);
+  }, [activeTab, currentReviewMode, dpgfCompare, dpgfCompareView, loadDpgfComparison]);
 
-    return () => {
-      abortController.abort();
-    };
-  }, [activeTab, currentReviewMode, dpgfCompareData, dpgfCompareView, loadDpgfComparison]);
-
+  // TI-721: the comparison stays shown while it is read again, so the decision being typed in it is kept. Emptying it
+  // showed the loading state in its place and started a second read beside this one.
   const refreshDpgfCompare = useCallback(() => {
-    dpgfCompareFetchedRef.current = null;
-    setDpgfCompareData(null);
     void loadDpgfComparison("detail");
   }, [loadDpgfComparison]);
+  // The DPGF tab shows every line of its view. Until they are read (only the one-line summary read, or nothing yet, as
+  // on a view change before its read starts), it shows the loading state.
+  const dpgfCompareDetail = dpgfCompare?.mode === "detail" ? dpgfCompare.data : null;
 
   // ---- Item update helpers
   const updateItemField = useCallback(
@@ -1374,9 +1370,9 @@ export default function TakeoffReviewPage({
           onApplyDiffSelection={handleApplyDiffSelection}
           applySelectionSubmitting={applySelectionSubmitting}
           applySelectionError={applySelectionError}
-          dpgfCompareData={dpgfCompareData}
+          dpgfCompareData={dpgfCompareDetail}
           dpgfCompareView={dpgfCompareView}
-          dpgfCompareLoading={dpgfCompareLoading}
+          dpgfCompareLoading={dpgfCompareLoading || (dpgfCompareDetail === null && dpgfCompareError === null)}
           dpgfCompareError={dpgfCompareError}
           onSetDpgfCompareView={setDpgfCompareView}
           onRefreshDpgfCompare={refreshDpgfCompare}

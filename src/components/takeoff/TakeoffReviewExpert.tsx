@@ -66,6 +66,7 @@ export type TakeoffReviewExpertProps = {
   applySelectionError: string | null;
 
   // DPGF compare state
+  /** Every line of the view, kept while it is read again (`dpgfCompareLoading`). */
   dpgfCompareData: TakeoffDpgfComparisonResponse | null;
   dpgfCompareView: TakeoffDpgfComparisonView;
   dpgfCompareLoading: boolean;
@@ -284,7 +285,26 @@ export function TakeoffReviewExpert({
 
       {/* ---- Content area ---- */}
       {activeTab === "dpgf" ? (
-        dpgfCompareLoading ? (
+        // TI-721: a comparison shown stays mounted while it is read again, with what is being typed in it.
+        dpgfCompareData ? (
+          <>
+            {dpgfCompareError ? (
+              <Alert variant="danger">
+                <AlertDescription>
+                  <p>La comparaison n’a pas pu être actualisée : les lignes affichées datent d’avant l’actualisation.</p>
+                  <p>{dpgfCompareError}</p>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <TakeoffDpgfCompareView
+              data={dpgfCompareData}
+              currentView={dpgfCompareView}
+              refreshing={dpgfCompareLoading}
+              onViewChange={onSetDpgfCompareView}
+              onRefresh={onRefreshDpgfCompare}
+            />
+          </>
+        ) : dpgfCompareLoading ? (
           <LoadingState
             className="rounded-lg border border-border bg-surface"
             label="Chargement de la comparaison DPGF vs métré…"
@@ -293,13 +313,6 @@ export function TakeoffReviewExpert({
           <Alert variant="danger">
             <AlertDescription>{dpgfCompareError}</AlertDescription>
           </Alert>
-        ) : dpgfCompareData ? (
-          <TakeoffDpgfCompareView
-            data={dpgfCompareData}
-            currentView={dpgfCompareView}
-            onViewChange={onSetDpgfCompareView}
-            onRefresh={onRefreshDpgfCompare}
-          />
         ) : (
           <EmptyState
             variant="compact"

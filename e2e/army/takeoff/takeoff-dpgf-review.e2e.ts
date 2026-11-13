@@ -1046,6 +1046,134 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     } });
   });
 
+  // TI-721: « Rafraîchir » emptied the comparison (its loading state replaced the line being typed) and read it twice;
+  // « Ouvrir la ligne » on a risk outside the view moved the review to the first line. Both dropped the decision typed
+  // for the line shown, here the second exception.
+  async function openTi721Review(page: Page, tag: string) {
+    const dpgfFileName = `dpgf-${tag}-${Date.now()}.xlsx`;
+    const takeoffFileName = `plans-${tag}-${Date.now()}.pdf`;
+    const { versionId } = await createEstimateViaApi(page, { projectName: buildEstimateName(tag), title: "TI-721 decision being typed" });
+    const projectId = await extractProjectId(page, versionId);
+    const tenantId = await getTenantIdForVersion(versionId);
+    const userId = await getAuthenticatedUserId();
+    // Priced lines: an unpriced one raises « Prix atypique » risks that rank before the VAT one in the six shown.
+    const line = (title: string, quantity: number, position: number): SeededEstimateLine => ({
+      id: randomUUID(), title, quantity, position, sourcePage: 11 + position, sourceFileName: dpgfFileName, unitPriceHtCents: 2500,
+    });
+    const lines = { cloison: line("Cloison BA13", 10, 1), plafond: line("Faux plafond acoustique", 100, 2), moquette: line("Moquette", 5, 3) };
+    await seedDpgfImport({ tenantId, projectId, userId, filename: dpgfFileName,
+      rows: Object.values(lines).map((seeded) => ({ rowIndex: seeded.sourcePage, unit: "m2" })) });
+    await seedEstimateLines({ tenantId, versionId, lines: Object.values(lines) });
+    const measured = (designation: string, quantity: number, sourcePage: number) => ({
+      designation, quantity, unit: "m2", confidence: 0.92, evidence: `Zone ${designation}`, sourcePage, sourceFileName: takeoffFileName,
+    });
+    const job = await seedCompletedTakeoffJob(page, { tenantId, versionId, sourceFileName: takeoffFileName,
+      items: [measured("Cloison BA13", 4, 3), measured("Faux plafond acoustique", 72, 5), measured("Moquette", 5, 6)] });
+    // A VAT rate the version does not use: the radar raises a risk on Moquette, a reliable line, so outside the
+    // « Exceptions seulement » view.
+    const db = await getAuthenticatedSupabaseClient();
+    const { data: version, error: versionError } = await db.from("estimate_versions").select("tax_rate_bp").eq("id", versionId).single();
+    expect(versionError).toBeNull();
+    expect(version?.tax_rate_bp).toEqual(expect.any(Number));
+    const { error: vatError } = await db.from("estimate_items").update({ tax_rate_bp: version!.tax_rate_bp === 550 ? 1000 : 550 })
+      .eq("id", lines.moquette.id).eq("version_id", versionId);
+    expect(vatError).toBeNull();
+    const radar = await page.request.get(`/api/takeoff/jobs/${job.jobId}/risk-radar?version_id=${versionId}`);
+    expect(radar.status()).toBe(200);
+    const { data: radarData } = await radar.json() as { data: { items: Array<{ line_id: string | null; cause_code: string; status: string }> } };
+    // « Signaux prioritaires » shows the first six risks to process.
+    expect(radarData.items.filter((item) => item.status === "to_process").slice(0, 6)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ line_id: lines.moquette.id, cause_code: "vat_inconsistency" }),
+    ]));
+
+    await page.goto(
+      `/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${versionId}&reviewMode=production&view=dpgf&dpgfView=exceptions_only`
+    );
+    await waitForDpgfComparison(page);
+    await expect(page.getByRole("button", { name: /Cloison BA13/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Moquette/i })).toHaveCount(0);
+    await page.getByRole("button", { name: /Faux plafond acoustique/i }).click();
+    const shownLine = page.locator("aside").filter({ hasText: "Revue détaillée" }).getByRole("heading", "Faux plafond acoustique");
+    await expect(shownLine).toBeVisible();
+    const reason = page.getByLabel("Justification humaine");
+    await page.getByRole("button", { name: "Corriger manuellement" }).click();
+    await reason.fill("Relevé sur site");
+    const readPlafond = async () => {
+      const response = await page.request.get(`/api/takeoff/jobs/${job.jobId}/dpgf-compare?version_id=${versionId}&view=all`);
+      expect(response.status()).toBe(200);
+      const { data } = await response.json() as { data: TakeoffDpgfComparisonResponse };
+      return data.rows.find((row) => row.line_id === lines.plafond.id);
+    };
+    return { versionId, jobId: job.jobId, plafondId: lines.plafond.id, shownLine, reason, readPlafond };
+  }
+
+  test("TI-721 a refresh keeps the decision being typed and shows the decision the line holds now", async ({ ui: page }) => {
+    const { versionId, jobId, plafondId, shownLine, reason, readPlafond } = await openTi721Review(page, "TI721R");
+    // Another reviewer decides the line, then « Rafraîchir »: its comparison reads are held while the person types on.
+    const decidedElsewhere = await page.request.patch(`/api/takeoff/jobs/${jobId}/review-decision`, {
+      data: { version_id: versionId, estimate_item_id: plafondId, decision: "keep_dpgf", reason: "Validé par le bureau d'études" },
+    });
+    expect(decidedElsewhere.status()).toBe(200);
+    const comparisonReads = new RegExp(`/api/takeoff/jobs/${jobId}/dpgf-compare\\?`);
+    const held: string[] = [];
+    const forwarded: Promise<void>[] = [];
+    let holding = true;
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    await page.browser.route(comparisonReads, async (route) => {
+      if (!holding || route.request.method !== "GET") return route.fallback();
+      held.push(route.request.url);
+      const handed = released.then(() => route.fallback());
+      forwarded.push(handed);
+      await handed;
+    });
+    try {
+      await page.getByRole("button", { name: "Rafraîchir" }).click();
+      await expect.poll(() => held.length).toBe(1);
+      await expect(page.getByText(/actualisation…/)).toBeVisible();
+      await expect(shownLine).toBeVisible();
+      await expect(reason).toHaveValue("Relevé sur site");
+      await reason.fill("Relevé sur site, cote sous plafond 2,40 m");
+      holding = false;
+      release();
+      await Promise.all(forwarded);
+      await expect(page.getByText(/actualisation…/)).toHaveCount(0);
+      expect(held).toHaveLength(1);
+    } finally {
+      holding = false;
+      release();
+      await Promise.allSettled(forwarded);
+      await page.browser.unroute(comparisonReads);
+    }
+    const refreshed = page.getByRole("status", { name: "Ligne actualisée pendant votre saisie" });
+    await expect(refreshed).toContainText("Décision appliquée : Garder DPGF — « Validé par le bureau d'études »");
+    await expect(shownLine).toBeVisible();
+    await expect(reason).toHaveValue("Relevé sur site, cote sous plafond 2,40 m");
+
+    await page.getByRole("button", { name: "Enregistrer la décision" }).click();
+    await expect(page.getByText("Décision enregistrée")).toBeVisible();
+    await expect(refreshed).toHaveCount(0);
+    expect((await readPlafond())?.applied_decision).toMatchObject({
+      decision: "manual_fix", reason: "Relevé sur site, cote sous plafond 2,40 m", source: "current_version",
+    });
+    await recordEvidence(page.army, "TI721-refresh-keeps-decision", { versionId, jobId, heldComparisonReads: held.length,
+      boundary: "Comparison reads after « Rafraîchir » are held in the browser while the reviewer types; one read, the typed decision is saved." });
+  });
+
+  test("TI-721 opening a risk on a line outside the view keeps the line shown and its decision", async ({ ui: page }) => {
+    const { versionId, jobId, shownLine, reason, readPlafond } = await openTi721Review(page, "TI721O");
+    await page.locator("article").filter({ hasText: "TVA incoherente" }).getByRole("button", { name: "Ouvrir la ligne" }).click();
+    await expect(page.getByText("Ligne hors de la vue affichée", { exact: true })).toBeVisible();
+    await expect(shownLine).toBeVisible();
+    await expect(reason).toHaveValue("Relevé sur site");
+
+    await page.getByRole("button", { name: "Enregistrer la décision" }).click();
+    await expect(page.getByText("Décision enregistrée")).toBeVisible();
+    expect((await readPlafond())?.applied_decision).toMatchObject({ decision: "manual_fix", reason: "Relevé sur site" });
+    await recordEvidence(page.army, "TI721-unlisted-risk-line", { versionId, jobId,
+      boundary: "« Ouvrir la ligne » on a reliable line's VAT risk in « Exceptions seulement »; the second exception keeps its decision." });
+  });
+
   test("calculates a seeded price suggestion and requires explicit human validation before apply", async ({ ui: page }) => {
     const dpgfFileName = `dpgf-est392-${Date.now()}.xlsx`;
     const takeoffFileName = `plans-est392-${Date.now()}.pdf`;
