@@ -11,8 +11,8 @@ import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
 import {
-  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readWorkerDecisionsCalls, startOwnedWorker,
-  workerDecisionsFixture,
+  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit, readWorkerDecisionsCalls,
+  startOwnedWorker, workerDecisionsFixture,
 } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
@@ -388,6 +388,17 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   const roomCorners = [650, 441.89, 876.77, 441.89, 876.77, 243.47, 650, 243.47, 650, 441.89];
   expect(drawn.polygons[0].map((value, index) => Math.round((value / (index % 2 === 0 ? drawn.width : drawn.height)) * 1000) / 1000))
     .toEqual(roomCorners.map((value, index) => Math.round((value / (index % 2 === 0 ? 1190.55 : 841.89)) * 1000) / 1000));
+  // The page fits its frame, which appears with the reading after the loading message; on a phone the frame narrows
+  // and the page fits it again (review of PR #317: the first page kept 0.25 px per point, measured before the frame).
+  const fit = async () => { const { plan, frame } = await readVectorViewerFit(ui); return { plan, frame, fits: plan === frame }; };
+  await expect.poll(fit).toMatchObject({ fits: true });
+  const desktopFit = await fit();
+  expect(desktopFit.frame).toBeGreaterThan(400);
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  await expect.poll(async () => { const now = await fit(); return { ...now, narrower: now.frame > 0 && now.frame < desktopFit.frame }; })
+    .toMatchObject({ fits: true, narrower: true });
+  await ui.browser.setViewport({ width: 1280, height: 800 });
+  await expect.poll(fit).toMatchObject({ fits: true, frame: desktopFit.frame });
   const efToggle = viewer.getByRole("checkbox", "Afficher EF", { exact: true });
   const euvToggle = viewer.getByRole("checkbox", "Afficher EUV", { exact: true });
   const surfacesToggle = viewer.getByRole("checkbox", "Afficher les surfaces", { exact: true });
