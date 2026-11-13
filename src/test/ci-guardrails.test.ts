@@ -433,6 +433,11 @@ describe("CI and local quality guardrails", () => {
         ]);
         const selection = workflow.slice(workflow.indexOf("\n  army-select:"), workflow.indexOf("\n  army-critical-shard:"));
         expect(selection.split("secrets.").length - 1).toBe(2);
+        // Review: the dependencies (and the key after them) only when the model is really asked: a change to the
+        // shared core, the lockfile included, never installs the pull request's dependency tree beside the key.
+        expect(stepNamed(workflow, "Install dependencies for the decision filter")).toContain("steps.select.outputs.decision == 'ask'");
+        // The checkout, an install and the model (6 min) fit with room for the narrowing step.
+        expect(Number(/timeout-minutes: (\d+)/u.exec(selection)?.[1])).toBeGreaterThanOrEqual(18);
       } else expect(secrets, file).toEqual([]);
       expect(workflow, file).not.toContain("environment: e2e-staging");
       expect(workflow, file).not.toContain("SUPABASE_SERVICE_ROLE_KEY");

@@ -851,12 +851,24 @@ export function decisionSkipped(selection: Selection): string | null {
   if (!selection.base) return "the selection has no base commit";
   if (/^(?:full suite forced|fail-safe)/u.test(selection.reason)) return selection.reason;
   if (selection.mode === "none" && selection.fullOnly.mode === "none") return "no journey is selected";
-  // The shared core and the runner run every journey by design: a model reading their diff cannot tell which
-  // journey they reach. Only the selection's own data may change beside what the model judges.
-  const core = selection.changedPaths.find((decision) => decision.class === "full" && !SELECTION_DATA.includes(decision.path)
-    && (decision.reason === SHARED_CORE_REASON || decision.reason === RUNNER_REASON));
+  // A path that runs every journey by impact (the shared core, what the runner or the shared core loads) or that
+  // the map does not know: a model reading its diff cannot tell which journey it reaches. Only the selection's own
+  // data may change beside what the model judges (the filter refuses map edits beyond its rules).
+  const core = selection.changedPaths.find((decision) => (decision.class === "full" || decision.class === "unmapped")
+    && !SELECTION_DATA.includes(decision.path));
   if (core) return `${core.path} runs every journey (${core.reason})`;
   return null;
+}
+
+/**
+ * The keys of the impact map an edit changes besides its rules (and its note), sorted. A change to the shared
+ * core, the non-runtime or documentation globs, the suites, groups or graph settings decides what the guards of
+ * the decision filter see: the model does not judge such a pull request.
+ */
+export function mapChangesBeyondRules(before: ImpactMap, after: ImpactMap): string[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...keys].filter((key) => key !== "rules" && key !== "note"
+    && JSON.stringify((before as Record<string, unknown>)[key]) !== JSON.stringify((after as Record<string, unknown>)[key])).sort();
 }
 
 function readDecisionSuite(value: unknown): DecisionSuite | null {
@@ -911,8 +923,10 @@ export function narrowSelection(input: { map: ImpactMap; selection: Selection; l
     for (const [file, why] of dropped) leftOut.push({ suite: "critical", file, reason: why });
     const journeys = candidates.filter((file) => file !== setup && !dropped.has(file));
     const anonymous = new Set(map.suite.anonymous);
-    // The anchor alone proves nothing the change asked for: it only accompanies other journeys.
-    if (journeys.every((journey) => journey === map.suite.anchor)) {
+    // The anchor alone proves nothing the change asked for: it only accompanies other journeys, unless the change
+    // itself reaches it.
+    const anchorReached = selection.changedPaths.some((decision) => decision.journeys?.includes(map.suite.anchor));
+    if (journeys.every((journey) => journey === map.suite.anchor) && !anchorReached) {
       mode = "none";
       files = [];
       reason = `no critical journey runs: the decision model left out the ${dropped.size} selected by impact (${selection.reason})`;

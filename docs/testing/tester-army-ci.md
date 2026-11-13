@@ -89,8 +89,9 @@ Le résumé du job liste chaque parcours écarté avec l'avis du modèle, et
 
 | Garde | Effet |
 | --- | --- |
-| Événement autre qu'une PR, label `army-full`, sélection forcée ou de repli | Le modèle n'est pas interrogé |
-| Infrastructure de test modifiée (`package.json`, `e2e.config.ts`, fixtures partagées, `scripts/**`, `.github/**`, `config/**`) | Le modèle ne juge rien : tous les parcours retenus par impact tournent |
+| Événement autre qu'une PR, label `army-full` (pris en compte au push suivant), sélection forcée ou de repli | Le modèle n'est pas interrogé |
+| Chemin qui fait tourner toute la suite par impact : le cœur partagé de la carte (globs `full` : dépendances, `e2e.config.ts`, fixtures partagées, runner, layout, auth, moteur de calcul, migrations), ce que le runner ou le cœur partagé charge, ou un chemin que la carte ne connaît pas | Le modèle n'est pas interrogé : les dépendances ne sont pas installées, et la sélection par impact (toute la suite) est conservée |
+| Carte d'impact modifiée au-delà de ses règles (globs `full`, `docs`, `nonRuntime`, suites, groupes) | Le modèle ne juge rien. Quand seules les règles changent, celles de la base comptent aussi dans le plancher |
 | Parcours qu'une règle de la carte lie directement à un fichier modifié | Toujours exécuté |
 | Avis de 8 % ou plus, ou avis illisible | Parcours exécuté (le filtre d'origine écarte sous 20 %) |
 | Diff de plus de 60 kB, fichier de parcours trop gros pour être joint au diff | Le modèle ne juge pas : les parcours concernés tournent |
@@ -110,9 +111,17 @@ pas la suite entière.
 
 La clé du modèle (`ARMY_DECISION_FILTER_API_KEY`, modèle `gpt-6-luna`) est le
 seul secret des workflows Army. Elle n'est donnée qu'à l'étape 2, dans un job
-qui ne lance ni pile ni parcours ; le code de la PR s'y exécute toutefois
-(`e2e.config.ts`, fichiers de parcours), donc une PR d'une branche du dépôt peut
-la lire. Les parcours eux-mêmes restent sans modèle.
+qui ne lance ni pile ni parcours, et seulement quand la sélection interroge le
+modèle. Le code de la PR s'y exécute toutefois : `e2e.config.ts`, fichiers de
+parcours, scripts de sélection, et l'arbre de dépendances qu'elle installe. Une
+PR qui change les dépendances ou l'infrastructure n'interroge jamais le modèle
+et ne reçoit donc pas la clé. Une PR d'une branche du dépôt qui change le code
+de l'application peut, elle, la lire. Les parcours eux-mêmes restent sans modèle.
+
+Coût : une PR interrogée lance deux listages (critical et takeoff), chacun par
+lots d'environ 80 kB de diff, avec plusieurs appels au modèle. Chaque push en
+relance autant. Le filtre s'arrête après trois appels en échec ; il n'a pas
+d'autre plafond de dépense.
 
 Aperçu local, sans le modèle puis avec lui (commiter d'abord : le modèle ne lit
 que les commits) :

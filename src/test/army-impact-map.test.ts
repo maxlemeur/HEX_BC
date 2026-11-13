@@ -759,7 +759,10 @@ describe("TesterArmy critical workflow wiring", () => {
     expect(install).toMatch(/^\s+continue-on-error: true$/mu);
     expect(install).toContain("github.event_name == 'pull_request' && env.ARMY_DECISION_KEY_SET == 'true'");
     expect(install).toContain("!contains(github.event.pull_request.labels.*.name, 'army-full')");
-    expect(install).toContain("steps.select.outputs.mode == 'files' || steps.select.outputs.mode == 'full'");
+    // Review of the decision filter: the selection's own answer, which already says no when no journey is selected
+    // (decisionSkipped), and also when the shared core changes, so a lockfile change never installs beside the key.
+    expect(install).toContain("steps.select.outputs.decision == 'ask'");
+    expect(install).not.toContain("steps.select.outputs.mode");
     const asking = select.find((step) => /^\s+id: decision$/mu.test(step));
     expect(asking).toMatch(/^\s+if: steps\.decision_install\.outcome == 'success'$/mu);
     expect(asking).toMatch(/^\s+continue-on-error: true$/mu);

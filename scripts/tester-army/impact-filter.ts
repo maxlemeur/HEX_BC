@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import type { TestFilter } from "e2e";
 
 import {
-  MAP_PATH, RUNNER_REASON, SELECTION_DATA, SHARED_CORE_REASON, buildSourceGraph, expandJourneys, loadImpactMap, matchesAny,
+  MAP_PATH, SELECTION_DATA, buildSourceGraph, classifyPath, expandJourneys, loadImpactMap, mapChangesBeyondRules, matchesAny,
   selectFromRepository, type ImpactMap,
 } from "./select-journeys";
 
@@ -83,14 +83,17 @@ export function armyDecisionFilter(create: () => Promise<TestFilter> = stockDeci
     async filter(tests, context) {
       const { map } = loadImpactMap(context.projectRoot);
       const changed = context.changes.files.filter((file) => !SELECTION_DATA.includes(file));
-      // The shared core (the map's `full` globs: dependencies, configuration, shared fixtures, runner, layout,
-      // auth, calculation engine, migrations) and what the runner itself loads run every journey by design: a
-      // model reading their diff cannot tell which journey they reach. As decisionSkipped in the army-select job.
-      const core = changed.find((file) => matchesAny(file, map.full));
-      if (core) return { exclude: {}, note: `the model judges nothing: ${core} runs every journey (${SHARED_CORE_REASON})` };
-      const { runnerClosure } = buildSourceGraph(context.projectRoot, map);
-      const loaded = changed.find((file) => runnerClosure.has(file));
-      if (loaded) return { exclude: {}, note: `the model judges nothing: ${loaded} runs every journey (${RUNNER_REASON})` };
+      // What runs every journey by impact (the shared core: dependencies, configuration, shared fixtures, runner,
+      // layout, auth, calculation engine, migrations; what the runner or the shared core loads) and what the map
+      // does not know: a model reading their diff cannot tell which journey they reach. As decisionSkipped in the
+      // army-select job, which classifies the same paths the same way.
+      const graph = buildSourceGraph(context.projectRoot, map);
+      for (const file of changed) {
+        const decision = classifyPath(map, graph, file, "pull_request");
+        if (decision.class === "full" || decision.class === "unmapped") {
+          return { exclude: {}, note: `the model judges nothing: ${file} runs every journey (${decision.reason})` };
+        }
+      }
       // What can change the application's behaviour. Documentation, unit tests and the other non-runtime paths
       // of the map stay out of the diff the model reads, which it refuses above 60 kB. A changed journey file
       // stays in: the stock filter always runs its tests.
@@ -102,6 +105,10 @@ export function armyDecisionFilter(create: () => Promise<TestFilter> = stockDeci
       if (context.changes.files.includes(MAP_PATH)) {
         const before = baseImpactMap(context.projectRoot, context.changes.base);
         if (!before) return { exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be read" };
+        // Beyond its rules, an edit changes what the guards above see (a glob out of `full`, a file into
+        // `nonRuntime`): only an edit of the rules is judged, with the rules of both maps as its floor.
+        const beyond = mapChangesBeyondRules(before, map);
+        if (beyond.length) return { exclude: {}, note: `the model judges nothing: the impact map changed beyond its rules (${beyond.join(", ")})` };
         try { for (const journey of tiedJourneys(before, runtime)) floor.add(journey); } catch {
           return { exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be applied" };
         }

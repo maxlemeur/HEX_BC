@@ -59,7 +59,8 @@ jobs:
   army-select:
     name: army-critical selection
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The checkout, the selection, an install and the decision model (6 minutes at most) with room to narrow.
+    timeout-minutes: 18
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
@@ -186,7 +187,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' && env.ARMY_DECISION_KEY_SET == 'true'
           && !contains(github.event.pull_request.labels.*.name, 'army-full')
-          && (steps.select.outputs.mode == 'files' || steps.select.outputs.mode == 'full' || steps.select.outputs.full_only_mode == 'files' || steps.select.outputs.full_only_mode == 'all')
+          && steps.select.outputs.decision == 'ask'
         continue-on-error: true
         run: npm ci
       - name: Ask the decision model which selected journeys the change can affect

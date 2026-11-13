@@ -20,14 +20,18 @@
 // 7. the narrowed plan loses the login setup or the anchor (the runner refuses a selection without an
 //    authenticated business journey, before any stack), keeps a job for journeys that no longer run, or removes
 //    a journey the listing did not leave out;
-// 8. a listing made for another base, a forced or fail-safe selection, or a push is narrowed all the same.
+// 8. a listing made for another base, a forced or fail-safe selection, or a push is narrowed all the same;
+// 9. (review) the model is asked about a file the shared core loads (money, the server client) or one the map does
+//    not know, which the selection by impact runs the whole suite for; a pull request that edits the map beyond its
+//    rules (its full, docs or non-runtime globs) hides a file from the guards; the anchor the change itself reaches is
+//    dropped once the model leaves out the rest.
 import { describe, expect, it } from "vitest";
 
 import { DECISION_FILTER, decisionFromPairs } from "../../scripts/tester-army/decision-listing";
 import { DECISION_KEY, DECISION_MIN_PERCENT, armyDecisionFilter, armyImpactFilter } from "../../scripts/tester-army/impact-filter";
 import {
-  MAP_PATH, buildSourceGraph, decisionSkipped, expandJourneys, listRepositoryFiles, loadImpactMap, matchesAny, narrowSelection,
-  selectFromRepository, type DecisionListing, type DecisionSuite, type Selection,
+  MAP_PATH, buildSourceGraph, classifyPath, decisionSkipped, expandJourneys, listRepositoryFiles, loadImpactMap, mapChangesBeyondRules,
+  matchesAny, narrowSelection, selectFromRepository, type DecisionListing, type DecisionSuite, type ImpactMap, type Selection,
 } from "../../scripts/tester-army/select-journeys";
 
 const root = process.cwd();
@@ -132,6 +136,37 @@ describe("the decision filter behind its guards", () => {
     expect(calls).toEqual([]);
     expect(idle).toEqual({ exclude: {}, note: "the model judges nothing: no runtime file changed" });
     expect(decisionSkipped(partialSelection())).toBeNull();
+  });
+
+  it("does not ask the model about a file the shared core loads, nor about one the map does not know", async () => {
+    const { file } = ruledFile();
+    const graph = buildSourceGraph(root, map);
+    const sources = repositoryFiles.filter((name) => name.startsWith("src/") && !matchesAny(name, map.full)
+      && !matchesAny(name, map.nonRuntime) && !matchesAny(name, map.docs) && !graph.runnerClosure.has(name));
+    const decisions = sources.map((name) => classifyPath(map, graph, name, "pull_request"));
+    const loaded = decisions.find((decision) => decision.class === "full" && decision.reason.startsWith("loaded by the shared core"));
+    const unmapped = decisions.find((decision) => decision.class === "unmapped");
+    expect(loaded, "a source file the shared core loads").toBeDefined();
+    for (const changed of [loaded!, unmapped].filter((decision) => decision !== undefined).map((decision) => decision!.path)) {
+      const { calls, filter } = recording({ [`${journeys[0]}#0`]: "0% likely affected" });
+      const result = await filter.filter([candidate(journeys[0])], context([file, changed]));
+      expect(calls, changed).toEqual([]);
+      expect(result.exclude, changed).toEqual({});
+      expect(result.note, changed).toContain(`the model judges nothing: ${changed} runs every journey`);
+      const selection = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, changed], repositoryFiles });
+      expect(decisionSkipped(selection), changed).toContain(`${changed} runs every journey`);
+    }
+  });
+
+  it("names what a map edit changes beyond its rules, which the model then does not judge", () => {
+    const before = structuredClone(map) as ImpactMap;
+    const rulesOnly = structuredClone(map) as ImpactMap;
+    rulesOnly.rules = [...rulesOnly.rules, { id: "review-only-rule", paths: ["src/review-only/**"], journeys: [] }];
+    expect(mapChangesBeyondRules(before, rulesOnly)).toEqual([]);
+    const widened = structuredClone(map) as ImpactMap;
+    widened.nonRuntime = [...widened.nonRuntime, "src/lib/money.ts"];
+    widened.full = widened.full.slice(1);
+    expect(mapChangesBeyondRules(before, widened)).toEqual(["full", "nonRuntime"]);
   });
 
   it("shows the model only what can change the application, a changed journey file included", async () => {
@@ -259,6 +294,15 @@ describe("a selection narrowed by the decision model", () => {
     expect(none.reason).toContain("no critical journey runs");
     const partial = partialSelection();
     expect(narrowSelection({ map, selection: partial, listing: listing({ critical: suite(journeysOf(partial)) }) })).toMatchObject({ mode: "none", files: [] });
+
+    // Review: when the change itself reaches the anchor, it is no mere companion and still runs alone with the setup.
+    const reached = partialSelection();
+    reached.files = [...new Set([...reached.files, anchor])].sort();
+    reached.changedPaths = reached.changedPaths.map((decision) => decision.class === "journeys"
+      ? { ...decision, journeys: [...new Set([...(decision.journeys ?? []), anchor])].sort() } : decision);
+    const anchorKept = narrowSelection({ map, selection: reached, listing: listing({ critical: suite(journeysOf(reached)) }) });
+    expect(anchorKept).toMatchObject({ mode: "files", files: [anchor, setup].sort() });
+    expect(covered(anchorKept)).toEqual(anchorKept.files);
   });
 
   it("narrows the full-only journeys from their own listing, and leaves a selection the model did not touch as it is", () => {
