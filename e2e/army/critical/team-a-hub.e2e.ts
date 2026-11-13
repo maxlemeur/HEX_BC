@@ -187,9 +187,10 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
 
   // A second intake must synchronize the existing gaps without recreating critical defaults.
   const originalDpgf = (await activeGaps()).find((entry) => entry.code === "missing_dpgf")!;
+  // Each correspondence is a new letter: identical bytes would be refused as a duplicate piece.
   const importCorrespondence = async (name: string) => {
     const response = await page.request.post(`/api/affaires/${projectId}/intake/files`, { multipart: {
-      files: { name, mimeType: "text/plain", buffer: Buffer.from("Courrier complémentaire fictif pour le devis manuel.") },
+      files: { name, mimeType: "text/plain", buffer: Buffer.from(`Courrier complémentaire fictif pour le devis manuel (${name}).`) },
     } });
     expect(response.status()).toBe(201);
     await expect.poll(async () => {
