@@ -5,6 +5,7 @@ import { web } from "@e2e-dev/web";
 import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
 import { assertInstalledDependencies } from "./scripts/tester-army/installed-dependencies.mjs";
+import { armyDecisionFilter, armyImpactFilter } from "./scripts/tester-army/impact-filter";
 
 assertInstalledDependencies();
 
@@ -151,6 +152,9 @@ export default {
       app,
     },
   ],
+  // Called only by a run that passes --changed-since (scripts/tester-army/impact-filter.ts): the impact selection of
+  // the CI, then, for the army-select job of a pull request alone, the decision model that narrows it.
+  ...(critical ? { filters: [armyImpactFilter, ...(process.env.E2E_ARMY_DECISION_FILTER === "1" ? [armyDecisionFilter()] : [])] } : {}),
   workers,
   retries,
   // This lot normally takes a few minutes; a hung campaign must stay a failure.
