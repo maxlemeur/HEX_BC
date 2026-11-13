@@ -128,6 +128,11 @@ function DecisionPill({
   );
 }
 
+/** TI-721: what changed under the decision being typed since the line was read, shown next to it. */
+export type DecisionDraftNotice =
+  | { kind: "refreshed"; description: string; applied: boolean }
+  | { kind: "unlisted"; viewLabel: string };
+
 type SelectedRowReviewAsideProps = {
   selectedRow: TakeoffDpgfComparisonRow | null;
   selectedLineRiskItems: TakeoffRiskAlert[];
@@ -135,6 +140,8 @@ type SelectedRowReviewAsideProps = {
   draftDecision: TakeoffDpgfReviewDecision | null;
   decisionReason: string;
   decisionSaving: boolean;
+  draftNotice: DecisionDraftNotice | null;
+  onTakeRefreshedDecision: () => void;
   onDecisionSelect: (decision: TakeoffDpgfReviewDecision) => void;
   onDecisionReasonChange: (value: string) => void;
   onDecisionSave: () => void;
@@ -151,6 +158,8 @@ export function SelectedRowReviewAside({
   draftDecision,
   decisionReason,
   decisionSaving,
+  draftNotice,
+  onTakeRefreshedDecision,
   onDecisionSelect,
   onDecisionReasonChange,
   onDecisionSave,
@@ -187,6 +196,20 @@ export function SelectedRowReviewAside({
               {STATUS_LABELS[selectedRow.review_status]}
             </Badge>
           </div>
+
+          {draftNotice?.kind === "unlisted" ? (
+            <div
+              role="status"
+              aria-label="Ligne absente de la comparaison actualisée"
+              className="rounded-2xl border border-warning-border bg-warning-subtle p-4 text-sm"
+            >
+              <p className="font-semibold text-foreground">Ligne absente de la comparaison actualisée</p>
+              <p className="mt-1 text-foreground-secondary">
+                Elle ne figure plus dans la vue « {draftNotice.viewLabel} » ; ses valeurs datent d’avant l’actualisation.
+                Votre décision en cours est conservée : enregistrez-la ou choisissez une autre ligne.
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-border bg-surface-subtle p-4 sm:col-span-2">
@@ -451,6 +474,25 @@ export function SelectedRowReviewAside({
                 Recomposer les liens
               </Button>
             </div>
+
+            {draftNotice?.kind === "refreshed" ? (
+              <div
+                role="status"
+                aria-label="Ligne actualisée pendant votre saisie"
+                className="mt-4 rounded-xl border border-warning-border bg-warning-subtle px-3 py-3 text-sm"
+              >
+                <p className="font-semibold text-foreground">Ligne actualisée pendant votre saisie</p>
+                <p className="mt-1 text-foreground-secondary">{draftNotice.description}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {draftNotice.applied
+                    ? "Votre saisie est conservée : l’enregistrer remplace cette décision."
+                    : "Votre saisie est conservée : l’enregistrer l’applique à la place du choix proposé."}
+                </p>
+                <Button type="button" size="sm" variant="secondary" className="mt-2" onClick={onTakeRefreshedDecision}>
+                  {draftNotice.applied ? "Utiliser la décision appliquée" : "Utiliser le choix proposé"}
+                </Button>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {(Object.keys(DECISION_LABELS) as TakeoffDpgfReviewDecision[]).map((decision) => (

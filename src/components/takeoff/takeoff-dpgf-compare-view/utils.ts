@@ -30,6 +30,33 @@ export function formatConfidence(value: number | null) {
   return value >= 0.8 ? "Élevée" : value >= 0.5 ? "Moyenne" : "Faible";
 }
 
+/** A decision being typed for a DPGF line, or the one a line starts with. */
+export type DecisionValues = { decision: TakeoffDpgfReviewDecision | null; reason: string };
+
+/** What a line's decision starts as: the one applied, else the suggested one (TI-719). */
+export function decisionPrefill(row: TakeoffDpgfComparisonRow | null): DecisionValues {
+  return {
+    decision: row?.applied_decision?.decision ?? row?.suggested_decision ?? null,
+    reason: row?.applied_decision?.reason ?? "",
+  };
+}
+
+/** The same decision once saved: the reason is saved trimmed. */
+export function sameDecisionValues(left: DecisionValues, right: DecisionValues) {
+  return left.decision === right.decision && left.reason.trim() === right.reason.trim();
+}
+
+/** The decision a line holds now, as shown next to a decision typed before the line was read again (TI-721). */
+export function describeDecisionPrefill(row: TakeoffDpgfComparisonRow): string {
+  if (row.applied_decision) {
+    const reason = row.applied_decision.reason?.trim();
+    return `Décision appliquée : ${DECISION_LABELS[row.applied_decision.decision]}${reason ? ` — « ${reason} »` : ""}`;
+  }
+  return row.suggested_decision
+    ? `Aucune décision appliquée, choix proposé : ${DECISION_LABELS[row.suggested_decision]}`
+    : "Aucune décision appliquée ni proposée";
+}
+
 export function getDecisionImpactText(
   decision: TakeoffDpgfReviewDecision | null,
   row: TakeoffDpgfComparisonRow | null
