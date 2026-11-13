@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import {
   defaultRangeExtractor,
   useVirtualizer,
@@ -36,6 +36,12 @@ export type UseVirtualListOptions = {
    */
   measure?: "boundingRect" | "layout";
   /**
+   * "end" keeps a list scrolled to its end at the end while the rows mounted
+   * there are measured larger or smaller than estimated (TanStack's
+   * `anchorTo`). Default "start".
+   */
+  anchorTo?: "start" | "end";
+  /**
    * Index of a row that must stay mounted even when it is scrolled out of the
    * rendered window (the row holding keyboard focus, for example). Read at
    * each range computation, so it may come from a ref.
@@ -50,9 +56,10 @@ export type UseVirtualListResult<TItem extends Element = HTMLDivElement> = {
   measureElement: Virtualizer<HTMLDivElement, TItem>["measureElement"];
   scrollToIndex: (index: number) => void;
   /**
-   * Drops every measured size, then measures the rows still mounted again.
-   * For a content change that alters row heights without remounting the rows.
-   * Does nothing when the list is not virtualized.
+   * Drops every measured size, then measures the rows still mounted again,
+   * and keeps the row at the top of the viewport where it was. For a content
+   * change that alters row heights without remounting the rows. Does nothing
+   * when the list is not virtualized.
    */
   remeasure: () => void;
   isVirtualized: boolean;
@@ -68,6 +75,7 @@ export function useVirtualList<TItem extends Element = HTMLDivElement>({
   paddingStart,
   initialRect,
   measure = "boundingRect",
+  anchorTo,
   getPinnedIndex,
 }: UseVirtualListOptions): UseVirtualListResult<TItem> {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -99,6 +107,7 @@ export function useVirtualList<TItem extends Element = HTMLDivElement>({
   };
   if (paddingStart !== undefined) options.paddingStart = paddingStart;
   if (initialRect !== undefined) options.initialRect = initialRect;
+  if (anchorTo !== undefined) options.anchorTo = anchorTo;
   // "layout" leaves the key out so TanStack's own measurement applies.
   if (measure === "boundingRect") options.measureElement = measureWithBoundingRect;
 
@@ -112,14 +121,58 @@ export function useVirtualList<TItem extends Element = HTMLDivElement>({
     },
     [count, isVirtualized, virtualizer]
   );
+  // Scroll offset restored by remeasure(), written once the rows laid out
+  // with the new sizes are in the DOM, so the browser does not clamp it to the
+  // previous scroll height.
+  const pendingScrollTopRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const target = pendingScrollTopRef.current;
+    const element = scrollRef.current;
+    if (target === null || !element) return;
+    pendingScrollTopRef.current = null;
+    if (Math.abs(element.scrollTop - target) >= 1) element.scrollTop = target;
+  });
   const remeasure = useCallback(() => {
     if (!isVirtualized) return;
-    virtualizer.measure();
-    // The row refs are not called again for rows that stay mounted, and a row
-    // whose height did not change gets no ResizeObserver entry: read them now.
-    virtualizer.elementsCache.forEach((element) => {
-      if (element.isConnected) virtualizer.measureElement(element);
-    });
+    const offset = virtualizer.scrollOffset ?? 0;
+    const anchor = offset > 0 ? virtualizer.getVirtualItemForOffset(offset) : undefined;
+    // No per-row scroll correction while every size is reset: the offsets of
+    // the old and the new layout do not compare. The anchor is restored below.
+    const { options: currentOptions } = virtualizer;
+    const anchorToBefore = currentOptions.anchorTo;
+    const shouldAdjustBefore = virtualizer.shouldAdjustScrollPositionOnItemSizeChange;
+    currentOptions.anchorTo = "start";
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+    try {
+      virtualizer.measure();
+      // Rebuild the layout from the estimates before reading the mounted rows:
+      // each one whose real height differs from its estimate is then recorded,
+      // whether its height changed or not. Their refs are not called again
+      // while they stay mounted, an unchanged row gets no ResizeObserver entry,
+      // and measureElement() skips rows while the list is scrolling: resize
+      // them directly.
+      virtualizer.getTotalSize();
+      virtualizer.elementsCache.forEach((element) => {
+        if (!element.isConnected) return;
+        virtualizer.resizeItem(
+          virtualizer.indexFromElement(element),
+          virtualizer.options.measureElement(element, undefined, virtualizer)
+        );
+      });
+    } finally {
+      currentOptions.anchorTo = anchorToBefore;
+      virtualizer.shouldAdjustScrollPositionOnItemSizeChange = shouldAdjustBefore;
+    }
+    if (!anchor) return;
+    const totalSize = virtualizer.getTotalSize();
+    const start = virtualizer.measurementsCache[anchor.index]?.start;
+    if (start === undefined) return;
+    const viewport = scrollRef.current?.clientHeight ?? 0;
+    const target = Math.max(0, Math.min(start + offset - anchor.start, totalSize - viewport));
+    // The next render computes its window at the restored offset; the DOM
+    // scroll follows in the layout effect above.
+    virtualizer.scrollOffset = target;
+    pendingScrollTopRef.current = target;
   }, [isVirtualized, virtualizer]);
 
   return {

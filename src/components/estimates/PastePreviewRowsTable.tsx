@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type FocusEvent,
+  type KeyboardEvent,
   type Ref,
 } from "react";
 
@@ -192,6 +193,7 @@ export function PastePreviewRowsTable({
     totalSize,
     measureElement,
     remeasure,
+    scrollToIndex,
   } = useVirtualList<HTMLTableRowElement>({
     count: rows.length,
     enabled: virtualize,
@@ -203,6 +205,9 @@ export function PastePreviewRowsTable({
     paddingStart: headerHeight,
     initialRect: { width: 0, height: SCROLL_REGION_HEIGHT },
     measure: "layout",
+    // End and a scrollbar drag to the bottom must show the last row whole,
+    // although the rows mounted there can be taller than their estimate.
+    anchorTo: "end",
     getPinnedIndex,
   });
 
@@ -228,6 +233,21 @@ export function PastePreviewRowsTable({
       focusedIndexRef.current = null;
     }
   }, []);
+
+  // Chrome animates End towards the scroll height it reads at the key press;
+  // the rows mounted at the end then measure taller than estimated and leave
+  // the last row below the fold. The virtualizer's own scroll to the last row
+  // follows them until the end is stable.
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (!isVirtualized || event.key !== "End" || event.defaultPrevented) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const target = event.target;
+    const fromRegionOrRow = target === event.currentTarget
+      || (target instanceof HTMLInputElement && target.type === "checkbox");
+    if (!fromRegionOrRow) return;
+    event.preventDefault();
+    scrollToIndex(rows.length - 1);
+  }, [isVirtualized, rows.length, scrollToIndex]);
 
   const columnCount = 2 + sourceColumns.length + (showsInterpretation ? 1 : 0) + 2;
   const columnWidths = isVirtualized
@@ -280,6 +300,7 @@ export function PastePreviewRowsTable({
       role="region"
       aria-labelledby="paste-preview-rows-title"
       tabIndex={0}
+      onKeyDown={handleKeyDown}
       style={isVirtualized ? { overflowAnchor: "none" } : undefined}
       data-virtualized={isVirtualized ? "" : undefined}
     >
