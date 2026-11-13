@@ -279,6 +279,15 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
   return { ids, jobId, fileName, tenantId, sourcePath, sha256: hash, client, owner };
 }
 
+/** The width of the plan the review viewer draws (its geometry's SVG) and of the frame that holds it, in CSS pixels. */
+export async function readVectorViewerFit(ui: WorkerUi) {
+  return ui.browser.evaluate(() => {
+    const svg = document.querySelector("section[aria-label='Lecture vectorielle du plan'] svg[aria-label='Géométrie mesurée']");
+    // The SVG sits in the panned layer, itself in the frame.
+    return { plan: Math.round(Number(svg?.getAttribute("width") ?? 0)), frame: svg?.parentElement?.parentElement?.clientWidth ?? 0 };
+  });
+}
+
 /** What the review viewer draws: the painted canvas (bluish pixels: the blue pipes), the centrelines and room polygons of its SVG. */
 export async function readVectorViewerDrawing(ui: WorkerUi) {
   return ui.browser.evaluate(async () => {

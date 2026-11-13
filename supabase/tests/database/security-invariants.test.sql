@@ -65,6 +65,18 @@ select ok(
   'storage.objects has row level security enabled'
 );
 
+-- Purchase-order documents (bucket devis) are reached only through the tenant- and author-scoped policies
+-- (20260708120000, 20260713140454). A policy on the bucket alone would open every tenant's documents to any member
+-- (drift found on 13/11/2026, removed by 20261113195311_drop_broad_devis_storage_policies.sql).
+select set_eq(
+  $$select policyname::text from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and (coalesce(qual, '') || ' ' || coalesce(with_check, '')) like '%''devis''%'$$,
+  $$values ('Authorized users can view purchase order devis'), ('Authorized users can upload purchase order devis'),
+    ('Authorized users can delete purchase order devis')$$,
+  'storage.objects grants on bucket devis only through the tenant- and author-scoped policies'
+);
+
 with expected_buckets(bucket_id) as (
   values
     ('affaire-intake'),

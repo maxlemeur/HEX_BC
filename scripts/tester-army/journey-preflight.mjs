@@ -234,13 +234,17 @@ export function selectionPreflightProblems({ pairs, grep, files = [], workers = 
  * are those scripts/run-tester-army.mjs passes for a critical run; the
  * loopback Supabase URL only selects the e2e.config.ts localBusiness list, as
  * every owned stack is loopback.
- * @param {{ root: string, suite: "critical" | "full", grep?: string, files?: readonly string[], env: NodeJS.ProcessEnv }} options
- * @returns {Promise<Array<{ file: string, titlePath: string[], kind: string, tags: string[], disposition: string }>>}
+ * With `changedSince`, the test filters of e2e.config.ts judge the change since that ref, as a run would: a
+ * pair they left out has the disposition "filtered", its `filter` and its `reason`; `onNotes` receives what the
+ * filters printed (one line each).
+ * @param {{ root: string, suite: "critical" | "full", grep?: string, files?: readonly string[], env: NodeJS.ProcessEnv,
+ *   changedSince?: string, onNotes?: (lines: string[]) => void }} options
+ * @returns {Promise<Array<{ file: string, titlePath: string[], kind: string, tags: string[], disposition: string, filter?: string, reason?: string }>>}
  */
-export async function listArmySelection({ root, suite, grep, files = [], env }) {
+export async function listArmySelection({ root, suite, grep, files = [], env, changedSince, onNotes }) {
   const args = [path.join(root, "node_modules/e2e/dist/cli/bin.js"), "list", "--config", "e2e.config.ts",
     "--tag", "critical", "--exclude-tag", "agent", "--target", "chromium-desktop", "--reporter", "json",
-    ...(grep === undefined ? [] : ["--grep", grep]), ...files];
+    ...(grep === undefined ? [] : ["--grep", grep]), ...(changedSince === undefined ? [] : ["--changed-since", changedSince]), ...files];
   const environment = {
     ...env, CI: "1", E2E_ARMY_SUITE: "critical", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
     E2E_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1", NEXT_TELEMETRY_DISABLED: "1",
@@ -258,5 +262,6 @@ export async function listArmySelection({ root, suite, grep, files = [], env }) 
     child.once("close", (exit) => resolve({ code: exit, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
   });
   if (code !== 0) throw new Error(`e2e list refused the ${suite} selection (exit ${code}): ${stderr.trim().split(/\r?\n/u).slice(-3).join(" ")}`);
+  onNotes?.(stderr.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
   return JSON.parse(stdout).pairs;
 }
