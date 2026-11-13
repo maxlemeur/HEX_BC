@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+// The address as the browser holds it: the filters are written to it in place (TI-701).
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
 vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }) }));
 vi.mock("@/components/UserContext", () => ({ useUserContext: () => ({ profile: { tenant_role: "member" }, tenantId: "tenant" }) }));
 vi.mock("@/hooks/useFeatureFlag", () => ({ useFeatureFlag: () => ({ enabled: false, value: null }) }));
@@ -108,6 +109,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("TakeoffTargetedReview", () => {
@@ -577,5 +580,141 @@ describe("TakeoffTargetedReview", () => {
     // Their Z1/Z2 duplicates pair two lines of this takeoff, not a line of the earlier one: the banner leaves them alone.
     expect(banner).not.toHaveTextContent("ne retirez pas la ligne");
     expect(fetchTakeoffJobPageContributions).toHaveBeenCalledWith(JOB_ID, VERSION_ID, expect.anything());
+  });
+
+  // TI-701 (D13), the filters as the reviewer drives them. Ways the screen fails, written before it: a reload or a shared
+  // link loses them (or their counts) because they live in the page only; the line whose quantity is being typed
+  // vanishes when a filter drops it, with what was typed; « Effacer les filtres » leaves one on; a filter whose data the
+  // job lacks is offered empty.
+  describe("filters", () => {
+    const NET = { ef1: "55555555-5555-4555-8555-555555555551", ef2: "55555555-5555-4555-8555-555555555552",
+      eu: "55555555-5555-4555-8555-555555555553", none: "55555555-5555-4555-8555-555555555554" };
+    const LINE = (index: number) => `66666666-6666-4666-8666-66666666666${index}`;
+    const run = (id: string, designation: string, quantity: number, network: string | null) => ({ ...item(id, designation, quantity, []),
+      metadata: network ? { rule_inputs: { version: 2, source: "designation", kind: "network", network, material: "cuivre", dn: null,
+        non_observable: null, model_quantity: quantity } } : {} });
+    const LINES = [run(NET.ef1, "EF cuivre DN 22", 10, "EF"), run(NET.ef2, "EF cuivre DN 28", 2, "EF"),
+      run(NET.eu, "EU PVC DN 100", 8, "EU"), run(NET.none, "Tube sans réseau", 3, null)];
+    // Each line of a post the review recommends (level B lists them for that), the first three priced: 500 €, 20 €,
+    // 320 € of 840 €. 500 € and 320 € make 97 % of it: they are the large amounts.
+    const CONTEXT = { version_id: VERSION_ID, unlinked_item_ids: [NET.none],
+      posts: LINES.map((line, index) => ({ line_id: LINE(index), title: line.designation, lot_id: null, amount_cents: null,
+        lot_amount_cents: null, impact_cents: null, recommend_review: true, item_ids: [line.id] })),
+      item_pricing: [[NET.ef1, 5000], [NET.ef2, 1000], [NET.eu, 4000]].map(([item_id, unit_price_cents], index) => ({ item_id,
+        line_id: LINE(index), pricing_status: "priced", unit_price_cents, lot: null })) };
+
+    function serve(context: unknown = CONTEXT) {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, data: context }), { status: 200 })));
+      vi.mocked(fetchTakeoffJobWithAllItems).mockResolvedValue({
+        job: { id: JOB_ID, status: "completed", level: "B", source_file_name: "plan.pdf", plan_set_id: null, version_number: 1 },
+        items: { data: LINES, pagination: { total: LINES.length, offset: 0, limit: 200 } },
+      } as never);
+    }
+    async function openFiltered(lines: number) {
+      render(<TakeoffTargetedReview jobId={JOB_ID} versionId={VERSION_ID} projectId="44444444-4444-4444-8444-444444444444" />);
+      const list = await screen.findByRole("listbox", { name: "Lignes à trancher" });
+      await waitFor(() => expect(within(list).queryAllByRole("option")).toHaveLength(lines));
+      return list;
+    }
+    const names = (list: HTMLElement) => within(list).queryAllByRole("option").map((option) => option.querySelector(".font-medium")?.textContent);
+    const group = () => screen.getByRole("group", { name: "Filtrer les lignes" });
+
+    it("keeps « gros montants » and a network through a reload, with the same lines and counts", async () => {
+      window.history.replaceState(null, "", `/review/targeted?versionId=${VERSION_ID}&line=${NET.ef2}`);
+      serve();
+      const user = userEvent.setup();
+      let list = await openFiltered(4);
+      await user.click(await within(group()).findByRole("button", { name: "Gros montants 2" }));
+      expect(names(list)).toEqual(["EF cuivre DN 22", "EF cuivre DN 28", "EU PVC DN 100"]);
+      // The line the address opened stays listed while in focus; another one chosen, it leaves.
+      expect(screen.getByText("« EF cuivre DN 28 » ne correspond pas aux filtres : elle reste affichée tant qu’elle est ouverte.")).toBeInTheDocument();
+      choose(list, "EF cuivre DN 22");
+      await waitFor(() => expect(names(list)).toEqual(["EF cuivre DN 22", "EU PVC DN 100"]));
+      expect(within(group()).getByText(/^Gros montants : 2 lignes du métré, 97 % du montant chiffré .*, dont 2 à revoir\.$/)).toBeInTheDocument();
+      await user.click(within(group()).getByRole("button", { name: "Réseau ou lot" }));
+      expect(within(group()).getByRole("button", { name: "Réseau ou lot" })).toHaveAttribute("aria-expanded", "true");
+      await user.click(within(group()).getByRole("checkbox", { name: "EF · Eau froide 1" }));
+      expect(names(list)).toEqual(["EF cuivre DN 22"]);
+      const search = new URLSearchParams(window.location.search);
+      expect([search.get("versionId"), search.get("large"), search.getAll("network")]).toEqual([VERSION_ID, "1", ["EF"]]);
+      const counts = group().textContent;
+      expect(within(group()).getByRole("button", { name: "Gros montants 1" })).toHaveAttribute("aria-pressed", "true");
+      // The line in focus reaches the address once the focus rests.
+      await waitFor(() => expect(new URLSearchParams(window.location.search).get("line")).toBe(NET.ef1));
+
+      cleanup();
+      list = await openFiltered(1);
+      expect(names(list)).toEqual(["EF cuivre DN 22"]);
+      expect(within(group()).getByRole("button", { name: "Gros montants 1" })).toHaveAttribute("aria-pressed", "true");
+      // Chosen values open their kind and name it.
+      expect(within(group()).getByRole("button", { name: "Réseau ou lot EF · Eau froide" })).toHaveAttribute("aria-expanded", "true");
+      expect(within(group()).getByRole("checkbox", { name: "EF · Eau froide 1" })).toBeChecked();
+      expect(group().textContent).toBe(counts);
+    });
+
+    it("keeps the line whose quantity is being typed when a filter drops it, then lets it go", async () => {
+      serve();
+      const user = userEvent.setup();
+      const list = await openFiltered(4);
+      choose(list, "EF cuivre DN 28");
+      fireEvent.keyDown(list, { key: "4" });
+      const quantity = await screen.findByLabelText("Quantité");
+      await waitFor(() => expect(quantity).toHaveFocus());
+      await user.click(await within(group()).findByRole("button", { name: "Gros montants 2" }));
+      expect(names(list)).toEqual(["EF cuivre DN 22", "EF cuivre DN 28", "EU PVC DN 100"]);
+      expect(within(within(list).getByRole("option", { name: /EF cuivre DN 28/ })).getByText("Hors filtres")).toBeInTheDocument();
+      expect(screen.getByText("« EF cuivre DN 28 » ne correspond pas aux filtres : elle reste affichée pendant sa modification.")).toBeInTheDocument();
+      expect(screen.getByLabelText("Quantité")).toHaveValue("4");
+      fireEvent.keyDown(screen.getByLabelText("Quantité"), { key: "Escape" });
+      await waitFor(() => expect(names(list)).toEqual(["EF cuivre DN 22", "EU PVC DN 100"]));
+      expect(patchTakeoffItems).not.toHaveBeenCalled();
+    });
+
+    it("clears every filter at once, and offers no filter whose data the job lacks", async () => {
+      window.history.replaceState(null, "", `/review/targeted?versionId=${VERSION_ID}&view=uncertain&unpriced=1&plan=plan.pdf%7C`);
+      serve();
+      const user = userEvent.setup();
+      const list = await openFiltered(1);
+      expect(names(list)).toEqual(["Tube sans réseau"]);
+      expect(within(group()).getByRole("button", { name: "Non chiffré 1" })).toHaveAttribute("aria-pressed", "true");
+      // No line names a level or a zone: that filter is not offered.
+      expect(within(group()).queryAllByText("Niveau ou zone")).toHaveLength(0);
+      await user.click(within(group()).getByRole("button", { name: "Effacer les filtres" }));
+      expect(names(list)).toHaveLength(4);
+      // No filter left in the address, only the version (and the line in focus, once written).
+      expect([...new URLSearchParams(window.location.search).keys()].filter((key) => key !== "line")).toEqual(["versionId"]);
+      expect(within(group()).queryByRole("button", { name: "Effacer les filtres" })).not.toBeInTheDocument();
+    });
+
+    // Review of TI-701: written with another state, the address made the router restore the page, dropping a
+    // navigation under way (a click on « Revue complète » while a decision's answer moved the focus).
+    it("writes the address under the router's own history state", async () => {
+      const routerState = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: "tree" };
+      window.history.replaceState(routerState, "", `/review/targeted?versionId=${VERSION_ID}`);
+      serve();
+      const user = userEvent.setup();
+      await openFiltered(4);
+      await user.click(await within(group()).findByRole("button", { name: "Gros montants 2" }));
+      expect(new URLSearchParams(window.location.search).get("large")).toBe("1");
+      expect(window.history.state).toEqual(routerState);
+    });
+
+    it("hides « gros montants » and « non chiffré » without amounts, and ignores them in the address, saying so", async () => {
+      window.history.replaceState(null, "", `/review/targeted?versionId=${VERSION_ID}&large=1`);
+      serve({ version_id: VERSION_ID, unlinked_item_ids: [], posts: CONTEXT.posts, item_pricing: [] });
+      const list = await openFiltered(4);
+      expect(within(group()).queryByRole("button", { name: /^Gros montants/ })).not.toBeInTheDocument();
+      expect(within(group()).queryByRole("button", { name: /^Non chiffré/ })).not.toBeInTheDocument();
+      expect(within(group()).getByText("Montants indisponibles pour ce métré : « Gros montants » est ignoré.")).toBeInTheDocument();
+      expect(names(list)).toHaveLength(4);
+    });
+
+    it("ignores a kind of value no line holds, rather than listing nothing", async () => {
+      window.history.replaceState(null, "", `/review/targeted?versionId=${VERSION_ID}&location=RDC%7CZ1`);
+      serve();
+      const list = await openFiltered(4);
+      expect(within(group()).getByText("Aucune ligne ne porte « Niveau ou zone » : ce filtre est ignoré.")).toBeInTheDocument();
+      expect(names(list)).toHaveLength(4);
+    });
   });
 });

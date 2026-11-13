@@ -13,10 +13,12 @@ const money = (value: number | null) => value === null ? "Montant inconnu" :
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
 
-export function TakeoffReviewPolicyPanel({ jobId, items, providerMeta, onImportantItems, onFocusItem }: {
-  jobId: string; items: TakeoffJobItem[]; providerMeta: Record<string, unknown> | null;
-  onImportantItems: (ids: string[]) => void; onFocusItem: (id: string) => void;
-}) {
+/**
+ * The takeoff's review context (amounts of its posts, its lines' prices), read again once a line changed: the panel's
+ * posts, the important lines of the targeted review and its « Gros montants » and « Non chiffré » filters (TI-701) read
+ * the same answer. A read that fails keeps the last answer, with the error.
+ */
+export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJobItem[]) {
   const [context, setContext] = useState<TakeoffReviewContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const revision = items.map(item => item.updated_at).join("|");
@@ -27,12 +29,24 @@ export function TakeoffReviewPolicyPanel({ jobId, items, providerMeta, onImporta
         const envelope = await response.json() as { ok: boolean; data?: unknown };
         if (!response.ok || !envelope.ok) throw new Error("Montants de contrôle indisponibles.");
         const next = takeoffReviewContextResponseSchema.parse(envelope.data);
+        if (controller.signal.aborted) return;
         setContext(next);
         setError(null);
-        onImportantItems(next.posts.filter(post => post.recommend_review !== false || (post.impact_cents ?? 0) > 0).flatMap(post => post.item_ids));
       }).catch(() => { if (!controller.signal.aborted) setError("Montants de contrôle indisponibles : le risque financier reste à apprécier."); });
     return () => controller.abort();
-  }, [jobId, revision, onImportantItems]);
+  }, [jobId, revision]);
+  return { context, error };
+}
+
+/** The lines of the posts the review recommends checking (TI-681). */
+export function importantReviewItemIds(context: TakeoffReviewContext | null) {
+  return context?.posts.filter(post => post.recommend_review !== false || (post.impact_cents ?? 0) > 0).flatMap(post => post.item_ids) ?? [];
+}
+
+export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, onFocusItem }: {
+  items: TakeoffJobItem[]; providerMeta: Record<string, unknown> | null;
+  context: TakeoffReviewContext | null; error: string | null; onFocusItem: (id: string) => void;
+}) {
   const coverage = useMemo(() => {
     const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
     return takeoffScopeCoverage(parsed.success ? parsed.data : null, items);

@@ -1215,10 +1215,59 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
 (sens sûr ; l'assistant et le serveur la laissent de côté).
 
 - **Écran** : `/dashboard/affaires/<affaire>/takeoff/<job>/review/targeted?versionId=…`,
-  en mise en page outil (TI-658). À gauche les lignes, le filtre « Règle en échec » et
-  l'application ; au centre le plan et sa lecture vectorielle, la ligne en évidence ; à
-  droite ses raisons et ses décisions. La revue complète y renvoie (« Revue ciblée · N
-  lignes »), comme le panneau des lignes bloquées de l'assistant d'application.
+  en mise en page outil (TI-658). À gauche les lignes, leurs filtres et l'application ;
+  au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
+  et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
+  panneau des lignes bloquées de l'assistant d'application.
+- **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
+  ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
+  - **vue**, un seul choix : « À revoir » (toutes), « Blocages » (les lignes que le garde
+    d'application arrête, `reviewBlockReasons`), « Règle en échec », « Incertaines » ;
+  - **Gros montants** : les lignes qui font ensemble 80 % du montant chiffré du métré, de la
+    plus grosse à la plus petite (Pareto), sans seuil en euros. Le montant d'une ligne est
+    sa quantité × le prix unitaire de la ligne de devis qui la porte, en centimes entiers
+    (`quantityAmountCents`, arrondi à l'unité la plus proche, moitié vers l'extérieur).
+    Des lignes de même montant entrent ensemble à la coupure : la liste ne dépend jamais
+    de l'ordre de lecture. Une ligne non chiffrée, ou chiffrée à zéro, n'en fait jamais
+    partie et ne compte pas dans le total. Le filtre actif dit la part couverte et ce
+    qu'il en reste à revoir (« 2 lignes du métré, 95 % du montant chiffré (820,00 € sur
+    855,00 € HT), dont 2 à revoir ») ;
+  - **Hypothèses** : les lignes dont la quantité est une hypothèse de TI-682
+    (`takeoffHypothesisCause`), pas une confiance. Le filtre de confiance de la revue de
+    validation garde son nom, « Confiance à confirmer » ;
+  - **Non chiffré** : une ligne retenue qu'aucune ligne de devis ne porte (« sans
+    rattachement chiffré » du contexte de revue) ou que porte seulement une ligne
+    « Non chiffrée ». Une ligne « Inclus » ou « Pour mémoire » n'a pas de prix par choix :
+    elle n'est ni non chiffrée ni un gros montant. Une ligne exclue n'est ni l'une ni l'autre.
+    Portée par plusieurs lignes de devis, une ligne du métré prend la meilleure, quel que soit
+    leur ordre : un prix unitaire non nul, sinon un prix écarté exprès, sinon un prix nul,
+    sinon « Non chiffrée » ; un prix négatif (remise) compte comme un prix nul. Le moteur 2
+    ne donne pas de prix unitaire à une ligne sans quantité ;
+  - **Réseau ou lot**, **Niveau ou zone**, **Plan et indice** : des valeurs que les lignes
+    portent, jamais un texte libre. Le réseau vient des entrées des règles, sinon le lot
+    (section racine) de la ligne de devis qui porte la ligne ; le niveau et la zone de la
+    page viennent du tri des pages, sinon de la localisation de la ligne
+    (`takeoffItemLocation`) ; le plan est le fichier source, avec l'indice que lui donne la
+    préparation quand il est connu. Une ligne porte au plus une valeur de chaque sorte :
+    plusieurs valeurs d'une sorte élargissent la liste (OU), les sortes la restreignent (ET).
+
+  Chaque choix affiche son compte, lu avec les filtres des autres sortes. Un filtre dont le
+  métré n'a pas la donnée n'est pas proposé : « Gros montants » sans ligne chiffrée,
+  « Non chiffré » sans contexte de revue lisible (version scellée, lecture en échec), une
+  sorte qu'aucune ligne ne porte. Choisi avant (repris d'une adresse, ou quand la dernière
+  ligne qui portait la sorte a été tranchée), il est ignoré et l'écran le dit. Les filtres
+  qui lisent les montants ou les lots attendent le contexte de revue. Une
+  valeur d'une sorte que les lignes portent reste un choix quand ses propres lignes sont
+  parties (tranchées) : la liste dit alors qu'aucune ligne ne répond aux filtres.
+  Les filtres et la ligne en évidence vivent dans l'adresse (`view`, `large`, `hypotheses`,
+  `unpriced`, `network`, `location`, `plan`, `line`) : un rechargement ou un lien partagé
+  montre les mêmes lignes. L'adresse est réécrite sur place, sous l'état d'historique du
+  routeur (aucune navigation), la ligne en évidence une fois le focus posé. « Effacer les filtres » les retire tous. La ligne en cours de
+  modification (quantité tapée, dialogue ouvert, décision en cours d'enregistrement) n'est
+  jamais masquée : un filtre qui l'écarte la laisse à sa place, marquée « Hors filtres »,
+  avec un avis ; une ligne ouverte exprès (son lien, un partenaire, un poste à contrôler)
+  reste de même affichée tant qu'elle est en évidence. Ouvrir un partenaire ou un poste met
+  fin à une saisie de quantité non enregistrée, comme un clic sur une autre ligne.
 - **Décisions**, enregistrées aussitôt sur la ligne, une à la fois (la suivante attend la
   réponse de la précédente, qui porte l'état relu de ses partenaires), raccourcis affichés sur
   les boutons :

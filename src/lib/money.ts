@@ -130,3 +130,17 @@ export function roundHalfAwayFromZero(numerator: bigint, denominator: bigint): b
   const rounded = (magnitude * BigInt(2) + denominator) / (denominator * BigInt(2));
   return negative ? -rounded : rounded;
 }
+
+/**
+ * The amount of a quantity at a unit price, in cents, exactly: the quantity read to the thousandth as stored
+ * (numeric(12,3)), the product rounded half away from zero (TI-701, a takeoff line at its estimate line's price).
+ */
+export function quantityAmountCents(quantity: number, unitPriceCents: number): number {
+  if (!Number.isFinite(quantity) || !Number.isSafeInteger(unitPriceCents)) {
+    throw new RangeError("Quantité ou prix unitaire invalide.");
+  }
+  const thousandths = BigInt(Math.round(quantity * 1000));
+  const amount = Number(roundHalfAwayFromZero(thousandths * BigInt(unitPriceCents), BigInt(1000)));
+  if (!Number.isSafeInteger(amount)) throw new RangeError("Montant hors des bornes exactes.");
+  return amount;
+}
