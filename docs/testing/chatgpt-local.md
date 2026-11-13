@@ -185,6 +185,24 @@ du fichier (`onDemandEntries` de `next.config.ts`, réservé aux serveurs ayant 
 60 s, un runner lent recompilait connexion, chiffrage et métré d’un test à
 l’autre, jusqu’au redémarrage mémoire de Next (80 % du tas) au milieu de PRX02.
 
+Ce serveur n’a pas de cache webpack persistant (`cache: false`, même bloc de
+`next.config.ts`) : son `distDir` disparaît à la fin du fichier, et aucun serveur
+suivant ne réutilise ce cache. Il était pourtant écrit dès que le compilateur
+s’arrêtait, dans un paquet gzip de chaque module compilé (1,7 Gio en 19 s sur un
+poste), puis relu à la compilation suivante. Sur un runner, ces écritures (0,9 à
+2 Gio, 19 à 88 s chacune) et relectures bloquaient le serveur 16 à 27 s vers la fin
+du fichier, dans INTWORD01 (TI-724) : +2,9 Go de mémoire hors tas, swap et
+processeur saturés. Le cache mémoire de Next reste actif, et les résolutions de
+modules y restent en cache (`resolve.cache`). Seul un redémarrage de ce serveur,
+que le paquet aurait épargné, recompile désormais ses routes.
+
+`chatgpt-<id>-resources.json`, dans les artefacts de la campagne, garde pour le
+serveur de chaque fichier ChatGPT local l’échantillon mémoire de Next à chaque
+requête (`requests` : instant, RSS et tas en Mo) et, sous Linux, une mesure par
+seconde (`resources`) : mémoire disponible, swap utilisé, attentes mémoire,
+processeur et disque (pressure stall information, `null` sans données du noyau),
+RSS du serveur et de ses workers Next.
+
 Pour une qualification réelle explicitement autorisée, le même parcours accepte
 `.private/chatgpt-local-live-probe.json` dans un checkout de QA isolé, contenant
 uniquement `accessToken`, `model`, `expiresAt` et le réglage `reasoningEffort`

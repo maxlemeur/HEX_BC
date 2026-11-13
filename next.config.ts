@@ -29,7 +29,22 @@ const nextConfig: NextConfig = {
   // every route it compiled, as a production build would. Next disposes a route idle for 60 s by default: on a slow
   // runner, the tests of a chatgpt-local journey file outlast that, so the login, estimate and takeoff routes compiled again
   // test after test until the heap passed Next's 80 % restart threshold in the middle of PRX02.
-  ...(armyDevServer ? { onDemandEntries: { maxInactiveAge: 24 * 60 * 60 * 1000 } } : {}),
+  // That server deletes its distDir when its file ends: no later server reuses webpack's persistent cache. It still wrote
+  // one: whenever the compiler paused, every compiled module went into a gzip pack (1.7 GiB in 19 s on a workstation),
+  // and the next compile read the pack back. On a CI runner, those writes and reads stopped the server for 16 to 27 s in
+  // INTWORD01 (TI-724). Next's own memory cache of development compiles stays, and the resolvers, whose cache webpack
+  // derives from `cache`, keep theirs in it. Only a restart of this server, which the pack would have spared, now
+  // compiles its routes again.
+  ...(armyDevServer ? {
+    onDemandEntries: { maxInactiveAge: 24 * 60 * 60 * 1000 },
+    webpack: (config: { cache?: unknown; resolve?: object; resolveLoader?: object }, { dev }: { dev: boolean }) => {
+      if (!dev) return config;
+      config.cache = false;
+      config.resolve = { ...config.resolve, cache: true };
+      config.resolveLoader = { ...config.resolveLoader, cache: true };
+      return config;
+    },
+  } : {}),
   outputFileTracingIncludes: {
     // PDFKit's ESM entry loads standard fonts through createRequire. Next traces
     // the ESM font exports, but the deployed renderer needs these CJS modules.

@@ -147,6 +147,7 @@ export function chatGptLocalServer() {
         ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    if (child.pid) workspace.watch(child.pid);
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (chunk) => {
       diagnostics.push(String(chunk).replace(/code=[^&\s]+/g, "code=[redacted]"));
       if (diagnostics.length > 100) diagnostics.shift();
