@@ -27,6 +27,9 @@ import {
 } from "@/lib/takeoff/vectors/group-local-model-server";
 import { GROUP_LOCAL_MODEL_LIMITS, GROUP_LOCAL_MODEL_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-local-model";
 import {
+  groupEvidenceRenderPlan, startGroupEvidenceRenders, type GroupEvidenceSession,
+} from "@/lib/takeoff/vectors/group-evidence-render-server";
+import {
   budgetVectorItems,
   locationFromFileName,
   vectorItemRecords,
@@ -35,7 +38,7 @@ import {
   type VectorPageDecisions,
   type VectorPageRecord,
 } from "@/lib/takeoff/vectors/persistence";
-import { readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
+import { isRasterExtraction, readVectorPage, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import { TAKEOFF_VECTOR_READ_LIMITS } from "@/lib/takeoff/vectors/read-contracts";
 import type { PageCalibration } from "@/lib/takeoff/vectors/scale";
 import { pageAnchors, type PageAnchors } from "@/lib/takeoff/rules/registration";
@@ -71,6 +74,13 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 // most 40 requests per document (TAKEOFF_VECTOR_LOCAL_LIMITS), the rules as the
 // fallback of what no answer reached; its quota, a refused access or the model
 // not offered stops the plan for the job, the later pages keep the rules.
+// A page's drawing (TI-704 latency, groupEvidenceRenderPlan) starts once its
+// extraction child has ended on a server (never beside it: their memory adds
+// up), with the extraction for a local job on its creator's machine (up to 3
+// processes), so that the page is analysed for its images while it is
+// extracted or read; the classification draws with it, each call leaving once
+// its own images are drawn, or cancels it. None after the job's stop or
+// without calls left; a raster page's is cancelled.
 // The page record keeps each group's class, source and confidence, and the
 // page's Decisions summary (calls, tokens, latency, stop). A page calibration comes from the preparation's conventions when
 // it names that page of that document: its plan file, or for a direct upload
@@ -211,6 +221,8 @@ const stopOf = (reason: PageStop["reason"], message: string, local = false): Pag
 /** The Decisions state of a job: one token budget, the stop that ends its calls, and each document's calls left. */
 type DecisionsRun = {
   hook: TakeoffVectorDecisionsHook;
+  /** How its pages are drawn: the processes, with or after the extraction. */
+  drawing: { sessions: number; withExtraction: boolean };
   budget: DecisionsTokenBudget;
   stop: PageStop | null;
   /** Set when the job's own check before a call failed: rethrown, never taken for a Decisions failure. */
@@ -252,9 +264,23 @@ function stoppedSummary(stop: PageStop, promptVersion: string): VectorPageDecisi
 }
 
 /**
+ * The page's drawing (TI-704 latency): none after the job's stop or without calls left in its document. The hook's
+ * `render` in tests; else the job's drawing plan.
+ */
+function startPageDrawing(run: DecisionsRun | null, bytes: Uint8Array, page: number, allowance: { batch: number }): GroupEvidenceSession | null {
+  if (!run || run.stop || allowance.batch <= 0) return null;
+  try {
+    return run.hook.render ? run.hook.render(bytes, page) : startGroupEvidenceRenders(bytes, page, { sessions: run.drawing.sessions });
+  } catch {
+    // The classification starts its own, or says why it cannot draw.
+    return null;
+  }
+}
+
+/**
  * Classifies one page's groups within its document's calls left (`allowance`, decremented) and reads the page again
  * with the answers. Never throws but for the job's own check (run.jobError): any other error keeps the keyword
- * reading and stops Decisions for the job.
+ * reading and stops Decisions for the job. `take` hands the page's drawing over to the classification, which ends it.
  */
 async function decidePage(run: DecisionsRun, input: {
   bytes: Uint8Array;
@@ -263,6 +289,7 @@ async function decidePage(run: DecisionsRun, input: {
   readOptions: Parameters<typeof readVectorPage>[1];
   allowance: { batch: number };
   fingerprint: () => string;
+  take: () => GroupEvidenceSession | null;
   log: { jobId: string | null; tenantId: string | null; document: TakeoffSourceDocumentRef; page: number };
 }): Promise<{ reading: VectorPageReading; decisions: VectorPageDecisions }> {
   const promptVersion = run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION;
@@ -303,13 +330,14 @@ async function decidePage(run: DecisionsRun, input: {
         run.localCall = (local.call ?? (() => localGroupsCall(run.hook.owner, local.selection)))().catch((error: unknown) => (error instanceof LocalGroupsStop
           ? error : new LocalGroupsStop("local_access", "Le forfait ChatGPT n’a pas pu être lu.")));
       }
-      outcome = await classifyVectorGroupsLocal({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, call: await run.localCall,
-        render: run.hook.render, limits: { maxRequests: input.allowance.batch }, beforeCall });
+      const call = await run.localCall;
+      outcome = await classifyVectorGroupsLocal({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, call,
+        render: run.hook.render, limits: { maxRequests: input.allowance.batch }, beforeCall, session: input.take() });
     } else outcome = await classifyVectorGroups({
       bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
       context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
       budget: run.budget, decide: run.hook.decide, render: run.hook.render,
-      limits: { maxBatchCalls: input.allowance.batch }, beforeCall,
+      limits: { maxBatchCalls: input.allowance.batch }, beforeCall, session: input.take(),
     });
     input.allowance.batch -= outcome.calls.length;
     run.calls += outcome.calls.length;
@@ -342,7 +370,8 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
 } = {}): Promise<VectorPageOutcome[]> {
   const extract = options.extract ?? ((bytes: Uint8Array, page: number) => extractVectorPage(bytes, page));
   const run: DecisionsRun | null = options.decisions ? {
-    hook: options.decisions, stop: null, jobError: null, calls: 0, localTokens: 0, localCall: null,
+    hook: options.decisions, drawing: groupEvidenceRenderPlan(options.decisions.local ? "local" : "server"),
+    stop: null, jobError: null, calls: 0, localTokens: 0, localCall: null,
     budget: createDecisionsTokenBudget(options.decisions.maxTokens ?? TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS),
   } : null;
   const outcomes: VectorPageOutcome[] = [];
@@ -361,14 +390,29 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
       if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) break read;
       // The lease renewal is the job's own: its failure stops the job, as everywhere else.
       await options.onPage?.();
+      // The page's drawing, until the classification takes it: ended here on any other way out.
+      let drawing: GroupEvidenceSession | null = null;
+      const take = () => {
+        const taken = drawing;
+        drawing = null;
+        return taken;
+      };
       try {
+        if (run?.drawing.withExtraction) drawing = startPageDrawing(run, bytes, page, allowance);
         const extraction = await extract(bytes, page);
+        // A raster page asks nothing. A drawing started now has the PDF before the reading holds this event loop (the PDF
+        // only leaves while it runs): the page is then analysed while it is read.
+        if (isRasterExtraction(extraction)) take()?.cancel();
+        else if (!run?.drawing.withExtraction) {
+          drawing = startPageDrawing(run, bytes, page, allowance);
+          await drawing?.ready;
+        }
         const readOptions = { calibration: preparationCalibration(source.preparationSnapshot, documentId, page) };
         let reading = readVectorPage(extraction, readOptions);
         let decisions: VectorPageDecisions | undefined;
         if (run && reading.mode !== "raster") {
           ({ reading, decisions } = await decidePage(run, {
-            bytes, extraction, reading, readOptions, allowance,
+            bytes, extraction, reading, readOptions, allowance, take,
             fingerprint: () => (fingerprint ??= sha256(`${run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION}:${sha256(bytes)}`)),
             log: { jobId: options.context?.jobId ?? null, tenantId: options.context?.tenantId ?? null, document: original.document, page },
           }));
@@ -387,6 +431,8 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
         console.error("takeoff.vector.page_failed", { job_id: options.context?.jobId ?? null, tenant_id: options.context?.tenantId ?? null,
           document: original.document, page, reason, message: message.slice(0, 500) });
         outcomes.push({ document: original.document, fileName: original.fileName, page, record: null, items: [], error: `${reason}: ${message}`.slice(0, 500) });
+      } finally {
+        take()?.cancel();
       }
     }
   }

@@ -11,12 +11,12 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { decisionBatches, selectDecisionCandidates } from "@/lib/takeoff/vectors/group-decisions";
 import {
-  callBatches, GROUP_DECISIONS_CALL_IMAGE_BYTES, GROUP_DECISIONS_LEGEND_IMAGES, type GroupDecisionsAnswer, type GroupDecisionsCall, type GroupDecisionsOutcome,
-  type GroupDecisionsRender, type GroupDecisionsStop,
+  GROUP_DECISIONS_CALL_IMAGE_BYTES, GROUP_DECISIONS_LEGEND_IMAGES, streamedBatches, streamImages, type GroupDecisionsAnswer, type GroupDecisionsCall,
+  type GroupDecisionsOutcome, type GroupDecisionsRender, type GroupDecisionsStop,
 } from "@/lib/takeoff/vectors/group-decisions-server";
-import { buildGroupEvidence, type CandidateEvidence } from "@/lib/takeoff/vectors/group-evidence";
+import { buildGroupEvidence, evidenceLayout, type CandidateEvidence } from "@/lib/takeoff/vectors/group-evidence";
 import { planEvidenceImages } from "@/lib/takeoff/vectors/group-evidence-images";
-import { startGroupEvidenceRender, type GroupEvidenceImages, type GroupEvidenceSession, type GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
+import { startGroupEvidenceRender, type GroupEvidenceSession, type GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import {
   GROUP_LOCAL_MODEL, GROUP_LOCAL_MODEL_LIMITS, groupLocalModelSchema, localModelEntries, localModelPrompt, readLocalModelAnswer, readLocalModelEntries, GROUP_LOCAL_MODEL_PROMPT_VERSION,
   type GroupLocalModelAnswer, type LocalModelEntries,
@@ -29,12 +29,16 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 // B): the local ChatGPT plan of the user the job runs for, never a server key.
 // - The candidates, their evidence and their images are those of
 //   group-decisions-server.ts (drawn once per page, the page analysed while the
-//   evidence is computed). Every candidate is asked: no rule decides before the
-//   model.
+//   evidence is computed, by the caller's session or one started here). Every
+//   candidate is asked: no rule decides before the model.
 // - 8 groups per request (fewer when their images pass a call's bytes),
-//   GROUP_LOCAL_MODEL_CONCURRENCY at once, started in their order; `beforeCall`
-//   before each start (the job's lease, tenant and creator's membership), the
-//   account checked before each request (the profile the job started with).
+//   GROUP_LOCAL_MODEL_CONCURRENCY at once, started in their order, each once
+//   its own images are drawn (TI-704 latency); `beforeCall` before each start
+//   (the job's lease, tenant and creator's membership), the account checked
+//   before each request (the profile the job started with).
+// - An image that cannot be drawn stops the page at its request: none from it
+//   on, the answers before it kept, the rest to the rules (render_failed). A
+//   stop, the job check's error or nothing to draw end the drawing here.
 // - A request that fails, and a group its answer leaves out or gets wrong, keep
 //   their groups for the rules (same colour, band, source « rule »): the
 //   measured fallback. A quota or a rate limit, a refused access or a model the
@@ -166,168 +170,210 @@ export async function classifyVectorGroupsLocal(input: {
   /** Requests this page may send (what its document has left, GROUP_LOCAL_MODEL_LIMITS); the page's limit at most. */
   limits?: { maxRequests: number };
   beforeCall?: () => Promise<void>;
+  /** The page's drawing started by the caller (the worker, once the extraction ended): drawn with, or cancelled here. */
+  session?: GroupEvidenceSession | null;
   clock?: () => number;
   log?: (line: string) => void;
 }): Promise<GroupDecisionsOutcome> {
-  const render = input.render ?? ((bytes: Uint8Array, page: number) => startGroupEvidenceRender(bytes, page));
-  const clock = input.clock ?? (() => performance.now());
-  const maxRequests = Math.max(0, Math.min(GROUP_LOCAL_MODEL_LIMITS.requestsPerPage, Math.floor(input.limits?.maxRequests ?? Number.POSITIVE_INFINITY)));
-  const model = buildPageModel(input.extraction);
-  const selection = selectDecisionCandidates(model, input.reading);
-  const filtered: GroupDecisionsOutcome["filtered"] = {};
-  for (const entry of selection.filtered) filtered[entry.reason] = (filtered[entry.reason] ?? 0) + 1;
-  const outcome: GroupDecisionsOutcome = {
-    answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
-    filtered, ruled: { same_colour: 0, band: 0, propagated: 0 }, render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null,
-  };
-  if (selection.candidates.length === 0) return outcome;
-  const callable = typeof input.call === "function" ? input.call : null;
-  // The page is analysed for its images while its evidence is computed (once the child has the PDF), as for Decisions.
-  let session: GroupEvidenceSession | null = null;
+  // The page's drawing: the caller's, or started here; ended here unless drawn to its end (nothing to draw, a stop,
+  // the job check's error, an exception).
+  let session: GroupEvidenceSession | null = input.session ?? null;
+  let feed: ReturnType<typeof streamImages> | null = null;
   try {
-    session = callable && maxRequests > 0 ? render(input.bytes, input.extraction.page) : null;
-  } catch {
-    session = null;
-  }
-  await session?.ready;
-  let evidence: ReturnType<typeof buildGroupEvidence>;
-  try {
-    evidence = buildGroupEvidence(model, input.reading, selection.candidates, new Set(selection.unclassed));
-  } catch (error) {
-    session?.cancel();
-    throw error;
-  }
-  /**
-   * The rules' class for the groups no answer reached: the request failed, stopped or was never sent, or its answer
-   * left the group out, answered it twice or wrongly (step 7 of option B: the rules as the fallback of a failed call).
-   */
-  const fallBack = (groups: readonly CandidateEvidence[]) => {
-    for (const candidate of groups) {
-      if (outcome.answers.get(candidate.id)?.status === "answered") continue;
-      const rule = ruleClassOf(candidate);
-      if (!rule) continue;
-      outcome.ruled[rule.rule] += 1;
-      outcome.answers.set(candidate.id, { class: rule.class, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: rule.rule });
-    }
-  };
-  const stopWith = (stop: GroupDecisionsStop) => {
-    outcome.stop ??= stop;
-  };
-  if (!callable) {
-    session?.cancel();
-    if (input.call instanceof LocalGroupsStop) stopWith({ reason: input.call.reason, message: input.call.message } as GroupDecisionsStop);
-    fallBack(evidence.candidates);
-    return outcome;
-  }
-  const sent = decisionBatches(evidence.candidates, GROUP_LOCAL_MODEL.groupsPerRequest).slice(0, maxRequests).flat();
-  outcome.left_out += evidence.candidates.length - sent.length;
-  if (sent.length === 0) {
-    session?.cancel();
-    fallBack(evidence.candidates);
-    return outcome;
-  }
-  let images: GroupEvidenceImages | null = null;
-  try {
-    const blocks = evidence.legend_blocks.slice(0, GROUP_DECISIONS_LEGEND_IMAGES);
-    images = session ? await session.draw(planEvidenceImages(model, input.extraction.page, blocks, sent)) : null;
-  } catch {
-    // A plan that cannot be made leaves no drawing behind.
-    session?.cancel();
-    images = null;
-  }
-  if (images) {
-    outcome.render = { page_ms: images.render_ms.page, legends_ms: images.render_ms.legends.map((value) => value ?? 0),
-      groups_ms: images.render_ms.groups.map((value) => value ?? 0), dropped_images: images.dropped_images };
-  }
-  if (!images || images.issue !== null || images.legends.some((image) => image === null) || images.groups.some((image) => image === null)) {
-    stopWith({ reason: images?.issue === "canvas_unavailable" ? "canvas_unavailable" : "render_failed",
-      message: "Les images des groupes n’ont pas pu être dessinées : les groupes suivent les règles ou restent à revoir." });
-    fallBack(evidence.candidates);
-    return outcome;
-  }
-  const drawn = images;
-  // The legend images within half a request's image bytes, in their order; then the requests within those bytes.
-  let legendBytes = 0;
-  const legendImages: GroupImage[] = [];
-  for (const image of drawn.legends as GroupImage[]) {
-    if (legendBytes + image.data.length > GROUP_DECISIONS_CALL_IMAGE_BYTES / 2) continue;
-    legendBytes += image.data.length;
-    legendImages.push(image);
-  }
-  const imageOf = new Map(sent.map((candidate, index) => [candidate.alias, drawn.groups[index] as GroupImage]));
-  const split = callBatches(sent, (candidate) => imageOf.get(candidate.alias)?.data.length ?? 0, legendBytes, GROUP_LOCAL_MODEL.groupsPerRequest);
-  const requests = split.slice(0, maxRequests);
-  outcome.left_out += sent.length - requests.flat().length;
-  const busy = { inFlight: 0, since: 0, total: 0, calls: 0 };
-  /** One request: its log entry, its answers, or the stop it makes; throws only the job check's error. */
-  const send = async (groups: readonly CandidateEvidence[]) => {
-    const started = clock();
-    busy.calls += 1;
-    if (busy.inFlight++ === 0) busy.since = started;
-    let entry: GroupDecisionsCall;
-    let answers: Map<string, GroupDecisionsAnswer> | null = null;
-    let stop: GroupDecisionsStop | null = null;
-    try {
-      const result = await callable({ prompt: localModelPrompt(evidence, groups, legendImages.length),
-        images: [...legendImages, ...groups.map((group) => imageOf.get(group.alias) as GroupImage)] });
-      answers = new Map();
-      for (const [id, read] of readLocalModelAnswer(evidence, groups, result.data)) {
-        const alias = groups.find((group) => group.id === id)?.alias ?? "";
-        answers.set(id, { class: read.class, confidence: read.confidence, status: read.status, proposal: read.proposal, alias, via: "local" });
-      }
-      entry = { kind: "batch", questions: groups.length, status: "available", usage: { input_tokens: 0, output_tokens: 0, total_tokens: result.totalTokens },
-        latency_ms: 0, render_ms: null };
-    } catch (error) {
-      const reason = error instanceof LocalGroupsStop ? error.reason : null;
-      if (reason) stop = { reason, message: (error as Error).message } as GroupDecisionsStop;
-      // An answer that could not be read still consumed the plan's tokens.
-      const tokens = error instanceof LocalGroupsRequestError ? error.totalTokens : null;
-      entry = { kind: "batch", questions: groups.length, status: "failed", usage: tokens === null ? null : { input_tokens: 0, output_tokens: 0, total_tokens: tokens },
-        latency_ms: 0, render_ms: null, error: (error instanceof Error ? error.message : "Demande ChatGPT échouée.").slice(0, 300) };
-    }
-    const ended = clock();
-    if (--busy.inFlight === 0) busy.total += ended - busy.since;
-    entry.latency_ms = Math.max(0, Math.round(ended - started));
-    input.log?.(`chatgpt local ${groups.length} groupe(s): ${entry.status}${entry.usage ? `, ${entry.usage.total_tokens} jetons` : ""}`);
-    return { entry, answers, stop };
-  };
-  const results: Array<Awaited<ReturnType<typeof send>> | undefined> = [];
-  // Started in their order, the job's check one at a time before each start, GROUP_LOCAL_MODEL_CONCURRENCY in flight at most.
-  const running = new Set<Promise<void>>();
-  let halted = false;
-  let checkError: { error: unknown } | null = null;
-  try {
-    for (const [index, groups] of requests.entries()) {
-      while (running.size >= GROUP_LOCAL_MODEL_CONCURRENCY) await Promise.race(running);
-      if (halted) break;
+    const render = input.render ?? ((bytes: Uint8Array, page: number) => startGroupEvidenceRender(bytes, page));
+    const clock = input.clock ?? (() => performance.now());
+    const maxRequests = Math.max(0, Math.min(GROUP_LOCAL_MODEL_LIMITS.requestsPerPage, Math.floor(input.limits?.maxRequests ?? Number.POSITIVE_INFINITY)));
+    const model = buildPageModel(input.extraction);
+    const selection = selectDecisionCandidates(model, input.reading);
+    const filtered: GroupDecisionsOutcome["filtered"] = {};
+    for (const entry of selection.filtered) filtered[entry.reason] = (filtered[entry.reason] ?? 0) + 1;
+    const outcome: GroupDecisionsOutcome = {
+      answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
+      filtered, ruled: { same_colour: 0, band: 0, propagated: 0 }, render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null,
+    };
+    if (selection.candidates.length === 0) return outcome;
+    const callable = typeof input.call === "function" ? input.call : null;
+    // The page is analysed for its images while its evidence is computed (once the child has the PDF), as for Decisions.
+    if (callable && maxRequests > 0 && !session) {
       try {
-        await input.beforeCall?.();
-      } catch (error) {
-        checkError = { error };
-        break;
+        session = render(input.bytes, input.extraction.page);
+      } catch {
+        session = null;
       }
-      if (halted) break;
-      const pending: Promise<void> = send(groups).then((result) => {
-        results[index] = result;
-        if (result.stop) halted = true;
-      }).finally(() => {
-        running.delete(pending);
-      });
-      running.add(pending);
     }
+    if (callable && maxRequests > 0) await session?.ready;
+    // Every candidate is asked: the groups drawn are known before their evidence. The plan (legend blocks, each group's
+    // focus) leaves first, the rest of the evidence is computed while they are drawn (TI-704 latency).
+    const layout = evidenceLayout(model, input.reading, selection.candidates);
+    const sent = callable ? decisionBatches(selection.candidates, GROUP_LOCAL_MODEL.groupsPerRequest).slice(0, maxRequests).flat() : [];
+    if (session && sent.length > 0) {
+      try {
+        const blocks = layout.blocks.slice(0, GROUP_DECISIONS_LEGEND_IMAGES);
+        feed = streamImages(session, planEvidenceImages(model, input.extraction.page, blocks,
+          sent.map((candidate) => ({ alias: candidate.alias, group: candidate.group, focus: layout.focus.get(candidate.group)!.focus }))));
+      } catch {
+        // A plan that cannot be made: no request, the session cancelled.
+        feed = null;
+      }
+    }
+    // The plan reaches the drawing before the evidence holds this event loop (it leaves only while the loop runs).
+    if (feed) await session?.sent?.();
+    const evidence = buildGroupEvidence(model, input.reading, selection.candidates, new Set(selection.unclassed), layout);
+    const askedById = new Map(evidence.candidates.map((candidate) => [candidate.id, candidate]));
+    /**
+     * The rules' class for the groups no answer reached: the request failed, stopped or was never sent, or its answer
+     * left the group out, answered it twice or wrongly (step 7 of option B: the rules as the fallback of a failed call).
+     */
+    const fallBack = (groups: readonly CandidateEvidence[]) => {
+      for (const candidate of groups) {
+        if (outcome.answers.get(candidate.id)?.status === "answered") continue;
+        const rule = ruleClassOf(candidate);
+        if (!rule) continue;
+        outcome.ruled[rule.rule] += 1;
+        outcome.answers.set(candidate.id, { class: rule.class, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: rule.rule });
+      }
+    };
+    const stopWith = (stop: GroupDecisionsStop) => {
+      outcome.stop ??= stop;
+    };
+    if (!callable) {
+      if (input.call instanceof LocalGroupsStop) stopWith({ reason: input.call.reason, message: input.call.message } as GroupDecisionsStop);
+      fallBack(evidence.candidates);
+      return outcome;
+    }
+    outcome.left_out += evidence.candidates.length - sent.length;
+    if (sent.length === 0) {
+      fallBack(evidence.candidates);
+      return outcome;
+    }
+    /** The drawing's times, once it has ended (cancelled first when a stop left it running). */
+    const recordDrawing = async () => {
+      if (!feed) return;
+      if (!feed.ended()) session?.cancel();
+      const drawn = await feed.done;
+      outcome.render = { page_ms: drawn.render_ms.page, legends_ms: drawn.render_ms.legends.map((value) => value ?? 0),
+        groups_ms: drawn.render_ms.groups.map((value) => value ?? 0), dropped_images: drawn.dropped_images };
+    };
+    const renderFailure = (): GroupDecisionsStop => ({ reason: feed?.ended()?.issue === "canvas_unavailable" ? "canvas_unavailable" : "render_failed",
+      message: "Les images des groupes n’ont pas pu être dessinées : les groupes suivent les règles ou restent à revoir." });
+    const legends = feed ? await feed.legends() : null;
+    if (!feed || !legends) {
+      stopWith(renderFailure());
+      await recordDrawing();
+      fallBack(evidence.candidates);
+      return outcome;
+    }
+    const images = feed;
+    // The legend images within half a request's image bytes, in their order; then the requests within those bytes, as
+    // their images are drawn.
+    let legendBytes = 0;
+    const legendImages: GroupImage[] = [];
+    for (const image of legends) {
+      if (legendBytes + image.data.length > GROUP_DECISIONS_CALL_IMAGE_BYTES / 2) continue;
+      legendBytes += image.data.length;
+      legendImages.push(image);
+    }
+    const imageOf = new Map<string, GroupImage>();
+    const batches = streamedBatches(sent, (index) => images.group(index), legendBytes, GROUP_LOCAL_MODEL.groupsPerRequest);
+    const stopDrawing = () => {
+      if (!images.ended()) session?.cancel();
+    };
+    const busy = { inFlight: 0, since: 0, total: 0, calls: 0 };
+    /** One request: its log entry, its answers, or the stop it makes; throws only the job check's error. */
+    const send = async (groups: readonly CandidateEvidence[]) => {
+      const started = clock();
+      busy.calls += 1;
+      if (busy.inFlight++ === 0) busy.since = started;
+      let entry: GroupDecisionsCall;
+      let answers: Map<string, GroupDecisionsAnswer> | null = null;
+      let stop: GroupDecisionsStop | null = null;
+      try {
+        const result = await callable({ prompt: localModelPrompt(evidence, groups, legendImages.length),
+          images: [...legendImages, ...groups.map((group) => imageOf.get(group.alias) as GroupImage)] });
+        answers = new Map();
+        for (const [id, read] of readLocalModelAnswer(evidence, groups, result.data)) {
+          const alias = groups.find((group) => group.id === id)?.alias ?? "";
+          answers.set(id, { class: read.class, confidence: read.confidence, status: read.status, proposal: read.proposal, alias, via: "local" });
+        }
+        entry = { kind: "batch", questions: groups.length, status: "available", usage: { input_tokens: 0, output_tokens: 0, total_tokens: result.totalTokens },
+          latency_ms: 0, render_ms: null };
+      } catch (error) {
+        const reason = error instanceof LocalGroupsStop ? error.reason : null;
+        if (reason) stop = { reason, message: (error as Error).message } as GroupDecisionsStop;
+        // An answer that could not be read still consumed the plan's tokens.
+        const tokens = error instanceof LocalGroupsRequestError ? error.totalTokens : null;
+        entry = { kind: "batch", questions: groups.length, status: "failed", usage: tokens === null ? null : { input_tokens: 0, output_tokens: 0, total_tokens: tokens },
+          latency_ms: 0, render_ms: null, error: (error instanceof Error ? error.message : "Demande ChatGPT échouée.").slice(0, 300) };
+      }
+      const ended = clock();
+      if (--busy.inFlight === 0) busy.total += ended - busy.since;
+      entry.latency_ms = Math.max(0, Math.round(ended - started));
+      input.log?.(`chatgpt local ${groups.length} groupe(s): ${entry.status}${entry.usage ? `, ${entry.usage.total_tokens} jetons` : ""}`);
+      return { entry, answers, stop };
+    };
+    const results: Array<Awaited<ReturnType<typeof send>> | undefined> = [];
+    // Started in their order, each once its images are drawn, the job's check one at a time before each start,
+    // GROUP_LOCAL_MODEL_CONCURRENCY in flight at most, maxRequests in all.
+    const running = new Set<Promise<void>>();
+    let halted = false;
+    let capped = false;
+    let drawingFailed = false;
+    let checkError: { error: unknown } | null = null;
+    try {
+      for (let index = 0; ; index += 1) {
+        if (index >= maxRequests) {
+          capped = true;
+          break;
+        }
+        const formed = await batches.next();
+        if (halted || formed === null) break;
+        if (formed === "failed") {
+          drawingFailed = true;
+          break;
+        }
+        const groups = formed.map((entry) => askedById.get(entry.group.id) as CandidateEvidence);
+        for (const entry of formed) imageOf.set(entry.group.alias, entry.image);
+        while (running.size >= GROUP_LOCAL_MODEL_CONCURRENCY) await Promise.race(running);
+        if (halted) break;
+        try {
+          await input.beforeCall?.();
+        } catch (error) {
+          checkError = { error };
+          break;
+        }
+        if (halted) break;
+        const pending: Promise<void> = send(groups).then((result) => {
+          results[index] = result;
+          if (result.stop) {
+            halted = true;
+            stopDrawing();
+          }
+        }).finally(() => {
+          running.delete(pending);
+        });
+        running.add(pending);
+      }
+    } finally {
+      if (checkError) stopDrawing();
+      await Promise.all(running);
+    }
+    if (checkError) throw (checkError as { error: unknown }).error;
+    if (capped) outcome.left_out += sent.length - batches.taken();
+    await recordDrawing();
+    for (const [index, result] of results.entries()) {
+      if (!result) continue;
+      outcome.calls.push(result.entry);
+      if (result.answers) for (const [id, answer] of result.answers) outcome.answers.set(id, answer);
+      if (result.stop) stopWith(result.stop);
+      else if (result.entry.status === "failed") input.log?.(`chatgpt local : demande ${index + 1} en échec, ses groupes suivent les règles`);
+    }
+    // A drawing that failed after the requests before it: they keep their answers, the rest follows the rules.
+    if (drawingFailed && !halted) stopWith(renderFailure());
+    if (busy.calls > 0) outcome.calls_ms = Math.max(0, Math.round(busy.total));
+    // The groups a failed, stopped or unsent request leaves, or its answer: the rules' class, the measured fallback.
+    fallBack(evidence.candidates);
+    return outcome;
   } finally {
-    await Promise.all(running);
+    if (session && !feed?.ended()) session.cancel();
   }
-  if (checkError) throw (checkError as { error: unknown }).error;
-  for (const [index, result] of results.entries()) {
-    if (!result) continue;
-    outcome.calls.push(result.entry);
-    if (result.answers) for (const [id, answer] of result.answers) outcome.answers.set(id, answer);
-    if (result.stop) stopWith(result.stop);
-    else if (result.entry.status === "failed") input.log?.(`chatgpt local : demande ${index + 1} en échec, ses groupes suivent les règles`);
-  }
-  if (busy.calls > 0) outcome.calls_ms = Math.max(0, Math.round(busy.total));
-  // The groups a failed, stopped or unsent request leaves, or its answer: the rules' class, the measured fallback.
-  fallBack(evidence.candidates);
-  return outcome;
 }

@@ -24,6 +24,11 @@ import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 export const VECTOR_READING_VERSION = 11;
 export const RASTER_COVERAGE = 0.9;
 
+/** A page whose raster images cover RASTER_COVERAGE of it, known from its extraction alone (its reading's « raster » mode). */
+export function isRasterExtraction(extraction: Pick<VectorPageExtraction, "counts">) {
+  return extraction.counts.imageCoverage >= RASTER_COVERAGE;
+}
+
 export type VectorGroupReading = Pick<GroupStats, "id" | "layer" | "layerName" | "colors" | "width" | "dash" | "paths" | "segments" | "closed" | "nearWhite" | "grey"> & {
   length_pt: number;
   bbox: [number, number, number, number] | null;
@@ -63,7 +68,7 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
   const clock = options.clock ?? (() => performance.now());
   const startedAt = clock();
   const model = buildPageModel(extraction);
-  const mode = extraction.counts.imageCoverage >= RASTER_COVERAGE ? "raster" : extraction.layers.length > 0 && model.groups.some((group) => group.layer !== null) ? "layers" : "colours";
+  const mode = isRasterExtraction(extraction) ? "raster" : extraction.layers.length > 0 && model.groups.some((group) => group.layer !== null) ? "layers" : "colours";
   const index = new SegmentIndex(model.segments, Math.max(extraction.width, 1));
   const scale = readPageScale({ texts: extraction.texts, index, width: extraction.width, height: extraction.height, calibration: options.calibration ?? null });
   const legend = mode === "colours" ? readLegend(model) : { version: LEGEND_RULE_VERSION, entries: [], colors: [], boxes: [] };

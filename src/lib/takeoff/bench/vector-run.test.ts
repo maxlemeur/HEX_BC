@@ -7,6 +7,7 @@ import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import type { BenchPass, CallStatus, DocumentRun } from "@/lib/takeoff/bench/run";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
 import type { GroupDecisionsOutcome } from "@/lib/takeoff/vectors/group-decisions-server";
+import type { GroupEvidenceSession } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import {
   VectorExtractionError,
   type VectorGroupKey,
@@ -518,6 +519,83 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(result.vector.passes).toEqual([]);
     const report = buildBenchReport({ metadata, run: result.run, scopes: [], noise: null, pipeline: "vector" });
     expect(renderBenchReportMarkdown(report)).toContain("decisions_unavailable");
+  });
+});
+
+describe("the page's drawing and durations in the vector bench (TI-704 latency)", () => {
+  it("starts a page's drawing once its extraction ended, hands it to the hook, cancels the unused, and records each step's duration", async () => {
+    const log: string[] = [];
+    const sessions = { started: 0, cancelled: 0 };
+    let now = 0;
+    // A session's first cancel counts, as a real one ends once.
+    const session = (): GroupEvidenceSession => {
+      let ended = false;
+      return { draw: async () => { throw new Error("not drawn by the fake hook"); }, cancel: () => {
+        if (!ended) sessions.cancelled += 1;
+        ended = true;
+      } };
+    };
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 3)], groups: new Map(), repeat: 1, clock: () => now,
+      extract: async (_bytes, number) => {
+        log.push(`extract p${number}`);
+        now += 1000;
+        return plan(number, 3, number === 2 ? 0.95 : 0);
+      },
+      decisions: {
+        promptVersion: "fixture-groups-v1",
+        startDrawing: (_document, number) => {
+          log.push(`render p${number}`);
+          sessions.started += 1;
+          return session();
+        },
+        classify: async (_document, number, _extraction, _reading, _pass, given) => {
+          log.push(`classify p${number} ${given ? "with" : "without"} its drawing`);
+          now += 3000;
+          // Page 3 leaves its drawing unused: the bench ends it.
+          if (number === 1) given?.cancel();
+          return { answers: new Map(), calls: [], stop: null, candidates: 0, eligible: 0, left_out: 0, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+            render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null };
+        },
+      },
+    });
+    // A raster page draws nothing; every drawing started ends.
+    expect(log).toEqual(["extract p1", "render p1", "classify p1 with its drawing", "extract p2", "classify p2 without its drawing", "extract p3", "render p3",
+      "classify p3 with its drawing"]);
+    expect(sessions).toEqual({ started: 2, cancelled: 2 });
+    expect(result.vector.passes[0].documents[0].pages[0].durations).toMatchObject({ extraction_ms: 1000, groups_ms: 3000, total_ms: 4000 });
+  });
+});
+
+describe("the local plan's drawing in the vector bench (TI-704 latency)", () => {
+  it("starts the drawing with the extraction when the hook says so, and cancels a raster page's", async () => {
+    const log: string[] = [];
+    let cancelled = 0;
+    await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1,
+      extract: async (_bytes, number) => {
+        log.push(`extract p${number}`);
+        return plan(number, 2, number === 2 ? 0.95 : 0);
+      },
+      decisions: {
+        promptVersion: "fixture-groups-v1", drawWithExtraction: true,
+        startDrawing: (_document, number) => {
+          log.push(`render p${number}`);
+          let ended = false;
+          return { draw: async () => { throw new Error("not drawn"); }, cancel: () => {
+            if (!ended) cancelled += 1;
+            ended = true;
+          } };
+        },
+        classify: async (_document, number, _extraction, _reading, _pass, given) => {
+          log.push(`classify p${number} ${given ? "with" : "without"} its drawing`);
+          return { answers: new Map(), calls: [], stop: null, candidates: 0, eligible: 0, left_out: 0, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+            render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null };
+        },
+      },
+    });
+    expect(log).toEqual(["render p1", "extract p1", "classify p1 with its drawing", "render p2", "extract p2", "classify p2 without its drawing"]);
+    expect(cancelled).toBe(2);
   });
 });
 

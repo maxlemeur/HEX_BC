@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import type { EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
 import { GROUP_EVIDENCE_IMAGES } from "@/lib/takeoff/vectors/group-evidence-images";
-import { renderGroupEvidence, startGroupEvidenceRender } from "@/lib/takeoff/vectors/group-evidence-render-server";
+import {
+  groupEvidenceRenderPlan, renderGroupEvidence, renderShares, startGroupEvidenceRender, startGroupEvidenceRenders, type GroupImageEvent,
+} from "@/lib/takeoff/vectors/group-evidence-render-server";
 
 // Ways the images of the v2 group questions (TI-704,
 // group-evidence-render-server.ts: one killable child, real PDF.js and
@@ -20,6 +22,14 @@ import { renderGroupEvidence, startGroupEvidenceRender } from "@/lib/takeoff/vec
 //   painted after it (texts, strokes) is lost (TI-715);
 // - no canvas module, a JPEG over budget, a child past its deadline or bytes
 //   that are not a PDF throw (or hang) instead of returning the reason.
+// TI-704 latency (the page under 15 s):
+// - an image held back until the page's last one is drawn (its call waits);
+// - a window two groups share drawn twice, or drawn once but no longer pixel
+//   for pixel what it was (the model is sensitive to a sub-pixel shift);
+// - a page split between processes giving other images, an image under
+//   another group's index, or the groups of one window in two processes;
+// - more drawing processes than a server holds, or than the machine has room
+//   for in local mode; a server's drawing beside its extraction.
 
 const SPAWN = { timeout: 90_000 } as const;
 const P = GROUP_EVIDENCE_IMAGES.panelPx, C = GROUP_EVIDENCE_IMAGES.captionPx;
@@ -152,5 +162,81 @@ describe("images of the v2 group questions (group-evidence-render-server.ts)", (
     await expect(renderGroupEvidence(bytes, evidencePlan(), { timeoutMs: 1 })).resolves.toMatchObject({ groups: [null], legends: [null], issue: "timeout" });
     await expect(renderGroupEvidence(new Uint8Array([1, 2, 3, 4]), evidencePlan())).resolves.toMatchObject({ groups: [null], issue: "render_failed" });
     await expect(renderGroupEvidence(bytes, { page: 1, legends: [], groups: [] })).resolves.toMatchObject({ groups: [], legends: [], issue: null });
+  });
+});
+
+/** A group of `evidencePlan`'s page: A's window at x0 (C's around it), its pipe in `color`. */
+function group(alias: string, x0: number, color = "#ff0000"): EvidenceImagePlan["groups"][number] {
+  return { alias, detail: { x0, y0: 320, x1: x0 + 160, y1: 480 }, context: { x0: x0 - 320, y0: 0, x1: x0 + 480, y1: 800 },
+    paths: [{ color, width: 2, outline: false, points: [300, 400, 900, 400] }], points: { drawn: 2, total: 2 } };
+}
+
+describe("images of a page as they are drawn (group-evidence-render-server.ts, TI-704 latency)", () => {
+  it("hands each image over as soon as it is drawn, before the drawing ends, the same as in the result", SPAWN, async () => {
+    const session = startGroupEvidenceRender(await plan(), 1);
+    const events: Array<GroupImageEvent & { ended: boolean; at: number }> = [];
+    let ended = false;
+    const drawn = session.draw({ legends: evidencePlan().legends, groups: [group("groupe_01", 520), group("groupe_02", 300), group("groupe_03", 700)] },
+      (event) => events.push({ ...event, ended, at: performance.now() }));
+    void drawn.then(() => { ended = true; });
+    const result = await drawn;
+    expect(result.issue).toBeNull();
+    expect(events.map((event) => [event.kind, event.index, event.ended])).toEqual([["legends", 0, false], ["groups", 0, false], ["groups", 1, false],
+      ["groups", 2, false]]);
+    expect(events.map((event) => event.image.data)).toEqual([result.legends[0]?.data, ...result.groups.map((image) => image?.data)]);
+    // Each as drawn, never all at the end: two groups' windows are drawn between the first group's image and the last's.
+    expect(events[3].at - events[1].at).toBeGreaterThanOrEqual(Math.min(result.render_ms.groups[1] ?? 0, result.render_ms.groups[2] ?? 0));
+  });
+
+  it("draws the windows two groups share once, pixel for pixel the image each gets alone", SPAWN, async () => {
+    const bytes = await plan();
+    const shared = [group("groupe_01", 520), group("groupe_02", 520, "#0000ff"), group("groupe_03", 300)];
+    const together = await renderGroupEvidence(bytes, { page: 1, legends: [], groups: shared });
+    expect(together.issue).toBeNull();
+    // groupe_02 reuses A's and C's windows of groupe_01.
+    expect(together.reused_windows).toBe(2);
+    const alone = await renderGroupEvidence(bytes, { page: 1, legends: [], groups: [shared[1]] });
+    expect(alone.reused_windows).toBe(0);
+    expect(together.groups[1]?.data).toBe(alone.groups[0]?.data);
+    expect(together.groups[0]?.data).not.toBe(together.groups[1]?.data);
+  });
+
+  it("splits a page between processes, each window in one, with the images of one process under their own indexes", SPAWN, async () => {
+    const bytes = await plan();
+    const groups = [group("groupe_01", 520), group("groupe_02", 300), group("groupe_03", 520, "#0000ff"), group("groupe_04", 700)];
+    const full = { legends: evidencePlan().legends, groups };
+    const one = await startGroupEvidenceRender(bytes, 1).draw(full);
+    const events: GroupImageEvent[] = [];
+    const split = startGroupEvidenceRenders(bytes, 1, { sessions: 2 });
+    await split.ready;
+    const two = await split.draw(full, (event) => events.push(event));
+    expect(two.issue).toBeNull();
+    expect(two.legends.map((image) => image?.data)).toEqual(one.legends.map((image) => image?.data));
+    expect(two.groups.map((image) => image?.data)).toEqual(one.groups.map((image) => image?.data));
+    expect(events.filter((event) => event.kind === "groups").map((event) => event.index).sort()).toEqual([0, 1, 2, 3]);
+    expect(two.reused_windows).toBe(2);
+    // Cancelled before its plan: no image drawn.
+    const unused = startGroupEvidenceRenders(bytes, 1, { sessions: 2 });
+    unused.cancel();
+    expect(await unused.draw(full)).toMatchObject({ groups: [null, null, null, null] });
+  });
+
+  it("gives the groups of one window to one process, the others to the least busy, in the plan's order", () => {
+    const at = (x0: number) => group("g", x0);
+    // Six groups, two windows shared: each window in one process (a window drawn costs more than one reused), the load
+    // balanced; the legends counted on the first, which draws them.
+    expect(renderShares([at(100), at(300), at(100), at(500), at(700), at(300)], 2)).toEqual([0, 1, 0, 1, 0, 1]);
+    expect(renderShares([at(100), at(300), at(500)], 3, 2)).toEqual([1, 2, 0]);
+    expect(renderShares([at(100), at(300)], 1)).toEqual([0, 0]);
+  });
+
+  it("draws with one process after the extraction on a server, with up to 3 beside it in local mode as the machine allows", () => {
+    const GiB = 2 ** 30;
+    expect(groupEvidenceRenderPlan("server", { cores: 18, memoryBytes: 64 * GiB })).toEqual({ sessions: 1, withExtraction: false });
+    expect(groupEvidenceRenderPlan("local", { cores: 18, memoryBytes: 64 * GiB })).toEqual({ sessions: 3, withExtraction: true });
+    // A process per 8 GiB: 16 GiB beside a development server and a browser hold two (some 5 GB with the extraction).
+    expect(groupEvidenceRenderPlan("local", { cores: 18, memoryBytes: 16 * GiB }).sessions).toBe(2);
+    expect(groupEvidenceRenderPlan("local", { cores: 18, memoryBytes: 8 * GiB }).sessions).toBe(1);
+    expect(groupEvidenceRenderPlan("local", { cores: 3, memoryBytes: 64 * GiB }).sessions).toBe(1);
   });
 });

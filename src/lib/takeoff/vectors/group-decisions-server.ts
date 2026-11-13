@@ -18,7 +18,7 @@ import {
   type GroupAnswer,
 } from "@/lib/takeoff/vectors/group-decisions";
 import { buildGroupEvidence, pageJson, type CandidateEvidence } from "@/lib/takeoff/vectors/group-evidence";
-import { planEvidenceImages } from "@/lib/takeoff/vectors/group-evidence-images";
+import { planEvidenceImages, type EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
 import {
   startGroupEvidenceRender, type GroupEvidenceImages, type GroupEvidenceSession, type GroupImage,
 } from "@/lib/takeoff/vectors/group-evidence-render-server";
@@ -34,11 +34,16 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 // - the rules first (group-rules.ts): same colour, band; their classes need
 //   no call and stay whatever happens to the calls;
 // - the others asked of Decisions, at most 20 per call and maxBatchCalls
-//   calls, each group with its own image, the page's JSON and legend blocks
-//   shared; their images drawn once (group-evidence-render-server.ts) before
-//   the first call, the page analysed while the evidence is computed (the
-//   session is cancelled when no group is asked); answers read at
+//   calls (whatever the image bytes split), each group with its own image,
+//   the page's JSON and legend blocks shared; their images drawn once
+//   (group-evidence-render-server.ts), the page analysed while the evidence
+//   is computed: by a session the caller started (the worker, once the
+//   extraction ended) or one started here; answers read at
 //   DECISIONS_ACCEPTED_MARGIN;
+// - a call leaves once its own images are drawn (TI-704 latency: never the
+//   page's last one), the calls after it formed as the images come, in their
+//   order (callBatches); an image that cannot be drawn stops the page at its
+//   call: none from it on, those before it applied (render_failed);
 // - then the propagation of the same colour, over every candidate;
 // - the worker gives fewer calls (`limits`): what its document has left; the
 //   groups past them stay « à revoir », counted in `left_out`;
@@ -61,8 +66,10 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   applied (logged `after_stop`). Answers, their order and the stop are those
 //   of the same calls one after the other, whatever order they end in; the
 //   call log, its tokens and `calls_ms` keep every call sent;
-// - without canvas, or when an image cannot be drawn, no call is sent for the
-//   page (canvas_unavailable, render_failed); the rules' classes stay.
+// - without canvas no call is sent for the page (canvas_unavailable), nor
+//   without its legend images; the rules' classes stay;
+// - the session ends here: drawn to its end, or cancelled (nothing to draw, a
+//   stop, a refused budget, the job check's error, any exception).
 // Whatever stops, the groups without an answer stay « à revoir »; the reading
 // takes the answers through readVectorPage's `decisions` (decisionsOfOutcome).
 // The call log holds counts, statuses, usage and timings: never the evidence,
@@ -189,6 +196,94 @@ function renderStop(issue: string | null): GroupDecisionsStop {
 
 const asImage = (image: GroupImage): OpenAiDecisionImage => ({ mimeType: image.mimeType, data: image.data });
 
+/**
+ * The images of a page's plan as the session draws them (TI-704 latency): each waits for its own image, never the
+ * page's last. A drawing that hands nothing over (a test's fake) gives its images when it ends, unless it failed.
+ */
+export function streamImages(session: GroupEvidenceSession, plan: Omit<EvidenceImagePlan, "page">) {
+  const drawn = { legends: new Map<number, GroupImage>(), groups: new Map<number, GroupImage>() };
+  let ended: GroupEvidenceImages | null = null;
+  /** A result that cannot be read (never a drawing's failure): thrown to whoever waits, as the call that drew it. */
+  let broken: { error: unknown } | null = null;
+  let waiting: Array<() => void> = [];
+  const wake = () => {
+    const resolved = waiting;
+    waiting = [];
+    for (const resolve of resolved) resolve();
+  };
+  const finish = (images: GroupEvidenceImages) => {
+    if (images.issue === null) {
+      for (const kind of ["legends", "groups"] as const) {
+        images[kind].forEach((image, index) => {
+          if (image && !drawn[kind].has(index)) drawn[kind].set(index, image);
+        });
+      }
+    }
+    ended = images;
+    wake();
+    return images;
+  };
+  const failed = (): GroupEvidenceImages => ({ legends: plan.legends.map(() => null), groups: plan.groups.map(() => null), issue: "render_failed",
+    dropped_images: 0, render_ms: { page: null, legends: plan.legends.map(() => null), groups: plan.groups.map(() => null) }, duration_ms: 0 });
+  let done: Promise<GroupEvidenceImages>;
+  try {
+    done = session.draw(plan, (event) => {
+      drawn[event.kind].set(event.index, event.image);
+      wake();
+    }).then(finish, () => finish(failed()));
+  } catch {
+    done = Promise.resolve(finish(failed()));
+  }
+  done.catch((error: unknown) => {
+    broken = { error };
+    wake();
+  });
+  /** `read()` once it gives a value, null once the drawing ended without it. */
+  const until = async <T>(read: () => T | undefined): Promise<T | null> => {
+    for (;;) {
+      if (broken) throw (broken as { error: unknown }).error;
+      const value = read();
+      if (value !== undefined) return value;
+      if (ended) return null;
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    }
+  };
+  return {
+    /** The final images: every one drawn, or the drawing's end and its issue. */
+    done,
+    ended: () => ended,
+    legends: () => until(() => (plan.legends.every((_, index) => drawn.legends.has(index))
+      ? plan.legends.map((_, index) => drawn.legends.get(index) as GroupImage) : undefined)),
+    group: (index: number) => until(() => drawn.groups.get(index)),
+  };
+}
+
+/**
+ * The calls of `groups`, formed as their images are drawn: those of callBatches, in their order (at most `batchSize`
+ * each, their images and the legend's within `maxBytes`). `next()` gives the next call once its images are drawn
+ * (its last waits for the image after it only to know it would pass the bytes), null when no group is left, « failed »
+ * when an image of it cannot be drawn; `taken()` the groups placed in calls.
+ */
+export function streamedBatches<T>(groups: readonly T[], image: (index: number) => Promise<GroupImage | null>, legendBytes: number,
+  batchSize: number, maxBytes: number = GROUP_DECISIONS_CALL_IMAGE_BYTES) {
+  let cursor = 0;
+  const next = async (): Promise<Array<{ group: T; image: GroupImage }> | null | "failed"> => {
+    if (cursor >= groups.length) return null;
+    const batch: Array<{ group: T; image: GroupImage }> = [];
+    let bytes = legendBytes;
+    while (cursor < groups.length && batch.length < batchSize) {
+      const drawn = await image(cursor);
+      if (!drawn) return "failed";
+      if (batch.length > 0 && bytes + drawn.data.length > maxBytes) break;
+      batch.push({ group: groups[cursor], image: drawn });
+      bytes += drawn.data.length;
+      cursor += 1;
+    }
+    return batch;
+  };
+  return { next, taken: () => cursor };
+}
+
 /** A call that ended: its log entry, and its answers or the stop it makes. */
 type SentCall = { call: GroupDecisionsCall; answers: Map<string, GroupDecisionsAnswer> | null; stop: GroupDecisionsStop | null };
 /** The calls that started, by their index, and the first stop in call order. */
@@ -209,216 +304,246 @@ export async function classifyVectorGroups(input: {
   limits?: GroupDecisionsCallLimits;
   /** Before each call; an error thrown here is not a Decisions failure: it leaves this function. */
   beforeCall?: () => Promise<void>;
+  /**
+   * The page's drawing, started by the caller (the worker, once the extraction ended, TI-704 latency) in place of
+   * `render`: this function draws with it or cancels it.
+   */
+  session?: GroupEvidenceSession | null;
   clock?: () => number;
   log?: (line: string) => void;
 }): Promise<GroupDecisionsOutcome> {
-  const decide = input.decide ?? callOpenAiDecisions;
-  const render = input.render ?? ((bytes: Uint8Array, page: number) => startGroupEvidenceRender(bytes, page));
-  const clock = input.clock ?? (() => performance.now());
-  const maxBatchCalls = input.limits?.maxBatchCalls === undefined ? GROUP_DECISIONS_LIMITS.maxBatchCalls
-    : Math.max(0, Math.min(GROUP_DECISIONS_LIMITS.maxBatchCalls, Math.floor(input.limits.maxBatchCalls)));
-  const model = buildPageModel(input.extraction);
-  const selection = selectDecisionCandidates(model, input.reading);
-  const filtered: GroupDecisionsOutcome["filtered"] = {};
-  for (const entry of selection.filtered) filtered[entry.reason] = (filtered[entry.reason] ?? 0) + 1;
-  const outcome: GroupDecisionsOutcome = {
-    answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
-    filtered, ruled: { same_colour: 0, band: 0, propagated: 0 }, render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null,
-  };
-  /** Time with at least one call in flight (clock), for calls_ms: neither the renders nor the checks between calls. */
-  const busy = { calls: 0, inFlight: 0, since: 0, total: 0 };
-  if (selection.candidates.length === 0) return outcome;
-  // The page is analysed for its images while its evidence is computed (once the child has the PDF); a session that
-  // cannot start is a drawing failure.
-  let session: GroupEvidenceSession | null = null;
+  // The page's drawing: the caller's, or started here; ended here unless drawn to its end (nothing to draw, a stop,
+  // the job check's error, an exception).
+  let session: GroupEvidenceSession | null = input.session ?? null;
+  let feed: ReturnType<typeof streamImages> | null = null;
   try {
-    session = maxBatchCalls > 0 ? render(input.bytes, input.extraction.page) : null;
-  } catch {
-    session = null;
-  }
-  await session?.ready;
-  let evidence: ReturnType<typeof buildGroupEvidence>;
-  try {
-    evidence = buildGroupEvidence(model, input.reading, selection.candidates, new Set(selection.unclassed));
-  } catch (error) {
-    session?.cancel();
-    throw error;
-  }
-  const byId = new Map(evidence.candidates.map((candidate) => [candidate.id, candidate]));
-  // The rules first: no call for the groups they class.
-  const asked: CandidateEvidence[] = [];
-  for (const candidate of evidence.candidates) {
-    const rule = ruleClassOf(candidate);
-    if (!rule) {
-      asked.push(candidate);
-      continue;
-    }
-    outcome.ruled[rule.rule] += 1;
-    outcome.answers.set(candidate.id, { class: rule.class, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: rule.rule });
-  }
-  const propagate = () => {
-    const entries = new Map<string, ChainEntry>();
-    for (const [id, answer] of outcome.answers) {
-      if (answer.status === "answered") entries.set(id, { class: answer.class, confidence: answer.confidence, source: answer.via === "rule" ? "rule" : "model" });
-    }
-    const accepted = (entry: ChainEntry) => entry.class !== null && (entry.source === "rule" || (entry.confidence ?? 0) >= DECISIONS_ACCEPTED_MARGIN);
-    for (const [id, network] of propagateSameColour(evidence.candidates, entries, accepted)) {
-      const candidate = byId.get(id) as CandidateEvidence;
-      outcome.ruled.propagated += 1;
-      const earlier = outcome.answers.get(id);
-      outcome.answers.set(id, { class: network, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: "propagated",
-        ...(earlier?.probabilities ? { probabilities: earlier.probabilities } : {}) });
-    }
-  };
-  const done = () => {
-    propagate();
-    if (busy.calls > 0) outcome.calls_ms = Math.max(0, Math.round(busy.total));
-    return outcome;
-  };
-  const sent = decisionBatches(asked).slice(0, maxBatchCalls).flat();
-  outcome.left_out += asked.length - sent.length;
-  if (sent.length === 0) {
-    session?.cancel();
-    return done();
-  }
-  // The images of the groups asked, drawn once for the page before the first call.
-  let images: GroupEvidenceImages | null = null;
-  try {
-    const blocks = evidence.legend_blocks.slice(0, GROUP_DECISIONS_LEGEND_IMAGES);
-    images = session ? await session.draw(planEvidenceImages(model, input.extraction.page, blocks, sent)) : null;
-  } catch {
-    // A plan that cannot be made leaves no drawing behind.
-    session?.cancel();
-    images = null;
-  }
-  if (images) {
-    outcome.render = { page_ms: images.render_ms.page, legends_ms: images.render_ms.legends.map((value) => value ?? 0),
-      groups_ms: images.render_ms.groups.map((value) => value ?? 0), dropped_images: images.dropped_images };
-    if (images.dropped_images > 0) input.log?.(`page : ${images.dropped_images} image(s) du PDF absente(s) du rendu (trop lourdes ou illisibles)`);
-  }
-  if (!images || images.issue !== null || images.legends.some((image) => image === null) || images.groups.some((image) => image === null)) {
-    outcome.stop = renderStop(images?.issue ?? null);
-    return done();
-  }
-  const drawn = images;
-  // The legend images within half a call's image bytes, in their order.
-  let legendBytes = 0;
-  const legendImages: OpenAiDecisionImage[] = [];
-  for (const image of drawn.legends as GroupImage[]) {
-    if (legendBytes + image.data.length > GROUP_DECISIONS_CALL_IMAGE_BYTES / 2) continue;
-    legendBytes += image.data.length;
-    legendImages.push({ ...asImage(image), detail: "low" });
-  }
-  const groupImages = new Map(sent.map((candidate, index) => [candidate.alias, asImage(drawn.groups[index] as GroupImage)]));
-  const batches = callBatches(sent, (candidate) => groupImages.get(candidate.alias)?.data.length ?? 0, legendBytes);
-  const shared = pageJson(evidence, legendImages.length);
-
-  /** One call, started: its log entry, and its answers or the stop it makes. Never throws. */
-  const send = async (group: readonly CandidateEvidence[]): Promise<SentCall> => {
-    const started = clock();
-    busy.calls += 1;
-    if (busy.inFlight++ === 0) busy.since = started;
-    let result: OpenAiDecisionsResult | null = null;
-    let error: string | undefined;
-    try {
-      result = await decide({
-        owner: input.owner, context: input.context, developer: GROUP_DECISIONS_DEVELOPER, timeoutMs: GROUP_DECISIONS_CALL_TIMEOUT_MS,
-        evidence: shared, images: legendImages, questions: groupQuestions(evidence, group, groupImages),
-      });
-    } catch (thrown) {
-      error = thrown instanceof Error ? thrown.message.slice(0, 300) : "Demande Decisions refusée avant l’envoi.";
-    }
-    const usage = result?.provenance.usage ?? null;
-    input.budget.finish(usage);
-    const status = result?.status ?? "exception";
-    const ended = clock();
-    if (--busy.inFlight === 0) busy.total += ended - busy.since;
-    const call: GroupDecisionsCall = { kind: "batch", questions: group.length, status, usage, latency_ms: Math.max(0, Math.round(ended - started)),
-      render_ms: null,
-      ...(error !== undefined ? { error } : status === "failed" || status === "unavailable" ? { error: result?.message.slice(0, 300) } : {}) };
-    input.log?.(`decisions ${group.length} groupe(s): ${status}${usage ? `, ${usage.total_tokens} jetons` : ""}`);
-    if (!result) return { call, answers: null, stop: { reason: "exception", message: error ?? "Demande Decisions refusée avant l’envoi." } };
-    if (status === "failed" || status === "unavailable") {
-      return { call, answers: null, stop: { reason: status === "failed" ? "call_failed" : "decisions_unavailable", message: result.message } };
-    }
-    const answers = new Map<string, GroupDecisionsAnswer>();
-    for (const [id, answer] of readGroupAnswers(evidence, group, result.answers)) {
-      const alias = byId.get(id)?.alias ?? "";
-      const probabilities = answer.status === "answered" ? result.answers.find((entry) => entry.name === alias)?.probabilities : undefined;
-      answers.set(id, { ...answer, alias, via: "batch", ...(probabilities ? { probabilities } : {}) });
-    }
-    return { call, answers, stop: null };
-  };
-
-  /**
-   * The calls, GROUP_DECISIONS_CONCURRENCY at a time, started in their order: each waits for a free slot, room in the
-   * budget while calls are in flight (once the first has ended, each counted at the margin), the job's check and the
-   * budget's reserve. Ends once every call started has; throws the job check's error then.
-   */
-  const inParallel = async (groups: readonly (readonly CandidateEvidence[])[]): Promise<Phase> => {
-    const phase: Phase = { sent: [], stop: null };
-    const stopAt = (index: number, stop: GroupDecisionsStop) => {
-      if (phase.stop === null || index < phase.stop.index) phase.stop = { index, stop };
+    const decide = input.decide ?? callOpenAiDecisions;
+    const render = input.render ?? ((bytes: Uint8Array, page: number) => startGroupEvidenceRender(bytes, page));
+    const clock = input.clock ?? (() => performance.now());
+    const maxBatchCalls = input.limits?.maxBatchCalls === undefined ? GROUP_DECISIONS_LIMITS.maxBatchCalls
+      : Math.max(0, Math.min(GROUP_DECISIONS_LIMITS.maxBatchCalls, Math.floor(input.limits.maxBatchCalls)));
+    const model = buildPageModel(input.extraction);
+    const selection = selectDecisionCandidates(model, input.reading);
+    const filtered: GroupDecisionsOutcome["filtered"] = {};
+    for (const entry of selection.filtered) filtered[entry.reason] = (filtered[entry.reason] ?? 0) + 1;
+    const outcome: GroupDecisionsOutcome = {
+      answers: new Map(), calls: [], stop: null, candidates: selection.candidates.length, eligible: selection.eligible, left_out: selection.left_out,
+      filtered, ruled: { same_colour: 0, band: 0, propagated: 0 }, render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null,
     };
-    /** The job's check failed, or (never expected: send does not throw) a call threw: no call starts, the error leaves once all ended. */
-    const halt: { check: { error: unknown } | null; call: { error: unknown } | null } = { check: null, call: null };
-    const halted = () => phase.stop !== null || halt.check !== null || halt.call !== null;
-    /** The calls in flight, with their index. */
-    const running = new Map<Promise<void>, number>();
-    let ended = 0;
-    const oneEnds = () => Promise.race(running.keys());
-    /**
-     * A call starts at most GROUP_DECISIONS_CONCURRENCY - 1 places after the oldest in flight (so never more than that
-     * many in flight): a slow call that then fails leaves at most that many calls sent after it, their answers unused.
-     */
-    const inWindow = (index: number) => running.size === 0 || index < Math.min(...running.values()) + GROUP_DECISIONS_CONCURRENCY;
-    const fitsBeside = () => ended > 0 && input.budget.fits(Math.ceil(GROUP_DECISIONS_BATCH_RESERVE_MARGIN * input.budget.snapshot().largest_call_tokens));
-    try {
-      starts: for (const [index, group] of groups.entries()) {
-        while (!inWindow(index)) await oneEnds();
-        if (halted()) break;
-        // The check may run again for one start: a call that ended during it may have raised the reserve.
-        for (;;) {
-          while (running.size > 0 && !fitsBeside()) await oneEnds();
-          if (halted()) break starts;
-          try {
-            await input.beforeCall?.();
-          } catch (error) {
-            halt.check = { error };
-            break starts;
-          }
-          if (halted()) break starts;
-          if (running.size === 0 || fitsBeside()) break;
-        }
-        if (!input.budget.tryStart()) {
-          stopAt(index, { reason: "budget_reached", message: "Le plafond de jetons Decisions est atteint : les groupes restants sont à revoir." });
-          break;
-        }
-        const call: Promise<void> = send(group).then((entry) => {
-          phase.sent[index] = entry;
-          if (entry.stop) stopAt(index, entry.stop);
-        }, (error: unknown) => {
-          halt.call ??= { error };
-        }).finally(() => {
-          ended += 1;
-          running.delete(call);
-        });
-        running.set(call, index);
+    /** Time with at least one call in flight (clock), for calls_ms: neither the renders nor the checks between calls. */
+    const busy = { calls: 0, inFlight: 0, since: 0, total: 0 };
+    if (selection.candidates.length === 0) return outcome;
+    if (maxBatchCalls > 0 && !session) {
+      // The page is analysed for its images while its evidence is computed (once the child has the PDF); a session that
+      // cannot start is a drawing failure.
+      try {
+        session = render(input.bytes, input.extraction.page);
+      } catch {
+        session = null;
       }
-    } finally {
-      await Promise.all(running.keys());
     }
-    const failure = halt.check ?? halt.call;
-    if (failure) throw failure.error;
-    return phase;
-  };
+    if (maxBatchCalls > 0) await session?.ready;
+    const evidence = buildGroupEvidence(model, input.reading, selection.candidates, new Set(selection.unclassed));
+    const byId = new Map(evidence.candidates.map((candidate) => [candidate.id, candidate]));
+    // The rules first: no call for the groups they class.
+    const asked: CandidateEvidence[] = [];
+    for (const candidate of evidence.candidates) {
+      const rule = ruleClassOf(candidate);
+      if (!rule) {
+        asked.push(candidate);
+        continue;
+      }
+      outcome.ruled[rule.rule] += 1;
+      outcome.answers.set(candidate.id, { class: rule.class, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: rule.rule });
+    }
+    const propagate = () => {
+      const entries = new Map<string, ChainEntry>();
+      for (const [id, answer] of outcome.answers) {
+        if (answer.status === "answered") entries.set(id, { class: answer.class, confidence: answer.confidence, source: answer.via === "rule" ? "rule" : "model" });
+      }
+      const accepted = (entry: ChainEntry) => entry.class !== null && (entry.source === "rule" || (entry.confidence ?? 0) >= DECISIONS_ACCEPTED_MARGIN);
+      for (const [id, network] of propagateSameColour(evidence.candidates, entries, accepted)) {
+        const candidate = byId.get(id) as CandidateEvidence;
+        outcome.ruled.propagated += 1;
+        const earlier = outcome.answers.get(id);
+        outcome.answers.set(id, { class: network, confidence: null, status: "answered", proposal: null, alias: candidate.alias, via: "rule", rule: "propagated",
+          ...(earlier?.probabilities ? { probabilities: earlier.probabilities } : {}) });
+      }
+    };
+    /** The drawing's times and dropped pictures, once it has ended (cancelled first when a stop left it running). */
+    const done = async () => {
+      if (feed) {
+        if (!feed.ended()) session?.cancel();
+        const images = await feed.done;
+        outcome.render = { page_ms: images.render_ms.page, legends_ms: images.render_ms.legends.map((value) => value ?? 0),
+          groups_ms: images.render_ms.groups.map((value) => value ?? 0), dropped_images: images.dropped_images };
+        if (images.dropped_images > 0) input.log?.(`page : ${images.dropped_images} image(s) du PDF absente(s) du rendu (trop lourdes ou illisibles)`);
+      }
+      propagate();
+      if (busy.calls > 0) outcome.calls_ms = Math.max(0, Math.round(busy.total));
+      return outcome;
+    };
+    const sent = decisionBatches(asked).slice(0, maxBatchCalls).flat();
+    outcome.left_out += asked.length - sent.length;
+    if (sent.length === 0) return done();
+    // The images of the groups asked, drawn once for the page: each call leaves once its own are drawn (TI-704 latency).
+    try {
+      const blocks = evidence.legend_blocks.slice(0, GROUP_DECISIONS_LEGEND_IMAGES);
+      feed = session ? streamImages(session, planEvidenceImages(model, input.extraction.page, blocks, sent)) : null;
+    } catch {
+      // A plan that cannot be made: no call, the session cancelled.
+      feed = null;
+    }
+    const legends = feed ? await feed.legends() : null;
+    if (!feed || !legends) {
+      outcome.stop = renderStop(feed?.ended()?.issue ?? null);
+      return done();
+    }
+    const images = feed;
+    // The legend images within half a call's image bytes, in their order.
+    let legendBytes = 0;
+    const legendImages: OpenAiDecisionImage[] = [];
+    for (const image of legends) {
+      if (legendBytes + image.data.length > GROUP_DECISIONS_CALL_IMAGE_BYTES / 2) continue;
+      legendBytes += image.data.length;
+      legendImages.push({ ...asImage(image), detail: "low" });
+    }
+    const groupImages = new Map<string, OpenAiDecisionImage>();
+    const batches = streamedBatches(sent, (index) => images.group(index), legendBytes, GROUP_DECISIONS_LIMITS.batchSize);
+    const shared = pageJson(evidence, legendImages.length);
+    /** No call leaves after a stop: the drawing for later calls is cancelled. */
+    const stopDrawing = () => {
+      if (!images.ended()) session?.cancel();
+    };
 
-  const phase = await inParallel(batches);
-  for (const [index, entry] of phase.sent.entries()) {
-    const after = phase.stop !== null && index > phase.stop.index;
-    outcome.calls.push(after ? { ...entry.call, after_stop: true } : entry.call);
-    if (!after && entry.answers) for (const [id, answer] of entry.answers) outcome.answers.set(id, answer);
+    /** One call, started: its log entry, and its answers or the stop it makes. Never throws. */
+    const send = async (group: readonly CandidateEvidence[]): Promise<SentCall> => {
+      const started = clock();
+      busy.calls += 1;
+      if (busy.inFlight++ === 0) busy.since = started;
+      let result: OpenAiDecisionsResult | null = null;
+      let error: string | undefined;
+      try {
+        result = await decide({
+          owner: input.owner, context: input.context, developer: GROUP_DECISIONS_DEVELOPER, timeoutMs: GROUP_DECISIONS_CALL_TIMEOUT_MS,
+          evidence: shared, images: legendImages, questions: groupQuestions(evidence, group, groupImages),
+        });
+      } catch (thrown) {
+        error = thrown instanceof Error ? thrown.message.slice(0, 300) : "Demande Decisions refusée avant l’envoi.";
+      }
+      const usage = result?.provenance.usage ?? null;
+      input.budget.finish(usage);
+      const status = result?.status ?? "exception";
+      const ended = clock();
+      if (--busy.inFlight === 0) busy.total += ended - busy.since;
+      const call: GroupDecisionsCall = { kind: "batch", questions: group.length, status, usage, latency_ms: Math.max(0, Math.round(ended - started)),
+        render_ms: null,
+        ...(error !== undefined ? { error } : status === "failed" || status === "unavailable" ? { error: result?.message.slice(0, 300) } : {}) };
+      input.log?.(`decisions ${group.length} groupe(s): ${status}${usage ? `, ${usage.total_tokens} jetons` : ""}`);
+      if (!result) return { call, answers: null, stop: { reason: "exception", message: error ?? "Demande Decisions refusée avant l’envoi." } };
+      if (status === "failed" || status === "unavailable") {
+        return { call, answers: null, stop: { reason: status === "failed" ? "call_failed" : "decisions_unavailable", message: result.message } };
+      }
+      const answers = new Map<string, GroupDecisionsAnswer>();
+      for (const [id, answer] of readGroupAnswers(evidence, group, result.answers)) {
+        const alias = byId.get(id)?.alias ?? "";
+        const probabilities = answer.status === "answered" ? result.answers.find((entry) => entry.name === alias)?.probabilities : undefined;
+        answers.set(id, { ...answer, alias, via: "batch", ...(probabilities ? { probabilities } : {}) });
+      }
+      return { call, answers, stop: null };
+    };
+
+    /**
+     * The calls, GROUP_DECISIONS_CONCURRENCY at a time, started in their order, maxBatchCalls at most: each waits for its
+     * images, a free slot, room in the budget while calls are in flight (once the first has ended, each counted at the
+     * margin), the job's check and the budget's reserve. Ends once every call started has; throws the job check's error
+     * then.
+     */
+    const inParallel = async (): Promise<Phase & { capped: boolean }> => {
+      const phase: Phase & { capped: boolean } = { sent: [], stop: null, capped: false };
+      const stopAt = (index: number, stop: GroupDecisionsStop) => {
+        if (phase.stop === null || index < phase.stop.index) phase.stop = { index, stop };
+        stopDrawing();
+      };
+      /** The job's check failed, or (never expected: send does not throw) a call threw: no call starts, the error leaves once all ended. */
+      const halt: { check: { error: unknown } | null; call: { error: unknown } | null } = { check: null, call: null };
+      const halted = () => phase.stop !== null || halt.check !== null || halt.call !== null;
+      /** The calls in flight, with their index. */
+      const running = new Map<Promise<void>, number>();
+      let ended = 0;
+      const oneEnds = () => Promise.race(running.keys());
+      /**
+       * A call starts at most GROUP_DECISIONS_CONCURRENCY - 1 places after the oldest in flight (so never more than that
+       * many in flight): a slow call that then fails leaves at most that many calls sent after it, their answers unused.
+       */
+      const inWindow = (index: number) => running.size === 0 || index < Math.min(...running.values()) + GROUP_DECISIONS_CONCURRENCY;
+      const fitsBeside = () => ended > 0 && input.budget.fits(Math.ceil(GROUP_DECISIONS_BATCH_RESERVE_MARGIN * input.budget.snapshot().largest_call_tokens));
+      try {
+        starts: for (let index = 0; ; index += 1) {
+          if (index >= maxBatchCalls) {
+            // The page's cap, whatever the image bytes split: the groups past it stay « à revoir » (left_out).
+            phase.capped = true;
+            break;
+          }
+          // Its own images: the calls in flight go on meanwhile.
+          const formed = await batches.next();
+          if (halted() || formed === null) break;
+          if (formed === "failed") {
+            stopAt(index, renderStop(images.ended()?.issue ?? null));
+            break;
+          }
+          const group = formed.map((entry) => entry.group);
+          for (const entry of formed) groupImages.set(entry.group.alias, asImage(entry.image));
+          while (!inWindow(index)) await oneEnds();
+          if (halted()) break;
+          // The check may run again for one start: a call that ended during it may have raised the reserve.
+          for (;;) {
+            while (running.size > 0 && !fitsBeside()) await oneEnds();
+            if (halted()) break starts;
+            try {
+              await input.beforeCall?.();
+            } catch (error) {
+              halt.check = { error };
+              break starts;
+            }
+            if (halted()) break starts;
+            if (running.size === 0 || fitsBeside()) break;
+          }
+          if (!input.budget.tryStart()) {
+            stopAt(index, { reason: "budget_reached", message: "Le plafond de jetons Decisions est atteint : les groupes restants sont à revoir." });
+            break;
+          }
+          const call: Promise<void> = send(group).then((entry) => {
+            phase.sent[index] = entry;
+            if (entry.stop) stopAt(index, entry.stop);
+          }, (error: unknown) => {
+            halt.call ??= { error };
+          }).finally(() => {
+            ended += 1;
+            running.delete(call);
+          });
+          running.set(call, index);
+        }
+      } finally {
+        if (halt.check || halt.call) stopDrawing();
+        await Promise.all(running.keys());
+      }
+      const failure = halt.check ?? halt.call;
+      if (failure) throw failure.error;
+      return phase;
+    };
+
+    const phase = await inParallel();
+    if (phase.capped) outcome.left_out += sent.length - batches.taken();
+    for (const [index, entry] of phase.sent.entries()) {
+      if (!entry) continue;
+      const after = phase.stop !== null && index > phase.stop.index;
+      outcome.calls.push(after ? { ...entry.call, after_stop: true } : entry.call);
+      if (!after && entry.answers) for (const [id, answer] of entry.answers) outcome.answers.set(id, answer);
+    }
+    if (phase.stop) outcome.stop = phase.stop.stop;
+    return done();
+  } finally {
+    if (session && !feed?.ended()) session.cancel();
   }
-  if (phase.stop) outcome.stop = phase.stop.stop;
-  return done();
 }

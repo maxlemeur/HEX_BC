@@ -304,11 +304,62 @@ function colourWords(hex: string) {
 const NONE: Segment = { x0: Number.NaN, y0: Number.NaN, x1: Number.NaN, y1: Number.NaN };
 
 /**
+ * What the images of a page's candidates need, computed before the rest of their evidence (TI-704 latency: the
+ * drawing then starts while the evidence is computed): the page's text lines and legend blocks, and each candidate's
+ * focus (the cell holding most of its visible length outside the legends) with its lengths in and out of the legends.
+ * buildGroupEvidence reads the same, never another computation of it.
+ */
+export function evidenceLayout(model: PageModel, reading: Pick<VectorPageReading, "groups" | "legend">, candidates: readonly Pick<EvidenceCandidate, "group">[]) {
+  const { extraction } = model;
+  const lines = mergeTextLines(extraction.texts);
+  const blocks = readLegendBlocks(model, reading, lines);
+  const inLegend = (x: number, y: number) => blocks.some(({ box }) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)
+    || reading.legend.boxes.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1);
+  const keyNearWhite = extraction.groups.map((key) => isNearWhite(key.color));
+  const hiddenLayers = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
+  const keyHidden = extraction.groups.map((key) => key.layer !== null && hiddenLayers.has(key.layer));
+  const { cellPt, detailPt, contextPt } = GROUP_EVIDENCE.focus;
+  const ownPaths = new Map<number, typeof extraction.paths>(candidates.map((candidate) => [candidate.group, []]));
+  for (const entry of extraction.paths) {
+    if (!keyNearWhite[entry.group] && !keyHidden[entry.group]) ownPaths.get(model.groupOf[entry.group])?.push(entry);
+  }
+  const focus = new Map<number, { focus: CandidateEvidence["focus"]; lengthAll: number; lengthInLegend: number }>();
+  for (const candidate of candidates) {
+    if (focus.has(candidate.group)) continue;
+    // Focus: the cell holding most of the group's visible length outside the legends.
+    const cells = new Map<string, number>();
+    let lengthAll = 0, lengthInLegend = 0;
+    for (const entry of ownPaths.get(candidate.group) ?? []) {
+      for (let index = entry.start + 1; index < entry.start + entry.count; index += 1) {
+        const x0 = extraction.points[2 * index - 2], y0 = extraction.points[2 * index - 1], x1 = extraction.points[2 * index], y1 = extraction.points[2 * index + 1];
+        const length = Math.hypot(x1 - x0, y1 - y0);
+        const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+        lengthAll += length;
+        if (inLegend(mx, my)) {
+          lengthInLegend += length;
+          continue;
+        }
+        const key = `${Math.floor(mx / cellPt)}:${Math.floor(my / cellPt)}`;
+        cells.set(key, (cells.get(key) ?? 0) + length);
+      }
+    }
+    const [bestCell] = [...cells.entries()].sort((left, right) => right[1] - left[1]);
+    const [cx, cy] = bestCell ? bestCell[0].split(":").map((value) => (Number(value) + 0.5) * cellPt) : [extraction.width / 2, extraction.height / 2];
+    focus.set(candidate.group, { lengthAll, lengthInLegend, focus: {
+      detail: { x0: cx - detailPt / 2, y0: cy - detailPt / 2, x1: cx + detailPt / 2, y1: cy + detailPt / 2 },
+      context: { x0: cx - contextPt / 2, y0: cy - contextPt / 2, x1: cx + contextPt / 2, y1: cy + contextPt / 2 },
+    } });
+  }
+  return { lines, blocks, inLegend, focus };
+}
+export type EvidenceLayout = ReturnType<typeof evidenceLayout>;
+
+/**
  * The evidence of a page's candidates. `unclassed`: the groups labels may attach to (the candidates and those the
- * filter leaves out); the candidates by default.
+ * filter leaves out); the candidates by default. `layout`: evidenceLayout of these candidates, when already computed.
  */
 export function buildGroupEvidence(model: PageModel, reading: VectorPageReading, candidates: readonly EvidenceCandidate[],
-  unclassed: ReadonlySet<number> = new Set(candidates.map((candidate) => candidate.group))): PageEvidence {
+  unclassed: ReadonlySet<number> = new Set(candidates.map((candidate) => candidate.group)), layout?: EvidenceLayout): PageEvidence {
   const { extraction } = model;
   const page: Omit<PageEvidence, "candidates" | "legend_blocks" | "plan_codes"> = {
     mode: reading.mode, scale: { status: reading.scale.status, denominator: reading.scale.denominator },
@@ -329,10 +380,7 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
   const hintOf = (networks: readonly NetworkCode[]): NetworkHint => (networks.length === 0 ? null : commonNetwork(networks) ?? [...new Set(networks)]);
   page.classified_colours = Object.fromEntries([...colourNetworks.entries()].map(([color, networks]) => [color, hintOf(networks)]));
   if (reading.mode === "raster" || candidates.length === 0) return { ...page, legend_blocks: [], plan_codes: [], candidates: [] };
-  const lines = mergeTextLines(extraction.texts);
-  const blocks = readLegendBlocks(model, reading, lines);
-  const inLegend = (x: number, y: number) => blocks.some(({ box }) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)
-    || reading.legend.boxes.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1);
+  const { lines, blocks, inLegend, focus } = layout ?? evidenceLayout(model, reading, candidates);
   const labelBlocks = readLabelBlocks(extraction.texts);
   const planCodes = readPlanCodes(labelBlocks, inLegend);
   const width = Math.max(extraction.width, 1);
@@ -420,35 +468,9 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     }
     for (const [group, distance] of best) near.get(group)?.push({ text: line.str.trim().slice(0, GROUP_EVIDENCE.textChars), distance });
   }
-  const keyNearWhite = extraction.groups.map((key) => isNearWhite(key.color));
-  const hiddenLayers = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
-  const keyHidden = extraction.groups.map((key) => key.layer !== null && hiddenLayers.has(key.layer));
-  const { cellPt, detailPt, contextPt } = GROUP_EVIDENCE.focus;
-  const ownPaths = new Map<number, typeof extraction.paths>(candidates.map((candidate) => [candidate.group, []]));
-  for (const entry of extraction.paths) {
-    if (!keyNearWhite[entry.group] && !keyHidden[entry.group]) ownPaths.get(model.groupOf[entry.group])?.push(entry);
-  }
   const records = candidates.map((candidate): CandidateEvidence => {
     const group = model.groups[candidate.group];
-    // Focus: the cell holding most of the group's visible length outside the legends.
-    const cells = new Map<string, number>();
-    let lengthAll = 0, lengthInLegend = 0;
-    for (const entry of ownPaths.get(candidate.group) ?? []) {
-      for (let index = entry.start + 1; index < entry.start + entry.count; index += 1) {
-        const x0 = extraction.points[2 * index - 2], y0 = extraction.points[2 * index - 1], x1 = extraction.points[2 * index], y1 = extraction.points[2 * index + 1];
-        const length = Math.hypot(x1 - x0, y1 - y0);
-        const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-        lengthAll += length;
-        if (inLegend(mx, my)) {
-          lengthInLegend += length;
-          continue;
-        }
-        const key = `${Math.floor(mx / cellPt)}:${Math.floor(my / cellPt)}`;
-        cells.set(key, (cells.get(key) ?? 0) + length);
-      }
-    }
-    const [bestCell] = [...cells.entries()].sort((left, right) => right[1] - left[1]);
-    const [cx, cy] = bestCell ? bestCell[0].split(":").map((value) => (Number(value) + 0.5) * cellPt) : [extraction.width / 2, extraction.height / 2];
+    const { lengthAll, lengthInLegend, focus: candidateFocus } = focus.get(candidate.group) ?? evidenceLayout(model, reading, [candidate]).focus.get(candidate.group)!;
     const visible = group.colors.filter((color) => !isNearWhite(color));
     const keyColors = visible.filter((color) => !isGrey(color));
     // Every key colour a network's: one colour of a layer shared with a network does not make the layer that network.
@@ -482,10 +504,7 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
       legend_matches: legendMatches,
       pale: visible.length > 0 && visible.every(isPaleColor),
       keyColors,
-      focus: {
-        detail: { x0: cx - detailPt / 2, y0: cy - detailPt / 2, x1: cx + detailPt / 2, y1: cy + detailPt / 2 },
-        context: { x0: cx - contextPt / 2, y0: cy - contextPt / 2, x1: cx + contextPt / 2, y1: cy + contextPt / 2 },
-      },
+      focus: candidateFocus,
     };
   });
   return { ...page, legend_blocks: blocks, plan_codes: planCodes, candidates: records };
