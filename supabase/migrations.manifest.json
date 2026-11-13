@@ -336,6 +336,13 @@
     "20261112100501_estimate_line_provisional_quantity.sql": "d39751dd9fddd251ee51436bb8dade4f101b79999ca562446d9374c2327ab7b6",
     "20261112101124_material_request_articles.sql": "d34f9d94fafb6ae05d6ca6ef9d37b6a9fe6014f9417bd5805bf6b9ac9377184c",
     "20261112142534_product_reference_check_by_index.sql": "d5dfe577bafaf3861e7d923c8564a9e758fdff4a445c661ed79ef37943b61bf2",
-    "20261112152357_purchase_line_suppliers.sql": "71d883ebdbae59f12da8d72446478eb94d7a95aa134d0d4dbe3de31859fdcc91"
+    "20261112152357_purchase_line_suppliers.sql": "71d883ebdbae59f12da8d72446478eb94d7a95aa134d0d4dbe3de31859fdcc91",
+    "20261112173255_material_request_quotes.sql": "dafe23748578cd3bf3cbba66a247d69761903f5ecb3a0612cf5c57e05a07680b",
+    "20261112192815_material_request_quote_files_and_message.sql": "3c50337edff1a9543ada538e859ee96bb8c645638522450a8fa89c02f201678b",
+    "20261112202147_material_request_purchase_orders.sql": "745126a44252f116bc14726725274d5527c3c9ca5de6408f39fcc419f1174690",
+    "20261112221835_assistant_threads.sql": "36aec96f1f15ec7c67d301fb3a941003cde3a7de77160a12a2cbed845d9efbb6",
+    "20261112230829_takeoff_dpgf_accumulation.sql": "9e71d8e089e0af0aec8b817965ef284c94f67a80950d7353a70180fb04975002",
+    "20261112234606_editable_ouvrage_quantity.sql": "2853867cd610b354a0f0050ae811c68937fb83593f16616936f6d1704bddb93f",
+    "20261113100956_intake_document_content_identity.sql": "14cfe72bffce427f07cf743ead163dc06e19be12953507d721eec73c0e868aa3"
   }
 }

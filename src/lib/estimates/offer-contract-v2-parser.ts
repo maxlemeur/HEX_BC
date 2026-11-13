@@ -1,3 +1,4 @@
+import { offerHierarchyWithinLimits } from "@/lib/estimates/offer-hierarchy";
 import {
   address,
   cents,
@@ -166,7 +167,7 @@ function row(value: unknown): CommercialRow2 {
   const common = {
     id: uuid(source.id, "rows.id"), parentId: nullableUuid(source.parentId, "rows.parentId"),
     position: integer(source.position, 0, MAX_CENTS, "rows.position"),
-    depth: integer(source.depth, 0, section ? 3 : 4, "rows.depth"),
+    depth: integer(source.depth, 0, section ? 6 : 7, "rows.depth"),
     title: text(source.title, "rows.title"), saleHtCents: cents(source.saleHtCents, "rows.saleHtCents"),
   };
   const portions = portionsOf(source, common.saleHtCents);
@@ -211,6 +212,7 @@ function validateRows(rows: CommercialRow2[], grossHtCents: number): void {
     if (entry.parentId !== null && (!parent || parent.kind !== "section")) invalid("rows.parent");
     if (entry.depth !== (parent ? parent.depth + 1 : 0)) invalid("rows.depth");
   }
+  if (!offerHierarchyWithinLimits(rows)) invalid("rows.depth");
   // Positive parent-depth increments with bounded depth exclude all cycles. Unlike engine 1,
   // engine 3 has no presented detail/footer exception: Σ gross lines = gross.
   const sectionTotals = new Map<string, { ht: number; fo: number; mo: number }>();

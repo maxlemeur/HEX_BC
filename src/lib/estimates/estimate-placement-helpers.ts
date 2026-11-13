@@ -31,7 +31,7 @@ export async function ensureParentIsValid({
 
   const { data, error } = await supabase
     .from("estimate_items")
-    .select("id, version_id, item_type, parent_id")
+    .select("id, version_id, item_type, parent_id, source_metadata")
     .eq("tenant_id", tenantId)
     .eq("id", parentId)
     .single();
@@ -62,7 +62,7 @@ export async function loadHierarchyItems(input: {
 }) {
   const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items")
-    .select("id, parent_id, item_type", { count: "exact" })
+    .select("id, parent_id, item_type, source_metadata", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId));
 

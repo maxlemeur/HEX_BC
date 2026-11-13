@@ -404,6 +404,12 @@ armyTest(
       await expect(linesPreview).toContainText("Aucun rôle actif n’a le taux horaire du classeur");
       const role = screen.getByLabel("Rôle MO des heures importées", { exact: true });
       await expect(role).toHaveAttribute("aria-invalid", "true");
+      // The refused choice names its reason to screen readers (aria-describedby), only while refused.
+      const roleReason = () => browser.evaluate(() => {
+        const ids = (document.getElementById("import-labor-role")?.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+        return ids.map((id) => document.getElementById(id)?.textContent ?? `<missing #${id}>`).join(" ").trim();
+      });
+      await expect.poll(roleReason).toContain("Aucun rôle actif n’a le taux horaire du classeur");
       const nextPreview = screen.getByRole("button", "Suivant : Confirmation", { exact: true });
       await expect(nextPreview).toBeDisabled();
 
@@ -411,6 +417,7 @@ armyTest(
       await role.selectOption({ value: "none" });
       await expect(linesPreview).toContainText("Sans rôle, ces heures sont valorisées à 0 €/h.");
       await expect(role).not.toHaveAttribute("aria-invalid", "true");
+      await expect.poll(roleReason).toBe("");
 
       stage = "confirm-import";
       versionId = await confirmPreviewedImport(ui, army, projectId);

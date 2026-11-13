@@ -27,6 +27,14 @@ export const MATERIAL_REQUEST_LINE_STATUSES = ["draft", "validated"] as const;
 export type MaterialRequestLineStatus = (typeof MATERIAL_REQUEST_LINE_STATUSES)[number];
 
 export const MATERIAL_REQUEST_FILE_ROTATIONS = [0, 90, 180, 270] as const;
+
+/**
+ * TI-691: how many units a price is for. A price stays in whole cents, so a screw at 0,034 € is 340 cents for 100.
+ * The amount of a line is quantity × price / price_per, rounded half away from zero to the cent (computed by the
+ * purchase that follows the consultation; nothing computes it in this delivery).
+ */
+export const MATERIAL_REQUEST_PRICE_PER = [1, 10, 100, 1000] as const;
+export type MaterialRequestPricePer = (typeof MATERIAL_REQUEST_PRICE_PER)[number];
 export type MaterialRequestFileRotation = (typeof MATERIAL_REQUEST_FILE_ROTATIONS)[number];
 
 /**
@@ -92,6 +100,11 @@ export type MaterialRequest = {
 export type MaterialRequestFile = {
   id: string;
   request_id: string;
+  /**
+   * Null for an original of the request (an image); the quote it answers otherwise (TI-691, a PDF or an image,
+   * listed with the quote and never among the originals).
+   */
+  quote_id: string | null;
   file_name: string;
   mime_type: string;
   byte_size: number;
@@ -132,6 +145,16 @@ export type MaterialRequestLine = {
   /** The catalogue article the office linked; its wording then fills the line's columns. */
   product_id: string | null;
   product_match: MaterialRequestProductMatch | null;
+  /**
+   * TI-691: the price excluding tax, in cents, for `price_per` units, of the quote retained for the line
+   * (`price_quote_id`); null (and price_per 1) until a quote is retained, and written by that retaining only.
+   * Purchasing information: a validated line stays validated. Once priced, the line's supplier is the quote's, and
+   * what it orders (article, type, dimension, material, precision, reference, unit, quantity) no longer changes; it is
+   * not deleted alone. There is no way back in this delivery.
+   */
+  unit_price_ht_cents: number | null;
+  price_per: MaterialRequestPricePer;
+  price_quote_id: string | null;
 };
 
 /** What the screen shows of a catalogue article beside a line. */
@@ -413,6 +436,11 @@ export const updateMaterialRequestFileSchema = z
  */
 export const prepareMaterialRequestFilesSchema = z
   .object({
+    /**
+     * TI-691: the files answer this quote of the request (requested or received): a PDF or images, at most
+     * MATERIAL_REQUEST_QUOTE_MAX_FILES per quote (quote-contracts.ts). Left out: originals of the request, images only.
+     */
+    quote_id: uuid.optional(),
     files: z
       .array(
         z
@@ -448,7 +476,7 @@ export const MATERIAL_REQUEST_FILE_REJECTED = "MATERIAL_REQUEST_FILE_REJECTED";
 export const MATERIAL_REQUEST_FILE_REJECTION_REASONS = ["missing", "size", "type"] as const;
 export type MaterialRequestFileRejection = {
   id: string;
-  /** missing: no bytes were stored; size: not the declared size; type: not the declared image type. */
+  /** missing: no bytes were stored; size: not the declared size; type: not the declared type (image or PDF). */
   reason: (typeof MATERIAL_REQUEST_FILE_REJECTION_REASONS)[number];
 };
 

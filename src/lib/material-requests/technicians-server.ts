@@ -144,8 +144,10 @@ export async function listTechnicianRequests(technicianId: string, limit: number
   const [lines, files] = await Promise.all([
     readAllRows(() => context.supabase.from("material_request_lines").select(LINE_COLUMNS, { count: "exact" })
       .eq("tenant_id", context.tenantId).in("request_id", ids)),
+    // The request's photos: a quote's files (TI-691) are not counted among them.
     readAllRows(() => context.supabase.from("material_request_files").select("id, request_id", { count: "exact" })
-      .eq("tenant_id", context.tenantId).in("request_id", ids).not("stored_at", "is", null).is("removed_at", null)),
+      .eq("tenant_id", context.tenantId).in("request_id", ids).is("quote_id", null)
+      .not("stored_at", "is", null).is("removed_at", null)),
   ]);
   if (lines.error) throw mapSupabaseError(lines.error, "Impossible de charger les lignes des demandes.");
   if (files.error) throw mapSupabaseError(files.error, "Impossible de charger les originaux des demandes.");

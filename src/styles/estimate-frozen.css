@@ -79,9 +79,15 @@
   border: 1px solid var(--slate-200);
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   padding: 20px;
-  position: sticky;
-  top: 24px;
-  align-self: start;
+}
+
+/* Épinglé seulement à côté des champs (deux colonnes) ; empilé sur mobile, il recouvrait les champs au défilement. */
+@media (min-width: 1024px) {
+  .estimate-summary {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
 }
 
 .estimate-summary__header h3 {
@@ -123,7 +129,17 @@
 }
 
 .estimate-summary__row--total {
+  align-items: baseline;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--slate-200);
   font-size: 15px;
+  font-weight: 700;
+  color: var(--brand-blue);
+}
+
+.estimate-summary__row--total strong {
+  font-size: 20px;
   font-weight: 700;
   color: var(--brand-blue);
 }

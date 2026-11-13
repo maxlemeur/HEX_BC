@@ -62,7 +62,7 @@ export const REGISTRATION = {
   /** The best translation needs this many times the lines of the next one. */
   dominance: 2,
   /**
-   * RMS distance of the matched ends after refinement. Measured at 2.4 mm on B R+4 Z1/Z2 (bench, outside the
+   * RMS distance of the matched ends after refinement. Measured at 2.4 mm on a two-zone bench plan (outside the
    * reserve); kept well under ZONE_OVERLAP.distance_m so that a registered duplicate is never missed.
    */
   maxResidual_m: 0.02,

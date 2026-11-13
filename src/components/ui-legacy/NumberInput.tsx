@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { describedByIds } from "@/components/ui/invalid-draft-reason";
 import { formatDecimalInput, NUMERIC_INPUT_ERROR, parseDecimalInput } from "@/lib/numeric-input/parsers";
 
 export type NumberInputProps = Omit<
@@ -39,6 +40,7 @@ export function NumberInput({
   ...props
 }: Readonly<NumberInputProps>) {
   const [draftValue, setDraftValue] = useState<string | null>(null);
+  const errorId = useId();
   const displayedValue = draftValue ?? formatValue(value);
   const parse = (raw: string) => {
     const parsed = parseValue(raw);
@@ -48,41 +50,47 @@ export function NumberInput({
   const invalid = draftValue !== null && draftValue.trim() !== "" && parse(draftValue) === null;
 
   return (
-    <input
-      {...props}
-      type="text"
-      inputMode="decimal"
-      aria-invalid={invalid || props["aria-invalid"]}
-      title={invalid ? NUMERIC_INPUT_ERROR : props.title}
-      value={displayedValue}
-      onFocus={(event) => {
-        setDraftValue(event.currentTarget.value);
-        onFocus?.(event);
-      }}
-      onChange={(event) => {
-        const nextValue = event.currentTarget.value;
-        setDraftValue(nextValue);
+    <>
+      <input
+        {...props}
+        type="text"
+        inputMode="decimal"
+        aria-invalid={invalid || props["aria-invalid"]}
+        aria-describedby={describedByIds(props["aria-describedby"], invalid && errorId)}
+        title={invalid ? NUMERIC_INPUT_ERROR : props.title}
+        value={displayedValue}
+        onFocus={(event) => {
+          setDraftValue(event.currentTarget.value);
+          onFocus?.(event);
+        }}
+        onChange={(event) => {
+          const nextValue = event.currentTarget.value;
+          setDraftValue(nextValue);
 
-        event.currentTarget.setCustomValidity(nextValue.trim() !== "" && parse(nextValue) === null ? NUMERIC_INPUT_ERROR : "");
-      }}
-      onBlur={(event) => {
-        const nextValue = draftValue ?? event.currentTarget.value;
-        const parsedValue = parse(nextValue);
+          event.currentTarget.setCustomValidity(nextValue.trim() !== "" && parse(nextValue) === null ? NUMERIC_INPUT_ERROR : "");
+        }}
+        onBlur={(event) => {
+          const nextValue = draftValue ?? event.currentTarget.value;
+          const parsedValue = parse(nextValue);
 
-        if (parsedValue !== null) {
-          onValueChange(parsedValue);
-        } else if (nextValue.trim().length === 0 && emptyValue !== undefined) {
-          onValueChange(emptyValue);
-        } else if (nextValue.trim() !== "") {
-          event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
-          event.currentTarget.reportValidity();
+          if (parsedValue !== null) {
+            onValueChange(parsedValue);
+          } else if (nextValue.trim().length === 0 && emptyValue !== undefined) {
+            onValueChange(emptyValue);
+          } else if (nextValue.trim() !== "") {
+            event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
+            event.currentTarget.reportValidity();
+            onBlur?.(event);
+            return;
+          }
+
+          setDraftValue(null);
           onBlur?.(event);
-          return;
-        }
-
-        setDraftValue(null);
-        onBlur?.(event);
-      }}
-    />
+        }}
+      />
+      {/* The refusal on leaving the field reports its validity, which brings focus back here: the
+          reason is read with the field then, so it is not a live region too. */}
+      {invalid ? <span id={errorId} className="sr-only">{NUMERIC_INPUT_ERROR}</span> : null}
+    </>
   );
 }

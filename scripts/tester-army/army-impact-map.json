@@ -20,14 +20,18 @@
       "e2e/army/critical/document-upload-feedback.e2e.ts",
       "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
+      "e2e/army/critical/editable-ouvrage.e2e.ts",
       "e2e/army/critical/editor-idle-requests.e2e.ts",
       "e2e/army/critical/estimate-integrity.e2e.ts",
       "e2e/army/critical/hub-launch-metre.e2e.ts",
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/intake-content-identity.e2e.ts",
       "e2e/army/critical/intake-google-drive.e2e.ts",
       "e2e/army/critical/material-request-articles.e2e.ts",
+      "e2e/army/critical/material-request-consultation.e2e.ts",
+      "e2e/army/critical/material-request-orders.e2e.ts",
       "e2e/army/critical/material-request-suppliers.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/navigation-feedback.e2e.ts",
@@ -57,12 +61,12 @@
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-financial-chain.e2e.ts",
       "e2e/army/local/engine-v3-fo-provision.e2e.ts",
-      "e2e/army/local/engine-v3-unified-kfo.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/engine-v3-pose-only.e2e.ts",
       "e2e/army/local/engine-v3-price-reuse.e2e.ts",
       "e2e/army/local/engine-v3-site-cost.e2e.ts",
+      "e2e/army/local/engine-v3-unified-kfo.e2e.ts",
       "e2e/army/local/estimate-copy-large-v2.e2e.ts",
       "e2e/army/local/estimate-copy-row-limit.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
@@ -257,6 +261,8 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/material-request-articles.e2e.ts",
+      "e2e/army/critical/material-request-consultation.e2e.ts",
+      "e2e/army/critical/material-request-orders.e2e.ts",
       "e2e/army/critical/material-request-suppliers.e2e.ts",
       "e2e/army/critical/material-requests.e2e.ts",
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
@@ -273,6 +279,7 @@
     ],
     "editor": [
       "@wizard",
+      "e2e/army/critical/editable-ouvrage.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
@@ -649,11 +656,12 @@
     },
     {
       "id": "purchase-orders",
-      "note": "US-4.4 rouvre le brouillon de bon de commande créé depuis l'affaire.",
+      "note": "US-4.4 rouvre le brouillon de bon de commande créé depuis l'affaire. MR06 ouvre, modifie (port) et imprime les brouillons créés depuis une demande de matériel.",
       "paths": [
         "src/app/dashboard/orders/**"
       ],
       "journeys": [
+        "e2e/army/critical/material-request-orders.e2e.ts",
         "e2e/army/local/article-association.e2e.ts",
         "e2e/army/local/purchase-decimals.e2e.ts",
         "e2e/army/local/purchase-draft-eligibility.e2e.ts",
@@ -769,7 +777,7 @@
     },
     {
       "id": "material-requests",
-      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne. MR03 : fournisseur proposé par ligne et sa raison (technicien, exception de l'article, type de fourniture), retenu en un geste, ligne validée qui le reste ; fournisseurs de l'article depuis sa fiche.",
+      "note": "MR01 : une demande de matériel collée devient des lignes ; alertes, validation, message au technicien, photo d'origine. MR02 : rattachement des lignes aux articles, noms usuels, article créé depuis une ligne. MR03 : fournisseur proposé par ligne et sa raison (technicien, exception de l'article, type de fourniture), retenu en un geste, ligne validée qui le reste ; fournisseurs de l'article depuis sa fiche. MR05 : consultation des fournisseurs ; message avec références copié, mise en concurrence sans référence, devis PDF joint, prix saisis, devis concurrent retenu, premier devis clos. MR06 : bons de commande depuis la demande ; un brouillon par fournisseur, ligne de frais généraux dans le brouillon de son fournisseur, prix pour 100, créé une fois (double clic, même clé rejouée), port ajouté au brouillon, mode de livraison imprimé.",
       "paths": [
         "src/app/dashboard/affaires/[projectId]/demandes-materiel/**",
         "src/components/material-requests/**",
@@ -784,12 +792,16 @@
         "e2e/army/critical/material-requests.e2e.ts",
         "e2e/army/critical/material-request-articles.e2e.ts",
         "e2e/army/critical/material-request-suppliers.e2e.ts",
+        "e2e/army/critical/material-request-consultation.e2e.ts",
+        "e2e/army/critical/material-request-orders.e2e.ts",
         "e2e/fixtures/material-requests/**"
       ],
       "journeys": [
         "e2e/army/critical/material-requests.e2e.ts",
         "e2e/army/critical/material-request-articles.e2e.ts",
-        "e2e/army/critical/material-request-suppliers.e2e.ts"
+        "e2e/army/critical/material-request-suppliers.e2e.ts",
+        "e2e/army/critical/material-request-consultation.e2e.ts",
+        "e2e/army/critical/material-request-orders.e2e.ts"
       ]
     },
     {
@@ -933,6 +945,7 @@
         "src/app/api/affaires/**"
       ],
       "journeys": [
+        "e2e/army/critical/intake-content-identity.e2e.ts",
         "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/local/intake-cad.e2e.ts"

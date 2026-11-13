@@ -31,6 +31,9 @@ export type OrderItemRow = {
   line_total_ht_cents: number;
   line_tax_cents: number;
   line_total_ttc_cents: number;
+  /** TI-691, when the read carries them: the units the price is for, and the kind of line. */
+  price_per?: number;
+  line_kind?: string;
 };
 
 export type DevisItemRow = {

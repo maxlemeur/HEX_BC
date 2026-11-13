@@ -10,7 +10,20 @@ const DECISIONS_URL = "https://api.openai.com/v1/decisions";
 const MAX_EVIDENCE_BYTES = 256 * 1024;
 const probability = z.number().finite().min(0).max(1);
 const choiceValue = z.union([z.string().max(300), z.boolean()]);
-const questionBase = { name: z.string().min(1).max(160), instructions: z.string().min(1).max(8000) };
+const MAX_QUESTION_JSON_BYTES = 32 * 1024;
+const imageSchema = z.object({ mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  data: z.string().max(3 * 1024 * 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/), detail: z.enum(["low", "high", "auto"]).optional(),
+}).strict();
+/** A question's own evidence (TI-704): its words, a JSON of its own and an image of its own, in this order. */
+const partSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string().min(1).max(8000) }).strict(),
+  z.object({ type: z.literal("json"), data: z.record(z.string(), z.unknown()) }).strict()
+    .refine((part) => Buffer.byteLength(JSON.stringify(part.data), "utf8") <= MAX_QUESTION_JSON_BYTES, "Le contexte d’une question Decisions est trop volumineux."),
+  z.object({ type: z.literal("image"), image: imageSchema }).strict(),
+]);
+const instructionsSchema = z.union([z.string().min(1).max(8000), z.array(partSchema).min(1).max(4)
+  .refine((parts) => parts[0]?.type === "text", "Une question Decisions commence par ses mots.")]);
+const questionBase = { name: z.string().min(1).max(160), instructions: instructionsSchema };
 const questionSchema = z.discriminatedUnion("type", [
   z.object({ ...questionBase, type: z.literal("predicate") }).strict(),
   z.object({ ...questionBase, type: z.literal("choice"), choices: z.array(z.object({
@@ -22,7 +35,9 @@ const questionSchema = z.discriminatedUnion("type", [
 ]);
 
 export type OpenAiDecisionQuestion = z.infer<typeof questionSchema>;
-export type OpenAiDecisionImage = { mimeType: "image/png" | "image/jpeg" | "image/webp"; data: string };
+export type OpenAiDecisionQuestionPart = z.infer<typeof partSchema>;
+/** `detail` (TI-704): how finely the model reads it; the provider's default without it. */
+export type OpenAiDecisionImage = { mimeType: "image/png" | "image/jpeg" | "image/webp"; data: string; detail?: "low" | "high" | "auto" };
 export type OpenAiDecisionsCapability = {
   status: "disabled" | "not_configured" | "available";
   model: typeof OPENAI_DECISIONS_MODEL;
@@ -113,13 +128,36 @@ export function parseOpenAiDecisionAnswers(questions: OpenAiDecisionQuestion[], 
   });
 }
 
-/** Internal adapter only. Routes must authorize and construct these fixed questions. */
+/** Shared images of a call, and every image of its questions with them, at most (TI-704: legend blocks, a group's own image). */
+export const OPENAI_DECISIONS_IMAGE_LIMITS = { shared: 6, total: 40, base64Bytes: 12 * 1024 * 1024 } as const;
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+const asImagePart = (image: OpenAiDecisionImage) => ({ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}`,
+  ...(image.detail ? { detail: image.detail } : {}) });
+
+/** The provider's form of a question: its instructions as given, or its parts as content parts. */
+function providerQuestion(question: OpenAiDecisionQuestion) {
+  if (typeof question.instructions === "string") return question;
+  return { ...question, instructions: question.instructions.map((part) => (part.type === "text" ? { type: "input_text", text: part.text }
+    : part.type === "json" ? { type: "input_json", data: part.data } : asImagePart(part.image))) };
+}
+
+const imagesOf = (question: OpenAiDecisionQuestion) => (typeof question.instructions === "string" ? []
+  : question.instructions.flatMap((part) => (part.type === "image" ? [part.image] : [])));
+const imageHash = (image: OpenAiDecisionImage) => createHash("sha256").update(image.mimeType).update(image.detail ?? "").update(image.data).digest("hex");
+
+/**
+ * Internal adapter only. Routes must authorize and construct these fixed questions. `developer`: the instructions of
+ * the task, before the evidence (TI-704); `timeoutMs`: at most 60 s, 20 s by default.
+ */
 export async function callOpenAiDecisions(input: {
   owner: ChatGptOwner;
   context: { tenantId: string; projectId: string; preparationFingerprint: string };
   evidence: Record<string, unknown>;
   images?: OpenAiDecisionImage[];
   questions: OpenAiDecisionQuestion[];
+  developer?: string;
+  timeoutMs?: number;
 }): Promise<OpenAiDecisionsResult> {
   if (!input.owner.userId || !input.owner.tenantId || input.owner.tenantId !== input.context.tenantId) {
     throw new Error("Le contexte Decisions n’appartient pas au tenant autorisé.");
@@ -129,19 +167,27 @@ export async function callOpenAiDecisions(input: {
     question.type === "choice" && new Set(question.choices.map((choice) => choice.value)).size !== question.choices.length)) {
     throw new Error("Les questions et les choix Decisions doivent être uniques.");
   }
+  const developer = input.developer === undefined ? null : z.string().min(1).max(8000).parse(input.developer);
+  const timeoutMs = Math.min(60_000, Math.max(1_000, Math.floor(input.timeoutMs ?? DEFAULT_TIMEOUT_MS)));
   const evidence = JSON.stringify(input.evidence);
   if (Buffer.byteLength(evidence, "utf8") > MAX_EVIDENCE_BYTES) throw new Error("Le contexte Decisions est trop volumineux.");
-  const images = z.array(z.object({ mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
-    data: z.string().max(3 * 1024 * 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/),
-  }).strict()).max(2).parse(input.images ?? []);
-  if (images.reduce((bytes, image) => bytes + image.data.length, 0) > 4 * 1024 * 1024) throw new Error("Les aperçus Decisions dépassent la taille autorisée.");
+  const images = z.array(imageSchema).max(OPENAI_DECISIONS_IMAGE_LIMITS.shared).parse(input.images ?? []);
+  const questionImages = questions.flatMap(imagesOf);
+  if (images.length + questionImages.length > OPENAI_DECISIONS_IMAGE_LIMITS.total
+    || [...images, ...questionImages].reduce((bytes, image) => bytes + image.data.length, 0) > OPENAI_DECISIONS_IMAGE_LIMITS.base64Bytes) {
+    throw new Error("Les aperçus Decisions dépassent la taille autorisée.");
+  }
   const capability = getOpenAiDecisionsCapability();
   const provenance: OpenAiDecisionsResult["provenance"] = {
     tenant_id: input.owner.tenantId, project_id: input.context.projectId,
     preparation_fingerprint: input.context.preparationFingerprint,
     request_fingerprint: createHash("sha256").update(JSON.stringify({
-      tenant: input.owner.tenantId, user: input.owner.userId, context: input.context, evidence, questions,
-      ...(images.length ? { image_hashes: images.map((image) => createHash("sha256").update(image.mimeType).update(image.data).digest("hex")) } : {}),
+      tenant: input.owner.tenantId, user: input.owner.userId, context: input.context, evidence,
+      // A question's images by their hash, as the shared ones: the fingerprint never holds image data.
+      questions: questions.map((question) => (typeof question.instructions === "string" ? question : { ...question,
+        instructions: question.instructions.map((part) => (part.type === "image" ? { type: "image", image_hash: imageHash(part.image) } : part)) })),
+      ...(images.length ? { image_hashes: images.map(imageHash) } : {}),
+      ...(developer ? { developer } : {}),
     })).digest("hex"),
     model: OPENAI_DECISIONS_MODEL, requested_at: new Date().toISOString(), usage: null,
   };
@@ -152,13 +198,15 @@ export async function callOpenAiDecisions(input: {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENAI_DECISIONS_API_KEY!.trim()}` },
       body: JSON.stringify({
         model: OPENAI_DECISIONS_MODEL,
-        input: [{ role: "user", content: [{ type: "input_json", data: input.evidence },
-          ...images.map((image) => ({ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` })),
-        ] }], questions,
+        input: [
+          ...(developer ? [{ role: "developer", content: [{ type: "input_text", text: developer }] }] : []),
+          { role: "user", content: [{ type: "input_json", data: input.evidence }, ...images.map(asImagePart)] },
+        ],
+        questions: questions.map(providerQuestion),
         // Partition provider caching by both tenant and user; never cache results across tenants.
         prompt_cache_key: createHash("sha256").update(`${input.owner.tenantId}:${input.owner.userId}`).digest("hex"),
       }),
-      signal: AbortSignal.timeout(20_000), cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs), cache: "no-store",
     });
     if (!response.ok) return { status: "failed", capability, answers: unresolved, provenance,
       message: response.status === 429 ? "La limite API Decisions est atteinte. Continuez manuellement ou réessayez plus tard."

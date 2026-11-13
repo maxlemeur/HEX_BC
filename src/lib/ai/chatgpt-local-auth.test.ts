@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  assertLocalChatGptHost, beginLocalChatGptSignIn, disconnectLocalChatGpt,
+  assertLocalChatGptHost, beginLocalChatGptSignIn, relayLocalChatGptCallback, disconnectLocalChatGpt,
   finishLocalChatGptSignIn, getLocalChatGptCredential, getLocalChatGptState,
 } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -23,12 +23,12 @@ beforeEach(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "mergeone-chatgpt-auth-"));
   vi.spyOn(process, "cwd").mockReturnValue(directory);
   vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1"); vi.stubEnv("NODE_ENV", "test");
-  vi.stubEnv("VERCEL", ""); vi.stubEnv("CI", "");
+  vi.stubEnv("VERCEL", ""); vi.stubEnv("CI", ""); vi.stubEnv("PORT", ""); vi.stubEnv("MERGEONE_DEV_HOSTS", "");
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); await rm(directory, { recursive: true, force: true }); });
 
-async function authorize(target: ChatGptOwner = owner, profileId?: string, claims: Record<string, unknown> = {}, issuedClientId = "oaiapp_test") {
-  const start = await beginLocalChatGptSignIn(target, origin, profileId);
+async function authorize(target: ChatGptOwner = owner, profileId?: string, claims: Record<string, unknown> = {}, issuedClientId = "oaiapp_test", sourceOrigin = origin) {
+  const start = await beginLocalChatGptSignIn(target, sourceOrigin, profileId);
   const authorization = new URL(start.url);
   const clientId = profileId ? authorization.searchParams.get("client_id")! : issuedClientId;
   const idToken = await new SignJWT({ nonce: authorization.searchParams.get("nonce"), email: "fixture@example.test", ...claims })
@@ -40,7 +40,7 @@ async function authorize(target: ChatGptOwner = owner, profileId?: string, claim
       token_type: "Bearer", expires_in: 3600, scope: "openid resource.invoke chatgpt.tokens.use.direct" });
   });
   vi.stubGlobal("fetch", fetchMock);
-  const callback = new URL(`${origin}/auth/chatgpt/callback`);
+  const callback = new URL(`${sourceOrigin}/auth/chatgpt/callback`);
   callback.search = new URLSearchParams({ state: start.state, client_id: clientId, code: "fixture-code" }).toString();
   return { start, authorization, callback, fetchMock };
 }
@@ -83,11 +83,104 @@ describe("local ChatGPT authorization", () => {
     const pending = JSON.parse(await readFile(path.join(directory, ".private", "chatgpt-local", `pending-${start.state}.json`), "utf8"));
     expect(pending).toMatchObject(owner); expect(pending).not.toHaveProperty("supabase");
   });
-  it("gates hosted/production/foreign-host requests even with the opt-in set", () => {
-    expect(assertLocalChatGptHost("127.0.0.1:3000")).toBe(origin);
-    for (const host of ["localhost:3000", "evil.test:3000", "127.0.0.1.evil.test:3000", null]) expect(() => assertLocalChatGptHost(host)).toThrow();
-    vi.stubEnv("NODE_ENV", "production"); expect(() => assertLocalChatGptHost("127.0.0.1:3000")).toThrow();
-    vi.stubEnv("NODE_ENV", "development"); vi.stubEnv("VERCEL", "1"); expect(() => assertLocalChatGptHost("127.0.0.1:3000")).toThrow();
+  it("accepts loopback on the dev port and an extra host from MERGEONE_DEV_HOSTS", async () => {
+    vi.stubEnv("NODE_ENV", "development"); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "");
+    for (const host of ["127.0.0.1:3000", "localhost:3000", "[::1]:3000"]) {
+      expect(assertLocalChatGptHost(host)).toBe(`http://${host}`);
+    }
+    expect(assertLocalChatGptHost("127.0.0.1:3000", "https")).toBe("https://127.0.0.1:3000");
+    expect(() => assertLocalChatGptHost("127.0.0.1:3015")).toThrow();
+    vi.stubEnv("PORT", "3015");
+    expect(assertLocalChatGptHost("localhost:3015")).toBe("http://localhost:3015");
+    expect(assertLocalChatGptHost("[::1]:3015")).toBe("http://[::1]:3015");
+    expect(() => assertLocalChatGptHost("127.0.0.1:3000")).toThrow();
+    vi.stubEnv("PORT", "");
+    vi.stubEnv("MERGEONE_DEV_HOSTS", "mergeone.dev.test,192.168.1.42");
+    expect(assertLocalChatGptHost("mergeone.dev.test", "https")).toBe("https://mergeone.dev.test");
+    expect(assertLocalChatGptHost("192.168.1.42:3000")).toBe("http://192.168.1.42:3000");
+    const start = await beginLocalChatGptSignIn(owner, "https://mergeone.dev.test");
+    const pending = JSON.parse(await readFile(path.join(directory, ".private", "chatgpt-local", `pending-${start.state}.json`), "utf8"));
+    expect(pending.returnOrigin).toBe("https://mergeone.dev.test");
+    const callback = new URL(`${origin}/auth/chatgpt/callback?state=${start.state}&code=fixture-code`);
+    const returned = await relayLocalChatGptCallback(callback);
+    expect(returned?.origin).toBe("https://mergeone.dev.test");
+    expect(returned?.searchParams.get("code")).toBe("fixture-code");
+  });
+  it("refuses an unlisted host or an unexpected forwarded protocol before storing a return origin", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    for (const source of ["http://192.168.1.42:3000", "http://192.168.1.42", "https://mergeone.dev.test", "http://mergeone.dev.test:3000", "http://evil.test"]) {
+      expect(() => assertLocalChatGptHost(new URL(source).host, new URL(source).protocol.slice(0, -1))).toThrow();
+      await expect(beginLocalChatGptSignIn(owner, source)).rejects.toThrow();
+    }
+    for (const protocol of ["javascript", "https://evil.test", "", "http,https", "ftp"]) {
+      expect(() => assertLocalChatGptHost("127.0.0.1:3000", protocol)).toThrow();
+    }
+    for (const host of ["2130706433:3000", "127.1:3000", "127.0.0.1.nip.io:3000", "localhost.:3000"]) {
+      expect(() => assertLocalChatGptHost(host)).toThrow();
+    }
+    const names = await readdir(path.join(directory, ".private", "chatgpt-local")).catch(() => [] as string[]);
+    expect(names.filter((name) => name.startsWith("pending-"))).toEqual([]);
+    const planted = await beginLocalChatGptSignIn(owner, origin);
+    const file = path.join(directory, ".private", "chatgpt-local", `pending-${planted.state}.json`);
+    const pending = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...pending, returnOrigin: "http://192.168.1.42:3000" }));
+    await expect(relayLocalChatGptCallback(new URL(`${origin}/auth/chatgpt/callback?state=${planted.state}&code=fixture-code`))).rejects.toMatchObject({ reason: "callback" });
+    await writeFile(file, JSON.stringify({ ...pending, returnOrigin: "https://mergeone.dev.test" }));
+    await expect(relayLocalChatGptCallback(new URL(`${origin}/auth/chatgpt/callback?state=${planted.state}&code=fixture-code`))).rejects.toMatchObject({ reason: "callback" });
+  });
+  it("rejects malformed authorities and protocols and always disables production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    for (const host of [null, "", "user@evil.test", "example.test/path", "example.test?x=1", "example.test#x", " example.test", "example.test\\evil.test", "example.test:bad"]) {
+      expect(() => assertLocalChatGptHost(host)).toThrow();
+    }
+    expect(() => assertLocalChatGptHost("localhost:3000", "javascript")).toThrow();
+    vi.stubEnv("NODE_ENV", "production");
+    for (const host of ["localhost:3000", "127.0.0.1:3000", "mergeone.dev.test"]) expect(() => assertLocalChatGptHost(host)).toThrow();
+  });
+
+  it("uses the supported loopback redirect and returns to the initiating browser origin", async () => {
+    vi.stubEnv("MERGEONE_DEV_HOSTS", "mergeone.dev.test");
+    const source = "https://mergeone.dev.test";
+    const start = await beginLocalChatGptSignIn(owner, source);
+    const callback = new URL(new URL(start.url).searchParams.get("redirect_uri")!);
+    expect(callback.origin).toBe(origin);
+    callback.search = new URLSearchParams({ state: start.state, error: "access_denied" }).toString();
+    const returned = await relayLocalChatGptCallback(callback);
+    expect(returned?.origin).toBe(source);
+    expect(returned?.search).toBe(callback.search);
+    expect(await relayLocalChatGptCallback(returned!)).toBeNull();
+    await expect(finishLocalChatGptSignIn(owner, returned!, "wrong-browser")).rejects.toMatchObject({ reason: "state" });
+    await expect(finishLocalChatGptSignIn(owner, returned!, start.state)).rejects.toMatchObject({ reason: "cancelled" });
+    await expect(relayLocalChatGptCallback(callback)).rejects.toMatchObject({ reason: "missing" });
+  });
+  it("exchanges the supported loopback URI after a signed login from localhost", async () => {
+    const { start, authorization, callback } = await authorize(owner, undefined, {}, "agent_fixture", "http://localhost:3000");
+    const redirectUri = authorization.searchParams.get("redirect_uri");
+    expect(redirectUri).toBe(`${origin}/auth/chatgpt/callback`);
+    const transport = vi.mocked(fetch);
+    await finishLocalChatGptSignIn(owner, callback, start.state);
+    expect((await getLocalChatGptState(owner)).sharing).toBe(true);
+    const exchange = transport.mock.calls.find(([url]) => String(url).endsWith("/oauth/token"));
+    expect((exchange?.[1]?.body as URLSearchParams).get("redirect_uri")).toBe(redirectUri);
+  });
+
+  it("rejects a changed relay port/path or return origin before token exchange", async () => {
+    const start = await beginLocalChatGptSignIn(owner, "http://localhost:3000");
+    for (const bad of ["http://127.0.0.1:3015/auth/chatgpt/callback", `${origin}/wrong-path`, "https://other.dev.test/auth/chatgpt/callback"]) {
+      const callback = new URL(bad); callback.searchParams.set("state", start.state);
+      await expect(relayLocalChatGptCallback(callback)).rejects.toMatchObject({ reason: "callback" });
+    }
+    const forged = new URL(`https://other.dev.test/auth/chatgpt/callback?state=${start.state}&error=access_denied`);
+    await expect(finishLocalChatGptSignIn(owner, forged, start.state)).rejects.toMatchObject({ reason: "callback" });
+  });
+
+  it("never relays a callback with an unknown, malformed or expired state", async () => {
+    await expect(relayLocalChatGptCallback(new URL(`${origin}/auth/chatgpt/callback?state=../other`))).rejects.toMatchObject({ reason: "state" });
+    const start = await beginLocalChatGptSignIn(owner, "http://localhost:3000");
+    const file = path.join(directory, ".private", "chatgpt-local", `pending-${start.state}.json`);
+    const pending = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...pending, expiresAt: 1 }));
+    await expect(relayLocalChatGptCallback(new URL(`${origin}/auth/chatgpt/callback?state=${start.state}`))).rejects.toMatchObject({ reason: "expired" });
   });
 
   it("uses a stable host, new PKCE per attempt, verifies a signed identity, and consumes the callback once", async () => {

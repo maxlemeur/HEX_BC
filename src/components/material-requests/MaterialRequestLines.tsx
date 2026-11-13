@@ -6,7 +6,7 @@ import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { MaterialRequestBlockedLine } from "@/lib/material-requests/client";
+import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
@@ -134,11 +134,14 @@ export function MaterialRequestLines({
   editor,
   materialListId,
   headingId,
+  orderedLine,
   toolbar,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   materialListId: string;
   headingId: string;
+  /** The purchase order each ordered line went into (TI-691, delivery 3a). */
+  orderedLine?: (lineId: string) => MaterialRequestOrderLink | null;
   /** Read-only actions shown beside the validation button (message, previous requests). */
   toolbar?: React.ReactNode;
 }>) {
@@ -473,6 +476,7 @@ export function MaterialRequestLines({
                 supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
                 supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
                 onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
+                ordered={orderedLine?.(line.id) ?? null}
               />
             ))}
             {canWrite ? (

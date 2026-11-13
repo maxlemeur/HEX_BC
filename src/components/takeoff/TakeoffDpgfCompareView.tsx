@@ -31,8 +31,12 @@ import { buildManualLinkCandidates } from "@/components/takeoff/takeoff-dpgf-com
 import {
   buildProofGroups,
   buildSearchText,
+  decisionPrefill,
+  describeDecisionPrefill,
   exportRowsAsCsv,
+  sameDecisionValues,
   sortRows,
+  type DecisionValues,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 import {
   fetchTakeoffRiskRadar,
@@ -43,8 +47,8 @@ import {
 } from "@/lib/takeoff/client";
 import type {
   TakeoffDpgfComparisonResponse,
+  TakeoffDpgfComparisonRow,
   TakeoffDpgfComparisonView,
-  TakeoffDpgfReviewDecision,
   TakeoffRiskAlert,
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
@@ -55,8 +59,30 @@ import { Input } from "@/components/ui/input";
 type TakeoffDpgfCompareViewProps = {
   data: TakeoffDpgfComparisonResponse;
   currentView: TakeoffDpgfComparisonView;
+  /** The comparison is being read again; `data` stays the one shown until then. */
+  refreshing?: boolean;
   onViewChange: (view: TakeoffDpgfComparisonView) => void;
   onRefresh: () => void;
+};
+
+/** The decision being typed for a line, and what it started from. */
+type DecisionDraft = DecisionValues & {
+  /** The line the draft is for, as last read. */
+  row: TakeoffDpgfComparisonRow | null;
+  /** The decision the line held when the draft started, or when it was last saved. */
+  start: DecisionValues;
+  /** The person picked a decision or typed a reason since then, even back to the start values. */
+  touched: boolean;
+};
+
+const newDraft = (row: TakeoffDpgfComparisonRow | null): DecisionDraft => {
+  const prefill = decisionPrefill(row);
+  return { row, ...prefill, start: prefill, touched: false };
+};
+
+const VIEW_LABELS: Record<TakeoffDpgfComparisonView, string> = {
+  all: "Tout",
+  exceptions_only: "Exceptions seulement",
 };
 
 type RiskActionTarget = {
@@ -107,6 +133,7 @@ export { buildManualLinkCandidates };
 export default function TakeoffDpgfCompareView({
   data,
   currentView,
+  refreshing = false,
   onViewChange,
   onRefresh,
 }: Readonly<TakeoffDpgfCompareViewProps>) {
@@ -120,8 +147,7 @@ export default function TakeoffDpgfCompareView({
   const [evidencePanelOpen, setEvidencePanelOpen] = useState(false);
   const [priceSuggestionPanelOpen, setPriceSuggestionPanelOpen] = useState(false);
   const [manualLinkSaving, setManualLinkSaving] = useState(false);
-  const [decisionReason, setDecisionReason] = useState("");
-  const [draftDecision, setDraftDecision] = useState<TakeoffDpgfReviewDecision | null>(null);
+  const [draft, setDraft] = useState<DecisionDraft>(() => newDraft(null));
   const [decisionSaving, setDecisionSaving] = useState(false);
   const [riskActionTarget, setRiskActionTarget] = useState<RiskActionTarget | null>(null);
   const [riskReviewNote, setRiskReviewNote] = useState("");
@@ -144,13 +170,17 @@ export default function TakeoffDpgfCompareView({
     }
   );
 
-  useEffect(() => {
-    if (data.rows.some((row) => row.line_id === selectedRowId)) {
-      return;
-    }
+  const selectedRowListed = data.rows.some((row) => row.line_id === selectedRowId);
+  // TI-721: the line whose decision is being typed stays shown when the comparison read again no longer lists it.
+  const unlistedDraftRow =
+    draft.touched && !selectedRowListed && draft.row !== null && draft.row.line_id === selectedRowId ? draft.row : null;
 
-    setSelectedRowId(data.rows[0]?.line_id ?? null);
-  }, [data.rows, selectedRowId]);
+  // The row shown stays one of the comparison's rows, settled while rendering: an effect ran after the rows were shown
+  // and replaced a row clicked meanwhile (TI-719).
+  if (!selectedRowListed && !unlistedDraftRow) {
+    const firstRowId = data.rows[0]?.line_id ?? null;
+    if (firstRowId !== selectedRowId) setSelectedRowId(firstRowId);
+  }
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = deferredSearchQuery.trim().toLocaleLowerCase("fr-FR");
@@ -172,24 +202,36 @@ export default function TakeoffDpgfCompareView({
   }, [data.rows, deferredSearchQuery, sortKey, statusFilter]);
 
   const selectedRow =
+    unlistedDraftRow ??
     filteredRows.find((row) => row.line_id === selectedRowId) ??
     data.rows.find((row) => row.line_id === selectedRowId) ??
     filteredRows[0] ??
     data.rows[0] ??
     null;
 
-  useEffect(() => {
-    if (!selectedRow) {
-      setDraftDecision(null);
-      setDecisionReason("");
-      return;
-    }
-
-    setDraftDecision(
-      selectedRow.applied_decision?.decision ?? selectedRow.suggested_decision ?? null
+  // The decision of the row shown starts as the one applied, else the suggested one, settled while rendering so the
+  // row is shown with it: an effect ran after the row was shown and replaced a decision picked meanwhile (TI-719).
+  const selectedRowPrefill = decisionPrefill(selectedRow);
+  if (draft.row?.line_id !== selectedRow?.line_id) {
+    setDraft(newDraft(selectedRow));
+  } else if (draft.row !== selectedRow) {
+    // TI-721: the same line read again (a refresh, a save). What is typed for it stays; untouched, it takes the line's
+    // decision. A refresh replaced it by the line's decision, so what the person was typing was lost.
+    setDraft(
+      !draft.touched
+        ? newDraft(selectedRow)
+        : sameDecisionValues(draft, selectedRowPrefill)
+          ? { ...draft, row: selectedRow, start: selectedRowPrefill } // what is typed, as typed (a trailing space)
+          : { ...draft, row: selectedRow }
     );
-    setDecisionReason(selectedRow.applied_decision?.reason ?? "");
-  }, [selectedRow]);
+  }
+  // The decision the line holds now, shown next to the one typed before it was read again (an untouched draft took it;
+  // a saved one is the line's own until the refresh brings it back).
+  const refreshedDecision =
+    selectedRow && draft.touched && !sameDecisionValues(draft.start, selectedRowPrefill)
+    && !sameDecisionValues(draft, selectedRowPrefill)
+      ? describeDecisionPrefill(selectedRow)
+      : null;
 
   useEffect(() => {
     if (!riskActionTarget) {
@@ -225,6 +267,26 @@ export default function TakeoffDpgfCompareView({
       (item) => item.scope_type === "line" && item.line_id === selectedRow.line_id
     );
   }, [riskRadar, selectedRow]);
+
+  // TI-721: a line the comparison does not list (another view, a line gone) cannot be shown; the line shown and what
+  // is typed for it stay. Selecting it moved the review to the first line and dropped that input.
+  const openRiskLine = (lineId: string) => {
+    if (!data.rows.some((row) => row.line_id === lineId)) {
+      toast.info({
+        title: "Ligne hors de la vue affichée",
+        description:
+          currentView !== "exceptions_only"
+            ? "Cette ligne ne figure pas dans la comparaison de cette version."
+            : draft.touched
+              ? "Cette ligne n’est pas une exception. Enregistrez d’abord la décision en cours : changer de vue l’efface. Affichez ensuite la vue « Tout » pour l’ouvrir."
+              : "Cette ligne n’est pas une exception : affichez la vue « Tout » pour l’ouvrir.",
+      });
+      return;
+    }
+    startTransition(() => {
+      setSelectedRowId(lineId);
+    });
+  };
 
   const handleViewChange = (nextView: TakeoffDpgfComparisonView) => {
     if (nextView === currentView) return;
@@ -294,6 +356,7 @@ export default function TakeoffDpgfCompareView({
   };
 
   const handleDecisionSave = async () => {
+    const { decision: draftDecision, reason: decisionReason } = draft;
     if (!selectedRow || !draftDecision) {
       toast.info({
         title: "Sélection incomplète",
@@ -310,6 +373,14 @@ export default function TakeoffDpgfCompareView({
         decision: draftDecision,
         reason: decisionReason.trim().length > 0 ? decisionReason.trim() : null,
       });
+      // The line now holds this decision: a refresh that brings it back is not a change under the draft. What was
+      // typed while it was being saved stays in progress.
+      const saved = { decision: draftDecision, reason: decisionReason };
+      setDraft((current) =>
+        current.row?.line_id === selectedRow.line_id
+          ? { ...current, start: saved, touched: !sameDecisionValues(current, saved) }
+          : current
+      );
 
       toast.success({
         title: "Décision enregistrée",
@@ -433,11 +504,7 @@ export default function TakeoffDpgfCompareView({
         riskRadarError={riskRadarError}
         riskRadarLoading={riskRadarLoading}
         openRiskItems={openRiskItems}
-        onOpenLine={(lineId) =>
-          startTransition(() => {
-            setSelectedRowId(lineId);
-          })
-        }
+        onOpenLine={openRiskLine}
         onRiskAction={setRiskActionTarget}
       />
 
@@ -526,8 +593,9 @@ export default function TakeoffDpgfCompareView({
 
         <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
           {filteredRows.length} ligne(s) visibles sur {data.pagination.total} pour la vue{" "}
-          {currentView === "all" ? "Tout" : "Exceptions seulement"}
+          {VIEW_LABELS[currentView]}
           {isToolbarPending ? " · filtrage…" : ""}
+          {refreshing ? " · actualisation…" : ""}
         </p>
 
         {currentView === "exceptions_only" ? (
@@ -593,11 +661,23 @@ export default function TakeoffDpgfCompareView({
           selectedRow={selectedRow}
           selectedLineRiskItems={selectedLineRiskItems}
           proofGroups={proofGroups}
-          draftDecision={draftDecision}
-          decisionReason={decisionReason}
+          draftDecision={draft.decision}
+          decisionReason={draft.reason}
           decisionSaving={decisionSaving}
-          onDecisionSelect={setDraftDecision}
-          onDecisionReasonChange={setDecisionReason}
+          draftNotice={
+            unlistedDraftRow
+              ? { kind: "unlisted", viewLabel: VIEW_LABELS[currentView] }
+              : refreshedDecision && selectedRow
+                ? {
+                    kind: "refreshed",
+                    description: refreshedDecision,
+                    applied: selectedRow.applied_decision !== null,
+                  }
+                : null
+          }
+          onTakeRefreshedDecision={() => setDraft(newDraft(selectedRow))}
+          onDecisionSelect={(decision) => setDraft((current) => ({ ...current, decision, touched: true }))}
+          onDecisionReasonChange={(reason) => setDraft((current) => ({ ...current, reason, touched: true }))}
           onDecisionSave={() => void handleDecisionSave()}
           onOpenManualLinkModal={() => setManualLinkModalOpen(true)}
           onOpenEvidencePanel={() => setEvidencePanelOpen(true)}

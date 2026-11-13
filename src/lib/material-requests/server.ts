@@ -25,6 +25,7 @@ import {
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
+import { orderedAmong, orderedLineDatabaseRefusal, orderedLinesRefusal, requestOrderedRefusal } from "./orders-server";
 import { readArticleSummaries } from "./articles-server";
 import {
   DUPLICATE_KEYS,
@@ -33,6 +34,9 @@ import {
   assertSuppliersInTenant,
   assertTechnicianInTenant,
   listTenantTechnicians,
+  pricedLineChanges,
+  pricedLineDatabaseRefusal,
+  pricedLinesRefusal,
   readRequestFiles,
   readRequestLines,
   readTechnician,
@@ -80,7 +84,8 @@ export async function listMaterialRequests(projectId: string): Promise<{
     readAllRows(() => supabase.from("material_request_lines").select("id, request_id, status", { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id)),
     readAllRows(() => supabase.from("material_request_files").select("id, request_id", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("project_id", access.project.id).not("stored_at", "is", null).is("removed_at", null)),
+      .eq("tenant_id", tenantId).eq("project_id", access.project.id).is("quote_id", null)
+      .not("stored_at", "is", null).is("removed_at", null)),
     listTenantTechnicians(access.context),
   ]);
   if (requests.error) throw mapSupabaseError(requests.error, "Impossible de charger les demandes de matériel.");
@@ -198,7 +203,10 @@ async function writeRequest(
   if (presumption.material !== undefined) statement = statement.eq("presumed_material", presumption.material);
   if (presumption.supplierId !== undefined) statement = statement.eq("presumed_supplier_id", presumption.supplierId);
   const { data, error } = await statement.select(REQUEST_COLUMNS).maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible d'enregistrer la demande de matériel.");
+  if (error) {
+    // TI-691: the material withdrawn would return to draft a line an order holds (another session ordered it).
+    throw orderedLineDatabaseRefusal([])(error) ?? mapSupabaseError(error, "Impossible d'enregistrer la demande de matériel.");
+  }
   return data;
 }
 
@@ -274,6 +282,9 @@ export async function updateMaterialRequest(
   const relying = withdrawsMaterial
     ? (await readRequestLines(access, current.id)).filter((line) => line.status === "validated" && reliesOnPresumedMaterial(line))
     : [];
+  // TI-691: a line an order holds was ordered in this material; it does not return to draft.
+  const ordered = await orderedAmong(access, current.id, relying);
+  if (ordered.length > 0) throw orderedLinesRefusal(ordered);
 
   const expected: Presumption = { material: expectedMaterial, supplierId: expectedSupplierId };
   let request = await writeRequest(access, current.id, patch, expected);
@@ -296,6 +307,9 @@ export async function deleteMaterialRequest(projectId: string, requestId: string
   const access = await requireProjectAccess(projectId, "write");
   const { context } = access;
   const request = await requireRequest(access, requestId);
+  // TI-691: an order that stands keeps its request lines (the database refuses too); checked before the originals go.
+  const ordered = await orderedAmong(access, request.id, await readRequestLines(access, request.id));
+  if (ordered.length > 0) throw requestOrderedRefusal(ordered.map((line) => line.reference));
 
   // Its originals first, stored or not (an interrupted upload may have left bytes): withdrawn, then
   // without their bytes, while their rows still authorise it. The rows go with the request.
@@ -309,7 +323,11 @@ export async function deleteMaterialRequest(projectId: string, requestId: string
     .eq("project_id", access.project.id)
     .select("id")
     .maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible de supprimer la demande de matériel.");
+  if (error) {
+    // Ordered meanwhile: the order's ledger keeps the lines (foreign key).
+    if (error.code === "23503") throw requestOrderedRefusal([]);
+    throw mapSupabaseError(error, "Impossible de supprimer la demande de matériel.");
+  }
   if (!data) throw notFound("Demande de matériel introuvable.");
   return { deleted: true };
 }
@@ -369,7 +387,9 @@ export async function createMaterialRequestLines(
         project_id: access.project.id,
         request_id: request.id,
         position: last + 1 + index,
-      })))
+        // A field one line leaves out takes its column's default (imputation « project »), not the NULL the Data API
+        // writes for a key another line of the batch sends (an overhead line among project lines).
+      })), { defaultToNull: false })
       .select(LINE_COLUMNS);
     if (!error) return { lines: [...(data ?? [])].sort(byPosition) };
     // The database refused the whole batch for the cap: another session appended since the count above.
@@ -456,10 +476,19 @@ export async function updateMaterialRequestLine(
   const access = await requireProjectAccess(projectId, "write");
   const [current] = selectLines(await readRequestLines(access, requestId), [lineId]);
   await assertSuppliersInTenant(access.context, [input.supplier_id]);
+  // TI-691: a line priced by a retained quote keeps the quote's supplier and what it orders.
+  const priced = pricedLineChanges([current], sent(input));
+  if (priced) throw pricedLinesRefusal(priced.lines, priced.what);
 
   const patch = patchFor(current, sent(input));
   if (!patch) return { line: current };
-  const [line] = await writeLines(access, requestId, [current.id], patch);
+  // TI-691: what an ordered line says no longer changes when the change would return it to draft.
+  if (patch.status === "draft") {
+    const ordered = await orderedAmong(access, requestId, [current]);
+    if (ordered.length > 0) throw orderedLinesRefusal(ordered);
+  }
+  const [line] = await writeLines(access, requestId, [current.id], patch,
+    (error) => pricedLineDatabaseRefusal([current])(error) ?? orderedLineDatabaseRefusal([current])(error));
   return { line };
 }
 
@@ -471,6 +500,9 @@ export async function bulkUpdateMaterialRequestLines(
   const access = await requireProjectAccess(projectId, "write");
   const selected = selectLines(await readRequestLines(access, requestId), input.ids);
   await assertSuppliersInTenant(access.context, [input.patch.supplier_id]);
+  // All or nothing: one priced line whose supplier or order would change, and none of the selection is written.
+  const priced = pricedLineChanges(selected, sent(input.patch));
+  if (priced) throw pricedLinesRefusal(priced.lines, priced.what);
 
   // One statement per kind of line: those the change returns to draft, those whose kept duplicate it
   // asks again, both, or neither.
@@ -484,8 +516,15 @@ export async function bulkUpdateMaterialRequestLines(
     group.ids.push(line.id);
     groups.set(key, group);
   }
+  // TI-691: all or nothing, no ordered line returns to draft.
+  const reopening = [...groups.values()].filter((group) => group.patch.status === "draft").flatMap((group) => group.ids);
+  const ordered = await orderedAmong(access, requestId, selected.filter((line) => reopening.includes(line.id)));
+  if (ordered.length > 0) throw orderedLinesRefusal(ordered);
   const written: MaterialRequestLine[] = [];
-  for (const group of groups.values()) written.push(...(await writeLines(access, requestId, group.ids, group.patch)));
+  for (const group of groups.values()) {
+    written.push(...(await writeLines(access, requestId, group.ids, group.patch,
+      (error) => pricedLineDatabaseRefusal(selected)(error) ?? orderedLineDatabaseRefusal(selected)(error))));
+  }
   return { lines: afterWrites(selected, written) };
 }
 
@@ -495,6 +534,17 @@ export async function deleteMaterialRequestLine(
   lineId: string,
 ): Promise<{ deleted: true }> {
   const access = await requireProjectAccess(projectId, "write");
+  const { data: current, error: readError } = await access.context.supabase
+    .from("material_request_lines")
+    .select("id, position, price_quote_id")
+    .eq("id", lineId)
+    .eq("tenant_id", access.context.tenantId)
+    .eq("project_id", access.project.id)
+    .eq("request_id", requestId)
+    .maybeSingle();
+  if (readError) throw mapSupabaseError(readError, "Impossible de charger la ligne.");
+  if (!current) throw notFound("Ligne introuvable dans cette demande.");
+  if (current.price_quote_id !== null) throw pricedLinesRefusal([current], "delete");
   const { data, error } = await access.context.supabase
     .from("material_request_lines")
     .delete()
@@ -504,7 +554,11 @@ export async function deleteMaterialRequestLine(
     .eq("request_id", requestId)
     .select("id")
     .maybeSingle();
-  if (error) throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  if (error) {
+    // A quote retained by another session since the line was read.
+    if (error.message === "MATERIAL_REQUEST_LINE_PRICED") throw pricedLinesRefusal([current], "delete");
+    throw mapSupabaseError(error, "Impossible de supprimer la ligne.");
+  }
   if (!data) throw notFound("Ligne introuvable dans cette demande.");
   return { deleted: true };
 }
@@ -564,6 +618,12 @@ export async function reopenMaterialRequestLines(
 ): Promise<{ lines: MaterialRequestLine[] }> {
   const access = await requireProjectAccess(projectId, "write");
   const selected = selectLines(await readRequestLines(access, requestId), ids);
-  const validated = selected.filter((line) => line.status === "validated").map((line) => line.id);
-  return { lines: afterWrites(selected, await writeLines(access, requestId, validated, { status: "draft" })) };
+  const validated = selected.filter((line) => line.status === "validated");
+  // TI-691: a line an order that stands holds is not reopened (all or nothing); the database refuses too.
+  const ordered = await orderedAmong(access, requestId, validated);
+  if (ordered.length > 0) throw orderedLinesRefusal(ordered);
+  return {
+    lines: afterWrites(selected, await writeLines(access, requestId, validated.map((line) => line.id), { status: "draft" },
+      orderedLineDatabaseRefusal(validated))),
+  };
 }

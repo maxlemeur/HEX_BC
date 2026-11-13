@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { toValidationIssues } from "@/lib/takeoff/validation-issues";
-import type { DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
+import type { DpgfApplyComposition, DpgfApplyQuantityLine } from "@/lib/takeoff/dpgf-apply-quantities";
 import {
   TAKEOFF_APPLY_SCOPES,
   type TakeoffApplyRequest,
@@ -145,6 +145,8 @@ export function buildTakeoffDpgfApplyAuthorizationRecord(input: {
   estimateVersionId: string;
   summary: TakeoffDpgfComparisonSummary;
   quantityPolicy?: DpgfApplyQuantityLine[];
+  /** TI-682 D4: the version 1 policies of the version's DPGF targets, read as compositions the application keeps. */
+  compositions?: DpgfApplyComposition[];
   quantitySources?: Array<{ id: string; updated_at: string; quantity: number; designation: string; unit: string; is_excluded: boolean }>;
   quantityComparisonStamp?: string;
   authorizationToken: string;
@@ -157,6 +159,7 @@ export function buildTakeoffDpgfApplyAuthorizationRecord(input: {
     estimate_version_id: input.estimateVersionId,
     authorization_token_hash: hashTakeoffApplyAuthorizationToken(input.authorizationToken),
     review_summary: input.quantityPolicy ? { ...input.summary, quantity_policy: input.quantityPolicy,
+      ...(input.compositions?.length ? { dpgf_compositions: input.compositions } : {}),
       quantity_sources: input.quantitySources, quantity_version_stamp: input.quantityComparisonStamp } : input.summary,
     expires_at: new Date(input.nowMs + 5 * 60 * 1000).toISOString(),
   };

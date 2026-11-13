@@ -18,6 +18,10 @@
 // A sharded whole suite must also list exactly the files the e2e CLI
 // discovered: every shard's report records the whole discovery, the tests
 // outside its positional files skipped as unselected.
+// A journey that passed only on its CI retry stays red and is named
+// "intermittent", apart from one that failed both attempts; the journeys in
+// quarantine (`test.fail`) are listed with their ticket, and one without a
+// ticket is refused (journey-outcomes.ts).
 // It writes <out>/manifest.json (each unit's manifest SHA-256) beside a copy of
 // every unit's evidence, so one artifact keeps the whole run.
 import { createHash } from "node:crypto";
@@ -26,6 +30,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { calcV3Scope } from "./calc-v3-phases.ts";
+import { journeyOutcomes, quarantineProblems } from "./journey-outcomes.ts";
 
 export type AggregateSuite = "critical" | "takeoff" | "full" | "calc-v3";
 export type AggregateInput = {
@@ -48,8 +53,13 @@ export type AggregateInput = {
 export type AggregateResult = {
   status: "passed" | "failed" | "not-run";
   problems: string[];
-  /** Every selected journey that did not pass, as "<unit> : <file> : <title> (<status>)", for the job summary. */
+  /**
+   * Every selected journey that did not pass, as "<unit> : <file> : <title> (<what happened>)", for the job summary:
+   * "(intermittent: failed on attempt 1, passed on attempt 2)" apart from "(failed on both attempts)".
+   */
   notPassed: string[];
+  /** Every journey marked `test.fail` that ran, as "<ticket> : <unit> : <file> : <title> (<reason>)". */
+  quarantined: string[];
   /** The aggregate evidence directory to retain, null when nothing was planned. */
   evidence: string | null;
 };
@@ -270,15 +280,25 @@ function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined
   return input.suite === "full" && plan?.development === "none" ? "filtered-full" : input.suite;
 }
 
-/** Names results that did not pass as "<unit> : <file> : <title> (<status>)". */
-function nameNotPassed(red: Record<string, unknown>[], where: string, notPassed: string[]) {
-  for (const result of red) {
-    const title = Array.isArray(result.titlePath) && result.titlePath.length ? result.titlePath.map(String).join(" > ") : String(result.testId ?? "");
-    notPassed.push(`${where} : ${path.posix.basename(String(result.file))} : ${title} (${String(result.status)})`);
+/** What the aggregate lists of the journeys, across its units. */
+type Journeys = { notPassed: string[]; quarantined: string[] };
+
+/**
+ * Names the journeys of a report's run that did not pass, as "<unit> : <file> : <title> (<what happened>)", and
+ * those in quarantine, as "<ticket> : <unit> : <file> : <title> (<reason>)". Returns what it read.
+ */
+function nameJourneys(run: Record<string, unknown>, where: string, journeys: Journeys) {
+  const outcomes = journeyOutcomes(run);
+  for (const journey of outcomes.notPassed) {
+    journeys.notPassed.push(`${where} : ${path.posix.basename(journey.file)} : ${journey.title} (${journey.label})`);
   }
+  for (const journey of outcomes.quarantined) {
+    journeys.quarantined.push(`${journey.ticket ?? "no ticket"} : ${where} : ${path.posix.basename(journey.file)} : ${journey.title} (${journey.reason})`);
+  }
+  return outcomes;
 }
 
-function checkReport(unitDirectory: string, phase: string, where: string, problems: string[], notPassed: string[]): Report | undefined {
+function checkReport(unitDirectory: string, phase: string, where: string, problems: string[], journeys: Journeys): Report | undefined {
   const relative = `${phase}/report.json`;
   const file = path.join(unitDirectory, relative);
   if (!fs.existsSync(file)) {
@@ -294,9 +314,11 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
   const results = (Array.isArray(run.results) ? run.results : []).map(record).filter((result) => result.selected === true);
   const summary = record(run.summary);
   if (results.length === 0) problems.push(`${where} ${relative} has no selected result.`);
-  const red = results.filter((result) => result.status !== "passed");
-  if (red.length) problems.push(`${where} ${relative}: ${red.length} selected result(s) not passed, first ${String(red[0].file)} (${String(red[0].status)}).`);
-  nameNotPassed(red, where, notPassed);
+  // A journey that needed its retry is among them: the e2e CLI exits 0 on it, the aggregate does not.
+  const outcomes = nameJourneys(run, where, journeys);
+  const red = outcomes.notPassed;
+  if (red.length) problems.push(`${where} ${relative}: ${red.length} selected result(s) not passed, first ${red[0].file} (${red[0].label}).`);
+  for (const problem of quarantineProblems(outcomes.quarantined)) problems.push(`${where} ${relative}: ${problem}.`);
   if (["failed", "skipped", "flaky", "interrupted"].some((key) => (summary[key] ?? 0) !== 0) ||
     ["selected", "executed", "passed"].some((key) => summary[key] !== results.length) || run.exitCode !== 0) {
     problems.push(`${where} ${relative} counts do not add up to every selected result executed and passed.`);
@@ -319,7 +341,7 @@ function unitDirectories(input: AggregateInput, units: Unit[], problems: string[
   return new Map(units.map((unit) => [unit, flat && units.length === 1 ? input.evidence : path.join(input.evidence, unit.artifact)]));
 }
 
-function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: Plan | undefined, problems: string[], notPassed: string[]): UnitRecord {
+function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: Plan | undefined, problems: string[], journeys: Journeys): UnitRecord {
   const where = unit.kind === "shard" ? unit.id : `${unit.id} (${unit.artifact})`;
   const manifestFile = path.join(directory, "manifest.json");
   if (!fs.existsSync(manifestFile)) {
@@ -394,14 +416,18 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
       if (unplanned.length) problems.push(`${where} calc-v3.json ran ${unplanned.join(", ")}, which its plan does not list.`);
       if (repeated.length) problems.push(`${where} calc-v3.json ran ${repeated.join(", ")} more than once.`);
     }
-    // The phase's own status decides the aggregate; its e2e report only names the red journeys.
+    // The phase's own status and its e2e report each decide the aggregate: the report names the red journeys
+    // and the quarantined ones, a journey not passed in it is red even under a phase recorded as passed, and
+    // a quarantine without a ticket is refused here as in the phase.
     // A phase that stopped before its journeys has no report and names none.
     for (const phase of sorted(result.phases).filter((name) => PHASE_NAME.test(name))) {
-      try {
-        const run = record(record(readJson(path.join(directory, phase, "sdk", "report.json"))).run);
-        nameNotPassed((Array.isArray(run.results) ? run.results : []).map(record)
-          .filter((entry) => entry.selected === true && entry.status !== "passed"), `calc-v3 ${phase}`, notPassed);
-      } catch { /* no readable report */ }
+      let run: Record<string, unknown>;
+      try { run = record(record(readJson(path.join(directory, phase, "sdk", "report.json"))).run); } catch { continue; /* no readable report */ }
+      const outcomes = nameJourneys(run, `calc-v3 ${phase}`, journeys);
+      // On its own, whatever status the phase recorded: the e2e CLI exits 0 on a journey that needed its retry.
+      const red = outcomes.notPassed;
+      if (red.length) problems.push(`${where} calc-v3 ${phase}: ${red.length} selected result(s) not passed, first ${red[0].file} (${red[0].label}).`);
+      for (const problem of quarantineProblems(outcomes.quarantined)) problems.push(`${where} calc-v3 ${phase}: ${problem}.`);
     }
   } else {
     if (unit.kind === "shard") {
@@ -424,7 +450,7 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
     if (!same(result.phases, wanted) || phases.length !== wanted.length || phases.some((phase) => phase.status !== "passed")) {
       problems.push(`${where} phases ${phases.map((phase) => `${String(phase.phase)} ${String(phase.status)}`).join(", ") || "none"}, expected ${wanted.join(", ")} passed.`);
     }
-    result.reports = wanted.flatMap((phase) => checkReport(directory, phase, where, problems, notPassed) ?? []);
+    result.reports = wanted.flatMap((phase) => checkReport(directory, phase, where, problems, journeys) ?? []);
     const ran = result.reports.find((report) => report.path === `${wanted[0]}/report.json`)?.files ?? [];
     if (planned.length) {
       for (const file of planned) if (!ran.includes(file)) problems.push(`${where} did not run ${file}.`);
@@ -494,15 +520,16 @@ function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records
 export function aggregateEvidence(input: AggregateInput): AggregateResult {
   const startedAt = new Date().toISOString();
   const problems: string[] = [];
-  const notPassed: string[] = [];
+  const journeys: Journeys = { notPassed: [], quarantined: [] };
+  const { notPassed, quarantined } = journeys;
   const { units, plan, scope, wholeSuite } = plannedUnits(input, problems);
   checkJobs(input, units, plan, problems);
   if (units.length === 0) {
     // An explicit none: nothing ran, nothing is claimed.
-    return { status: problems.length ? "failed" : "not-run", problems, notPassed, evidence: null };
+    return { status: problems.length ? "failed" : "not-run", problems, notPassed, quarantined, evidence: null };
   }
   const directories = unitDirectories(input, units, problems);
-  const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems, notPassed));
+  const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems, journeys));
   const union = checkAcrossUnits(input, plan, records, problems, wholeSuite);
   fs.rmSync(input.out, { recursive: true, force: true });
   for (const unit of units) {
@@ -516,11 +543,11 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
     plan: input.suite === "calc-v3" ? { phases: record(input.plan).phases, groups: record(input.plan).groups } : { reason: plan?.reason, files: plan?.files, workers: plan?.workers,
       development: plan?.development, shards: plan?.shards },
     // notPassed: read by nightly-alert.ts to name the red journeys of a scheduled campaign.
-    units: records, ...(union ? { union } : {}), problems, notPassed,
+    units: records, ...(union ? { union } : {}), problems, notPassed, quarantined,
   };
   fs.mkdirSync(input.out, { recursive: true });
   fs.writeFileSync(path.join(input.out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  return { status, problems, notPassed, evidence: input.out };
+  return { status, problems, notPassed, quarantined, evidence: input.out };
 }
 
 function summary(input: AggregateInput, result: AggregateResult): string {
@@ -533,6 +560,18 @@ function summary(input: AggregateInput, result: AggregateResult): string {
     // The names a reader needs first: without them, finding the red journeys means downloading the evidence.
     lines.push("", `#### Parcours non passés (${result.notPassed.length})`, "");
     for (const journey of result.notPassed.slice(0, 200)) lines.push(`- ${journey}`);
+    if (result.notPassed.some((journey) => / \(intermittent: [^()]*\)$/u.test(journey))) {
+      lines.push("", "Un parcours « intermittent » a échoué puis réussi à sa seconde tentative, la seule que la CI accorde : " +
+        "le check reste rouge. Ce libellé classe l'échec, il ne prouve pas que le changement testé n'y est pour rien.");
+    }
+  }
+  if (result.quarantined.length) {
+    // Listed in a green aggregate too: a quarantined journey reports `passed` and proves nothing.
+    if (lines.at(-1) !== "") lines.push("");
+    lines.push(`#### Parcours en quarantaine (${result.quarantined.length})`, "",
+      "Marqués `test.fail` : ils échouent comme attendu, ne prouvent rien et rendront le check rouge le jour où ils passeront. " +
+      "Chacun cite le ticket qui doit le réparer.", "");
+    for (const journey of result.quarantined.slice(0, 200)) lines.push(`- ${journey}`);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -573,6 +612,7 @@ function main() {
   if (process.env.GITHUB_OUTPUT && result.evidence) fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${result.evidence}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary(input, result));
   for (const problem of result.problems) console.log(`::error title=TesterArmy aggregate::${problem.replace(/\r?\n/gu, " ")}`);
+  for (const journey of result.quarantined) console.log(`::warning title=TesterArmy quarantine::${journey.replace(/\r?\n/gu, " ")}`);
   console.log(`TesterArmy ${suite} aggregate ${result.status}${result.evidence ? `; evidence: ${result.evidence}` : ""}.`);
   if (result.status === "failed") process.exitCode = 1;
 }

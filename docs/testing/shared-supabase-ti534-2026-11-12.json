@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-12",
+  "status": "completed",
+  "receiptMode": "retrospective: written after the application from the applying session's evidence and a read-only reread of the remote history; the migration was not replayed",
+  "sourceCommit": "a3cad6373ee21674ebaf8cd957f726c518da21dc",
+  "target": {
+    "projectName": "bon_de_commande",
+    "environment": "MergeOne / HEX_BC shared Supabase, also production",
+    "projectReferenceOmitted": true
+  },
+  "authorization": "The owner explicitly authorized this migration and the TI-534 production deployment. No other migration and no business data write were performed by this operation.",
+  "migrations": [
+    {
+      "path": "supabase/migrations/20261112093830_unified_kfo.sql",
+      "bytes": 36848,
+      "sha256": "9c10463cb84ebe509918cf6b7178945c81766d2d417ea9c512fc106ee5423065",
+      "manifestSha256Matches": true,
+      "repositoryVersion": "20261112093830",
+      "sourcePullRequest": {
+        "number": 239,
+        "url": "https://github.com/maxlemeur/HEX_BC/pull/239",
+        "mergeCommit": "a3cad6373ee21674ebaf8cd957f726c518da21dc",
+        "mergedAt": "2026-11-12T10:14:41Z"
+      },
+      "method": "not recorded in the kept evidence; the history shows one added entry named after the file stem with one statement, the trace of an apply_migration call rather than a db push; SQL taken from the merged commit",
+      "applied": {
+        "name": "20261112093830_unified_kfo",
+        "bytes": 36848,
+        "sha256": "9c10463cb84ebe509918cf6b7178945c81766d2d417ea9c512fc106ee5423065",
+        "version": "20261112111510",
+        "statement_count": 1
+      },
+      "storedStatementEqualsFullFile": true
+    }
+  ],
+  "history": {
+    "before": {
+      "entries": 386,
+      "latest": { "version": "20261112100256", "name": "20261112025548_takeoff_page_decisions" },
+      "targetAbsent": true
+    },
+    "afterApplication": {
+      "addedEntries": 1
+    },
+    "reread": {
+      "at": "2026-11-12T19:45Z",
+      "tool": "list_migrations (read-only)",
+      "evidence": "outputs/ti534-picker-target-price/shared-history-reread-20261112T1945Z.json in the canonical clone, outside Git",
+      "occurrences": 1,
+      "previous": { "version": "20261112100256", "name": "20261112025548_takeoff_page_decisions" },
+      "laterEntries": [
+        { "version": "20261112121147", "name": "20261112101124_material_request_articles" },
+        { "version": "20261112191034", "name": "20261112100501_estimate_line_provisional_quantity" },
+        { "version": "20261112191126", "name": "20261112142534_product_reference_check_by_index" },
+        { "version": "20261112191209", "name": "20261112152357_purchase_line_suppliers" }
+      ],
+      "fingerprintIncludingThisEntry": "docs/testing/shared-supabase-ti690-delivery3-2026-11-12.md (387 entries)"
+    }
+  },
+  "verification": {
+    "mode": "read-only catalog checks after application",
+    "k_fo": { "type": "numeric", "precision": 15, "scale": 6 },
+    "k_fo_manual_column_exists": true,
+    "estimate_fo_preferences": {
+      "rls": true,
+      "policies": 4,
+      "anonCanRead": false,
+      "rowsAtCheck": 0
+    },
+    "derive_estimate_item_fo_provision": {
+      "prosrcSha256": "f389f0f727416b8fd1811157a0f58f37dd4e2372f55d0655473eb83f6bee6865",
+      "equalsQualifiedBody": true,
+      "securityDefiner": true,
+      "searchPath": "\"\"",
+      "anonCanExecute": false
+    },
+    "tubeDefaultBase": 1.13,
+    "readOnlySqlProbes": {
+      "tubeCostBeforeMarginEur": "160.95",
+      "baseOneTwoCostBeforeMarginEur": "59.60"
+    },
+    "securityAdvisors": {
+      "unchangedBeforeAfter": true,
+      "rlsEnabledNoPolicyInfo": 24,
+      "authenticatedSecurityDefinerWarn": 73,
+      "leakedPasswordProtectionWarn": 1
+    },
+    "businessWritesOnShared": false,
+    "accountsOrTenantsCreated": false
+  },
+  "release": {
+    "gitSha": "a3cad6373ee21674ebaf8cd957f726c518da21dc",
+    "target": "production",
+    "state": "READY",
+    "productionAliasVerified": true,
+    "localFilesUploaded": false,
+    "checkRelease": "passed with the test-only fixture fix of PR #265 as a local overlay; no runtime code changed",
+    "postchecks": {
+      "httpMonitorStartedAt": "2026-11-12T11:22:47Z",
+      "httpMonitorFinishedAt": "2026-11-12T11:37:47Z",
+      "durationSeconds": 900.237,
+      "httpRequests": 32,
+      "allHttp200": true,
+      "db": "up",
+      "errorFatalLogGroups": 0,
+      "finalAliasAndLogRereadAt": "2026-11-12T11:38:22.428Z"
+    },
+    "deploymentIdentifiersOmitted": true
+  },
+  "limitations": [
+    "Object preflights and business row counts taken before the application are not kept in the evidence; only the 386-entry history is.",
+    "Persistence, manual entry and copy cases were qualified on an owned database and in the CI of PR #239, not on the shared database.",
+    "TI-534 stays open for the owner's authenticated acceptance run, the origin of the 0 EUR kit seen in acceptance, and the decision on lines of drafts created before the migration, which the automatic K FO refresh does not take."
+  ],
+  "rollback": {
+    "performed": false,
+    "rule": "Reverting this receipt does not change the database. An application downgrade must stay compatible with six-decimal K FO values and kits written since; prefer a compatible forward fix."
+  },
+  "rawEvidence": "outputs/ti534-production-20261112 in the canonical clone, outside Git"
+}

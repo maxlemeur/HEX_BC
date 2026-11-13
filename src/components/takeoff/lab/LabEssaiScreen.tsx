@@ -18,10 +18,11 @@ import { errorMessage, formatInteger, formatLatency, labApi } from "@/components
 import { renderDecisionsImage } from "@/components/takeoff/lab/lab-pdf";
 import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
-  configLabel, defaultCampaignName, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
+  configLabel, defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
   type LabConfigInput, type LabProvider, type LabRun, type LabRunSummary, type LabTaskDescriptor,
 } from "@/lib/takeoff/lab/contracts";
 import type { NormalizedBox } from "@/lib/takeoff/lab/geometry";
+import { describedByIds } from "@/components/ui/invalid-draft-reason";
 import { cn } from "@/lib/utils";
 
 const RESULTS_MIN = 320;
@@ -167,10 +168,11 @@ export function LabEssaiScreen() {
   // Decisions reads one rendered page: on a multi-page document the essai names it for every configuration.
   const decisionsPage = configs.some((config) => config.provider === "decisions") && (document?.pages ?? 1) > 1;
   const crop = box ? { page, box } : (pageOnly || decisionsPage) && (document?.pages ?? 1) > 1 ? { page, box: null } : null;
+  const campaignInvalid = !LAB_NAME_PATTERN.test(campaign);
   const blocked = !state.configured ? state.message ?? "Dataset non configuré."
     : !document ? "Choisissez un document."
     : !task ? "Choisissez une tâche."
-    : !LAB_NAME_PATTERN.test(campaign) ? "Nom de campagne : lettres minuscules, chiffres et tirets."
+    : campaignInvalid ? LAB_CAMPAIGN_ERROR
     : prompt.trim().length === 0 ? "Le prompt est vide."
     : prompt.length > task.promptMax ? `Le prompt dépasse ${formatInteger(task.promptMax)} caractères.`
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
@@ -257,9 +259,11 @@ export function LabEssaiScreen() {
               </div>
               <div className="space-y-1 text-xs">
                 <label htmlFor={`${fieldId}-campaign`} className="block font-medium text-foreground-secondary">Campagne</label>
-                <Input id={`${fieldId}-campaign`} size="sm" value={campaign} spellCheck={false} aria-invalid={!LAB_NAME_PATTERN.test(campaign) || undefined}
-                  aria-describedby={`${fieldId}-campaign-hint`} onChange={(event) => { setCampaign(event.target.value); setCampaignEdited(true); }} />
+                <Input id={`${fieldId}-campaign`} size="sm" value={campaign} spellCheck={false} aria-invalid={campaignInvalid || undefined}
+                  aria-describedby={describedByIds(`${fieldId}-campaign-hint`, campaignInvalid && `${fieldId}-campaign-error`)}
+                  onChange={(event) => { setCampaign(event.target.value); setCampaignEdited(true); }} />
                 <p id={`${fieldId}-campaign-hint`} className="text-muted-foreground">Par défaut : document et date. Lettres minuscules, chiffres, tirets.</p>
+                {campaignInvalid ? <p id={`${fieldId}-campaign-error`} className="text-danger">{LAB_CAMPAIGN_ERROR}</p> : null}
               </div>
             </Step>
             <Step index={2} title="Tâche">

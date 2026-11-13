@@ -17,6 +17,32 @@ import { pathToFileURL } from "node:url";
  *
  * The function never throws: a corrupt PDF, a missing canvas module or the
  * deadline yield `status` `partial`/`failed`, issues, and `image: null`.
+ *
+ * Text comes from a reading that stops at the first content error
+ * (`stopAtErrors`). Pictures come from a second reading of the same bytes,
+ * opened at the first render, that does not stop: under `stopAtErrors` an
+ * embedded image above `maxEmbeddedImagePixels` throws, and PDF.js resolves the
+ * render with the operators read before it, so the text and strokes painted
+ * after the image were missing without any error (TI-715). pdfjs-dist 6.5.438
+ * reports through `console.warn` what that reading leaves out; re-read these
+ * messages on a pdfjs upgrade:
+ * - left out of the picture, counted in `droppedImages`: an image above the
+ *   bound, never decoded ("Image exceeded maximum allowed size and was
+ *   removed."), and an image PDF.js cannot decode ("Unable to decode image",
+ *   also skipped under `stopAtErrors`);
+ * - the errors `stopAtErrors` throws while building the drawing (inline image,
+ *   pattern, colour space, shading, XObject, ExtGState, marked content, glyph
+ *   path, content sub-stream): the picture fails closed, `render_failed`, where
+ *   the first reading resolved a partial one. The first such warning cancels
+ *   the render. An annotation's appearance warns them too, though
+ *   `stopAtErrors` drops only that annotation: a page with annotations is
+ *   drawn again without them, and fails only if that render fails too; when
+ *   that render lacks no image, the strict reading draws the page with its
+ *   annotations, dropping the broken one as it always did;
+ * - any other warning is one `stopAtErrors` also only warns about (a font file
+ *   that cannot be read, an operator or annotation PDF.js ignores).
+ * After a failed render the drawing reading is reopened, so that work it may
+ * still run does not count against the next render.
  */
 
 export type PdfPageImage = {
@@ -27,9 +53,10 @@ export type PdfPageImage = {
   height: number;
   bytes: number;
   /**
-   * Almost no ink (under 0.05 % of sampled pixels darker than near-white),
-   * typically an embedded raster above `maxEmbeddedImagePixels` that PDF.js
-   * skipped. Callers relying on the picture must treat it as missing.
+   * Almost no ink (under 0.05 % of sampled pixels darker than near-white): an
+   * empty page, or a page whose only content is an image the render left out
+   * (a scan above `maxEmbeddedImagePixels`, see `droppedImages`). Callers
+   * relying on the picture must treat it as missing.
    */
   blank: boolean;
 };
@@ -42,6 +69,15 @@ export type PdfRenderedPage = {
   textTruncated: boolean;
   image: PdfPageImage | null;
   imageIssue: PdfPageImageIssue | null;
+  /**
+   * Embedded images the picture lacks: above `maxEmbeddedImagePixels` (never
+   * decoded) or undecodable. What the page paints around them is drawn; a
+   * caller relying on the picture knows a raster (a scan, a background) is
+   * missing from it. 0 without a picture. Counted per paint from PDF.js's
+   * warnings: an undecodable image shared by several pages is reported on the
+   * first only.
+   */
+  droppedImages: number;
   renderMs: number;
   /** The page itself could not be read (`truncate` mode only; `fail` aborts the document). */
   failed: boolean;
@@ -124,14 +160,51 @@ const MARK = "__PDF_PAGE_RENDER__";
 // Base64 thumbnail (≤ 4/3 × maxBytes) + bounded text, JSON-escaped, per line.
 const LINE_OVERHEAD_BYTES = 256 * 1024;
 
+/**
+ * What a drawing reading (`stopAtErrors: false`) warns, as pdfjs-dist 6.5.438 words it (module comment): the images it
+ * leaves out, and the content errors that fail its picture closed. Shared with the vector groups' images
+ * (group-evidence-render-server.ts, TI-704).
+ */
+export const PDF_DRAWING_WARNINGS = {
+  leftOut: ["Image exceeded maximum allowed size and was removed.", 'Unable to decode image "'].map((text) => `Warning: ${text}`),
+  contentErrors: ["Unable to decode inline image: ", "handleTilingType - ignoring pattern: ", "ensureStateFont: ",
+    "_handleColorSpace - ignoring ColorSpace: ", "parseShading - ignoring shading: ", "getOperatorList - ignoring XObject: ",
+    "getOperatorList - ignoring Shading: ", "getOperatorList - ignoring ExtGState: ", "getOperatorList - ignoring beginMarkedContentProps: ",
+    "getOperatorList - ignoring errors during ", "buildFontPaths - ignoring ", "getContentStream - ignoring sub-stream "].map((text) => `Warning: ${text}`),
+} as const;
+
 const CHILD_SCRIPT = String.raw`
 const input = JSON.parse(process.argv[1]);
 const bytes = require("node:fs").readFileSync(0);
 const MARK = ${JSON.stringify(MARK)};
 const send = message => process.stdout.write(MARK + JSON.stringify(message) + "\n");
-async function renderImage(graphics, page, options) {
-  if (!graphics) return { issue: "canvas_unavailable" };
+// What the drawing reading leaves out, as pdfjs-dist 6.5.438 warns it (module comment of page-render-server.ts).
+const LEFT_OUT = ${JSON.stringify(PDF_DRAWING_WARNINGS.leftOut)};
+const CONTENT_ERRORS = ${JSON.stringify(PDF_DRAWING_WARNINGS.contentErrors)};
+// The render being drawn; only counts are kept, so a page cannot grow the heap with warnings.
+let drawing = null;
+// pdfjs.AnnotationMode, once pdfjs is loaded.
+let AnnotationMode = null;
+console.warn = (...args) => {
+  const seen = drawing;
+  if (!seen) return;
+  const message = args.map(String).join(" ");
+  if (LEFT_OUT.some(prefix => message.startsWith(prefix))) seen.dropped++;
+  else if (!seen.failed && CONTENT_ERRORS.some(prefix => message.startsWith(prefix))) {
+    seen.failed = true;
+    // Its picture is discarded: stop drawing it, outside PDF.js's own call but before its next step (PDF.js and its
+    // in-process worker advance by microtasks, so a setImmediate would wait for the whole page). The worker itself
+    // stops when the reading is reset.
+    queueMicrotask(() => { if (!seen.done && seen.task) seen.task.cancel(); });
+  }
+};
+// One render of the drawing reading: { canvas, dropped } or { failed, annotated } on a content error.
+async function draw(graphics, pdf, number, options, annotationMode) {
+  const seen = { dropped: 0, failed: false, done: false, task: null };
+  let page = null;
   try {
+    drawing = seen;
+    page = await pdf.getPage(number);
     const original = page.getViewport({ scale: 1 });
     let viewport, width, height;
     const crop = options.crop ? {
@@ -150,10 +223,37 @@ async function renderImage(graphics, page, options) {
       height = Math.ceil(viewport.height);
     }
     const canvas = graphics.createCanvas(Math.max(1, width), Math.max(1, height));
-    const context = canvas.getContext("2d");
-    await page.render({ canvas, canvasContext: context, viewport }).promise;
-    // A skipped oversized embedded image leaves an empty white sheet: flag it.
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    seen.task = page.render({ canvas, canvasContext: canvas.getContext("2d"), viewport, annotationMode });
+    try { await seen.task.promise; } catch (error) { if (!seen.failed) throw error; }
+    seen.done = true;
+    drawing = null;
+    if (!seen.failed) return { canvas, dropped: seen.dropped };
+    return { failed: true, annotated: annotationMode !== AnnotationMode.DISABLE && (await page.getAnnotations()).length > 0 };
+  } finally { seen.done = true; drawing = null; if (page) page.cleanup(); }
+}
+async function renderImage(graphics, strictReading, drawingReading, number, options) {
+  if (!graphics) return { issue: "canvas_unavailable" };
+  try {
+    let drawn = await draw(graphics, await drawingReading.open(), number, options, AnnotationMode.ENABLE);
+    if (drawn.failed) {
+      // Its work may still be running: a new reading keeps it away from the next render.
+      await drawingReading.reset();
+      // Under stopAtErrors PDF.js drops an annotation whose appearance fails and draws the page: the page is drawn
+      // without its annotations, and fails only if that fails too.
+      if (drawn.annotated) {
+        drawn = await draw(graphics, await drawingReading.open(), number, options, AnnotationMode.DISABLE);
+        // With nothing left out of it, the strict reading draws the page whole and drops only the broken annotation, as it
+        // always did; a picture that lacks an image keeps no annotation, and droppedImages already marks it incomplete.
+        if (!drawn.failed && drawn.dropped === 0) {
+          const annotated = await draw(graphics, strictReading, number, options, AnnotationMode.ENABLE).catch(() => null);
+          if (annotated && !annotated.failed) drawn = annotated;
+        }
+      }
+      if (drawn.failed) { await drawingReading.reset(); return { issue: "render_failed" }; }
+    }
+    const { canvas, dropped } = drawn;
+    // An empty sheet (nothing drawn, or only an image left out) is flagged.
+    const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
     let sampled = 0, ink = 0;
     for (let index = 0; index < pixels.length; index += 16) {
       sampled++;
@@ -162,20 +262,32 @@ async function renderImage(graphics, page, options) {
     const blank = sampled === 0 || ink / sampled < 0.0005;
     for (const quality of options.jpegQualities) {
       const jpeg = canvas.encodeSync("jpeg", quality);
-      if (jpeg.length <= options.maxBytes) return { image: { mimeType: "image/jpeg", data: jpeg.toString("base64"), width: canvas.width, height: canvas.height, bytes: jpeg.length, blank } };
+      if (jpeg.length <= options.maxBytes) return { image: { mimeType: "image/jpeg", data: jpeg.toString("base64"), width: canvas.width, height: canvas.height, bytes: jpeg.length, blank }, droppedImages: dropped };
     }
     return { issue: "too_large" };
-  } catch { return { issue: "render_failed" }; }
+  } catch {
+    await drawingReading.reset();
+    return { issue: "render_failed" };
+  }
 }
 async function run() {
   let graphics = null;
   if (input.canvasPath) { try { graphics = require(input.canvasPath); } catch {} }
   const pdfjs = await import(input.pdfUrl);
-  const task = pdfjs.getDocument({ data: new Uint8Array(bytes),
+  AnnotationMode = pdfjs.AnnotationMode;
+  // pdfjs takes ownership of the array it is given: each reading gets its own copy. verbosity 1 (warnings) feeds console.warn.
+  const open = stopAtErrors => pdfjs.getDocument({ data: new Uint8Array(bytes),
     standardFontDataUrl: input.packageRoot + "/standard_fonts/",
     cMapUrl: input.packageRoot + "/cmaps/", cMapPacked: true,
-    wasmUrl: input.packageRoot + "/wasm/", iccUrl: input.packageRoot + "/iccs/", useWorkerFetch: false, verbosity: 0,
-    useSystemFonts: true, maxImageSize: input.maxEmbeddedImagePixels, stopAtErrors: true });
+    wasmUrl: input.packageRoot + "/wasm/", iccUrl: input.packageRoot + "/iccs/", useWorkerFetch: false, verbosity: 1,
+    useSystemFonts: true, maxImageSize: input.maxEmbeddedImagePixels, stopAtErrors });
+  const task = open(true);
+  // The drawing reading opens at the first render; its opening warnings are no page's.
+  let drawingTask = null;
+  const drawingReading = {
+    open: () => (drawingTask ??= open(false)).promise,
+    reset: async () => { const current = drawingTask; drawingTask = null; if (current) await current.destroy().catch(() => {}); },
+  };
   try {
     const pdf = await task.promise;
     send({ document: { pageCount: pdf.numPages, canvas: Boolean(graphics) } });
@@ -200,22 +312,24 @@ async function run() {
           if (text.length >= limit) { if (text.length > limit) truncated = true; text = text.slice(0, limit); break; }
         }
         total += text;
-        const rendered = input.image && input.image.mode === "each" ? await renderImage(graphics, page, input.image) : { issue: "not_requested" };
-        send({ page: { page: number, text, textTruncated: truncated, image: rendered.image || null, imageIssue: rendered.issue || null, renderMs: Date.now() - started, failed: false } });
+        page.cleanup();
+        const rendered = input.image && input.image.mode === "each" ? await renderImage(graphics, pdf, drawingReading, number, input.image) : { issue: "not_requested" };
+        send({ page: { page: number, text, textTruncated: truncated, image: rendered.image || null, imageIssue: rendered.issue || null, droppedImages: rendered.droppedImages || 0, renderMs: Date.now() - started, failed: false } });
       } catch (error) {
         // Intake keeps its historical rule (the document stops); a triage reads the next pages.
         if (input.textItemOverflow === "fail") throw error;
-        send({ page: { page: number, text: "", textTruncated: false, image: null, imageIssue: "render_failed", renderMs: Date.now() - started, failed: true } });
+        send({ page: { page: number, text: "", textTruncated: false, image: null, imageIssue: "render_failed", droppedImages: 0, renderMs: Date.now() - started, failed: true } });
       } finally { if (page) page.cleanup(); }
     }
     if (input.image && input.image.mode === "if_text_below" && total.trim().length < input.image.minTextChars && graphics && input.image.page <= pdf.numPages) {
-      const page = await pdf.getPage(input.image.page);
-      const rendered = await renderImage(graphics, page, input.image);
-      send({ image: { page: input.image.page, image: rendered.image || null, imageIssue: rendered.issue || null } });
-      page.cleanup();
+      const rendered = await renderImage(graphics, pdf, drawingReading, input.image.page, input.image);
+      send({ image: { page: input.image.page, image: rendered.image || null, imageIssue: rendered.issue || null, droppedImages: rendered.droppedImages || 0 } });
     }
     send({ done: true });
-  } finally { await task.destroy(); }
+  } finally {
+    await task.destroy();
+    await drawingReading.reset();
+  }
 }
 run().catch(() => send({ failed: true }));
 `;
@@ -239,7 +353,7 @@ type ChildMessage = {
   document?: { pageCount: number; canvas: boolean };
   page?: PdfRenderedPage;
   missing?: number;
-  image?: { page: number; image: PdfPageImage | null; imageIssue: PdfPageImageIssue | null };
+  image?: { page: number; image: PdfPageImage | null; imageIssue: PdfPageImageIssue | null; droppedImages: number };
   done?: true;
   failed?: true;
 };
@@ -329,7 +443,7 @@ export async function renderPdfPages(bytes: ArrayBuffer | Uint8Array, options: P
             result.missingPages.push(message.missing);
           } else if (message.image) {
             const target = result.pages.find((page) => page.page === message.image!.page);
-            if (target) Object.assign(target, { image: message.image.image, imageIssue: message.image.imageIssue });
+            if (target) Object.assign(target, { image: message.image.image, imageIssue: message.image.imageIssue, droppedImages: message.image.droppedImages });
           } else if (message.done) {
             return finish("complete");
           } else {

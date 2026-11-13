@@ -17,9 +17,13 @@ export function purchaseOrderInputError(issues: readonly ZodIssue[]): string {
     expectedDeliveryDate: "Date de livraison invalide (YYYY-MM-DD ou TBD attendu).",
     expectedRevision: "Révision de commande absente ou invalide. Rechargez la commande.",
     notes: "Les instructions doivent être du texte.", items: "La commande doit contenir de 1 à 1 000 lignes valides.",
+    lineKind: "Type de ligne invalide : article, port ou remise.",
+    pricePer: "Le prix s'entend pour 1, 10, 100 ou 1 000 unités.",
   };
   const field = String(issue.path.at(-1) ?? "");
+  // A shipping or discount line naming an article says so in its own words.
   const message = issue.code === "unrecognized_keys" ? "Champ inconnu ou non modifiable." :
+    issue.code === "custom" && field === "productId" ? issue.message :
     fields[field] ?? "Vérifiez les données de la commande.";
   return issue.path[0] === "items" && typeof issue.path[1] === "number"
     ? `Ligne ${issue.path[1] + 1} : ${message}` : message;
@@ -35,6 +39,9 @@ export function toPurchaseOrderLinePayload(item: PurchaseOrderLineInput): Json {
     quantity: item.quantity,
     unit_price_ht_cents: item.unitPriceCents,
     tax_rate_bp: item.taxRateBp,
+    // TI-691: the kind and the lot when given; what a material request gave a line is never sent (it stays).
+    ...(item.lineKind !== undefined ? { line_kind: item.lineKind } : {}),
+    ...(item.pricePer !== undefined ? { price_per: item.pricePer } : {}),
   };
 }
 
@@ -50,6 +57,9 @@ const errors: Record<string, { status: 400 | 403 | 404 | 409 | 500; message: str
   PURCHASE_ORDER_UNIT_REQUIRED: { status: 400, message: "Confirmez l'unité de chaque ligne créée ou corrigée." },
   PURCHASE_ORDER_SOURCE_SUPPLIER_IMMUTABLE: { status: 400, message: "Le fournisseur provient du devis validé. Préparez un nouvel arbitrage fournisseur avant de changer cette commande." },
   PURCHASE_ORDER_SOURCE_UNIT_IMMUTABLE: { status: 400, message: "L'unité d'une ligne issue du devis ne peut pas être modifiée." },
+  // TI-691, delivery 3a: orders made from a material request; shipping and discounts.
+  PURCHASE_ORDER_REQUEST_SUPPLIER_IMMUTABLE: { status: 400, message: "Le fournisseur vient du devis retenu de la demande de matériel : il ne change pas sur cette commande." },
+  PURCHASE_ORDER_TOTAL_NEGATIVE: { status: 400, message: "La remise dépasse le montant de la commande." },
   PURCHASE_ORDER_ITEMS_INVALID: { status: 400, message: "Les lignes de la commande sont invalides. Rechargez la commande et vérifiez les saisies." },
   PURCHASE_ORDER_HEADER_INVALID: { status: 400, message: "Vérifiez le fournisseur, le chantier et la date de livraison." },
   PURCHASE_ORDER_INPUT_INVALID: { status: 400, message: "Vérifiez les données de la commande." },

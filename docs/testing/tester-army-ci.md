@@ -296,13 +296,100 @@ garde la campagne complète dans un seul job, et une phase explicite le sien.
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie
 les manifestes, sources, sélections, workers, résultats et empreintes de chaque
 unité. L'union doit correspondre exactement au plan, hors setups explicitement
-partagés. Une unité manquante, échouée, interrompue, avec tests sautés ou preuve
-incohérente empêche le succès agrégé. Pour calc-v3, les unités sont les
+partagés. Une unité manquante, échouée, interrompue, avec tests sautés, avec un
+parcours réussi seulement à sa [seconde tentative](#tentative-unique-et-quarantaine)
+ou une preuve incohérente empêche le succès agrégé. Pour calc-v3, les unités sont les
 groupes : le manifeste et la campagne de chaque groupe doivent lister ses phases
 prévues, toutes réussies, et les groupes ensemble exécuter chaque phase
 sélectionnée une seule fois ; une phase manquante, en double ou hors plan est
 nommée. Les agrégats conservent les preuves des unités et leur portée `full`,
 `filtered-critical`, `filtered-full` ou `calc-v3`.
+
+## Tentative unique et quarantaine
+
+Deux mécanismes aident à lire un check rouge. Aucun ne rend vert un parcours
+qui échoue.
+
+### Une seconde tentative, en CI seulement
+
+Dans les campagnes Critical, Full (shards du métré et phase développement
+compris) et Calc-v3 lancées par un workflow, un parcours en échec est rejoué
+une fois. `run-tester-army-ci.ts` le décide d'après son propre environnement
+(`CI` défini, autre que `false` ou `0`) : il passe toujours `CI=1` au runner
+e2e, même sur le poste. Un lancement local, la boucle de développement,
+l'exploration, le smoke et les recettes locales gardent zéro retry, et aucune
+valeur supérieure à un n'est acceptée.
+
+| Tentatives d'un parcours | Check | Libellé dans l'erreur du job et le résumé |
+| --- | --- | --- |
+| Réussite à la première | vert | aucun |
+| Échec, puis réussite | rouge | `intermittent: <fichier> > <titre> (failed on attempt 1, passed on attempt 2)` |
+| Deux échecs | rouge | `failed: <fichier> > <titre> (failed on both attempts: <erreur>)` |
+
+Le runner e2e sort en code 0 et note le run `passed` quand un parcours n'a
+réussi qu'à sa seconde tentative (son statut `flaky`). Plusieurs contrôles
+le gardent rouge, chacun de son côté : pour les suites critique et complète,
+`run-tester-army.mjs`, la validation de `run-tester-army-ci.ts` et
+l'agrégation ; pour calc-v3, qui appelle le runner sans `run-tester-army.mjs`,
+la validation de chaque phase et l'agrégation. Un parcours ne déclare pas ses
+propres `retries` (seul `0` est admis, pour un parcours à ne jamais rejouer). La
+ligne `TesterArmy CI error` du job, l'annotation et la section « Parcours non
+passés » du check agrégé nomment chaque parcours avec son libellé
+([`journey-outcomes.ts`](../../scripts/tester-army/journey-outcomes.ts)) ; le
+ticket d'[alerte](#alerte-des-campagnes-de-main) les reprend.
+
+« Intermittent » classe l'échec ; il ne disculpe pas le changement testé. La
+seconde tentative repart de l'état que la première a laissé (affaire créée,
+bail déjà pris, cache chaud) : un échec déterministe sur un état neuf peut y
+réussir, et un parcours intermittent peut y échouer deux fois sur une fixture
+consommée. Avant de relancer le job, la preuve attendue reste celle de
+`AGENTS.md` : le même parcours rouge ou intermittent sur `main`, ou en échec
+sans le diff. Relancer jusqu'au vert, ajouter des retries et allonger un
+timeout restent interdits.
+
+La seconde tentative ne tourne qu'après un échec : une campagne verte n'en a
+exécuté aucune, et ses comptes, ses preuves et sa durée sont ceux d'avant. Une
+campagne où tout échoue double au plus le temps de ses parcours, sous le même
+plafond `maxDuration` (30 minutes pour critical et la phase développement, 60
+pour full, 15 à 60 par phase calc-v3), au-delà duquel le run est interrompu,
+donc rouge. Chaque tentative garde ses preuves sous `results/<test>/attempt-<n>/`.
+
+### `test.fail`, une quarantaine déclarée
+
+`test.fail` (e2e 0.23) marque un parcours attendu en échec : son échec est
+compté `passed`, sa réussite fait échouer le run (`UNEXPECTED_PASS`). Il n'est
+admis que pour un parcours rouge sur `main`, le temps de sa réparation, avec
+une raison littérale qui cite un ticket ouvert : identifiant Linear (`TI-681`)
+ou ticket GitHub (`#123`).
+
+```ts
+test("EI13 exporte le PDF", { tags: ["critical"], fail: "TI-681 : export PDF cassé sur main" }, async ({ app }) => {
+  // parcours inchangé
+});
+```
+
+- Formes admises : l'option `fail: "<ticket> : raison"` ou, dans le corps,
+  `test.fail("<ticket> : raison")` et `test.fail(condition, "<ticket> : raison")`.
+  `test.fail(titre, fn)` et `fail: true` n'ont pas de raison : ils sont refusés.
+- [`check-journey-declarations.ts`](../../scripts/tester-army/check-journey-declarations.ts)
+  (`check:army-recipes`) refuse dans `verify:pr` tout `test.fail` de `e2e/` sans
+  ticket dans une raison littérale, et tout `retries` autre que `0` sur un
+  parcours. Une campagne qui exécute un parcours attendu en échec sans ticket
+  est rouge elle aussi, agrégation comprise.
+- Chaque campagne liste les parcours en quarantaine qu'elle a exécutés, avec
+  leur ticket : ligne `TesterArmy CI quarantine` du job, avertissement
+  « TesterArmy quarantine » et section « Parcours en quarantaine » du résumé du
+  check agrégé, clé `quarantined` des manifestes. Une PR ne liste que ceux que
+  sa sélection atteint ; les campagnes de `main` les listent tous.
+- Un parcours en quarantaine ne prouve rien : n'importe quel échec de test le
+  satisfait, pas seulement celui du ticket. La marque se retire avec la
+  correction ; le jour où le parcours passe, le check devient rouge jusqu'à son
+  retrait. Rien ne vérifie que le ticket cité est encore ouvert.
+- La marque ne couvre ni une erreur d'infrastructure, ni une interruption, ni
+  un setup de connexion : ils restent des échecs. Un parcours en quarantaine
+  qui réussit à une tentative et échoue à l'autre est rouge, avec le libellé
+  `intermittent: … (passed on attempt 1 although quarantined, failed as
+  expected on attempt 2)`.
 
 ## Pile, confidentialité et diagnostic
 
@@ -341,7 +428,8 @@ Pour diagnostiquer un échec, lire d'abord le manifeste de campagne, la phase
 déjà la cause ([port applicatif et cause d'un
 échec](tester-army-local-development.md#port-applicatif-et-cause-dun-échec)).
 Une installation/build interrompu n'est pas un résultat métier. Conserver le premier échec avant correction ; ne
-pas le masquer par un retry ou un timeout augmenté. Les workflows fixent les
+pas le masquer par un retry ou un timeout augmenté : la seconde tentative de la CI
+[classe un échec, elle ne le rend jamais vert](#tentative-unique-et-quarantaine). Les workflows fixent les
 artefacts, délais et durées de rétention actuels.
 
 Les rôles de l'API annulent une requête après 8 s (`57014`), ce que

@@ -532,17 +532,18 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   expect(answered.outcome.status).toBe("completed");
   expect(answered.job).toMatchObject({ status: "completed", level: "C" });
   expect(answered.providerCalls).toBe(1);
-  // One batch call, one question, its two images (page thumbnail and contact sheet); 0.8 is not asked again alone.
-  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2 }]);
+  // One call, one question with its own image (TI-704 v2: no legend block on this plan).
+  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1 }]);
   const [page] = answered.vectorPages;
   expect(answered.vectorPages).toHaveLength(1);
   // Groups longest first: the room's walls (300 mm), EF (100 mm), the unnamed red pipe (80 mm), EU/EV (60 mm).
   expect(page).toMatchObject({ scale: { status: "format", denominator: 50 }, detection: 1, classes: ["mur", "EF", "EU", "EUV"],
     sources: ["keyword", "keyword", "decisions", "keyword"], confidences: [null, null, 0.8, null] });
-  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v1", candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
+  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v2", rules_version: 3, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+    candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
     calls: { batch: 1, dedicated: 0, failed: 0 }, answered: 1, total_tokens: 1, latency_ms: expect.any(Number), stop: null });
   const exclusion = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
-  // The red pipe is measured at 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
+  // The red pipe is measured at a margin of 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
   expect(answered.items.filter((item) => item.unit === "ml").map(({ designation, quantity, is_excluded, exclusion_reason }) => ({ designation, quantity, is_excluded, exclusion_reason })))
     .toEqual([
       { designation: "EF PER DN 16", quantity: 5, is_excluded: true, exclusion_reason: exclusion },
@@ -582,18 +583,18 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   const failed = await startOwnedWorker(ui, ids, failedJobId, "success", { vectors: true, owner, decisions: failing }).done;
   expect(failed.outcome.status).toBe("completed");
   expect(failed.job).toMatchObject({ status: "completed", level: "C" });
-  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2, failed: true }]);
+  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1, failed: true }]);
   const [failedPage] = failed.vectorPages;
   // Classified groups first in the page record, then the unclassified one.
   expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });
   expect(failedPage.decisions).toMatchObject({ candidates: 1, calls: { batch: 1, dedicated: 0, failed: 1 }, answered: 0, total_tokens: 0,
-    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", from_earlier_page: false } });
+    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", from_earlier_page: false } });
   expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",
     VECTOR_PLAN.room.designation].sort((left, right) => left.localeCompare(right)));
   expect(failed.geometries.some((geometry) => geometry.network === "EU")).toBe(false);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${failedJobId}/review`);
   await expect(viewer).toBeVisible({ timeout: 30_000 });
-  await expect(viewer.getByText("Un appel Decisions a échoué, aucun autre n’a été envoyé : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
   await expect(viewer.getByText("Decisions : 1 appel, 0 jeton, 0 réponse", { exact: true })).toBeVisible();
   await expect(viewer.getByText("1 groupe de tracés à revoir", { exact: true })).toBeVisible();
   await expect(networks).not.toContainText(/EU\s*4\.00 m/);

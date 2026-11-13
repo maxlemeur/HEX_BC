@@ -2,7 +2,7 @@ import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
 import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
 import { toleranceOf, withinTolerance, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
-import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_ACCEPTED_MARGIN } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
 // Comparison of the vector reading with the level C baseline (TI-662
@@ -15,9 +15,9 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // in all their passes, the others are listed. The baseline is re-scored with
 // the current scorer, so both sides use the same rules. report.md prints shares and
 // errors, never a quantity. With Decisions (TI-662 L3c), per document: calls
-// by kind, tokens of the calls that report usage, latency of the calls and of
-// the renders apart (nearest rank), answers classified (≥ 0.8), proposed or
-// left « à revoir », and the stops; report.md never prints a group id, colour
+// and tokens of the calls that report usage, latency of the calls and of the
+// drawings apart (nearest rank), classes from the rules, Decisions answers at
+// its accepted margin, proposed under it or left « à revoir », and the stops; report.md never prints a group id, colour
 // or layer (report.json keeps each group's answer).
 //
 // Vector and raster slices (TI-678, decision Q8 of 5 Nov): added after the v1
@@ -380,13 +380,13 @@ function verdict(value: boolean | null, yes: string, no: string) {
   return value === null ? "–" : value ? yes : no;
 }
 
-function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyArray<string | number | null>>) {
+export function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyArray<string | number | null>>) {
   if (rows.length === 0) return ["_(aucune ligne)_"];
   return [`| ${headers.join(" | ")} |`, `| ${headers.map(() => "---").join(" | ")} |`,
     ...rows.map((row) => `| ${row.map((cell) => (cell === null ? "–" : String(cell))).join(" | ")} |`)];
 }
 
-function nearestRank(values: readonly number[], p: number) {
+export function nearestRank(values: readonly number[], p: number) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
@@ -422,30 +422,33 @@ function decisionsPages(passes: readonly VectorBenchPass[], id: string | null): 
     .flatMap((document) => document.pages.flatMap((page) => (page.decisions ? [{ pass: pass.pass, page: page.page, decisions: page.decisions }] : []))));
 }
 
-/** The Decisions of some pages: calls by kind, tokens of the calls with usage, latency of calls and renders apart, answers, stops. */
+/** The classification of some pages: calls, tokens of the calls with usage, latency of calls and renders apart, answers (the rules' apart), stops. */
 function summarizeDecisions(document: string | null, pages: readonly DecisionsPage[]) {
   const calls = pages.flatMap((entry) => entry.decisions.calls);
   const answers = pages.flatMap((entry) => entry.decisions.answers);
   const latency = calls.map((call) => call.latency_ms);
-  const renders = pages.flatMap((entry) => [...(entry.decisions.render.legend_ms === null ? [] : [entry.decisions.render.legend_ms]), ...entry.decisions.render.sheets_ms]);
+  // The page's one analysis and drawing, then each image cut from it.
+  const renders = pages.flatMap((entry) => [...(entry.decisions.render.page_ms === null ? [] : [entry.decisions.render.page_ms]), ...entry.decisions.render.legends_ms,
+    ...entry.decisions.render.groups_ms]);
   const sum = (pick: (usage: NonNullable<(typeof calls)[number]["usage"]>) => number) => calls.reduce((total, call) => total + (call.usage ? pick(call.usage) : 0), 0);
   return {
     document, pages: pages.length,
-    calls: { batch: calls.filter((call) => call.kind === "batch").length, dedicated: calls.filter((call) => call.kind === "dedicated").length,
-      without_usage: calls.filter((call) => call.usage === null).length },
+    calls: { batch: calls.length, without_usage: calls.filter((call) => call.usage === null).length },
     tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
     latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
     render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
     candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
     left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
     answers: (() => {
-      // As isClassified reads them: « autre » is never classified; every candidate without such an answer (unanswered,
-      // refused, « autre », or never asked: images not drawn, budget refused, a failed call or a stop) is to review.
+      // As isClassified reads them: « autre » is never classified, a rule's class always is, Decisions' from its accepted
+      // margin; every candidate without such an answer (unanswered, refused, « autre », « inconnu », « hors_liste », or
+      // never asked: images not drawn, budget refused, a failed call or a stop) is to review.
       const proposed = answers.filter((answer) => answer.status === "answered" && answer.class !== null && answer.class !== "autre");
-      const classified = proposed.filter((answer) => (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length;
-      const proposals = proposed.length - classified;
+      const ruled = proposed.filter((answer) => answer.via === "rule").length;
+      const classified = proposed.filter((answer) => answer.via !== "rule" && (answer.confidence ?? 0) >= DECISIONS_ACCEPTED_MARGIN).length;
+      const proposals = proposed.length - ruled - classified;
       const candidates = pages.reduce((total, entry) => total + entry.decisions.candidates, 0);
-      return { classified, proposals, review: Math.max(0, candidates - classified - proposals) };
+      return { ruled, classified, proposals, review: Math.max(0, candidates - ruled - classified - proposals) };
     })(),
     stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
   };
@@ -576,11 +579,12 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     }
     const total = vectorDecisionsTotal(passes);
     const rows = total ? [...decided, { ...total, document: "Total" }] : decided;
-    lines.push(...table(["Document", "Pages", "Appels (lot / dédiés)", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
-      "Candidats (hors limite)", "Réponses (≥ 0,8 / < 0,8 / à revoir)", "Arrêts"], rows.map((entry) => [
-      entry.document, entry.pages, `${entry.calls.batch} / ${entry.calls.dedicated}`, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
+    const margin = String(DECISIONS_ACCEPTED_MARGIN).replace(".", ",");
+    lines.push(...table(["Document", "Pages", "Appels", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
+      "Candidats (hors limite)", `Classes (règles / Decisions ≥ ${margin} / < ${margin} / à revoir)`, "Arrêts"], rows.map((entry) => [
+      entry.document, entry.pages, entry.calls.batch, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
       `${seconds(entry.latency_ms.p50)} / ${seconds(entry.latency_ms.p95)}`, `${seconds(entry.render_ms.p50)} / ${seconds(entry.render_ms.p95)}`,
-      `${entry.candidates} (${entry.left_out})`, `${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,
+      `${entry.candidates} (${entry.left_out})`, `${entry.answers.ruled} / ${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,
       entry.stops.map((stop) => `p${stop.page} passe ${stop.pass} : ${stop.reason}`).join(", ") || "–",
     ])), "");
   }

@@ -100,3 +100,59 @@ describe("independent Decisions answer validation", () => {
     expect(parseOpenAiDecisionAnswers([typed], { answers: [{ ...answered, choice: "true" }] })[0].status).toBe("invalid");
   });
 });
+
+// TI-704 (v2 group questions), written before the adapter change: the developer message is not sent, or sent after
+// the evidence; an image's `detail` is dropped, so the model reads it at its default (« high », 40 % more tokens than
+// « low » for no better answer on the measures); a question cannot carry its own JSON and image, so 20 groups share one
+// contact sheet again; more than two images are refused; the request fingerprint holds megabytes of image data, or
+// does not change with an image.
+describe("Decisions questions with their own evidence (TI-704)", () => {
+  const image = { mimeType: "image/jpeg" as const, data: "AAAA" };
+  const ownQuestion: OpenAiDecisionQuestion = { type: "choice", name: "groupe_01", choices: [{ value: "EU" }, { value: "fond" }],
+    instructions: [{ type: "text", text: "Quelle est la classe du groupe groupe_01 ?" }, { type: "json", data: { groupe: "groupe_01" } },
+      { type: "image", image: { ...image, detail: "low" } }] };
+
+  it("sends the developer message first, the shared images at their detail, and each question's words, JSON and image", async () => {
+    fetchMock.mockResolvedValue(Response.json({ model: "gpt-6-luna", usage, answers: [] }));
+    await callOpenAiDecisions({ ...input, developer: "Tu classes des groupes.", images: [{ ...image, detail: "low" }, { ...image, data: "BBBB" },
+      { ...image, data: "CCCC" }], questions: [ownQuestion] });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.input).toEqual([
+      { role: "developer", content: [{ type: "input_text", text: "Tu classes des groupes." }] },
+      { role: "user", content: [{ type: "input_json", data: input.evidence },
+        { type: "input_image", image_url: "data:image/jpeg;base64,AAAA", detail: "low" },
+        { type: "input_image", image_url: "data:image/jpeg;base64,BBBB" }, { type: "input_image", image_url: "data:image/jpeg;base64,CCCC" }] },
+    ]);
+    expect(body.questions).toEqual([{ type: "choice", name: "groupe_01", choices: [{ value: "EU" }, { value: "fond" }], instructions: [
+      { type: "input_text", text: "Quelle est la classe du groupe groupe_01 ?" }, { type: "input_json", data: { groupe: "groupe_01" } },
+      { type: "input_image", image_url: "data:image/jpeg;base64,AAAA", detail: "low" }] }]);
+  });
+
+  it("keeps the request of a call without them as before: no developer role, its questions' words as given", async () => {
+    fetchMock.mockResolvedValue(Response.json({ model: "gpt-6-luna", usage, answers: [] }));
+    await callOpenAiDecisions(input);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.input.map((entry: { role: string }) => entry.role)).toEqual(["user"]);
+    expect(body.questions).toEqual([choice, predicate]);
+  });
+
+  it("names a question's image by its hash in the fingerprint, never by its data, and tells two images apart", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(Response.json({ model: "gpt-6-luna", usage, answers: [] })));
+    const big = { ...image, data: "A".repeat(400_000) };
+    const first = await callOpenAiDecisions({ ...input, questions: [{ ...ownQuestion, instructions: [ownQuestion.instructions[0], { type: "image", image: big }] }] as OpenAiDecisionQuestion[] });
+    const second = await callOpenAiDecisions({ ...input, questions: [{ ...ownQuestion, instructions: [ownQuestion.instructions[0], { type: "image", image: { ...big, data: "B".repeat(400_000) } }] }] as OpenAiDecisionQuestion[] });
+    expect(first.provenance.request_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.provenance.request_fingerprint).not.toBe(second.provenance.request_fingerprint);
+    expect(JSON.stringify(first.provenance)).not.toContain("AAAAAAAA");
+  });
+
+  it("refuses before sending a question that starts with no words, more than 6 shared images, or images over 12 MB in all", async () => {
+    await expect(callOpenAiDecisions({ ...input, questions: [{ ...ownQuestion, instructions: [{ type: "json", data: {} }] }] })).rejects.toThrow();
+    await expect(callOpenAiDecisions({ ...input, images: Array.from({ length: 7 }, () => image) })).rejects.toThrow();
+    const heavy = { ...image, data: "A".repeat(2_500_000) };
+    const questions = Array.from({ length: 6 }, (_, index): OpenAiDecisionQuestion => ({ ...ownQuestion, name: `groupe_${index}`,
+      instructions: [ownQuestion.instructions[0], { type: "image", image: heavy }] as OpenAiDecisionQuestion["instructions"] }));
+    await expect(callOpenAiDecisions({ ...input, questions })).rejects.toThrow("taille autorisée");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

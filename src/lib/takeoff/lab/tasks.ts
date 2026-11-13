@@ -1,8 +1,10 @@
 import { NETWORK_CODES, NETWORKS } from "@/lib/takeoff/bench/keys";
 import { getTakeoffPrompt, getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { DECISIONS_INSTRUCTIONS_MAX, EXTRACTION_PROMPT_MAX, LAB_VECTOR_TASK_ID, type LabTaskDescriptor } from "@/lib/takeoff/lab/contracts";
-import { GROUP_DECISIONS_LIMITS, GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION, groupQuestions } from "@/lib/takeoff/vectors/group-decisions";
-import type { PageModel } from "@/lib/takeoff/vectors/page-model";
+import {
+  GROUP_DECISIONS_DEVELOPER, GROUP_DECISIONS_LIMITS, GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION, groupQuestionText,
+} from "@/lib/takeoff/vectors/group-decisions";
+import { groupAnswerChoices } from "@/lib/takeoff/vectors/group-evidence";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 
 // Task registry of the takeoff lab (TI-661). One task per essai. Adding a task
@@ -83,15 +85,14 @@ const OTHER_CLASS_LABELS: Record<(typeof OTHER_CLASSES)[number], string> = {
 };
 
 /**
- * The questions of group-decisions.ts for an ordinary and a grey group, in a batch and alone, under the alias
- * « groupe_NN »: the identity of the « classe de calque » prompt. groupQuestions only reads each group's grey flag.
+ * The fixed words of the « classe de calque » questions (group-decisions.ts, under the alias « groupe_NN »): the
+ * developer message, a group's question and the answers of a page without plan codes; the identity of its prompt.
  */
 export function vectorGroupsQuestionTemplate() {
-  const model = { groups: [{ grey: false }, { grey: true }] } as unknown as PageModel;
-  const candidates = [0, 1].map((group) => ({ alias: "groupe_NN", group, id: `template-${group}`, visibleLength_pt: 0, share: 0 }));
   return {
     prompt_version: GROUP_DECISIONS_PROMPT_VERSION, rules_version: GROUP_DECISIONS_VERSION,
-    batch: groupQuestions(model, candidates, "batch"), dedicated: groupQuestions(model, candidates, "dedicated"),
+    developer: GROUP_DECISIONS_DEVELOPER, question: groupQuestionText("groupe_NN"),
+    choices: groupAnswerChoices({ plan_codes: [], legend_blocks: [] }).map((choice) => choice.value),
   };
 }
 
@@ -100,14 +101,16 @@ const vectorGroupClass: LabTask = {
   kind: "choice",
   screen: "vectors",
   label: "Classe de calque (groupes de tracés)",
-  description: "Decisions classe chaque groupe de tracés d’une page que les mots-clés laissent sans classe : réseau, mur, cloison, fond, cotation, texte ou autre.",
+  description: "Les règles puis Decisions classent chaque groupe de tracés d’une page que les mots-clés laissent sans classe : réseau, fond, texte ou autre.",
   providers: ["decisions"],
   defaultPrompt: [
     `Questions fixées par la lecture vectorielle (${GROUP_DECISIONS_PROMPT_VERSION}), non modifiables dans le labo.`,
-    `Une question choice par groupe de tracés sans classe par mots-clés, par lots de ${GROUP_DECISIONS_LIMITS.batchSize} groupes avec la légende`
-      + ` (ou la page en vignette) et une planche de vignettes, puis seul avec son rendu pour une réponse sous ${GROUP_DECISIONS_LIMITS.dedicatedBelow}.`,
-    "Un groupe gris ne se voit proposer aucun réseau. Question d’un groupe :",
-    vectorGroupsQuestionTemplate().batch[0].instructions,
+    "Les règles classent d’abord : même couleur qu’un réseau classé, bande le long d’un réseau. Les autres groupes sont demandés à Decisions,"
+      + ` une question choice chacun, ${GROUP_DECISIONS_LIMITS.batchSize} par appel, chacun avec son image (tronçon, tronçon pâli, environs, page)`
+      + " et sa preuve JSON, la légende rendue avec ses textes en tête. Un même coloris se propage ensuite.",
+    "Les groupes qui ne peuvent être un réseau (gris, motif, calque de cadre ou d’architecture, échantillon de légende, couleur de gaine d’air)"
+      + " ne sont pas envoyés. Question d’un groupe :",
+    vectorGroupsQuestionTemplate().question,
   ].join("\n"),
   promptBase: GROUP_DECISIONS_PROMPT_VERSION,
   promptMax: DECISIONS_INSTRUCTIONS_MAX,

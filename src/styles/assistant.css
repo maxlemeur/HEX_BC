@@ -1,0 +1,8 @@
+/* The assistant panel is docked, not modal: on wide screens the workspace gives it
+   its width instead of being covered, so the page behind stays fully usable.
+   On narrow screens the panel takes the whole width under the top bar. */
+@media (min-width: 1024px) {
+  html[data-assistant-open="true"] #dashboard-main-content {
+    padding-right: 420px;
+  }
+}

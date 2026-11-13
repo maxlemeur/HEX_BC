@@ -11,7 +11,10 @@ import {
   type GroupDecisionsOutcome,
   type GroupDecisionsStop,
 } from "@/lib/takeoff/vectors/group-decisions-server";
+import { selectDecisionCandidates } from "@/lib/takeoff/vectors/group-decisions";
+import type { CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filter";
 import { vectorItems } from "@/lib/takeoff/vectors/items";
+import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import type { NetworkMeasure } from "@/lib/takeoff/vectors/measure";
 import { readVectorPage, VECTOR_READING_VERSION, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
@@ -49,6 +52,9 @@ import {
 // reading of the baseline stands for it when the run is given one (pipeline
 // step 5) — a raster page the baseline did not read fails, it is never scored
 // as read with no item — otherwise it has none.
+// Each page read records the Decisions candidates of its keyword reading, with
+// or without a hook (TI-704): the groups selected, and those filtered with
+// their reason, so that a keywords-only run shows what the filter keeps.
 // With a Decisions hook (--max-decisions-tokens, TI-662 L3c), each page read by
 // keywords is given to it (group-decisions-server.ts classifyVectorGroups) and
 // read again with its answers. A stop of the provider or the ceiling ends the
@@ -102,8 +108,19 @@ export type VectorPageDecisions = {
   calls: GroupDecisionsCall[];
   stop: GroupDecisionsStop | null;
   render: GroupDecisionsOutcome["render"];
-  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "dedicated" }>;
+  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "rule";
+    rule?: string; proposal?: string }>;
+  /** Groups never asked by reason, and candidates the rules classed (TI-704). */
+  filtered: GroupDecisionsOutcome["filtered"];
+  ruled: GroupDecisionsOutcome["ruled"];
 };
+
+/**
+ * The Decisions candidates of the keyword reading of a page (group-decisions.ts selectDecisionCandidates, the limits of
+ * a page), with or without a hook: the group ids selected, longest first (a stopped run may not ask them all), and those
+ * never sent with their reason (TI-704).
+ */
+export type VectorPageCandidates = { selected: string[]; eligible: number; left_out: number; filtered: Array<{ group: string; reason: CandidateFilterReason }> };
 
 export type VectorPageSummary = {
   page: number;
@@ -114,6 +131,8 @@ export type VectorPageSummary = {
   raster_items_from_baseline: number | null;
   /** Null without a Decisions hook (keywords only). */
   decisions?: VectorPageDecisions | null;
+  /** The candidates of the keyword reading (TI-704); absent from a failed page. */
+  candidates?: VectorPageCandidates;
 };
 
 export type VectorDecisionsHook = {
@@ -162,7 +181,7 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates })),
     surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
       polygon_points: surface.polygon_points, deviation: surface.deviation, method: surface.method, fill_rejected: surface.fill_rejected })),
-    // As the detection badge and the measure count them: a Decisions proposal under 0.8 is neither.
+    // As the detection badge and the measure count them: a Decisions proposal under its accepted margin is neither.
     groups_classified: groups.filter((group) => isClassified(group)).length,
     groups_network: groups.filter((group) => isMeasuredNetwork(group)).length,
     near_white_network_groups: groups.filter((group) => group.nearWhite && isNetwork(group)).length,
@@ -219,8 +238,10 @@ export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "do
 function pageDecisions(outcome: GroupDecisionsOutcome): VectorPageDecisions {
   return {
     candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out, calls: outcome.calls, stop: outcome.stop, render: outcome.render,
+    filtered: outcome.filtered, ruled: outcome.ruled,
     answers: [...outcome.answers].map(([group, answer]) => ({ alias: answer.alias, group, class: answer.class, confidence: answer.confidence,
-      status: answer.status, via: answer.via })).sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
+      status: answer.status, via: answer.via, ...(answer.rule ? { rule: answer.rule } : {}), ...(answer.proposal ? { proposal: answer.proposal } : {}) }))
+      .sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
   };
 }
 
@@ -379,6 +400,10 @@ export async function runVectorBench(input: {
           const calibration = groups?.calibrations?.find((entry) => entry.page === page) ?? null;
           const options = { calibration, correspondences: correspondencesOf(groups, page), correspondenceSource: "document" as const };
           let reading = readVectorPage(extraction, options);
+          // The groups the keyword reading would send (the hook selects the same ones), recorded with or without it.
+          const selection = selectDecisionCandidates(buildPageModel(extraction), reading);
+          const candidates: VectorPageCandidates = { selected: selection.candidates.map((candidate) => candidate.id), eligible: selection.eligible,
+            left_out: selection.left_out, filtered: selection.filtered.map((entry) => ({ group: entry.id, reason: entry.reason })) };
           let decided: GroupDecisionsOutcome | null = null;
           if (input.decisions) {
             decided = await input.decisions.classify(document, page, extraction, reading);
@@ -408,7 +433,7 @@ export async function runVectorBench(input: {
           run.item_chunks.push(...items.map(() => [page]));
           run.calls.push({ ...base, status: "ok", duration_ms: Math.round(duration), duration_per_page_ms: Math.round(duration), items: items.length, warnings: 0, error: null });
           summary.pages.push({ page, status: "ok", error: null, reading: summarize(reading), raster_items_from_baseline: fallback,
-            ...(decided ? { decisions: pageDecisions(decided) } : {}) });
+            ...(decided ? { decisions: pageDecisions(decided) } : {}), candidates });
           input.log?.(`[vector pass ${pass}/${input.repeat}] ${document.id} p${page}: ${reading.mode}, scale ${reading.scale.status}, ${items.length} items, ${(duration / 1000).toFixed(1)} s`
             + (decided ? `, Decisions ${decided.calls.length} calls${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
           if (decided?.stop && isDecisionsRunStop(decided.stop.reason)) {

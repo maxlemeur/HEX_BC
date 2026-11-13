@@ -15,7 +15,7 @@ import { ConfigStatusBadge, LabResultColumn } from "@/components/takeoff/lab/Lab
 import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, formatInteger, formatLatency, formatPercent, formatRatio, labApi } from "@/components/takeoff/lab/lab-api";
 import {
-  defaultCampaignName, LAB_NAME_PATTERN, LAB_VECTOR_TASK_ID, promptVersionLabel,
+  defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_NAME_PATTERN, LAB_VECTOR_TASK_ID, promptVersionLabel,
   type LabRun, type LabRunSummary, type LabVectorClassSource, type LabVectorGroup, type LabVectorPage,
 } from "@/lib/takeoff/lab/contracts";
 import { CLASS_SOURCE_LABELS } from "@/lib/takeoff/vectors/classify";
@@ -47,8 +47,8 @@ function formatDenominator(denominator: number) {
   return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
 }
 
-function classText(group: Pick<LabVectorGroup, "class" | "confidence" | "candidates">) {
-  if (group.class === null) return group.candidates.length > 0 ? `${group.candidates.join(" ou ")} ?` : "à revoir";
+function classText(group: Pick<LabVectorGroup, "class" | "confidence" | "candidates" | "proposal">) {
+  if (group.class === null) return group.candidates.length > 0 ? `${group.candidates.join(" ou ")} ?` : group.proposal ? `à revoir · ${group.proposal}` : "à revoir";
   return group.confidence === null ? group.class : `${group.class} ${formatPercent(group.confidence)}`;
 }
 
@@ -231,10 +231,11 @@ export function LabVectorsScreen() {
     }
   }
 
+  const campaignInvalid = !LAB_NAME_PATTERN.test(campaign);
   const blocked = !state.configured ? state.message ?? "Dataset non configuré."
     : !document ? "Choisissez un document."
     : !task ? "La tâche « classe de calque » est absente."
-    : !LAB_NAME_PATTERN.test(campaign) ? "Nom de campagne : lettres minuscules, chiffres et tirets."
+    : campaignInvalid ? LAB_CAMPAIGN_ERROR
     : !state.decisions.available ? state.decisions.message
     : !reading ? (readingError ?? "La page se lit…")
     : null;
@@ -302,8 +303,10 @@ export function LabVectorsScreen() {
               </div>
               <div className="space-y-1 text-xs">
                 <label htmlFor={`${fieldId}-campaign`} className="block font-medium text-foreground-secondary">Campagne</label>
-                <Input id={`${fieldId}-campaign`} size="sm" value={campaign} spellCheck={false} aria-invalid={!LAB_NAME_PATTERN.test(campaign) || undefined}
+                <Input id={`${fieldId}-campaign`} size="sm" value={campaign} spellCheck={false} aria-invalid={campaignInvalid || undefined}
+                  aria-describedby={campaignInvalid ? `${fieldId}-campaign-error` : undefined}
                   onChange={(event) => { setCampaign(event.target.value); setCampaignEdited(true); }} />
+                {campaignInvalid ? <p id={`${fieldId}-campaign-error`} className="text-danger">{LAB_CAMPAIGN_ERROR}</p> : null}
               </div>
             </Step>
             <Step index={2} title="Calques et couleurs" grow aside={reading ? `${shownGroups.length} / ${groups.length}` : undefined}>

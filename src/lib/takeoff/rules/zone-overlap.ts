@@ -22,7 +22,7 @@ import type { TakeoffFrameTransform } from "@/lib/takeoff/rules/types";
 //   form one continuous stretch: ends within the distance (a corner of the
 //   run), or along the run (parallel, within the distance of its line) with a
 //   gap under the minimum common length (the dashes of a dashed run, 5 cm
-//   apart on B R+4). One shorter than the minimum common length is a touch and
+//   apart on a bench plan). One shorter than the minimum common length is a touch and
 //   counts nothing, however many touches a line has.
 // - Lines of one page are never compared with each other (the reading already
 //   merges a run drawn twice on a page); pages of different levels never.
@@ -56,7 +56,7 @@ export const ZONE_OVERLAP_VERSION = 4;
 
 export const ZONE_OVERLAP = {
   /**
-   * Two centrelines further apart than this are two pipes. Measured on the bench (B R+4 Z1/Z2, outside the
+   * Two centrelines further apart than this are two pipes. Measured on the bench (a two-zone plan, outside the
    * reserve, 3/11/2026): every run drawn on both sheets lies within 2 cm of its twin, the first two distinct
    * parallel pipes of one network 8.6 cm apart; 5 cm sits in that gap, above the registration residual.
    */

@@ -110,7 +110,9 @@ export async function saveTakeoffReviewDecision(
   const context = await loadTakeoffDpgfComparisonContext({ jobId: normalizedJobId, versionId: scope.versionId,
     auth: { supabase, tenantId, userId } });
   const row = computeTakeoffDpgfRows(context.comparisonInput).rows.find(item => item.line_id === scope.estimateItemId);
-  if (!row || !canRetainDpgfQuantity(payload.decision, row.dpgf_quantity, row.takeoff_quantity)
+  // TI-682 D4: the quantity a decision retains is the total the line will hold (its other takeoffs and this one).
+  if (!row || !canRetainDpgfQuantity(payload.decision, row.dpgf_quantity,
+    row.takeoff_quantity === null ? null : row.composition?.total_quantity ?? row.takeoff_quantity)
     || row.linked_takeoff_items.some(item => !haveComparableQuantities({ designation: row.dpgf.title, description: row.dpgf.description,
       quantity: row.dpgf_quantity ?? 0, unit: row.dpgf.unit ?? "" }, item))) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,

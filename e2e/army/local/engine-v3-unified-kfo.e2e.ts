@@ -549,7 +549,8 @@ armyTest("FO53416 POSE SEULE keeps a neutral editable K FO and its site source t
 // cost and whose amount read 0 € once inserted. FO53412 marks its kit by SQL and LEGASM01 inserts
 // into an engine 2 draft: this journey follows the estimator on an engine 3 draft, from the preview
 // of a real library entry (supplies of two families and labour) to the amount of the inserted kit
-// on its row, in the footer, after a reload and in the downloaded PDF.
+// on its row, in the footer, after a reload and in the downloaded PDF. The picker used to print the
+// missing target price of that entry as « 0,00 € »; it now reads « sans prix cible ».
 armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its preview announced", { ...options, timeout: 300_000 }, async (ui) => {
   const draft = await prepareV3Draft(ui, ui.army, "FO534LIB");
   await querySql(
@@ -581,11 +582,20 @@ armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its 
   await ui.screen.getByTestId("estimate-editor-assemblies-button", { visible: true }).click();
   const picker = ui.screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true });
   await picker.getByLabel("Rechercher", { exact: true }).fill(name);
-  await picker.getByRole("button", name, { exact: false }).click();
+  // An ouvrage built by hand has no target price: the picker says so, never « 0,00 € » next to its
+  // 138 EUR direct cost, in its list entry, its preview and its insert button.
+  const entry = picker.getByRole("button", name, { exact: false });
+  await expect(entry).toContainText("sans prix cible");
+  await expect(entry).not.toContainText("0,00");
+  await entry.click();
   await expect(picker.getByRole("region", "Composants de l’ouvrage", { exact: true })).toContainText(tubeTitle);
   await expect(picker).toContainText(/Coût direct\s*138[,.]00/);
+  await expect(picker).toContainText(/Prix cible HT\s*sans prix cible/);
+  const insert = picker.getByRole("button", `Ajouter « ${name} » — sans prix cible`, { exact: false });
+  await expect(insert).toBeEnabled();
+  await expect(insert).not.toContainText("0,00");
   const insertion = ui.browser.waitForResponse(`**/api/estimates/assemblies/${created.assembly.id}/insert?versionId=${draft.versionId}`);
-  await picker.getByRole("button", `Ajouter « ${name} »`, { exact: false }).click();
+  await insert.click();
   const response = await insertion;
   const receipt = await response.json<{ ok: boolean; error?: unknown; data?: { totals: Record<string, number> } }>();
   await recordEvidence(ui.army, "fo534-library-kit-receipt", { created, status: response.status, receipt });
@@ -593,13 +603,19 @@ armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its 
   await expect(picker).toBeHidden();
   const inserted = await readEstimate(ui.browser, draft.versionId);
   const kit = inserted.items.find((row) => row.item_type === "section" && row.title === name)!;
-  expect([kit.parent_id, kit.source_metadata]).toEqual([draft.sectionId, { kit_metier: true, assembly_id: created.assembly.id }]);
+  // TI-718 persists the aggregate's editable quantity and library unit, while
+  // preserving its assembly provenance and every amount announced by the preview.
+  expect([kit.parent_id, kit.source_metadata]).toEqual([draft.sectionId, {
+    kit_metier: true, assembly_id: created.assembly.id, ouvrage_unit: "ens", ouvrage_quantity: 1,
+  }]);
   // 100 x 1.13 x 1.30 + 0.2 h x 40 x 1.20 = 156.50 ; 30 x 1.02 x 1.30 = 39.78 ; kit 196.28 ; with the 13.00 neighbour 209.28.
   expect(inserted.items.filter((row) => row.parent_id === kit.id)
     .map((row) => [row.title, row.unit_code, row.k_fo, row.k_fo_manual, row.h_mo_per_unit, row.line_total_ht_cents])).toEqual([
     [tubeTitle, "ml", 1.13, false, 0.2, 15650], [fittingTitle, "u", 1.02, false, 0, 3978]]);
   expect(inserted.version.total_ht_cents).toBe(20928);
   const kitRow = ui.browser.locator(`[data-estimate-item-id="${kit.id}"]`);
+  await expect(kitRow.getByLabel(`Quantité de l’ouvrage ${name}`, { exact: true })).toHaveValue("1");
+  await expect(ui.browser.locator(`[data-estimate-item-id="${kit.id}"] [data-estimate-column="unit"]`)).toHaveText("ens");
   const footer = ui.browser.locator('[data-testid="estimate-editor-table-footer"] [data-estimate-column="total_price"]');
   await expect(kitRow).toContainText(/HT\s*196[,.]28/);
   await expect(footer).toHaveText(/209[,.]28/);

@@ -47,6 +47,8 @@ const ordersDirectoryOutputSchema = z.object({ ok: z.literal(true), data: z.unio
       expected_delivery_date: z.string().nullable(), edit_revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
       total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
       suppliers: orderRelationOutputSchema, delivery_sites: orderRelationOutputSchema,
+      // TI-691: how an order made from a material request is delivered, and its affaire (null otherwise).
+      delivery_mode: z.enum(["site", "office", "counter"]).nullable(), project: orderRelationOutputSchema,
       devis_count: z.number().int(), has_devis: z.enum(["with", "without"]),
     })),
     suppliers: z.array(orderLookupOutputSchema).optional(), delivery_sites: z.array(orderLookupOutputSchema).optional(),
@@ -539,7 +541,7 @@ const administrationContracts: RouteContract[] = [
       description: "Fichier unique `file` ou lot `files` (maximum 50 fichiers et 100 Mo cumules).",
       contentType: "multipart/form-data",
     },
-    success: [{ status: "201", description: "Upload intake cree." }],
+    success: [{ status: "201", description: "Résultat par fichier. Un contenu identique déjà présent ou en cours d’ajout dans cette affaire est refusé sans nouvelle copie (status rejected, rejectionReason explicite, documentId existant). Le nom seul ne définit pas un doublon. Les liens Drive gardent leur identité fournisseur." }],
   },
   {
     id: "delete-affaire",

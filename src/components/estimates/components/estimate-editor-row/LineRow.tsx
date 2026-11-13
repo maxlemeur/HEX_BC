@@ -1,5 +1,7 @@
 "use client";
 
+import { renderLineDetailsTrigger } from "@/components/estimates/components/estimate-editor-row/LineDetailsTrigger";
+
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 
 import dynamic from "next/dynamic";
@@ -200,6 +202,7 @@ type LineRowProps = {
     itemId: string,
     position: { x: number; y: number },
   ) => void;
+  onInsertOuvrage?: (itemId: string) => void;
   onConvertLineToSection: (lineId: string) => void;
   onToggleOutlierDismiss: (
     itemId: string,
@@ -319,6 +322,7 @@ export function LineRow({
   onAssociateArticle = () => undefined,
   onOpenSupplierComparisonPanel,
   onOpenSupplierComparisonContextMenu,
+  onInsertOuvrage,
   onConvertLineToSection,
   onToggleOutlierDismiss,
   onLineSelectionInteraction,
@@ -812,19 +816,11 @@ export function LineRow({
                 hasLineDetails ? " estimate-line-more--available" : ""
               }`}
               contentClassName="estimate-line-more__menu"
-              trigger={
-                <button
-                  className="estimate-line-more__trigger"
-                  type="button"
-                  aria-label={`Details de la ligne ${item.title || "sans titre"}`}
-                  title="Details de la ligne"
-                  data-testid="estimate-line-more-trigger"
-                >
-                  …
-                </button>
-              }
+              trigger={renderLineDetailsTrigger(item.title)}
             >
               <div className="estimate-line-more__items">
+                {onInsertOuvrage ? <button type="button" className="btn btn-secondary btn-sm" disabled={isReadOnly}
+                  onClick={() => onInsertOuvrage(item.id)}>Insérer un ouvrage après cette ligne</button> : null}
                 <div className="estimate-line-more__state">{lineStateNodes}</div>
                 {v3Grid ? <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : null}
                 {v3Grid && item.pricing_status === "priced" ? <V3SiteCostControl item={item} saleCoefficientFo={v3Grid.saleCoefficientFo} isReadOnly={isReadOnly} onEditSiteCost={() => setSiteCostOpen(true)} /> : null}

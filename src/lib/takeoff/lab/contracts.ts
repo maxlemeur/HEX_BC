@@ -8,6 +8,8 @@ import { chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib
 
 /** Campaigns, runs, tasks and document ids: lowercase letters, digits and inner dashes, at most 80 characters. */
 export const LAB_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
+/** Reason a campaign name is refused, shown next to the field and on the launch button. */
+export const LAB_CAMPAIGN_ERROR = "Nom de campagne : lettres minuscules, chiffres et tirets.";
 export const LabNameSchema = z.string().regex(LAB_NAME_PATTERN, "Nom invalide : lettres minuscules, chiffres et tirets.");
 /** sha256 hex of JSON.stringify([runId, configId, "item" | "question", index | name]). */
 export const ELEMENT_ID_PATTERN = /^[0-9a-f]{64}$/;
@@ -188,7 +190,7 @@ export const LAB_VECTOR_TASK_ID = "classe-de-calque";
 /** Segments of a page's groups the vectors page draws at most; past it the geometry is cut and says so. */
 export const LAB_VECTOR_MAX_SEGMENTS = 20_000;
 
-export type LabVectorClassSource = "keyword" | "legend" | "label" | "document" | "user" | "decisions";
+export type LabVectorClassSource = "keyword" | "legend" | "label" | "rule" | "document" | "user" | "decisions";
 
 /** One group of traces of the page (a layer, else a colour, width and dash), as the vectors page shows it. */
 export type LabVectorGroup = {
@@ -208,6 +210,8 @@ export type LabVectorGroup = {
   confidence: number | null;
   /** Networks a shared legend colour hesitates between. */
   candidates: string[];
+  /** A group left « à revoir » with what the classification proposes (TI-704 « hors_liste »), else null. */
+  proposal: string | null;
   /** classifyByKeywords alone (layer name, else legend colour). */
   keyword: { class: string | null; source: "keyword" | "legend" | null };
   length_pt: number;

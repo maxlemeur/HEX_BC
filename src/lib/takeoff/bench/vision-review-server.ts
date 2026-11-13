@@ -62,6 +62,8 @@ export function visionReviewHook(input: {
           const image = target?.image ?? null;
           if (image) {
             drawn.push({ line, image: { mimeType: image.mimeType, data: image.data } });
+            const dropped = target?.droppedImages ?? 0;
+            if (dropped > 0) input.log?.(`[vision] ${document.id} p${page} ${line.alias}: crop drawn without ${dropped} embedded image(s) too large to read or undecodable`);
           } else {
             const issue = rendered.timedOut ? "timeout" : target?.imageIssue ?? "render_failed";
             notDrawn.push({ alias: line.alias, issue });

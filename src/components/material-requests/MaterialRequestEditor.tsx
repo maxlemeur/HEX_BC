@@ -17,13 +17,16 @@ import type { MaterialRequestTechnician } from "@/lib/material-requests/contract
 import { ConfirmButton } from "./cells";
 import { ClarificationMessageDialog } from "./ClarificationMessageDialog";
 import { materialRequestsHref } from "./format";
+import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
 import { MaterialRequestHeader } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
+import { MaterialRequestOrders } from "./MaterialRequestOrders";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
+import { useMaterialRequestOrders } from "./useMaterialRequestOrders";
 
-function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string }>) {
   const router = useRouter();
   const ids = useId();
   const materialListId = `${ids}-materials`;
@@ -32,6 +35,7 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const { data, canWrite, projectId, requestId } = editor;
+  const orders = useMaterialRequestOrders(editor);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -69,6 +73,7 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
           editor={editor}
           materialListId={materialListId}
           headingId={`${ids}-lines`}
+          orderedLine={orders.orderedLine}
           toolbar={
             <>
               <Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setMessageOpen(true)}>
@@ -84,6 +89,8 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
             </>
           }
         />
+        <MaterialRequestConsultation editor={editor} affaireName={affaireName} headingId={`${ids}-consultation`} />
+        <MaterialRequestOrders editor={editor} orders={orders} headingId={`${ids}-orders`} />
         {canWrite ? (
           <div className="border-t border-border pt-4">
             <ConfirmButton
@@ -135,7 +142,16 @@ function ReadyEditor({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>)
  * One material request (TI-690): the original on one side, its rewriting on the other. The operator
  * types; the screen keeps what is missing or doubtful in view and validates nothing by itself.
  */
-export function MaterialRequestEditor({ projectId, requestId }: Readonly<{ projectId: string; requestId: string }>) {
+export function MaterialRequestEditor({
+  projectId,
+  requestId,
+  affaireName = "",
+}: Readonly<{
+  projectId: string;
+  requestId: string;
+  /** Named in the message that asks a supplier for a price. */
+  affaireName?: string;
+}>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
   if (state.status === "loading") return <LoadingState label="Chargement de la demande…" />;
@@ -152,5 +168,5 @@ export function MaterialRequestEditor({ projectId, requestId }: Readonly<{ proje
       </Alert>
     );
   }
-  return <ReadyEditor editor={state.editor} />;
+  return <ReadyEditor editor={state.editor} affaireName={affaireName} />;
 }

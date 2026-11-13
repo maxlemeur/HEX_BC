@@ -9,6 +9,7 @@ import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("NODE_ENV", "test"); vi.stubEnv("CI", ""); vi.stubEnv("VERCEL", ""); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1");
+  vi.stubEnv("PORT", ""); vi.stubEnv("MERGEONE_DEV_HOSTS", "");
   vi.mocked(headers).mockResolvedValue(new Headers({ host: "127.0.0.1:3000" }) as never);
   vi.mocked(processTakeoffJobAttempt).mockResolvedValue({ should_requeue: false } as never);
 });
@@ -24,8 +25,11 @@ it("follows worker retry and reconciliation outcomes locally without an Edge inv
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("rejects a foreign host before scheduling or calling any provider", async () => {
-  vi.mocked(headers).mockResolvedValue(new Headers({ host: "evil.test" }) as never);
-  const fetchFn = vi.fn();
-  await expect(triggerTakeoffJobProcessing({ jobId: "fixture-job", fetchFn })).rejects.toThrow();
-  expect(after).not.toHaveBeenCalled(); expect(fetchFn).not.toHaveBeenCalled();
+  for (const host of ["evil.test", "user@evil.test"]) {
+    vi.mocked(headers).mockResolvedValue(new Headers({ host }) as never);
+    vi.mocked(after).mockClear();
+    const fetchFn = vi.fn();
+    await expect(triggerTakeoffJobProcessing({ jobId: "fixture-job", fetchFn })).rejects.toThrow();
+    expect(after).not.toHaveBeenCalled(); expect(fetchFn).not.toHaveBeenCalled();
+  }
 });

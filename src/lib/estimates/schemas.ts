@@ -479,7 +479,7 @@ const updateEstimateItemFields = {
 } as const;
 
 const updateEstimateItemDataSchema = z
-  .object(updateEstimateItemFields)
+  .object({ ...updateEstimateItemFields, assembly_quantity: z.number().finite().min(0).max(999999999.999).optional() })
   .superRefine((payload, ctx) => {
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({

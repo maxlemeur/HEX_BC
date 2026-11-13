@@ -78,9 +78,9 @@ Le **K FO unique** (TI-534) intègre les pertes, le transport et l’ajustement 
 volume ; l’utilisateur peut y intégrer d’autres éléments prévus pour son
 chiffrage. Les nouvelles lignes v3 portent `fo_provision = 1` : aucun second
 coefficient visible ne double ces frais. Les bases entreprise initiales, paramétrables par type de fourniture, sont 1,13 pour les
-tubes (10 % de pertes + 3 % de transport), 1,02 pour les autres familles et
-les lignes sans type. Les pertes des tubes ne se reportent pas aux raccords,
-supports ou calorifuges. La préférence du propriétaire de l’affaire remplace
+tubes (10 % de pertes + 3 % de transport), 1,02 pour les autres familles
+(raccords, supports, calorifuges et isolants compris) et les lignes sans type.
+Les pertes des tubes ne se reportent pas aux raccords, supports ou calorifuges. La préférence du propriétaire de l’affaire remplace
 la base entreprise ; une saisie manuelle sur la ligne est prioritaire, même
 si elle vaut 1. La provenance est persistée dans `k_fo_manual`.
 
@@ -116,14 +116,23 @@ préférence personnelle. Pour une affaire partagée, la préférence utilisée
 est celle du propriétaire, quel que soit le collaborateur qui la modifie.
 Le prix choisi conserve sa provenance et son traitement du transport
 (`fo_price_origin`) : une mise à jour du catalogue ne remplace pas ce snapshot.
-Un prix dont le transport est inclus ne le recompte pas ; ce cas reste
-secondaire. Une copie de section conserve le snapshot de transport et son
+Un prix dont le transport est inclus ne le recompte pas : sur une base
+standard, le K FO automatique passe de 1,13 à 1,10 pour un tube et de 1,02 à
+1,00 pour les autres familles. Une base entreprise modifiée ou une préférence
+s’applique telle quelle, et une ligne sans type garde 1,02. Ce cas reste
+secondaire, et ce traitement automatique reste à confirmer par le responsable
+métier (TI-534). Une copie de section conserve le snapshot de transport et son
 absence connue ; la duplication d’une version conserve ses valeurs exactes.
 
 Un **kit métier** est un ensemble d’articles et de quantités prédéfinies.
-Chaque composant conserve son calcul et sa famille, mais sa décomposition
-reste masquée dans le chiffrage et les documents client. Le total du kit
-reste visible. Les assemblages insérés portent `source_metadata.kit_metier`.
+Chaque composant conserve son calcul et sa famille. Dans l’éditeur, l’ouvrage
+est présenté comme une ligne à quantité modifiable, avec son détail dépliable et
+modifiable (TI-718). La quantité multiplie les composants, seules entrées du
+moteur ; les heures par unité restent inchangées en v3, les heures totales sont
+multipliées en v1/v2. La composition est conservée lors des passages par zéro
+et des changements fractionnaires. La quantité d’un sous-ouvrage est relative à l’ouvrage parent. Le détail affiche les quantités effectives
+pour l’ouvrage entier. Les documents client conservent le total du kit sans sa
+décomposition. Un ouvrage ne consomme pas un niveau de chapitre. Les assemblages insérés portent `source_metadata.kit_metier`.
 Les exports de données internes conservent les composants.
 
 Les projections TypeScript et le déclencheur SQL appliquent le même contrat
@@ -141,32 +150,34 @@ référence du catalogue. Rien n'est écrit dans le catalogue : ni article, ni
 offre, ni prix de référence, et la moyenne des offres ne la voit pas. L'article
 de la ligne reste lié ; l'offre du catalogue retenue est retirée. La source reste
 lisible après réouverture, copie de version et émission ; elle n'est jamais
-imprimée sur le devis du client. Un transport inclus dans l'offre donne 1,010 aux
-tubes, calorifuges et isolants, comme pour une offre du catalogue. Retaper le
+imprimée sur le devis du client. Un transport inclus dans l'offre se traite comme
+pour une offre du catalogue : le K FO automatique ne le recompte pas. Retaper le
 coût à la main efface la source, puisqu'elle ne prouve plus la valeur. Choisir
 ensuite un article ou une offre du catalogue la remplace. Détacher l'article, ou
-le supprimer du catalogue, ne retire ni la source ni sa provision : la preuve du
+le supprimer du catalogue, ne retire ni la source ni son transport : la preuve du
 coût est l'offre, pas le catalogue. La présélection des fournisseurs ne propose
 rien sur une ligne à coût chantier. La copie d'une section vers un autre devis
 emporte le coût et sa source ; la reprise de prix copie le prix sans sa source.
 **POSE SEULE** (TI-539, TI-541) : une ligne POSE SEULE ne prend ni pertes ni
-transport. Sa provision FO vaut 1,000 tant qu'elle garde cette nature, quel que
+transport. Son K FO automatique vaut 1 tant qu'elle garde cette nature, quel que
 soit son type de fourniture, y compris sur la petite fourniture nécessaire à la
-pose (supportage) qu'elle peut porter, saisie à la main ou en coût chantier. La
-provision se redérive du type quand la ligne quitte POSE SEULE. Exemple : pose
-d'un appareil à 150,00 €, 10 ens, coefficients à 1 : 150,00 × 1 = 150,00 €
-l'unité, soit 1 500,00 € (et non 151,50 € l'unité avec 1,010). Source : réponse
-de Maxime du 11 novembre 2026.
+pose (supportage) qu'elle peut porter, saisie à la main ou en coût chantier.
+Quand la ligne quitte POSE SEULE, son K FO automatique se redérive du type (base
+entreprise ou préférence) ; un K FO saisi reste. Exemple : pose d'un appareil à
+150,00 €, 10 ens, coefficients à 1 : 150,00 × 1 = 150,00 € l'unité, soit
+1 500,00 € (et non 153,00 € l'unité avec la base 1,02). Source : réponse de
+Maxime du 11 novembre 2026.
 
 Le même menu écrit le **détail du coût de fourniture** de la ligne, facteur par
-facteur : base et provenance, × provision FO, × K FO, = coût FO unitaire, puis
-× coefficient de vente FO. Les produits sont ceux du moteur, sans arrondi
+facteur : base et provenance, × K FO, = coût FO unitaire, puis × coefficient de
+vente FO. Une ligne antérieure qui garde une provision la montre comprise dans
+ce K FO. Les produits sont ceux du moteur, sans arrondi
 intermédiaire ; seul l'affichage est arrondi au centime
 ([fo-cost-detail.ts](../../src/lib/estimates/fo-cost-detail.ts)). K FO garde son
-nom (décision M534-04 de TI-534) : c'est le coefficient manuel de la ligne sur
-le seul coût de fourniture, avant marge. Exemple : référence 10,00 €, K FO 0,90,
-provision 1,01 donne 9,09 € ; provision 1,03 donne 9,27 €. Le modifier ne change
-ni la main-d'œuvre, ni la provision, ni le catalogue.
+nom (décision M534-04 de TI-534) : c'est le seul coefficient de la ligne sur
+le coût de fourniture, avant marge, automatique ou saisi. Exemple : référence
+10,00 €, K FO 0,90 donne 9,00 € ; K FO 1,13 donne 11,30 €. Le modifier ne change
+ni la main-d'œuvre ni le catalogue.
 
 Si la ventilation atelier/chantier est activée et renseignée, la MO unitaire
 additionne les deux couples heures/taux/coefficient avant la majoration. Une
@@ -205,7 +216,8 @@ Sources d'autorité : [line.ts](../../src/lib/estimates/engine-v3/line.ts),
 [discount.ts](../../src/lib/estimates/engine-v3/discount.ts),
 [tax.ts](../../src/lib/estimates/engine-v3/tax.ts),
 [jumeau SQL](../../supabase/migrations/20261017134443_estimate_engine_v3_functions_and_units.sql),
-[provision FO](../../supabase/migrations/20261024142907_estimate_fo_provision.sql).
+[provision FO](../../supabase/migrations/20261024142907_estimate_fo_provision.sql),
+[K FO unique](../../supabase/migrations/20261112093830_unified_kfo.sql).
 
 ## Compatibilité des moteurs 1 et 2
 

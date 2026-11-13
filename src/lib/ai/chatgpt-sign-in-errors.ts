@@ -3,7 +3,7 @@ const messages = {
   missing: "Cette tentative ChatGPT a déjà été utilisée ou n’existe plus. Relancez la connexion.",
   expired: "La tentative ChatGPT a expiré. Relancez la connexion.",
   owner: "Le compte MergeOne ou le tenant a changé pendant la connexion. Relancez-la depuis votre profil.",
-  callback: "L’adresse de retour ChatGPT ne correspond pas au serveur local. Relancez la connexion sur 127.0.0.1.",
+  callback: "L’adresse de retour ChatGPT ne correspond pas au serveur local. Relancez la connexion depuis la même adresse de développement.",
   cancelled: "Vous avez annulé la connexion ChatGPT. Vous pouvez la relancer.",
   provider: "OpenAI a refusé la connexion. Relancez-la et vérifiez les indications affichées par OpenAI.",
   registration: "OpenAI n’a pas renvoyé une inscription complète pour MergeOne. Relancez la connexion.",

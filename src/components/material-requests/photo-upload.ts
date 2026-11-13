@@ -34,10 +34,20 @@ export type PhotoUploadResult =
   | { ok: true; files: MaterialRequestFile[] }
   | { ok: false; message: string; abandoned?: true };
 
-const NOTHING_KEPT = "Aucune photo n’a été gardée : vous pouvez réessayer.";
+/**
+ * What is sent: originals of the request (photos), or the supplier's answer to a quote (TI-691, a PDF or
+ * photographed pages, called « pièces »).
+ */
+type UploadKind = "photo" | "quote";
+
+const NOTHING_KEPT_BY_KIND: Record<UploadKind, string> = {
+  photo: "Aucune photo n’a été gardée : vous pouvez réessayer.",
+  quote: "Aucune pièce n’a été gardée : vous pouvez réessayer.",
+};
 
 /** Where the upload is, in words the operator reads while it runs. */
-export function photoUploadStepLabel(progress: PhotoUploadStep): string {
+export function photoUploadStepLabel(progress: PhotoUploadStep, kind: UploadKind = "photo"): string {
+  const noun = kind === "quote" ? "pièce" : "photo";
   if (progress.step === "converting") {
     return progress.total > 1
       ? `Conversion en JPEG de la photo ${progress.index} sur ${progress.total} : ${progress.fileName}…`
@@ -45,33 +55,32 @@ export function photoUploadStepLabel(progress: PhotoUploadStep): string {
   }
   if (progress.step === "preparing") return "Préparation de l’envoi…";
   if (progress.step === "sending") {
-    return `Envoi de la photo ${progress.index} sur ${progress.total} : ${progress.fileName}…`;
+    return `Envoi de la ${noun} ${progress.index} sur ${progress.total} : ${progress.fileName}…`;
   }
-  return progress.total > 1 ? "Vérification des photos reçues…" : "Vérification de la photo reçue…";
+  return progress.total > 1 ? `Vérification des ${noun}s reçues…` : `Vérification de la ${noun} reçue…`;
 }
 
 function rejectionMessage(
   rejected: readonly MaterialRequestFileRejection[],
   uploads: MaterialRequestFileUploads["uploads"],
+  kind: UploadKind,
 ): string {
   const names = new Map(uploads.map((upload) => [upload.file.id, upload.file.file_name]));
   const reasons = rejected.map(({ id, reason }) => {
-    const name = `« ${names.get(id) ?? "une photo"} »`;
+    const name = `« ${names.get(id) ?? (kind === "quote" ? "une pièce" : "une photo")} »`;
     if (reason === "size") return `${name} est arrivée incomplète`;
-    if (reason === "type") return `${name} n’est pas une image JPEG, PNG ou WebP`;
+    if (reason === "type") {
+      return kind === "quote"
+        ? `${name} n’est ni un PDF ni une image JPEG, PNG ou WebP`
+        : `${name} n’est pas une image JPEG, PNG ou WebP`;
+    }
     return `${name} n’est pas arrivée`;
   });
   const why = reasons.length > 0 ? `L’envoi a été refusé : ${reasons.join(" ; ")}.` : "L’envoi a été refusé.";
-  return `${why} ${NOTHING_KEPT}`;
+  return `${why} ${NOTHING_KEPT_BY_KIND[kind]}`;
 }
 
-export async function uploadMaterialRequestPhotos({
-  projectId,
-  requestId,
-  files: picked,
-  onStep,
-  signal,
-}: {
+type UploadOptions = {
   projectId: string;
   requestId: string;
   files: readonly File[];
@@ -81,11 +90,33 @@ export async function uploadMaterialRequestPhotos({
    * awaited, and what was prepared is then dropped.
    */
   signal?: AbortSignal;
-}): Promise<PhotoUploadResult> {
+};
+
+export function uploadMaterialRequestPhotos(options: UploadOptions): Promise<PhotoUploadResult> {
+  return uploadMaterialRequestFiles(options, null);
+}
+
+/**
+ * The supplier's answer to a quote (TI-691): a PDF or photographed pages, through the same three steps as the
+ * originals, prepared with the quote's id. Listed with the quote only, never among the originals.
+ */
+export function uploadMaterialRequestQuoteFiles({
+  quoteId,
+  ...options
+}: UploadOptions & { quoteId: string }): Promise<PhotoUploadResult> {
+  return uploadMaterialRequestFiles(options, quoteId);
+}
+
+async function uploadMaterialRequestFiles(
+  { projectId, requestId, files: picked, onStep, signal }: UploadOptions,
+  quoteId: string | null,
+): Promise<PhotoUploadResult> {
+  const kind: UploadKind = quoteId ? "quote" : "photo";
+  const NOTHING_KEPT = NOTHING_KEPT_BY_KIND[kind];
   const abandoned: PhotoUploadResult = {
     ok: false,
     abandoned: true,
-    message: "Envoi interrompu. Aucune photo n’a été gardée.",
+    message: `Envoi interrompu. ${kind === "quote" ? "Aucune pièce n’a été gardée." : "Aucune photo n’a été gardée."}`,
   };
 
   // HEIC photos first, one after the other (a 12-megapixel photo takes a moment and a lot of memory).
@@ -117,12 +148,14 @@ export async function uploadMaterialRequestPhotos({
   let uploads: MaterialRequestFileUploads["uploads"];
   try {
     const prepared = await prepareMaterialRequestFiles(projectId, requestId, {
+      ...(quoteId ? { quote_id: quoteId } : {}),
       files: files.map((file) => ({ name: file.name, mime_type: file.type, byte_size: file.size })),
     });
     uploads = prepared.uploads;
   } catch (error) {
     // Refused before anything was sent (HEIC, too many, too large): the server's sentence is shown as is.
-    return { ok: false, message: materialRequestErrorMessage(error, "Les photos n’ont pas pu être préparées.") };
+    const fallback = kind === "quote" ? "Les pièces n’ont pas pu être préparées." : "Les photos n’ont pas pu être préparées.";
+    return { ok: false, message: materialRequestErrorMessage(error, fallback) };
   }
 
   const ids = uploads.map((upload) => upload.file.id);
@@ -153,7 +186,8 @@ export async function uploadMaterialRequestPhotos({
     if (uploads.length !== total) {
       settled = true;
       await discardAll();
-      return { ok: false, message: `L’envoi n’a pas pu être préparé pour toutes les photos. ${NOTHING_KEPT}` };
+      const all = kind === "quote" ? "toutes les pièces" : "toutes les photos";
+      return { ok: false, message: `L’envoi n’a pas pu être préparé pour ${all}. ${NOTHING_KEPT}` };
     }
 
     for (const [index, upload] of uploads.entries()) {
@@ -196,9 +230,12 @@ export async function uploadMaterialRequestPhotos({
       settled = true;
       const rejected = readRejectedFiles(error);
       // A rejection already discarded the batch on the server.
-      if (rejected) return { ok: false, message: rejectionMessage(rejected, uploads) };
+      if (rejected) return { ok: false, message: rejectionMessage(rejected, uploads, kind) };
       await discardAll();
-      const reason = materialRequestErrorMessage(error, "Les photos n’ont pas pu être vérifiées.");
+      const reason = materialRequestErrorMessage(
+        error,
+        kind === "quote" ? "Les pièces n’ont pas pu être vérifiées." : "Les photos n’ont pas pu être vérifiées.",
+      );
       return { ok: false, message: `${reason} ${NOTHING_KEPT}` };
     }
   } finally {

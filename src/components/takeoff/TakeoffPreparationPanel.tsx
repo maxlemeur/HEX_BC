@@ -12,6 +12,7 @@ import { TakeoffPreparationProfiles } from "@/components/takeoff/TakeoffPreparat
 import { TakeoffPreparationAssistance } from "@/components/takeoff/TakeoffPreparationAssistance";
 import { TakeoffPageTriage } from "@/components/takeoff/TakeoffPageTriage";
 import { TakeoffLaunchPagesNotice } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
+import type { ChatGptConnection } from "@/components/takeoff/TakeoffProviderSelect";
 import { evaluateTakeoffPreparation, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { TAKEOFF_LEVEL_BUSINESS_LABELS } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
@@ -20,6 +21,8 @@ export type PreparationAdvancedControlsContext = {
   processing: TakeoffPreparation["processing"];
   onProcessingChange: (patch: Partial<TakeoffPreparation["processing"]>) => void;
   isConfirmed: boolean;
+  /** Read with the preparation when the panel opens, for the provider select (TI-720). */
+  chatGptConnection: ChatGptConnection;
 };
 const PROCESSING_LEVELS: TakeoffLevel[] = ["A", "B", "C"];
 const PROCESSING_PROVIDER_LABELS = { auto: "Automatique — forfait ChatGPT local", chatgpt: "ChatGPT — forfait local", gemini: "Ancien fournisseur indisponible" };
@@ -51,7 +54,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
 }
 
 function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, targetSelectionKey = 0, recommendedLevel = "B", compatibleLevels = PROCESSING_LEVELS, documentControls, destinationControls, advancedControls, localPreviewUrl, uploadSource, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
-  const { record, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt } = useTakeoffPreparation(projectId);
+  const { record, support, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId);
   const [triaging, setTriaging] = useState(false);
   const [step, setStep] = useState(0);
   const [initialStepResolved, setInitialStepResolved] = useState(false);
@@ -139,7 +142,8 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     } finally { setRenewing(false); onBusyChange?.(false); }
   }
 
-  if (!draft) return <div className="space-y-3 py-4" role="status">
+  // The steps read nothing on their own: what they show besides the draft is loaded with it (TI-720).
+  if (!draft || !support) return <div className="space-y-3 py-4" role="status">
     <p className="text-sm text-muted-foreground">{error ?? "Chargement de la préparation…"}</p>
     {error && <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => void reload()}>Réessayer le chargement</button>}
   </div>;
@@ -147,6 +151,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const processingControls = typeof advancedControls === "function" ? advancedControls({
     processing: draft.processing,
     isConfirmed: Boolean(record?.confirmedAt),
+    chatGptConnection: support.chatGpt,
     onProcessingChange: (patch) => {
       const processing = { ...draft.processing, ...patch };
       if (processing.level !== draft.processing.level || processing.provider !== draft.processing.provider) updateDraft({ ...draft, processing });
@@ -167,11 +172,11 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     <fieldset disabled={locked} className="space-y-4 disabled:opacity-70">
       <legend className="sr-only">{STEPS[step]}</legend>
       {step === 0 && documentControls}
-      {step === 1 && <TakeoffPreparationProfiles draft={draft} onChange={updateDraft} />}
+      {step === 1 && <TakeoffPreparationProfiles draft={draft} onChange={updateDraft} profiles={support.profiles} loadError={support.profilesError} onSaved={addProfile} />}
       {step === 3 && destinationControls}
       {step === 3 && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination enregistrée est conservée pour retrouver la demande précédente. Pour changer sa destination, choisissez explicitement la version affichée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
       <TakeoffPreparationFields draft={draft} onChange={updateDraft} step={step} projectId={projectId} availableSources={uploadSource ? [...availableSources, uploadSource] : availableSources} localPreviewUrl={localPreviewUrl} orderedQuestionIds={orderedQuestionIds} />
-      {step === 0 && <TakeoffPageTriage projectId={projectId} draft={draft} onChange={updateDraft} save={save} adopt={adopt} disabled={locked || saveState === "error"} onBusyChange={(busy) => { setTriaging(busy); onBusyChange?.(busy); }} />}
+      {step === 0 && <TakeoffPageTriage projectId={projectId} draft={draft} availability={support.pageTriage} onChange={updateDraft} save={save} adopt={adopt} disabled={locked || saveState === "error"} onBusyChange={(busy) => { setTriaging(busy); onBusyChange?.(busy); }} />}
       {step === 3 && <p className="text-sm text-muted-foreground">Réglages du traitement : {draft.processing.level ? TAKEOFF_LEVEL_BUSINESS_LABELS[draft.processing.level] : "Niveau à préciser"} · {record?.confirmedAt && draft.processing.provider === "auto" ? "Automatique — fournisseur de la demande confirmée" : PROCESSING_PROVIDER_LABELS[draft.processing.provider]}.</p>}
       {step === 3 && !processingCompatible && <Alert variant="warning"><AlertDescription>Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.</AlertDescription></Alert>}
       {step === 3 && processingControls && <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées</summary><div className="mt-3 space-y-4">{processingControls}</div></details>}

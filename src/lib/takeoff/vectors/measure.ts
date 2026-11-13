@@ -78,7 +78,7 @@ import type { SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
 //   A run of a shared legend colour takes the network of its component's
 //   labels among its candidates, else stays « à revoir ».
 // Network strokes are those of a measured network (classify.ts
-// isMeasuredNetwork): a Decisions network under 0.8 is a proposal, neither
+// isMeasuredNetwork): a Decisions network under its accepted margin is a proposal, neither
 // measured, nor a network for the frames and leaders.
 // Real lengths: sheet points × 25.4/72 mm × the page's denominator; null when
 // the page scale is not measurable.

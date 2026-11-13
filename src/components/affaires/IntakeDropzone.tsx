@@ -11,6 +11,7 @@ import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
+import { AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES, AFFAIRE_INTAKE_MAX_BATCH_FILES } from "@/lib/affaires/intake-limits";
 import { AffaireFileDropSurface } from "./AffaireFileDropSurface";
 import { CheckIcon } from "lucide-react";
 import type { IntakeUploadEvent, IntakeUploadResult } from "./IntakeUploadFeedback";
@@ -161,54 +162,61 @@ export function IntakeDropzone({
       setState({ phase: "uploading", fileCount: validFiles.length });
       setAnnouncement(`Upload de ${validFiles.length} fichier${validFiles.length > 1 ? "s" : ""} en cours…`);
 
-      const formData = new FormData();
+      // Bound each request without imposing an aggregate limit on the selection.
+      const batches: File[][] = [];
+      let batch: File[] = [];
+      let bytes = 0;
       for (const file of validFiles) {
-        formData.append("files", file);
+        if (batch.length && (bytes + file.size > AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES || batch.length >= AFFAIRE_INTAKE_MAX_BATCH_FILES)) {
+          batches.push(batch);
+          batch = [];
+          bytes = 0;
+        }
+        batch.push(file);
+        bytes += file.size;
       }
-      const batchId = crypto.randomUUID();
-      onUploadEvent?.({ type: "started", batchId, fileNames: validFiles.map((file) => file.name), rejectedFiles });
-
-      try {
-        const response = await fetch(`/api/affaires/${projectId}/intake/files`, {
-          method: "POST",
-          body: formData,
-        });
-        const payload = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          const message = extractUploadErrorMessage(payload, response.status);
-          setState({ phase: "error", message });
-          setAnnouncement(`Erreur: ${message}`);
+      if (batch.length) batches.push(batch);
+      const pending = batches.map((files, index) => {
+        const batchId = crypto.randomUUID();
+        onUploadEvent?.({ type: "started", batchId, fileNames: files.map((file) => file.name), rejectedFiles: index === 0 ? rejectedFiles : [] });
+        return { files, batchId };
+      });
+      const results: FileResult[] = [];
+      const failures: string[] = [];
+      for (const { files, batchId } of pending) {
+        const formData = new FormData();
+        for (const file of files) formData.append("files", file);
+        try {
+          const response = await fetch(`/api/affaires/${projectId}/intake/files`, {
+            method: "POST",
+            body: formData,
+          });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(extractUploadErrorMessage(payload, response.status));
+          const data = extractUploadResponseData(payload);
+          if (!data || data.files.length !== files.length) throw new Error("Réponse upload invalide.");
+          results.push(...data.files);
+          onUploadEvent?.({ type: "completed", batchId, files: data.files });
+          onUploadComplete(data.uploadId);
+        } catch (error) {
+          const message = error instanceof Error && error.name !== "TypeError"
+            ? error.message : "Erreur réseau. Vérifiez votre connexion.";
+          failures.push(message);
           onUploadEvent?.({ type: "failed", batchId, message });
-          return;
         }
-
-        const data = extractUploadResponseData(payload);
-        if (!data || data.files.length !== validFiles.length) {
-          const message = "Réponse upload invalide.";
-          setState({ phase: "error", message });
-          setAnnouncement(`Erreur: ${message}`);
-          onUploadEvent?.({ type: "failed", batchId, message });
-          return;
-        }
-
-        const uploaded = data.files.filter((f) => f.status === "uploaded").length;
-        const rejected = data.files.filter((f) => f.status === "rejected").length;
-
-        setState({ phase: "done", results: data.files });
-
+      }
+      if (failures.length) {
+        const message = [...new Set(failures)].join(" ");
+        setState({ phase: "error", message });
+        setAnnouncement(`Erreur: ${message}`);
+      } else {
+        setState({ phase: "done", results });
+        const uploaded = results.filter((file) => file.status === "uploaded").length;
+        const rejected = results.length - uploaded;
         const parts: string[] = [];
         if (uploaded > 0) parts.push(`${uploaded} téléversé${uploaded > 1 ? "s" : ""}`);
         if (rejected > 0) parts.push(`${rejected} rejete${rejected > 1 ? "s" : ""}`);
         setAnnouncement(parts.join(", ") + ".");
-
-        onUploadEvent?.({ type: "completed", batchId, files: data.files });
-
-        onUploadComplete(data.uploadId);
-      } catch {
-        setState({ phase: "error", message: "Erreur réseau. Vérifiez votre connexion." });
-        setAnnouncement("Erreur reseau.");
-        onUploadEvent?.({ type: "failed", batchId, message: "Erreur réseau. Vérifiez votre connexion et réessayez." });
       }
     },
     [projectId, onUploadComplete, onUploadEvent],

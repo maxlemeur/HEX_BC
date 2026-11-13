@@ -26,6 +26,17 @@ import {
   type UpdateMaterialRequestInput,
 } from "./contracts";
 import type {
+  MaterialRequestOrderLine,
+  MaterialRequestOrdersCreated,
+  MaterialRequestOrdersSummary,
+} from "./order-contracts";
+import type {
+  CreateQuoteInput,
+  MaterialRequestQuote,
+  MaterialRequestQuoteRetained,
+  UpdateQuoteInput,
+} from "./quote-contracts";
+import type {
   LineSupplierProposals,
   RetainLineSuppliersInput,
   RetainLineSuppliersResult,
@@ -446,6 +457,128 @@ export function createMaterialRequestLineArticle(
     input,
     "L’article n’a pas pu être créé.",
   );
+}
+
+/* Consultation of suppliers (TI-691, lot 2 « l'achat », delivery 2): one quote asked of one supplier. */
+
+function quotesPath(projectId: string, requestId: string, ...segments: string[]): string {
+  return requestsPath(projectId, requestId, "quotes", ...segments);
+}
+
+export async function fetchMaterialRequestQuotes(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestQuote[]> {
+  const { items } = await read<{ items?: MaterialRequestQuote[] }>(
+    quotesPath(projectId, requestId),
+    "Les devis n’ont pas pu être chargés.",
+    signal,
+  );
+  return items ?? [];
+}
+
+/** Records that the office sent this message to the supplier. 409 with a sentence when one is still open. */
+export async function createMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  input: CreateQuoteInput,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId),
+    "POST",
+    input,
+    "La consultation n’a pas pu être enregistrée.",
+  );
+  return item;
+}
+
+export async function updateMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+  input: UpdateQuoteInput,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId),
+    "PATCH",
+    input,
+    "Le devis n’a pas pu être enregistré.",
+  );
+  return item;
+}
+
+/** 422 with a sentence while the quote is not received or a line has no price: nothing is written then. */
+export async function retainMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+): Promise<MaterialRequestQuoteRetained> {
+  const answer = await write<Partial<MaterialRequestQuoteRetained> & { item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId, "retain"),
+    "POST",
+    undefined,
+    "Le devis n’a pas pu être retenu.",
+  );
+  return { item: answer.item, lines: answer.lines ?? [], closed_quote_ids: answer.closed_quote_ids ?? [] };
+}
+
+export async function closeMaterialRequestQuote(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+): Promise<MaterialRequestQuote> {
+  const { item } = await write<{ item: MaterialRequestQuote }>(
+    quotesPath(projectId, requestId, quoteId, "close"),
+    "POST",
+    undefined,
+    "Le devis n’a pas pu être clos.",
+  );
+  return item;
+}
+
+/* Purchase orders from a request (TI-691, lot 2 « l'achat », delivery 3a): one draft per supplier. */
+
+export type MaterialRequestOrderLink = MaterialRequestOrderLine;
+export type MaterialRequestOrder = MaterialRequestOrdersSummary["orders"][number];
+
+export async function fetchMaterialRequestOrders(
+  projectId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestOrdersSummary> {
+  const answer = await read<Partial<MaterialRequestOrdersSummary>>(
+    requestsPath(projectId, requestId, "orders"),
+    "Les commandes de la demande n’ont pas pu être chargées.",
+    signal,
+  );
+  return {
+    ready_line_ids: answer.ready_line_ids ?? [],
+    not_ready: answer.not_ready ?? [],
+    // An order is linked only for who may open it (its author, an admin): the server says so for each.
+    ordered: (answer.ordered ?? []).map((entry) => ({ ...entry, can_open: entry.can_open === true })),
+    orders: (answer.orders ?? []).map((order) => ({ ...order, can_open: order.can_open === true })),
+    can_create: answer.can_create === true,
+  };
+}
+
+/**
+ * Creates one draft purchase order per supplier from the lines ready to order. The same key sent again (an answer
+ * that never came) creates nothing twice: the server answers the drafts it made under it (`replayed`). 422 when
+ * nothing is ready.
+ */
+export async function createMaterialRequestOrders(
+  projectId: string,
+  requestId: string,
+  idempotencyKey: string,
+): Promise<MaterialRequestOrdersCreated> {
+  const answer = await write<Partial<MaterialRequestOrdersCreated>>(
+    requestsPath(projectId, requestId, "orders"),
+    "POST",
+    { idempotency_key: idempotencyKey },
+    "Les brouillons de commande n’ont pas pu être créés.",
+  );
+  return { orders: answer.orders ?? [], replayed: answer.replayed === true };
 }
 
 export type MaterialRequestSupplyType = { id: string; code: string; name: string };

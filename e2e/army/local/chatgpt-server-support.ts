@@ -67,16 +67,18 @@ export async function prepareChatGptServerWorkspace() {
 
 /**
  * The compile waves of a ChatGPT development server. "profile" and "journeys" are the readiness of a server: the real
- * protected pages and the callback's missing-state rejection, before UI assertions. The two "takeoff" waves are every
- * other page and API route the tests of chatgpt-local-takeoff.e2e.ts use, so that no test waits for a compile.
+ * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
+ * other page and API route the takeoff tests of both journey files use (chatgpt-local-takeoff.e2e.ts and
+ * chatgpt-local-decisions.e2e.ts), so that no test waits for a compile.
  */
 export type ChatGptCompileWave = "profile" | "journeys" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
- * routes, then the job routes. One wave a hook: see compileChatGptRoutes.
+ * routes, then the job routes, then the review page with the reads it makes on load. One wave a hook: see
+ * compileChatGptRoutes.
  */
-export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs"] as const;
+export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs", "takeoff-review"] as const;
 
 type CompileRequest = { path: string; method?: "OPTIONS"; anonymous?: boolean; expected: number[] };
 
@@ -97,6 +99,7 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         .map(path => ({ path, expected: [200] })),
       { path: `/api/estimates/${absent}`, expected: [404] },
       { path: `/api/estimates/${absent}/suggestion-learning`, expected: [200, 404] },
+      route(`/api/assistant/threads/${absent}/messages`),
       page(`/dashboard/affaires/${absent}/plans`), page(`/dashboard/affaires/${absent}/takeoff`), callback,
       ...[`/api/takeoff/plan-sets/${absent}/files`, `/api/takeoff/plan-sets/${absent}/files/reconcile`]
         .map(path => ({ path, expected: [400, 403, 404, 405] })),
@@ -116,6 +119,14 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(name => `/api/estimates/${absent}/${name}`),
       ].map(route),
     ];
+  }
+  if (wave === "takeoff-review") {
+    // The review page of a job. Cold, it compiled in ASSIST02's body for 26.7 s (next.js 23.3 s), then the page's
+    // first job read, behind the compile of its page-contributions route, passed the client's 10 s read limit
+    // (TAKEOFF_REQUEST_TIMEOUT, « Le chargement prend trop de temps ») and the assistant toggle never appeared
+    // (run 43413882933). Its versionId keeps the page past notFound(); the reads below are the ones it makes on load.
+    return [page(`/dashboard/affaires/${absent}/takeoff/${absent}/review?versionId=${absent}`),
+      ...["compare", "dpgf-compare", "review-context"].map(name => route(`/api/takeoff/jobs/${absent}/${name}`))];
   }
   return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
     "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`,

@@ -36,8 +36,10 @@ export const TAKEOFF_PAGE_TRIAGE_MAX_PAGES = 60;
  * Page reader bounds for plans, calibrated on the heaviest dataset files
  * (25 MB A0, 81 716 paths on one page): 5-6 s and 1.4 GB RSS per page with a
  * 384 MB heap, which fails at the historical 192 MB. Kept at 2× heap, ~3× time.
- * Embedded rasters above 8 MP stay skipped (a 12-20 MP scan needs 2.7 GB);
- * the blank thumbnail is then flagged and the page stays « À vérifier ».
+ * Embedded rasters above 8 MP stay skipped (a 12-20 MP scan needs 2.7 GB): the
+ * thumbnail keeps what the page draws around them and reports them
+ * (`droppedImages`, TI-715). Such a thumbnail, like a blank one, is no picture
+ * of the page to exclude it on: it is still sent, and the page stays « À vérifier ».
  */
 export function takeoffPageTriageRenderLimits(pageCount: number): PdfRenderLimits {
   return {
@@ -66,7 +68,8 @@ export type TakeoffPageTriageCall = {
   answers: { type: AnswerRecord; level: AnswerRecord; zone: AnswerRecord };
   proposal: TakeoffPageTriagePage["proposal"];
   reason: TakeoffPageTriageReviewReason | null;
-  thumbnail: { width: number; height: number; bytes: number; blank: boolean } | null;
+  /** `dropped_images`: embedded images the thumbnail lacks (above the decoded bound or undecodable). */
+  thumbnail: { width: number; height: number; bytes: number; blank: boolean; dropped_images: number } | null;
   text_chars: number;
   message: string | null;
 };
@@ -193,6 +196,8 @@ export async function runTakeoffPageTriage(input: {
     const fingerprint = sha256(JSON.stringify({
       prompt: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: OPENAI_DECISIONS_MODEL, source: input.sourceVersion, page, file: input.fileName,
       questions, text: sha256(current.text), image: image ? sha256(image.data) : null,
+      // A thumbnail that lacks an image is decided otherwise; absent for the others, whose key stays the same.
+      ...(image && current.droppedImages ? { dropped_images: current.droppedImages } : {}),
     }));
     const cached = previous?.pages.find((entry) => entry.page === page);
     if (cached && cached.request_fingerprint === fingerprint && !(cached.reason && NOT_CACHEABLE.has(cached.reason))) {
@@ -202,7 +207,9 @@ export async function runTakeoffPageTriage(input: {
     queue.push({ page, rendered: current, fingerprint });
   }
 
-  const thumbnailOf = (page: PdfRenderedPage) => page.image ? { width: page.image.width, height: page.image.height, bytes: page.image.bytes, blank: page.image.blank } : null;
+  const thumbnailOf = (page: PdfRenderedPage) => page.image
+    ? { width: page.image.width, height: page.image.height, bytes: page.image.bytes, blank: page.image.blank, dropped_images: page.droppedImages }
+    : null;
   const work = async (job: (typeof queue)[number]) => {
     const { page, rendered: current, fingerprint } = job;
     const thumbnail = thumbnailOf(current);
@@ -260,7 +267,7 @@ export async function runTakeoffPageTriage(input: {
     }
     const answers = result?.answers ?? [];
     const typeAnswer = answers.find((entry) => entry.name === "page_type");
-    const decision = decideTakeoffPageTriage({ callStatus: status, thumbnail: Boolean(image), type: typeAnswer ?? null });
+    const decision = decideTakeoffPageTriage({ callStatus: status, thumbnail: Boolean(image) && current.droppedImages === 0, type: typeAnswer ?? null });
     const type = typeAnswer?.status === "answered" && (TAKEOFF_PAGE_TYPES as readonly unknown[]).includes(typeAnswer.value) ? typeAnswer.value as TakeoffPageTriagePage["type"] : null;
     const levelAnswer = answers.find((entry) => entry.name === "page_level");
     const zoneAnswer = answers.find((entry) => entry.name === "page_zone");

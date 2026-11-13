@@ -93,7 +93,7 @@ const SUMMARY_P2 = { ...SUMMARY_A, id: RUN_P2.id, campaign: RUN_P2.campaign, cro
 
 function group(id: string, name: string, cls: string, source: "keyword" | "decisions", metres: number) {
   return { id, name, layer: name, colors: ["#0000ff"], width: 0.5, dash: null, visible: true, near_white: false, grey: false,
-    class: cls, source, confidence: source === "decisions" ? 0.8 : null, candidates: [], keyword: { class: source === "keyword" ? cls : null, source: null },
+    class: cls, source, confidence: source === "decisions" ? 0.8 : null, candidates: [], proposal: null, keyword: { class: source === "keyword" ? cls : null, source: null },
     length_pt: metres * 100, length_m: metres, segments: 1, geometry: [0, 0, 10, 0], geometry_capped: false };
 }
 
@@ -127,6 +127,23 @@ afterEach(() => {
 });
 
 describe("LabVectorsScreen", () => {
+  // MWG « Error Text » / « Error Link »: a refused campaign name says why next to the field, not by
+  // its red border alone, and the field lists that reason in aria-describedby only while refused.
+  it("shows and links the reason a campaign name is refused", async () => {
+    render(<LabVectorsScreen />);
+    await waitFor(() => expect(vectorsMock).toHaveBeenCalledWith(DOC_A, 1, null));
+    const campaign = screen.getByLabelText("Campagne");
+    const reason = "Nom de campagne : lettres minuscules, chiffres et tirets.";
+
+    fireEvent.change(campaign, { target: { value: "Campagne A" } });
+    expect(campaign).toHaveAttribute("aria-invalid", "true");
+    expect(campaign).toHaveAccessibleDescription(reason);
+
+    fireEvent.change(campaign, { target: { value: "campagne-a" } });
+    expect(campaign).not.toHaveAttribute("aria-invalid");
+    expect(campaign).toHaveAccessibleDescription("");
+  });
+
   it("shows a run from the history only on the selection it was clicked on", async () => {
     const answer = deferred<LabRun>();
     runMock.mockReturnValueOnce(answer.promise).mockResolvedValueOnce(RUN_A);

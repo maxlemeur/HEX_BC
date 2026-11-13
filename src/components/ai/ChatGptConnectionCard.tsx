@@ -60,7 +60,7 @@ export function ChatGptConnectionCard() {
   }, []);
 
   useEffect(() => {
-    if (window.location.hostname !== "127.0.0.1") return;
+    if (process.env.NODE_ENV === "production") return;
     setIsLocal(true);
     const query = new URLSearchParams(window.location.search);
     const connected = query.get("chatgpt") === "connected";

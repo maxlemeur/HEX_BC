@@ -1,3 +1,5 @@
+import { isKitSection } from "@/lib/estimates/kit-presentation";
+import { resizeOuvrage } from "@/lib/estimates/ouvrage-quantity";
 import { sameEstimateVersionToken as sameEstimateBatchTimestamp } from "@/lib/estimates/version-token";
 export { sameEstimateVersionToken as sameEstimateBatchTimestamp } from "@/lib/estimates/version-token";
 
@@ -257,7 +259,7 @@ export async function prepareEstimateBatch(input: {
     if (item.item_type === "line") {
       assertLinePlacementAllowed({ maxSectionDepth: maximumDepth, parentSectionLevel: parentLevel });
     } else {
-      const nextSectionLevel = (parentLevel ?? 0) + 1;
+      const nextSectionLevel = (parentLevel ?? 0) + (isKitSection(item) ? 0 : 1);
       assertSectionPlacementAllowed({ maxSectionDepth: maximumDepth, nextSectionLevel });
       if (items.has(item.id)) assertSectionSubtreePlacementAllowed({ hierarchyIndex: index,
         sectionId: item.id, nextSectionLevel, maxSectionDepth: maximumDepth });
@@ -352,9 +354,18 @@ export async function prepareEstimateBatch(input: {
         createdIds.push(sourceMetadata ? { index, id: item.id, source_metadata: sourceMetadata } : { index, id: item.id });
         if (isLine) changedLineIds.add(item.id);
       } else if (operation.op === "update") {
+        if (operation.data.assembly_quantity !== undefined) {
+          let resized: Item[];
+          try { resized = resizeOuvrage([...items.values()], operation.id, operation.data.assembly_quantity, perUnitLabor); }
+          catch (error) { throw badRequest(error instanceof Error ? error.message : "Quantité d’ouvrage invalide."); }
+          for (const item of resized) {
+            if (item !== items.get(item.id) && item.item_type === "line") changedLineIds.add(item.id);
+            items.set(item.id, item);
+          }
+        }
         const current = items.get(operation.id);
         if (!current) throw notFound("Élément de chiffrage introuvable.");
-        const rawPatch = normalizeStoredItemNumerics(operation.data);
+        const rawPatch = normalizeStoredItemNumerics(Object.fromEntries(Object.entries(operation.data).filter(([key]) => key !== "assembly_quantity")));
         if (current.item_type === "section" && Object.keys(rawPatch).some((key) => LINE_FIELDS.has(key))) {
           throw badRequest("Les champs de ligne ne sont pas applicables à une section.");
         }

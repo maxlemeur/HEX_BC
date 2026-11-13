@@ -1,3 +1,5 @@
+import { findDuplicateIntakeDocument, hashIntakeContent } from "@/lib/affaires/intake-content-identity";
+import { AFFAIRE_INTAKE_MAX_BATCH_FILES, AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES } from "@/lib/affaires/intake-limits";
 import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpreadsheetBudget, SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
@@ -354,8 +356,6 @@ const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
-const AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD = 20;
-const AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES = 100 * 1024 * 1024;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -981,6 +981,13 @@ export async function requireAffaireProjectReadAccess(
   project: AffaireProjectAccessRow;
 }> {
   return requireAffaireProjectAccess(projectId, "reader");
+}
+
+/** The affaire's brief as its readers see it (owner, admin or director), or null when none was drafted yet. */
+export async function readAffaireBriefDraft(projectId: string) {
+  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const brief = await fetchAffaireBriefForProject({ supabase: context.supabase, projectId: project.id });
+  return brief?.draft ?? null;
 }
 
 async function requireAffaireProjectBriefEditor(
@@ -2227,14 +2234,14 @@ function collectFilesFromFormData(formData: FormData) {
 }
 
 function validateAffaireIntakeUploadBatch(files: File[]) {
-  if (files.length > AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD) {
+  if (files.length > AFFAIRE_INTAKE_MAX_BATCH_FILES) {
     throw badRequest(
-      `Un lot de pièces ne peut pas dépasser ${AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD} fichiers.`
+      `Un lot de pièces ne peut pas dépasser ${AFFAIRE_INTAKE_MAX_BATCH_FILES} fichiers.`
     );
   }
 
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > AFFAIRE_INTAKE_MAX_BATCH_SIZE_BYTES) {
+  if (totalBytes > AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES) {
     throw badRequest("Le volume cumule du lot intake depasse 100 Mo.");
   }
 }
@@ -2286,6 +2293,7 @@ export async function createAffaireIntakeUpload(
   });
 
   let uploadedCount = 0;
+  let duplicateCount = 0;
   const responses: UploadCreateResponseFile[] = [];
 
   for (const file of files) {
@@ -2307,6 +2315,20 @@ export async function createAffaireIntakeUpload(
       allowEmptyMimeType: true,
     });
 
+    const contentSha256 = validation.valid ? await hashIntakeContent(file) : null;
+    const rejectDuplicate = (duplicate: { documentId: string; message: string }) => {
+      duplicateCount += 1;
+      responses.push({ documentId: duplicate.documentId, fileName: file.name, mimeType, sizeBytes: file.size,
+        status: "rejected", rejectionReason: duplicate.message });
+    };
+    if (contentSha256) {
+      const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+      if (duplicate) {
+        rejectDuplicate(duplicate);
+        continue;
+      }
+    }
+
     const { error: insertError } = await resolveSupabaseQuery<{
       error: unknown;
     }>(
@@ -2320,6 +2342,7 @@ export async function createAffaireIntakeUpload(
           file_name: file.name,
           mime_type: mimeType,
           size_bytes: file.size,
+          content_sha256: contentSha256,
           upload_status: validation.valid ? "pending" : "rejected",
           rejection_reason: validation.valid ? null : validation.error,
           classification_status: validation.valid ? "queued" : "failed",
@@ -2330,6 +2353,14 @@ export async function createAffaireIntakeUpload(
     );
 
     if (insertError) {
+      // The partial unique index arbitrates two requests that both passed the lookup.
+      if (contentSha256 && isRecord(insertError) && insertError.code === "23505") {
+        const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+        if (duplicate) {
+          rejectDuplicate(duplicate);
+          continue;
+        }
+      }
       throw internalError(
         "Impossible d'enregistrer le document intake.",
         insertError
@@ -2415,6 +2446,9 @@ export async function createAffaireIntakeUpload(
           upload_status: "uploaded",
         } as never)
         .eq("id", documentId)
+        .eq("upload_status", "pending")
+        .select("id")
+        .single()
     );
 
     if (uploadedError) {
@@ -2449,8 +2483,9 @@ export async function createAffaireIntakeUpload(
     });
   }
 
+  const onlyDuplicates = duplicateCount === files.length;
   const finalUploadStatus: AffaireIntakeUploadStatus =
-    uploadedCount > 0 ? "queued" : "failed";
+    uploadedCount > 0 ? "queued" : onlyDuplicates ? "ready" : "failed";
 
   const { error: finalizeError } = await resolveSupabaseQuery<{
     error: unknown;
@@ -2460,7 +2495,7 @@ export async function createAffaireIntakeUpload(
       .update({
         status: finalUploadStatus,
         completed_at: uploadedCount > 0 ? null : new Date().toISOString(),
-        last_error: uploadedCount > 0 ? null : "Aucun fichier n'a pu être televerse.",
+        last_error: uploadedCount > 0 || onlyDuplicates ? null : "Aucun fichier n'a pu être televerse.",
       } as never)
       .eq("id", upload.id)
   );
