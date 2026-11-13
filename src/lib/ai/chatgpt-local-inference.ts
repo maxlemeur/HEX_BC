@@ -175,6 +175,14 @@ export type LocalChatGptOverride = { model: string; reasoningEffort: ChatGptReas
 
 const OVERRIDE_UNAVAILABLE = "Ce modèle ou ce niveau d’effort ChatGPT n’est pas disponible pour ce compte.";
 
+/** The account does not offer the override's model or effort (assertLocalChatGptOverride), apart from the listing's own failures. */
+export class LocalChatGptOverrideUnavailableError extends Error {
+  constructor() {
+    super(OVERRIDE_UNAVAILABLE);
+    this.name = "LocalChatGptOverrideUnavailableError";
+  }
+}
+
 /** The overrides assertLocalChatGptOverride returned, with the owner and profile each was checked for. */
 const checkedOverrides = new WeakMap<object, string>();
 
@@ -197,11 +205,11 @@ function overrideScope(owner: ChatGptOwner, profileId: string) {
 export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential: { accessToken: string; profileId: string },
   override: LocalChatGptOverride): Promise<Readonly<LocalChatGptOverride>> {
   const parsed = chatGptPreferencesSchema.safeParse(override);
-  if (!parsed.success) throw new Error(OVERRIDE_UNAVAILABLE);
+  if (!parsed.success) throw new LocalChatGptOverrideUnavailableError();
   const requested = parsed.data;
   const model = (await fetchLocalChatGptModels(credential)).find((entry) => entry.id === requested.model);
   if (!model || (requested.reasoningEffort !== null && !model.reasoningEfforts.includes(requested.reasoningEffort))) {
-    throw new Error(OVERRIDE_UNAVAILABLE);
+    throw new LocalChatGptOverrideUnavailableError();
   }
   const checked = Object.freeze({ model: requested.model, reasoningEffort: requested.reasoningEffort });
   checkedOverrides.set(checked, overrideScope(owner, credential.profileId));

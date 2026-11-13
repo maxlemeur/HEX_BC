@@ -7,7 +7,7 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { CLASS_SOURCE_LABELS, type ClassSource } from "@/lib/takeoff/vectors/classify";
+import { CLASS_SOURCE_LABELS, isLocalModelPromptVersion, isModelSource, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
@@ -16,11 +16,13 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // isolates it), the room polygons (one « Surfaces » toggle), the detection
 // badge and the page scale (« échelle non vérifiée » and its reason). Each
 // network says how its class was read (« mots-clés », « légende », « libellés »,
-// « Decisions 80 % » at the lowest confidence of its Decisions groups); the
-// page says what Decisions did (calls, tokens, why it stopped) and how many of
-// its groups stay « à revoir », as the worker counted them on the whole page
-// (classify.ts groupsToReview: visible groups without class, or a Decisions
-// proposal under 80 %, neither classified nor measured). Data
+// « Decisions 80 % » at the lowest confidence of its Decisions groups, or
+// « ChatGPT local 90 % » for a local job's plan, TI-704 option B); the page
+// says what the model did (Decisions' calls or the plan's requests, tokens, why
+// it stopped) and how many of its groups stay « à revoir », as the worker
+// counted them on the whole page (classify.ts groupsToReview: visible groups
+// without class, or a model's proposal under its accepted confidence, neither
+// classified nor measured). Data
 // comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
 // URL, or for a direct upload (no plan file) from the job's own, signed by that
@@ -42,13 +44,16 @@ type VectorPage = TakeoffVectorReadingResponse["pages"][number];
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
 
-/** How each network's class was read, from the groups its items measure: sources in order, Decisions at its lowest confidence. */
+/**
+ * How each network's class was read, from the groups its items measure: sources in order, a model's (Decisions, the
+ * local plan's) at its lowest confidence.
+ */
 function networkSources(page: VectorPage | null) {
   const groups = new Map((page?.reading.groups ?? []).map((group) => [group.id, group]));
-  const found = new Map<string, { sources: Set<ClassSource>; decisions: number | null }>();
+  const found = new Map<string, { sources: Set<ClassSource>; lowest: Map<ClassSource, number> }>();
   for (const item of page?.items ?? []) {
     if (item.geometry.kind !== "network") continue;
-    const entry = found.get(networkLabel(item)) ?? { sources: new Set<ClassSource>(), decisions: null };
+    const entry = found.get(networkLabel(item)) ?? { sources: new Set<ClassSource>(), lowest: new Map<ClassSource, number>() };
     found.set(networkLabel(item), entry);
     for (const id of item.geometry.groups) {
       const group = groups.get(id);
@@ -56,13 +61,13 @@ function networkSources(page: VectorPage | null) {
       const source = (group?.source ?? (group && group.candidates.length > 0 ? "label" : null)) as ClassSource | null;
       if (!source || !(source in CLASS_SOURCE_LABELS)) continue;
       entry.sources.add(source);
-      if (source === "decisions" && group?.confidence != null) entry.decisions = Math.min(entry.decisions ?? 1, group.confidence);
+      if (isModelSource(source) && group?.confidence != null) entry.lowest.set(source, Math.min(entry.lowest.get(source) ?? 1, group.confidence));
     }
   }
-  // In one order (keywords, legend, labels, document, user, Decisions), whatever the order of the item's groups.
+  // In one order (keywords, legend, labels, document, user, Decisions, ChatGPT local), whatever the order of the item's groups.
   const order = Object.keys(CLASS_SOURCE_LABELS) as ClassSource[];
-  return new Map([...found].map(([name, { sources, decisions }]) => [name, order.filter((source) => sources.has(source))
-    .map((source) => (source === "decisions" && decisions !== null ? `${CLASS_SOURCE_LABELS.decisions} ${percent(decisions)}` : CLASS_SOURCE_LABELS[source]))
+  return new Map([...found].map(([name, { sources, lowest }]) => [name, order.filter((source) => sources.has(source))
+    .map((source) => (lowest.has(source) ? `${CLASS_SOURCE_LABELS[source]} ${percent(lowest.get(source) as number)}` : CLASS_SOURCE_LABELS[source]))
     .join(", ")]));
 }
 
@@ -312,7 +317,9 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
         ) : null}
         {decisions ? (
           <p className="text-xs text-muted-foreground">
-            Decisions : {plural(decisionCalls, "appel")}, {plural(decisions.total_tokens, "jeton")}, {plural(decisions.answered, "réponse")}
+            {isLocalModelPromptVersion(decisions.prompt_version)
+              ? <>ChatGPT local : {plural(decisionCalls, "demande")}</>
+              : <>Decisions : {plural(decisionCalls, "appel")}</>}, {plural(decisions.total_tokens, "jeton")}, {plural(decisions.answered, "réponse")}
           </p>
         ) : null}
         {decisions?.stop ? <p role="status" className="text-xs text-warning">{decisions.stop.message}</p> : null}

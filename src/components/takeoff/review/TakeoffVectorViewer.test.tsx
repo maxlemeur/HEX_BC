@@ -169,6 +169,26 @@ describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => 
     expect(screen.getByRole("status").textContent).toBe(decided.decisions.stop.message);
   });
 
+  it("names the local plan's requests and its probability for a local job (TI-704 option B), never Decisions", async () => {
+    documents.set(UPLOAD, { pages: 1, failing: new Set() });
+    stubPdfjs();
+    const local = {
+      ...decided,
+      groups: [group("g-ef", "EF", "keyword", null), group("g-eu", "EU", "chatgpt", 0.95), group("g-eu2", "EU", "chatgpt", 0.85), group("g-none", null, null, null)],
+      groups_total: 4, to_review: 1,
+      decisions: { ...decided.decisions, prompt_version: "takeoff-vector-groups-v2-local", calls: { batch: 2, dedicated: 0, failed: 0 }, answered: 2,
+        total_tokens: 100, stop: null },
+    };
+    const localItems = [items[0], { ...items[1], geometry: { ...geometry, network: "EU", groups: ["g-eu", "g-eu2"] } }];
+    stubFetch({ pages: [{ ...page(1, null, 1, "plan.pdf"), reading: local, items: localItems }], source_download_url: UPLOAD }, {});
+    render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
+    await settle();
+    const row = (name: string) => screen.getByLabelText(`Afficher ${name}`).closest("label")!.textContent;
+    expect(row("EU")).toBe("EU5.00 mChatGPT local 85 %");
+    expect(screen.getByText(/^ChatGPT local :/).textContent).toBe("ChatGPT local : 2 demandes, 100 jetons, 2 réponses");
+    expect(screen.queryByText(/^Decisions/)).toBeNull();
+  });
+
   it("says nothing of Decisions nor of groups to review for a reading without them", async () => {
     documents.set(UPLOAD, { pages: 1, failing: new Set() });
     stubPdfjs();

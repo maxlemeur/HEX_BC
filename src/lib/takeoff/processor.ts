@@ -85,7 +85,7 @@ import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
-  isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, type VectorPageOutcome,
+  isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
 } from "@/lib/takeoff/vectors/worker-server";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
@@ -3551,11 +3551,18 @@ async function processTakeoffLevel(
       const vectorOutcomes = isTakeoffVectorReadingEnabled()
         ? await readTakeoffVectorPages(sourceFile, {
           onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
-          decisions: takeoffVectorDecisionsHook({ jobId: job.id, tenantId: job.tenant_id, userId: context.userId ?? job.created_by ?? null,
-            beforeCall: async () => {
-              await assertProviderTenantActive();
-              await renewProcessingLease();
-            } }),
+          // TI-704: a local ChatGPT job reads its groups with its creator's plan (option B), any other with Decisions (option A).
+          decisions: localProvider
+            ? takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
+              beforeCall: async () => {
+                await assertProviderTenantActive();
+                await renewProcessingLease();
+              } })
+            : takeoffVectorDecisionsHook({ jobId: job.id, tenantId: job.tenant_id, userId: context.userId ?? job.created_by ?? null,
+              beforeCall: async () => {
+                await assertProviderTenantActive();
+                await renewProcessingLease();
+              } }),
         })
         : [];
       await renewProcessingLease();

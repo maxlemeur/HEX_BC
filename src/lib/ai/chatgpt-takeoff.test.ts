@@ -56,6 +56,14 @@ it("stops a running job when creator membership is revoked", async () => {
   await expect(provider!.call(options)).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(callLocalChatGptStructured).not.toHaveBeenCalled();
 });
+it("gives the vector requests the creator's membership check and the job's pinned selection (TI-704 option B)", async () => {
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
+  const provider = await resolveLocalTakeoffProvider(client as never, job);
+  expect(provider?.selection).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" });
+  await expect(provider!.assertOwnerActive()).resolves.toBeUndefined();
+  maybeSingle.mockResolvedValue({ data: null, error: null });
+  await expect(provider!.assertOwnerActive()).rejects.toMatchObject({ code: "FORBIDDEN", retryable: false });
+});
 it("stops on a selected plan failure without raw provider details or automatic retries", async () => {
   const provider = await resolveLocalTakeoffProvider(client as never, job);
   vi.mocked(callLocalChatGptStructured).mockRejectedValue(new Error("Bearer private-provider-payload"));
