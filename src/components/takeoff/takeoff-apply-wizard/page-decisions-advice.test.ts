@@ -256,7 +256,9 @@ describe("pages a DPGF part of unknown share links (TI-696, Codex review of PR 2
     const reached = states(data);
     expect([reached.some((resolution) => resolution.complete), reached.flatMap(recommended)]).toEqual([false, []]);
     const advice = reached[0].lines.find((entry) => entry.line.id === id(300))!.advice;
-    expect(advice.map((entry) => [entry.elsewhere, entry.exits])).toEqual([[["exclude_at_review"],
-      ["Écarter « WC suspendu » à la revue du métré : garder les deux mesures de la page redevient possible."]]]);
+    // TI-716: the way out recommended first (its other pages read again by a relaunch, then replaced together).
+    expect(advice.map((entry) => [entry.elsewhere, entry.exits])).toEqual([[["read_pages_again", "exclude_at_review"],
+      ["Recommandé : relancez le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure précédente sort alors entière.",
+        "Écarter « WC suspendu » à la revue du métré : garder les deux mesures de la page redevient possible."]]]);
   });
 });

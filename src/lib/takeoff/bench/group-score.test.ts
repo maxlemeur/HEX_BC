@@ -155,6 +155,11 @@ describe("per-group score of the bench (TI-704, group-score.ts scoreGroupTruth)"
     expect(pass.cost.tokens_per_page).toBeCloseTo(3500 / 3, 6);
   });
 
+  it("records the threshold of the model that read the groups: the local model's 0.8 for a local run (TI-704 option B)", () => {
+    expect(scoreGroupTruth({ passes: [PASS], truth: SET, threshold: 0.8 }).threshold).toBe(0.8);
+    expect(renderGroupScoreSection(scoreGroupTruth({ passes: [PASS], truth: SET, threshold: 0.8 })).join("\n")).toContain("Seuil de classement 0,8");
+  });
+
   it("renders shares and counts, never a group id, colour or class of the truth", () => {
     const lines = renderGroupScoreSection(scoreGroupTruth({ passes: [PASS], truth: SET })).join("\n");
     expect(lines).toContain("Score par groupe");

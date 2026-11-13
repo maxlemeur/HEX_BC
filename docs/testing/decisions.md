@@ -83,7 +83,9 @@ Le premier périmètre comprend :
   document et traitement, et un plafond de jetons par traitement
   (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`). Au premier échec, Decisions s'arrête pour le
   reste du traitement, sans relance. Un échec ne fait jamais échouer le métré : les
-  groupes restent « à revoir ». En E2E (TKW10), le worker possédé charge la fixture fournisseur
+  groupes restent « à revoir ». Un métré du forfait ChatGPT local lit ses groupes avec
+  ce forfait plutôt que Decisions (TI-704 option B, aucune clé serveur, aucun jeton
+  Decisions). En E2E (TKW10), le worker possédé charge la fixture fournisseur
   par-dessus son garde réseau. Voir [Lecture vectorielle](../metier/lecture-vectorielle.md).
 - Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
   candidats d’un devis de référence pour les seules lignes « à vérifier »

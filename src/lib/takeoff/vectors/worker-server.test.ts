@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// The local plan's credential, model listing and request (TI-704 option B): mocks, never the network. Only the test of
+// the plan's first use reaches them; every other local test injects `local.call`.
+vi.mock("@/lib/ai/chatgpt-local-auth", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-local-auth")>(), getLocalChatGptCredential: vi.fn(),
+}));
+vi.mock("@/lib/ai/chatgpt-local-inference", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-local-inference")>(), assertLocalChatGptOverride: vi.fn(), callLocalChatGptStructured: vi.fn(),
+}));
+
+import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
+import { assertLocalChatGptOverride, callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
 import type { OpenAiDecisionsResult } from "@/lib/ai/decisions";
 import type { DownloadedTakeoffFile } from "@/lib/takeoff/source-loader";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
@@ -7,10 +18,13 @@ import { GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, type GroupDecisionsDecide, type G
 import type { EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
 import type { GroupEvidenceImages, GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import { VectorPageRecordSchema } from "@/lib/takeoff/vectors/persistence";
+import { LocalGroupsStop, type LocalGroupsCall } from "@/lib/takeoff/vectors/group-local-model-server";
 import {
   readTakeoffVectorPages,
   TAKEOFF_VECTOR_DECISIONS_LIMITS,
+  TAKEOFF_VECTOR_LOCAL_LIMITS,
   takeoffVectorDecisionsHook,
+  takeoffVectorLocalGroupsHook,
   type TakeoffVectorDecisionsHook,
 } from "@/lib/takeoff/vectors/worker-server";
 
@@ -302,6 +316,194 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(seen).toHaveLength(0);
     expect(noCanvas.calls).toEqual({ drawings: 1 });
     expect(outcomes.map((outcome) => outcome.record?.decisions?.stop?.reason)).toEqual(["canvas_unavailable", "canvas_unavailable", "canvas_unavailable"]);
+  });
+});
+
+// TI-704 option B, written before the code: a local ChatGPT job sends its groups to Decisions (a server key and its
+// spending) instead of its creator's plan; the plan is read again for every page; a plan that cannot start (a model
+// the account lacks) loses the rules' classes too, or fails the job; the record says « Decisions ».
+describe("a local ChatGPT job's groups (worker-server.ts, TI-704 option B)", () => {
+  /** The plan's fake: every group of a request at `classe`, 0.9; the requests it got. */
+  function localPlan(classe: string) {
+    const requests: number[] = [];
+    let reads = 0;
+    const call: LocalGroupsCall = async ({ prompt }) => {
+      const aliases = [...prompt.matchAll(/"groupe":"(groupe_\d+)"/g)].map((match) => match[1]);
+      requests.push(aliases.length);
+      return { data: { groupes: aliases.map((groupe) => ({ groupe, classe, probabilite: 0.9 })) }, totalTokens: 50 };
+    };
+    return { requests, read: async () => { reads += 1; return call; }, reads: () => reads };
+  }
+
+  it("reads the groups with the creator's plan, 8 per request, the plan read once for the job, never Decisions", async () => {
+    const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const plan = localPlan("EU");
+    const outcomes = await read([[page(1, 10, { scale: true }), page(2, 3)]], hook(decide, { local: { call: plan.read } }));
+    expect(seen).toHaveLength(0);
+    expect([plan.requests, plan.reads()]).toEqual([[8, 2, 3], 1]);
+    const record = VectorPageRecordSchema.parse(outcomes[0].record);
+    expect(record.groups.filter((group) => group.source === "chatgpt")).toHaveLength(10);
+    expect(record.groups[0]).toMatchObject({ class: "EU", source: "chatgpt", confidence: 0.9 });
+    expect(record.decisions).toMatchObject({ prompt_version: "takeoff-vector-groups-v2-local", calls: { batch: 2, failed: 0 }, answered: 10, total_tokens: 100 });
+    expect(outcomes[0].items.some((item) => item.geometry.network === "EU")).toBe(true);
+  });
+
+  it("keeps the rules' classes when the plan cannot start, stops the job's plan, and never fails a page", async () => {
+    const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const missing = hook(decide, { local: { call: async () => { throw new LocalGroupsStop("local_model_unavailable", "Modèle absent."); } } });
+    const outcomes = await read([[page(1, 1, { sameColour: true }), page(2, 2, { sameColour: true })]], missing);
+    expect(seen).toHaveLength(0);
+    expect(outcomes.map((outcome) => outcome.error)).toEqual([null, null]);
+    expect(outcomes[0].record?.groups.find((group) => group.source === "rule")).toMatchObject({ class: "EF" });
+    expect(outcomes[0].record?.decisions).toMatchObject({ prompt_version: "takeoff-vector-groups-v2-local",
+      stop: { reason: "local_model_unavailable", message: "Le forfait ChatGPT ne propose pas le modèle mesuré : les groupes suivent les règles ou restent à revoir.",
+        from_earlier_page: false } });
+    // A later page takes the same fallback (the rules alone), never Decisions.
+    expect(outcomes[1].record?.groups.find((group) => group.source === "rule")).toMatchObject({ class: "EF" });
+    expect(outcomes[1].record?.decisions).toMatchObject({ prompt_version: "takeoff-vector-groups-v2-local", calls: { batch: 0 },
+      stop: { reason: "local_model_unavailable", from_earlier_page: true } });
+  });
+
+  it("gives a document the plan's own allowance of requests, not Decisions' 10 calls, and names its plan when it is reached", async () => {
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const plan = localPlan("fond");
+    // 3 pages of 30 candidates: 12 requests of the plan, none left out (Decisions' cap would have cut the third page).
+    const outcomes = await read([[page(1, 30), page(2, 30), page(3, 30)]], hook(decide, { local: { call: plan.read } }));
+    expect(plan.requests).toEqual([8, 8, 8, 6, 8, 8, 8, 6, 8, 8, 8, 6]);
+    expect(outcomes.map((outcome) => outcome.record?.decisions?.stop ?? null)).toEqual([null, null, null]);
+    // One document past its allowance (20 requests, then 20 of the 25 its second page asks): the remaining groups follow
+    // the rules, the review names the plan.
+    const heavy = localPlan("fond");
+    const capped = await read([[page(1, 160), page(2, 200)]], hook(decide, { local: { call: heavy.read } }));
+    expect([TAKEOFF_VECTOR_LOCAL_LIMITS.requestsPerDocument, heavy.requests.length]).toEqual([40, 40]);
+    expect(capped[0].record?.decisions?.stop).toBeNull();
+    expect(capped[1].record?.decisions).toMatchObject({ left_out: 40, stop: { reason: "call_limit", message: "Le plafond de demandes ChatGPT est atteint (25 par page, 40 par document) : les groupes restants suivent les règles ou restent à revoir." } });
+  });
+
+  it("checks the creator's membership before each plan request: a creator removed from the tenant stops the job, no image sent", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "1");
+    vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "1");
+    vi.stubEnv("NODE_ENV", "development");
+    const plan = localPlan("EU");
+    const checks: string[] = [];
+    let member = true;
+    const provider = {
+      selection: { profileId: "profile-fixture", model: "fixture-profile-model", reasoningEffort: null },
+      assertOwnerActive: async () => {
+        checks.push("membership");
+        if (!member) throw Object.assign(new Error("Le créateur du métré n’a plus d’accès actif au tenant."), { code: "FORBIDDEN" });
+      },
+    };
+    const built = takeoffVectorLocalGroupsHook({ jobId: "job-fixture", tenantId: OWNER.tenantId, userId: OWNER.userId, provider,
+      beforeCall: async () => { checks.push("job"); } })!;
+    await read([[page(1, 10)]], { ...built, render: fakeRender().render, local: { ...built.local, call: plan.read } });
+    // Once before the plan is first read (its credential and listing), then before each of its 2 requests.
+    expect([plan.requests, checks]).toEqual([[8, 2], ["membership", "job", "membership", "job", "membership", "job"]]);
+    member = false;
+    const later = localPlan("EU");
+    await expect(read([[page(1, 10)]], { ...built, render: fakeRender().render, local: { ...built.local, call: later.read } }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(later.requests).toEqual([]);
+    vi.unstubAllEnvs();
+  });
+
+  it("checks the creator's membership and the job before the plan is first read: a creator removed never has their token used", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "1");
+    vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "1");
+    vi.stubEnv("NODE_ENV", "development");
+    const selection = { profileId: "profile-fixture", model: "fixture-profile-model", reasoningEffort: null };
+    const steps: string[] = [];
+    let member = true;
+    vi.mocked(getLocalChatGptCredential).mockImplementation(async () => {
+      steps.push("credential");
+      return { accessToken: "fixture-token", ...selection } as never;
+    });
+    vi.mocked(assertLocalChatGptOverride).mockImplementation(async () => {
+      steps.push("listing");
+      return Object.freeze({ model: "gpt-6.1-sol", reasoningEffort: "low" as const });
+    });
+    vi.mocked(callLocalChatGptStructured).mockImplementation(async (_owner, options) => {
+      steps.push("request");
+      const aliases = [...String(options.prompt).matchAll(/"groupe":"(groupe_\d+)"/g)].map((match) => match[1]);
+      const data = { groupes: aliases.map((groupe) => ({ groupe, classe: "EU", probabilite: 0.9 })) };
+      return { data, tokenCount: 40, rawText: JSON.stringify(data), schemaError: null } as never;
+    });
+    const provider = {
+      selection,
+      assertOwnerActive: async () => {
+        steps.push("membership");
+        if (!member) throw Object.assign(new Error("Le créateur du métré n’a plus d’accès actif au tenant."), { code: "FORBIDDEN" });
+      },
+    };
+    const built = takeoffVectorLocalGroupsHook({ jobId: "job-fixture", tenantId: OWNER.tenantId, userId: OWNER.userId, provider,
+      beforeCall: async () => { steps.push("job"); } })!;
+    const outcomes = await read([[page(1, 3)]], { ...built, render: fakeRender().render });
+    expect(steps.slice(0, 4)).toEqual(["membership", "job", "credential", "listing"]);
+    expect(steps.filter((step) => step === "request")).toHaveLength(1);
+    expect(outcomes[0].record?.groups.filter((group) => group.source === "chatgpt")).toHaveLength(3);
+    steps.length = 0;
+    member = false;
+    await expect(read([[page(1, 3)]], { ...built, render: fakeRender().render })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(steps).toEqual(["membership"]);
+    vi.unstubAllEnvs();
+  });
+
+  it("takes a building line for registration only from a class the plan's model gives at its accepted probability", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_RULES", "1");
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const wall = (probabilite: number) => {
+      const call: LocalGroupsCall = async ({ prompt }) => {
+        const aliases = [...prompt.matchAll(/"groupe":"(groupe_\d+)"/g)].map((match) => match[1]);
+        return { data: { groupes: aliases.map((groupe) => ({ groupe, classe: "fond", probabilite })) }, totalTokens: 10 };
+      };
+      return hook(decide, { local: { call: async () => call } });
+    };
+    // Groups of saturated colours (never a building colour): only an accepted « fond » makes them building lines.
+    const [unsure] = await read([[page(1, 3, { scale: true })]], wall(0.3));
+    expect(unsure.record?.groups.filter((group) => group.class === "fond")).toHaveLength(3);
+    expect(unsure.anchors?.lines).toEqual([]);
+    const [sure] = await read([[page(1, 3, { scale: true })]], wall(0.9));
+    expect(sure.anchors?.lines.length).toBeGreaterThan(0);
+    vi.unstubAllEnvs();
+  });
+
+  it("logs the plan's requests and tokens for the job, never a Decisions budget", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    await read([[page(1, 10)]], hook(decide, { local: { call: localPlan("EU").read } }));
+    expect(info).toHaveBeenCalledWith("takeoff.vector.decisions", { job_id: null, tenant_id: null, provider: "chatgpt_local", calls: 2, total_tokens: 100,
+      max_tokens: null, stop: null });
+    info.mockRestore();
+  });
+});
+
+describe("the worker's local plan opt-in (takeoffVectorLocalGroupsHook)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const on = { MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1" };
+  const selection = { profileId: "profile-fixture", model: "fixture-profile-model", reasoningEffort: null };
+  const job = { jobId: "job-fixture", tenantId: "tenant-fixture", userId: "user-fixture", provider: { selection, assertOwnerActive: async () => {} } };
+
+  it("is on wherever the local plan is (development since #293, or the explicit opt-in), for the job's creator and pinned profile; never in production", () => {
+    vi.stubEnv("CI", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("OPENAI_DECISIONS_API_KEY", "");
+    vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "");
+    for (const [name, value] of Object.entries(on)) vi.stubEnv(name, value);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(takeoffVectorLocalGroupsHook(job)).toMatchObject({ owner: { tenantId: "tenant-fixture", userId: "user-fixture" }, local: { selection } });
+    expect(takeoffVectorLocalGroupsHook({ ...job, userId: null })).toBeUndefined();
+    for (const name of Object.keys(on)) {
+      vi.stubEnv(name, "");
+      expect(takeoffVectorLocalGroupsHook(job), name).toBeUndefined();
+      vi.stubEnv(name, on[name as keyof typeof on]);
+    }
+    // Outside development, only the explicit opt-in turns the plan on; a production build never.
+    vi.stubEnv("NODE_ENV", "test");
+    expect(takeoffVectorLocalGroupsHook(job)).toBeUndefined();
+    vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1");
+    expect(takeoffVectorLocalGroupsHook(job)).toMatchObject({ local: { selection } });
+    vi.stubEnv("NODE_ENV", "production");
+    expect(takeoffVectorLocalGroupsHook(job)).toBeUndefined();
   });
 });
 

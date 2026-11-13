@@ -406,6 +406,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       versionZeroSummary={effectiveVersionZeroSummary}
       finishLineSummary={effectiveFinishLineSummary}
       cockpitSuggestions={cockpitSuggestions}
+      cockpitPreferences={effectiveCockpitPreferences}
+      liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
     />
   );

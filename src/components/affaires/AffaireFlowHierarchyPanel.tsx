@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
 import { Badge } from "@/components/ui/badge";
@@ -520,7 +519,6 @@ function ResultCard({
   hidePrimaryAction?: boolean;
   onExecuteSuggestion?: (suggestion: CockpitSuggestion) => void;
 }) {
-  const router = useRouter();
   const [selectedReviewCategory, setSelectedReviewCategory] = useState<string | null>(null);
   const [reviewPreviewCategory, setReviewPreviewCategory] = useState<string | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
@@ -736,7 +734,7 @@ function ResultCard({
           documentId: reviewDocument.documentId,
           category: selectedReviewCategory as "dpgf" | "plans" | "cctp" | "bpu_dqe" | "annexes" | "emails" | "a_classer",
         });
-        router.refresh();
+        // The classification re-renders the page in its own response (TI-722: no refresh after it).
       } catch {
         setReviewActionError("Impossible de reclasser ici. Utilisez Reclasser dans le dossier.");
       } finally {

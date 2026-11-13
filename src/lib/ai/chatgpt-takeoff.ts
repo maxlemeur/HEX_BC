@@ -89,7 +89,11 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
 type LocalTakeoffProvider = {
   model: string;
   reasoningEffort?: ChatGptReasoningEffort | null;
+  /** The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704). */
+  selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null };
   call: <T>(options: CallGeminiStructuredOptions<T>) => Promise<CallGeminiStructuredResult<T>>;
+  /** The creator's active membership of the job's tenant, checked before each plan request (FORBIDDEN otherwise). */
+  assertOwnerActive: () => Promise<void>;
 };
 
 export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow): Promise<LocalTakeoffProvider | null> {
@@ -120,6 +124,8 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   return {
     model: selection.model,
     reasoningEffort: selection.reasoningEffort,
+    selection,
+    assertOwnerActive,
     call: async <T>(options: CallGeminiStructuredOptions<T>) => {
       await assertOwnerActive();
       try {

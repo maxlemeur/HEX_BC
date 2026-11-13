@@ -67,7 +67,7 @@ import {
   shouldShowTakeoffPrompt,
 } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
-import type { CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
+import type { CockpitCommandPreference, CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import { CockpitDecisionSuggestionCard } from "@/components/cockpit/CockpitDecisionSuggestionCard";
@@ -90,6 +90,8 @@ import { XIcon } from "lucide-react";
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
+import { useAffaireDossier } from "./useAffaireDossier";
+import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 import "./AffaireWorkbench.css";
 
 export { DpgfSourceCard, getEstimateMarginSettingsHref } from "./AffaireHubSections";
@@ -153,6 +155,11 @@ type AffaireHubProps = {
   versionZeroSummary?: VersionZeroDraftSummary | null;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   cockpitSuggestions?: CockpitSuggestion[];
+  // What the server computed the suggestions with, so that the hub computes them again over a read of
+  // the dossier (TI-722).
+  cockpitPreferences?: CockpitCommandPreference[];
+  // False for a page of made-up data (development scenarios): the dossier is not read.
+  liveDossier?: boolean;
   viewerProfileId?: string | null;
 };
 
@@ -456,24 +463,48 @@ export function AffaireHub({
   approvalJournal,
   directionSignals,
   isReadOnlyReview = false,
-  plansSummary,
+  plansSummary: serverPlansSummary,
   takeoffEnabled = false,
   projectVersions = [],
   sectionErrors,
   justCreated,
-  intakeWorkspace,
+  intakeWorkspace: serverIntakeWorkspace,
   registerPage,
   registerScopeOptions,
   registerSummary,
   registerTimeline,
   versionZeroSummary,
   finishLineSummary,
-  cockpitSuggestions,
+  cockpitSuggestions: serverCockpitSuggestions,
+  cockpitPreferences,
+  liveDossier = true,
   viewerProfileId,
 }: AffaireHubProps) {
   const router = useRouter();
   const documentSearchParams = useSearchParams();
-  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents);
+  // The dossier and its plans change on their own while documents are added or analysed: reads keep
+  // them current without refreshing the router, which would hold back what saves bring (TI-722).
+  // The rest of the page, such as the suggestions computed on the server, follows the next save or
+  // navigation.
+  const dossier = useAffaireDossier(summary.project.id, { workspace: serverIntakeWorkspace, plansSummary: serverPlansSummary }, { plans: takeoffEnabled, live: liveDossier });
+  const intakeWorkspace = dossier.workspace;
+  const plansSummary = dossier.plansSummary;
+  const plansError = dossier.plansFromRead ? undefined : sectionErrors?.plansSummary;
+  // Over a read, the suggestions follow the dossier on screen, computed as the server does.
+  const cockpitInput = useMemo<HubCockpitInput>(() => ({
+    projectId: summary.project.id, takeoffEnabled, isReadOnlyReview, plansSummary, registerSummary: registerSummary ?? null,
+    approvalSummary: approvalSummary ?? null, hasIntakeWorkspaceError: false, intakeWorkspace: intakeWorkspace ?? null,
+    versionZeroSummary: versionZeroSummary ?? null,
+    currentVersion: summary.currentVersion ? { id: summary.currentVersion.id, status: summary.currentVersion.status } : null,
+    structureMode: summary.structureMode ?? null, lineCount: summary.lineCount,
+  }), [approvalSummary, intakeWorkspace, isReadOnlyReview, plansSummary, registerSummary, summary.currentVersion,
+    summary.lineCount, summary.project.id, summary.structureMode, takeoffEnabled, versionZeroSummary]);
+  const cockpit = useHubCockpitSuggestions({
+    serverSuggestions: serverCockpitSuggestions, fromRead: dossier.fromRead, input: cockpitInput, preferences: cockpitPreferences,
+  });
+  const cockpitSuggestions = cockpit.suggestions;
+  const noteCockpitPreference = cockpit.notePreference;
+  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents, dossier.reload);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
   const [addingDocuments, setAddingDocuments] = useState(false);
@@ -800,6 +831,8 @@ export function AffaireHub({
 
       cockpitStateRef.current = nextState;
       setCockpitState(nextState);
+      // Kept over the suggestions a read computes again until a render brings it as saved.
+      noteCockpitPreference({ actionId: input.actionId, ...nextPreference });
 
       cockpitPreferenceQueueRef.current = cockpitPreferenceQueueRef.current.then(async () => {
         try {
@@ -829,6 +862,7 @@ export function AffaireHub({
           });
           cockpitStateRef.current = rolledBackState;
           setCockpitState(rolledBackState);
+          noteCockpitPreference({ actionId: input.actionId, ...previousPreference });
           toast.error({
             title: "Préférence cockpit non enregistrée",
             description:
@@ -839,7 +873,7 @@ export function AffaireHub({
         }
       });
     },
-    [summary.project.id, toast],
+    [noteCockpitPreference, summary.project.id, toast],
   );
 
   // Push cockpit suggestions to store for Ctrl+K bridge
@@ -937,7 +971,7 @@ export function AffaireHub({
   };
 
 
-  const journey = buildAffaireJourney({ intakeWorkspace: intakeWorkspace ?? null, dpgfSource, plansSummary: plansSummary ?? null, approvalSummary: approvalSummary ?? null, currentVersion: summary.currentVersion ?? null, lineCount: summary.lineCount, structureMode: summary.structureMode, finishLineSummary, takeoffEnabled, plansError: sectionErrors?.plansSummary });
+  const journey = buildAffaireJourney({ intakeWorkspace: intakeWorkspace ?? null, dpgfSource, plansSummary: plansSummary ?? null, approvalSummary: approvalSummary ?? null, currentVersion: summary.currentVersion ?? null, lineCount: summary.lineCount, structureMode: summary.structureMode, finishLineSummary, takeoffEnabled, plansError });
   const workbenchToolbar = (
               !showImportFlow ? (
                 <div className="space-y-2">
@@ -1033,7 +1067,7 @@ export function AffaireHub({
       }
     }}>
       {intakeWorkspace?.canManageDocuments && intakeWorkspace.uploadId && !isReadOnlyReview ? (
-        <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) router.refresh(); }} />
+        <PlanDossierSyncNotice projectId={summary.project.id} automatic onSynchronized={(changed) => { if (changed) void dossier.reload(); }} />
       ) : null}
 
       {/* Breadcrumb + edit actions (portal target while the fiche is edited) */}
@@ -1244,7 +1278,7 @@ export function AffaireHub({
                 structureMode={summary.structureMode ?? null}
                 finishLineSummary={finishLineSummary ?? null}
                 takeoffEnabled={takeoffEnabled}
-                plansError={sectionErrors?.plansSummary}
+                plansError={plansError}
                 onOpenDocuments={openDocuments}
                 studyContent={
                   <AffaireFlowHierarchyPanel
@@ -1295,6 +1329,7 @@ export function AffaireHub({
                     workspace={intakeWorkspace}
                     entryMode={isFreshStartState}
                     onUploadEvent={uploadFeedback.onUploadEvent}
+                    onReload={dossier.reload}
                     hideAddFilesAction={intakeWorkspacePresentation.hideAddFilesAction}
                     hideMissingPiecesAction={intakeWorkspacePresentation.hideMissingPiecesAction}
                     dpgfAlreadyImported={dpgfSource !== null}
@@ -1408,13 +1443,13 @@ export function AffaireHub({
               {shouldRenderPlansSection({
                 takeoffEnabled,
                 planSetCount: plansSummary?.planSetCount,
-                plansErrorMessage: sectionErrors?.plansSummary,
+                plansErrorMessage: plansError,
               }) ? (
                 <div id="plans" className="scroll-mt-24" hidden={activeSection !== "estimate"}>
                   <PlansMetresCard
                     plans={plansSummary ?? null}
                     projectId={summary.project.id}
-                    errorMessage={sectionErrors?.plansSummary}
+                    errorMessage={plansError}
                     hideLaunchAction={
                       shouldHideAffaireHubTakeoffLaunchAction({
                         dominantIntent: dominantFlowIntent,
@@ -1440,6 +1475,7 @@ export function AffaireHub({
           uploadRequestId={documentUploadRequest}
           initialAddFiles={addingDocuments}
           uploadFeedback={uploadFeedback}
+          onReload={dossier.reload}
           returnFocus={documentsReturnFocus}
           open={documentsOpen}
           onOpenChange={(open) => {

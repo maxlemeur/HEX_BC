@@ -1,4 +1,4 @@
-import { isClassified, type GroupClass } from "@/lib/takeoff/vectors/classify";
+import { isClassified, isModelSource, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import { isNearWhite } from "@/lib/takeoff/vectors/colors";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { MM_PER_POINT, type Point, type Segment } from "@/lib/takeoff/vectors/geometry";
@@ -175,9 +175,9 @@ function barrierStrokes(extraction: VectorPageExtraction, model: PageModel, clas
     if (group.hidden) return FREE;
     const entry = classes[index];
     if (isClassified(entry) && (entry.class === "mur" || entry.class === "cloison")) return WALL;
-    // An opening layer stays joinery whatever Decisions proposes for it (short of a wall, above); a keyword, document or
-    // user class decides otherwise.
-    const undecided = entry.class === null || entry.source === "decisions";
+    // An opening layer stays joinery whatever a model (Decisions, the local plan's) proposes for it (short of a wall,
+    // above); a keyword, document or user class decides otherwise.
+    const undecided = entry.class === null || isModelSource(entry.source);
     return undecided && group.layerName !== null && isOpeningLayerName(group.layerName) ? JOINERY : FREE;
   });
   const walls = role.includes(WALL);

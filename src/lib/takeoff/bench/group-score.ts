@@ -259,10 +259,11 @@ function costOf(pass: GroupScorePassInput) {
   };
 }
 
-export function scoreGroupTruth(input: { passes: readonly GroupScorePassInput[]; truth: GroupTruthSet }): GroupScore {
+/** `threshold`: the accepted confidence of the model that read the groups, recorded (Decisions' margin by default). */
+export function scoreGroupTruth(input: { passes: readonly GroupScorePassInput[]; truth: GroupTruthSet; threshold?: number }): GroupScore {
   const run = new Set(input.passes.flatMap((pass) => pass.documents.map((document) => document.id)));
   return {
-    version: GROUP_SCORE_VERSION, threshold: DECISIONS_ACCEPTED_MARGIN,
+    version: GROUP_SCORE_VERSION, threshold: input.threshold ?? DECISIONS_ACCEPTED_MARGIN,
     truth: { sha256: input.truth.sha256, files: input.truth.files, groups: input.truth.groups,
       documents_not_run: [...input.truth.documents.keys()].filter((id) => !run.has(id)).sort() },
     passes: input.passes.map((pass) => {

@@ -2,7 +2,7 @@ import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
 import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
 import { toleranceOf, withinTolerance, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
-import { DECISIONS_ACCEPTED_MARGIN } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_ACCEPTED_MARGIN, LOCAL_MODEL_ACCEPTED_PROBABILITY } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
 // Comparison of the vector reading with the level C baseline (TI-662
@@ -441,11 +441,13 @@ function summarizeDecisions(document: string | null, pages: readonly DecisionsPa
     left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
     answers: (() => {
       // As isClassified reads them: « autre » is never classified, a rule's class always is, Decisions' from its accepted
-      // margin; every candidate without such an answer (unanswered, refused, « autre », « inconnu », « hors_liste », or
-      // never asked: images not drawn, budget refused, a failed call or a stop) is to review.
+      // margin, the local plan's model's from its probability of 0.8; every candidate without such an answer (unanswered,
+      // refused, « autre », « inconnu », « hors_liste », or never asked: images not drawn, budget refused, a failed call or
+      // a stop) is to review.
       const proposed = answers.filter((answer) => answer.status === "answered" && answer.class !== null && answer.class !== "autre");
       const ruled = proposed.filter((answer) => answer.via === "rule").length;
-      const classified = proposed.filter((answer) => answer.via !== "rule" && (answer.confidence ?? 0) >= DECISIONS_ACCEPTED_MARGIN).length;
+      const threshold = (via: string) => (via === "local" ? LOCAL_MODEL_ACCEPTED_PROBABILITY : DECISIONS_ACCEPTED_MARGIN);
+      const classified = proposed.filter((answer) => answer.via !== "rule" && (answer.confidence ?? 0) >= threshold(answer.via)).length;
       const proposals = proposed.length - ruled - classified;
       const candidates = pages.reduce((total, entry) => total + entry.decisions.candidates, 0);
       return { ruled, classified, proposals, review: Math.max(0, candidates - ruled - classified - proposals) };
@@ -538,9 +540,12 @@ function renderMeasured(measured: NonNullable<VectorComparison["measured"]>) {
   return lines;
 }
 
-/** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
+/**
+ * report.md sections of a vector run: page readings (codes and counts only), the groups' model when used (Decisions, or
+ * with `model: "local"` the local plan's), and the comparison.
+ */
 export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null,
-  decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null) {
+  decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null, options: { model?: "decisions" | "local" } = {}) {
   const lines: string[] = ["## Lecture vectorielle par page (passe 1)", ""];
   const first = passes[0];
   lines.push(...table(["Document", "Page", "Mode", "Échelle", "Cotes (cohérentes / lues)", "Légende (codes)", "Groupes (visibles / classés / réseau)",
@@ -571,7 +576,8 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     entry.max_rss_mb])), "");
   const decided = vectorDecisionsSummary(passes);
   if (decided.length > 0) {
-    lines.push(`## Decisions, classes des groupes (toutes passes, ${passes.length})`, "");
+    const local = options.model === "local";
+    lines.push(`## ${local ? "ChatGPT local" : "Decisions"}, classes des groupes (toutes passes, ${passes.length})`, "");
     if (decisions) {
       const { budget } = decisions;
       lines.push(`Budget : ${budget.spent_tokens} jetons sur ${budget.max_tokens}, ${budget.calls} appels (${budget.calls_without_usage} sans usage), `
@@ -579,9 +585,10 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     }
     const total = vectorDecisionsTotal(passes);
     const rows = total ? [...decided, { ...total, document: "Total" }] : decided;
-    const margin = String(DECISIONS_ACCEPTED_MARGIN).replace(".", ",");
-    lines.push(...table(["Document", "Pages", "Appels", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
-      "Candidats (hors limite)", `Classes (règles / Decisions ≥ ${margin} / < ${margin} / à revoir)`, "Arrêts"], rows.map((entry) => [
+    const margin = String(local ? LOCAL_MODEL_ACCEPTED_PROBABILITY : DECISIONS_ACCEPTED_MARGIN).replace(".", ",");
+    lines.push(...table(["Document", "Pages", local ? "Demandes" : "Appels", "Jetons (entrée / sortie / total)", `${local ? "Demande" : "Appel"} p50 / p95 (s)`,
+      "Rendu p50 / p95 (s)", "Candidats (hors limite)", `Classes (règles / ${local ? "modèle" : "Decisions"} ≥ ${margin} / < ${margin} / à revoir)`, "Arrêts"],
+    rows.map((entry) => [
       entry.document, entry.pages, entry.calls.batch, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
       `${seconds(entry.latency_ms.p50)} / ${seconds(entry.latency_ms.p95)}`, `${seconds(entry.render_ms.p50)} / ${seconds(entry.render_ms.p95)}`,
       `${entry.candidates} (${entry.left_out})`, `${entry.answers.ruled} / ${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,

@@ -28,13 +28,16 @@ import { classOfLayerName, OTHER_CLASSES, type VectorClass } from "@/lib/takeoff
 
 /** Decisions' margin p1 − p2 from which its class is accepted (TI-704, provisional until the reserve pass). */
 export const DECISIONS_ACCEPTED_MARGIN = 0.5;
+/** A local model's own probability from which its class is accepted (TI-704 option B, local mode only). */
+export const LOCAL_MODEL_ACCEPTED_PROBABILITY = 0.8;
 /** Smallest share of the page's visible stroke length a group needs to be asked of Decisions, or counted « à revoir ». */
 export const DECISIONS_MIN_SHARE = 0.001;
 
-export type ClassSource = "keyword" | "legend" | "label" | "rule" | "document" | "user" | "decisions";
+export type ClassSource = "keyword" | "legend" | "label" | "rule" | "document" | "user" | "decisions" | "chatgpt";
 /** How the lab and the review name the source of a class. */
 export const CLASS_SOURCE_LABELS: Record<ClassSource, string> = {
   keyword: "mots-clés", legend: "légende", label: "libellés", rule: "règles", document: "document", user: "utilisateur", decisions: "Decisions",
+  chatgpt: "ChatGPT local",
 };
 export type GroupClass = {
   class: VectorClass | null;
@@ -48,7 +51,17 @@ export type GroupClass = {
 
 /** The confidence a class of this source needs to count; null when every class of it counts. */
 export function acceptedConfidence(source: ClassSource | null): number | null {
-  return source === "decisions" ? DECISIONS_ACCEPTED_MARGIN : null;
+  return source === "decisions" ? DECISIONS_ACCEPTED_MARGIN : source === "chatgpt" ? LOCAL_MODEL_ACCEPTED_PROBABILITY : null;
+}
+
+/** A model's class (Decisions, or the local plan's model): a proposal under its accepted confidence, never a decision. */
+export function isModelSource(source: ClassSource | null | undefined): source is "decisions" | "chatgpt" {
+  return source === "decisions" || source === "chatgpt";
+}
+
+/** A page whose groups the local plan's model read (TI-704 option B): its prompt version ends in « -local ». */
+export function isLocalModelPromptVersion(version: string | null | undefined) {
+  return typeof version === "string" && version.endsWith("-local");
 }
 
 function accepted(entry: GroupClass) {
@@ -66,7 +79,10 @@ export function isVectorClass(value: string): value is VectorClass {
   return NETWORKS.has(value) || (OTHER_CLASSES as readonly string[]).includes(value);
 }
 
-/** A network the measure takes: any network class, a Decisions one only at its accepted margin (DECISIONS_ACCEPTED_MARGIN). */
+/**
+ * A network the measure takes: any network class, a model's only at its accepted confidence (Decisions' margin
+ * DECISIONS_ACCEPTED_MARGIN, the local plan's probability LOCAL_MODEL_ACCEPTED_PROBABILITY).
+ */
 export function isMeasuredNetwork(entry: GroupClass): entry is GroupClass & { class: NetworkCode } {
   return isNetworkClass(entry.class) && accepted(entry);
 }
@@ -109,7 +125,7 @@ export function applyCorrespondences(model: PageModel, classes: readonly GroupCl
  * What the classification of the candidates gives a group (group-decisions-server.ts): a class, from the rules (source
  * « rule », no confidence) or Decisions (its margin); or none, with a proposal in words. Without source, Decisions.
  */
-export type DecisionsAnswer = { class: VectorClass | null; confidence: number | null; source?: "decisions" | "rule"; proposal?: string };
+export type DecisionsAnswer = { class: VectorClass | null; confidence: number | null; source?: "decisions" | "rule" | "chatgpt"; proposal?: string };
 
 /**
  * Applies the classification's answers (group id → class, source and confidence) to the groups left without class nor
@@ -125,7 +141,7 @@ export function applyDecisions(model: PageModel, classes: readonly GroupClass[],
     if (answer.class === null) return answer.proposal ? { ...entry, proposal: answer.proposal.slice(0, 120) } : entry;
     const source = answer.source ?? "decisions";
     if (!isVectorClass(answer.class)) return entry;
-    if (source === "decisions" && (answer.confidence === null || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1)) return entry;
+    if (source !== "rule" && (answer.confidence === null || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1)) return entry;
     if (source === "rule" && answer.confidence !== null) return entry;
     if (isNetworkClass(answer.class) && (group.nearWhite || group.grey || group.hidden)) return entry;
     return { class: answer.class, source, confidence: source === "rule" ? null : answer.confidence, candidates: [] };
