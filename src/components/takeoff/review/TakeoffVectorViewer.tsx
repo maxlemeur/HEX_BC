@@ -29,7 +29,10 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // read. Without a source PDF, or when it cannot be drawn, the viewer says so
 // and keeps the geometry. Geometry is in metres from the page's top-left corner at the page's
 // scale. Ctrl/⌘ + wheel zooms (a plain wheel scrolls the review); the canvas
-// is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond.
+// is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond. Each page
+// keeps its own zoom and pan while the viewer is mounted (TI-721): a page seen
+// again shows the area left on it, a page never seen opens fitted, and
+// « Ajuster » fits the page shown again.
 
 const MM_PER_POINT = 25.4 / 72;
 /** Pixels of the rendered page at most (Safari refuses larger canvases; an A0 at zoom 8 would be hundreds of MB). */
@@ -40,6 +43,16 @@ const SURFACES = "Surfaces";
 const SURFACE_COLOR = "var(--color-info)";
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
+/** What a page shows: its zoom over the fitted width, and its pan in screen pixels. */
+type View = { zoom: number; offset: { x: number; y: number } };
+
+const FITTED: View = { zoom: 1, offset: { x: 0, y: 0 } };
+const zoomed = (view: View, factor: number): View => ({ ...view, zoom: Math.min(8, Math.max(0.25, view.zoom * factor)) });
+
+/** The views with one page's changed, a page never seen starting fitted. */
+function withView(views: ReadonlyMap<string, View>, pageId: string, change: (view: View) => View): ReadonlyMap<string, View> {
+  return new Map(views).set(pageId, change(views.get(pageId) ?? FITTED));
+}
 
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
@@ -106,12 +119,11 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const [renderError, setRenderError] = useState("");
   const [pageId, setPageId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  /** Each page's view, by page id, kept across page changes; a page that is not in it is shown fitted. */
+  const [views, setViews] = useState<ReadonlyMap<string, View>>(() => new Map());
   /** The loaded PDF and the source it was loaded for (its plan file, or the job's upload): a page draws only its own source. */
   const [pdf, setPdf] = useState<{ source: string; document: PDFDocumentProxy } | null>(null);
   const [rendering, setRendering] = useState(false);
-  const [base, setBase] = useState<{ width: number; height: number } | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
@@ -145,6 +157,11 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const focus = useMemo(() => new Set(focusKey === "" ? [] : focusKey.split(",")), [focusKey]);
 
   const page = reading?.pages.find((entry) => entry.id === pageId) ?? null;
+  // Read while rendering, so a page change draws the next page at its own view at once, never at the previous page's.
+  const { zoom, offset } = (pageId === null ? undefined : views.get(pageId)) ?? FITTED;
+  const changeView = (change: (view: View) => View) => {
+    if (pageId !== null) setViews((current) => withView(current, pageId, change));
+  };
   const networks = useMemo(() => {
     const totals = new Map<string, number>();
     for (const item of page?.items ?? []) {
@@ -201,13 +218,6 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [hasPage, planFileId, planSetId, uploadUrl]);
 
-  useEffect(() => {
-    if (!page) return;
-    setBase({ width: page.reading.size_pt[0], height: page.reading.size_pt[1] });
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
-  }, [page]);
-
   // `fill`: the frame follows its panel, and the page fits it again when the panel or the window changes width.
   const [frameWidth, setFrameWidth] = useState(0);
   useEffect(() => {
@@ -217,6 +227,7 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     observer.observe(element);
     return () => observer.disconnect();
   }, [fill, reading]);
+  const base = useMemo(() => (page ? { width: page.reading.size_pt[0], height: page.reading.size_pt[1] } : null), [page]);
   const fit = useMemo(() => {
     const width = (fill ? frameWidth : 0) || (frame.current?.clientWidth ?? 0);
     return base && width > 0 ? width / base.width : 0.25;
@@ -256,18 +267,18 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [pdf, page, scale, sourceKey]);
 
-  // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan, without zooming the page: a non-passive listener.
+  // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan shown, without zooming the page: a non-passive listener.
   useEffect(() => {
     const element = frame.current;
-    if (!element) return;
+    if (!element || pageId === null) return;
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setZoom((current) => Math.min(8, Math.max(0.25, current * (event.deltaY < 0 ? 1.15 : 1 / 1.15))));
+      setViews((current) => withView(current, pageId, (view) => zoomed(view, event.deltaY < 0 ? 1.15 : 1 / 1.15)));
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [reading]);
+  }, [reading, pageId]);
 
   if (error && !reading) return <p className="text-sm text-danger">{error}</p>;
   if (!reading) return <p className="text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Lecture vectorielle…</p>;
@@ -288,7 +299,8 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     drag.current = { x: event.clientX - offset.x, y: event.clientY - offset.y };
   };
   const onPointerMove = (event: ReactPointerEvent) => {
-    if (drag.current) setOffset({ x: event.clientX - drag.current.x, y: event.clientY - drag.current.y });
+    const start = drag.current;
+    if (start) changeView((view) => ({ ...view, offset: { x: event.clientX - start.x, y: event.clientY - start.y } }));
   };
   const scaleStatus = page?.reading.scale.status ?? "unverified";
   const decisions = page?.reading.decisions ?? null;
@@ -357,10 +369,10 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
       </div>
       <div className={fill ? "flex min-h-0 min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}>
         <div className="flex items-center gap-1" role="toolbar" aria-label="Zoom du plan">
-          <Button size="icon-sm" variant="outline" aria-label="Zoom arrière" onClick={() => setZoom((value) => Math.max(0.25, value / 1.25))}><Minus className="size-4" /></Button>
-          <Button size="sm" variant="outline" onClick={() => setZoom(1)}>100 %</Button>
-          <Button size="icon-sm" variant="outline" aria-label="Zoom avant" onClick={() => setZoom((value) => Math.min(8, value * 1.25))}><Plus className="size-4" /></Button>
-          <Button size="sm" variant="ghost" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
+          <Button size="icon-sm" variant="outline" aria-label="Zoom arrière" onClick={() => changeView((view) => zoomed(view, 1 / 1.25))}><Minus className="size-4" /></Button>
+          <Button size="sm" variant="outline" onClick={() => changeView((view) => ({ ...view, zoom: 1 }))}>100 %</Button>
+          <Button size="icon-sm" variant="outline" aria-label="Zoom avant" onClick={() => changeView((view) => zoomed(view, 1.25))}><Plus className="size-4" /></Button>
+          <Button size="sm" variant="ghost" onClick={() => changeView(() => FITTED)}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
           {rendering ? <LoaderCircle aria-label="Rendu du plan" className="ml-2 size-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div ref={frame} className={`relative ${fill ? "min-h-0 flex-1" : "h-[32rem]"} cursor-grab overflow-hidden rounded-md border border-border-subtle bg-surface-subtle`}
