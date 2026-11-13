@@ -205,7 +205,9 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('assistant_threads', 'UPDATE'),
     ('assistant_threads', 'DELETE'),
     ('assistant_messages', 'SELECT'),
-    ('assistant_messages', 'INSERT')
+    ('assistant_messages', 'INSERT'),
+    ('purchase_order_confirmations', 'SELECT'),
+    ('purchase_order_receptions', 'SELECT')
 )
 select ok(
   has_table_privilege(
@@ -250,7 +252,9 @@ with authenticated_data_api_tables(table_name) as (
     ('material_request_quote_lines'),
     ('product_aliases'),
     ('assistant_threads'),
-    ('assistant_messages')
+    ('assistant_messages'),
+    ('purchase_order_confirmations'),
+    ('purchase_order_receptions')
 ),
 forbidden_authenticated_grants(privilege_name) as (
   values ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')

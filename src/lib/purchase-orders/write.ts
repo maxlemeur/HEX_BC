@@ -58,6 +58,8 @@ const errors: Record<string, { status: 400 | 403 | 404 | 409 | 500; message: str
   PURCHASE_ORDER_SOURCE_SUPPLIER_IMMUTABLE: { status: 400, message: "Le fournisseur provient du devis validé. Préparez un nouvel arbitrage fournisseur avant de changer cette commande." },
   PURCHASE_ORDER_SOURCE_UNIT_IMMUTABLE: { status: 400, message: "L'unité d'une ligne issue du devis ne peut pas être modifiée." },
   // TI-691, delivery 3a: orders made from a material request; shipping and discounts.
+  // TI-691, delivery 3b-1: in a draft, a request line keeps its retained quote's price until the confirmation.
+  PURCHASE_ORDER_REQUEST_PRICE_AT_CONFIRMATION: { status: 400, message: "Le prix d’une ligne de la demande est celui du devis retenu : il ne change qu’à la confirmation de la commande." },
   PURCHASE_ORDER_REQUEST_SUPPLIER_IMMUTABLE: { status: 400, message: "Le fournisseur vient du devis retenu de la demande de matériel : il ne change pas sur cette commande." },
   PURCHASE_ORDER_TOTAL_NEGATIVE: { status: 400, message: "La remise dépasse le montant de la commande." },
   PURCHASE_ORDER_ITEMS_INVALID: { status: 400, message: "Les lignes de la commande sont invalides. Rechargez la commande et vérifiez les saisies." },

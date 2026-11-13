@@ -199,6 +199,24 @@ export async function DELETE(
     return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
   }
 
+  // TI-691: the proof of a confirmed order is kept (its foreign key refuses the row); say so before the file is
+  // removed, or the confirmation would name a document without its file.
+  const { data: proofs, error: proofError } = await supabase
+    .from("purchase_order_confirmations")
+    .select("purchase_order_id")
+    .eq("document_id", devisId)
+    .limit(1);
+
+  if (proofError) {
+    return NextResponse.json({ error: "Impossible de vérifier ce document. Réessayez." }, { status: 400 });
+  }
+  if (proofs && proofs.length > 0) {
+    return NextResponse.json(
+      { error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
+      { status: 409 }
+    );
+  }
+
   const { error: removeError } = await supabase.storage
     .from("devis")
     .remove([devis.storage_path]);
