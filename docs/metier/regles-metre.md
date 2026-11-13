@@ -239,11 +239,36 @@ seconde fois sans décision.
   voir, le choix est toujours demandé.
 - **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
   ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
-  ingénieurs comme aux administrateurs. Refusé sur une page qui alimente une ligne
-  DPGF déjà alimentée par un autre métré, tant que la ligne DPGF ne garde que la
-  dernière mesure. À l'inverse, une ligne DPGF de la page que le nouveau métré
-  n'alimente pas ne peut pas être « remplacée » : sa mesure resterait à côté de la
-  nouvelle ; on garde alors les deux, avec un motif.
+  ingénieurs comme aux administrateurs. Refusé seulement quand « Fusionner »,
+  obligatoire avec un DPGF, envoie une nouvelle ligne sur une ligne précédente de
+  la page.
+- **Une ligne DPGF** (TI-682 D4) somme les mesures qu'elle garde, métré par métré :
+  remplacer une page retire la part de cette page, que le nouveau métré alimente de
+  nouveau la ligne ou non ; garder les deux garde les deux parts.
+- **Une part DPGF dont la part par page est inconnue** (TI-716). Appliquée avant le
+  cumul par un seul métré sur plusieurs pages, et dont les lignes figées ne redonnent
+  plus le calcul, la mesure d'une ligne DPGF forme un bloc. Remplacer une seule de
+  ses pages est refusé (`dpgf_part_unknown`) : une quantité que personne ne peut
+  attribuer n'est jamais retirée. Aucune remise à zéro de la ligne n'est proposée :
+  elle retirerait, sans le montrer, ce que les autres pages ont mesuré. L'assistant
+  le dit avant l'envoi et le refus de la base le nomme : la ligne (désignation,
+  unité, quantité), les pages que le bloc mêle, puis deux issues. Recommandée :
+  relire aussi ces pages dans le métré (une relance qui les lit, ou « Remplacer »
+  sur celles qu'il relit déjà) et les remplacer ensemble : le bloc sort entier.
+  Sinon, garder les deux sur la page : elle compte alors deux fois, à corriger à la
+  main (TKD05).
+- **« Fusionner » sur une ligne DPGF** (TI-716). La fusion rattache une ligne du
+  métré à la première ligne de même titre et de même unité de la section, hors du
+  rapprochement. Sur une ligne DPGF que l'application alimente, une ligne que le
+  rapprochement ne relie à aucune ligne DPGF est refusée : la somme de la ligne DPGF
+  effacerait sa mesure. Sur une ligne DPGF dont l'application remplace une page
+  sans l'alimenter, toute ligne est refusée, même reliée ailleurs (D4). Le refus
+  (`TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT`, `merged_outside_reconciliation`)
+  nomme les deux lignes ; relier la ligne dans le rapprochement, ou l'exclure à la
+  revue. Une ligne qui alimente une ligne DPGF compte dans la somme de celle-ci
+  ([`…_takeoff_dpgf_merge_refusals.sql`](../../supabase/migrations/20261113175750_takeoff_dpgf_merge_refusals.sql)).
+  Reste possible : une fusion sur une ligne DPGF que l'application n'alimente pas
+  et dont elle ne remplace aucune page (inchangé depuis D4).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
