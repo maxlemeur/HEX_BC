@@ -7,6 +7,8 @@
 -- Written before the migration (red on 32b078dd): the second takeoff overwrote the target (the last one won), keeping
 -- both was refused (dpgf_keep_both), replacing a page whose DPGF line the relaunch does not feed was refused
 -- (dpgf_not_replaced), and a version 1 policy was overwritten without being read.
+-- TI-716 (cases 12, 18, 21 and 22), written before …_takeoff_dpgf_merge_refusals.sql (red on 30b94880): a line « Fusionner »
+-- sent onto a DPGF target the relaunch feeds was overwritten by its composition, and neither refusal named its line.
 -- One draft per case (engine 3), section ...<case>002, DPGF target ...<case>003 (a second one ...<case>004 in case 5),
 -- takeoffs M1 ...<case>011, M2 ...<case>012, M3 ...<case>013; their lines ...<case><job>nn. All values are fictional.
 begin;
@@ -79,7 +81,12 @@ insert into da_cases values
   -- 19: the relaunch's only line on page 1 excluded at the review, its line on page 2 feeding the target.
   (19, 'WC suspendu', 'u', 20),
   -- 20: a version 1 policy that cannot be split, both its pages replaced.
-  (20, 'EF cuivre DN 22', 'ml', 10);
+  (20, 'EF cuivre DN 22', 'ml', 10),
+  -- 21 (TI-716): a replaced page whose relaunch feeds the target and also writes a line of the target's title onto it,
+  -- outside the reconciliation.
+  (21, 'EF cuivre DN 22', 'ml', 5),
+  -- 22 (TI-716): the same onto a target fed from a page no takeoff read before.
+  (22, 'EF cuivre DN 22', 'ml', 5);
 grant select on da_cases to authenticated;
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
@@ -149,7 +156,13 @@ insert into da_items values
   (18, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (18, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2), (18, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1),
   (19, 1, 1, 'WC suspendu', 12, 'u', 1), (19, 2, 1, 'Vanne d''arrêt', 2, 'u', 1), (19, 2, 2, 'WC suspendu', 10, 'u', 2),
   (20, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (20, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2),
-  (20, 2, 1, 'EF cuivre DN 22', 8, 'ml', 1), (20, 2, 2, 'EF cuivre DN 22', 5, 'ml', 2);
+  (20, 2, 1, 'EF cuivre DN 22', 8, 'ml', 1), (20, 2, 2, 'EF cuivre DN 22', 5, 'ml', 2),
+  -- 21 and 22: the relaunch's first line (« Fusionner » sends it onto the target, the first line of its title) is not
+  -- linked by the reconciliation; its second line feeds the target.
+  (21, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (21, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2),
+  (21, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1), (21, 2, 2, 'EF cuivre DN 22', 8, 'ml', 1),
+  (22, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1),
+  (22, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (22, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2);
 -- The lines whose quantity is an hypothesis its author entered (the provision marker's sources).
 create temporary table da_hypotheses (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
   on commit drop;
@@ -261,7 +274,9 @@ grant execute on function pg_temp.da_decide(integer, text, text, integer[]) to a
 -- The service permit: the target the job's lines of its title feed, with what each line brings (no printed surface
 -- here), and the compositions the service read for version 1 policies (p_compositions). As the service builds it
 -- (buildDpgfApplyQuantityPolicy), the target's source_metadata is the one it holds, its DPGF reference restated.
-create or replace function pg_temp.da_permit(p_case integer, p_job integer, p_token text, p_compositions jsonb default null)
+-- p_lines: only these lines of the job feed the target (the reconciliation links the others to nothing).
+create or replace function pg_temp.da_permit(p_case integer, p_job integer, p_token text, p_compositions jsonb default null,
+  p_lines integer[] default null)
 returns void language sql as $$
   insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
     review_summary, expires_at)
@@ -279,7 +294,8 @@ returns void language sql as $$
       join public.estimate_items target on target.id = pg_temp.da_id(p_case * 1000 + 3)
       cross join lateral (select sum(ti.quantity) as total, jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity,
           'updated_at', ti.updated_at, 'measured', ti.quantity, 'protective', 0, 'printed_gap', 0) order by ti.id) as items
-        from public.takeoff_items ti where ti.job_id = pg_temp.da_job(p_case, p_job) and ti.designation = c.title) as fed
+        from public.takeoff_items ti where ti.job_id = pg_temp.da_job(p_case, p_job) and ti.designation = c.title
+          and (p_lines is null or ti.id in (select pg_temp.da_item(p_case, p_job, line) from unnest(p_lines) as line))) as fed
       where c.case_no = p_case and fed.total is not null), '[]'::jsonb))
     || case when p_compositions is null then '{}'::jsonb else jsonb_build_object('dpgf_compositions', p_compositions) end,
     now() + interval '5 minutes'
@@ -443,6 +459,14 @@ select is(pg_temp.da_apply('block cut', 12, 2, 'da-12-2'), '22023 TAKEOFF_PAGE_D
   'replacing one page of a takeoff whose part per page is unknown is refused, never all of it removed');
 reset role;
 select is((select detail ->> 'reason' from da_outcome where case_name = 'block cut'), 'dpgf_part_unknown', 'the refusal says why');
+-- TI-716: the refusal names the line (its designation, unit and quantity before the application) and the pages of the
+-- earlier takeoff its part mixes, each with what this application decided on it: the screen says the ways out from it.
+select is((select detail - 'scope' - 'reason' from da_outcome where case_name = 'block cut'), jsonb_build_object(
+    'estimate_item_id', (pg_temp.da_target(12)).id, 'designation', 'EF cuivre DN 22', 'unit', 'ml', 'quantity', 16, 'fed', true,
+    'earlier_job_id', pg_temp.da_job(12, 1), 'pages', jsonb_build_array(
+      jsonb_build_object('source_file_name', 'plan-fictif.pdf', 'source_page', 1, 'decision', 'replace', 'fed_again', true),
+      jsonb_build_object('source_file_name', 'plan-fictif.pdf', 'source_page', 2, 'decision', null, 'fed_again', false))),
+  'the refusal names the DPGF line, the earlier takeoff and the two pages its part mixes: page 1 replaced and fed again, page 2 not read again');
 select is((pg_temp.da_target(12)).quantity, 16::numeric, 'the target keeps what it holds');
 
 -- 7. The composition of a version 1 policy comes from the service, bound to what the target holds. ------------------------
@@ -535,6 +559,11 @@ select is(pg_temp.da_apply('merged onto a target not fed', 18, 2, 'da-18-2'), '4
 reset role;
 select is(jsonb_build_array((pg_temp.da_target(18)).quantity, (pg_temp.da_target(18)).source_provider), '[16, "dpgf"]'::jsonb,
   'the target keeps what it holds');
+select is((select detail from da_outcome where case_name = 'merged onto a target not fed'), jsonb_build_object(
+    'reason', 'merged_outside_reconciliation', 'estimate_item_id', (pg_temp.da_target(18)).id, 'dpgf_title', 'EF cuivre DN 22',
+    'takeoff_item_id', pg_temp.da_item(18, 2, 1), 'designation', 'EF cuivre DN 22', 'quantity', 3, 'unit', 'ml', 'fed', false,
+    'linked', false),
+  'TI-716: the refusal names the line merged and the DPGF line it was sent onto');
 
 -- 19. A page whose only new line is excluded at the review is not read again: the application keeps its earlier part,
 -- with no page decision (the reconciliation must judge the same total: TI-696, Codex review of PR 288).
@@ -580,6 +609,34 @@ select is(pg_temp.da_apply('block replaced whole', 20, 2, 'da-20-2'), 'ok',
 reset role;
 select is((pg_temp.da_target(20)).quantity, 13::numeric, 'the target holds max(10, 8 + 5): nothing of the block stays');
 select is(pg_temp.da_composition(20), '[[2, 1, 8], [2, 2, 5]]'::jsonb, 'its composition holds the relaunch only');
+
+-- 21 (TI-716). A line of the relaunch merged onto a target the relaunch feeds from the page it replaces, the
+-- reconciliation not linking that line: the target's composition would overwrite its measure (written before the
+-- migration: the target held max(5, 6 kept + 8), the 3 ml lost without a word). Refused as for a target not fed.
+select pg_temp.da_permit(21, 2, 'da-21-2', null, array[2]);
+set local role authenticated;
+select is(pg_temp.da_decide(21, 'replace', null, array[1]), 'ok 1', 'fixture: page 1 replaced');
+select is(pg_temp.da_apply('merged onto a target fed', 21, 2, 'da-21-2'), '40001 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT',
+  'a relaunch line written by « Fusionner » onto a DPGF target it feeds, outside the reconciliation, is refused, never overwritten');
+reset role;
+select is((select detail from da_outcome where case_name = 'merged onto a target fed'), jsonb_build_object(
+    'reason', 'merged_outside_reconciliation', 'estimate_item_id', (pg_temp.da_target(21)).id, 'dpgf_title', 'EF cuivre DN 22',
+    'takeoff_item_id', pg_temp.da_item(21, 2, 1), 'designation', 'EF cuivre DN 22', 'quantity', 3, 'unit', 'ml', 'fed', true,
+    'linked', false),
+  'the refusal names the line merged and the DPGF line it was sent onto');
+select is(jsonb_build_array((pg_temp.da_target(21)).quantity, pg_temp.da_composition(21)), '[16, [[1, 1, 10], [1, 2, 6]]]'::jsonb,
+  'the target keeps what it holds, its composition untouched');
+
+-- 22 (TI-716). The same onto a target fed from a page no takeoff read before: no page decision, the same refusal.
+select pg_temp.da_permit(22, 2, 'da-22-2', null, array[2]);
+set local role authenticated;
+select is(pg_temp.da_apply('merged onto a target fed, no page decision', 22, 2, 'da-22-2'),
+  '40001 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT', 'a line merged onto a fed DPGF target outside the reconciliation is refused on a new page too');
+reset role;
+select is((select detail ->> 'takeoff_item_id' from da_outcome where case_name = 'merged onto a target fed, no page decision'),
+  pg_temp.da_item(22, 2, 1)::text, 'the refusal names the line merged');
+select is(jsonb_build_array((pg_temp.da_target(22)).quantity, pg_temp.da_composition(22)), '[10, [[1, 1, 10]]]'::jsonb,
+  'the target keeps what it holds');
 
 select * from finish();
 rollback;

@@ -51,13 +51,14 @@ export function pageLabel(page: Pick<TakeoffPageReplacementPage, "file_name" | "
 /**
  * What the screen asks of the estimator to confirm, and how. `choose` names the choices of this screen the text
  * advises: each one enabled where it is advised, and part of a state that can be confirmed. `elsewhere` names what is
- * done outside the step when no choice here can confirm, each way out written in `exits` with what it opens. The text
- * is written from these only.
+ * done outside the step: when no choice here can confirm, each way out written in `exits` with what it opens; beside a
+ * choice here (TI-716: a relaunch reading more pages, recommended before keeping both), written in the text itself. The
+ * text is written from these only.
  */
 export type Advice = {
   text: string;
   choose: Array<{ control: string; value: string | null }>;
-  elsewhere: Array<"exclude_at_review" | "link_in_dpgf_review">;
+  elsewhere: Array<"exclude_at_review" | "link_in_dpgf_review" | "read_pages_again">;
   exits: string[];
 };
 /** The text of an advice as one message (its sentence, then its ways out). */
@@ -106,9 +107,12 @@ export type DpgfTargetOutcome = {
    * The pages replaced that take only part of a contribution whose share per page is unknown, once every page replaced
    * is counted together (the database refuses them: dpgf_part_unknown), each with the pages read again that hold the
    * rest of it and are not replaced (replacing them too takes it out whole), or none when part of it lies on a page this
-   * takeoff does not read.
+   * takeoff does not read. TI-716: with the pages read again that hold the parts it cuts (`mixes`, this one included),
+   * whether part of them lies on a page this takeoff does not read (`outside`: only a relaunch reading it too takes them
+   * out whole), and whether this takeoff feeds the line again from the page (`refed`: keeping both counts it twice there).
    */
-  indivisible: Array<{ pageKey: string; label: string; alsoReplace: Array<{ key: string; label: string }> }>;
+  indivisible: Array<{ pageKey: string; label: string; alsoReplace: Array<{ key: string; label: string }>;
+    mixes: Array<{ key: string; label: string }>; outside: boolean; refed: boolean }>;
 };
 export type ResolvedNewLine = {
   newLine: TakeoffPageReplacementNewLine;
@@ -133,6 +137,9 @@ export type Resolution = {
   dpgf: DpgfTargetOutcome[];
 };
 
+const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
+/** « a », « a et b », « a, b et c ». */
+const listOf = (items: readonly string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`);
 const placeLabel = (place: { source_file_name: string | null; source_page: number | null }) =>
   pageLabel({ file_name: place.source_file_name, page: place.source_page });
 const samePlace = (place: { source_file_name: string | null; source_page: number | null }, page: TakeoffPageReplacementPage) =>
@@ -180,11 +187,16 @@ function dpgfOutcome(proposal: TakeoffPageReplacementResponse, target: TakeoffPa
   const parts = removeDpgfParts(target.earlier, removed);
   // The pages kept both of its group: replacing them too takes every part out whole, unless one lies on a page this
   // takeoff does not read (then the group is only kept both).
+  const holds = (page: TakeoffPageReplacementPage, itemId: string) => page.lines.some((entry) => entry.id === target.id && entry.item_ids.includes(itemId));
   const indivisible = pages.filter((page) => parts.indivisible.some((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))))
     .map((page) => {
       const group = groups.get(page.key)!;
       const others = group.whole ? proposal.pages.filter((other) => group.pages.includes(other.key) && !replacing.has(other.key)) : [];
-      return { pageKey: page.key, label: pageLabel(page), alsoReplace: others.map((other) => ({ key: other.key, label: pageLabel(other) })) };
+      const cut = parts.indivisible.filter((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))).flatMap((part) => part.item_ids);
+      return { pageKey: page.key, label: pageLabel(page), alsoReplace: others.map((other) => ({ key: other.key, label: pageLabel(other) })),
+        mixes: proposal.pages.filter((other) => cut.some((id) => holds(other, id))).map((other) => ({ key: other.key, label: pageLabel(other) })),
+        outside: cut.some((id) => !proposal.pages.some((other) => holds(other, id))),
+        refed: target.fed.some((line) => samePlace(line, page)) };
     });
   const kept = parts.kept;
   const total = composeDpgfTarget(target.reference, [...kept,
@@ -313,16 +325,31 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       // (a policy applied before D4) cannot leave with one page: the page is kept both.
       const outcome = dpgfById.get(line.id);
       const cut = outcome?.indivisible ?? [];
+      // TI-716: the line named (its designation, what it holds), the pages its part mixes, the way out recommended (its
+      // pages read again and replaced together: the part leaves whole), then the other (both kept on the page, which then
+      // counts twice). Never « reset the line »: it would remove the measures of its other pages unseen.
+      const held = outcome?.target.quantity ?? line.quantity;
+      // A unit key without a code (« status:… ») is not a unit the estimator reads.
+      const unit = outcome?.target.unit_key && !outcome.target.unit_key.startsWith("status:") ? ` ${outcome.target.unit_key}` : "";
+      const measure = held === null ? "" : ` (${quantityFormat.format(held)}${unit})`;
+      const named = (entry: (typeof cut)[number]) => `La ligne DPGF « ${line.title} »${measure} tient la mesure d’un métré appliqué avant `
+        + `le cumul, qui mêle ${listOf([...entry.mixes.map((page) => page.label), ...(entry.outside ? ["des pages que ce métré ne relit pas"] : [])])}`
+        + ` sans la part de chacune : elle ne sort pas avec ${entry.label} seule.`;
+      const relaunch = "Recommandé : relancez le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure "
+        + "précédente sort alors entière.";
       const advice: Advice[] = cut.filter(({ pageKey, alsoReplace }) => alsoReplace.length > 0 || keepBothOffered(pageKey))
-        .map(({ pageKey, label, alsoReplace }) => {
+        .map((entry) => {
+          const { pageKey, label, alsoReplace } = entry;
           const keepBoth = keepBothOffered(pageKey);
-          const ways = [...(alsoReplace.length > 0 ? [`remplacez aussi ${alsoReplace.map((other) => other.label).join(", ")}`] : []),
-            ...(keepBoth ? ["gardez les deux mesures de la page"] : [])];
-          const sentence = ways.join(", ou ");
-          return { text: `« ${line.title} » : sa part sur ${label} n’est pas connue (métré appliqué avant le cumul) ; remplacer la page la retirerait entière.`
-              + ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`,
-            choose: [...alsoReplace.map((other) => ({ control: `page:${other.key}`, value: "replace" })),
-              ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])], elsewhere: [], exits: [] };
+          const recommended = entry.outside ? relaunch : alsoReplace.length > 0
+            ? `Recommandé : remplacez aussi ${listOf(alsoReplace.map((other) => other.label))} : remplacées ensemble, ces pages font sortir la `
+              + "mesure précédente entière." : "";
+          const other = keepBoth ? `Sinon, gardez les deux mesures de ${label} : ${entry.refed ? "la page comptera deux fois sur cette ligne"
+            : "la ligne garde la mesure précédente et la nouvelle mesure de la page entre ailleurs, la page comptera deux fois au devis"}, à corriger à la main.` : "";
+          return { text: [named(entry), recommended, other].filter(Boolean).join(" "),
+            choose: [...alsoReplace.map((page) => ({ control: `page:${page.key}`, value: "replace" })),
+              ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])],
+            elsewhere: entry.outside ? ["read_pages_again" as const] : [], exits: [] };
         });
       // Neither replacing nor keeping both confirms here: a page « Fusionner » always replaces cuts the part. Once its
       // imposed lines are set aside at the review, keeping both is possible again.
@@ -330,12 +357,17 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       if (stuck.length > 0) {
         const imposing = new Set(stuck.flatMap(({ pageKey }) => groups.get(pageKey)!.pages)
           .filter((key) => pagesByKey.get(key)!.keep_both_refused));
-        const named = newLines.filter((entry) => entry.locked && entry.pageKeys.some((key) => imposing.has(key)))
+        const imposed = newLines.filter((entry) => entry.locked && entry.pageKeys.some((key) => imposing.has(key)))
           .map((entry) => `« ${entry.newLine.designation} »`).join(", ");
-        advice.push({ text: `« ${line.title} » : sa part sur ${stuck.map(({ label }) => label).join(", ")} n’est pas connue (métré appliqué avant `
-            + "le cumul) et ne peut sortir entière ; ni remplacer ni garder les deux ne se confirme ici.",
-          choose: [], elsewhere: named ? ["exclude_at_review"] : [],
-          exits: named ? [`Écarter ${named} à la revue du métré : garder les deux mesures de la page redevient possible.`] : [] });
+        // A part that cannot leave lies partly on a page this takeoff does not read (else replacing its pages would take
+        // it out whole): a relaunch reading them is the way out recommended.
+        const outside = stuck.some((entry) => entry.outside);
+        advice.push({ text: `La ligne DPGF « ${line.title} »${measure} tient la mesure d’un métré appliqué avant le cumul, qui mêle `
+            + `${listOf([...new Set(stuck.flatMap((entry) => entry.mixes.map((page) => page.label))), ...(outside ? ["des pages que ce métré ne relit pas"] : [])])}`
+            + ` sans la part de chacune : elle ne sort pas avec ${listOf(stuck.map(({ label }) => label))} ; ni remplacer ni garder les deux ne se confirme ici.`,
+          choose: [], elsewhere: [...(outside ? ["read_pages_again" as const] : []), ...(imposed ? ["exclude_at_review" as const] : [])],
+          exits: [...(outside ? [relaunch] : []),
+            ...(imposed ? [`Écarter ${imposed} à la revue du métré : garder les deux mesures de la page redevient possible.`] : [])] });
       }
       return { ...base, state: "dpgf" as const, after: outcome?.after ?? before, missing: advice.map(adviceMessage), advice, dpgf: outcome ?? null,
         pages: onPages.map((page) => ({ ...page, role: "dpgf" as const, part: null })) };
