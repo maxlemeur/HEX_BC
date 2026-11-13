@@ -55,6 +55,12 @@ import {
 //   timings and the stop);
 // - the hook is on without MERGEONE_TAKEOFF_DECISIONS, the vector reading,
 //   Decisions configured, or a user to act for.
+// - (TI-704 latency) the page's drawing still waits for its keyword reading
+//   (its analysis no longer runs meanwhile), or starts while the extraction
+//   child runs on a server (their memory adds up), or after it in a local job
+//   (the creator's machine holds both); a drawing started after the job's
+//   stop; one left running for a raster page, when the page has nothing to
+//   ask, its reading fails or the job's own check fails.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const OWNER = { userId: "user-fixture", tenantId: "tenant-fixture" };
@@ -316,6 +322,122 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(seen).toHaveLength(0);
     expect(noCanvas.calls).toEqual({ drawings: 1 });
     expect(outcomes.map((outcome) => outcome.record?.decisions?.stop?.reason)).toEqual(["canvas_unavailable", "canvas_unavailable", "canvas_unavailable"]);
+  });
+});
+
+describe("the page's drawing in the worker (TI-704 latency)", () => {
+  /**
+   * A drawing fake that logs when it starts and counts the sessions started, drawn to their end and cancelled before
+   * it (a cancel after the end, or a second one, changes nothing, as for a real session).
+   */
+  function loggedRender(log: string[]) {
+    const sessions = { started: 0, drawn: 0, cancelled: 0 };
+    const render: GroupDecisionsRender = (_bytes, number) => {
+      log.push(`render p${number}`);
+      sessions.started += 1;
+      let ended = false;
+      return {
+        draw: async (plan) => {
+          if (!ended) sessions.drawn += 1;
+          ended = true;
+          return { legends: plan.legends.map(() => IMAGE), groups: plan.groups.map(() => IMAGE), issue: null, dropped_images: 0,
+            render_ms: { page: 1, legends: plan.legends.map(() => 1), groups: plan.groups.map(() => 1) }, duration_ms: 1 };
+        },
+        cancel: () => {
+          if (!ended) sessions.cancelled += 1;
+          ended = true;
+        },
+      };
+    };
+    return { render, sessions };
+  }
+
+  /** Logs « reading pN » the first time the keyword reading reads the page's texts. */
+  function watched(extraction: VectorPageExtraction, log: string[]) {
+    const { texts } = extraction;
+    let seen = false;
+    Object.defineProperty(extraction, "texts", { get: () => {
+      if (!seen) log.push(`reading p${extraction.page}`);
+      seen = true;
+      return texts;
+    } });
+    return extraction;
+  }
+
+  /** The job's pages, extracted in a fake child that logs its start and its end. */
+  function loggedJob(pages: VectorPageExtraction[], log: string[]) {
+    const { source } = job([pages]);
+    const extract = async (_bytes: Uint8Array, number: number) => {
+      log.push(`extract p${number}`);
+      await new Promise((resolve) => setImmediate(resolve));
+      log.push(`extracted p${number}`);
+      return pages[number - 1];
+    };
+    return { source, extract };
+  }
+
+  it("starts a page's drawing once its extraction has ended and before its reading, and ends every drawing it starts", async () => {
+    const log: string[] = [];
+    const { render, sessions } = loggedRender(log);
+    const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const { source, extract } = loggedJob([watched(page(1, 3), log), page(2, 3, { raster: true }), watched(page(3, 0, { grey: 2 }), log)], log);
+    await readTakeoffVectorPages(source, { extract, decisions: hook(decide, { render }) });
+    // The analysis of the page runs while it is read, never beside the extraction child.
+    expect(log.filter((line) => line.endsWith("p1"))).toEqual(["extract p1", "extracted p1", "render p1", "reading p1"]);
+    expect(seen).toHaveLength(1);
+    // A raster page draws nothing; a page that has nothing to ask cancels its drawing.
+    expect(log).not.toContain("render p2");
+    expect(sessions).toEqual({ started: 2, drawn: 1, cancelled: 1 });
+  });
+
+  it("lets the drawing have the PDF before the reading holds the event loop (review of TI-704)", async () => {
+    const log: string[] = [];
+    const { render: logged } = loggedRender(log);
+    // The PDF reaches the child only while this loop runs: `ready` once it has.
+    const render: GroupDecisionsRender = (bytes, number) => ({ ...logged(bytes, number),
+      ready: new Promise<void>((resolve) => setImmediate(() => { log.push(`ready p${number}`); resolve(); })) });
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const { source, extract } = loggedJob([watched(page(1, 3), log)], log);
+    await readTakeoffVectorPages(source, { extract, decisions: hook(decide, { render }) });
+    expect(log).toEqual(["extract p1", "extracted p1", "render p1", "ready p1", "reading p1"]);
+  });
+
+  it("cancels the drawing of a page whose reading fails, and starts none after the job's stop", async () => {
+    const log: string[] = [];
+    const { render, sessions } = loggedRender(log);
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }), (call) => (call === 0 ? "failed" : "available"));
+    const broken = { ...page(1, 3), texts: null as unknown as VectorText[] };
+    const { source, extract } = loggedJob([broken, page(2, 3), page(3, 3)], log);
+    const outcomes = await readTakeoffVectorPages(source, { extract, decisions: hook(decide, { render }) });
+    expect(outcomes.map((outcome) => outcome.error === null)).toEqual([false, true, true]);
+    expect(outcomes[1].record?.decisions?.stop).toMatchObject({ reason: "call_failed" });
+    // Page 1 cancelled, page 2 drawn and stopped the job's calls, page 3 draws nothing.
+    expect(log.filter((line) => line.startsWith("render"))).toEqual(["render p1", "render p2"]);
+    expect(sessions).toEqual({ started: 2, drawn: 1, cancelled: 1 });
+  });
+
+  it("starts a local job's drawing with its extraction (the creator's machine holds both), and cancels a raster page's", async () => {
+    const log: string[] = [];
+    const { render, sessions } = loggedRender(log);
+    const call: LocalGroupsCall = async ({ prompt }) => ({ totalTokens: 10,
+      data: { groupes: [...prompt.matchAll(/"groupe":"(groupe_\d+)"/g)].map((match) => ({ groupe: match[1], classe: "EU", probabilite: 0.9 })) } });
+    const { source, extract } = loggedJob([page(1, 3), page(2, 3, { raster: true })], log);
+    const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    await readTakeoffVectorPages(source, { extract, decisions: hook(decide, { render, local: { call: async () => call } }) });
+    expect(seen).toHaveLength(0);
+    expect(log).toEqual(["render p1", "extract p1", "extracted p1", "render p2", "extract p2", "extracted p2"]);
+    expect(sessions).toEqual({ started: 2, drawn: 1, cancelled: 1 });
+  });
+
+  it("cancels a local job's drawing when the job's own check fails before the plan is read", async () => {
+    const log: string[] = [];
+    const { render, sessions } = loggedRender(log);
+    const lost = new Error("Fictional lost lease.");
+    const { source, extract } = loggedJob([page(1, 3)], log);
+    const { decide } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    await expect(readTakeoffVectorPages(source, { extract, decisions: hook(decide, { render, beforeCall: async () => { throw lost; },
+      local: { call: async () => { throw new Error("never read"); } } }) })).rejects.toBe(lost);
+    expect(sessions).toEqual({ started: 1, drawn: 0, cancelled: 1 });
   });
 });
 

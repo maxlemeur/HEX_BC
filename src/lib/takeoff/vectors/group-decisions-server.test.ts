@@ -17,7 +17,7 @@ import {
   type GroupDecisionsRender,
 } from "@/lib/takeoff/vectors/group-decisions-server";
 import type { EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
-import type { GroupEvidenceImages, GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
+import type { GroupEvidenceImages, GroupEvidenceSession, GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 
 // Ways the classification of a page's vector groups (TI-662 L3c, TI-704 v2,
@@ -56,6 +56,19 @@ import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 //   thrown while calls are still in flight;
 // - answers, their order, their provenance or the stop that depend on the
 //   order the calls end in.
+// Streamed images (TI-704 latency, the page under 15 s), with a drawing fake
+// that hands its images over when the test says:
+// - a call waits for the page's last image instead of its own (the drawing
+//   and the calls one after the other again);
+// - more than GROUP_DECISIONS_CONCURRENCY calls in flight, or the page's
+//   first call no longer alone, once images arrive while calls run;
+// - more calls than the page's cap when images split them (the cap is the
+//   page's whatever the bytes);
+// - a call after a failed one, or after a drawing that failed; the answers
+//   of the calls sent before a drawing failed lost; the drawing left running
+//   after a stop, a refused budget or a failed job check;
+// - the drawing the caller started (the worker, once the extraction ended)
+//   left running when nothing is drawn, or a second one started.
 
 const A3 = { width: 1190.55, height: 841.89 };
 const OWNER = { userId: "user-fixture", tenantId: "tenant-fixture" };
@@ -219,15 +232,65 @@ async function drive<T>(pending: Promise<T>, gated: Gated, pick: (open: GatedCal
 
 function run(extraction: VectorPageExtraction, options: {
   decide: GroupDecisionsDecide; render?: GroupDecisionsRender; maxTokens?: number; limits?: GroupDecisionsCallLimits;
-  budget?: DecisionsTokenBudget; beforeCall?: () => Promise<void>; clock?: () => number;
+  budget?: DecisionsTokenBudget; beforeCall?: () => Promise<void>; clock?: () => number; session?: GroupEvidenceSession;
 }) {
   const budget = options.budget ?? createDecisionsTokenBudget(options.maxTokens ?? 10_000_000, 1_000);
   const reading = readVectorPage(extraction, { clock: () => 0 });
   return { budget, reading, outcome: classifyVectorGroups({
     bytes: new Uint8Array([37, 80, 68, 70]), extraction, reading, owner: OWNER, context: CONTEXT, budget,
     decide: options.decide, render: options.render ?? fakeRender().render, limits: options.limits, beforeCall: options.beforeCall,
-    clock: options.clock ?? (() => 0),
+    clock: options.clock ?? (() => 0), session: options.session,
   }) };
+}
+
+/**
+ * A drawing fake that hands its images over through draw's listener when the test says (`give`), in the plan's order,
+ * the legends first; `fail` ends it with an issue, `cancel` ends it where it is. Counts the sessions started, cancelled.
+ */
+function streamedRender() {
+  const sessions = { started: 0, cancelled: 0, plans: [] as Array<Omit<EvidenceImagePlan, "page">> };
+  const drawing = { given: 0, total: 0, ended: false };
+  let give: (count: number, image?: GroupImage) => void = () => {};
+  let end: (issue: GroupEvidenceImages["issue"]) => void = () => {};
+  const session = (): GroupEvidenceSession => ({
+    draw: (plan, onImage) => {
+      sessions.plans.push(plan);
+      drawing.total = plan.legends.length + plan.groups.length;
+      const legends: Array<GroupImage | null> = plan.legends.map(() => null);
+      const groups: Array<GroupImage | null> = plan.groups.map(() => null);
+      return new Promise<GroupEvidenceImages>((resolve) => {
+        end = (issue) => {
+          if (drawing.ended) return;
+          drawing.ended = true;
+          resolve({ legends, groups, issue, dropped_images: 0, render_ms: { page: 1, legends: legends.map(() => 1), groups: groups.map(() => 1) }, duration_ms: 1 });
+        };
+        give = (count, image = IMAGE) => {
+          for (let turn = 0; turn < count && drawing.given < drawing.total && !drawing.ended; turn += 1, drawing.given += 1) {
+            const legend = drawing.given < plan.legends.length;
+            const index = legend ? drawing.given : drawing.given - plan.legends.length;
+            (legend ? legends : groups)[index] = image;
+            onImage?.({ kind: legend ? "legends" : "groups", index, image });
+          }
+          if (drawing.given === drawing.total) end(null);
+        };
+      });
+    },
+    cancel: () => {
+      sessions.cancelled += 1;
+      end(null);
+    },
+  });
+  const render: GroupDecisionsRender = () => {
+    sessions.started += 1;
+    return session();
+  };
+  return { render, session, sessions, drawing, give: (count: number, image?: GroupImage) => give(count, image),
+    fail: (issue: NonNullable<GroupEvidenceImages["issue"]>) => end(issue) };
+}
+
+/** Lets the classification move as far as it can (the loop, the fakes), several turns of the event loop. */
+async function settle(turns = 10) {
+  for (let turn = 0; turn < turns; turn += 1) await tick();
 }
 
 const aliasNumber = (alias: string) => Number(alias.slice("groupe_".length));
@@ -583,6 +646,129 @@ describe("Decisions calls of a page in bounded parallel (TI-704)", () => {
       for (const other of results.slice(1)) expect(other).toEqual(results[0]);
       expect(results[0].answers).toHaveLength(failing === null ? 200 : 100);
       expect(results[0].stop).toEqual(failing === null ? null : expect.objectContaining({ reason: "call_failed" }));
+    }
+  });
+});
+
+describe("calls as their images are drawn (TI-704 latency)", () => {
+  it("sends a call once its own 20 images are drawn, before the page's last image, within the concurrency bound", async () => {
+    // 45 candidates: 3 calls of 20, 20 and 5.
+    const gated = gatedDecide(weak);
+    const drawing = streamedRender();
+    const pending = run(page(45), { decide: gated.decide, render: drawing.render }).outcome;
+    await settle();
+    expect(gated.calls).toHaveLength(0);
+    drawing.give(20);
+    await settle();
+    // The first call left with 20 of the 45 images drawn; nothing cancelled.
+    expect(gated.calls.map((call) => call.names.length)).toEqual([20]);
+    expect([drawing.drawing.given, drawing.sessions.cancelled]).toEqual([20, 0]);
+    // The others are drawn while it runs; the second waits for the first to answer (the page's first call alone).
+    drawing.give(25);
+    await settle();
+    expect(gated.open()).toHaveLength(1);
+    const outcome = await drive(pending, gated);
+    expect(gated.calls.map((call) => call.names.length)).toEqual([20, 20, 5]);
+    expect(gated.maxInFlight()).toBeLessThanOrEqual(GROUP_DECISIONS_CONCURRENCY);
+    expect([outcome.stop, drawing.sessions.started, drawing.sessions.cancelled]).toEqual([null, 1, 0]);
+  });
+
+  it("keeps GROUP_DECISIONS_CONCURRENCY calls in flight at most while the images keep coming", async () => {
+    // 200 candidates, 10 calls: the images arrive 20 at a time while the calls run.
+    const gated = gatedDecide(weak);
+    const drawing = streamedRender();
+    const pending = run(page(200), { decide: gated.decide, render: drawing.render }).outcome;
+    let ended = false;
+    void pending.then(() => { ended = true; });
+    for (let turn = 0; !ended && turn < 200; turn += 1) {
+      await settle(2);
+      if (drawing.drawing.given < 200) drawing.give(20);
+      else gated.open()[0]?.settle();
+      if (turn % 3 === 2) gated.open()[0]?.settle();
+    }
+    const outcome = await pending;
+    // Calls run together as their images come, never more than the bound.
+    expect(gated.maxInFlight()).toBeGreaterThan(1);
+    expect(gated.maxInFlight()).toBeLessThanOrEqual(GROUP_DECISIONS_CONCURRENCY);
+    expect(outcome.calls).toHaveLength(10);
+    expect(outcome.answers.size).toBe(200);
+  });
+
+  it("never sends more calls than the page's cap when images split them, and counts the groups past it", async () => {
+    // 200 groups of 1 MB images: 10 per call under 10 MB, 20 calls without the cap. The cap stays 10 per page.
+    const mb = 1024 * 1024;
+    const big = { ...IMAGE, data: "A".repeat(mb) };
+    const { decide, seen } = fakeDecide(weak);
+    const { render } = fakeRender(async (plan) => ({ legends: plan.legends.map(() => big), groups: plan.groups.map(() => big), issue: null, dropped_images: 0,
+      render_ms: { page: 1, legends: [], groups: plan.groups.map(() => 1) }, duration_ms: 1 }));
+    const outcome = await run(page(200), { decide, render }).outcome;
+    expect(seen.map((call) => call.questions.length)).toEqual(Array.from({ length: GROUP_DECISIONS_LIMITS.maxBatchCalls }, () => 10));
+    expect(outcome.left_out).toBe(100);
+    // And within what a document has left (the worker's allowance).
+    const few = fakeDecide(weak);
+    const capped = await run(page(200), { decide: few.decide, render, limits: { maxBatchCalls: 3 } }).outcome;
+    expect([few.seen.length, capped.left_out]).toEqual([3, 170]);
+  });
+
+  it("stops drawing at the first failed call: no call after it, the session cancelled", async () => {
+    const { decide, seen } = fakeDecide(weak, (call) => (call === 0 ? "failed" : "available"));
+    const drawing = streamedRender();
+    const pending = run(page(45), { decide, render: drawing.render }).outcome;
+    await settle();
+    drawing.give(20);
+    const outcome = await pending;
+    expect(seen).toHaveLength(1);
+    expect(outcome.stop).toMatchObject({ reason: "call_failed" });
+    expect([drawing.drawing.given, drawing.sessions.cancelled]).toEqual([20, 1]);
+  });
+
+  it("keeps the answers of the calls sent before the drawing failed, sends none after it, and says why", async () => {
+    const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
+    const drawing = streamedRender();
+    const pending = run(page(45), { decide, render: drawing.render }).outcome;
+    await settle();
+    drawing.give(25);
+    await settle();
+    drawing.fail("render_failed");
+    const outcome = await pending;
+    expect(seen.map((call) => call.questions.length)).toEqual([20]);
+    expect(outcome.stop).toMatchObject({ reason: "render_failed" });
+    expect([...decisionsOfOutcome(outcome).values()].filter((answer) => answer.class === "EU")).toHaveLength(20);
+  });
+
+  it("stops drawing when the budget refuses a call or the job's check fails, and leaves with the check's error", async () => {
+    const refused = fakeDecide(weak);
+    const tight = streamedRender();
+    const pending = run(page(45), { decide: refused.decide, render: tight.render, budget: createDecisionsTokenBudget(1_500, 1_000) }).outcome;
+    await settle();
+    // Two calls' images drawn: the first sent, the second refused; the third's never drawn.
+    tight.give(40);
+    const outcome = await pending;
+    expect([refused.seen.length, outcome.stop?.reason, tight.drawing.given, tight.sessions.cancelled]).toEqual([1, "budget_reached", 40, 1]);
+    const lost = new Error("Fictional lost lease.");
+    const checked = fakeDecide(weak);
+    const drawing = streamedRender();
+    const failing = run(page(45), { decide: checked.decide, render: drawing.render, beforeCall: async () => { throw lost; } }).outcome;
+    await settle();
+    drawing.give(20);
+    await expect(failing).rejects.toBe(lost);
+    expect([checked.seen.length, drawing.drawing.given, drawing.sessions.cancelled]).toEqual([0, 20, 1]);
+  });
+
+  it("draws with the session its caller started (the worker, once the extraction ended), and ends it unless drawn to its end", async () => {
+    // Drawn: the caller's session, no other started.
+    const used = streamedRender();
+    const pending = run(page(3), { decide: fakeDecide(weak).decide, render: used.render, session: used.session() }).outcome;
+    await settle();
+    used.give(3);
+    await pending;
+    expect([used.sessions.plans.length, used.sessions.started, used.sessions.cancelled]).toEqual([1, 0, 0]);
+    // Not drawn: no candidate, the rules class them all, no call left: cancelled, never a second one started.
+    for (const [extraction, limits] of [[page(0, 4), undefined], [page(0, 0, SAME_COLOUR), undefined], [page(3), { maxBatchCalls: 0 }]] as const) {
+      const unused = streamedRender();
+      const { decide, seen } = fakeDecide(weak);
+      await run(extraction, { decide, render: unused.render, session: unused.session(), limits }).outcome;
+      expect([seen.length, unused.sessions.plans.length, unused.sessions.started, unused.sessions.cancelled]).toEqual([0, 0, 0, 1]);
     }
   });
 });

@@ -569,6 +569,23 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
       (reading.timings.total_ms / 1000).toFixed(2), (reading.timings.reading_ms / 1000).toFixed(2),
     ];
   }))), "");
+  const timed = (first?.documents ?? []).flatMap((document) => document.pages.flatMap((page) => (page.durations ? [{ document: document.id, page }] : [])));
+  if (timed.length > 0) {
+    // TI-704 latency: where a page's time goes, the drawing begun during its keyword reading.
+    const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
+    lines.push("## Durées de chaque page (passe 1)", "",
+      "Groupes : le classement des groupes (dessin, demandes), après la lecture par mots-clés pendant laquelle la page est déjà analysée "
+      + "pour ses images. Le dessin des groupes additionne leurs temps, y compris dans des processus en parallèle.", "");
+    lines.push(...table(["Document", "Page", "Extraction (s)", "Mots-clés (s)", "Groupes (s)", "Analyse de la page (s)", "Dessin des groupes (s)",
+      "Appels en cours (s)", "Reste (s)", "Total (s)"], timed.map(({ document, page }) => {
+      const durations = page.durations as NonNullable<typeof page.durations>;
+      const render = page.decisions?.render;
+      return [document, page.page, seconds(durations.extraction_ms), seconds(durations.keywords_ms), seconds(durations.groups_ms),
+        seconds(render?.page_ms ?? null), render && render.groups_ms.length ? seconds(sum(render.groups_ms)) : "–",
+        seconds(page.decisions?.calls_ms ?? null), seconds(durations.rest_ms),
+        seconds(durations.total_ms)];
+    })), "");
+  }
   lines.push(`## Durées par page, toutes passes (${passes.length})`, "");
   lines.push(...table(["Document", "Pages lues", "Échecs", "Opérateurs", "Tracés en trait", "Extraction p50 / p95 (s)", "Lecture p50 / p95 (s)",
     "Mémoire max de l’extraction (Mo)"], vectorTimings(passes).map((entry) => [entry.document, entry.samples, entry.failed, entry.operators, entry.stroke_paths,

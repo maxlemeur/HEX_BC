@@ -199,11 +199,30 @@ est une constante nommée et versionnée dans le code.
      redessinait la page pour chaque fenêtre (2,8 s par groupe). Le processus reçoit le
      PDF et analyse la page pendant que les preuves sont calculées ; il est arrêté sans
      dessin quand les règles ne laissent rien à demander. Son délai est de 60 s, plus
-     1,5 s par image demandée. Les panneaux sont ceux de l'essai, au pixel près : le
+     1,5 s par image demandée, compté depuis son plan. Les panneaux sont ceux de l'essai, au pixel près : le
      modèle y est sensible (C découpé dans un dessin de la page, décalé de moins d'un
      pixel, déplaçait l'écart des réponses de jusqu'à 0,4 sur des non-réseaux). Une image
      intégrée au-delà de 8 Mpx est sautée et comptée, ce qui est peint après reste
      (TI-715).
+   - **Latence** (TI-704, cible de 15 s par page pour les groupes) : sur un serveur, le
+     processus de dessin part dès la fin de l'extraction, jamais pendant elle (leurs
+     mémoires s'additionneraient : 1,3 Go et 1,8 Go sur la page la plus lourde du
+     développement), reçoit le PDF avant la lecture par mots-clés et analyse la page
+     pendant celle-ci. Chaque image est remise dès qu'elle est dessinée : un
+     appel part dès que les siennes le sont, jamais après la dernière de la page. Les
+     fenêtres A et C que deux groupes partagent (la même cellule de focus) sont dessinées
+     une fois et gardées, au pixel près (22 groupes de la page la plus lourde n'en ont
+     que 15, les fenêtres faisant environ 90 % du dessin d'un groupe). Le dessin, qui
+     reste l'essentiel du temps d'un groupe, n'est pas réduit : plus petit, il changerait
+     les images que le modèle a été mesuré à lire. En mode local seulement (forfait
+     ChatGPT, sur le Mac du créateur), la page est partagée entre 3 processus au plus,
+     chacun l'analysant puis dessinant sa part, les groupes d'une même fenêtre dans le
+     même (un par 8 Go de mémoire, à côté d'un serveur de développement et d'un
+     navigateur, deux cœurs laissés au métré), partis avec l'extraction (sur la page la
+     plus lourde, environ 4,9 Go en tout avec 2 processus, 6,7 Go avec 3) ; et comme tous les candidats y sont demandés, le plan des images (blocs de
+     légende, focus de chaque groupe, calculés par le même code) part avant le reste des
+     preuves, calculé pendant le dessin. Un serveur n'a qu'un processus, sa mémoire n'en
+     tenant qu'un à la fois.
    - Lecture d'une réponse : les probabilités des choix s'additionnent par classe
      (« gaine » et « symbole » donnent « autre », « cadre_texte » « texte ») ; la classe
      retenue est la plus probable, sa **confiance est l'écart p1 − p2** avec la suivante
@@ -227,8 +246,11 @@ est une constante nommée et versionnée dans le code.
      échec ou indisponible, ou une erreur avant l'envoi arrêtent les appels, sans
      nouvel essai : les groupes restants restent « à revoir », les classes des règles et
      leur propagation restent.
-   - Sans module de dessin, ou si une image ne peut pas être dessinée, aucun appel n'est
-     fait pour la page : la raison est gardée, les classes des règles restent.
+   - Sans module de dessin, ou sans les images de la légende, aucun appel n'est fait pour
+     la page. Une image de groupe qui ne peut pas être dessinée arrête la page à son
+     appel : aucun à partir de lui, les réponses des appels déjà partis restent ; la
+     raison est gardée, les classes des règles restent. Un arrêt (plafond, appel en
+     échec, contrôle du métré) arrête aussi le dessin.
    - Une réponse ne s'applique qu'à un groupe encore sans classe. Elle ne fait jamais un
      réseau d'un groupe quasi blanc, gris ou masqué.
    - Mesuré sur les 8 plans de développement (61 candidats, 36 réseaux), essai du
@@ -409,8 +431,9 @@ sont faits pour l'utilisateur du métré, sur son tenant
 - Chaque page est lue par mots-clés, ses groupes sont classés (règles, Decisions,
   propagation), puis la page est relue avec les réponses.
 - Les appels d'une page partent 8 à la fois au plus, dans leur ordre
-  (`GROUP_DECISIONS_CONCURRENCY`), après le dessin des images de la page. Le premier
-  appel de la page part seul. Le contrôle du métré et le plafond de jetons passent avant
+  (`GROUP_DECISIONS_CONCURRENCY`), chacun dès que ses images sont dessinées (TI-704) ; le
+  dessin de la page a commencé à la fin de son extraction. Le premier appel de la page
+  part seul. Le contrôle du métré et le plafond de jetons passent avant
   chaque départ : un appel ne part à côté d'autres que si le plafond tient chacun d'eux,
   chacun compté pour 1,25 fois le plus gros appel déjà vu
   (`GROUP_DECISIONS_BATCH_RESERVE_MARGIN`). Le premier arrêt dans l'ordre des appels décide :
@@ -421,8 +444,9 @@ sont faits pour l'utilisateur du métré, sur son tenant
   l'arrêt compris ; sa latence est le temps passé dans les appels, pas leur somme.
 - Plafonds par défaut, modifiables par Thanh :
   - 10 appels de 20 groupes au plus par document et par traitement, sur l'ensemble de
-    ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`). Au-delà, les groupes restent « à
-    revoir », comptés dans `left_out`, et la page le dit (arrêt « call_limit ») ;
+    ses pages (`TAKEOFF_VECTOR_DECISIONS_LIMITS`), et par page même quand des images
+    trop lourdes coupent un appel en deux. Au-delà, les groupes restent « à revoir »,
+    comptés dans `left_out`, et la page le dit (arrêt « call_limit ») ;
   - un plafond de jetons par traitement, consulté avant chaque appel
     (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`, 400 000 au départ, à recaler sur la passe
     réelle).
@@ -486,12 +510,14 @@ que le produit utilise déjà ([`group-local-model.ts`](../../src/lib/takeoff/ve
   tenant est vérifiée (ses images partent vers son forfait), puis le contrôle du métré
   (tenant actif, bail).
 - Mêmes candidats, mêmes preuves et mêmes images que Decisions (dessinées une fois par
-  page), mais **aucune règle ne décide avant le modèle** : la même couleur et la bande
+  page, par 3 processus au plus sur le Mac du créateur, voir Latence ci-dessus), mais
+  **aucune règle ne décide avant le modèle** : la même couleur et la bande
   vont dans la preuve comme indices. La bande appliquée avant le modèle faisait perdre le
   sens (32 → 21 exacts).
 - 8 groupes par demande (moins quand leurs images passent 10 Mo), les images des blocs de
   légende d'abord, puis celle de chaque groupe dans l'ordre de la liste, en pleine
-  définition ; 4 demandes à la fois au plus, le contrôle du métré avant chacune. Les
+  définition ; 4 demandes à la fois au plus, chacune dès que ses images sont dessinées,
+  le contrôle du métré avant chacune. Les
   candidats d'une page sont demandés dans la limite de 25 demandes par page (200 groupes,
   qui bornent les images d'un dessin) et de 40 par document (`TAKEOFF_VECTOR_LOCAL_LIMITS`) ;
   au-delà, les groupes restants suivent les règles. Aucun plafond par métré : le quota du
@@ -523,11 +549,18 @@ que le produit utilise déjà ([`group-local-model.ts`](../../src/lib/takeoff/ve
   100 %, aucun non-réseau classé, 7 à 9 des 61 candidats à revoir, 10 demandes et environ
   141 300 jetons du forfait. Les réponses du forfait ne sont donc pas tout à fait stables
   d'un run à l'autre : deux réseaux d'un plan ont reçu une autre réponse au second.
-- Latence : chaque demande prend environ 10 s, et les 3 à 4 demandes d'une page chargée
-  partent ensemble. La page la plus lente a pris 29,7 à 33,6 s : extraction
-  et lecture (environ 5 s), dessin de la page et de ses 22 groupes (environ 13 s), puis ses
-  3 demandes en parallèle (environ 11 s). C'est au-delà de la cible de 15 s de la lecture
-  vectorielle ; la colonne « Latence » du score par groupe additionne les demandes.
+- Latence : chaque demande prend environ 10 s (jusqu'à 16 s), et les 3 à 4 demandes d'une
+  page chargée partent ensemble, chacune dès que ses images sont dessinées. Avant le
+  dessin au fil de l'eau (TI-704), la page la plus lente prenait 29,7 à 33,6 s, dont 20,6 à
+  24,1 s pour ses groupes (dessin d'environ 13 s, puis les demandes). Mesuré le 13/11/2026 au banc, à une charge de
+  2,7 à 4 sur le Mac mini, sur les mêmes demandes octet pour octet : 13,4 à 15,0 s pour les
+  groupes des deux pages les plus lentes (22,2 à 24,1 s avant), 18,1 à 18,7 s pour la page
+  entière ; les demandes en font l'essentiel. Le score par groupe varie d'un run à l'autre
+  autant avant qu'après (27 à 32 exacts, aucun non-réseau classé) : c'est le forfait qui
+  répond autrement. La colonne « Latence » du score par groupe additionne les demandes.
+- Decisions (option A), même jour : 7,6 à 8,5 s pour les groupes de la page la plus lente
+  (8,5 à 13,8 s avant, selon la latence de l'appel), 12,0 à 12,9 s pour la page entière ;
+  29 réseaux sur 36 au parent, aucun non-réseau classé, les mêmes jetons.
 - Au banc : `--group-model local` (avec `TAKEOFF_BENCH_CHATGPT_OWNER`, lancé depuis le
   dossier du magasin ChatGPT local et `TSX_TSCONFIG_PATH`), sans `--max-decisions-tokens`,
   avec la même limite de demandes par document que le worker.

@@ -63,7 +63,7 @@ import {
 } from "@/lib/takeoff/vectors/group-decisions-server";
 import { GROUP_EVIDENCE } from "@/lib/takeoff/vectors/group-evidence";
 import { GROUP_EVIDENCE_IMAGES } from "@/lib/takeoff/vectors/group-evidence-images";
-import { GROUP_EVIDENCE_RENDER } from "@/lib/takeoff/vectors/group-evidence-render-server";
+import { GROUP_EVIDENCE_RENDER, groupEvidenceRenderPlan, startGroupEvidenceRenders } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import { GROUP_LOCAL_MODEL, GROUP_LOCAL_MODEL_LIMITS, GROUP_LOCAL_MODEL_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-local-model";
 import { classifyVectorGroupsLocal, GROUP_LOCAL_MODEL_CONCURRENCY, localGroupsCall, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
@@ -305,6 +305,9 @@ function vectorRules() {
       candidate_filter: { reasons: CANDIDATE_FILTER_REASONS, legend_sample_strip: LEGEND_SAMPLE_STRIP, air_legend_min_codes: AIR_LEGEND_MIN_CODES },
       // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
       concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_margin: GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
+      // How a page is drawn, as the worker (TI-704 latency): one process after the extraction for Decisions (a server's),
+      // the machine's share with the extraction for the local plan.
+      render_plan: { server: groupEvidenceRenderPlan("server"), local: groupEvidenceRenderPlan("local") },
       retries: 0,
     },
   };
@@ -389,20 +392,29 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     ? await localGroupsCall(owner).catch((error: unknown) => (error instanceof LocalGroupsStop ? error
       : new LocalGroupsStop("local_access", error instanceof Error ? error.message.slice(0, 200) : "Forfait ChatGPT illisible.")))
     : null;
+  // The page's drawing as in the worker (TI-704 latency): one process after the extraction for Decisions (a server's), the
+  // machine's share with the extraction for the local plan.
+  const drawing = (mode: "server" | "local") => {
+    const plan = groupEvidenceRenderPlan(mode);
+    return { drawWithExtraction: plan.withExtraction,
+      startDrawing: (document: { bytes: Uint8Array }, page: number) => startGroupEvidenceRenders(document.bytes, page, { sessions: plan.sessions }) };
+  };
   const hook: VectorDecisionsHook | undefined = owner && localCall ? {
     promptVersion: GROUP_LOCAL_MODEL_PROMPT_VERSION,
-    classify: async (document, _page, extraction, reading, pass) => {
+    ...drawing("local"),
+    classify: async (document, _page, extraction, reading, pass, session) => {
       // Each document's allowance, per pass.
       const key = `${pass}:${document.id}`;
       const left = localLeft.get(key) ?? GROUP_LOCAL_MODEL_LIMITS.requestsPerDocument;
-      const outcome = await classifyVectorGroupsLocal({ bytes: document.bytes, extraction, reading, call: localCall, limits: { maxRequests: left }, log });
+      const outcome = await classifyVectorGroupsLocal({ bytes: document.bytes, extraction, reading, call: localCall, limits: { maxRequests: left }, log, session });
       localLeft.set(key, left - outcome.calls.length);
       return outcome;
     },
   } : owner && budget ? {
     promptVersion: GROUP_DECISIONS_PROMPT_VERSION,
-    classify: (document, _page, extraction, reading) => classifyVectorGroups({
-      bytes: document.bytes, extraction, reading, owner, budget, log,
+    ...drawing("server"),
+    classify: (document, _page, extraction, reading, _pass, session) => classifyVectorGroups({
+      bytes: document.bytes, extraction, reading, owner, budget, log, session,
       context: { tenantId: owner.tenantId, projectId: `bench:${document.id}`,
         preparationFingerprint: createHash("sha256").update(`${document.sha256}:${GROUP_DECISIONS_PROMPT_VERSION}`).digest("hex") },
     }),
