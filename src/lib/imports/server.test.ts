@@ -569,14 +569,14 @@ describe("createImportFromMultipartFormData", () => {
     expect(state.storageUploads).toHaveLength(0);
   });
 
-  it("imports a NIRVANA-style DPGF PDF into canonical raw rows", async () => {
+  it("imports a lot DPGF PDF with a summary page into canonical raw rows", async () => {
     const { supabase, state } = createImportCreationSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
     extractionMocks.extractTabularPdfTablesFromFile.mockResolvedValue([
       {
         source_page: 1,
         table_index: 0,
-        title: "NIRVANA - Lot CVC - DPGF",
+        title: "FICTIF - Lot CVC - DPGF",
         headers: ["N°", "Designation des ouvrages", "Unité", "Qte", "P.U. HT", "Total HT"],
         rows: [
           {
@@ -606,18 +606,18 @@ describe("createImportFromMultipartFormData", () => {
       {
         source_page: 2,
         table_index: 0,
-        title: "NIRVANA - Synthese hors DPGF",
+        title: "FICTIF - Synthese hors DPGF",
         headers: [""],
         rows: [{ row_index: 0, cells: [""] }],
       },
     ]);
 
-    const file = new File(["%PDF-1.7 NIRVANA"], "NIRVANA - DPGF lot CVC.pdf", {
+    const file = new File(["%PDF-1.7 FICTIF"], "FICTIF - DPGF lot CVC.pdf", {
       type: "application/pdf",
     });
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("sourceDocumentId", "nirvana-doc-2026-07");
+    formData.append("sourceDocumentId", "fictif-doc-2026-07");
 
     const result = await createImportFromMultipartFormData(formData);
 
@@ -632,7 +632,7 @@ describe("createImportFromMultipartFormData", () => {
       },
     });
     expect(state.importInsertPayloads[0]).toMatchObject({
-      filename: "NIRVANA-DPGF-lot-CVC.pdf",
+      filename: "FICTIF-DPGF-lot-CVC.pdf",
       source_format: "pdf",
       parse_mode: "server",
       status: "parsing",
@@ -653,8 +653,8 @@ describe("createImportFromMultipartFormData", () => {
           _timax_provenance: {
             source_page: 1,
             table_index: 0,
-            source_file_name: "NIRVANA - DPGF lot CVC.pdf",
-            source_document_id: "nirvana-doc-2026-07",
+            source_file_name: "FICTIF - DPGF lot CVC.pdf",
+            source_document_id: "fictif-doc-2026-07",
           },
         },
       },
@@ -671,8 +671,8 @@ describe("createImportFromMultipartFormData", () => {
           _timax_provenance: {
             source_page: 1,
             table_index: 0,
-            source_file_name: "NIRVANA - DPGF lot CVC.pdf",
-            source_document_id: "nirvana-doc-2026-07",
+            source_file_name: "FICTIF - DPGF lot CVC.pdf",
+            source_document_id: "fictif-doc-2026-07",
           },
         },
       },
@@ -681,7 +681,7 @@ describe("createImportFromMultipartFormData", () => {
       id: "import-created",
       status: "completed",
       row_count: 2,
-      filename: "NIRVANA-DPGF-lot-CVC.pdf",
+      filename: "FICTIF-DPGF-lot-CVC.pdf",
       source_format: "pdf",
     });
   });

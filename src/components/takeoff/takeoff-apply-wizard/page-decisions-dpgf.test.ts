@@ -105,16 +105,34 @@ describe("a DPGF part whose share per page is unknown (a policy applied before D
     dpgf_targets: [target({ quantity: 16, reference: 5, earlier: [{ ...part(101, 16, 1), item_ids: [id(101), id(102)] }] })],
   });
 
-  it("is never cut by replacing one of its pages: the line asks to keep both, and replacing is not recommended", () => {
+  // TI-716: the line names itself (designation, quantity, unit) and the pages its part mixes, and says the way out
+  // recommended (a relaunch reading its other pages too, then those pages replaced together) before the other (keep both,
+  // the page then counting twice); never « reset the line ». Written before the change (red on 30b94880): it said only
+  // « remplacer la page la retirerait entière. Gardez les deux mesures de la page. ».
+  it("is never cut by replacing one of its pages: the line names itself and its ways out, and replacing is not recommended", () => {
     const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
     expect([resolution.complete, resolution.pages[0].recommended]).toEqual([false, false]);
-    expect(resolution.lines[0].missing).toEqual(["« EF cuivre DN 22 » : sa part sur plan.pdf, page 1 n’est pas connue (métré appliqué avant le "
-      + "cumul) ; remplacer la page la retirerait entière. Gardez les deux mesures de la page."]);
+    expect(resolution.lines[0].missing).toEqual(["La ligne DPGF « EF cuivre DN 22 » (16 ml) tient la mesure d’un métré appliqué avant le "
+      + "cumul, qui mêle plan.pdf, page 1 et des pages que ce métré ne relit pas sans la part de chacune : elle ne sort pas avec plan.pdf, "
+      + "page 1 seule. Recommandé : relancez le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure "
+      + "précédente sort alors entière. Sinon, gardez les deux mesures de plan.pdf, page 1 : la ligne garde la mesure précédente et la "
+      + "nouvelle mesure de la page entre ailleurs, la page comptera deux fois au devis, à corriger à la main."]);
     expect(resolution.lines[0].advice[0].choose).toEqual([{ control: "page:page-1", value: "keep_both" }]);
+    expect(resolution.lines[0].advice[0].elsewhere).toEqual(["read_pages_again"]);
+    expect(resolution.lines[0].missing.join(" ")).not.toMatch(/réinitialis|remettre à zéro/i);
     expect(resolution.introduction.text).toBe("Une page n’entre qu’une fois : gardez les deux avec un motif.");
     const control = confirmationControls(resolution).find((entry) => entry.id === "page:page-1")!;
     const kept = resolveConfirmation(data, setConfirmationControl(initialConfirmationDraft(data), control, "keep_both"));
     expect([kept.lines[0].missing, kept.dpgf[0].after]).toEqual([[], 16]);
+  });
+
+  it("warns that a page this takeoff feeds the line from again counts twice on it when both are kept", () => {
+    const fedAgain = { ...data, pages: data.pages.map((entry) => ({ ...entry, new_line_ids: [id(201)], dpgf_fed_again: [id(300)] })),
+      new_lines: [{ id: id(201), designation: "EF cuivre DN 22", unit: "ml", quantity: 8, unit_key: "ml", candidates: [{ key: "page-1", line_ids: [] }] }],
+      dpgf_targets: data.dpgf_targets.map((entry) => ({ ...entry, fed: [fed(201, 8, 1)] })) };
+    const resolution = resolveConfirmation(fedAgain, initialConfirmationDraft(fedAgain));
+    expect(resolution.lines[0].missing[0]).toContain("Sinon, gardez les deux mesures de plan.pdf, page 1 : la page comptera deux fois "
+      + "sur cette ligne, à corriger à la main.");
   });
 });
 
@@ -142,9 +160,13 @@ describe("a DPGF part whose share per page is unknown, every page of it read aga
     const initial = initialConfirmationDraft(data);
     const control = confirmationControls(resolveConfirmation(data, initial)).find((entry) => entry.id === "page:page-2")!;
     const mixed = resolveConfirmation(data, setConfirmationControl(initial, control, "keep_both"));
-    expect(mixed.lines[0].missing).toEqual(["« EF cuivre DN 22 » : sa part sur plan.pdf, page 1 n’est pas connue (métré appliqué avant le "
-      + "cumul) ; remplacer la page la retirerait entière. Remplacez aussi plan.pdf, page 2, ou gardez les deux mesures de la page."]);
+    expect(mixed.lines[0].missing).toEqual(["La ligne DPGF « EF cuivre DN 22 » (16 ml) tient la mesure d’un métré appliqué avant le "
+      + "cumul, qui mêle plan.pdf, page 1 et plan.pdf, page 2 sans la part de chacune : elle ne sort pas avec plan.pdf, page 1 seule. "
+      + "Recommandé : remplacez aussi plan.pdf, page 2 : remplacées ensemble, ces pages font sortir la mesure précédente entière. Sinon, "
+      + "gardez les deux mesures de plan.pdf, page 1 : la ligne garde la mesure précédente et la nouvelle mesure de la page entre "
+      + "ailleurs, la page comptera deux fois au devis, à corriger à la main."]);
     expect(mixed.lines[0].advice[0].choose).toEqual([{ control: "page:page-2", value: "replace" }, { control: "page:page-1", value: "keep_both" }]);
+    expect(mixed.lines[0].advice[0].elsewhere).toEqual([]);
     expect(mixed.complete).toBe(false);
   });
 });

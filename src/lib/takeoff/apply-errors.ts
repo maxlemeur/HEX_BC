@@ -113,6 +113,111 @@ function pageName(page: { source_file_name?: string | null; source_page?: number
   return page.source_file_name ? `${name} de « ${page.source_file_name} »` : name;
 }
 
+const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
+const listOf = (items: readonly string[]) =>
+  items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
+
+type RefusedPage = { source_file_name: string | null; source_page: number | null; decision: "replace" | "keep_both" | null };
+
+/** « la page 1 de « plan.pdf » », « les pages 1 et 2 de « plan.pdf » et la page 4 de « b.pdf » », by file. */
+function pagesOf(pages: readonly RefusedPage[]) {
+  const byFile = new Map<string | null, Array<number | null>>();
+  for (const page of pages) byFile.set(page.source_file_name, [...(byFile.get(page.source_file_name) ?? []), page.source_page]);
+  return listOf([...byFile.entries()].map(([file, numbers]) => {
+    const known = numbers.filter((value): value is number => value !== null).sort((left, right) => left - right);
+    const unknown = numbers.length - known.length;
+    const named = [...(known.length > 0 ? [`${known.length > 1 ? "les pages" : "la page"} ${listOf(known.map(String))}`] : []),
+      ...(unknown > 0 ? [unknown > 1 ? `${unknown} pages sans numéro` : "une page sans numéro"] : [])];
+    return `${listOf(named)} ${file ? `de « ${file} »` : "d’un plan sans nom"}`;
+  }));
+}
+
+const dpgfPartUnknownSchema = z.object({
+  designation: z.string(),
+  unit: z.string().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  fed: z.boolean().optional(),
+  earlier_job_id: z.string().optional(),
+  pages: z.array(z.object({ source_file_name: z.string().nullable(), source_page: z.number().int().nullable(),
+    decision: z.enum(["replace", "keep_both"]).nullable(), fed_again: z.boolean().optional() })).min(1),
+});
+
+type DpgfPartUnknown = z.infer<typeof dpgfPartUnknownSchema>;
+
+/** What the database named of a part that cannot be cut (TI-716); null when it named nothing readable. */
+function parseDpgfPartUnknown(detail: string | null | undefined): DpgfPartUnknown | null {
+  if (!detail) return null;
+  try {
+    const parsed = dpgfPartUnknownSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const DPGF_PART_UNKNOWN_DEFAULT = "Une ligne DPGF tient la mesure d’un métré appliqué avant le cumul, qui mêle plusieurs pages sans la "
+  + "part de chacune : elle ne sort pas avec une seule d’entre elles. Rien n’est appliqué. Recommandé : relancez le métré en lisant "
+  + "aussi ses autres pages, puis remplacez ces pages ensemble : la mesure précédente sort alors entière. Sinon, gardez les deux "
+  + "mesures de la page : la page comptera deux fois au devis, à corriger à la main.";
+
+/**
+ * TI-716: a page whose DPGF part cannot be cut (dpgf_part_unknown, a policy applied before D4) is refused, never all of the
+ * part removed. The refusal names the line as the database read it before the application, the pages the part mixes,
+ * the way out recommended (the pages it does not replace, read again by a relaunch or replaced here, replaced together:
+ * the part leaves whole) and the other (both kept on the page replaced, which then counts twice). Never « reset the line »:
+ * it would remove the measures of the other pages unseen. Without the line named (an older database), the same ways out.
+ */
+function dpgfPartUnknownMessage(parsed: DpgfPartUnknown | null) {
+  if (!parsed) return DPGF_PART_UNKNOWN_DEFAULT;
+  const replaced = parsed.pages.filter((page) => page.decision === "replace");
+  const keptBoth = parsed.pages.filter((page) => page.decision === "keep_both");
+  const notRead = parsed.pages.filter((page) => page.decision === null);
+  const quantity = typeof parsed.quantity === "number"
+    ? ` (${quantityFormat.format(parsed.quantity)}${parsed.unit?.trim() ? ` ${parsed.unit.trim()}` : ""})` : "";
+  const several = replaced.length > 1;
+  const alone = replaced.length > 0 ? `${pagesOf(replaced)} seule${several ? "s" : ""}` : "une seule de ses pages";
+  const ways = [...(notRead.length > 0 ? [`relancez le métré en lisant aussi ${pagesOf(notRead)}`] : []),
+    ...(keptBoth.length > 0 ? [`remplacez aussi ${pagesOf(keptBoth)}`] : [])];
+  const recommended = ways.length > 0
+    ? `Recommandé : ${ways.join(", ")}, puis remplacez ces pages ensemble : la mesure précédente sort alors entière.` : "";
+  // Whether this takeoff feeds the line again from the pages replaced (per page; the line's own flag from an older detail).
+  const refed = replaced.length > 0 && replaced.every((page) => page.fed_again ?? parsed.fed !== false);
+  const counted = several ? "ces pages compteront" : "la page comptera";
+  const twice = refed ? `${counted} deux fois sur cette ligne`
+    : `la ligne garde la mesure précédente et ${several ? "leur" : "sa"} nouvelle mesure entre ailleurs, ${counted} deux fois au devis`;
+  return [`La ligne DPGF « ${parsed.designation} »${quantity} tient la mesure d’un métré appliqué avant le cumul, qui mêle `
+    + `${pagesOf(parsed.pages)} sans la part de chacune : elle ne sort pas avec ${alone}. Rien n’est appliqué.`, recommended,
+  `Sinon, gardez les deux mesures ${ofPages(replaced.length > 0 ? pagesOf(replaced) : "la page")} : ${twice}, à corriger à la main.`]
+    .filter(Boolean).join(" ");
+}
+
+/** « de la page 1 », « des pages 1 et 2 », « d’une page sans numéro ». */
+const ofPages = (pages: string) => (pages.startsWith("les ") ? `des ${pages.slice(4)}` : pages.startsWith("une ") ? `d’${pages}` : `de ${pages}`);
+
+const dpgfMergedSchema = z.object({
+  reason: z.literal("merged_outside_reconciliation"),
+  estimate_item_id: z.string().optional(),
+  dpgf_title: z.string(),
+  takeoff_item_id: z.string().optional(),
+  designation: z.string().nullable(),
+  quantity: z.number().nullable().optional(),
+  unit: z.string().nullable().optional(),
+  fed: z.boolean().optional(),
+  /** The reconciliation links the line to another DPGF target, where it is counted. */
+  linked: z.boolean().optional(),
+});
+
+/** TI-716: what the database named when « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation. */
+function parseDpgfMerged(detail: string | null | undefined) {
+  if (!detail) return null;
+  try {
+    const parsed = dpgfMergedSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Why the database refused a page decision (TAKEOFF_PAGE_DECISION_INVALID). */
 const PAGE_DECISION_MESSAGES: Record<string, string> = {
   remove_other_pages: "Une ligne à retirer porte aussi d’autres pages du plan : la retirer les retirerait. Gardez-la, ou corrigez-la dans le devis.",
@@ -198,6 +303,13 @@ export function mapApplyTakeoffRpcError(
         message: "Ce métré est déjà appliqué : ses choix sur les pages déjà au devis ne changent plus.",
         details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
     }
+    if (page?.reason === "dpgf_part_unknown") {
+      // TI-716: the DPGF line, the pages its part mixes and the ways out, as the database named them.
+      const named = parseDpgfPartUnknown(error.details);
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+        message: dpgfPartUnknownMessage(named), details: { ...guardDetails, ...(named ?? {}), guard: "page_decision" },
+        retryable: false, jobId: input.jobId });
+    }
     return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
       message: PAGE_DECISION_MESSAGES[page?.reason ?? ""] ?? PAGE_DECISION_MESSAGES.shape,
       details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
@@ -206,6 +318,22 @@ export function mapApplyTakeoffRpcError(
   if (normalized.includes("takeoff_dpgf_quantity_")) {
     const stale = normalized.includes("snapshot_stale");
     const merge = normalized.includes("merge_required");
+    // TI-716: « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation; its sum would erase it.
+    const merged = normalized.includes("mapping_conflict") ? parseDpgfMerged(error.details) : null;
+    if (merged) {
+      const measure = typeof merged.quantity === "number"
+        ? ` (${quantityFormat.format(merged.quantity)}${merged.unit?.trim() ? ` ${merged.unit.trim()}` : ""})` : "";
+      const line = `« ${merged.designation?.trim() || "une ligne"} »${measure}`;
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+        message: merged.linked
+          ? `La fusion par désignation enverrait ${line} de ce métré, que le rapprochement relie à une autre ligne DPGF, aussi sur la `
+            + `ligne DPGF « ${merged.dpgf_title} » : la somme de cette ligne effacerait la mesure. Rien n’est appliqué. Vérifiez les `
+            + "rattachements DPGF de cette ligne dans le rapprochement, puis appliquez à nouveau."
+          : `La fusion par désignation enverrait ${line} de ce métré sur la ligne DPGF « ${merged.dpgf_title} », à laquelle le `
+            + "rapprochement ne la relie pas : la ligne DPGF tient la somme de ce qui l’alimente et effacerait cette mesure. Rien n’est "
+            + "appliqué. Reliez cette ligne à la ligne DPGF dans le rapprochement, ou excluez-la à la revue du métré, puis appliquez à nouveau.",
+        details: { ...details, ...merged, guard: "dpgf_quantities" }, retryable: false, jobId: input.jobId });
+    }
     return new TakeoffError({ status: stale ? 409 : 422,
       code: stale ? TakeoffErrorCode.CONFLICT : TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
       message: stale ? "Les quantités, les rattachements ou la revue ont changé. Rechargez la comparaison avant d’appliquer."
