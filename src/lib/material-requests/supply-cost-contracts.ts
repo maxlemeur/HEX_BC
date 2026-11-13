@@ -35,11 +35,12 @@ export type AffaireSupplyCost = {
   budget_version: AffaireSupplyCostBudgetVersion | null;
   rows: AffaireSupplyCostRow[];
   totals: { budget_cents: number | null; ordered_cents: number; pending_cents: number };
-  /** Drafts made from an estimate of the affaire before delivery 3a: they carry no affaire and are not counted. */
+  /** Orders made from an estimate of the affaire, canceled ones excepted: they carry no affaire and are not counted. */
   not_counted: { estimate_orders: number };
 };
 
-const cents = z.number().int();
+/** Integer cents, refused beyond the safe integers rather than rounded silently. */
+const cents = z.number().int().refine(Number.isSafeInteger, "montant hors des entiers sûrs");
 
 export const affaireSupplyCostSchema: z.ZodType<AffaireSupplyCost> = z.object({
   budget_version: z.object({

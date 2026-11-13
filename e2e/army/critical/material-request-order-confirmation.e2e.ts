@@ -269,7 +269,7 @@ armyTest(
       .toEqual([["unclassified", null, 0, 11928]]);
     await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel`, { waitUntil: "domcontentloaded" });
     const section = screen.getByRole("region", "Coût des fournitures", { exact: true });
-    await expect(section.getByText("Budget en attente du devis accepté : seul le commandé est affiché.", { exact: true }))
+    await expect(section.getByText("Budget en attente du devis accepté : le commandé et l’en-cours sont affichés sans budget.", { exact: true }))
       .toBeVisible({ timeout: 60_000 });
     const table = section.getByRole("table", "Budget et commandé par type de fourniture", { exact: true });
     await expect(table.getByRole("row", /^Non classé\s+—\s+0,00\s€\s+119,28\s€\s+—$/)).toBeVisible();

@@ -12,10 +12,12 @@
 --   orders nothing; the frais généraux of an order (imputation overhead) are outside the affaire; shipping and discounts
 --   are a row of their own (a discount carries a negative total); an article line without supply type (no article, or
 --   an article without one) goes to « non classé »;
--- - the drafts an estimate made before this delivery carry no affaire: they are not counted, and the answer gives their
---   number (not_counted.estimate_orders).
+-- - the orders made from an estimate of the affaire (create_estimate_purchase_order_drafts, still offered on the
+--   affaire's estimate) carry no affaire: they are not counted, and the answer gives their number, whatever their status
+--   but canceled (not_counted.estimate_orders).
 -- SECURITY DEFINER: an order is otherwise visible to its author and the admins only; the function reads for the readers
--- of the affaire (public.can_read_affaire_intake_project: its owner, an admin, a director of the active tenant).
+-- of the affaire (public.can_read_affaire_intake_project: its owner, an admin, a director of the active tenant). An
+-- archived affaire is not found, as the API does not find it.
 -- Regression: supabase/tests/database/affaire-supply-cost.test.sql.
 
 create function public.affaire_supply_cost(p_project_id uuid)
@@ -38,7 +40,7 @@ begin
     raise exception using errcode = '42501', message = 'AFFAIRE_SUPPLY_COST_ACCESS_DENIED';
   end if;
   if not exists (select 1 from public.estimate_projects project
-    where project.id = p_project_id and project.tenant_id = tenant_value) then
+    where project.id = p_project_id and project.tenant_id = tenant_value and not coalesce(project.is_archived, false)) then
     raise exception using errcode = 'P0002', message = 'AFFAIRE_SUPPLY_COST_NOT_FOUND';
   end if;
   if not public.can_read_affaire_intake_project(p_project_id, tenant_value) then
@@ -89,15 +91,26 @@ begin
       union
       select kind, supply_type_id from order_lines
     ),
+    budget_sums as (
+      select line.kind, line.supply_type_id, pg_catalog.sum(line.cents) as cents
+      from budget_lines line group by line.kind, line.supply_type_id
+    ),
+    order_sums as (
+      select line.kind, line.supply_type_id,
+        pg_catalog.sum(line.cents) filter (where line.ordered) as ordered,
+        pg_catalog.sum(line.cents) filter (where not line.ordered) as pending
+      from order_lines line group by line.kind, line.supply_type_id
+    ),
     sums as (
       select key.kind, key.supply_type_id, supply.code, supply.name,
-        case when budget_id is null then null else coalesce((select pg_catalog.sum(line.cents) from budget_lines line
-          where line.kind = key.kind and line.supply_type_id is not distinct from key.supply_type_id), 0) end as budget_cents,
-        coalesce((select pg_catalog.sum(line.cents) from order_lines line where line.ordered
-          and line.kind = key.kind and line.supply_type_id is not distinct from key.supply_type_id), 0) as ordered_cents,
-        coalesce((select pg_catalog.sum(line.cents) from order_lines line where not line.ordered
-          and line.kind = key.kind and line.supply_type_id is not distinct from key.supply_type_id), 0) as pending_cents
+        case when budget_id is null then null else coalesce(budget.cents, 0) end as budget_cents,
+        coalesce(ordered.ordered, 0) as ordered_cents,
+        coalesce(ordered.pending, 0) as pending_cents
       from keys key
+      left join budget_sums budget on budget.kind = key.kind
+        and budget.supply_type_id is not distinct from key.supply_type_id
+      left join order_sums ordered on ordered.kind = key.kind
+        and ordered.supply_type_id is not distinct from key.supply_type_id
       left join public.supply_types supply on supply.id = key.supply_type_id and supply.tenant_id = tenant_value
     )
     select pg_catalog.jsonb_build_object(
@@ -128,7 +141,7 @@ end;
 $$;
 
 comment on function public.affaire_supply_cost(uuid) is
-  'TI-691 delivery 4: the supply cost of an affaire. budget_version: the accepted version whose lines make the budget (the highest number, with accepted_count), or null when none is accepted (no budget). rows: per supply type (kind supply_type, code, name), « non classé » (unclassified) and shipping and discounts (shipping_discount): budget_cents (null without accepted version; a priced line counts Q × P × FO provision × K FO on engine 3, Q × P × K FO before, rounded per line), ordered_cents (confirmed and received orders of the affaire, at their real price) and pending_cents (drafts and sent orders), frais généraux and canceled orders left out. totals: the same sums. not_counted.estimate_orders: drafts made from an estimate of the affaire, which carry no affaire. For the readers of the affaire: AFFAIRE_SUPPLY_COST_NOT_FOUND, _ACCESS_DENIED. Security definer: an order is otherwise visible to its author and the admins only.';
+  'TI-691 delivery 4: the supply cost of an affaire. budget_version: the accepted version whose lines make the budget (the highest number, with accepted_count), or null when none is accepted (no budget). rows: per supply type (kind supply_type, code, name), « non classé » (unclassified) and shipping and discounts (shipping_discount): budget_cents (null without accepted version; a priced line counts Q × P × FO provision × K FO on engine 3, Q × P × K FO before, rounded per line), ordered_cents (confirmed and received orders of the affaire, at their real price) and pending_cents (drafts and sent orders), frais généraux and canceled orders left out. totals: the same sums. not_counted.estimate_orders: orders made from an estimate of the affaire, canceled ones excepted, which carry no affaire and are not counted. For the readers of the affaire: AFFAIRE_SUPPLY_COST_NOT_FOUND (also archived), _ACCESS_DENIED. Security definer: an order is otherwise visible to its author and the admins only.';
 
 revoke all on function public.affaire_supply_cost(uuid) from public, anon;
 grant execute on function public.affaire_supply_cost(uuid) to authenticated;

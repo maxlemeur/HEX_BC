@@ -19,12 +19,17 @@ function rowLabel(row: AffaireSupplyCostRow): string {
 
 function budgetSource(cost: SupplyCost): string {
   const version = cost.budget_version;
-  if (!version) return "Budget en attente du devis accepté : seul le commandé est affiché.";
+  if (!version) return "Budget en attente du devis accepté : le commandé et l’en-cours sont affichés sans budget.";
   const variant = version.variant_label ? `, variante ${version.variant_label}` : "";
   const several = version.accepted_count > 1
-    ? ` ${version.accepted_count} versions sont acceptées : la plus récente fait le budget.`
+    ? ` ${version.accepted_count} versions sont acceptées : la plus haute fait le budget.`
     : "";
   return `Budget de la version ${version.version_number}${variant}, acceptée par le client.${several}`;
+}
+
+/** No estimate budgets shipping and discounts: their row has neither a budget nor what is left of one. */
+function rowBudget(row: AffaireSupplyCostRow): number | null {
+  return row.kind === "shipping_discount" ? null : row.budget_cents;
 }
 
 /** What is left of the budget once the ordered and the pending are taken out; null without budget. */
@@ -47,8 +52,8 @@ const cell = "px-3 py-2 text-right tabular-nums";
 
 /**
  * The supply cost of an affaire (TI-691, delivery 4): per supply type, the budget of the version the client accepted
- * face to what its orders cost (« commandé »: confirmed or received, at their real price; « en cours »: drafts, at
- * their retained quote's price). Without accepted version, there is no budget.
+ * face to what its orders cost (« commandé »: confirmed or received, at their real price; « en cours »: drafts and sent
+ * orders, at their retained quote's price). Without accepted version, there is no budget.
  */
 export function AffaireSupplyCost({ projectId }: Readonly<{ projectId: string }>) {
   const headingId = useId();
@@ -118,11 +123,11 @@ export function AffaireSupplyCost({ projectId }: Readonly<{ projectId: string }>
                 {cost.rows.map((row) => (
                   <tr key={`${row.kind}:${row.supply_type_id ?? ""}`}>
                     <th scope="row" className="px-3 py-2 font-medium text-foreground">{rowLabel(row)}</th>
-                    <td className={cell}><Amount cents={row.budget_cents} /></td>
+                    <td className={cell}><Amount cents={rowBudget(row)} /></td>
                     <td className={cell}><Amount cents={row.ordered_cents} /></td>
                     <td className={cell}><Amount cents={row.pending_cents} /></td>
                     <td className={cell}>
-                      <Remaining cents={remaining(row.budget_cents, row.ordered_cents, row.pending_cents)} />
+                      <Remaining cents={remaining(rowBudget(row), row.ordered_cents, row.pending_cents)} />
                     </td>
                   </tr>
                 ))}
@@ -144,8 +149,8 @@ export function AffaireSupplyCost({ projectId }: Readonly<{ projectId: string }>
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Commandé : bons confirmés ou reçus, au prix réel. En cours : brouillons, au prix du devis retenu. Les frais
-          généraux restent hors du budget de l’affaire.
+          Commandé : bons confirmés ou reçus, au prix réel. En cours : brouillons et bons envoyés, au prix du devis
+          retenu. Le port et les remises ne sont pas budgétés ; les frais généraux restent hors du budget de l’affaire.
           {estimateOrders > 0
             ? ` ${plural(estimateOrders, "bon créé depuis le devis n’est pas compté", "bons créés depuis le devis ne sont pas comptés")} : ils ne sont rattachés à aucune affaire.`
             : ""}

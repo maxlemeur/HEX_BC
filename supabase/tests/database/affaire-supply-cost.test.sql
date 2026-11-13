@@ -3,7 +3,8 @@
 -- public.affaire_supply_cost. Failure modes this file guards, with fictional members, suppliers, articles and lines:
 --  1. the function reaches anon or PUBLIC, or runs without a pinned search_path;
 --  2. it answers a member who may not read the affaire (a viewer, an engineer who does not own it), or a member of
---     another tenant; it answers an unknown affaire instead of refusing it;
+--     another tenant; it refuses a director, who reads every affaire; it answers an unknown or archived affaire
+--     instead of refusing it (the API finds neither);
 --  3. without an accepted version, a budget is shown (from the last version, a sent one or a variant): the rule of
 --     13/11/2026 is « no accepted version, no budget », the ordered cost alone;
 --  4. the budget is not the accepted variant's: the base version or a sum of variants is taken; with two accepted
@@ -15,9 +16,9 @@
 --  7. the ordered cost is not the real one: a draft or a sent order counts as ordered (it is « en cours », at its quote's
 --     price), a canceled order counts, a received order does not, the frais généraux of the order count, shipping and
 --     discounts are mixed with a supply type, a discount adds instead of subtracting, an order line without article
---     is lost, an order without affaire or of another affaire counts;
---  8. the drafts an estimate made before this delivery (no affaire on the order) are counted silently instead of being
---     named as not counted.
+--     is lost, an order without affaire counts;
+--  8. the orders made from an estimate of the affaire (that path sets no affaire on the order) are counted silently
+--     instead of being named as not counted.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
 -- red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -26,10 +27,10 @@ set local search_path = extensions, public, pg_catalog;
 select no_plan();
 
 -- Tenant 101: 1 engineer who owns affaire 201 and makes the orders, 2 admin, 3 viewer, 5 engineer who does not own the
--- affaire. Member 4 is the admin of tenant 102 only.
+-- affaire, 6 director. Member 4 is the admin of tenant 102 only.
 insert into auth.users (id, email, raw_user_meta_data)
 select ('a9340000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, 'supply-cost-' || n || '@example.test', '{}'::jsonb
-from generate_series(1, 5) n;
+from generate_series(1, 6) n;
 update public.tenant_memberships set is_default = false where user_id::text like 'a9340000-%';
 insert into public.tenants (id, name, slug) values
   ('a9340000-0000-4000-8000-000000000101', 'Coût fournitures fixture', 'cout-fournitures-fixture'),
@@ -37,9 +38,10 @@ insert into public.tenants (id, name, slug) values
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default, created_at)
 select (case when n = 4 then 'a9340000-0000-4000-8000-000000000102' else 'a9340000-0000-4000-8000-000000000101' end)::uuid,
   ('a9340000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
-  (case n when 1 then 'engineer' when 2 then 'admin' when 3 then 'viewer' when 4 then 'admin' else 'engineer' end)::public.tenant_role,
+  (case n when 1 then 'engineer' when 2 then 'admin' when 3 then 'viewer' when 4 then 'admin' when 6 then 'director'
+    else 'engineer' end)::public.tenant_role,
   true, '2020-01-01'
-from generate_series(1, 5) n;
+from generate_series(1, 6) n;
 
 insert into public.supply_types (id, tenant_id, code, name) values
   ('a9340000-0000-4000-8000-000000000401', 'a9340000-0000-4000-8000-000000000101', 'ti691-tube', 'TI691 Tubes'),
@@ -283,6 +285,7 @@ select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001', 'a9340000-0000-40
   'AFFAIRE_SUPPLY_COST_NOT_FOUND', '2 an unknown affaire is not found');
 select is(pg_temp.cost('a9340000-0000-4000-8000-000000000002')->>'error', null,
   '2 the admin reads it, though he made none of its orders');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000006')->>'error', null, '2 so does a director');
 
 -- ---------------------------------------------------------------------------
 -- 3, 7, 8. No accepted version: no budget, the ordered cost alone.
@@ -305,16 +308,17 @@ select is(current_setting('test.answer')::jsonb #>> '{totals,pending_cents}', '1
 select is(jsonb_array_length(current_setting('test.answer')::jsonb->'rows'), 4,
   '7 four rows: the two supply types, « non classé », shipping and discounts');
 select is(current_setting('test.answer')::jsonb #>> '{not_counted,estimate_orders}', '1',
-  '8 the draft an estimate made is named as not counted');
+  '8 the order made from an estimate is named as not counted');
 select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001', 'a9340000-0000-4000-8000-000000000202')
   ->> 'rows', '[]', '7 an affaire without version nor order has no row');
 
 -- ---------------------------------------------------------------------------
 -- 4, 5, 6. The client accepts variant A of version 1, as version 2.
 -- ---------------------------------------------------------------------------
--- Its lines: tubes 3 × 12,34 € × 1,13 = 41,8326 € (41,83 €); an elbow 0,01 € × 1,5 = 0,015 € (0,02 €, half up); 5 elbows
--- not priced (100,00 € that never count); a fitting at 10,00 € with a 1,1 FO provision (11,00 €); 2 sleeves without
--- supply type at 5,00 € × 1,02 (10,20 €); a section.
+-- Its lines: tubes 3 × 12,34 € × 1,13 = 41,8326 € (41,83 €) and 0,5 m of tube at 0,05 € = 0,025 € (0,03 € half up, 0,02 €
+-- half to even); an elbow 0,01 € × 1,5 = 0,015 € (0,02 €); 5 elbows not priced (100,00 € that never count); a fitting
+-- at 10,00 € with a 1,1 FO provision (11,00 €); 2 sleeves without supply type at 5,00 € × 1,02 (10,20 €) and two caps
+-- at 0,01 € × 1,4 = 0,014 € each (0,01 € each per line: 10,22 €; rounding the sum would give 10,23 €); a section.
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, title,
   parent_version_id, variant_label, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
   commercial_rounding_cents)
@@ -345,6 +349,15 @@ insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_ty
     'priced', 0, 0, 0, 0, 0, 'a9340000-0000-4000-8000-000000000402'),
   ('a9340000-0000-4000-8000-000000002125', 'a9340000-0000-4000-8000-000000000101', 'a9340000-0000-4000-8000-000000000212',
     'a9340000-0000-4000-8000-000000002120', 'line', 5, 'TI691 Manchon sans type', 2, 500, 2000, 1.02, 1, 1, 1, 'u',
+    'priced', 0, 0, 0, 0, 0, null),
+  ('a9340000-0000-4000-8000-000000002126', 'a9340000-0000-4000-8000-000000000101', 'a9340000-0000-4000-8000-000000000212',
+    'a9340000-0000-4000-8000-000000002120', 'line', 6, 'TI691 Chute de tube', 0.5, 5, 2000, 1, 1, 1, 1, 'ml',
+    'priced', 0, 0, 0, 0, 0, 'a9340000-0000-4000-8000-000000000401'),
+  ('a9340000-0000-4000-8000-000000002127', 'a9340000-0000-4000-8000-000000000101', 'a9340000-0000-4000-8000-000000000212',
+    'a9340000-0000-4000-8000-000000002120', 'line', 7, 'TI691 Bouchon sans type', 1, 1, 2000, 1.4, 1, 1, 1, 'u',
+    'priced', 0, 0, 0, 0, 0, null),
+  ('a9340000-0000-4000-8000-000000002128', 'a9340000-0000-4000-8000-000000000101', 'a9340000-0000-4000-8000-000000000212',
+    'a9340000-0000-4000-8000-000000002120', 'line', 8, 'TI691 Second bouchon sans type', 1, 1, 2000, 1.4, 1, 1, 1, 'u',
     'priced', 0, 0, 0, 0, 0, null);
 select set_config('miaouffrage.estimate_v3_writer', '', true);
 set constraints public.estimate_items_parent_id_fkey immediate;
@@ -355,15 +368,15 @@ select set_config('test.answer', pg_temp.cost('a9340000-0000-4000-8000-000000000
 select is((current_setting('test.answer')::jsonb->'budget_version') - 'id',
   '{"version_number": 2, "variant_label": "A", "title": "TI691 Variante acceptée", "accepted_count": 1}'::jsonb,
   '4 the budget is the accepted variant''s');
-select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', 'ti691-tube'), '4183 3300 0',
-  '5 tubes: 3 × 12,34 € × 1,13 rounded once, the sent base version''s 113,00 € left out');
+select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', 'ti691-tube'), '4186 3300 0',
+  '5 tubes: 41,83 € + 0,025 € rounded half up to 0,03 € (not half to even), the sent base version''s 113,00 € left out');
 select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', 'ti691-raccord'), '1102 2000 0',
   '5 fittings: 0,015 € rounds half up to 0,02 €, the FO provision counts, the line not priced does not');
-select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'unclassified'), '1020 0 1998',
-  '6 the line without supply type is budgeted under « non classé »');
+select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'unclassified'), '1022 0 1998',
+  '6 the lines without supply type are budgeted under « non classé », each rounded on its own (not on their sum)');
 select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'shipping_discount'), '0 1200 0',
   '5 shipping and discounts have no budget of their own');
-select is(current_setting('test.answer')::jsonb #>> '{totals,budget_cents}', '6305', '5 the budget total');
+select is(current_setting('test.answer')::jsonb #>> '{totals,budget_cents}', '6310', '5 the budget total');
 
 -- ---------------------------------------------------------------------------
 -- 7. Beta's draft is canceled: it no longer counts.
@@ -372,7 +385,7 @@ select is(pg_temp.pls_run('a9340000-0000-4000-8000-000000000001',
   $$update public.purchase_orders set status = 'canceled' where id = current_setting('test.order_beta')::uuid$$),
   'ok 1', 'fixture: the owner cancels Beta''s draft');
 select set_config('test.answer', pg_temp.cost('a9340000-0000-4000-8000-000000000001')::text, true);
-select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'unclassified'), '1020 0 0',
+select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'unclassified'), '1022 0 0',
   '7 a canceled order is neither ordered nor « en cours »');
 select is(current_setting('test.answer')::jsonb #>> '{totals,pending_cents}', '0', '7 the pending total follows');
 
@@ -404,6 +417,13 @@ select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', '
 select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', 'ti691-raccord'), '0 2000 0',
   '4 a supply type the budget version does not carry has a budget of 0, not of the other version');
 select is(current_setting('test.answer')::jsonb #>> '{totals,budget_cents}', '150', '4 the budget total is version 3''s');
+
+-- ---------------------------------------------------------------------------
+-- 2. An archived affaire is not found, as the API does not find it.
+-- ---------------------------------------------------------------------------
+update public.estimate_projects set is_archived = true where id = 'a9340000-0000-4000-8000-000000000202';
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001', 'a9340000-0000-4000-8000-000000000202')->>'message',
+  'AFFAIRE_SUPPLY_COST_NOT_FOUND', '2 an archived affaire is not found, even by its owner');
 
 select * from finish();
 rollback;
