@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import {
-  loadTakeoffPageTriageAvailabilityAction,
-  proposeTakeoffPageTriageAction,
-} from "@/app/dashboard/affaires/_actions/takeoff-preparation";
+import { proposeTakeoffPageTriageAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { buttonVariants } from "@/components/ui/button";
+import type { TakeoffPageTriageAvailability } from "@/components/takeoff/useTakeoffPreparation";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
 import {
   acceptTakeoffPageTriage,
@@ -19,7 +17,6 @@ import {
 import type { TakeoffPreparation, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 
 type Proposal = Extract<Awaited<ReturnType<typeof proposeTakeoffPageTriageAction>>, { ok: true }>["data"];
-type Availability = Extract<Awaited<ReturnType<typeof loadTakeoffPageTriageAvailabilityAction>>, { ok: true }>["data"];
 
 const PROPOSAL_LABELS: Record<TakeoffPageTriagePage["proposal"], string> = { exclude: "À écarter", keep: "À garder", review: "À vérifier" };
 const STATUS_LABELS: Record<TakeoffPageTriagePage["status"], string> = { proposed: "Proposée", to_review: "À vérifier", corrected: "Corrigée" };
@@ -32,39 +29,28 @@ function isTriageable(source: TakeoffPreparationSource) {
  * « Proposer le tri des pages » (TI-663): one explicit request per active plan,
  * never on opening or reloading. The proposal is shown apart from the
  * selection; only « Accepter le tri » writes the pages, and a different
- * selection afterwards is a correction.
+ * selection afterwards is a correction. `availability` is read by the panel when
+ * it opens (TI-720), null when it could not be checked.
  */
-export function TakeoffPageTriage({ projectId, draft, onChange, save, adopt, disabled, onBusyChange }: {
+export function TakeoffPageTriage({ projectId, draft, availability, onChange, save, adopt, disabled, onBusyChange }: {
   projectId: string;
   draft: TakeoffPreparation;
+  availability: TakeoffPageTriageAvailability | null;
   onChange: (draft: TakeoffPreparation) => void;
   save: () => Promise<number | null>;
   adopt: (state: Proposal["state"]) => void;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const [availability, setAvailability] = useState<Availability | null>(null);
-  const [availabilityError, setAvailabilityError] = useState(false);
   const [progress, setProgress] = useState<{ index: number; total: number; name: string } | null>(null);
   const [messages, setMessages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    void loadTakeoffPageTriageAvailabilityAction(projectId).then((result) => {
-      if (!active) return;
-      if (result.ok) setAvailability(result.data);
-      else setAvailabilityError(true);
-    }).catch(() => { if (active) setAvailabilityError(true); });
-    return () => { active = false; };
-  }, [projectId]);
-
   const targets = draft.sources.filter(isTriageable);
-  const blocked = availabilityError ? "La disponibilité du tri des pages n’a pas pu être vérifiée. La sélection manuelle reste disponible."
-    : !availability ? null
-      : availability.status !== "available" ? `${availability.message}${availability.status === "disabled" ? "" : " La sélection manuelle des pages reste disponible."}`
-        : draft.processing.level !== "C" ? "Le tri des pages s’applique au niveau Détaillé. Choisissez-le dans les options avancées de l’étape « Vérifier et lancer », ou sélectionnez les pages manuellement."
-          : targets.length === 0 ? "Activez au moins un plan du dossier pour proposer un tri de ses pages." : null;
+  const blocked = !availability ? "La disponibilité du tri des pages n’a pas pu être vérifiée. La sélection manuelle reste disponible."
+    : availability.status !== "available" ? `${availability.message}${availability.status === "disabled" ? "" : " La sélection manuelle des pages reste disponible."}`
+      : draft.processing.level !== "C" ? "Le tri des pages s’applique au niveau Détaillé. Choisissez-le dans les options avancées de l’étape « Vérifier et lancer », ou sélectionnez les pages manuellement."
+        : targets.length === 0 ? "Activez au moins un plan du dossier pour proposer un tri de ses pages." : null;
   const busy = progress !== null;
   const triaged = draft.sources.filter((source) => source.page_triage);
 
@@ -103,7 +89,7 @@ export function TakeoffPageTriage({ projectId, draft, onChange, save, adopt, dis
       <p className="text-sm font-medium">Tri des pages</p>
       <p className="text-xs text-muted-foreground">Decisions propose le type, le niveau et la zone de chaque page des plans actifs, pour n’analyser que les pages utiles. Rien n’est retiré sans votre acceptation ; une page incertaine reste retenue « À vérifier ». Consommation API Decisions distincte du forfait ChatGPT.</p>
     </div>
-    <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={disabled || busy || blocked !== null || !availability} onClick={() => void propose()}>
+    <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={disabled || busy || blocked !== null} onClick={() => void propose()}>
       {busy ? "Tri des pages en cours…" : "Proposer le tri des pages"}
     </button>
     <div aria-live="polite" className="space-y-1 text-sm">

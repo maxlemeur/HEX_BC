@@ -132,6 +132,57 @@ armyTest("PRE05 processing choices survive closing and reloading without silentl
   await recordEvidence(ui.army, "PRE05-processing-restored", { estimate, saved, restored, noImplicitProcessingChange: true });
 });
 
+// TI-720: Next.js sends a page's Server Actions one at a time. The steps of the dialog each sent one when they appeared
+// (business profiles, ChatGPT connection, page triage availability), and the save, the assistance and the page triage
+// the person asked for waited behind them: on CI those reads took 3 to 9 s each and three journeys stayed on
+// « Enregistrement… » or « Préparation des propositions… » past 15 s (runs 43312499369 and 43325614673). Here every
+// Server Action the steps send is held until the end: the person's actions must not need any of them.
+armyTest("PRE07 visiting the steps sends nothing the save or the assistance would wait for", options, async (ui) => {
+  const { estimate, file, read, jobs } = await setup(ui, "PRE07");
+  const serverActions = /\/dashboard\/affaires\//;
+  const held: string[] = [];
+  const forwarded: Promise<void>[] = [];
+  let holding = false;
+  let release: () => void = () => undefined;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await ui.browser.route(serverActions, async (route) => {
+    const action = Object.entries(route.request.headers).find(([name]) => name.toLowerCase() === "next-action")?.[1];
+    // An autosave is the person's own write (its arguments carry the draft): it goes through.
+    const save = route.request.postData?.includes('"draft":') ?? false;
+    if (!holding || route.request.method !== "POST" || !action || save) return route.fallback();
+    held.push(route.request.postData?.slice(0, 80) ?? "");
+    // The campaign's own route (restrictCriticalBrowser) still decides once the request is released.
+    const handed = released.then(() => route.fallback());
+    forwarded.push(handed);
+    await handed;
+  });
+  try {
+    holding = true;
+    const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "auto" } });
+    holding = false;
+    expect(held).toEqual([]);
+    await saveTakeoffPreparation(ui);
+    const saved = await read();
+    expect(saved.draft.scope.exclusions).toEqual(["RDC", "Zone 2"]);
+    expect(saved.draft.processing).toEqual({ level: "B", provider: "auto" });
+    holding = true;
+    for (const step of [/Mes documents$/, /Ce que je veux mesurer$/, /Points à préciser$/, /Vérifier et lancer$/]) await dialog.getByRole("button", step).click();
+    holding = false;
+    await dialog.getByText("Assistance au cadrage", { exact: true }).click();
+    await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
+    await expect(dialog.getByText(/Aucune assistance rédactionnelle n.est configurée/).first()).toBeVisible();
+    expect(held).toEqual([]);
+    expect((await read()).draft).toEqual(saved.draft);
+    expect(await jobs.list()).toEqual([]);
+    await recordEvidence(ui.army, "PRE07-steps-send-no-request", { estimate, savedRevision: saved.revision, heldStepRequests: held.length,
+      boundary: "Server Actions sent while the steps were visited are held in the browser; the save and the assistance answer without them." });
+  } finally {
+    release();
+    await Promise.allSettled(forwarded);
+    await ui.browser.unroute(serverActions);
+  }
+});
+
 armyTest("PRE01 geometry requires a usable measurement basis and DPGF is required only for comparison", options, async (ui) => {
   const { estimate, file, jobs } = await setup(ui, "PRE01");
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "measure_length", unit: "m" });

@@ -6,7 +6,6 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
-const loadChatGptConnectionMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
@@ -20,12 +19,11 @@ vi.mock("@/components/takeoff/TakeoffPreparationPanel", async () => {
   return {
     TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) => {
       const [processing, setProcessing] = useState<import("@/lib/takeoff/preparation").TakeoffPreparation["processing"]>({ level: props.recommendedLevel ?? "B", provider: "auto" });
-      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false }) : props.advancedControls;
+      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false, chatGptConnection: null }) : props.advancedControls;
       return <div>{props.documentControls}{props.destinationControls}{controls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, processing)}>Confirmer et lancer le métré</button></div>;
     },
   };
 });
-vi.mock("@/app/dashboard/_actions/chatgpt", () => ({ loadChatGptConnection: loadChatGptConnectionMock }));
 
 vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({
@@ -89,7 +87,6 @@ const defaultProps = {
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    loadChatGptConnectionMock.mockResolvedValue(null);
   });
 
   afterEach(() => {

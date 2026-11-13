@@ -1,9 +1,9 @@
 "use client";
 
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 
-import { loadTakeoffPreparationProfilesAction, saveTakeoffPreparationProfileAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
+import { saveTakeoffPreparationProfileAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -12,25 +12,26 @@ import {
   type TakeoffPreparation, type TakeoffPreparationProfile,
 } from "@/lib/takeoff/preparation";
 
-export function TakeoffPreparationProfiles({ draft, onChange }: { draft: TakeoffPreparation; onChange: (draft: TakeoffPreparation) => void }) {
+/** `profiles` and `loadError` come from the panel, read when it opens (TI-720); a saved profile goes back through `onSaved`. */
+export function TakeoffPreparationProfiles({ draft, onChange, profiles, loadError, onSaved }: {
+  draft: TakeoffPreparation;
+  onChange: (draft: TakeoffPreparation) => void;
+  profiles: TakeoffPreparationProfile[];
+  loadError: string | null;
+  onSaved: (profile: TakeoffPreparationProfile) => void;
+}) {
   const id = useId();
-  const [profiles, setProfiles] = useState<TakeoffPreparationProfile[]>([]);
   const [selected, setSelected] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    void loadTakeoffPreparationProfilesAction().then((result) => { const profiles = unwrapTakeoffActionResult(result); if (active) setProfiles(profiles); }).catch((cause) => { if (active) setMessage(cause instanceof TakeoffActionError ? cause.message : "Les profils ne sont pas disponibles. Le cadrage manuel reste possible."); });
-    return () => { active = false; };
-  }, []);
   async function saveProfile() {
     setBusy(true);
     setMessage(null);
     try {
       const profile = createTakeoffPreparationProfile({ preparation: draft, id: crypto.randomUUID(), name: name.trim(), version: 1 });
       const saved = unwrapTakeoffActionResult(await saveTakeoffPreparationProfileAction({ profile, expectedVersion: null }));
-      setProfiles((previous) => [...previous, saved]);
+      onSaved(saved);
       setSelected(saved.id);
       setName("");
       setMessage("Profil enregistré. Les sources, zones et confirmations de cette affaire restent propres à la préparation.");
@@ -45,7 +46,7 @@ export function TakeoffPreparationProfiles({ draft, onChange }: { draft: Takeoff
       <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={!selected || busy} onClick={() => { const profile = profiles.find((item) => item.id === selected); if (profile) { onChange(applyTakeoffPreparationProfile(draft, profile)); setMessage("Profil repris dans le brouillon. Vérifiez et confirmez les champs modifiés."); } }}>Appliquer le profil au brouillon</button>
       <label htmlFor={`${id}-name`} className="block space-y-1"><span>Nom du nouveau profil</span><Input id={`${id}-name`} value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
       <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={!name.trim() || busy} onClick={() => void saveProfile()}>{busy ? "Enregistrement du profil…" : "Enregistrer ce cadrage comme profil"}</button>
-      {message && <p role="status" className="text-xs text-muted-foreground">{message}</p>}
+      {(message ?? loadError) && <p role="status" className="text-xs text-muted-foreground">{message ?? loadError}</p>}
     </div>
   </details>;
 }

@@ -5,15 +5,38 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   confirmTakeoffPreparationAction,
-  loadTakeoffPreparationAction,
+  loadTakeoffPreparationPanelAction,
   saveTakeoffPreparationAction,
 } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
-import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
+import type { TakeoffPreparation, TakeoffPreparationProfile } from "@/lib/takeoff/preparation";
 
-type PreparationRecord = Extract<Awaited<ReturnType<typeof loadTakeoffPreparationAction>>, { ok: true }>["data"];
+type PanelLoad = Awaited<ReturnType<typeof loadTakeoffPreparationPanelAction>>;
+type PreparationRecord = Extract<PanelLoad["preparation"], { ok: true }>["data"];
+export type TakeoffPageTriageAvailability = Extract<PanelLoad["pageTriage"], { ok: true }>["data"];
+
+/**
+ * What the steps show besides the draft, read with it when the panel opens: a step sends no request when it
+ * appears, so nothing waits in front of the person's save (TI-720). `pageTriage` is null when it could not be checked.
+ */
+export type TakeoffPreparationSupport = {
+  profiles: TakeoffPreparationProfile[];
+  profilesError: string | null;
+  pageTriage: TakeoffPageTriageAvailability | null;
+  chatGpt: PanelLoad["chatGpt"];
+};
+
+function toSupport(loaded: PanelLoad): TakeoffPreparationSupport {
+  return {
+    profiles: loaded.profiles.ok ? loaded.profiles.data : [],
+    profilesError: loaded.profiles.ok ? null : loaded.profiles.error.message,
+    pageTriage: loaded.pageTriage.ok ? loaded.pageTriage.data : null,
+    chatGpt: loaded.chatGpt,
+  };
+}
 
 export function useTakeoffPreparation(projectId: string) {
   const [record, setRecord] = useState<PreparationRecord | null>(null);
+  const [support, setSupport] = useState<TakeoffPreparationSupport | null>(null);
   const [draft, setDraft] = useState<TakeoffPreparation | null>(null);
   const [saveState, setSaveState] = useState<"loading" | "saved" | "pending" | "saving" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -30,8 +53,10 @@ export function useTakeoffPreparation(projectId: string) {
     setSaveState("loading");
     setError(null);
     try {
-      const result = unwrapTakeoffActionResult(await loadTakeoffPreparationAction(projectId));
+      const loaded = await loadTakeoffPreparationPanelAction(projectId);
       if (!mounted.current || sequence !== loadSequence.current) return;
+      setSupport(toSupport(loaded));
+      const result = unwrapTakeoffActionResult(loaded.preparation);
       if (currentDraft.current !== draftAtStart) {
         setError("La préparation a été modifiée pendant le chargement. Vos réponses sont conservées ; reprenez la dernière version si nécessaire.");
         setSaveState("error");
@@ -150,5 +175,10 @@ export function useTakeoffPreparation(projectId: string) {
     setError(null);
   }, []);
 
-  return { record, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt };
+  /** Lists a profile saved from the panel, which the steps read from here rather than reloading the list. */
+  const addProfile = useCallback((profile: TakeoffPreparationProfile) => {
+    setSupport((previous) => previous ? { ...previous, profiles: [...previous.profiles, profile] } : previous);
+  }, []);
+
+  return { record, support, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt, addProfile };
 }
