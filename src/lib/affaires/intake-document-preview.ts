@@ -1,6 +1,9 @@
 import "server-only";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import {
+  AFFAIRE_INTAKE_BUCKET,
+  inferAffaireIntakeMimeType,
+} from "@/lib/affaires/intake";
 import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
@@ -47,9 +50,14 @@ export async function readAffaireDocumentPreview(
     throw notFound("Ce document n’est plus disponible dans l’affaire.");
   if (data.size_bytes <= 0 || data.size_bytes > MAX_BYTES)
     throw badRequest("La taille du document ne permet pas son ouverture.");
+  const storedType = data.mime_type?.split(";")[0].trim().toLowerCase();
+  // A piece stored without a type is known by its name, as the assistant's
+  // reader knows it: a PDF it cites must open at the cited page.
   const mimeType =
-    data.mime_type?.split(";")[0].trim().toLowerCase() ??
-    "application/octet-stream";
+    storedType && storedType !== "application/octet-stream"
+      ? storedType
+      : (inferAffaireIntakeMimeType(data.file_name) ??
+        "application/octet-stream");
   if (!download && !INLINE_TYPES.has(mimeType))
     throw badRequest(
       "L’aperçu de ce format n’est pas disponible. Téléchargez le document pour l’ouvrir.",

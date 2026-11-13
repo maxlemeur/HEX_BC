@@ -63,7 +63,15 @@ describe("the affaire's documents read by the assistant", () => {
     const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, signal });
     // The member's Stop and the answer's time bound reach the download (storage or Drive).
     expect(readAffaireDocumentPreview).toHaveBeenCalledWith(AFFAIRE, DOCUMENT, true, signal);
-    expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", bytes: new Uint8Array([1, 2]) });
+    expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", charset: "binary", bytes: new Uint8Array([1, 2]) });
+  });
+
+  it("keeps the stored charset of a text document, so that its text is decoded as written", async () => {
+    const { client } = recordingClient({ data: { id: DOCUMENT, file_name: "DPGF.csv", mime_type: "text/csv; charset=\"windows-1252\"", document_kind: "dpgf" }, error: null });
+    grantAccess(client);
+    vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([0x65]), fileName: "DPGF.csv", mimeType: "application/octet-stream" });
+    const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT });
+    expect(document).toMatchObject({ mimeType: "text/csv", charset: "windows-1252" });
   });
 
   it("refuses a format it does not read before fetching any of its bytes", async () => {

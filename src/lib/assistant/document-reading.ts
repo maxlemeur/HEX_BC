@@ -1,5 +1,6 @@
 import { degrees, PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 
+import { inferAffaireIntakeMimeType } from "@/lib/affaires/intake";
 import { AssistantDocumentLedger, DOCUMENT_READ_LIMITS, type DocumentReadLimits } from "@/lib/assistant/document-citations";
 import { AssistantToolError } from "@/lib/assistant/loop";
 
@@ -44,15 +45,43 @@ function fitBytes(text: string, limit: number) {
 const TEXT_RESULT_CHARACTERS = 90_000;
 const BUDGET_SPENT = "Limite de pages lues atteinte pour cette réponse. Réponds avec ce que tu as déjà lu, et dis ce qui reste à lire.";
 
-const EXTENSION_TYPES: Record<string, string> = {
-  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", txt: "text/plain", csv: "text/csv",
-};
-
-/** The format a read sends, from the stored type or else the extension; null when the assistant does not read it. */
+/** The format a read sends, from the stored type or else the name (as the dossier's preview does); null when the assistant does not read it. */
 export function documentReadType(fileName: string, mimeType: string | null) {
   const mime = mimeType?.split(";")[0]?.trim().toLowerCase() ?? "";
-  const type = mime && mime !== "application/octet-stream" ? mime : EXTENSION_TYPES[fileName.toLowerCase().split(".").pop() ?? ""] ?? "";
+  const type = mime && mime !== "application/octet-stream" ? mime : inferAffaireIntakeMimeType(fileName) ?? "";
   return type === "application/pdf" || IMAGE_TYPES.has(type) || TEXT_TYPES.has(type) ? type : null;
+}
+
+/** The charset a stored type declares (`text/csv; charset=windows-1252`), lowercased; null when it declares none. */
+export function charsetOf(mimeType: string | null | undefined) {
+  return mimeType?.match(/;\s*charset\s*=\s*["']?([^;\s"']+)/i)?.[1]?.toLowerCase() ?? null;
+}
+
+const UNDECODABLE_TEXT = "Le texte de cette pièce n’a pas pu être décodé (encodage non reconnu) : l’assistant ne l’a pas lu. L’utilisateur peut l’ouvrir dans le dossier.";
+
+/**
+ * The text of a text file, as written. A byte order mark decides first, then
+ * the stored charset; with neither, UTF-8, else Windows-1252 (what a
+ * spreadsheet exports a CSV in, and any byte decodes in it). Text that does
+ * not decode, or that holds a NUL (binary, or UTF-16 without its mark), is
+ * refused rather than sent garbled and recorded as read.
+ */
+function decodeDocumentText(bytes: Uint8Array, charset: string | null) {
+  const mark = bytes[0] === 0xff && bytes[1] === 0xfe ? "utf-16le"
+    : bytes[0] === 0xfe && bytes[1] === 0xff ? "utf-16be"
+      : bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? "utf-8" : null;
+  for (const encoding of mark ? [mark] : charset ? [charset] : ["utf-8", "windows-1252"]) {
+    let text: string;
+    try {
+      // An unknown label throws as well: refused, not guessed.
+      text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+    } catch {
+      continue;
+    }
+    if (text.includes("\0")) break;
+    return text;
+  }
+  throw new AssistantToolError(UNDECODABLE_TEXT);
 }
 
 export const UNREADABLE_FORMAT = "Ce format n’est pas encore lu par l’assistant : seuls les PDF, les images (PNG, JPEG, WebP) et les fichiers texte le sont. "
@@ -156,6 +185,8 @@ export function assertDocumentBudget(ledger: AssistantDocumentLedger, limits: Do
  */
 export async function prepareDocumentRead(input: {
   documentId: string; fileName: string; mimeType: string | null; bytes: Uint8Array;
+  /** The stored charset of a text file, when its stored type declared one; else read from `mimeType`. */
+  charset?: string | null;
   pageStart?: number; pageEnd?: number; ledger: AssistantDocumentLedger; limits?: DocumentReadLimits;
 }): Promise<PreparedDocumentRead> {
   const limits = input.limits ?? DOCUMENT_READ_LIMITS;
@@ -177,7 +208,7 @@ export async function prepareDocumentRead(input: {
         parts: [{ type: "input_image", image_url: `data:${type};base64,${Buffer.from(input.bytes).toString("base64")}` }],
       };
     } else {
-      const whole = new TextDecoder().decode(input.bytes);
+      const whole = decodeDocumentText(input.bytes, input.charset ?? charsetOf(input.mimeType));
       let text = whole.slice(0, limits.textCharacters);
       // Quotes and control characters weigh several characters once encoded: what is recorded as read must reach the model.
       while (JSON.stringify(text).length > TEXT_RESULT_CHARACTERS) text = text.slice(0, Math.floor(text.length * 0.8));

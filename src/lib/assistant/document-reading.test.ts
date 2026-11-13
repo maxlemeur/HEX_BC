@@ -39,6 +39,9 @@ const read = (bytes: Uint8Array, input: Partial<Parameters<typeof prepareDocumen
   documentId: "11111111-1111-4111-8111-111111111111", fileName: "CCTP lot plomberie.pdf", mimeType: "application/pdf", bytes, ledger: new AssistantDocumentLedger(), ...input,
 });
 
+const CSV = "Désignation;Unité\nTube cuivre;ml";
+const ARTICLE = "Article 1 : réseaux";
+
 describe("reading a document for the assistant", () => {
   it("sends a small PDF whole, as the file part the classification already sends", async () => {
     const result = await read(await pdfOf(3));
@@ -104,6 +107,30 @@ describe("reading a document for the assistant", () => {
     const result = await read(new TextEncoder().encode(text), { fileName: "notes.txt", mimeType: "text/plain" });
     expect(result).toMatchObject({ pagesTotal: 1, from: 1, to: 1, cut: "characters", parts: [] });
     expect(result.text).toHaveLength(DOCUMENT_READ_LIMITS.textCharacters);
+  });
+
+  it.each([
+    ["UTF-16 LE with its byte order mark", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(CSV, "utf16le")]), "text/csv", undefined],
+    ["UTF-16 BE with its byte order mark", Buffer.from([0xfe, 0xff, ...Buffer.from(CSV, "utf16le").swap16()]), "text/plain", undefined],
+    ["UTF-8 with its byte order mark", Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(CSV, "utf8")]), "text/csv", undefined],
+    ["a declared windows-1252", Buffer.from(CSV, "latin1"), "text/csv; charset=windows-1252", undefined],
+    ["a charset known from the stored type", Buffer.from(CSV, "latin1"), "text/csv", "ISO-8859-1"],
+    ["an undeclared windows-1252 (a spreadsheet's CSV export)", Buffer.from(CSV, "latin1"), "text/csv", undefined],
+  ])("decodes a text file in %s before recording it as read", async (_, bytes, mimeType, charset) => {
+    const ledger = new AssistantDocumentLedger();
+    const result = await read(new Uint8Array(bytes), { ledger, fileName: "dpgf.csv", mimeType, charset });
+    expect(result.text).toBe(CSV);
+  });
+
+  it.each([
+    ["UTF-16 without a byte order mark", new Uint8Array(Buffer.from(ARTICLE, "utf16le")), "text/plain"],
+    ["a charset that does not decode its bytes", new Uint8Array([0x41, 0xff, 0xfe, 0x42]), "text/plain; charset=utf-8"],
+    ["an unknown charset", new TextEncoder().encode("Article 1"), "text/plain; charset=x-inconnu"],
+  ])("refuses a text file in %s rather than send it garbled, and records nothing", async (_, bytes, mimeType) => {
+    const ledger = new AssistantDocumentLedger();
+    const before = ledger.readAllowance(DOCUMENT_READ_LIMITS);
+    await expect(read(bytes, { ledger, fileName: "notes.txt", mimeType })).rejects.toThrow("encodage");
+    expect(ledger.readAllowance(DOCUMENT_READ_LIMITS)).toEqual(before);
   });
 
   it("sends an image as the image part the classification already sends", async () => {

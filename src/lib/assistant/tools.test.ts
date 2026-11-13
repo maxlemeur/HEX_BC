@@ -42,7 +42,7 @@ describe("the document reads offered to the model", () => {
     const pdf = await PDFDocument.create();
     for (let page = 0; page < 14; page += 1) pdf.addPage();
     vi.mocked(loadAffaireDocument).mockResolvedValue({
-      documentId: DOCUMENT, fileName: "CCTP \"lot 1\".pdf", type: "CCTP", mimeType: "application/pdf", bytes: new Uint8Array(await pdf.save()),
+      documentId: DOCUMENT, fileName: "CCTP \"lot 1\".pdf", type: "CCTP", mimeType: "application/pdf", charset: null, bytes: new Uint8Array(await pdf.save()),
     });
     const { tool, documents } = readTool();
     const signal = new AbortController().signal;
@@ -69,7 +69,7 @@ describe("the document reads offered to the model", () => {
 
   it("gives a text file in its result, with nothing attached", async () => {
     vi.mocked(loadAffaireDocument).mockResolvedValue({
-      documentId: DOCUMENT, fileName: "notes.txt", type: "Annexes", mimeType: "text/plain", bytes: new TextEncoder().encode("Article 1 : cuivre."),
+      documentId: DOCUMENT, fileName: "notes.txt", type: "Annexes", mimeType: "text/plain", charset: null, bytes: new TextEncoder().encode("Article 1 : cuivre."),
     });
     const result = await readTool().tool.run({ documentId: DOCUMENT }, new AbortController().signal);
     expect(result).toMatchObject({ pages_lues: { de: 1, a: 1 }, contenu: "Article 1 : cuivre.", suite_page: null });
@@ -100,7 +100,7 @@ describe("the document reads offered to the model", () => {
 
     it("arrives only as a quoted string field of its tool result, never in the rules, and changes no tool", async () => {
       vi.mocked(loadAffaireDocument).mockResolvedValue({
-        documentId: DOCUMENT, fileName: "notes.txt", type: "Annexes", mimeType: "text/plain", bytes: new TextEncoder().encode(INJECTED),
+        documentId: DOCUMENT, fileName: "notes.txt", type: "Annexes", mimeType: "text/plain", charset: null, bytes: new TextEncoder().encode(INJECTED),
       });
       const documents = new AssistantDocumentLedger();
       const tools = buildAssistantTools({ context, projectId: "affaire-1", documents });

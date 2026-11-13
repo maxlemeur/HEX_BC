@@ -142,7 +142,7 @@ export function buildAssistantTools(scope: {
         assertDocumentBudget(documents);
         const document = await loadAffaireDocument({ projectId: scope.projectId, documentId: input.documentId, signal, cache: downloads });
         const read = await prepareDocumentRead({
-          documentId: document.documentId, fileName: document.fileName, mimeType: document.mimeType, bytes: document.bytes,
+          documentId: document.documentId, fileName: document.fileName, mimeType: document.mimeType, charset: document.charset, bytes: document.bytes,
           pageStart: input.pageDebut, pageEnd: input.pageFin, ledger: documents,
         });
         const output = {

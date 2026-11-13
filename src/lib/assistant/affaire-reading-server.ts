@@ -4,7 +4,7 @@ import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } f
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
-import { documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
+import { charsetOf, documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
 import { AssistantToolError, withUserFacingRefusals } from "@/lib/assistant/loop";
 
 const NO_ACCESS = "Vous n’avez pas accès aux pièces de cette affaire.";
@@ -93,7 +93,11 @@ export async function loadAffaireDocument(input: {
       fetched.catch(() => { if (cache.get(row.id) === fetched) cache.delete(row.id); });
     }
   }
-  return { documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind), mimeType, bytes: await download };
+  return {
+    documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind), mimeType,
+    // The type above drops its parameters; a text file is decoded in the charset it was stored with.
+    charset: charsetOf(row.mime_type), bytes: await download,
+  };
 }
 
 /** The affaire's brief and the latest entries of its register (questions, hypotheses, missing pieces), in short. */

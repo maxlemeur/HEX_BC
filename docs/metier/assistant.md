@@ -114,7 +114,16 @@ déjà.
   tableur ou DWG est refusée avec une phrase qui le dit, avant que ses octets
   soient lus ; pour une DPGF en tableur, l'assistant lit le devis qui l'a
   importée. Limite connue : un PDF chiffré, même protégé seulement contre la
-  modification, est refusé comme illisible.
+  modification, est refusé comme illisible. Une pièce enregistrée sans type
+  (ou en `application/octet-stream`) est reconnue par son nom, à la lecture
+  comme dans l'aperçu.
+- **Encodage d'un texte** : la marque d'ordre des octets (UTF-8, UTF-16 LE ou
+  BE) décide d'abord, puis le jeu de caractères enregistré avec la pièce
+  (`charset=windows-1252`) ; sans l'un ni l'autre, UTF-8, sinon Windows-1252,
+  l'encodage d'un CSV exporté par un tableur. Un texte qui ne se décode pas dans
+  le jeu déclaré, un jeu inconnu, ou un texte qui contient un octet nul (UTF-16
+  sans marque, fichier binaire) est refusé et n'est pas compté comme lu : rien
+  de brouillé n'est envoyé ni citable.
 - **Comment une pièce arrive au modèle** : le résultat de l'outil reste du texte
   (nom, type, nombre de pages, pages lues, page où reprendre). Pour un fichier
   texte ou CSV, le contenu est dans ce résultat même, champ `contenu` : une
