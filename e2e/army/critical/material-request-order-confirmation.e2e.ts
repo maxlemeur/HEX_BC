@@ -25,6 +25,11 @@ type Item = {
 };
 type OrderHeader = { id: string; status: string; total_ht_cents: number; edit_revision: number; expected_delivery_date: string | null };
 type Document = { id: string; name: string };
+type SupplyCostRow = { kind: string; budget_cents: number | null; ordered_cents: number; pending_cents: number };
+type SupplyCost = {
+  budget_version: unknown; rows: SupplyCostRow[];
+  totals: { budget_cents: number | null; ordered_cents: number; pending_cents: number };
+};
 
 // TI-691, lot 2 « l'achat », delivery 3b-1 « commander et recevoir ». Failure modes, written before the journeys were
 // first run against the product:
@@ -35,6 +40,10 @@ type Document = { id: string; name: string };
 // - a confirmed order still offers to be confirmed, or its reception is not offered;
 // - the reception is not dated, its note for what is still to come is lost, it is recorded twice, or the received order
 //   can still be deleted.
+// TI-691, delivery 4 « coût par affaire »:
+// - the affaire's supply cost shows a budget while its client has accepted no version, or loses an order line without
+//   article instead of putting it under « non classé »;
+// - a draft counts as ordered, or a confirmed order stays « en cours » at its quote's price instead of its real one.
 
 /** A one-page PDF with a line of invented text, as a supplier's acknowledgement would be. */
 function inventedPdf(text: string): Buffer {
@@ -239,6 +248,60 @@ armyTest(
     await recordEvidence(army, "material-request-order-reception", {
       requestId, orderId: order.id, reference: order.reference, status: received.header.status,
       second_reception: again.body.error?.code, deletion_status: deletion.status,
+    });
+  },
+);
+
+armyTest(
+  "MR09 an affaire's supply cost shows its draft order « en cours », then « commandé » at the price the supplier confirmed",
+  { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
+  async ({ app, screen, browser, army }) => {
+    const { ids, requestId, screws, order } = await draftOrderOfAnAffaire({ app, screen, browser }, army, "coût");
+    const today = parisToday();
+    const costPath = `/api/affaires/${ids.projectId}/supply-cost`;
+
+    // The estimate is a draft: no budget. The draft order (119,28 € at the quote's prices) is « en cours », under
+    // « non classé » since its lines have no article.
+    const before = await apiRequest<Envelope<SupplyCost>>(browser, "GET", costPath);
+    expect(before.status, JSON.stringify(before.body.error ?? null)).toBe(200);
+    expect(before.body.data.budget_version).toBeNull();
+    expect(before.body.data.rows.map((row) => [row.kind, row.budget_cents, row.ordered_cents, row.pending_cents]))
+      .toEqual([["unclassified", null, 0, 11928]]);
+    await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel`, { waitUntil: "domcontentloaded" });
+    const section = screen.getByRole("region", "Coût des fournitures", { exact: true });
+    await expect(section.getByText("Budget en attente du devis accepté : seul le commandé est affiché.", { exact: true }))
+      .toBeVisible({ timeout: 60_000 });
+    const table = section.getByRole("table", "Budget et commandé par type de fourniture", { exact: true });
+    await expect(table.getByRole("row", /^Non classé\s+—\s+0,00\s€\s+119,28\s€\s+—$/)).toBeVisible();
+
+    // Arranged through the API: the acknowledgement joined, the order confirmed with the screws at 3,52 € the hundred
+    // (the quote said 3,42 €).
+    const pdf = inventedPdf("Accuse de reception invente : vis 3,52 les 100");
+    const uploaded = await browser.evaluate(async ({ orderId, bytes }) => {
+      const form = new FormData();
+      form.set("file", new File([new Uint8Array(bytes)], "accuse.pdf", { type: "application/pdf" }));
+      form.set("name", "Accusé de réception");
+      const response = await fetch(`/api/purchase-orders/${orderId}/devis`, { method: "POST", body: form, credentials: "same-origin" });
+      return { status: response.status, body: await response.json() as { item?: { id: string } } };
+    }, { orderId: order.id, bytes: [...pdf] });
+    expect(uploaded.status).toBe(201);
+    const draft = await readOrder(browser, order.id);
+    const screwItem = draft.items.find((item) => item.material_request_line_id === screws)!;
+    const confirmation = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/purchase-orders/${order.id}/confirmation`, {
+      expected_revision: draft.header.edit_revision, ordered_on: today.iso, document_id: uploaded.body.item!.id,
+      lines: [{ id: screwItem.id, unit_price_ht_cents: 352, price_per: 100 }],
+    });
+    expect([confirmation.status, confirmation.body.data?.status]).toEqual([200, "confirmed"]);
+
+    // The confirmed order is « commandé » at its real price, 115,00 € + 4,40 €; nothing is left « en cours ».
+    await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel`, { waitUntil: "domcontentloaded" });
+    await expect(table.getByRole("row", /^Non classé\s+—\s+119,40\s€\s+0,00\s€\s+—$/)).toBeVisible({ timeout: 60_000 });
+    await expect(table.getByRole("row", /^Total HT\s+—\s+119,40\s€\s+0,00\s€\s+—$/)).toBeVisible();
+    const after = await apiRequest<Envelope<SupplyCost>>(browser, "GET", costPath);
+    expect(after.body.data.totals).toEqual({ budget_cents: null, ordered_cents: 11940, pending_cents: 0 });
+
+    await recordEvidence(army, "affaire-supply-cost", {
+      requestId, orderId: order.id, before: before.body.data.totals, after: after.body.data.totals,
     });
   },
 );

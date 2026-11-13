@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/layout/page-header";
+import { AffaireSupplyCost } from "@/components/material-requests/AffaireSupplyCost";
 import { MaterialRequestsList } from "@/components/material-requests/MaterialRequestsList";
 
 import { loadMaterialRequestAffaire } from "./_lib/affaire";
@@ -23,7 +24,10 @@ export default async function AffaireMaterialRequestsPage({ params }: Props) {
         ]}
       />
 
-      <MaterialRequestsList projectId={projectId} />
+      <div className="space-y-8">
+        <MaterialRequestsList projectId={projectId} />
+        <AffaireSupplyCost projectId={projectId} />
+      </div>
     </>
   );
 }

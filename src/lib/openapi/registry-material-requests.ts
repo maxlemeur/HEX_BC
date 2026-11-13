@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { MaterialRequestLineAlertCode } from "@/lib/material-requests/alerts";
+import { affaireSupplyCostSchema } from "@/lib/material-requests/supply-cost-contracts";
 import {
   MATERIAL_REQUEST_DELIVERY_PLACES,
   MATERIAL_REQUEST_FILE_REJECTION_REASONS,
@@ -470,6 +471,12 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: "Pour les lecteurs de la demande (propriétaire de l'affaire, administrateur, directeur), dans l'ordre de la demande : les lignes prêtes à commander (validées, chiffrées par un devis retenu, dans aucun bon de commande non annulé), les autres avec la première chose qui leur manque (not_validated, no_supplier, not_priced ; le libellé est celui de l'écran), les lignes commandées avec leur bon et son statut, et chaque bon portant une ligne de la demande, annulés compris, du plus ancien au plus récent : référence, fournisseur, statut, total HT du bon, nombre de lignes de la demande qu'il porte. can_create dit si l'appelant peut créer les brouillons (il écrit la demande et peut commander : rôle admin ou engineer). Les bons sont décrits même quand l'appelant ne peut pas les ouvrir (un bon n'est lisible que par son auteur et les administrateurs).",
     parameters: [project, requestId],
     responses: { "200": success("ApiMaterialRequestOrders", "Situation des lignes et bons de la demande.", ordersSummary), ...readRefusals },
+  },
+  {
+    tags, method: "get", path: "/api/affaires/{projectId}/supply-cost", summary: "Coût des fournitures d'une affaire",
+    description: "Pour les lecteurs de l'affaire (propriétaire, administrateur, directeur), par type de fourniture, puis « non classé » (lignes sans type de fourniture ou sans article) et le port et les remises : le budget fournitures de la version acceptée par le client et le coût de ses bons de commande. budget_version : la version acceptée qui fait le budget (la plus haute si plusieurs, accepted_count dit combien), quelle que soit sa variante ; null quand aucune version n'est acceptée, et alors chaque budget_cents est null (pas de budget). Budget d'une ligne chiffrée : quantité × prix d'achat FO × provision FO × K FO (moteur 3 ; quantité × prix × K FO avant), arrondi au centime par ligne ; une ligne non chiffrée compte 0. ordered_cents : bons confirmés ou reçus de l'affaire, au prix réel ; pending_cents : brouillons et bons envoyés, au prix du devis retenu ; bons annulés et frais généraux exclus ; une remise compte en négatif. not_counted.estimate_orders : brouillons créés depuis un devis de l'affaire, sans affaire, non comptés. Montants en centimes.",
+    parameters: [project],
+    responses: { "200": success("ApiAffaireSupplyCost", "Budget et commandé par type de fourniture.", affaireSupplyCostSchema), ...readRefusals },
   },
   {
     tags, method: "post", path: `${one}/orders`, summary: "Créer les brouillons de commande d'une demande",
