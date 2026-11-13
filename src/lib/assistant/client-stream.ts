@@ -1,4 +1,5 @@
 import type { AssistantStreamEvent } from "@/lib/assistant/conversation";
+import { DOCUMENT_CITATION_SOURCE, UUID_PATTERN as UUID } from "@/lib/assistant/document-citations";
 
 /** Reads the answer's server-sent events as they arrive. A truncated last event is dropped: the stream was cut. */
 export async function readAssistantStream(response: Response, onEvent: (event: AssistantStreamEvent) => void) {
@@ -24,14 +25,19 @@ export async function readAssistantStream(response: Response, onEvent: (event: A
   }
 }
 
-export type AssistantTextPart = { type: "text"; value: string } | { type: "line"; versionId: string; id: string; label: string };
+export type AssistantTextPart =
+  | { type: "text"; value: string }
+  | { type: "line"; versionId: string; id: string; label: string }
+  | { type: "document"; documentId: string; page: number; label: string };
 
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const CITATION = new RegExp(`\\[\\[ligne:(${UUID})/(${UUID})\\|([^\\]\\n]{1,160})\\]\\]`, "gi");
+const LINE_CITATION = `\\[\\[ligne:(${UUID})/(${UUID})\\|([^\\]\\n]{1,160})\\]\\]`;
+const CITATION = new RegExp(`${LINE_CITATION}|${DOCUMENT_CITATION_SOURCE}`, "gi");
 
 /**
- * An answer as text and line citations (`[[ligne:<versionId>/<lineId>|<label>]]`:
- * the line is opened in the estimate it belongs to, not in the one on screen).
+ * An answer as text, line citations (`[[ligne:<versionId>/<lineId>|<label>]]`:
+ * the line is opened in the estimate it belongs to, not in the one on screen)
+ * and document citations (`[[doc:<documentId>/<page>|<label>]]`, checked by the
+ * server against what the answer read before it was saved).
  * While the answer streams, a citation whose end has not arrived yet is held back.
  */
 export function splitAssistantText(text: string, streaming: boolean): AssistantTextPart[] {
@@ -45,7 +51,9 @@ export function splitAssistantText(text: string, streaming: boolean): AssistantT
   let cursor = 0;
   for (const match of visible.matchAll(CITATION)) {
     if (match.index > cursor) parts.push({ type: "text", value: visible.slice(cursor, match.index) });
-    parts.push({ type: "line", versionId: match[1]!, id: match[2]!, label: match[3]!.trim() });
+    parts.push(match[1] !== undefined
+      ? { type: "line", versionId: match[1], id: match[2]!, label: match[3]!.trim() }
+      : { type: "document", documentId: match[4]!, page: Number(match[5]), label: match[6]!.trim() });
     cursor = match.index + match[0].length;
   }
   if (cursor < visible.length) parts.push({ type: "text", value: visible.slice(cursor) });

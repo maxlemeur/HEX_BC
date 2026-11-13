@@ -1,6 +1,9 @@
 import "server-only";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import {
+  AFFAIRE_INTAKE_BUCKET,
+  inferAffaireIntakeMimeType,
+} from "@/lib/affaires/intake";
 import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
@@ -26,6 +29,8 @@ export async function readAffaireDocumentPreview(
   projectId: string,
   documentId: string,
   download: boolean,
+  /** Stops the download (storage or Drive) when the caller no longer waits for it. */
+  signal?: AbortSignal,
 ) {
   const { context, project } = await requireAffaireProjectReadAccess(projectId);
   const { data, error } = await context.supabase
@@ -45,9 +50,14 @@ export async function readAffaireDocumentPreview(
     throw notFound("Ce document n’est plus disponible dans l’affaire.");
   if (data.size_bytes <= 0 || data.size_bytes > MAX_BYTES)
     throw badRequest("La taille du document ne permet pas son ouverture.");
+  const storedType = data.mime_type?.split(";")[0].trim().toLowerCase();
+  // A piece stored without a type is known by its name, as the assistant's
+  // reader knows it: a PDF it cites must open at the cited page.
   const mimeType =
-    data.mime_type?.split(";")[0].trim().toLowerCase() ??
-    "application/octet-stream";
+    storedType && storedType !== "application/octet-stream"
+      ? storedType
+      : (inferAffaireIntakeMimeType(data.file_name) ??
+        "application/octet-stream");
   if (!download && !INLINE_TYPES.has(mimeType))
     throw badRequest(
       "L’aperçu de ce format n’est pas disponible. Téléchargez le document pour l’ouvrir.",
@@ -56,7 +66,7 @@ export async function readAffaireDocumentPreview(
   if (data.storage_path) {
     const stored = await context.supabase.storage
       .from(AFFAIRE_INTAKE_BUCKET)
-      .download(data.storage_path);
+      .download(data.storage_path, undefined, signal ? { signal } : undefined);
     if (stored.error || !stored.data)
       throw notFound(
         "Le fichier n’est plus disponible. Actualisez le dossier.",
@@ -66,7 +76,7 @@ export async function readAffaireDocumentPreview(
     bytes = new Uint8Array(await stored.data.arrayBuffer());
   } else {
     try {
-      bytes = (await readLinkedDriveDocument(data)).bytes;
+      bytes = (await readLinkedDriveDocument(data, signal)).bytes;
     } catch (cause) {
       if (cause instanceof DriveError)
         throw new ApiError({

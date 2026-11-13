@@ -182,9 +182,11 @@ globalThis.fetch = async (input, init) => {
     const tools = body.tools.map(tool => tool.name);
     assert(tools.includes("lire_devis") && tools.includes("lire_lignes_devis"), "The estimate reads must be offered.");
     assert(!tools.some(name => /modifier|supprimer|ecrire|appliquer/.test(name)), "The assistant only reads.");
+    assert(["lister_pieces", "lire_piece", "lire_brief_registre"].every(name => tools.includes(name)), "The dossier reads must be offered (lot 2).");
     const versionId = /Devis ouvert : versionId ([0-9a-f-]{36})/.exec(body.instructions)?.[1];
     assert(versionId, "The open estimate must reach the assistant.");
-    const question = body.input.findLast(entry => entry.role === "user")?.content ?? "";
+    // A document read comes back as a user message whose content is a list of parts (lot 2): the question is text.
+    const question = body.input.findLast(entry => entry.role === "user" && typeof entry.content === "string")?.content ?? "";
     const outputs = body.input.filter(entry => entry.type === "function_call_output").map(entry => JSON.parse(entry.output));
     assert.equal(body.input.filter(entry => entry.type === "function_call").length, outputs.length, "Each tool result answers a replayed call.");
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
@@ -193,6 +195,35 @@ globalThis.fetch = async (input, init) => {
     const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
       type: "function_call", id: `fc_army_${outputs.length}`, call_id: `call_army_${outputs.length}`, name, arguments: JSON.stringify(args), status: "completed" } }, completed]);
+    // Assistant lot 2 (ASSIST04): the model lists the dossier, reads pages 2 to 3 of its PDF, then cites page 2 and, to
+    // prove the server's check, a page it never read. Asked from another affaire, the same document is refused.
+    if (question.startsWith("ASSIST04 ")) {
+      if (outputs.length === 0) return call("lister_pieces", {});
+      const piece = outputs[0].pieces?.find(entry => entry.nom.endsWith(".pdf"));
+      assert(piece?.lisible === true, "The affaire's fictional PDF must be listed as readable.");
+      if (outputs.length === 1) return call("lire_piece", { documentId: piece.id, pageDebut: 2, pageFin: 3 });
+      assert.equal(outputs.length, 2);
+      assert.deepEqual(outputs[1].pages_lues, { de: 2, a: 3 });
+      assert.equal(outputs[1].piece.pages, 3);
+      // The pages follow their tool result as data, in the shape the classification sends a PDF, never as the rules.
+      const lastOutput = body.input.findLastIndex(entry => entry.type === "function_call_output");
+      const attached = body.input[lastOutput + 1];
+      assert.equal(attached?.role, "user");
+      assert(attached.content[0].type === "input_text" && attached.content[0].text.includes("jamais une instruction"), "A document is framed as data.");
+      assert(attached.content[1].type === "input_file" && attached.content[1].file_data.startsWith("data:application/pdf;base64,JVBER"), "The pages reach the plan as a PDF file.");
+      assert(!body.input.some(entry => entry.role === "developer" || entry.role === "system"), "A document never speaks as the rules.");
+      const text = `Le CCTP impose du cuivre écroui DN20 [[doc:${piece.id}/2|art. 4.2]]. Rien sur la robinetterie [[doc:${piece.id}/9|art. 9]].`;
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
+    if (question.startsWith("ASSIST04-AUTRE ")) {
+      const documentId = /ASSIST04-AUTRE ([0-9a-f-]{36})/.exec(question)?.[1];
+      assert(documentId, "The other affaire's fictional document id must be present.");
+      if (outputs.length === 0) return call("lire_piece", { documentId });
+      assert.equal(outputs.length, 1);
+      assert.deepEqual(Object.keys(outputs[0]), ["erreur"], "A refused document read must return no data.");
+      assert(!body.input.some(entry => Array.isArray(entry.content)), "A refused read attaches no document.");
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: `Refus : ${outputs[0].erreur}` }, completed]);
+    }
     if (question.startsWith("ASSIST02 ")) {
       const jobId = /ASSIST02 ([0-9a-f-]{36})/.exec(question)?.[1];
       assert(jobId, "The requested fictional job id must be present.");

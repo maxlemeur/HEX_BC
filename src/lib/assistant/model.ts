@@ -86,7 +86,8 @@ export function createAssistantModel(options: {
           ...(access.reasoningEffort === null ? {} : { reasoning: { effort: access.reasoningEffort } }),
           // Nothing is stored at the provider: reasoning comes back encrypted and is replayed with the tool results.
           include: ["reasoning.encrypted_content"],
-          instructions: options.instructions,
+          // The loop's closing words on the last request go with the rules, never among what was read.
+          instructions: request.finalInstruction ? `${options.instructions}\n\n${request.finalInstruction}` : options.instructions,
           input: request.input,
           tools,
           tool_choice: request.toolsAllowed ? "auto" : "none",

@@ -13,14 +13,16 @@ const CONNECTION_REMOVED = "Le compte Google qui a lié ce fichier a été retir
  * The reader of a linked piece is often not the member who linked it: account errors
  * name that member's account instead of asking the reader to reconnect their own.
  */
-async function readWithLinkerAccount<T>(document: LinkedDriveDocument, read: (reader: GoogleDriveReader, fileId: string) => Promise<T>) {
+async function readWithLinkerAccount<T>(document: LinkedDriveDocument, read: (reader: GoogleDriveReader, fileId: string) => Promise<T>,
+  caller?: AbortSignal) {
   const configuration = driveConfiguration();
   if (!configuration.enabled) throw new DriveError(503, "DRIVE_DISABLED", "Google Drive est désactivé : le fichier lié n'a pas pu être lu.");
   if (!document.drive_file_id) throw new DriveError(422, "DRIVE_NOT_LINKED", "Ce document n'est pas lié à Google Drive.");
   const connectionId = document.drive_connection_id;
   if (!connectionId) throw new DriveError(422, "DRIVE_CONNECTION_REMOVED", CONNECTION_REMOVED);
   try {
-    const signal = AbortSignal.timeout(120_000);
+    const timeout = AbortSignal.timeout(120_000);
+    const signal = caller ? AbortSignal.any([timeout, caller]) : timeout;
     const reader = new GoogleDriveReader(await driveAccessToken(configuration, connectionId,
       { tenantId: document.tenant_id }, signal), signal, () => forgetDriveAccess(connectionId));
     return await read(reader, document.drive_file_id);
@@ -54,9 +56,9 @@ export async function readLinkedDriveFile(document: LinkedDriveDocument) {
  * Reads a linked Drive piece with the Google account of the member who linked it.
  * The dossier keeps no copy; an import made from it stores its own source file, as for any import.
  */
-export async function readLinkedDriveDocument(document: LinkedDriveDocument) {
+export async function readLinkedDriveDocument(document: LinkedDriveDocument, signal?: AbortSignal) {
   return readWithLinkerAccount(document, async (reader, fileId) => {
     const file = await currentFile(reader, fileId, document);
     return { bytes: await reader.download(file), file };
-  });
+  }, signal);
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("@/lib/assistant/threads-server", () => ({ readAssistantThread: vi.fn(), appendAssistantMessage: vi.fn() }));
 vi.mock("@/lib/assistant/model", () => ({ createAssistantModel: vi.fn() }));
@@ -6,7 +7,9 @@ vi.mock("@/lib/assistant/tools", () => ({ buildAssistantTools: vi.fn(() => []) }
 
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { prepareAssistantReply, runAssistantReply, type AssistantStreamEvent } from "@/lib/assistant/conversation";
+import type { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import type { AssistantModelRequest, CallAssistantModel } from "@/lib/assistant/loop";
+import { buildAssistantTools } from "@/lib/assistant/tools";
 import { createAssistantModel } from "@/lib/assistant/model";
 import { inConversationOrder } from "@/lib/assistant/thread-order";
 import { appendAssistantMessage, readAssistantThread, type AssistantMessage } from "@/lib/assistant/threads-server";
@@ -66,6 +69,78 @@ describe("assistant conversation", () => {
   });
 
   const QUESTION = "0b9d6c1e-3f4a-4c2b-9d7e-1a2b3c4d5e6f";
+
+  it("saves an answer whose document citations name only the pages it read, under the document's own name", async () => {
+    threadWith([]);
+    const cctp = "11111111-1111-4111-8111-111111111111";
+    vi.mocked(buildAssistantTools).mockImplementationOnce((scope) => [{
+      name: "lire_piece", description: "Lit une pièce.", activity: "Lecture d’une pièce du dossier", input: z.object({}).passthrough(),
+      run: async () => {
+        (scope.documents as AssistantDocumentLedger).recordRead({ documentId: cctp, fileName: "CCTP.pdf", pagesTotal: 8, from: 1, to: 3, pages: 3, bytes: 10 });
+        return { pages_lues: { de: 1, a: 3 } };
+      },
+    }]);
+    const answer = `Le CCTP impose du cuivre [[doc:${cctp}/2|art. 4]] ; la robinetterie est en [[doc:${cctp}/7|art. 9]].`;
+    let calls = 0;
+    modelAnswering(async (_request, onDelta) => {
+      calls += 1;
+      if (calls === 1) return { text: "", toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage };
+      onDelta({ type: "text", delta: answer });
+      return { text: answer, toolCalls: [], replayItems: [], usage };
+    });
+    const events = await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP sur le cuivre ?" }));
+    const saved = `Le CCTP impose du cuivre [[doc:${cctp}/2|CCTP.pdf, p. 2]] ; la robinetterie est en art. 9 (source non vérifiée).`;
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({ role: "assistant", status: "complete", content: saved }));
+    expect(events.at(-1)).toMatchObject({ type: "done", message: { content: saved } });
+  });
+
+  describe("a page counts only for what the model wrote after a request that carried it succeeded", () => {
+    const cctp = "11111111-1111-4111-8111-111111111111";
+    function readTool() {
+      vi.mocked(buildAssistantTools).mockImplementationOnce((scope) => [{
+        name: "lire_piece", description: "Lit une pièce.", activity: "Lecture d’une pièce du dossier", input: z.object({}).passthrough(),
+        run: async () => {
+          (scope.documents as AssistantDocumentLedger).recordRead({ documentId: cctp, fileName: "CCTP.pdf", pagesTotal: 8, from: 1, to: 3, pages: 3, bytes: 10 });
+          return { pages_lues: { de: 1, a: 3 } };
+        },
+      }]);
+    }
+
+    it("keeps as text a citation written before the read that fetched its page", async () => {
+      threadWith([]);
+      readTool();
+      let calls = 0;
+      modelAnswering(async (_request, onDelta) => {
+        calls += 1;
+        const text = calls === 1 ? `Le CCTP dit [[doc:${cctp}/2|art. 4]].` : `Je confirme [[doc:${cctp}/2|art. 4]].`;
+        onDelta({ type: "text", delta: text });
+        return calls === 1
+          ? { text, toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage }
+          : { text, toolCalls: [], replayItems: [], usage };
+      });
+      await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+      expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+        status: "complete", content: `Le CCTP dit art. 4 (source non vérifiée).\n\nJe confirme [[doc:${cctp}/2|CCTP.pdf, p. 2]].`,
+      }));
+    });
+
+    it("keeps as text a citation of a page whose request failed", async () => {
+      threadWith([]);
+      readTool();
+      let calls = 0;
+      modelAnswering(async (_request, onDelta) => {
+        calls += 1;
+        if (calls === 1) return { text: "", toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage };
+        onDelta({ type: "text", delta: `Le CCTP dit [[doc:${cctp}/2|art. 4]]` });
+        throw new StructuredAiError("AI_REQUEST_REJECTED", "refusé", 400);
+      });
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+      expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+        status: "failed", content: "Le CCTP dit art. 4 (source non vérifiée)",
+      }));
+    });
+  });
 
   it("answers the question being retried again, without saving it twice nor replaying its failed attempts", async () => {
     threadWith([
@@ -203,5 +278,25 @@ describe("assistant conversation", () => {
     vi.mocked(appendAssistantMessage).mockRejectedValue(new Error("row security"));
     const events = await reply(prepared);
     expect(events.at(-1)).toMatchObject({ type: "done", message: null, error: { code: "AI_NOT_SAVED" } });
+  });
+  it("saves a failed answer, with Réessayer, when the forced last request only asks for a tool", async () => {
+    threadWith([]);
+    vi.mocked(buildAssistantTools).mockImplementationOnce((scope) => [{
+      name: "lire_piece", description: "Lit une pièce.", activity: "Lecture d’une pièce du dossier", input: z.object({}).passthrough(),
+      run: async () => {
+        (scope.documents as AssistantDocumentLedger).recordRead({ documentId: "11111111-1111-4111-8111-111111111111", fileName: "a.pdf", pagesTotal: 99, from: 1, to: 30, pages: 30, bytes: 10 });
+        return { pages_lues: { de: 1, a: 30 } };
+      },
+    }]);
+    const call = { text: "", toolCalls: [{ callId: "c1", name: "lire_piece", arguments: "{}" }], replayItems: [], usage };
+    const requests = modelAnswering(async () => call);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const events = await reply(await prepareAssistantReply("thread-1", { content: "Que dit le CCTP ?" }));
+    // The reading budget is spent: the second request is the last one and offers no tool.
+    expect(requests.map((request) => request.toolsAllowed)).toEqual([true, false]);
+    expect(appendAssistantMessage).toHaveBeenLastCalledWith(context, expect.objectContaining({
+      role: "assistant", status: "failed", errorCode: "AI_PROVIDER_FAILED",
+    }));
+    expect(events.at(-1)).toMatchObject({ type: "done", error: { code: "AI_PROVIDER_FAILED" } });
   });
 });

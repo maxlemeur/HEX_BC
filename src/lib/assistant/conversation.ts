@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
 import { runAssistantLoop, type AssistantEvent } from "@/lib/assistant/loop";
 import { createAssistantModel } from "@/lib/assistant/model";
 import { assistantScreenSchema, buildAssistantInstructions } from "@/lib/assistant/prompt";
@@ -101,12 +102,24 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
   let afterTool = false;
   const activity: AssistantActivity[] = [];
   const started = new Map<string, { name: string; activity: string }>();
+  // The documents this answer reads. Each request's text has its citations checked against the pages seen by the
+  // time that request succeeded: a page read later, or carried by a request that failed, cannot be cited by it.
+  const documents = new AssistantDocumentLedger();
+  let checked = "";
+  let pending = "";
+  const savedText = () => (checked + documents.resolveCitations(pending)).trim();
   const forward = (event: AssistantEvent) => {
+    if (event.type === "model_turn_finished") {
+      checked += documents.resolveCitations(pending);
+      pending = "";
+      return;
+    }
     if (event.type === "text") {
       // Text written after a read starts a new paragraph, here as in the saved answer.
       const delta = afterTool && written ? `\n\n${event.delta}` : event.delta;
       afterTool = false;
       written += delta;
+      pending += delta;
       emit({ type: "text", delta });
       return;
     }
@@ -123,7 +136,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
   let failure: { code: string; message: string } | null = null;
   let model: ReturnType<typeof createAssistantModel> | null = null;
   try {
-    const tools = buildAssistantTools({ context, projectId: project.id });
+    const tools = buildAssistantTools({ context, projectId: project.id, documents });
     model = createAssistantModel({
       owner: { userId: context.userId, tenantId: context.tenantId }, tools,
       instructions: buildAssistantInstructions({
@@ -133,12 +146,12 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     });
     const result = await runAssistantLoop({
       input: [...historyInput(prepared.history), { role: "user", content: prepared.question.content }],
-      tools, callModel: model.callModel, emit: forward,
+      tools, callModel: model.callModel, emit: forward, documents,
       signal: AbortSignal.any([interrupted, AbortSignal.timeout(TURN_TIMEOUT_MS)]),
     });
     outcome = {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: "complete",
-      content: written.trim() || result.text,
+      content: savedText() || documents.resolveCitations(result.text),
       activity: result.tools, model: model.lastModel(), tokenUsage: result.usage,
     };
   } catch (error) {
@@ -146,7 +159,7 @@ export async function runAssistantReply(prepared: Prepared, emit: (event: Assist
     // Stopped before anything was written or read: there is nothing to keep.
     outcome = !failure && !written.trim() && activity.length === 0 ? null : {
       threadId: thread.id, role: "assistant", replyTo: prepared.question.id, status: failure ? "failed" : "interrupted",
-      content: written.trim(),
+      content: savedText(),
       activity, model: model?.lastModel() ?? null, errorCode: failure?.code ?? null,
     };
   }

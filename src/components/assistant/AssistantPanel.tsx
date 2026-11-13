@@ -15,6 +15,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { affaireIntakeFileUrl } from "@/lib/affaires/intake";
 import { readAssistantStream, splitAssistantText } from "@/lib/assistant/client-stream";
 import type { AssistantActivity, AssistantMessage } from "@/lib/assistant/threads-server";
 
@@ -31,39 +32,67 @@ class AssistantUserError extends Error {
 
 const CONNECTION_FAILED = "La connexion à l’assistant a échoué. Vérifiez votre réseau, puis réessayez.";
 const PENDING = "pending-";
+/** An answer kept on screen without having been saved: the server never checked its citations. */
+const LOCAL = "local-";
 
 const SUGGESTIONS: Record<AssistantScope["screen"]["screen"], string[]> = {
   estimate_editor: [
     "Comment se décompose le total de ce devis ?",
     "Quelles lignes ne sont pas encore chiffrées ?",
     "Quelles sont les sections les plus lourdes ?",
+    "Que dit le CCTP sur les matériaux imposés ?",
   ],
   takeoff_review: [
     "Résume ce métré en quelques lignes.",
     "Quelles lignes du métré restent à vérifier ?",
     "Quelles quantités semblent incohérentes ?",
   ],
-  affaire: ["Quels devis existent sur cette affaire ?", "Quel est le total du dernier devis ?"],
+  affaire: ["Quels devis existent sur cette affaire ?", "Quel est le total du dernier devis ?", "Quelles pièces contient le dossier ?"],
 };
 
 /** Codes whose fix is in the profile page: the ChatGPT account, its model or its allowance. */
 const PROFILE_CODES = new Set(["AI_AUTH_REQUIRED", "AI_NOT_CONFIGURED", "AI_QUOTA", "AI_RATE_LIMIT", "AI_REQUEST_REJECTED"]);
 const NEW_THREAD = "";
 
-function AnswerText({ text, streaming }: { text: string; streaming: boolean }) {
+/**
+ * An answer with its citations. A cited line opens in the estimate it belongs
+ * to. A cited page opens the dossier's own preview of the document at that
+ * page, in a new tab so that the editor stays as it was. Document citations are
+ * links only once the server saved the answer: it keeps only the pages the
+ * answer read. While the answer is written, or if it could not be saved, they
+ * stay plain text.
+ */
+function AnswerText({ text, streaming, projectId, verified }: { text: string; streaming: boolean; projectId: string; verified: boolean }) {
   return (
     <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-      {splitAssistantText(text, streaming).map((part, index) => part.type === "text" ? part.value : (
-        // A cited line opens in the estimate it belongs to, which may not be the one on screen.
-        <Link
-          key={`${part.id}-${index}`}
-          href={`/dashboard/estimates/${part.versionId}/edit?focusItemId=${part.id}`}
-          className="font-medium text-primary underline underline-offset-2"
-          data-testid="assistant-line-link"
-        >
-          {part.label}
-        </Link>
-      ))}
+      {splitAssistantText(text, streaming).map((part, index) => {
+        if (part.type === "text") return part.value;
+        if (part.type === "line") {
+          return (
+            <Link
+              key={`${part.id}-${index}`}
+              href={`/dashboard/estimates/${part.versionId}/edit?focusItemId=${part.id}`}
+              className="font-medium text-primary underline underline-offset-2"
+              data-testid="assistant-line-link"
+            >
+              {part.label}
+            </Link>
+          );
+        }
+        if (!verified) return part.label;
+        return (
+          <a
+            key={`${part.documentId}-${part.page}-${index}`}
+            href={`${affaireIntakeFileUrl(projectId, part.documentId, "preview")}#page=${part.page}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline underline-offset-2"
+            data-testid="assistant-document-link"
+          >
+            {part.label}
+          </a>
+        );
+      })}
     </p>
   );
 }
@@ -160,7 +189,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
     const running = new Map<string, { name: string; activity: string }>();
     let finished = false;
     const local = (status: AssistantMessage["status"]): AssistantMessage => ({
-      id: `local-${Date.now()}`, role: "assistant", status, content: written.trim(), activity, errorCode: null,
+      id: `${LOCAL}${Date.now()}`, role: "assistant", status, content: written.trim(), activity, errorCode: null,
       createdAt: new Date().toISOString(),
     });
     try {
@@ -313,7 +342,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
         {empty ? (
           <div className="space-y-3" data-testid="assistant-empty">
             <p className="text-sm text-foreground-secondary">
-              Posez une question sur ce {screen.screen === "takeoff_review" ? "métré" : "devis"}. L’assistant lit vos données et ne modifie rien.
+              Posez une question sur ce {screen.screen === "takeoff_review" ? "métré" : "devis"} ou sur les pièces du dossier. L’assistant lit vos données et ne modifie rien.
             </p>
             <ul className="space-y-1.5">
               {SUGGESTIONS[screen.screen].map((suggestion) => (
@@ -336,7 +365,9 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
         ) : (
           <div key={message.id} className="space-y-2" data-testid="assistant-message-assistant" data-status={message.status}>
             <ActivityList activity={message.activity} />
-            {message.content ? <AnswerText text={message.content} streaming={false} /> : null}
+            {message.content ? (
+              <AnswerText text={message.content} streaming={false} projectId={projectId} verified={!message.id.startsWith(LOCAL)} />
+            ) : null}
             {message.status === "interrupted" ? <p className="text-xs text-muted-foreground">Réponse interrompue.</p> : null}
             {message.status === "failed" && !failure ? <p className="text-xs text-muted-foreground">Cette réponse n’a pas abouti.</p> : null}
           </div>
@@ -344,7 +375,7 @@ export default function AssistantPanel({ scope, activeThreadId, onActiveThreadCh
         {draft ? (
           <div className="space-y-2" data-testid="assistant-draft">
             <ActivityList activity={draft.activity} running={draft.running} />
-            {draft.text ? <AnswerText text={draft.text} streaming />
+            {draft.text ? <AnswerText text={draft.text} streaming projectId={projectId} verified={false} />
               : draft.running ? null : <Spinner aria-label="L’assistant réfléchit" />}
           </div>
         ) : null}
