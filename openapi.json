@@ -92663,6 +92663,10 @@
                                   "type": "string",
                                   "maxLength": 16
                                 }
+                              },
+                              "proposal": {
+                                "type": "string",
+                                "maxLength": 120
                               }
                             },
                             "required": [
@@ -92768,6 +92772,56 @@
                             "prompt_version": {
                               "type": "string",
                               "maxLength": 64
+                            },
+                            "rules_version": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "filtered": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "enum": [
+                                  "grey",
+                                  "pattern",
+                                  "frame_layer",
+                                  "architecture_layer",
+                                  "legend_sample",
+                                  "air_duct"
+                                ]
+                              },
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "ruled": {
+                              "type": "object",
+                              "properties": {
+                                "same_colour": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "band": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "propagated": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "same_colour",
+                                "band",
+                                "propagated"
+                              ],
+                              "additionalProperties": false
                             },
                             "candidates": {
                               "anyOf": [

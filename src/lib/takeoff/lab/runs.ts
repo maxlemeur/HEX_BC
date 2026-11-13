@@ -248,7 +248,7 @@ async function preflightDecisions(paths: LabPaths, request: LabRunRequest, task:
   if (budget.used >= cap) {
     throw conflict(`Plafond Decisions atteint : ${budget.used} jetons sur ${cap}. Thanh peut relever TAKEOFF_LAB_DECISIONS_MAX_TOKENS.`, undefined, "TAKEOFF_LAB_DECISIONS_CAP");
   }
-  // « Classe de calque » draws its own images on the server (group-sheet-server.ts): no browser image.
+  // « Classe de calque » draws its own images on the server (group-evidence-render-server.ts): no browser image.
   if (task.id !== LAB_VECTOR_TASK_ID && !request.image) throw badRequest("Decisions a besoin de l’image de la page ou de la zone : rechargez le document.");
   return cap - budget.used;
 }

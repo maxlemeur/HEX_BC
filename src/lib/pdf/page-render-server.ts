@@ -160,17 +160,27 @@ const MARK = "__PDF_PAGE_RENDER__";
 // Base64 thumbnail (≤ 4/3 × maxBytes) + bounded text, JSON-escaped, per line.
 const LINE_OVERHEAD_BYTES = 256 * 1024;
 
+/**
+ * What a drawing reading (`stopAtErrors: false`) warns, as pdfjs-dist 6.5.438 words it (module comment): the images it
+ * leaves out, and the content errors that fail its picture closed. Shared with the vector groups' images
+ * (group-evidence-render-server.ts, TI-704).
+ */
+export const PDF_DRAWING_WARNINGS = {
+  leftOut: ["Image exceeded maximum allowed size and was removed.", 'Unable to decode image "'].map((text) => `Warning: ${text}`),
+  contentErrors: ["Unable to decode inline image: ", "handleTilingType - ignoring pattern: ", "ensureStateFont: ",
+    "_handleColorSpace - ignoring ColorSpace: ", "parseShading - ignoring shading: ", "getOperatorList - ignoring XObject: ",
+    "getOperatorList - ignoring Shading: ", "getOperatorList - ignoring ExtGState: ", "getOperatorList - ignoring beginMarkedContentProps: ",
+    "getOperatorList - ignoring errors during ", "buildFontPaths - ignoring ", "getContentStream - ignoring sub-stream "].map((text) => `Warning: ${text}`),
+} as const;
+
 const CHILD_SCRIPT = String.raw`
 const input = JSON.parse(process.argv[1]);
 const bytes = require("node:fs").readFileSync(0);
 const MARK = ${JSON.stringify(MARK)};
 const send = message => process.stdout.write(MARK + JSON.stringify(message) + "\n");
 // What the drawing reading leaves out, as pdfjs-dist 6.5.438 warns it (module comment of page-render-server.ts).
-const LEFT_OUT = ["Image exceeded maximum allowed size and was removed.", 'Unable to decode image "'].map(text => "Warning: " + text);
-const CONTENT_ERRORS = ["Unable to decode inline image: ", "handleTilingType - ignoring pattern: ", "ensureStateFont: ",
-  "_handleColorSpace - ignoring ColorSpace: ", "parseShading - ignoring shading: ", "getOperatorList - ignoring XObject: ",
-  "getOperatorList - ignoring Shading: ", "getOperatorList - ignoring ExtGState: ", "getOperatorList - ignoring beginMarkedContentProps: ",
-  "getOperatorList - ignoring errors during ", "buildFontPaths - ignoring ", "getContentStream - ignoring sub-stream "].map(text => "Warning: " + text);
+const LEFT_OUT = ${JSON.stringify(PDF_DRAWING_WARNINGS.leftOut)};
+const CONTENT_ERRORS = ${JSON.stringify(PDF_DRAWING_WARNINGS.contentErrors)};
 // The render being drawn; only counts are kept, so a page cannot grow the heap with warnings.
 let drawing = null;
 // pdfjs.AnnotationMode, once pdfjs is loaded.

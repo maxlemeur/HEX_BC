@@ -286,7 +286,7 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   await expect.poll(() => browser.evaluate(() => [document.scrollingElement!.scrollHeight, window.innerHeight])
     .then(([scrollHeight, innerHeight]) => scrollHeight <= innerHeight)).toBe(true);
 
-  // « Classer avec Decisions »: one batch call for the one group the keywords leave, its images drawn by the server.
+  // « Classer avec Decisions »: one call for the one group the keywords leave, its image drawn by the server.
   const launch = screen.getByRole("button", "Classer avec Decisions", { exact: true });
   await expect(launch).toBeEnabled();
   const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }), launch.click()]);
@@ -300,10 +300,11 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   const panel = screen.getByRole("region", "Classement Decisions", { exact: true });
   await expect(panel).toContainText("Terminé");
   const bars = panel.getByRole("list", `Probabilités · ${decisions.layer}`, { exact: true });
-  await expect(bars.getByRole("listitem").first()).toContainText(/EU.*80\s%/);
+  // The bars show Decisions' probabilities (EU 0.9); the class, its margin over the next one (0.8).
+  await expect(bars.getByRole("listitem").first()).toContainText(/EU.*90\s%/);
   const sent = (await readTransport()).slice(transportStart);
   expect(sent.filter((entry) => entry.provider === "decisions-fixture")).toEqual([
-    { provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2 },
+    { provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1 },
   ]);
   expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
 
@@ -313,8 +314,8 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   const run = JSON.parse(await readFile(path.join(labOutputDir, "runs", runFiles[0]), "utf8"));
   const reseau = keywordGroups[decisions.layer];
   expect(run).toMatchObject({ status: "complete", stop: null, crop: null, task: { id: "classe-de-calque", kind: "choice" },
-    document: { id: LAB_VECTOR_DOCUMENT, source: "dataset", pages: 1 }, prompt: { base: "takeoff-vector-groups-v1" } });
-  expect(run.prompt.version).toMatch(/^takeoff-vector-groups-v1\+[0-9a-f]{64}$/);
+    document: { id: LAB_VECTOR_DOCUMENT, source: "dataset", pages: 1 }, prompt: { base: "takeoff-vector-groups-v2" } });
+  expect(run.prompt.version).toMatch(/^takeoff-vector-groups-v2\+[0-9a-f]{64}$/);
   expect(run.configs).toHaveLength(1);
   expect(run.configs[0]).toMatchObject({ provider: "decisions", model: "gpt-6-luna", status: "ok", usage: { total: 1 } });
   expect(run.configs[0].elements.map((element: { kind: string; key: string; label: string; detail: string; json: { answer: unknown } }) =>

@@ -77,8 +77,10 @@ Le premier périmètre comprend :
   reste retenue « À vérifier ». Voir [Préparation du métré](../metier/preparation-metre.md).
 - Métré, classes des groupes de tracés (TI-662) : dans le worker de niveau C, avec
   `MERGEONE_TAKEOFF_VECTORS=1` et `MERGEONE_TAKEOFF_DECISIONS=1`. Les groupes qu'aucun
-  mot-clé ne classe sont classés par Decisions. Plafonds : 10 appels groupés et 50
-  dédiés par document et traitement, et un plafond de jetons par traitement
+  mot-clé ne classe passent par les règles (même couleur, bande), puis Decisions pour
+  le reste (TI-704 : une question par groupe avec sa propre image, détail « low »,
+  classe retenue à un écart p1 − p2 de 0,5). Plafonds : 10 appels de 20 groupes par
+  document et traitement, et un plafond de jetons par traitement
   (`TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS`). Au premier échec, Decisions s'arrête pour le
   reste du traitement, sans relance. Un échec ne fait jamais échouer le métré : les
   groupes restent « à revoir ». En E2E (TKW10), le worker possédé charge la fixture fournisseur
@@ -88,8 +90,11 @@ Le premier périmètre comprend :
   (question `choice`, valeur « aucun » admise). La proposition ne coche aucune ligne
   et n’écrit rien ; voir [Reprise des prix](../metier/reprise-des-prix.md).
 
-L’adaptateur utilise `gpt-6-luna` et `POST /v1/decisions`. Il valide séparément
-chaque réponse, ses choix et ses scores. Une réponse absente, invalide ou refusée
+L’adaptateur utilise `gpt-6-luna` et `POST /v1/decisions`. Il accepte un message
+développeur, un `detail` par image, et des questions portant leurs propres parties
+(mots, JSON, image) ; l’empreinte de requête ne garde que le hachage des images. Il valide
+séparément chaque réponse, ses choix et ses scores. La `confidence` d’un choix est
+l’écart entre ses deux premières probabilités, pas la probabilité du choix. Une réponse absente, invalide ou refusée
 reste à revoir ; les autres restent exploitables. Une erreur réseau, de quota ou
 d’accès ne déclenche ni reprise automatique, ni autre fournisseur facturable.
 L’empreinte de requête inclut le tenant, l’utilisateur, les sources et les choix.
