@@ -786,6 +786,7 @@
         "src/components/material-requests/**",
         "src/lib/material-requests/**",
         "src/app/api/affaires/[projectId]/material-requests/**",
+        "src/app/api/affaires/[projectId]/supply-cost/**",
         "src/app/api/material-request-technicians/**",
         "src/app/api/products/[productId]/aliases/**",
         "src/app/api/products/[productId]/{supplier-items,preferred-supplier}/**",

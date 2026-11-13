@@ -41,6 +41,7 @@ import type {
   RetainLineSuppliersInput,
   RetainLineSuppliersResult,
 } from "./supplier-contracts";
+import type { AffaireSupplyCost } from "./supply-cost-contracts";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -128,6 +129,12 @@ export function readBlockedLines(error: unknown): MaterialRequestBlockedLine[] |
 
 export function fetchMaterialRequests(projectId: string, signal?: AbortSignal): Promise<MaterialRequestList> {
   return read(requestsPath(projectId), "Les demandes de matériel n’ont pas pu être chargées.", signal);
+}
+
+/** The supply cost of the affaire: budget of the accepted version face to its orders, per supply type (TI-691). */
+export function fetchAffaireSupplyCost(projectId: string, signal?: AbortSignal): Promise<AffaireSupplyCost> {
+  return read(`/api/affaires/${encodeURIComponent(projectId)}/supply-cost`,
+    "Le coût des fournitures n’a pas pu être chargé.", signal);
 }
 
 export function createMaterialRequest(

@@ -5029,6 +5029,98 @@
         }
       }
     },
+    "/api/affaires/{projectId}/supply-cost": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Coût des fournitures d'une affaire",
+        "description": "Pour les lecteurs de l'affaire (propriétaire, administrateur, directeur), par type de fourniture, puis « non classé » (lignes sans type de fourniture ou sans article) et le port et les remises : le budget fournitures de la version acceptée par le client et le coût de ses bons de commande. budget_version : la version acceptée qui fait le budget (la plus haute si plusieurs, accepted_count dit combien), quelle que soit sa variante ; null quand aucune version n'est acceptée, et alors chaque budget_cents est null (pas de budget). Budget d'une ligne chiffrée : quantité × prix d'achat FO × provision FO × K FO (moteur 3 ; quantité × prix × K FO avant), arrondi au centime par ligne ; une ligne non chiffrée compte 0. ordered_cents : bons confirmés ou reçus de l'affaire, au prix réel ; pending_cents : brouillons et bons envoyés, au prix du devis retenu ; bons annulés et frais généraux exclus ; une remise compte en négatif. not_counted.estimate_orders : bons créés depuis un devis de l'affaire, quel que soit leur statut sauf annulé ; ils ne portent pas l'affaire et ne sont pas comptés. Une affaire archivée n'est pas trouvée (404). Montants en centimes.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Budget et commandé par type de fourniture.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAffaireSupplyCost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'affaire n'est lisible que par son propriétaire, un administrateur ou un directeur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/bulk-archive": {
       "post": {
         "tags": [
@@ -38417,6 +38509,198 @@
             "required": [
               "lines",
               "references"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiAffaireSupplyCost": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "budget_version": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "version_number": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "variant_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "accepted_count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "version_number",
+                      "variant_label",
+                      "title",
+                      "accepted_count"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "supply_type",
+                        "unclassified",
+                        "shipping_discount"
+                      ]
+                    },
+                    "supply_type_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "budget_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ordered_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "pending_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "supply_type_id",
+                    "code",
+                    "name",
+                    "budget_cents",
+                    "ordered_cents",
+                    "pending_cents"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "budget_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ordered_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "pending_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "budget_cents",
+                  "ordered_cents",
+                  "pending_cents"
+                ],
+                "additionalProperties": false
+              },
+              "not_counted": {
+                "type": "object",
+                "properties": {
+                  "estimate_orders": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "estimate_orders"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "budget_version",
+              "rows",
+              "totals",
+              "not_counted"
             ],
             "additionalProperties": false
           }
