@@ -522,3 +522,39 @@ distincts. Commande ciblée depuis la racine du dépôt :
 ```sh
 npm exec -- vitest run --project node src/app/api/imports src/lib/imports/server.test.ts src/proxy.test.ts
 ```
+
+## Politiques Storage du bucket `devis` — 13 novembre 2026
+
+Une lecture seule de `pg_policies` sur la base Supabase partagée, le 13 novembre 2026, a relevé quatre politiques
+permissives sur `storage.objects` qu'aucune migration ne crée :
+- `devis_read` (SELECT) ;
+- `devis_insert` (INSERT) ;
+- `devis_update` (UPDATE) ;
+- `devis_delete` (DELETE).
+
+Elles sont accordées à `authenticated` sur la seule condition `bucket_id = 'devis'`. Les politiques permissives se
+cumulent : celles-ci annulaient les politiques par tenant et par auteur de
+[20260708120000](../supabase/migrations/20260708120000_harden_devis_storage_policies.sql) et de
+[20260713140454](../supabase/migrations/20260713140454_harden_estimate_procurement_write_roles.sql). Tout membre
+connecté, de n'importe quel tenant, pouvait donc lister, lire, remplacer ou supprimer les documents joints aux bons de
+commande de tous les tenants.
+
+| Sévérité | Statut | Correctif | Tests et contrôle légitime |
+| --- | --- | --- | --- |
+| high | `fixed` : base partagée corrigée le 13/11/2026 à 19:36:16 UTC, avec le go du propriétaire ; migration enregistrée après la fusion | [20261113184326_drop_broad_devis_storage_policies.sql](../supabase/migrations/20261113184326_drop_broad_devis_storage_policies.sql) supprime les quatre politiques. Sans elles, la base est inchangée. | [devis-storage-isolation.test.sql](../supabase/tests/database/devis-storage-isolation.test.sql) recrée les quatre politiques et montre la fuite (lecture par l'administrateur d'un autre tenant). Il rejoue ensuite la migration. L'autre tenant ne liste, ne lit, ne remplace, ne supprime ni n'écrit plus rien, un lecteur du tenant ne supprime pas, et l'auteur lit toujours son document. L'invariant de [security-invariants.test.sql](../supabase/tests/database/security-invariants.test.sql) n'admet sur ce bucket que les trois politiques durcies. |
+
+**Correction directe de la base partagée.** Avec le go du propriétaire, les quatre `drop policy if exists` de la
+migration ont été exécutés en une transaction le 13 novembre 2026, avant la publication du correctif dans ce dépôt
+public :
+- **Avant :** sept politiques sur `storage.objects` nommaient le bucket `devis`, les trois durcies et les quatre
+  ci-dessus.
+- **Après (19:36:16 UTC) :** seules les trois durcies demeurent, aucune politique `devis_*` ne subsiste et RLS reste
+  active.
+- **Objets :** les 8 objets du bucket sont intacts, tous sous `purchase-orders/<bon>/`. Six n'ont plus de document
+  rattaché : aucun membre ne les lit plus, et leur nettoyage relève d'un autre lot.
+- **Avis de sécurité :** inchangés (26 INFO, 77 WARN, 1 WARN).
+- **Dépendances :** l'application n'en avait aucune. Les routes des bons de commande passent par les politiques
+  durcies, et le portail client par la clé `service_role`.
+
+La migration n'est pas encore inscrite dans l'historique distant. Elle le sera après la fusion, sans effet sur la base
+déjà corrigée, avec son reçu dans `docs/testing/`. L'origine de ces politiques n'est pas établie.
