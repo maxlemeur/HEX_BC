@@ -4,6 +4,7 @@ import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpread
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
 import { readAllRows } from "@/lib/supabase/read-all";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import {
   AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
   buildClassificationPrompt,
@@ -2990,6 +2991,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   projectId: string
 ): Promise<AffaireIntakeWorkspace> => {
   const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  // The brief is independent of the latest upload and its documents. Keep the
+  // original error order by awaiting it later, with early rejections observed.
+  const briefPromise = startConcurrentRead(fetchAffaireBriefForProject({
+    supabase: context.supabase,
+    projectId: project.id,
+  }));
 
   const { data: uploadData, error: uploadError } = await resolveSupabaseQuery<{
     data: unknown;
@@ -3015,10 +3022,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const upload = normalizeUploadRow(uploadData);
 
   if (!upload) {
-    const brief = await fetchAffaireBriefForProject({
-      supabase: context.supabase,
-      projectId: project.id,
-    });
+    const brief = await briefPromise;
 
     return {
       projectId: project.id,
@@ -3032,6 +3036,10 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       briefDraft: brief?.draft ?? null,
     };
   }
+
+  const analysisAvailabilityPromise = project.user_id === context.userId || context.tenantRole === "admin"
+    ? startConcurrentRead(getIntakeAnalysisAvailability(context))
+    : undefined;
 
   const { data: docsData, error: docsError } = await resolveSupabaseQuery<{
     data: unknown[];
@@ -3056,10 +3064,11 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const documents = (docsData ?? [])
     .map(normalizeDocumentRow)
     .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-  const brief = await fetchAffaireBriefForProject({
-    supabase: context.supabase,
-    projectId: project.id,
-  });
+  // Plan presence depends on the documents, but not on the brief.
+  const missingPiecesPromise = startConcurrentRead(getMissingPiecesForProject({
+    supabase: context.supabase, project, documents,
+  }));
+  const brief = await briefPromise;
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
@@ -3082,8 +3091,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     ],
   }));
   const [missingPieces, analysisAvailability] = await Promise.all([
-    getMissingPiecesForProject({ supabase: context.supabase, project, documents }),
-    project.user_id === context.userId || context.tenantRole === "admin" ? getIntakeAnalysisAvailability(context) : undefined,
+    missingPiecesPromise,
+    analysisAvailabilityPromise,
   ]);
 
   return {
