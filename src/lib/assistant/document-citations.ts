@@ -18,7 +18,9 @@ export type DocumentReadLimits = typeof DOCUMENT_READ_LIMITS;
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 /** `[[doc:<documentId>/<page>|<label>]]`, the citation of a page of an affaire's document. */
-export const DOCUMENT_CITATION_SOURCE = `\\[\\[doc:(${UUID})/([1-9][0-9]{0,4})\\|([^\\]\\n]{1,160})\\]\\]`;
+// The label cannot hold a bracket or a bar: a citation cannot hide inside another one's label.
+export const DOCUMENT_CITATION_SOURCE = `\\[\\[doc:(${UUID})/([1-9][0-9]{0,4})\\|([^\\[\\]|\\n]{1,160})\\]\\]`;
+const CITATION_OPENER = new RegExp(`\\[\\[doc:${UUID}/[0-9]{1,5}\\|`, "gi");
 
 type Read = { fileName: string; pages: Set<number> };
 
@@ -55,11 +57,24 @@ export class AssistantDocumentLedger {
    * that says it was not verified: a model can name a page it never saw.
    */
   resolveCitations(text: string) {
-    return text.replace(new RegExp(DOCUMENT_CITATION_SOURCE, "gi"), (_match, documentId: string, rawPage: string, label: string) => {
+    const pattern = new RegExp(DOCUMENT_CITATION_SOURCE, "gi");
+    const resolve = (value: string) => value.replace(pattern, (_match, documentId: string, rawPage: string, label: string) => {
       const page = Number(rawPage);
       const read = this.reads.get(documentId.toLowerCase());
       if (read?.pages.has(page)) return `[[doc:${documentId.toLowerCase()}/${page}|${read.fileName}, p. ${page}]]`;
-      return `${label.trim()} (source non vérifiée)`;
+      return `${label.replace(/[[\]|]/g, " ").trim()} (source non vérifiée)`;
     });
+    // Until nothing changes: removing a citation must not leave another one formed around it.
+    let current = text;
+    for (let next = resolve(current); next !== current; next = resolve(current)) current = next;
+    // What is left of a citation that was not kept (its opening) is dropped outside the citations kept.
+    const kept = [...current.matchAll(pattern)];
+    let cursor = 0;
+    let cleaned = "";
+    for (const match of kept) {
+      cleaned += current.slice(cursor, match.index).replace(CITATION_OPENER, "") + match[0];
+      cursor = match.index + match[0].length;
+    }
+    return cleaned + current.slice(cursor).replace(CITATION_OPENER, "");
   }
 }

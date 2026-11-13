@@ -39,4 +39,16 @@ describe("document citations of an answer", () => {
   it("counts the pages and bytes spent by the answer", () => {
     expect(ledger().budget()).toEqual({ pagesLeft: 30 - 13, bytesLeft: 16 * 1024 * 1024 - 1_500 });
   });
+  it("leaves no link behind when a citation is nested in another to slip past the check", () => {
+    const resolved = ledger().resolveCitations(`Voir [[doc:${listedOnly}/1|[[doc:${listedOnly}/7|Article signé]]]] et [[doc:${listedOnly}/2|[[doc:${cctp}/12|x]]]].`);
+    expect(resolved).not.toMatch(new RegExp(`\\[\\[doc:${listedOnly}`));
+    expect(resolved).toContain("Article signé (source non vérifiée)");
+    // A page that was read stays its own link, under the document's name.
+    expect(resolved).toContain(`[[doc:${cctp}/12|CCTP plomberie.pdf, p. 12]]`);
+  });
+
+  it("checks an identifier written in capitals like any other", () => {
+    expect(ledger().resolveCitations(`[[doc:${cctp.toUpperCase()}/12|a]] [[doc:${listedOnly.toUpperCase()}/1|b]]`))
+      .toBe(`[[doc:${cctp}/12|CCTP plomberie.pdf, p. 12]] b (source non vérifiée)`);
+  });
 });

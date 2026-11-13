@@ -64,6 +64,13 @@ describe("the affaire's documents read by the assistant", () => {
     expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", bytes: new Uint8Array([1, 2]) });
   });
 
+  it("refuses a format it does not read before fetching any of its bytes", async () => {
+    const { client } = recordingClient({ data: { id: DOCUMENT, file_name: "DPGF.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", document_kind: "dpgf" }, error: null });
+    grantAccess(client);
+    await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toThrow("pas encore lu");
+    expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
+  });
+
   it("tells a dossier refusal (gone, too large) to the model as it is worded", async () => {
     const { client } = recordingClient({ data: { id: DOCUMENT, file_name: "CCTP.pdf", mime_type: "application/pdf", document_kind: "cctp" }, error: null });
     grantAccess(client);
@@ -73,10 +80,11 @@ describe("the affaire's documents read by the assistant", () => {
 
   it("lists the affaire's available documents with their type, principal ones first", async () => {
     const { client, filters } = recordingClient({ data: [
-      { id: "d-2", file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: 2_000_000, document_kind: "plans", document_priority: "secondary" },
-      { id: "d-1", file_name: "CCTP.pdf", mime_type: "application/pdf", size_bytes: 500_000, document_kind: "cctp", document_priority: "primary" },
-      { id: "d-3", file_name: "DPGF.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 40_000, document_kind: "dpgf", document_priority: "primary" },
-      { id: "d-4", file_name: "Courrier.eml", mime_type: "message/rfc822", size_bytes: 3_000, document_kind: "emails", document_priority: "secondary" },
+      { id: "d-2", file_name: "Plan RDC.pdf", mime_type: "application/octet-stream", size_bytes: 2_000_000, document_kind: "plans", document_priority: "secondary", storage_path: "p/d-2" },
+      { id: "d-5", file_name: "Perdu.pdf", mime_type: "application/pdf", size_bytes: 1_000, document_kind: "cctp", document_priority: "primary", storage_path: null, drive_file_id: null },
+      { id: "d-1", file_name: "CCTP.pdf", mime_type: "application/pdf", size_bytes: 500_000, document_kind: "cctp", document_priority: "primary", storage_path: null, drive_file_id: "drive-1" },
+      { id: "d-3", file_name: "DPGF.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 40_000, document_kind: "dpgf", document_priority: "primary", storage_path: "p/d-3" },
+      { id: "d-4", file_name: "Courrier.eml", mime_type: "message/rfc822", size_bytes: 3_000, document_kind: "emails", document_priority: "secondary", storage_path: "p/d-4" },
     ], error: null });
     grantAccess(client);
     const listed = await listAffaireDocuments(AFFAIRE);

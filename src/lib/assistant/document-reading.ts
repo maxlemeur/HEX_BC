@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { degrees, PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 
 import { AssistantDocumentLedger, DOCUMENT_READ_LIMITS, type DocumentReadLimits } from "@/lib/assistant/document-citations";
 import { AssistantToolError } from "@/lib/assistant/loop";
@@ -24,13 +24,37 @@ export type PreparedDocumentRead = {
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const TEXT_TYPES = new Set(["text/plain", "text/csv"]);
+/** What a text read may weigh once JSON-encoded, well within what one tool result may carry (see the loop). */
+const TEXT_RESULT_CHARACTERS = 90_000;
 const BUDGET_SPENT = "Limite de pages lues atteinte pour cette réponse. Réponds avec ce que tu as déjà lu, et dis ce qui reste à lire.";
 
-function typeOf(fileName: string, mimeType: string | null) {
+const EXTENSION_TYPES: Record<string, string> = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", txt: "text/plain", csv: "text/csv",
+};
+
+/** The format a read sends, from the stored type or else the extension; null when the assistant does not read it. */
+export function documentReadType(fileName: string, mimeType: string | null) {
   const mime = mimeType?.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (mime && mime !== "application/octet-stream") return mime;
-  const extension = fileName.toLowerCase().split(".").pop();
-  return extension === "pdf" ? "application/pdf" : extension === "txt" ? "text/plain" : extension === "csv" ? "text/csv" : mime;
+  const type = mime && mime !== "application/octet-stream" ? mime : EXTENSION_TYPES[fileName.toLowerCase().split(".").pop() ?? ""] ?? "";
+  return type === "application/pdf" || IMAGE_TYPES.has(type) || TEXT_TYPES.has(type) ? type : null;
+}
+
+export const UNREADABLE_FORMAT = "Ce format n’est pas encore lu par l’assistant : seuls les PDF, les images (PNG, JPEG, WebP) et les fichiers texte le sont. "
+  + "Pour une DPGF en tableur, lis plutôt le devis qui l’a importée. L’utilisateur peut ouvrir la pièce dans le dossier.";
+
+/**
+ * The page's number in the document, in the top-left corner as the page is
+ * shown: on its visible box (a scan or a plan is often cropped) and turned with
+ * the page when it is displayed rotated.
+ */
+function stamp(page: PDFPage, text: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>) {
+  const box = page.getCropBox();
+  const angle = ((page.getRotation().angle % 360) + 360) % 360;
+  const at = angle === 90 ? { x: box.x + 10, y: box.y + 6 }
+    : angle === 180 ? { x: box.x + box.width - 6, y: box.y + 10 }
+      : angle === 270 ? { x: box.x + box.width - 10, y: box.y + box.height - 6 }
+        : { x: box.x + 6, y: box.y + box.height - 10 };
+  page.drawText(text, { ...at, size: 7, font, color: rgb(0.45, 0.45, 0.45), rotate: degrees(angle) });
 }
 
 /**
@@ -45,10 +69,7 @@ async function slicePdf(source: PDFDocument, from: number, count: number, total:
   const pages = await target.copyPages(source, indexes);
   pages.forEach((page, offset) => {
     target.addPage(page);
-    const box = page.getMediaBox();
-    page.drawText(`MergeOne - page ${from + offset} / ${total}`, {
-      x: box.x + 6, y: box.y + box.height - 10, size: 7, font, color: rgb(0.45, 0.45, 0.45),
-    });
+    stamp(page, `MergeOne - page ${from + offset} / ${total}`, font);
   });
   return target.save();
 }
@@ -74,12 +95,20 @@ async function preparePdf(input: { bytes: Uint8Array; pageStart?: number; pageEn
   let count = Math.min(wanted, input.limits.pagesPerRead, input.budget.pagesLeft);
   let cut: PreparedDocumentRead["cut"] = count === wanted ? null : count < input.limits.pagesPerRead ? "budget" : "pages";
   const byteCap = Math.min(input.limits.bytesPerRead, input.budget.bytesLeft);
-  let sliced = await slicePdf(source, from, count, total);
+  const slice = async (pages: number) => {
+    try {
+      return await slicePdf(source, from, pages, total);
+    } catch {
+      // A page whose content cannot be copied: the same answer as a file that cannot be opened.
+      throw new AssistantToolError(unreadable);
+    }
+  };
+  let sliced = await slice(count);
   // Heavy pages (a detailed plan) are sent fewer at a time rather than not at all.
   while (sliced.byteLength > byteCap && count > 1) {
     count = Math.max(1, Math.floor(count / 2));
     cut = byteCap < input.limits.bytesPerRead ? "budget" : "bytes";
-    sliced = await slicePdf(source, from, count, total);
+    sliced = await slice(count);
   }
   if (sliced.byteLength > byteCap) {
     throw new AssistantToolError(byteCap < input.limits.bytesPerRead ? BUDGET_SPENT
@@ -90,6 +119,13 @@ async function preparePdf(input: { bytes: Uint8Array; pageStart?: number; pageEn
     pagesTotal: total, from, to, cut, nextPage: to < end ? to + 1 : null, bytes: sliced.byteLength, text: null,
     parts: [{ type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${Buffer.from(sliced).toString("base64")}` }],
   };
+}
+
+/** Refuses a read once the answer has spent what it may read; checked again before a document is fetched. */
+export function assertDocumentBudget(ledger: AssistantDocumentLedger, limits: DocumentReadLimits = DOCUMENT_READ_LIMITS) {
+  const budget = ledger.budget(limits);
+  if (budget.pagesLeft <= 0 || budget.bytesLeft <= 0) throw new AssistantToolError(BUDGET_SPENT);
+  return budget;
 }
 
 /**
@@ -103,14 +139,14 @@ export async function prepareDocumentRead(input: {
   pageStart?: number; pageEnd?: number; ledger: AssistantDocumentLedger; limits?: DocumentReadLimits;
 }): Promise<PreparedDocumentRead> {
   const limits = input.limits ?? DOCUMENT_READ_LIMITS;
-  const budget = input.ledger.budget(limits);
-  if (budget.pagesLeft <= 0 || budget.bytesLeft <= 0) throw new AssistantToolError(BUDGET_SPENT);
-  const type = typeOf(input.fileName, input.mimeType);
+  const budget = assertDocumentBudget(input.ledger, limits);
+  const type = documentReadType(input.fileName, input.mimeType);
+  if (type === null) throw new AssistantToolError(UNREADABLE_FORMAT);
 
   let prepared: PreparedDocumentRead;
   if (type === "application/pdf") {
     prepared = await preparePdf({ bytes: input.bytes, pageStart: input.pageStart, pageEnd: input.pageEnd, budget, limits });
-  } else if (IMAGE_TYPES.has(type) || TEXT_TYPES.has(type)) {
+  } else {
     if ((input.pageStart ?? 1) > 1) throw new AssistantToolError("Cette pièce n’a qu’une page.");
     if (IMAGE_TYPES.has(type)) {
       if (input.bytes.byteLength > Math.min(limits.bytesPerRead, budget.bytesLeft)) {
@@ -122,15 +158,14 @@ export async function prepareDocumentRead(input: {
       };
     } else {
       const whole = new TextDecoder().decode(input.bytes);
-      const text = whole.slice(0, limits.textCharacters);
+      let text = whole.slice(0, limits.textCharacters);
+      // Quotes and control characters weigh several characters once encoded: what is recorded as read must reach the model.
+      while (JSON.stringify(text).length > TEXT_RESULT_CHARACTERS) text = text.slice(0, Math.floor(text.length * 0.8));
       prepared = {
         pagesTotal: 1, from: 1, to: 1, cut: text.length < whole.length ? "characters" : null, nextPage: null,
         bytes: new TextEncoder().encode(text).byteLength, parts: [], text,
       };
     }
-  } else {
-    throw new AssistantToolError("Ce format n’est pas encore lu par l’assistant : seuls les PDF, les images (PNG, JPEG, WebP) et les fichiers texte le sont. "
-      + "Pour une DPGF en tableur, lis plutôt le devis qui l’a importée. L’utilisateur peut ouvrir la pièce dans le dossier.");
   }
   input.ledger.recordRead({
     documentId: input.documentId, fileName: input.fileName, pagesTotal: prepared.pagesTotal,

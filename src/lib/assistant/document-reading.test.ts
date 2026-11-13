@@ -1,8 +1,8 @@
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import { AssistantDocumentLedger } from "@/lib/assistant/document-citations";
-import { DOCUMENT_READ_LIMITS, prepareDocumentRead } from "@/lib/assistant/document-reading";
+import { DOCUMENT_READ_LIMITS, documentReadType, prepareDocumentRead } from "@/lib/assistant/document-reading";
 import { AssistantToolError } from "@/lib/assistant/loop";
 
 /** A fictional PDF whose page N says « Article N ». */
@@ -107,5 +107,28 @@ describe("reading a document for the assistant", () => {
   it("refuses a format it does not read, and says what to do instead", async () => {
     await expect(read(new Uint8Array([1, 2, 3]), { fileName: "DPGF.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }))
       .rejects.toThrow("pas encore lu");
+  });
+  it("cuts a text file by what its result weighs once encoded, so that the model always gets what is recorded as read", async () => {
+    const text = "\u0001".repeat(DOCUMENT_READ_LIMITS.textCharacters);
+    const result = await read(new TextEncoder().encode(text), { fileName: "notes.txt", mimeType: "text/plain" });
+    expect(result.cut).toBe("characters");
+    expect(JSON.stringify(result.text).length).toBeLessThanOrEqual(90_000);
+  });
+
+  it("tells whether it can read a document before its bytes are fetched", () => {
+    expect(documentReadType("Plan.PDF", "application/octet-stream")).toBe("application/pdf");
+    expect(documentReadType("CCTP.pdf", null)).toBe("application/pdf");
+    expect(documentReadType("photo.jpg", "image/jpeg; q=1")).toBe("image/jpeg");
+    expect(documentReadType("DPGF.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).toBeNull();
+  });
+  it("reads a cropped plan shown rotated, keeping its rotation", async () => {
+    const plan = await PDFDocument.create();
+    const page = plan.addPage([1189, 841]);
+    page.setRotation(degrees(90));
+    page.setCropBox(40, 40, 1000, 700);
+    const result = await read(new Uint8Array(await plan.save()), { fileName: "Plan.pdf" });
+    expect(result).toMatchObject({ pagesTotal: 1, from: 1, to: 1, cut: null });
+    const sent = await PDFDocument.load(Buffer.from(String(result.parts[0]!.file_data).split(",")[1]!, "base64"));
+    expect(sent.getPage(0).getRotation().angle).toBe(90);
   });
 });

@@ -4,12 +4,11 @@ import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } f
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
+import { documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
 import { AssistantToolError } from "@/lib/assistant/loop";
 
 const NO_ACCESS = "Vous n’avez pas accès aux pièces de cette affaire.";
 const NOT_IN_AFFAIRE = "Cette pièce n’appartient pas à l’affaire de cette conversation, ou n’est plus disponible. Liste les pièces pour en choisir une.";
-/** The formats a read can send to the model (see document-reading). */
-const READABLE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain", "text/csv"]);
 const KIND_ORDER: AffaireIntakeDocumentKind[] = ["cctp", "dpgf", "bpu_dqe", "plans", "annexes", "emails", "a_classer"];
 const REGISTER_ENTRIES = 25;
 const REGISTER_TEXT = 500;
@@ -46,20 +45,22 @@ const kindLabel = (kind: string) => AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[kind as 
 export async function listAffaireDocuments(projectId: string) {
   const { context, project } = await affaireAccess(projectId);
   const { data, error } = await context.supabase.from("affaire_intake_documents")
-    .select("id, file_name, mime_type, size_bytes, document_kind, document_priority")
+    .select("id, file_name, mime_type, size_bytes, document_kind, document_priority, storage_path, drive_file_id")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("upload_status", "uploaded")
     .is("deleted_at", null).is("deletion_token", null)
-    .order("created_at", { ascending: true }).limit(200);
+    // « primary » sorts before « secondary »: a large dossier keeps its principal pieces within the limit.
+    .order("document_priority", { ascending: true }).order("created_at", { ascending: true }).limit(200);
   if (error) throw new AssistantToolError("Les pièces de cette affaire n’ont pas pu être lues.");
   const rank = (kind: string) => { const index = KIND_ORDER.indexOf(kind as AffaireIntakeDocumentKind); return index === -1 ? KIND_ORDER.length : index; };
-  const rows = [...data].sort((left, right) =>
+  // A piece with neither a stored copy nor a Drive link cannot be opened: it is not offered.
+  const rows = data.filter((row) => row.storage_path || row.drive_file_id).sort((left, right) =>
     Number(right.document_priority === "primary") - Number(left.document_priority === "primary")
     || rank(left.document_kind) - rank(right.document_kind) || left.file_name.localeCompare(right.file_name, "fr"));
   return {
     pieces: rows.map((row) => ({
       id: row.id, nom: row.file_name, type: kindLabel(row.document_kind), principale: row.document_priority === "primary",
       // Known once the document is read: nothing is extracted ahead of a question.
-      pages: null, lisible: READABLE_TYPES.has(mimeOf(row.mime_type) ?? ""), taille_ko: Math.round(row.size_bytes / 1024),
+      pages: null, lisible: documentReadType(row.file_name, row.mime_type) !== null, taille_ko: Math.round(row.size_bytes / 1024),
     })),
   };
 }
@@ -80,6 +81,8 @@ export async function loadAffaireDocument(input: { projectId: string; documentId
   if (lookup.error) throw new AssistantToolError("La pièce n’a pas pu être lue.");
   const row = lookup.data;
   if (!row) throw new AssistantToolError(NOT_IN_AFFAIRE);
+  // A format the assistant does not read is refused before its bytes are fetched (up to 50 MB, maybe from Drive).
+  if (documentReadType(row.file_name, row.mime_type) === null) throw new AssistantToolError(UNREADABLE_FORMAT);
   const document = await userFacing(() => readAffaireDocumentPreview(project.id, row.id, true));
   return {
     documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind),

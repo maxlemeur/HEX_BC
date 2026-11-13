@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { listAffaireDocuments, loadAffaireDocument, readAffaireBriefAndRegister } from "@/lib/assistant/affaire-reading-server";
 import { AssistantDocumentLedger, DOCUMENT_READ_LIMITS } from "@/lib/assistant/document-citations";
-import { prepareDocumentRead, type PreparedDocumentRead } from "@/lib/assistant/document-reading";
+import { assertDocumentBudget, prepareDocumentRead, type PreparedDocumentRead } from "@/lib/assistant/document-reading";
 import { compareEstimates, estimateLineDetail, estimateLines, estimateOutline, type EstimateReading } from "@/lib/assistant/estimate-reading";
 import { listAffaireEstimateVersions, loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
 import { AssistantToolError, AssistantToolResult, type AssistantTool } from "@/lib/assistant/loop";
@@ -20,7 +20,7 @@ const TAKEOFF_ITEMS_PAGE = 100;
 const CUT_REASONS: Record<NonNullable<PreparedDocumentRead["cut"]>, string> = {
   pages: `Lecture limitée à ${DOCUMENT_READ_LIMITS.pagesPerRead} pages.`,
   bytes: "Pages lourdes : moins de pages envoyées que demandé.",
-  budget: "Limite de pages de cette réponse presque atteinte.",
+  budget: "Limite de lecture de cette réponse presque atteinte.",
   characters: `Texte coupé à ${DOCUMENT_READ_LIMITS.textCharacters} caractères.`,
 };
 
@@ -148,6 +148,8 @@ export function buildAssistantTools(scope: {
       input: z.object({ documentId: id, pageDebut: page.optional(), pageFin: page.optional() }).strict(),
       run: async (raw) => {
         const input = raw as { documentId: string; pageDebut?: number; pageFin?: number };
+        // Nothing is fetched once the answer has read all it may.
+        assertDocumentBudget(documents);
         const document = await loadAffaireDocument({ projectId: scope.projectId, documentId: input.documentId });
         const read = await prepareDocumentRead({
           documentId: document.documentId, fileName: document.fileName, mimeType: document.mimeType, bytes: document.bytes,
