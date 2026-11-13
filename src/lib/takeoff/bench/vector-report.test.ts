@@ -4,10 +4,11 @@ import { buildBenchReport, type BenchReport, type BenchReportMetadata, type Pass
 import { createFixtureDataset } from "@/lib/takeoff/bench/bench-dataset.test-utils";
 import { loadBenchDataset } from "@/lib/takeoff/bench/dataset";
 import { measuredLengthsByScope, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
-import { GroupTruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
-import { buildScoreScopes, scoreScopes, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
+import { GroupTruthFileSchema, ManifestDocumentSchema, TruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
+import { buildScoreScopes, scoreScopes, type FalsePositiveGroup, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
+import type { TakeoffItem } from "@/lib/takeoff/types";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
 // Ways the comparison of the vector reading with the level C baseline (TI-662
@@ -767,5 +768,187 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     }
     // Without a measurement the section is absent.
     expect(renderVectorSections(passes, compareVectorWithBaseline(vector, baseline)).join("\n")).not.toContain("mesure au trait");
+  });
+});
+
+// Count keys in the comparison (TI-676): the counts (unit u) get a column of their own beside the lengths and the
+// surfaces, a measurement without verdict that leaves every score as it was. Ways it could misstate the counting,
+// written before the code:
+// - a count key out of score (« ens », not observable, ambiguous) counted among the scored keys, or a length or a
+//   surface counted as a count;
+// - a key read out of tolerance (an item attached) counted as missed, or a missed key as read;
+// - « exact » looser than the score's (u exact), or « à ±1 » leaving out the exact keys or letting a key two apart in;
+// - an extra count taken from a length's false positive, from an unreadable line whose key is unknown, or from an
+//   item the score keeps out of score (its key is priced « ens »); an extra count lost because the scope has no count
+//   key; a count read with the wrong DN counted only as missed, though the reading gave a key the truth lacks;
+// - the passes pooled or averaged instead of the median of each figure;
+// - the totals over other plans than the lengths' (a plan one run lost, the reserve mixed with the others);
+// - the raster slice credited to the vector reading, whose lines there are the baseline's;
+// - the lengths, the surfaces, their verdicts or the slices moved by the counts;
+// - report.md printing a quantity (the count of a devis line, a count read) instead of numbers of keys.
+describe("count keys in the vector comparison (TI-676)", () => {
+  /** A count key: the truth's count and the count a run read (null: missed), status as the score gives it (u exact). */
+  function countKey(index: number, expected: number, actual: number | null): KeyScore {
+    const status = actual === null ? "missed" : actual === expected ? "ok" : "out_of_tolerance";
+    return { ...key("count", status, actual === null ? -1 : (actual - expected) / expected, index), expected, actual, tolerance: 0 };
+  }
+  /** A false-positive group: a count key the truth lacks, a length, or unreadable lines (no key). */
+  function extra(kind: "count" | "length" | "unreadable", pairedWith: KeyLabel | null = null): FalsePositiveGroup {
+    return {
+      key: kind === "unreadable" ? null : kind === "count" ? { ...LABELS.count, organ: "purgeur", dn: null } : LABELS.length,
+      reason: kind === "unreadable" ? "organ_missing" : null, items: 1, quantity: 7, pages: ["a-plan-01:1"], designations: ["Fictional line"],
+      cause: kind === "unreadable" ? { label: "indetermine:illisible", origin: "indetermine", reason: "organ_missing" } : { label: "nous:invente", origin: "nous" },
+      paired_with: pairedWith,
+    };
+  }
+  /** The same scopes without their count keys nor their count groups: what the comparison stood on before the counts. */
+  function withoutCounts(source: BenchReport): BenchReport {
+    return { ...source, couples: source.couples.map((couple) => ({ ...couple, passes: couple.passes.map((pass) => ({ ...pass,
+      scopes: pass.scopes.map((entry) => ({ ...entry, keys: entry.keys.filter((score) => score.key.kind !== "count"),
+        false_positives: entry.false_positives.filter((group) => group.key?.kind !== "count") })) })) })) };
+  }
+  const counts = (keysCount: number, found: number | null, exact: number | null, withinOne: number | null, missed: number | null, extraCount: number | null) =>
+    ({ keys: keysCount, found, exact, within_one: withinOne, missed, extra: extraCount });
+  // Quantities no number of keys equals, so that report.md can be searched for them.
+  const EXPECTED = [137, 83, 59, 211];
+  const VECTOR = [countKey(0, 137, 137), countKey(1, 83, 82), countKey(2, 59, 61), countKey(3, 211, null), key("count", "out_of_score")];
+  const BASELINE = [countKey(0, 137, 136), countKey(1, 83, 83), countKey(2, 59, null), countKey(3, 211, 211), key("count", "out_of_score")];
+  const reserve = { role: "reserve" as const };
+
+  it("counts per scope the scored count keys, read, exact, within one, missed and extra", () => {
+    // A count read with the wrong DN: the truth's key is missed and the key read is extra, as the score pairs them.
+    const groups = [extra("count"), extra("count", VECTOR[3].key), extra("length"), extra("unreadable")];
+    const vector = report([[scope("a-plan-01", [...VECTOR, ...keys("length", [["ok", 0.02]])], { false_positives: groups })]], "vector");
+    const baseline = report([[scope("a-plan-01", [...BASELINE, ...keys("length", [["ok", 0.03]])])]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    // 137 exact; 82 for 83 within one; 61 for 59 two apart; 211 missed; the « ens » key out of score.
+    expect(comparison.counts.scopes).toEqual([{ scope: "truth/a-plan-01.json", documents: ["a-plan-01"], role: "truth",
+      vector: counts(4, 3, 1, 2, 1, 2), baseline: counts(4, 3, 2, 3, 1, 0) }]);
+    expect(comparison.counts.declared).toBe("measurement_only");
+    // The lengths are read as before: the count keys are none of them.
+    expect(comparison.scopes[0].vector.lengths).toEqual(metrics(1, 1, 1, 0.02));
+  });
+
+  it("reports the extra counts of a scope without count key, and nothing for a scope without counts", () => {
+    const vector = report([[scope("d-plan-01", keys("surface", [["ok", 0.01]])), scope("a-plan-01", keys("length", [["ok", 0.01]]))]], "vector");
+    const baseline = report([[scope("d-plan-01", keys("surface", [["ok", 0.01]]), { false_positives: [extra("count"), extra("count")] }),
+      scope("a-plan-01", keys("length", [["ok", 0.01]]))]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    expect(comparison.counts.scopes.map((entry) => [entry.scope, entry.vector, entry.baseline])).toEqual([
+      ["truth/a-plan-01.json", counts(0, null, null, null, null, 0), counts(0, null, null, null, null, 0)],
+      ["truth/d-plan-01.json", counts(0, null, null, null, null, 0), counts(0, null, null, null, null, 2)],
+    ]);
+  });
+
+  it("takes the median over the passes of each figure, never their pooled keys nor their mean", () => {
+    const pass = (vectorKeys: KeyScore[], extras: number) => [scope("a-plan-01", vectorKeys, { false_positives: Array.from({ length: extras }, () => extra("count")) })];
+    // Exact 0, 2 and 2 (mean 1.33, pooled 4); extra 0, 6 and 1 (mean 2.33, pooled 7).
+    const vector = report([pass([countKey(0, 137, null), countKey(1, 83, null)], 0), pass([countKey(0, 137, 137), countKey(1, 83, 83)], 6),
+      pass([countKey(0, 137, 137), countKey(1, 83, 83)], 1)], "vector");
+    const comparison = compareVectorWithBaseline(vector, vector);
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 2, 2, 2, 0, 1));
+    expect(comparison.counts.totals.truth.vector).toEqual(counts(2, 2, 2, 2, 0, 1));
+  });
+
+  it("totals the counts on the plans of the totals, the reserve apart, and leaves every other figure as it was", () => {
+    const vector = report([[
+      scope("a-plan-01", [countKey(0, 137, 137), countKey(1, 83, null), ...keys("length", [["ok", 0.01], ["missed"]])], { false_positives: [extra("count")] }),
+      scope("a-plan-02", [], { status: "read_failed", unread_pages: [{ document: "a-plan-02", start_page: 1, end_page: 1, status: "timeout" }] }),
+      scope("a-plan-09", [countKey(0, 59, 59), ...keys("length", [["missed"]])], reserve),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-01", [countKey(0, 137, 137), countKey(1, 83, 84), ...keys("length", [["ok", 0.05], ["missed"]])]),
+      scope("a-plan-02", [countKey(0, 211, 211), countKey(1, 59, 59), countKey(2, 83, 83)]),
+      scope("a-plan-09", [countKey(0, 59, null), ...keys("length", [["ok", 0.01]])], reserve),
+    ]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    expect(comparison.counts.totals).toEqual({
+      truth: { vector: counts(2, 1, 1, 1, 1, 1), baseline: counts(2, 2, 1, 2, 0, 0) },
+      reserve: { vector: counts(1, 1, 1, 1, 0, 0), baseline: counts(1, 0, 0, 0, 1, 0) },
+      all: { vector: counts(3, 2, 2, 2, 1, 1), baseline: counts(3, 2, 1, 2, 1, 0) },
+    });
+    // The plan the vector run lost is no scope of the comparison, as for the lengths.
+    expect(comparison.counts.scopes.map((entry) => entry.scope)).toEqual(comparison.scopes.map((entry) => entry.scope));
+    // The lengths, the surfaces and their verdicts are those of the same scopes without any count.
+    const before = compareVectorWithBaseline(withoutCounts(vector), withoutCounts(baseline));
+    expect(comparison.scopes).toEqual(before.scopes);
+    expect(comparison.totals).toEqual(before.totals);
+    expect(comparison.left_out_of_totals).toEqual(before.left_out_of_totals);
+  });
+
+  it("gives the counts per slice, the raster slice as an abstention of the vector reading, and leaves the slices as they were", () => {
+    const vector = report([[
+      scope("a-plan-02", [countKey(0, 137, 137), countKey(1, 83, null), ...keys("length", [["ok", 0.02]])], reserve),
+      // The vector run copies the baseline's lines on a raster plan: its counts here are the baseline's reading.
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], { ...reserve, false_positives: [extra("count")] }),
+      scope("c-plan-03", [countKey(0, 59, 59)], reserve),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-02", [countKey(0, 137, 138), countKey(1, 83, 83), ...keys("length", [["missed"]])], reserve),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], { ...reserve, false_positives: [extra("count")] }),
+      scope("c-plan-03", [countKey(0, 59, null)], reserve),
+    ]]);
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [3], "c-plan-03": ["vector", 1] })];
+    const slices = scopeSlices(passes, vector.couples[0].passes[0].scopes);
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices });
+    expect(comparison.counts.slices!.reserve).toEqual({
+      vector: { plans: ["truth/a-plan-02.json"], abstained: false, vector: counts(2, 1, 1, 1, 1, 0), baseline: counts(2, 2, 1, 2, 0, 0) },
+      raster: { plans: ["truth/c-plan-02.json"], abstained: true, vector: counts(2, null, null, null, null, null), baseline: counts(2, 2, 2, 2, 0, 1) },
+    });
+    // The mixed plan is in neither slice; the other plans' slices are empty.
+    expect(comparison.counts.slices!.all.vector.plans).toEqual(["truth/a-plan-02.json"]);
+    expect(comparison.counts.slices!.truth.vector).toEqual({ plans: [], abstained: false, vector: counts(0, null, null, null, null, null),
+      baseline: counts(0, null, null, null, null, null) });
+    expect(compareVectorWithBaseline(vector, baseline).counts.slices).toBeNull();
+    const before = compareVectorWithBaseline(withoutCounts(vector), withoutCounts(baseline), { slices });
+    expect(comparison.slices).toEqual(before.slices);
+    expect(comparison.totals).toEqual(before.totals);
+  });
+
+  it("scores the count lines the scorer builds: u and pce, a key priced « ens » out of score, a key the truth lacks extra", () => {
+    const manifest = ManifestDocumentSchema.parse({
+      id: "a-plan-01", lot: "a", kind: "plan", drive_id: "fixture-a-plan-01", original_title: "Fictional a-plan-01", project: null, file_type: "pdf",
+      file_size: 100, modified_time: "2026-01-06T10:00:00.000Z", raw_status: "binary", raw_path: "raw/a-plan-01.pdf", sha256: "0".repeat(64),
+      structure_check: { status: "passed", method: "fixture", detail: null }, pages: 1, format: "A0", scale: "1/50", index: "A", vector: true,
+      ocg_count: 0, level: "R+1", zone: "Z1", role: "truth", duplicate_of: null, notes: null,
+    });
+    const line = (row: number, overrides: Record<string, unknown>) => ({
+      kind: "count", zone: "Z1", level: "R+1", network: "EF", material: null, dn: null, organ: null, room: null, unit: "u", quantity: 1,
+      observable_on_plan: true, source: { document: "a-devis-01", sheet: "Lot", row, row_basis: "workbook", text: "Fictional row" }, ...overrides,
+    });
+    const truthFile = TruthFileSchema.parse({ schema_version: 1, lot: "a", scope: "document", documents: ["a-plan-01"], source_document: "a-devis-01",
+      rules: "Fictional rule.", lines: [
+        line(1, { dn: "DN 20", organ: "vanne", quantity: 3 }), line(2, { organ: "purgeur", quantity: 2 }),
+        line(3, { dn: "DN 20", organ: "compteur", unit: "ens" }),
+        line(4, { kind: "network", material: "cuivre", dn: "DN 22", unit: "ml", quantity: 10 }),
+      ] });
+    const item = (designation: string, quantity: number, unit: string): TakeoffItem =>
+      ({ designation, quantity, unit, source_page: 1, confidence: 0.9, evidence: "Fictional evidence" });
+    const [scored] = scoreScopes(buildScoreScopes([{ file: "truth/a-plan-01.json", truth: truthFile }], [manifest]), new Map([["a-plan-01", [
+      item("Vanne DN 20", 3, "u"), item("Purgeur d'air", 1, "pce"), item("Clapet anti-retour DN 20", 2, "u"), item("Compteur DN 20", 1, "u"),
+      item("Tube cuivre EF DN 22", 10, "ml"),
+    ]]]));
+    const run = report([[scored]], "vector");
+    const comparison = compareVectorWithBaseline(run, report([[scored]]));
+    // The vanne exact, the purgeur one apart, the clapet a key the truth lacks; the compteur's key is priced « ens ».
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 2, 1, 2, 0, 1));
+    expect(comparison.scopes[0].vector.lengths).toEqual(metrics(1, 1, 1, 0));
+  });
+
+  it("prints the counts in the comparison and the slices as numbers of keys, never a quantity", () => {
+    const groups = [extra("count"), extra("count")];
+    const vector = report([[scope("a-plan-02", [...VECTOR, ...keys("length", [["ok", 0.02]])], { ...reserve, false_positives: groups }),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], reserve), scope("d-plan-01", keys("surface", [["ok", 0.01]]))]], "vector");
+    const baseline = report([[scope("a-plan-02", [...BASELINE, ...keys("length", [["ok", 0.03]])], reserve),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], reserve),
+      scope("d-plan-01", keys("surface", [["ok", 0.01]]), { false_positives: [extra("count")] })]]);
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [2], "d-plan-01": ["vector"] })];
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices: scopeSlices(passes, vector.couples[0].passes[0].scopes) });
+    const markdown = renderVectorSections(passes, comparison).join("\n");
+    expect(markdown).toContain("| Comptages, vecteurs | Comptages, baseline |");
+    expect(markdown).toContain("| 1 exacte sur 4, 2 à ±1, 3 lues, 1 manquée, 2 en trop | 2 exactes sur 4, 3 à ±1, 3 lues, 1 manquée, 0 en trop |");
+    expect(markdown).toContain("aucune clé notée, 1 en trop");
+    expect(markdown).toContain("abstention (2 clés)");
+    for (const quantity of [...EXPECTED, 82, 61, 136, ...QUANTITIES.length, ...QUANTITIES.surface]) expect(markdown).not.toContain(String(quantity));
   });
 });
