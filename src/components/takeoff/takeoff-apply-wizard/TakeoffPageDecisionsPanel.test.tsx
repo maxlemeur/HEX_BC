@@ -30,7 +30,7 @@ const newLine = (n: number, designation: string, lineIds: number[], unit = "u") 
   id: id(n), designation, unit, quantity: 5, unit_key: unit, candidates: [{ key: "page-1", line_ids: lineIds.map(id) }],
 });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [], ...extra,
 });
 const DPGF = "Réseau de distribution sanitaire EF en tube cuivre DN 22";
 

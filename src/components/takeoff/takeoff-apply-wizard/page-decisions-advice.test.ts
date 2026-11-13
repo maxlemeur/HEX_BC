@@ -44,7 +44,7 @@ const unknownParts = (n: number, title: string, blocks: number[][]) => ({ id: id
   length_factor: 1, fed: [], earlier: blocks.map((pages) => ({ job_id: id(9000), item_ids: pages.map((onPage) => id(onPage === 0 ? 9999 - n : n + 1000 + onPage)),
     quantity: 16, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 1 })) });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [], ...extra,
 });
 
 /** The situations of TKD03 where a choice is disabled, as their proposals read. */

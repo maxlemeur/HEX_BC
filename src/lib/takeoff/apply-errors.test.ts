@@ -203,4 +203,36 @@ describe("mapApplyTakeoffRpcError, a line « Fusionner » sends onto a DPGF line
     expect(conflictOf(null).message).toBe("Vérifiez les quantités et les rattachements DPGF avant l’application. Une même prestation doit "
       + "conserver une base et un chiffrage cohérents.");
   });
+
+  // TI-723: onto a DPGF line this application neither feeds nor replaces a page of (`composed: false`), the merge would make
+  // it an ordinary takeoff line, its DPGF quantity and its composition lost. Written before the message (red on 4915259f:
+  // the message said the DPGF line's sum would erase the measure, the reverse of what happens).
+  it("names both lines and points to the reconciliation for a DPGF line the application does not compose", () => {
+    const error = conflictOf(JSON.stringify({ reason: "merged_outside_reconciliation", estimate_item_id: "00000000-0000-4000-8000-000000000302",
+      dpgf_title: "Calorifuge DN 22", dpgf_quantity: 8, dpgf_unit: "ml", takeoff_item_id: "00000000-0000-4000-8000-000000000102",
+      designation: "Calorifuge DN 22", quantity: 9, unit: "ml", fed: false, composed: false, linked: false }));
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
+    expect(error.details).toMatchObject({ guard: "dpgf_quantities", reason: "merged_outside_reconciliation", composed: false,
+      estimate_item_id: "00000000-0000-4000-8000-000000000302", takeoff_item_id: "00000000-0000-4000-8000-000000000102" });
+    expect(error.message).toBe("La fusion par désignation enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la ligne DPGF "
+      + "« Calorifuge DN 22 » (8 ml), que ce métré n’alimente pas : la fusion en ferait une ligne de métré ordinaire, sans sa quantité du DPGF "
+      + "ni sa composition. Rien n’est appliqué. Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité "
+      + "du DPGF gardée. Sinon, excluez-la à la revue du métré. Puis appliquez à nouveau.");
+  });
+
+  it("asks to check the links of a line the reconciliation links elsewhere, sent onto a DPGF line not composed", () => {
+    const error = conflictOf(JSON.stringify({ reason: "merged_outside_reconciliation", dpgf_title: "EF cuivre DN 22", dpgf_quantity: 4,
+      dpgf_unit: "ml", designation: "EF cuivre DN 22", quantity: 8, unit: "ml", fed: false, composed: false, linked: true }));
+    expect(error.message).toBe("La fusion par désignation enverrait « EF cuivre DN 22 » (8 ml) de ce métré, que le rapprochement relie à "
+      + "une autre ligne DPGF, aussi sur la ligne DPGF « EF cuivre DN 22 » (4 ml), que ce métré n’alimente pas : la fusion en ferait une ligne "
+      + "de métré ordinaire, sans sa quantité du DPGF ni sa composition. Rien n’est appliqué. Vérifiez les rattachements DPGF de cette "
+      + "ligne dans le rapprochement, puis appliquez à nouveau.");
+  });
+
+  // Counterexample: a detail written before TI-723 (no `composed`) keeps the TI-716 message, the line being composed.
+  it("reads a detail without `composed` as a DPGF line the application composes", () => {
+    const error = conflictOf(JSON.stringify({ reason: "merged_outside_reconciliation", dpgf_title: "EF cuivre DN 22", designation: "EF cuivre DN 22",
+      quantity: 3, unit: "ml", fed: false, linked: false }));
+    expect(error.message).toContain("à laquelle le rapprochement ne la relie pas : la ligne DPGF tient la somme de ce qui l’alimente");
+  });
 });

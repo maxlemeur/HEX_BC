@@ -129,7 +129,7 @@ describe("TakeoffApplyWizard", () => {
     vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
       unidentified_item_ids: [], other_takeoff_line_count: 0 });
     vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ job_id: JOB_ID, version_id: VERSION_ID, pages: [], lines: [], new_lines: [],
-      pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [] });
+      pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [] });
   });
 
   it("requires a fresh preview after an override changes", async () => {
@@ -248,7 +248,7 @@ describe("TakeoffApplyWizard", () => {
       dpgf_target: false, sources: [{ id: `${id.slice(0, -1)}9`, quantity: 12.4 }],
       length_factor: 1, assembly: false, outside_pages: false, ...extra });
     const proposal = (pageExtra: Record<string, unknown> = {}, lineA: Record<string, unknown> = {}): TakeoffPageReplacementResponse => ({
-      job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false, dpgf_targets: [],
+      job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [],
       jobs: [{ id: EARLIER_JOB, created_at: "2026-11-10T09:30:00.000Z", level: "C", source_file_name: "plan.pdf" }],
       pages: [{ key: "row-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [EARLIER_JOB],
         lines: [{ id: LINE_A, item_ids: [`${LINE_A.slice(0, -1)}9`] }, { id: LINE_B, item_ids: [`${LINE_B.slice(0, -1)}9`] }],

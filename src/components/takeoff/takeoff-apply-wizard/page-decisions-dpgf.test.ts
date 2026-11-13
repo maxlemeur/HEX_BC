@@ -16,7 +16,7 @@ type Proposal = TakeoffPageReplacementResponse;
 const proposal = (extra: Partial<Proposal>): Proposal => ({
   job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [{ id: earlierJob,
     created_at: "2026-11-10T09:00:00.000Z", level: "B", source_file_name: "plan.pdf" }], unidentified_count: 0, merge_required: true,
-  dpgf_targets: [], ...extra,
+  dpgf_targets: [], dpgf_merge_refusals: [], ...extra,
 });
 const dpgfLine = (n: number, title: string, quantity: number) => ({
   id: id(n), title, unit_key: "ml", quantity, measured_quantity: null, changed_by_hand: false, updated_at: "2026-11-12T10:00:00.000000+00:00",
@@ -168,5 +168,50 @@ describe("a DPGF part whose share per page is unknown, every page of it read aga
     expect(mixed.lines[0].advice[0].choose).toEqual([{ control: "page:page-2", value: "replace" }, { control: "page:page-1", value: "keep_both" }]);
     expect(mixed.lines[0].advice[0].elsewhere).toEqual([]);
     expect(mixed.complete).toBe(false);
+  });
+});
+
+// TI-723: « Fusionner » sends a takeoff line onto a DPGF line outside the reconciliation, which the database refuses
+// whatever the page decisions (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT). The step says so before anything is sent, naming
+// both lines, and points to the reconciliation; nothing confirms. Written before the step knew it (red on 4915259f: the
+// confirmation was complete, and the database refused it). Fictional values.
+describe("a line « Fusionner » sends onto a DPGF line outside the reconciliation", () => {
+  const refusal = (extra: Partial<Proposal["dpgf_merge_refusals"][number]> = {}): Proposal["dpgf_merge_refusals"][number] => ({
+    takeoff_item_id: id(401), designation: "Calorifuge DN 22", quantity: 9, unit: "ml", estimate_item_id: id(301), title: "Calorifuge DN 22",
+    dpgf_quantity: 8, unit_key: "ml", fed: false, linked: false, ...extra,
+  });
+
+  it("names both lines, points to the reconciliation, and withholds the confirmation, with no page already in the estimate", () => {
+    const data = proposal({ dpgf_merge_refusals: [refusal()] });
+    const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
+    expect([resolution.complete, resolution.payload]).toEqual([false, []]);
+    expect(resolution.merges.map((advice) => [advice.text, advice.choose, advice.elsewhere, advice.exits])).toEqual([[
+      "« Fusionner » enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré "
+        + "n’alimente pas. Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base "
+        + "refuse cette fusion.", [], ["link_in_dpgf_review", "exclude_at_review"],
+      ["Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.",
+        "Sinon, excluez-la à la revue du métré."]]]);
+  });
+
+  it("says a line not linked to a DPGF line this takeoff feeds is not linked there (TI-716)", () => {
+    const data = proposal({ dpgf_merge_refusals: [refusal({ title: "EF cuivre DN 22", dpgf_quantity: 20, designation: "EF cuivre DN 22",
+      quantity: 3, fed: true })] });
+    expect(resolveConfirmation(data, initialConfirmationDraft(data)).merges[0].text).toContain(
+      "sur la ligne DPGF « EF cuivre DN 22 » (20 ml), à laquelle le rapprochement ne la relie pas.");
+  });
+
+  it("asks to check the links of a line the reconciliation links elsewhere, without asking to link it here", () => {
+    const data = proposal({ dpgf_merge_refusals: [refusal({ linked: true })] });
+    const [advice] = resolveConfirmation(data, initialConfirmationDraft(data)).merges;
+    expect([advice.text.startsWith("« Fusionner » enverrait « Calorifuge DN 22 » (9 ml) de ce métré, que le rapprochement relie à une autre "
+      + "ligne DPGF, aussi sur la ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré n’alimente pas."), advice.elsewhere, advice.exits])
+      .toEqual([true, ["link_in_dpgf_review"], ["Vérifiez les rattachements DPGF de cette ligne dans le rapprochement."]]);
+  });
+
+  // Counterexample: without a refusal, the same proposal confirms.
+  it("confirms when the reconciliation feeds what « Fusionner » sends onto a DPGF line", () => {
+    const data = proposal({});
+    const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
+    expect([resolution.complete, resolution.merges]).toEqual([true, []]);
   });
 });

@@ -42,6 +42,7 @@ import {
 import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
 import { TakeoffPageDecisionsPanel } from "./takeoff-apply-wizard/TakeoffPageDecisionsPanel";
 import { TakeoffDpgfTargetsPanel } from "./takeoff-apply-wizard/TakeoffDpgfTargetsPanel";
+import { TakeoffDpgfMergePanel } from "./takeoff-apply-wizard/TakeoffDpgfMergePanel";
 import { initialConfirmationDraft, resolveConfirmation, type ConfirmationDraft } from "./takeoff-apply-wizard/page-decisions";
 import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
@@ -78,6 +79,10 @@ type TakeoffApplyWizardProps = {
   reviewHref?: string;
   /** The job's targeted review (TI-664 L5c), offered beside the blocked lines. */
   targetedReviewHref?: string;
+  /** TI-723: the job's DPGF reconciliation, offered beside a line « Fusionner » would send onto a DPGF line outside it. */
+  dpgfReviewHref?: string;
+  /** TI-723: opens that reconciliation from a host without its address (the wizard closes first). */
+  onOpenDpgfReview?: () => void;
   presetStrategy?: TakeoffApplyStrategy;
 };
 
@@ -101,6 +106,8 @@ export function TakeoffApplyWizard({
   onReturnToReview,
   reviewHref,
   targetedReviewHref,
+  dpgfReviewHref,
+  onOpenDpgfReview,
   presetStrategy,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
@@ -270,7 +277,10 @@ export function TakeoffApplyWizard({
     return () => controller.abort();
   }, [jobId, pageRequest]);
   useEffect(() => {
-    if (submitErrorGuard === "page_already_applied" || submitErrorGuard === "page_decision") setPageReadCount((count) => count + 1);
+    // TI-723: a DPGF refusal too (the reconciliation's links may have changed): the proposal names the merges it refuses.
+    if (submitErrorGuard === "page_already_applied" || submitErrorGuard === "page_decision" || submitErrorGuard === "dpgf_quantities") {
+      setPageReadCount((count) => count + 1);
+    }
   }, [submitError, submitErrorGuard]);
   const pageRead = pageProposal && pageProposal.key === pageRequest ? pageProposal : null;
   const pageDraft = useMemo(() => {
@@ -474,6 +484,13 @@ export function TakeoffApplyWizard({
                   onOverrideActionChange={handleOverrideActionChange}
                   onOverrideParamChange={handleOverrideParamChange}
                 />
+              )}
+
+              {step === 4 && (
+                // TI-723: a line « Fusionner » would send onto a DPGF line outside the reconciliation: named before anything is
+                // sent, the confirmation withheld (the resolution is not complete), the reconciliation offered.
+                <TakeoffDpgfMergePanel resolution={pageResolution} dpgfReviewHref={dpgfReviewHref}
+                  onOpenDpgfReview={dpgfReviewHref || onOpenDpgfReview ? () => { handleOpenChange(false); onOpenDpgfReview?.(); } : undefined} />
               )}
 
               {step === 4 && (

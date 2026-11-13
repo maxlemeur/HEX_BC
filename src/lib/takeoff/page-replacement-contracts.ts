@@ -157,6 +157,27 @@ const dpgfTargetSchema = z.object({
 }).strict();
 export type TakeoffPageReplacementDpgfTarget = z.infer<typeof dpgfTargetSchema>;
 
+/**
+ * TI-723: a line « Fusionner » sends onto a DPGF line outside the reconciliation, which the database refuses
+ * (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT, merged_outside_reconciliation) whatever the page decisions: a DPGF line takes a
+ * measure only through its reconciliation. Accepted only when this takeoff feeds that DPGF line (`fed`) and the
+ * reconciliation links the line to some DPGF line (`linked`).
+ */
+const dpgfMergeRefusalSchema = z.object({
+  takeoff_item_id: uuid,
+  designation: z.string(),
+  quantity: z.number(),
+  unit: z.string(),
+  /** The DPGF line « Fusionner » sends it onto, and what it holds now. */
+  estimate_item_id: uuid,
+  title: z.string(),
+  dpgf_quantity: z.number().nullable(),
+  unit_key: z.string(),
+  fed: z.boolean(),
+  linked: z.boolean(),
+}).strict();
+export type TakeoffPageReplacementDpgfMergeRefusal = z.infer<typeof dpgfMergeRefusalSchema>;
+
 export const takeoffPageReplacementResponseSchema = z.object({
   job_id: uuid,
   /** The version the application writes into: the takeoff's own. */
@@ -179,6 +200,8 @@ export const takeoffPageReplacementResponseSchema = z.object({
   merge_required: z.boolean(),
   /** TI-682 D4: the DPGF targets the application touches (empty outside a DPGF version). */
   dpgf_targets: z.array(dpgfTargetSchema),
+  /** TI-723: the lines « Fusionner » sends onto a DPGF line outside the reconciliation (empty outside a DPGF version). */
+  dpgf_merge_refusals: z.array(dpgfMergeRefusalSchema),
 }).strict().superRefine((proposal, ctx) => {
   const pairs = new Set<string>();
   for (const pair of proposal.pairs) {

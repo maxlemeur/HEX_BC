@@ -203,11 +203,19 @@ const dpgfMergedSchema = z.object({
   quantity: z.number().nullable().optional(),
   unit: z.string().nullable().optional(),
   fed: z.boolean().optional(),
+  /**
+   * TI-723: whether this application composes the DPGF line (feeds it, or replaces one of its pages). False: neither, the
+   * merge would make it an ordinary takeoff line. Absent (a detail written before TI-723): composed.
+   */
+  composed: z.boolean().optional(),
+  /** TI-723: what the DPGF line holds before the application. */
+  dpgf_quantity: z.number().nullable().optional(),
+  dpgf_unit: z.string().nullable().optional(),
   /** The reconciliation links the line to another DPGF target, where it is counted. */
   linked: z.boolean().optional(),
 });
 
-/** TI-716: what the database named when « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation. */
+/** TI-716, TI-723: what the database named when « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation. */
 function parseDpgfMerged(detail: string | null | undefined) {
   if (!detail) return null;
   try {
@@ -318,14 +326,25 @@ export function mapApplyTakeoffRpcError(
   if (normalized.includes("takeoff_dpgf_quantity_")) {
     const stale = normalized.includes("snapshot_stale");
     const merge = normalized.includes("merge_required");
-    // TI-716: « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation; its sum would erase it.
+    // TI-716: « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation; its sum would erase it. TI-723:
+    // or onto a DPGF line this application does not compose, which would lose its DPGF quantity.
     const merged = normalized.includes("mapping_conflict") ? parseDpgfMerged(error.details) : null;
     if (merged) {
-      const measure = typeof merged.quantity === "number"
-        ? ` (${quantityFormat.format(merged.quantity)}${merged.unit?.trim() ? ` ${merged.unit.trim()}` : ""})` : "";
-      const line = `« ${merged.designation?.trim() || "une ligne"} »${measure}`;
+      const measureOf = (quantity: number | null | undefined, unit: string | null | undefined) => (typeof quantity === "number"
+        ? ` (${quantityFormat.format(quantity)}${unit?.trim() ? ` ${unit.trim()}` : ""})` : "");
+      const line = `« ${merged.designation?.trim() || "une ligne"} »${measureOf(merged.quantity, merged.unit)}`;
+      // TI-723: onto a DPGF line this application neither feeds nor replaces a page of. The merge would make it an
+      // ordinary takeoff line; linked to it in the reconciliation, the line feeds it through its composition instead.
+      const target = `la ligne DPGF « ${merged.dpgf_title} »${measureOf(merged.dpgf_quantity, merged.dpgf_unit)}, que ce métré n’alimente pas : `
+        + "la fusion en ferait une ligne de métré ordinaire, sans sa quantité du DPGF ni sa composition. Rien n’est appliqué.";
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
-        message: merged.linked
+        message: merged.composed === false
+          ? merged.linked
+            ? `La fusion par désignation enverrait ${line} de ce métré, que le rapprochement relie à une autre ligne DPGF, aussi sur ${target} `
+              + "Vérifiez les rattachements DPGF de cette ligne dans le rapprochement, puis appliquez à nouveau."
+            : `La fusion par désignation enverrait ${line} de ce métré sur ${target} Reliez cette ligne à la ligne DPGF dans le `
+              + "rapprochement : elle l’alimentera, sa quantité du DPGF gardée. Sinon, excluez-la à la revue du métré. Puis appliquez à nouveau."
+          : merged.linked
           ? `La fusion par désignation enverrait ${line} de ce métré, que le rapprochement relie à une autre ligne DPGF, aussi sur la `
             + `ligne DPGF « ${merged.dpgf_title} » : la somme de cette ligne effacerait la mesure. Rien n’est appliqué. Vérifiez les `
             + "rattachements DPGF de cette ligne dans le rapprochement, puis appliquez à nouveau."

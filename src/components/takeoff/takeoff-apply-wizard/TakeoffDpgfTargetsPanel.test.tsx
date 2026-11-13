@@ -18,6 +18,7 @@ const data: TakeoffPageReplacementResponse = {
   dpgf_targets: [{ id: id(300), title: "Lavabo double vasque", unit_key: "u", quantity: 4, reference: 4, length_factor: null,
     earlier: [{ job_id: id(9000), item_ids: [id(101)], quantity: 4, protective: 0, printed_gap: 0, source_file_name: "ensemble.pdf", source_page: 1 }],
     fed: [{ item_id: id(201), quantity: 4, protective: 0, printed_gap: 0, source_file_name: "agrandi.pdf", source_page: 1 }] }],
+  dpgf_merge_refusals: [],
 };
 
 describe("« Lignes DPGF » at the application's confirmation", () => {

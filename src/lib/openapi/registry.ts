@@ -3259,7 +3259,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/page-replacement",
     summary: "Proposition de remplacement des pages deja au devis",
     description:
-      "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base.",
+      "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base. TI-723 : sur une version DPGF, dpgf_merge_refusals nomme chaque ligne que « Fusionner » enverrait sur une ligne DPGF hors du rapprochement, que la base refuse (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT).",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter],
     requestBody: takeoffPageReplacementBody,

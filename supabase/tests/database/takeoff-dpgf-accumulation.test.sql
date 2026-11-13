@@ -9,6 +9,9 @@
 -- (dpgf_not_replaced), and a version 1 policy was overwritten without being read.
 -- TI-716 (cases 12, 18, 21 and 22), written before …_takeoff_dpgf_merge_refusals.sql (red on 30b94880): a line « Fusionner »
 -- sent onto a DPGF target the relaunch feeds was overwritten by its composition, and neither refusal named its line.
+-- TI-723 (cases 23 and 24, and case 5's fixture), written before …_takeoff_dpgf_merge_any_line.sql (red on 4915259f): a line
+-- « Fusionner » sent onto a DPGF line the application neither feeds nor replaces a page of overwrote it (an ordinary takeoff
+-- line, its DPGF reference and its composition lost), and a linked line sent there was refused without a name.
 -- One draft per case (engine 3), section ...<case>002, DPGF target ...<case>003 (a second one ...<case>004 in case 5),
 -- takeoffs M1 ...<case>011, M2 ...<case>012, M3 ...<case>013; their lines ...<case><job>nn. All values are fictional.
 begin;
@@ -86,8 +89,16 @@ insert into da_cases values
   -- outside the reconciliation.
   (21, 'EF cuivre DN 22', 'ml', 5),
   -- 22 (TI-716): the same onto a target fed from a page no takeoff read before.
-  (22, 'EF cuivre DN 22', 'ml', 5);
+  (22, 'EF cuivre DN 22', 'ml', 5),
+  -- 23 (TI-723): a relaunch line of a second DPGF line's title, which no takeoff feeds and whose page none replaces.
+  (23, 'EF cuivre DN 22', 'ml', 5),
+  -- 24 (TI-723): two DPGF lines of one title; the relaunch's second line, linked to the first, merged onto the second.
+  (24, 'EF cuivre DN 22', 'ml', 4);
 grant select on da_cases to authenticated;
+-- A second DPGF line of a case (...<case>004), after its target in the section.
+create temporary table da_seconds (case_no integer primary key, title text not null, unit text not null, reference numeric not null)
+  on commit drop;
+insert into da_seconds values (5, 'Calorifuge DN 22', 'ml', 8), (23, 'Calorifuge DN 22', 'ml', 8), (24, 'EF cuivre DN 22', 'ml', 4);
 
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
   currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
@@ -113,14 +124,14 @@ begin
       pg_temp.da_id(c.case_no * 1000 + 2), 'line', 1, c.title, c.unit, c.reference, c.unit, 1000, 2000, 1, 0, 1, 1000,
       (c.reference * 1000)::bigint, (c.reference * 200)::bigint, (c.reference * 1200)::bigint, 'dpgf', 'dpgf-fictif.xlsx', 7,
       jsonb_build_object('dpgf_source_quantity', c.reference, 'dpgf_source_unit', c.unit), 1);
-    if c.case_no = 5 then
-      insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
-        quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
-        line_tax_cents, line_total_ttc_cents, source_provider, source_file_name, source_page, source_metadata, fo_provision)
-      values (pg_temp.da_id(5004), current_setting('test.tenant_id')::uuid, pg_temp.da_id(5001), pg_temp.da_id(5002), 'line', 2,
-        'Calorifuge DN 22', 'ml', 8, 'ml', 500, 2000, 1, 0, 1, 500, 4000, 800, 4800, 'dpgf', 'dpgf-fictif.xlsx', 8,
-        '{"dpgf_source_quantity":8,"dpgf_source_unit":"ml"}', 1);
-    end if;
+    insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
+      quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
+      line_tax_cents, line_total_ttc_cents, source_provider, source_file_name, source_page, source_metadata, fo_provision)
+    select pg_temp.da_id(c.case_no * 1000 + 4), current_setting('test.tenant_id')::uuid, pg_temp.da_id(c.case_no * 1000 + 1),
+      pg_temp.da_id(c.case_no * 1000 + 2), 'line', 2, second.title, second.unit, second.reference, second.unit, 500, 2000, 1, 0, 1, 500,
+      (second.reference * 500)::bigint, (second.reference * 100)::bigint, (second.reference * 600)::bigint, 'dpgf', 'dpgf-fictif.xlsx', 8,
+      jsonb_build_object('dpgf_source_quantity', second.reference, 'dpgf_source_unit', second.unit), 1
+    from da_seconds second where second.case_no = c.case_no;
     perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(c.case_no * 1000 + 1), '{}'::uuid[]);
     perform set_config('miaouffrage.estimate_v3_writer', '', true);
   end loop;
@@ -162,7 +173,11 @@ insert into da_items values
   (21, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (21, 1, 2, 'EF cuivre DN 22', 6, 'ml', 2),
   (21, 2, 1, 'EF cuivre DN 22', 3, 'ml', 1), (21, 2, 2, 'EF cuivre DN 22', 8, 'ml', 1),
   (22, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1),
-  (22, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (22, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2);
+  (22, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (22, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2),
+  -- 23: the relaunch reads page 2 only; its one line has the title of the second DPGF line, fed by no takeoff.
+  (23, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (23, 2, 1, 'Calorifuge DN 22', 9, 'ml', 2),
+  -- 24: the relaunch's two lines feed the target; « Fusionner » sends the second onto the second line of their title.
+  (24, 1, 1, 'EF cuivre DN 22', 10, 'ml', 1), (24, 2, 1, 'EF cuivre DN 22', 3, 'ml', 2), (24, 2, 2, 'EF cuivre DN 22', 8, 'ml', 2);
 -- The lines whose quantity is an hypothesis its author entered (the provision marker's sources).
 create temporary table da_hypotheses (case_no integer, job_no integer, line_no integer, primary key (case_no, job_no, line_no))
   on commit drop;
@@ -301,6 +316,44 @@ returns void language sql as $$
     now() + interval '5 minutes'
 $$;
 
+-- TI-723: a permit whose reconciliation links these lines of the job to these DPGF lines of the case (p_feeds: each
+-- {"line": 3 or 4, the target ...<case>003 or the second line ...<case>004, "lines": [line numbers]}), as da_permit builds it.
+create or replace function pg_temp.da_permit_to(p_case integer, p_job integer, p_token text, p_feeds jsonb)
+returns void language sql as $$
+  insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+    review_summary, expires_at)
+  select current_setting('test.tenant_id')::uuid, pg_temp.da_job(p_case, p_job), pg_temp.da_version(p_case), pg_temp.da_id(1),
+    encode(sha256(convert_to(p_token, 'UTF8')), 'hex'),
+    jsonb_build_object('quantity_policy', (select jsonb_agg(jsonb_build_object(
+      'target_id', target.id, 'expected_updated_at', target.updated_at,
+      'reference_quantity', reference.value, 'measured_quantity', fed.total, 'priced_quantity', greatest(reference.value, fed.total),
+      'absolute_gap', abs(fed.total - reference.value), 'reviewed', false,
+      'source_file_name', 'dpgf-fictif.xlsx', 'source_page', target.source_page,
+      'source_metadata', target.source_metadata, 'takeoff_items', fed.items) order by target.id)
+      from jsonb_array_elements(p_feeds) as feed(value)
+      join public.estimate_items target on target.id = pg_temp.da_id(p_case * 1000 + (feed.value ->> 'line')::integer)
+      cross join lateral (select (target.source_metadata ->> 'dpgf_source_quantity')::numeric as value) as reference
+      cross join lateral (select sum(ti.quantity) as total, jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity,
+          'updated_at', ti.updated_at, 'measured', ti.quantity, 'protective', 0, 'printed_gap', 0) order by ti.id) as items
+        from public.takeoff_items ti where ti.id in (select pg_temp.da_item(p_case, p_job, line.value::integer)
+          from jsonb_array_elements_text(feed.value -> 'lines') as line(value))) as fed)),
+    now() + interval '5 minutes'
+$$;
+
+/** A DPGF line of a case (3: its target, 4: its second line): [quantity, provider, DPGF reference, composition or null]. */
+create or replace function pg_temp.da_line(p_case integer, p_line integer)
+returns jsonb language sql security definer as $$
+  select jsonb_build_array(item.quantity, item.source_provider, item.source_metadata -> 'dpgf_source_quantity',
+    (select jsonb_agg(jsonb_build_array(
+        (select job_no from generate_series(1, 2) job_no where pg_temp.da_job(p_case, job_no)::text = entry ->> 'job_id'),
+        (select line from generate_series(1, 3) line, generate_series(1, 2) job_no
+          where pg_temp.da_item(p_case, job_no, line)::text = entry #>> '{item_ids,0}'),
+        (entry ->> 'quantity')::numeric) order by entry ->> 'job_id', entry #>> '{item_ids,0}')
+      from jsonb_array_elements(item.source_metadata #> '{takeoff_quantity_policy,contributions}') as entry))
+  from public.estimate_items item where item.id = pg_temp.da_id(p_case * 1000 + p_line)
+$$;
+grant execute on function pg_temp.da_line(integer, integer) to authenticated;
+
 -- What a version 1 policy holds, as the application wrote it before D4 (one takeoff, its lines, its measure).
 create or replace function pg_temp.da_version_one(p_case integer, p_lines integer[], p_measured numeric, p_priced numeric)
 returns void language plpgsql as $$
@@ -330,9 +383,11 @@ returns jsonb language sql security definer as $$
   from jsonb_array_elements((pg_temp.da_target(p_case)).source_metadata #> '{takeoff_quantity_policy,contributions}') as entry
 $$;
 
--- Every first takeoff applies alone, feeding its target.
+-- Every first takeoff applies alone, feeding its target. TI-723: case 5's also writes a line of its second DPGF line's
+-- title, which its reconciliation links there (until TI-723 « Fusionner » overwrote that line without the link).
 select pg_temp.da_seed(c.case_no, 1) from da_cases c;
-select pg_temp.da_permit(c.case_no, 1, 'da-' || c.case_no || '-1') from da_cases c;
+select pg_temp.da_permit(c.case_no, 1, 'da-' || c.case_no || '-1') from da_cases c where c.case_no <> 5;
+select pg_temp.da_permit_to(5, 1, 'da-5-1', '[{"line": 3, "lines": [1]}, {"line": 4, "lines": [2]}]');
 select pg_temp.da_as();
 set local role authenticated;
 select is(pg_temp.da_apply('M1 ' || c.case_no, c.case_no, 1, 'da-' || c.case_no || '-1'), 'ok',
@@ -398,6 +453,8 @@ select pg_temp.da_permit(5, 2, 'da-5-2', jsonb_build_array(jsonb_build_object('t
 set local role authenticated;
 select is(pg_temp.da_apply('version one', 5, 2, 'da-5-2'), 'ok', 'a target of a version 1 policy is fed again');
 reset role;
+select is(pg_temp.da_line(5, 4), '[8, "dpgf", 8, [[1, 2, 7]]]'::jsonb,
+  'TI-723: the second DPGF line holds what the first takeoff fed it through the reconciliation, max(8, 7)');
 select is((pg_temp.da_target(5)).quantity, 23::numeric, 'it sums the takeoff of its version 1 policy and the new one');
 select is(pg_temp.da_composition(5), '[[1, 1, 12.4], [2, 1, 10.2]]'::jsonb, 'its version 1 takeoff is now one line of its composition');
 select is((select jsonb_build_array(item.quantity, item.updated_at = before.updated_at, item.source_metadata = before.source_metadata)
@@ -561,8 +618,9 @@ select is(jsonb_build_array((pg_temp.da_target(18)).quantity, (pg_temp.da_target
   'the target keeps what it holds');
 select is((select detail from da_outcome where case_name = 'merged onto a target not fed'), jsonb_build_object(
     'reason', 'merged_outside_reconciliation', 'estimate_item_id', (pg_temp.da_target(18)).id, 'dpgf_title', 'EF cuivre DN 22',
+    'dpgf_quantity', 16, 'dpgf_unit', 'ml',
     'takeoff_item_id', pg_temp.da_item(18, 2, 1), 'designation', 'EF cuivre DN 22', 'quantity', 3, 'unit', 'ml', 'fed', false,
-    'linked', false),
+    'composed', true, 'linked', false),
   'TI-716: the refusal names the line merged and the DPGF line it was sent onto');
 
 -- 19. A page whose only new line is excluded at the review is not read again: the application keeps its earlier part,
@@ -621,8 +679,9 @@ select is(pg_temp.da_apply('merged onto a target fed', 21, 2, 'da-21-2'), '40001
 reset role;
 select is((select detail from da_outcome where case_name = 'merged onto a target fed'), jsonb_build_object(
     'reason', 'merged_outside_reconciliation', 'estimate_item_id', (pg_temp.da_target(21)).id, 'dpgf_title', 'EF cuivre DN 22',
+    'dpgf_quantity', 16, 'dpgf_unit', 'ml',
     'takeoff_item_id', pg_temp.da_item(21, 2, 1), 'designation', 'EF cuivre DN 22', 'quantity', 3, 'unit', 'ml', 'fed', true,
-    'linked', false),
+    'composed', true, 'linked', false),
   'the refusal names the line merged and the DPGF line it was sent onto');
 select is(jsonb_build_array((pg_temp.da_target(21)).quantity, pg_temp.da_composition(21)), '[16, [[1, 1, 10], [1, 2, 6]]]'::jsonb,
   'the target keeps what it holds, its composition untouched');
@@ -637,6 +696,62 @@ select is((select detail ->> 'takeoff_item_id' from da_outcome where case_name =
   pg_temp.da_item(22, 2, 1)::text, 'the refusal names the line merged');
 select is(jsonb_build_array((pg_temp.da_target(22)).quantity, pg_temp.da_composition(22)), '[10, [[1, 1, 10]]]'::jsonb,
   'the target keeps what it holds');
+
+-- 23 (TI-723). A relaunch line sent by « Fusionner » onto a DPGF line no takeoff feeds and whose page none replaces: the
+-- reconciliation links it to nothing (its permit feeds no DPGF line). Written before the migration: the line became an
+-- ordinary takeoff line holding 9 ml, its DPGF reference (8 ml) lost. Refused, both lines named; never overwritten.
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+values (current_setting('test.tenant_id')::uuid, pg_temp.da_job(23, 2), pg_temp.da_version(23), pg_temp.da_id(1),
+  encode(sha256(convert_to('da-23-2', 'UTF8')), 'hex'), '{"quantity_policy": []}'::jsonb, now() + interval '5 minutes');
+set local role authenticated;
+select is(pg_temp.da_apply('merged onto a DPGF line not composed', 23, 2, 'da-23-2'), '40001 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT',
+  'a relaunch line merged onto a DPGF line the application neither feeds nor replaces a page of is refused, never overwritten');
+reset role;
+select is((select detail from da_outcome where case_name = 'merged onto a DPGF line not composed'), jsonb_build_object(
+    'reason', 'merged_outside_reconciliation', 'estimate_item_id', pg_temp.da_id(23004), 'dpgf_title', 'Calorifuge DN 22',
+    'dpgf_quantity', 8, 'dpgf_unit', 'ml',
+    'takeoff_item_id', pg_temp.da_item(23, 2, 1), 'designation', 'Calorifuge DN 22', 'quantity', 9, 'unit', 'ml', 'fed', false,
+    'composed', false, 'linked', false),
+  'the refusal names the line merged and the DPGF line it was sent onto, which the application does not compose');
+select is(jsonb_build_array(pg_temp.da_line(23, 4), pg_temp.da_line(23, 3)), '[[8, "dpgf", 8, null], [10, "dpgf", 5, [[1, 1, 10]]]]'::jsonb,
+  'the DPGF line keeps its reference and its quantity; the target keeps its composition');
+-- The way out: the reconciliation links the line to that DPGF line, which it then feeds through its composition.
+select pg_temp.da_permit_to(23, 2, 'da-23-2-linked', '[{"line": 4, "lines": [1]}]');
+set local role authenticated;
+select is(pg_temp.da_apply('linked by the reconciliation', 23, 2, 'da-23-2-linked'), 'ok',
+  'linked by the reconciliation, the same line feeds that DPGF line');
+reset role;
+select is(jsonb_build_array(pg_temp.da_line(23, 4), pg_temp.da_line(23, 3)), '[[9, "dpgf", 8, [[2, 1, 9]]], [10, "dpgf", 5, [[1, 1, 10]]]]'::jsonb,
+  'the DPGF line holds max(8, 9) by its composition, its reference kept; the target is untouched');
+
+-- 24 (TI-723). Two DPGF lines of one title: the relaunch's two lines feed the first, and « Fusionner » sends the second one
+-- onto the second line of that title, which the application does not compose. Refused before the migration too (the
+-- consolidation finds a target it does not feed), without a name: the refusal now names both lines, the line linked.
+select pg_temp.da_permit(24, 2, 'da-24-2');
+set local role authenticated;
+select is(pg_temp.da_apply('linked line merged onto a DPGF line not composed', 24, 2, 'da-24-2'),
+  '40001 TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT', 'a linked line merged onto a DPGF line the application does not compose is refused');
+reset role;
+select is((select detail from da_outcome where case_name = 'linked line merged onto a DPGF line not composed'), jsonb_build_object(
+    'reason', 'merged_outside_reconciliation', 'estimate_item_id', pg_temp.da_id(24004), 'dpgf_title', 'EF cuivre DN 22',
+    'dpgf_quantity', 4, 'dpgf_unit', 'ml',
+    'takeoff_item_id', pg_temp.da_item(24, 2, 2), 'designation', 'EF cuivre DN 22', 'quantity', 8, 'unit', 'ml', 'fed', false,
+    'composed', false, 'linked', true),
+  'the refusal names the linked line and the DPGF line it was sent onto');
+select is(jsonb_build_array(pg_temp.da_line(24, 4), pg_temp.da_line(24, 3)), '[[4, "dpgf", 4, null], [10, "dpgf", 4, [[1, 1, 10]]]]'::jsonb,
+  'both DPGF lines keep what they hold');
+-- Counterexample, kept by TI-716 and TI-723: a line the reconciliation links to some DPGF line counts there, and is accepted
+-- on a DPGF line this application feeds. The reconciliation crosses them: the first line feeds the second DPGF line and the
+-- second the first, while « Fusionner » sends each onto the other.
+select pg_temp.da_permit_to(24, 2, 'da-24-2-crossed', '[{"line": 4, "lines": [1]}, {"line": 3, "lines": [2]}]');
+set local role authenticated;
+select is(pg_temp.da_apply('lines linked elsewhere, merged onto fed DPGF lines', 24, 2, 'da-24-2-crossed'), 'ok',
+  'a linked line merged onto a DPGF line this application feeds is accepted');
+reset role;
+select is(jsonb_build_array(pg_temp.da_line(24, 4), pg_temp.da_line(24, 3)),
+  '[[4, "dpgf", 4, [[2, 1, 3]]], [18, "dpgf", 4, [[1, 1, 10], [2, 2, 8]]]]'::jsonb,
+  'each counts where the reconciliation links it: max(4, 3) and max(4, 10 + 8), the references kept');
 
 select * from finish();
 rollback;
