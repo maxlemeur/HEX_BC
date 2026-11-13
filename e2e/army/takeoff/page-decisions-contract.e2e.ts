@@ -645,6 +645,13 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
     for (const [index, situation] of SITUATIONS.entries()) {
       const { versionId, sectionId, target } = situation.dpgf ? dpgf : plain;
       const strategy = situation.dpgf ? "merge" : "append";
+      // The draft leases of both versions were taken once, by createLineViaApi, and last 120 s (DRAFT_LOCK_TTL_SECONDS).
+      // An open editor renews its own every 15 s (useDraftLock); this walk holds no editor, and on a CI runner it passes
+      // 120 s around its twelfth situation: the apply that followed was refused 409, exactly 120 s after the lease was
+      // taken (release run 43417080272, both attempts). Each situation renews the lease of the version it writes, as
+      // the editor would.
+      const renewed = await apiRequest(browser, "PATCH", `/api/estimates/${versionId}/lock`);
+      expect(renewed.status, `${situation.name}: the draft lease is renewed: ${JSON.stringify(renewed.body)}`).toBe(200);
       // One plan (two for the situations of two plan files) per situation: its pages are its own.
       const plans = { A: randomUUID(), B: randomUUID() };
       const plan = (doc: "A" | "B" = "A") => plans[doc];
@@ -666,7 +673,7 @@ armyTest("TKD03 every confirmation the « Pages déjà au devis » screen allows
       };
       const earlier = await seed("C", situation.earlier);
       const applied = await applyOwnedTakeoff(browser, versionId, earlier.jobId, { strategy, target_section_id: sectionId });
-      expect(applied.status, `${situation.name}: the earlier takeoff applies`).toBe(200);
+      expect(applied.status, `${situation.name}: the earlier takeoff applies: ${JSON.stringify(applied.body)}`).toBe(200);
       if (situation.prepare) await situation.prepare({ versionId, earlierJobId: earlier.jobId, plan, source });
       if (situation.handQuantity) {
         const estimate = await readEstimate(browser, versionId);

@@ -16,7 +16,7 @@ import {
   chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
-import { createLocalChatGptOwner } from "./chatgpt-server-support";
+import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { querySql } from "./calculation-gate-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
@@ -52,6 +52,9 @@ async function preparePlanFixture(unsetPreferences = false) {
 beforeAll(async () => {
   ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
 });
+// The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
+// affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
+for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
 
 afterAll(() => server.stop(fixtureStore));
 
