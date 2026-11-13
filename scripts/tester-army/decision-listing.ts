@@ -36,7 +36,13 @@ export function decisionFromPairs(pairs: readonly Pair[], notes: readonly string
   const leftOut = [...files].filter(([, entry]) => !entry.runs && entry.reasons.length)
     .map(([file, entry]) => ({ file, reason: [...entry.reasons].sort((a, b) => percent(b) - percent(a))[0] }))
     .sort((a, b) => a.file.localeCompare(b.file));
-  return { judged: files.size, leftOut, notes: notes.filter((line) => /^(?:army-|decision|judging )/u.test(line)).map((line) => line.slice(0, 1024)) };
+  const kept = notes.filter((line) => /^(?:army-|decision|judging |warning: )/u.test(line)).map((line) => line.slice(0, 1024));
+  // The runner prints one account per filter it called ("army-decision kept …", "… left out all …") and a
+  // warning when one failed or timed out. Without the account, the model did not answer and left nothing out.
+  const warning = kept.find((line) => line.startsWith("warning: ") && line.includes(DECISION_FILTER));
+  const answered = kept.some((line) => line.startsWith(`${DECISION_FILTER} kept `) || line.startsWith(`${DECISION_FILTER} left out `));
+  return { judged: files.size, leftOut, notes: kept,
+    failure: warning ?? (answered ? null : `the runner printed no account of the ${DECISION_FILTER} filter`) };
 }
 
 async function main() {

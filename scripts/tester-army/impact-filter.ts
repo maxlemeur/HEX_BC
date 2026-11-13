@@ -9,12 +9,18 @@
 //    army-select job of a pull request asks for it (E2E_ARMY_DECISION_FILTER=1, scripts/tester-army/
 //    decision-listing.ts). Contract and limits: docs/testing/tester-army-ci.md, "Filtre par modèle de décision".
 //
-// Any doubt keeps the journeys: a full or fail-safe selection, a change to the test infrastructure, a journey a
-// map rule ties to a changed file, a rating at or above DECISION_MIN_PERCENT, a reason that cannot be read, and
-// an error here (the runner leaves nothing out when a filter throws).
+// Any doubt keeps the journeys: a full or fail-safe selection, a change to the shared core or to what the runner
+// loads, a journey a rule of the map (the pull request's or its base's) ties to a changed file, a rating at or
+// above DECISION_MIN_PERCENT, a reason that cannot be read, and an error here (the runner leaves nothing out
+// when a filter throws).
+import { spawnSync } from "node:child_process";
+
 import type { TestFilter } from "e2e";
 
-import { expandJourneys, loadImpactMap, matchesAny, selectFromRepository } from "./select-journeys";
+import {
+  MAP_PATH, RUNNER_REASON, SELECTION_DATA, SHARED_CORE_REASON, buildSourceGraph, expandJourneys, loadImpactMap, matchesAny,
+  selectFromRepository, type ImpactMap,
+} from "./select-journeys";
 
 /** The decision model: the one the application's own Decisions use (src/lib/ai/decisions.ts). */
 export const DECISION_MODEL = "gpt-6-luna";
@@ -26,17 +32,17 @@ export const DECISION_KEY = "ARMY_DECISION_FILTER_API_KEY";
  */
 export const DECISION_MIN_PERCENT = 8;
 
-/**
- * Paths that change how the journeys themselves are built, started or run: the runner, its configuration, the
- * shared fixtures, the dependencies. A model reading their diff cannot tell which journey they reach.
- */
-export const DECISION_INFRASTRUCTURE = [
-  "package.json", "package-lock.json", ".npmrc", ".nvmrc", "next.config.ts", "tsconfig.json", "postcss.config.mjs",
-  "e2e.config.ts", "e2e/army/critical/fixtures.ts", "e2e/army/critical/auth.setup.e2e.ts",
-  "scripts/**", "config/**", "supabase/config.toml", ".github/**",
-];
-/** Data of the selection itself: the impact filter already ran every journey for them. */
-const SELECTION_DATA = ["scripts/tester-army/army-impact-map.json", "scripts/tester-army/army-shards.json"];
+/** The journeys the rules of a map tie directly to these files. */
+function tiedJourneys(map: ImpactMap, files: readonly string[]): string[] {
+  return files.flatMap((file) => expandJourneys(map, map.rules.filter((rule) => matchesAny(file, rule.paths)).flatMap((rule) => rule.journeys)));
+}
+
+/** The impact map as the change's base holds it; undefined when it cannot be read there. */
+function baseImpactMap(root: string, base: string): ImpactMap | undefined {
+  const shown = spawnSync("git", ["show", `${base}:${MAP_PATH}`], { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (shown.status !== 0) return undefined;
+  try { return JSON.parse(shown.stdout) as ImpactMap; } catch { return undefined; }
+}
 
 export const armyImpactFilter = {
   name: "army-impact",
@@ -77,17 +83,29 @@ export function armyDecisionFilter(create: () => Promise<TestFilter> = stockDeci
     async filter(tests, context) {
       const { map } = loadImpactMap(context.projectRoot);
       const changed = context.changes.files.filter((file) => !SELECTION_DATA.includes(file));
-      const infrastructure = changed.find((file) => matchesAny(file, DECISION_INFRASTRUCTURE));
-      if (infrastructure) return { exclude: {}, note: `the model judges nothing: ${infrastructure} changes how the journeys run` };
-      // What can change the application's behaviour. Documentation, unit tests, generated types and the other
-      // non-runtime paths of the map stay out of the diff the model reads, which it refuses above 60 kB.
-      // A changed journey file stays in: the stock filter always runs its tests.
-      const runtime = changed.filter((file) => file.startsWith("e2e/army/")
-        || (!matchesAny(file, map.docs) && !matchesAny(file, map.nonRuntime) && file !== "src/types/database.generated.ts"));
+      // The shared core (the map's `full` globs: dependencies, configuration, shared fixtures, runner, layout,
+      // auth, calculation engine, migrations) and what the runner itself loads run every journey by design: a
+      // model reading their diff cannot tell which journey they reach. As decisionSkipped in the army-select job.
+      const core = changed.find((file) => matchesAny(file, map.full));
+      if (core) return { exclude: {}, note: `the model judges nothing: ${core} runs every journey (${SHARED_CORE_REASON})` };
+      const { runnerClosure } = buildSourceGraph(context.projectRoot, map);
+      const loaded = changed.find((file) => runnerClosure.has(file));
+      if (loaded) return { exclude: {}, note: `the model judges nothing: ${loaded} runs every journey (${RUNNER_REASON})` };
+      // What can change the application's behaviour. Documentation, unit tests and the other non-runtime paths
+      // of the map stay out of the diff the model reads, which it refuses above 60 kB. A changed journey file
+      // stays in: the stock filter always runs its tests.
+      const runtime = changed.filter((file) => file.startsWith("e2e/army/") || (!matchesAny(file, map.docs) && !matchesAny(file, map.nonRuntime)));
       if (runtime.length === 0) return { exclude: {}, note: "the model judges nothing: no runtime file changed" };
-      // The floor: a journey a map rule ties to a changed file runs, whatever the model says.
-      const floor = new Set(runtime.flatMap((file) =>
-        expandJourneys(map, map.rules.filter((rule) => matchesAny(file, rule.paths)).flatMap((rule) => rule.journeys))));
+      // The floor: a journey a map rule ties to a changed file runs, whatever the model says. When the pull
+      // request edits the map, the rules of its base count too: a journey it unties from a rule still runs.
+      const floor = new Set(tiedJourneys(map, runtime));
+      if (context.changes.files.includes(MAP_PATH)) {
+        const before = baseImpactMap(context.projectRoot, context.changes.base);
+        if (!before) return { exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be read" };
+        try { for (const journey of tiedJourneys(before, runtime)) floor.add(journey); } catch {
+          return { exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be applied" };
+        }
+      }
       const decision = await create();
       const result = await decision.filter(tests, { ...context, changes: { ...context.changes, files: runtime } });
       const byId = new Map(tests.map((test) => [test.id, test]));
