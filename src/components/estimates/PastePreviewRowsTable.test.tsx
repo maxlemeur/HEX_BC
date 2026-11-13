@@ -54,6 +54,7 @@ function makeRows(count: number, overrides: (index: number) => Partial<PastePrev
 let virtualState: { isVirtualized: boolean; items: MockItem[]; totalSize?: number };
 const remeasure = vi.fn();
 const measureElement = vi.fn();
+const scrollToIndex = vi.fn();
 
 function lastInput(): UseVirtualListOptions & Record<string, unknown> {
   return mockUseVirtualList.mock.calls.at(-1)![0];
@@ -96,6 +97,7 @@ beforeEach(() => {
   mockUseVirtualList.mockReset();
   remeasure.mockReset();
   measureElement.mockReset();
+  scrollToIndex.mockReset();
   virtualState = { isVirtualized: true, items: windowOf(0, 10) };
   mockUseVirtualList.mockImplementation((input: UseVirtualListOptions) => {
     const isVirtualized = Boolean(input.enabled) && virtualState.isVirtualized;
@@ -106,7 +108,7 @@ beforeEach(() => {
       totalSize: isVirtualized ? virtualState.totalSize ?? HEADER + ROW * input.count : 0,
       measureElement,
       remeasure,
-      scrollToIndex: vi.fn(),
+      scrollToIndex,
     };
   });
   // The header height becomes the virtualizer's paddingStart.
@@ -265,6 +267,29 @@ describe("PastePreviewRowsTable", () => {
     expect(cols[2].style.width).toBe("20rem");
     expect(cols[3].style.width).toBe("9rem");
     expect(table.style.minWidth).not.toBe("");
+  });
+
+  it("keeps the end in view and scrolls to the last row through the virtualizer on End", () => {
+    renderTable(makeRows(2161));
+    // Rows measured at the end must not push the last row below the fold.
+    expect(lastInput()).toMatchObject({ anchorTo: "end" });
+    const region = screen.getByTestId("paste-preview-rows-table");
+    // fireEvent returns false when the handler prevented the browser's own End.
+    expect(fireEvent.keyDown(region, { key: "End" })).toBe(false);
+    expect(scrollToIndex).toHaveBeenLastCalledWith(2160);
+    expect(fireEvent.keyDown(screen.getByLabelText("Inclure la ligne 3"), { key: "End" })).toBe(false);
+    expect(scrollToIndex).toHaveBeenCalledTimes(2);
+    // Other keys and modified End stay with the browser.
+    expect(fireEvent.keyDown(region, { key: "End", ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(region, { key: "End", shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(region, { key: "Home" })).toBe(true);
+    expect(scrollToIndex).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves End to the browser below the threshold", () => {
+    renderTable(makeRows(PASTE_PREVIEW_VIRTUALIZE_FROM_ROWS - 1));
+    expect(fireEvent.keyDown(screen.getByTestId("paste-preview-rows-table"), { key: "End" })).toBe(true);
+    expect(scrollToIndex).not.toHaveBeenCalled();
   });
 
   it("estimates a row's height from its data", () => {

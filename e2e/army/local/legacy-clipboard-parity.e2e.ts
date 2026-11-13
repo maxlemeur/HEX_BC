@@ -426,16 +426,22 @@ armyTest("LEGCLIP05 a 200-row paste mounts a bounded accessible window and persi
     for (let press = 0; press < 20; press += 1) await browser.keyboard.press("Tab");
     await expect(dialog.getByLabel("Inclure la ligne 22", { exact: true })).toBeFocused();
 
-    // The last row exists only once the region is scrolled to it; the scroll is
-    // repeated while measured rows grow the table under the estimate.
+    // The last row exists only once the region is scrolled to it. One End press
+    // in the focused region must show it whole, although the rows measured at
+    // the end can be taller than their estimate.
+    await dialog.getByTestId("paste-preview-rows-table").focus();
+    await browser.keyboard.press("End");
+    const lastRow = dialog.getByLabel(`Inclure la ligne ${invalidLine}`, { exact: true });
+    await expect(lastRow).toBeVisible();
     await expect.poll(() => browser.evaluate((label) => {
       const region = document.querySelector('[data-testid="paste-preview-rows-table"]');
       if (!(region instanceof HTMLElement)) throw new Error("Paste preview rows missing.");
-      region.scrollTop = region.scrollHeight;
-      return region.querySelector(`[aria-label="${label}"]`) !== null;
-    }, `Inclure la ligne ${invalidLine}`)).toBe(true);
-    const lastRow = dialog.getByLabel(`Inclure la ligne ${invalidLine}`, { exact: true });
-    await expect(lastRow).toBeVisible();
+      const row = region.querySelector(`[aria-label="${label}"]`)?.closest("tr");
+      if (!row) return "not mounted";
+      const box = row.getBoundingClientRect();
+      const top = region.getBoundingClientRect().top + region.clientTop;
+      return box.top >= top - 1 && box.bottom <= top + region.clientHeight + 1 ? "in view" : "out of view";
+    }, `Inclure la ligne ${invalidLine}`)).toBe("in view");
     await lastRow.check();
     await expect(lastRow).toBeChecked();
     await expect(confirm).toBeDisabled();

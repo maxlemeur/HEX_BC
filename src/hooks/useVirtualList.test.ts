@@ -100,6 +100,25 @@ describe("useVirtualList", () => {
     expect(result.current.virtualItems.slice(0, 2).map((item) => item.size)).toEqual([80, 50]);
   });
 
+  it("keeps the measured height of a mounted row whose height did not change across a re-measure", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(64);
+    const { result, rerender } = renderHook(() =>
+      useVirtualList({ count: 20, enabled: true, estimateSize: 50, measure: "layout", initialRect: INITIAL_RECT }));
+    const first = measuredRow(0);
+    const second = measuredRow(1);
+    act(() => {
+      result.current.measureElement(first);
+      result.current.measureElement(second);
+    });
+    rerender();
+    expect(result.current.virtualItems.slice(0, 2).map((item) => item.size)).toEqual([64, 64]);
+
+    // Both rows stay mounted at 64 px: neither may fall back to the 50 px estimate.
+    act(() => result.current.remeasure());
+    rerender();
+    expect(result.current.virtualItems.slice(0, 2).map((item) => item.size)).toEqual([64, 64]);
+  });
+
   it("keeps a pinned index mounted in sorted order when it lies outside the window", () => {
     const { result } = renderHook(() =>
       useVirtualList({
