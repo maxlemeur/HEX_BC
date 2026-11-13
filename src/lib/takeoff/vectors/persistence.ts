@@ -4,7 +4,7 @@ import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/b
 import { takeoffTextPrintsLevel } from "@/lib/takeoff/page-triage";
 import { CANDIDATE_FILTER_REASONS } from "@/lib/takeoff/vectors/candidate-filter";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
-import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
+import { isMeasuredNetwork, isModelSource } from "@/lib/takeoff/vectors/classify";
 import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -47,6 +47,7 @@ const VectorClassSchema = z.union([z.enum(NETWORK_CODES), z.enum(OTHER_CLASSES)]
 /** Why Decisions stopped on a page: a stop of classifyVectorGroups, or the document's call caps (worker). */
 export const VECTOR_DECISIONS_STOP_REASONS = [
   "budget_reached", "call_failed", "decisions_unavailable", "exception", "canvas_unavailable", "render_failed", "call_limit",
+  "local_quota", "local_access", "local_model_unavailable",
 ] as const;
 const count = z.number().int().nonnegative();
 
@@ -251,9 +252,9 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   const metres = (value: number) => round((value * MM_PER_POINT * denominator) / 1000, 4);
   const segmentOf = ({ segment }: NetworkRun) => [metres(segment.x0), metres(segment.y0), metres(segment.x1), metres(segment.y1)] as [number, number, number, number];
   const scale = `1/${round(denominator, 2)} (${reading.scale.status})`;
-  // The groups the length comes from: a Decisions proposal under its accepted margin is not measured (isMeasuredNetwork), never named.
-  // Decisions groups first, the least sure first: past the 64 named, the review still reads how the class was given.
-  const decisionsFirst = (group: VectorPageReading["groups"][number]) => (group.source === "decisions" ? group.confidence ?? 0 : 2);
+  // The groups the length comes from: a model's proposal under its accepted confidence is not measured (isMeasuredNetwork), never named.
+  // A model's groups first (Decisions, the local plan's), the least sure first: past the 64 named, the review still reads how the class was given.
+  const decisionsFirst = (group: VectorPageReading["groups"][number]) => (isModelSource(group.source) ? group.confidence ?? 0 : 2);
   const groupsOf = (network: NetworkCode) => reading.groups
     .filter((group) => (group.class === network && isMeasuredNetwork(group)) || group.candidates.includes(network))
     .sort((left, right) => decisionsFirst(left) - decisionsFirst(right))

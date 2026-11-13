@@ -83,8 +83,8 @@ export type FilteredCandidate = { group: number; id: string; reason: CandidateFi
 export type CandidateSelection = { candidates: DecisionCandidate[]; eligible: number; left_out: number; filtered: FilteredCandidate[]; unclassed: number[] };
 /** What a call answered for a group: its class (none for « inconnu » and « hors_liste »), margin, proposal and status. */
 export type GroupAnswer = { class: VectorClass | null; confidence: number | null; status: OpenAiDecisionAnswer["status"]; proposal: string | null };
-/** Where a candidate's answer comes from: a Decisions call, or the rules before any call (TI-704). */
-export type DecisionsCallKind = "batch" | "rule";
+/** Where a candidate's answer comes from: a Decisions call, the rules (TI-704), or the local plan's model (local mode, option B). */
+export type DecisionsCallKind = "batch" | "rule" | "local";
 
 export function aliasOf(rank: number) {
   return `groupe_${String(rank).padStart(2, "0")}`;
@@ -180,6 +180,7 @@ export function readGroupAnswers(evidence: Pick<PageEvidence, "mode">, candidate
 export function decisionsAnswerOf(answer: GroupAnswer & { via: DecisionsCallKind }): DecisionsAnswer | null {
   if (answer.status !== "answered") return null;
   if (answer.via === "rule") return answer.class === null ? null : { class: answer.class, confidence: null, source: "rule" };
-  if (answer.class !== null && answer.confidence !== null) return { class: answer.class, confidence: answer.confidence, source: "decisions" };
-  return answer.proposal ? { class: null, confidence: null, source: "decisions", proposal: answer.proposal } : null;
+  const source = answer.via === "local" ? "chatgpt" as const : "decisions" as const;
+  if (answer.class !== null && answer.confidence !== null) return { class: answer.class, confidence: answer.confidence, source };
+  return answer.proposal ? { class: null, confidence: null, source, proposal: answer.proposal } : null;
 }

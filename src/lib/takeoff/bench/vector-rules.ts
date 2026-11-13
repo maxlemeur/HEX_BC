@@ -1,3 +1,4 @@
+import { isClassified } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -85,7 +86,8 @@ export function assertRuleDataAligned(items: readonly TakeoffItem[], data: reado
 /** Registration anchors of a page whose scale is measurable; null otherwise (no length, nothing to compare). */
 export function benchPageAnchors(extraction: VectorPageExtraction, reading: VectorPageReading): PageAnchors | null {
   if (reading.scale.denominator === null || reading.mode === "raster") return null;
-  return pageAnchors(extraction, reading.scale.denominator, new Map(reading.groups.map((group) => [group.id, group.class])));
+  // As the worker: a model's proposal under its accepted confidence is no class (TI-704).
+  return pageAnchors(extraction, reading.scale.denominator, new Map(reading.groups.map((group) => [group.id, isClassified(group) ? group.class : null])));
 }
 
 export type BenchRulePage = {

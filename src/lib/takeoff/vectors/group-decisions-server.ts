@@ -120,7 +120,9 @@ export type GroupDecisionsRender = (bytes: Uint8Array, page: number) => GroupEvi
 /** Calls one classification may send: GROUP_DECISIONS_LIMITS by default, what a document has left in the worker. */
 export type GroupDecisionsCallLimits = { maxBatchCalls: number };
 
-export type GroupDecisionsStopReason = "budget_reached" | "call_failed" | "decisions_unavailable" | "exception" | "canvas_unavailable" | "render_failed";
+export type GroupDecisionsStopReason = "budget_reached" | "call_failed" | "decisions_unavailable" | "exception" | "canvas_unavailable" | "render_failed"
+  /** The local plan (TI-704 option B): its quota, its access, or the measured model not offered. */
+  | "local_quota" | "local_access" | "local_model_unavailable";
 export type GroupDecisionsStop = { reason: GroupDecisionsStopReason; message: string };
 export type GroupDecisionsCall = {
   kind: "batch";
@@ -160,7 +162,8 @@ export type GroupDecisionsOutcome = {
 
 /** Stops that end a series of pages (bench run, worker job): the provider or the ceiling, not a page's render. */
 export function isDecisionsRunStop(reason: GroupDecisionsStopReason) {
-  return reason === "budget_reached" || reason === "call_failed" || reason === "decisions_unavailable" || reason === "exception";
+  return reason === "budget_reached" || reason === "call_failed" || reason === "decisions_unavailable" || reason === "exception"
+    || reason === "local_quota" || reason === "local_access" || reason === "local_model_unavailable";
 }
 
 /** The answers the reading applies, by group id: the rules' classes, Decisions' classes and proposals. */

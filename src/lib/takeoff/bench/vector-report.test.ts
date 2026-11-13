@@ -363,6 +363,19 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     for (const secret of ["FICTIF_SECRET_LAYER", "#123456", "#654321", "oc:"]) expect(markdown).not.toContain(secret);
     expect(renderVectorSections([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }], null).join("\n")).not.toContain("## Decisions");
   });
+
+  it("reads a local model's answers at its own probability of 0.8 and names the local plan (TI-704 option B, review of 13/11)", () => {
+    const local = (confidence: number) => ({ alias: "groupe_01", group: "c:#123456|w:0.5|d:", class: "EU" as const, confidence, status: "answered" as const,
+      via: "local" as const });
+    const run = [{ pass: 1, documents: [{ id: "a-plan-01", pages: [{ page: 1, status: "ok" as const, error: null, reading: null, raster_items_from_baseline: null,
+      decisions: { ...decisions([call(9000, 17000)]), candidates: 2, left_out: 0, answers: [local(0.6), { ...local(0.85), alias: "groupe_02" }] } }] }] }];
+    // 0.6 clears Decisions' margin, never the local model's probability.
+    expect(vectorDecisionsSummary(run)[0].answers).toEqual({ ruled: 0, classified: 1, proposals: 1, review: 0 });
+    const markdown = renderVectorSections(run, null, null, { model: "local" }).join("\n");
+    expect(markdown).toContain("## ChatGPT local, classes des groupes");
+    expect(markdown).toContain("Classes (règles / modèle ≥ 0,8 / < 0,8 / à revoir)");
+    expect(markdown).not.toContain("Decisions");
+  });
 });
 
 // Vector and raster slices of the comparison (TI-678, decision Q8 of 5 Nov: added after the v1 results were read,

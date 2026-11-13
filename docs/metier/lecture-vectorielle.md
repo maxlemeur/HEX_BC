@@ -464,6 +464,74 @@ sont faits pour l'utilisateur du métré, sur son tenant
 - Sans ces options, aucun appel n'est fait : les groupes sans mot-clé restent « à
   revoir ».
 
+### Mode local : le forfait ChatGPT (option B, TI-704)
+
+Un métré lancé avec le forfait ChatGPT local (fournisseur `chatgpt_local`, sur le Mac de
+son créateur, là où le forfait est actif : en développement, ou avec
+`MERGEONE_CHATGPT_LOCAL=1` hors production, Vercel et CI) lit ses groupes avec le forfait
+de son créateur au lieu de Decisions, avec les mêmes options (`MERGEONE_TAKEOFF_VECTORS=1`,
+`MERGEONE_TAKEOFF_DECISIONS=1`). Aucune clé serveur, aucune dépense API : le chemin local
+que le produit utilise déjà ([`group-local-model.ts`](../../src/lib/takeoff/vectors/group-local-model.ts),
+[`group-local-model-server.ts`](../../src/lib/takeoff/vectors/group-local-model-server.ts)).
+
+- Le modèle et l'effort mesurés : `gpt-6.1-sol`, effort `low`, vérifiés une fois par
+  métré dans les modèles du compte. Un compte qui ne les propose pas n'envoie aucune
+  demande (arrêt « local_model_unavailable »). Une lecture de la liste qui échoue sans
+  réponse du compte (coupure réseau, liste illisible) est refaite une fois, comme le
+  renouvellement du jeton qui n'a pas joint OpenAI ; la réponse du compte (modèle absent,
+  limite, accès ou renouvellement refusé) est définitive.
+- Le profil du métré est figé comme pour le niveau C : avant chaque demande, et avant la
+  première lecture du forfait (son jeton et sa liste de modèles), le compte, le modèle
+  choisi et l'effort doivent rester ceux du lancement, l'appartenance du créateur au
+  tenant est vérifiée (ses images partent vers son forfait), puis le contrôle du métré
+  (tenant actif, bail).
+- Mêmes candidats, mêmes preuves et mêmes images que Decisions (dessinées une fois par
+  page), mais **aucune règle ne décide avant le modèle** : la même couleur et la bande
+  vont dans la preuve comme indices. La bande appliquée avant le modèle faisait perdre le
+  sens (32 → 21 exacts).
+- 8 groupes par demande (moins quand leurs images passent 10 Mo), les images des blocs de
+  légende d'abord, puis celle de chaque groupe dans l'ordre de la liste, en pleine
+  définition ; 4 demandes à la fois au plus, le contrôle du métré avant chacune. Les
+  candidats d'une page sont demandés dans la limite de 25 demandes par page (200 groupes,
+  qui bornent les images d'un dessin) et de 40 par document (`TAKEOFF_VECTOR_LOCAL_LIMITS`) ;
+  au-delà, les groupes restants suivent les règles. Aucun plafond par métré : le quota du
+  forfait du créateur l'arrête.
+- Le modèle écrit sa classe et sa probabilité : un réseau compte **à partir de 0,8**
+  (`LOCAL_MODEL_ACCEPTED_PROBABILITY`, source « ChatGPT local »). « inconnu » et
+  « hors_liste » ne donnent aucune classe, « hors_liste » avec sa proposition ; la garde
+  pâle comme pour Decisions. La réponse se lit groupe par groupe : une probabilité hors de
+  [0 ; 1] n'invalide que son groupe.
+- Une demande en échec, et un groupe que la réponse oublie ou donne deux fois, laissent
+  leurs groupes aux règles (même couleur, bande : source « règles »). La limite du forfait
+  ou son débit (429), un accès refusé ou expiré, un autre compte choisi en cours de route
+  arrêtent les demandes du métré ; les pages suivantes gardent les classes des règles.
+- La page enregistrée dit `takeoff-vector-groups-v2-local` ; la revue écrit « ChatGPT
+  local : N demandes » et la probabilité la plus basse d'un réseau. Les jetons sont ceux du
+  forfait, comptés dans le résumé, hors du plafond de jetons Decisions.
+- Une proposition sous sa probabilité retenue n'est pas une classe : ni mesurée, ni ligne
+  de bâti pour le recalage des règles (TI-664), comme une proposition de Decisions sous
+  son écart.
+- Ordre de déploiement : les arrêts `local_quota`, `local_access` et
+  `local_model_unavailable` sont nouveaux dans le schéma strict de la page enregistrée.
+  Une version déployée plus ancienne refuse une page qui en porte un (lecture
+  vectorielle du métré en erreur, recalcul des règles sans l'échelle de la page). Un
+  métré local à lecture vectorielle sur la base partagée attend donc que cette version
+  soit déployée.
+- Mesuré sur les 8 plans de développement : dans l'essai du 12/11/2026, 32 des 36 réseaux
+  exacts [0,75 ; 0,96], aucun non-réseau classé. Au banc du produit (13/11/2026), deux runs
+  aux demandes identiques (mêmes jetons) : **30 à 32 exacts**, autant au parent, précision
+  100 %, aucun non-réseau classé, 7 à 9 des 61 candidats à revoir, 10 demandes et environ
+  141 300 jetons du forfait. Les réponses du forfait ne sont donc pas tout à fait stables
+  d'un run à l'autre : deux réseaux d'un plan ont reçu une autre réponse au second.
+- Latence : chaque demande prend environ 10 s, et les 3 à 4 demandes d'une page chargée
+  partent ensemble. La page la plus lente a pris 29,7 à 33,6 s : extraction
+  et lecture (environ 5 s), dessin de la page et de ses 22 groupes (environ 13 s), puis ses
+  3 demandes en parallèle (environ 11 s). C'est au-delà de la cible de 15 s de la lecture
+  vectorielle ; la colonne « Latence » du score par groupe additionne les demandes.
+- Au banc : `--group-model local` (avec `TAKEOFF_BENCH_CHATGPT_OWNER`, lancé depuis le
+  dossier du magasin ChatGPT local et `TSX_TSCONFIG_PATH`), sans `--max-decisions-tokens`,
+  avec la même limite de demandes par document que le worker.
+
 ## Decisions au banc
 
 Sans option, le banc vectoriel ne lit que les mots-clés et n'appelle aucun modèle.

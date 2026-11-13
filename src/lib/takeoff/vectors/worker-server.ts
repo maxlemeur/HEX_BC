@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { createDecisionsTokenBudget, type DecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
@@ -9,6 +10,7 @@ import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
+import { isClassified } from "@/lib/takeoff/vectors/classify";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
 import {
@@ -20,6 +22,10 @@ import {
   type GroupDecisionsOutcome,
   type GroupDecisionsRender,
 } from "@/lib/takeoff/vectors/group-decisions-server";
+import {
+  classifyVectorGroupsLocal, localGroupsCall, LocalGroupsStop, type LocalGroupsCall, type LocalGroupsSelection,
+} from "@/lib/takeoff/vectors/group-local-model-server";
+import { GROUP_LOCAL_MODEL_LIMITS, GROUP_LOCAL_MODEL_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-local-model";
 import {
   budgetVectorItems,
   locationFromFileName,
@@ -60,6 +66,11 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 //   the stop still takes the rules' classes (no call, no drawing). Only the job's
 //   own check before each call (its lease, its tenant) stops the job, as
 //   anywhere else.
+// A local ChatGPT job (TI-704 option B, takeoffVectorLocalGroupsHook) asks its
+// creator's plan instead (group-local-model-server.ts): every candidate, at
+// most 40 requests per document (TAKEOFF_VECTOR_LOCAL_LIMITS), the rules as the
+// fallback of what no answer reached; its quota, a refused access or the model
+// not offered stops the plan for the job, the later pages keep the rules.
 // The page record keeps each group's class, source and confidence, and the
 // page's Decisions summary (calls, tokens, latency, stop). A page calibration comes from the preparation's conventions when
 // it names that page of that document: its plan file, or for a direct upload
@@ -74,6 +85,8 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 export const TAKEOFF_VECTOR_MAX_PAGES = 60;
 /** Decisions calls per document and run (TI-662 step 3, default caps that Thanh may change). */
 export const TAKEOFF_VECTOR_DECISIONS_LIMITS = { batchCalls: 10 } as const;
+/** The local plan's requests per document and run in a local job (TI-704 option B), the bench's too. */
+export const TAKEOFF_VECTOR_LOCAL_LIMITS = GROUP_LOCAL_MODEL_LIMITS;
 /**
  * Decisions tokens per job (TI-658: a named ceiling per run, no tenant flag). Starting value, to recalibrate on the
  * real pass: one document at its caps (10 calls of 20 groups, about 28 000 tokens each) with room for a second.
@@ -94,7 +107,36 @@ export type TakeoffVectorDecisionsHook = {
   maxTokens?: number;
   decide?: GroupDecisionsDecide;
   render?: GroupDecisionsRender;
+  /**
+   * TI-704 option B, a local ChatGPT job: the groups are read by the local plan of the job's creator instead of
+   * Decisions (group-local-model-server.ts), with the profile the job started with (`selection`); `call` replaces the
+   * plan in tests.
+   */
+  local?: { call?: () => Promise<LocalGroupsCall>; selection?: LocalGroupsSelection };
 };
+
+/**
+ * The hook of a local ChatGPT job (TI-704 option B) when MERGEONE_TAKEOFF_VECTORS=1, MERGEONE_TAKEOFF_DECISIONS=1 and
+ * the local plan is on (isLocalChatGptEnabled: development, or MERGEONE_CHATGPT_LOCAL=1 outside production, Vercel and
+ * CI), for the job's creator, whose plan it uses with the job's profile (`selection`): no Decisions key, no server
+ * spending; otherwise none.
+ */
+export function takeoffVectorLocalGroupsHook(input: {
+  jobId: string; tenantId: string; userId: string | null;
+  /** The job's local provider (resolveLocalTakeoffProvider): its pinned selection and the creator's membership check. */
+  provider: { selection: LocalGroupsSelection; assertOwnerActive: () => Promise<void> };
+  beforeCall?: () => Promise<void>;
+}): TakeoffVectorDecisionsHook | undefined {
+  if (!isTakeoffVectorReadingEnabled() || process.env.MERGEONE_TAKEOFF_DECISIONS !== "1" || !isLocalChatGptEnabled() || !input.userId) return undefined;
+  // Before each plan request, as before each level C one: the creator is still a member (their plan receives the
+  // images), then the job's own check (tenant, lease).
+  const { provider } = input;
+  return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`, local: { selection: provider.selection },
+    beforeCall: async () => {
+      await provider.assertOwnerActive();
+      await input.beforeCall?.();
+    } };
+}
 
 /**
  * The hook of a level C job when MERGEONE_TAKEOFF_VECTORS=1, MERGEONE_TAKEOFF_DECISIONS=1 and Decisions is configured
@@ -153,8 +195,18 @@ const STOP_MESSAGES: Partial<Record<PageStop["reason"], string>> = {
   decisions_unavailable: "Decisions est indisponible, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.",
   exception: "Le classement Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.",
   call_limit: "Le plafond d’appels Decisions de ce document est atteint : les groupes restants sont à revoir.",
+  local_quota: "Le forfait ChatGPT a atteint sa limite : les groupes restants suivent les règles ou restent à revoir.",
+  local_access: "Le forfait ChatGPT n’est plus accessible : les groupes restants suivent les règles ou restent à revoir.",
+  local_model_unavailable: "Le forfait ChatGPT ne propose pas le modèle mesuré : les groupes suivent les règles ou restent à revoir.",
 };
-const stopOf = (reason: PageStop["reason"], message: string): PageStop => ({ reason, message: STOP_MESSAGES[reason] ?? message });
+/** The same in a local job, where the plan, not Decisions, was asked, and the groups left follow the rules. */
+const LOCAL_STOP_MESSAGES: Partial<Record<PageStop["reason"], string>> = {
+  call_limit: `Le plafond de demandes ChatGPT est atteint (${TAKEOFF_VECTOR_LOCAL_LIMITS.requestsPerPage} par page, `
+    + `${TAKEOFF_VECTOR_LOCAL_LIMITS.requestsPerDocument} par document) : les groupes restants suivent les règles ou restent à revoir.`,
+  exception: "Le classement par le forfait ChatGPT a échoué, aucune demande n’a été lancée ensuite : les groupes restants suivent les règles ou restent à revoir.",
+};
+const stopOf = (reason: PageStop["reason"], message: string, local = false): PageStop =>
+  ({ reason, message: (local ? LOCAL_STOP_MESSAGES[reason] : undefined) ?? STOP_MESSAGES[reason] ?? message });
 
 /** The Decisions state of a job: one token budget, the stop that ends its calls, and each document's calls left. */
 type DecisionsRun = {
@@ -164,9 +216,13 @@ type DecisionsRun = {
   /** Set when the job's own check before a call failed: rethrown, never taken for a Decisions failure. */
   jobError: { error: unknown } | null;
   calls: number;
+  /** The local plan's tokens over the job (TI-704 option B: outside the Decisions budget). */
+  localTokens: number;
+  /** The local plan's request, read once for the job (TI-704 option B), or the stop that kept it from starting. */
+  localCall: Promise<LocalGroupsCall | LocalGroupsStop> | null;
 };
 
-function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | null): VectorPageDecisions {
+function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | null, promptVersion: string): VectorPageDecisions {
   // Every call sent, those still in flight at a stop included: their tokens are spent (TI-704).
   const calls = { batch: 0, dedicated: 0, failed: 0 };
   let tokens = 0;
@@ -176,9 +232,9 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
     tokens += call.usage?.total_tokens ?? 0;
   }
   // Classes Decisions gave (the rules' are counted in `ruled`).
-  const answered = [...outcome.answers.values()].filter((answer) => answer.via === "batch" && answer.status === "answered" && answer.class !== null).length;
+  const answered = [...outcome.answers.values()].filter((answer) => answer.via !== "rule" && answer.status === "answered" && answer.class !== null).length;
   return {
-    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, rules_version: GROUP_DECISIONS_VERSION, filtered: outcome.filtered, ruled: outcome.ruled,
+    prompt_version: promptVersion, rules_version: GROUP_DECISIONS_VERSION, filtered: outcome.filtered, ruled: outcome.ruled,
     candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out,
     // The time the page spent in its calls, run in parallel: not the sum of their latencies.
     dedicated_left_out: 0, calls, answered, total_tokens: tokens, latency_ms: outcome.calls_ms ?? 0,
@@ -187,9 +243,9 @@ function pageDecisionsSummary(outcome: GroupDecisionsOutcome, stop: PageStop | n
 }
 
 /** A page not asked because the job's Decisions stopped before it. */
-function stoppedSummary(stop: PageStop): VectorPageDecisions {
+function stoppedSummary(stop: PageStop, promptVersion: string): VectorPageDecisions {
   return {
-    prompt_version: GROUP_DECISIONS_PROMPT_VERSION, rules_version: GROUP_DECISIONS_VERSION, candidates: null, eligible: null, left_out: null, dedicated_left_out: null,
+    prompt_version: promptVersion, rules_version: GROUP_DECISIONS_VERSION, candidates: null, eligible: null, left_out: null, dedicated_left_out: null,
     calls: { batch: 0, dedicated: 0, failed: 0 }, answered: 0, total_tokens: 0, latency_ms: 0,
     stop: { reason: stop.reason, message: stop.message, from_earlier_page: true },
   };
@@ -209,52 +265,69 @@ async function decidePage(run: DecisionsRun, input: {
   fingerprint: () => string;
   log: { jobId: string | null; tenantId: string | null; document: TakeoffSourceDocumentRef; page: number };
 }): Promise<{ reading: VectorPageReading; decisions: VectorPageDecisions }> {
+  const promptVersion = run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION;
   if (run.stop) {
-    // The rules need no call nor canvas: a page after the job's stop still takes their classes (TI-704).
+    // The rules need no call nor canvas: a page after the job's stop still takes their classes (TI-704). A local job takes
+    // its own fallback (the rules alone, as on the page of its stop), never a path that could reach Decisions.
     const stop = run.stop;
     try {
-      const ruled = await classifyVectorGroups({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
-        context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
-        budget: run.budget, decide: run.hook.decide, render: run.hook.render, limits: { maxBatchCalls: 0 } });
+      const ruled = run.hook.local
+        ? await classifyVectorGroupsLocal({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, call: null })
+        : await classifyVectorGroups({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
+          context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
+          budget: run.budget, decide: run.hook.decide, render: run.hook.render, limits: { maxBatchCalls: 0 } });
       const answers = decisionsOfOutcome(ruled);
       const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
-      return { reading, decisions: { ...pageDecisionsSummary(ruled, null), stop: { reason: stop.reason, message: stop.message, from_earlier_page: true } } };
+      return { reading, decisions: { ...pageDecisionsSummary(ruled, null, promptVersion), stop: { reason: stop.reason, message: stop.message, from_earlier_page: true } } };
     } catch {
-      return { reading: input.reading, decisions: stoppedSummary(stop) };
+      return { reading: input.reading, decisions: stoppedSummary(stop, promptVersion) };
     }
   }
   // Its calls and tokens stay on the page even when an error follows them.
   let outcome: GroupDecisionsOutcome | null = null;
+  const beforeCall = run.hook.beforeCall && (async () => {
+    try {
+      await run.hook.beforeCall?.();
+    } catch (error) {
+      run.jobError = { error };
+      throw error;
+    }
+  });
   try {
-    outcome = await classifyVectorGroups({
+    if (run.hook.local) {
+      const local = run.hook.local;
+      if (!run.localCall) {
+        // The plan is first read with the creator's credential (renewed when due) and model listing: the job's check
+        // (the creator's membership, the tenant, the lease) comes before, as before each request.
+        await beforeCall?.();
+        run.localCall = (local.call ?? (() => localGroupsCall(run.hook.owner, local.selection)))().catch((error: unknown) => (error instanceof LocalGroupsStop
+          ? error : new LocalGroupsStop("local_access", "Le forfait ChatGPT n’a pas pu être lu.")));
+      }
+      outcome = await classifyVectorGroupsLocal({ bytes: input.bytes, extraction: input.extraction, reading: input.reading, call: await run.localCall,
+        render: run.hook.render, limits: { maxRequests: input.allowance.batch }, beforeCall });
+    } else outcome = await classifyVectorGroups({
       bytes: input.bytes, extraction: input.extraction, reading: input.reading, owner: run.hook.owner,
       context: { tenantId: run.hook.owner.tenantId, projectId: run.hook.projectId, preparationFingerprint: input.fingerprint() },
       budget: run.budget, decide: run.hook.decide, render: run.hook.render,
-      limits: { maxBatchCalls: input.allowance.batch },
-      beforeCall: run.hook.beforeCall && (async () => {
-        try {
-          await run.hook.beforeCall?.();
-        } catch (error) {
-          run.jobError = { error };
-          throw error;
-        }
-      }),
+      limits: { maxBatchCalls: input.allowance.batch }, beforeCall,
     });
     input.allowance.batch -= outcome.calls.length;
     run.calls += outcome.calls.length;
+    if (run.hook.local) run.localTokens += outcome.calls.reduce((total, call) => total + (call.usage?.total_tokens ?? 0), 0);
     // The provider, the ceiling or a server without canvas end the job's calls; a page's render failure, that page's.
-    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message) : outcome.left_out > 0 ? stopOf("call_limit", "") : null;
+    const local = Boolean(run.hook.local);
+    const stop = outcome.stop ? stopOf(outcome.stop.reason, outcome.stop.message, local) : outcome.left_out > 0 ? stopOf("call_limit", "", local) : null;
     if (outcome.stop && (isDecisionsRunStop(outcome.stop.reason) || outcome.stop.reason === "canvas_unavailable")) run.stop = stop;
     const answers = decisionsOfOutcome(outcome);
     const reading = answers.size > 0 ? readVectorPage(input.extraction, { ...input.readOptions, decisions: answers }) : input.reading;
-    return { reading, decisions: pageDecisionsSummary(outcome, stop) };
+    return { reading, decisions: pageDecisionsSummary(outcome, stop, promptVersion) };
   } catch (error) {
     if (run.jobError) throw run.jobError.error;
     console.error("takeoff.vector.decisions_failed", { job_id: input.log.jobId, tenant_id: input.log.tenantId, document: input.log.document,
       page: input.log.page, message: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
-    run.stop = stopOf("exception", "");
-    if (outcome) return { reading: input.reading, decisions: pageDecisionsSummary(outcome, run.stop) };
-    return { reading: input.reading, decisions: { ...stoppedSummary(run.stop), stop: { ...run.stop, from_earlier_page: false } } };
+    run.stop = stopOf("exception", "", Boolean(run.hook.local));
+    if (outcome) return { reading: input.reading, decisions: pageDecisionsSummary(outcome, run.stop, promptVersion) };
+    return { reading: input.reading, decisions: { ...stoppedSummary(run.stop, promptVersion), stop: { ...run.stop, from_earlier_page: false } } };
   }
 }
 
@@ -269,7 +342,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
 } = {}): Promise<VectorPageOutcome[]> {
   const extract = options.extract ?? ((bytes: Uint8Array, page: number) => extractVectorPage(bytes, page));
   const run: DecisionsRun | null = options.decisions ? {
-    hook: options.decisions, stop: null, jobError: null, calls: 0,
+    hook: options.decisions, stop: null, jobError: null, calls: 0, localTokens: 0, localCall: null,
     budget: createDecisionsTokenBudget(options.decisions.maxTokens ?? TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS, GROUP_DECISIONS_CALL_ESTIMATE_TOKENS),
   } : null;
   const outcomes: VectorPageOutcome[] = [];
@@ -281,8 +354,8 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     const documentId = source.preparationSnapshot ? preparationDocumentId(original.document, original.bytes) : null;
     const pages = original.pages.length ? original.pages : Array.from({ length: await getPdfPageCount(original.bytes) }, (_, index) => index + 1);
     const location = locationFromFileName(original.fileName, freeLevels);
-    // This document's Decisions calls left for the run, over its pages.
-    const allowance = { batch: TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls };
+    // This document's Decisions calls (or, in a local job, the plan's requests) left for the run, over its pages.
+    const allowance = { batch: run?.hook.local ? TAKEOFF_VECTOR_LOCAL_LIMITS.requestsPerDocument : TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls };
     let fingerprint: string | null = null;
     for (const page of pages) {
       if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) break read;
@@ -296,13 +369,15 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
         if (run && reading.mode !== "raster") {
           ({ reading, decisions } = await decidePage(run, {
             bytes, extraction, reading, readOptions, allowance,
-            fingerprint: () => (fingerprint ??= sha256(`${GROUP_DECISIONS_PROMPT_VERSION}:${sha256(bytes)}`)),
+            fingerprint: () => (fingerprint ??= sha256(`${run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION}:${sha256(bytes)}`)),
             log: { jobId: options.context?.jobId ?? null, tenantId: options.context?.tenantId ?? null, document: original.document, page },
           }));
         }
-        // TI-664 (MERGEONE_TAKEOFF_RULES=1): the page's registration anchors, read with the classes of its final reading.
+        // TI-664 (MERGEONE_TAKEOFF_RULES=1): the page's registration anchors, read with the classes of its final reading
+        // (a model's proposal under its accepted confidence is no class: never a building line, TI-704).
         const anchors = isTakeoffRulesEnabled() && reading.scale.denominator !== null && reading.mode !== "raster"
-          ? pageAnchors(extraction, reading.scale.denominator, new Map(reading.groups.map((group) => [group.id, group.class]))) : null;
+          ? pageAnchors(extraction, reading.scale.denominator, new Map(reading.groups.map((group) => [group.id, isClassified(group) ? group.class : null])))
+          : null;
         outcomes.push({ document: original.document, fileName: original.fileName, page, record: vectorPageRecord(reading, location, decisions),
           items: vectorItemRecords(reading, location), error: null, anchors });
       } catch (error) {
@@ -316,9 +391,11 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     }
   }
   if (run) {
+    // A local job spends its creator's plan, never the Decisions budget: no ceiling to log.
     const spent = run.budget.snapshot();
     console.info("takeoff.vector.decisions", { job_id: options.context?.jobId ?? null, tenant_id: options.context?.tenantId ?? null,
-      calls: run.calls, total_tokens: spent.spent_tokens, max_tokens: spent.max_tokens, stop: run.stop?.reason ?? null });
+      provider: run.hook.local ? "chatgpt_local" : "decisions", calls: run.calls, total_tokens: run.hook.local ? run.localTokens : spent.spent_tokens,
+      max_tokens: run.hook.local ? null : spent.max_tokens, stop: run.stop?.reason ?? null });
   }
   const budgeted = budgetVectorItems(outcomes, TAKEOFF_VECTOR_READ_LIMITS);
   budgeted.forEach((outcome, index) => {

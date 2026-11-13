@@ -3,7 +3,7 @@ import type { BenchPass, BenchRunResult, BenchStop, ChunkCall, DocumentRun, Stop
 import { describeError } from "@/lib/takeoff/bench/run";
 import type { GroupTruthFile } from "@/lib/takeoff/bench/schemas";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
-import { isClassified, isMeasuredNetwork, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
+import { isClassified, isLocalModelPromptVersion, isMeasuredNetwork, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
 import {
   decisionsOfOutcome,
   isDecisionsRunStop,
@@ -108,7 +108,7 @@ export type VectorPageDecisions = {
   calls: GroupDecisionsCall[];
   stop: GroupDecisionsStop | null;
   render: GroupDecisionsOutcome["render"];
-  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "rule";
+  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "rule" | "local";
     rule?: string; proposal?: string }>;
   /** Groups never asked by reason, and candidates the rules classed (TI-704). */
   filtered: GroupDecisionsOutcome["filtered"];
@@ -138,7 +138,9 @@ export type VectorPageSummary = {
 export type VectorDecisionsHook = {
   /** Recorded with the reading's version as the run's prompt version. */
   promptVersion: string;
-  classify: (document: VectorBenchDocument, page: number, extraction: VectorPageExtraction, reading: VectorPageReading) => Promise<GroupDecisionsOutcome>;
+  /** One page of one pass (`pass` from 1): its groups classified. */
+  classify: (document: VectorBenchDocument, page: number, extraction: VectorPageExtraction, reading: VectorPageReading, pass: number)
+    => Promise<GroupDecisionsOutcome>;
 };
 
 export type VectorDocumentSummary = { id: string; pages: VectorPageSummary[] };
@@ -406,7 +408,7 @@ export async function runVectorBench(input: {
             left_out: selection.left_out, filtered: selection.filtered.map((entry) => ({ group: entry.id, reason: entry.reason })) };
           let decided: GroupDecisionsOutcome | null = null;
           if (input.decisions) {
-            decided = await input.decisions.classify(document, page, extraction, reading);
+            decided = await input.decisions.classify(document, page, extraction, reading, pass);
             const answers = decisionsOfOutcome(decided);
             if (answers.size > 0) reading = readVectorPage(extraction, { ...options, decisions: answers });
           }
@@ -435,7 +437,8 @@ export async function runVectorBench(input: {
           summary.pages.push({ page, status: "ok", error: null, reading: summarize(reading), raster_items_from_baseline: fallback,
             ...(decided ? { decisions: pageDecisions(decided) } : {}), candidates });
           input.log?.(`[vector pass ${pass}/${input.repeat}] ${document.id} p${page}: ${reading.mode}, scale ${reading.scale.status}, ${items.length} items, ${(duration / 1000).toFixed(1)} s`
-            + (decided ? `, Decisions ${decided.calls.length} calls${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
+            + (decided ? `, ${isLocalModelPromptVersion(input.decisions?.promptVersion) ? "ChatGPT local" : "Decisions"} ${decided.calls.length} calls`
+              + `${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
           if (decided?.stop && isDecisionsRunStop(decided.stop.reason)) {
             stop = decisionsStop(decided.stop, done, planned, { model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, pass, document: document.id, chunk: page });
             finishRules();

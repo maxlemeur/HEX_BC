@@ -92941,7 +92941,10 @@
                                         "exception",
                                         "canvas_unavailable",
                                         "render_failed",
-                                        "call_limit"
+                                        "call_limit",
+                                        "local_quota",
+                                        "local_access",
+                                        "local_model_unavailable"
                                       ]
                                     },
                                     "message": {
