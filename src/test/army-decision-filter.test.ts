@@ -121,6 +121,11 @@ describe("the decision filter behind its guards", () => {
       "src/types/database.ts", "src/test/local-supabase-ci.ts", "src/types/database.generated.ts",
     ];
     expect(core.every((name) => repositoryFiles.includes(name)), core.join(" ")).toBe(true);
+    // One selection classifies every path; each path's own decision must keep the model out (one map and graph
+    // load instead of one per path: the CI runner is several times slower than a workstation).
+    const together = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, ...core], repositoryFiles });
+    const alone = (changed: string): Selection => ({ ...together,
+      changedPaths: together.changedPaths.filter((decision) => decision.path === changed || decision.path === file) });
     for (const changed of core) {
       const { calls, filter } = recording({ [`${journeys[0]}#0`]: "0% likely affected" });
       const result = await filter.filter([candidate(journeys[0])], context([file, changed]));
@@ -128,8 +133,7 @@ describe("the decision filter behind its guards", () => {
       expect(result.exclude, changed).toEqual({});
       expect(result.note, changed).toContain(`the model judges nothing: ${changed} runs every journey`);
       // The army-select job agrees and does not even install: its selection says the model is not asked.
-      const selection = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, changed], repositoryFiles });
-      expect(decisionSkipped(selection), changed).toContain(`${changed} runs every journey`);
+      expect(decisionSkipped(alone(changed)), changed).toContain(`${changed} runs every journey`);
     }
     const { calls, filter } = recording({ [`${journeys[0]}#0`]: "0% likely affected" });
     const idle = await filter.filter([candidate(journeys[0])], context(["docs/testing/tester-army-ci.md", "src/lib/estimates/gating.test.ts"]));
@@ -147,14 +151,16 @@ describe("the decision filter behind its guards", () => {
     const loaded = decisions.find((decision) => decision.class === "full" && decision.reason.startsWith("loaded by the shared core"));
     const unmapped = decisions.find((decision) => decision.class === "unmapped");
     expect(loaded, "a source file the shared core loads").toBeDefined();
-    for (const changed of [loaded!, unmapped].filter((decision) => decision !== undefined).map((decision) => decision!.path)) {
+    const named = [loaded!, unmapped].filter((decision) => decision !== undefined).map((decision) => decision!.path);
+    const together = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, ...named], repositoryFiles });
+    for (const changed of named) {
       const { calls, filter } = recording({ [`${journeys[0]}#0`]: "0% likely affected" });
       const result = await filter.filter([candidate(journeys[0])], context([file, changed]));
       expect(calls, changed).toEqual([]);
       expect(result.exclude, changed).toEqual({});
       expect(result.note, changed).toContain(`the model judges nothing: ${changed} runs every journey`);
-      const selection = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, changed], repositoryFiles });
-      expect(decisionSkipped(selection), changed).toContain(`${changed} runs every journey`);
+      const own = { ...together, changedPaths: together.changedPaths.filter((decision) => decision.path === changed || decision.path === file) };
+      expect(decisionSkipped(own), changed).toContain(`${changed} runs every journey`);
     }
   });
 
