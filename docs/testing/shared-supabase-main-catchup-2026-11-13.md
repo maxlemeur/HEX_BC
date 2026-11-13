@@ -73,7 +73,46 @@ Parmi les fonctions `SECURITY DEFINER` exécutables par `authenticated` figurent
 et `receive_material_request_purchase_order`. Ce sont des RPC appelées par l'application : comme les autres, elles
 vérifient elles-mêmes le tenant actif et le rôle.
 
-## Déploiement
+## Déploiement et surveillance
 
-La base précède le code : la production sert toujours le dernier déploiement enregistré, `2d6e9b3f`. Le déploiement de
-`main` (`6f87d328`), qui lit ces migrations, est préparé et autorisé par le propriétaire. Il sera consigné à part.
+Le propriétaire a donné son go le 13 novembre 2026 pour déployer `main` sans attendre les campagnes Full et calc-v3 :
+« personne n'utilise la prod ». Deux déploiements ont suivi ces migrations, chacun après l'application de celles
+qu'il lit.
+
+| Déploiement | SHA | READY (UTC) | Contenu |
+| --- | --- | --- | --- |
+| `dpl_5XpXMBe18SDM9tSFk1e8q3KaKofU` | `f525aae5b16cbcc9174ca052064ed7ec7d5b2a2c` | 20:57:33 | jusqu'à #311 (TI-691 3b) |
+| `dpl_5BWgG69FzdffvjjyJJtrBRK6jG3h` | `6f87d328b5c522ecb996045f0b0ffc3c269b0a2e` | 21:25:39 | jusqu'à #323, dont #318 et #319 (TI-723) |
+
+Ce qui vaut pour les deux :
+
+- **Source :** chacun est construit depuis la source Git exacte (`maxlemeur/HEX_BC`, ref égale au SHA), sans envoi de
+  fichiers locaux. Sa ligne de clonage cite le SHA.
+- **Alias :** `https://hex-bc.vercel.app` pointait sur lui au début et à la fin de sa surveillance. Il pointe sur
+  `6f87d328` depuis 21:25 UTC (contrôle à 21:31:27).
+- **Surveillance :** 5 minutes chacun, 11 passages espacés de 30 secondes, **22 requêtes réussies sur 22**. À chaque
+  passage, `/api/health` a répondu HTTP 200 avec `ok: true` et `db: up`, et `/login` HTTP 200 avec son formulaire.
+  - `f525aae5` : de 20:58:23 à 21:03:23 ; latence maximale 0,747 s (santé) et 0,375 s (connexion).
+  - `6f87d328` : de 21:26:14 à 21:31:14 ; latence maximale 1,296 s (santé) et 0,404 s (connexion).
+- **Logs :** aucun log runtime `error` ou `fatal` pour chacun, de sa création à la fin de sa surveillance.
+- **Rien d'autre :** aucune variable modifiée, aucune écriture métier, aucune migration exécutée pendant ces
+  déploiements, aucun retour arrière. Les déploiements précédents (`dpl_zzL2tddZ9T97Y5CoVoLv1saCs8Kq` pour
+  `2d6e9b3f`, puis `dpl_5XpXMBe18SDM9tSFk1e8q3KaKofU`) restent disponibles.
+
+### Contrôles du SHA servi
+
+Sur `6f87d328`, Quality Gate, le smoke anonyme, TesterArmy Critical et calc-v3 sont verts. Le Full a été annulé par le
+push suivant sur `main`. `npm run check:release` n'a pas été lancé : le propriétaire a demandé un déploiement direct.
+Les six contrôles requis de chaque PR intégrée étaient verts à sa fusion.
+
+### Hors de ce déploiement
+
+`main` a avancé depuis le SHA servi : [#324](https://github.com/maxlemeur/HEX_BC/pull/324), la documentation de ce
+reçu, et [#322](https://github.com/maxlemeur/HEX_BC/pull/322) (TI-701, filtres de la revue ciblée), qui n'est pas en
+production.
+
+## Limites
+
+Les sondes sont anonymes. Elles prouvent la disponibilité HTTP pendant ces fenêtres et l'accès à la base, pas un
+parcours métier : la confirmation et la réception des bons de commande (TI-691 3b) restent à recetter en production. Ce
+sont des échantillons de cinq minutes : ils ne prédisent pas la disponibilité à venir.
