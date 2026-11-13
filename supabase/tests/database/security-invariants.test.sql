@@ -67,7 +67,7 @@ select ok(
 
 -- Purchase-order documents (bucket devis) are reached only through the tenant- and author-scoped policies
 -- (20260708120000, 20260713140454). A policy on the bucket alone would open every tenant's documents to any member
--- (drift found on 13/11/2026, removed by 20261113184326_drop_broad_devis_storage_policies.sql).
+-- (drift found on 13/11/2026, removed by 20261113195311_drop_broad_devis_storage_policies.sql).
 select set_eq(
   $$select policyname::text from pg_policies
     where schemaname = 'storage' and tablename = 'objects'

@@ -1,5 +1,5 @@
 -- Purchase-order documents in storage (bucket devis) stay within their tenant and their order's author or admins.
--- Written before 20261113184326_drop_broad_devis_storage_policies.sql. On 13/11/2026 the shared database held four
+-- Written before 20261113195311_drop_broad_devis_storage_policies.sql. On 13/11/2026 the shared database held four
 -- permissive policies on storage.objects that no migration creates, granting on bucket_id = 'devis' alone; permissive
 -- policies combine with OR, so they opened every tenant's documents to any signed-in member. This file recreates them
 -- as they were, shows the leak, replays the migration's statements and proves the isolation again. Failure modes:
@@ -85,7 +85,7 @@ create policy devis_delete on storage.objects for delete to authenticated using 
 select is(pg_temp.reads('a9330000-0000-4000-8000-000000000002'), 'ok 1',
   '1 with the bucket-wide policies, the admin of another tenant reads the document''s file');
 
--- The statements of 20261113184326_drop_broad_devis_storage_policies.sql, replayed.
+-- The statements of 20261113195311_drop_broad_devis_storage_policies.sql, replayed.
 drop policy if exists devis_read on storage.objects;
 drop policy if exists devis_insert on storage.objects;
 drop policy if exists devis_update on storage.objects;
