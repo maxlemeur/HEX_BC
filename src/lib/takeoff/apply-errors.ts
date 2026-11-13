@@ -226,6 +226,68 @@ function parseDpgfMerged(detail: string | null | undefined) {
   }
 }
 
+/** « (6 u) », « (20 ml) », « (1) » without a unit; nothing without a quantity. */
+const measureOf = (quantity: number | null | undefined, unit: string | null | undefined) => (typeof quantity === "number"
+  ? ` (${quantityFormat.format(quantity)}${unit?.trim() ? ` ${unit.trim()}` : ""})` : "");
+
+const dpgfSectionReplaceSchema = z.object({
+  reason: z.literal("replace_deletes_dpgf_lines"),
+  section_id: z.string().optional(),
+  section_title: z.string().nullable().optional(),
+  /** Every DPGF line the replace would delete; `dpgf_lines` names the first ones. */
+  dpgf_line_count: z.number().int().optional(),
+  dpgf_lines: z.array(z.object({
+    estimate_item_id: z.string().optional(),
+    title: z.string(),
+    quantity: z.number().nullable().optional(),
+    unit: z.string().nullable().optional(),
+    /** Whether this takeoff feeds the line (the reconciliation links one of its lines to it). */
+    fed: z.boolean().optional(),
+  })),
+});
+
+/** TI-726: what the database named when « Remplacer la section » would delete the section's DPGF lines. */
+function parseDpgfSectionReplace(detail: string | null | undefined) {
+  if (!detail) return null;
+  try {
+    const parsed = dpgfSectionReplaceSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const DPGF_SECTION_REPLACE_NAMED = 5;
+
+/**
+ * TI-726: « Remplacer la section » empties the section, its subsections included. A DPGF line never leaves the estimate
+ * without a gesture that names it: the refusal names the section and its DPGF lines (the first five, then how many others),
+ * and the way out, « Fusionner » through the reconciliation: a line it already links to this takeoff receives its measure,
+ * another one once linked. Never « Ajouter » (refused beside a fed DPGF line) nor a replace.
+ */
+function dpgfSectionReplaceMessage(parsed: z.infer<typeof dpgfSectionReplaceSchema>) {
+  const count = Math.max(parsed.dpgf_line_count ?? 0, parsed.dpgf_lines.length);
+  const named = parsed.dpgf_lines.slice(0, DPGF_SECTION_REPLACE_NAMED)
+    .map((line) => `« ${line.title.trim() || "une ligne"} »${measureOf(line.quantity, line.unit)}`);
+  const others = count - named.length;
+  const listed = others > 0 ? `${named.join(", ")} et ${others} autre${others > 1 ? "s" : ""}` : listOf(named);
+  const one = count === 1;
+  const lines = one
+    ? named.length > 0 ? `la ligne DPGF ${named[0]}` : "une ligne DPGF"
+    : named.length > 0 ? `${count} lignes DPGF : ${listed}` : `${count} lignes DPGF`;
+  const section = parsed.section_title?.trim() ? `la section « ${parsed.section_title.trim()} »` : "la section choisie";
+  const fed = parsed.dpgf_lines.some((line) => line.fed === true);
+  const kept = "sa quantité du DPGF gardée";
+  const way = one
+    ? fed ? `la ligne DPGF reste en place et, déjà reliée à ce métré par le rapprochement, en recevra la mesure, ${kept}.`
+      : `la ligne DPGF reste en place. Si une ligne de ce métré la mesure, reliez-les dans le rapprochement : la ligne DPGF en recevra la mesure, ${kept}.`
+    : fed ? "les lignes DPGF restent en place, et celles que le rapprochement relie déjà à ce métré en recevront la mesure, leur "
+        + "quantité du DPGF gardée. Si une ligne de ce métré en mesure une autre, reliez-les dans le rapprochement."
+      : `les lignes DPGF restent en place. Si une ligne de ce métré mesure l’une d’elles, reliez-les dans le rapprochement : la ligne DPGF en recevra la mesure, ${kept}.`;
+  return `« Remplacer la section » supprimerait le contenu de ${section}, dont ${lines}. Une ligne DPGF ne sort jamais du devis sans `
+    + `un geste qui la nomme : rien n’est appliqué. Choisissez « Fusionner » : ${way} Puis appliquez à nouveau.`;
+}
+
 /** Why the database refused a page decision (TAKEOFF_PAGE_DECISION_INVALID). */
 const PAGE_DECISION_MESSAGES: Record<string, string> = {
   remove_other_pages: "Une ligne à retirer porte aussi d’autres pages du plan : la retirer les retirerait. Gardez-la, ou corrigez-la dans le devis.",
@@ -326,12 +388,17 @@ export function mapApplyTakeoffRpcError(
   if (normalized.includes("takeoff_dpgf_quantity_")) {
     const stale = normalized.includes("snapshot_stale");
     const merge = normalized.includes("merge_required");
+    // TI-726: « Remplacer la section » would delete the section's DPGF lines, fed by this takeoff or not.
+    const replaced = normalized.includes("mapping_conflict") ? parseDpgfSectionReplace(error.details) : null;
+    if (replaced) {
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+        message: dpgfSectionReplaceMessage(replaced),
+        details: { ...details, ...replaced, guard: "dpgf_quantities" }, retryable: false, jobId: input.jobId });
+    }
     // TI-716: « Fusionner » sent a takeoff line onto a DPGF line outside the reconciliation; its sum would erase it. TI-723:
     // or onto a DPGF line this application does not compose, which would lose its DPGF quantity.
     const merged = normalized.includes("mapping_conflict") ? parseDpgfMerged(error.details) : null;
     if (merged) {
-      const measureOf = (quantity: number | null | undefined, unit: string | null | undefined) => (typeof quantity === "number"
-        ? ` (${quantityFormat.format(quantity)}${unit?.trim() ? ` ${unit.trim()}` : ""})` : "");
       const line = `« ${merged.designation?.trim() || "une ligne"} »${measureOf(merged.quantity, merged.unit)}`;
       // TI-723: onto a DPGF line this application neither feeds nor replaces a page of. The merge would make it an
       // ordinary takeoff line; linked to it in the reconciliation, the line feeds it through its composition instead.
