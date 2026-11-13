@@ -16,12 +16,17 @@ import type {
 import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
 import type { EstimateEditorDocument, EstimateEditorDocumentScopeToken } from "@/lib/estimates/editor-document-state";
 import {
+  type EstimateEditorData,
+  batchEstimateOperations,
   deleteEstimateItem,
   duplicateEstimateSection,
   fetchEstimateEditorData,
   insertAssemblyIntoVersion,
   insertTemplateIntoVersion,
 } from "@/lib/estimates/client";
+import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
+import { requireEstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
+import { ouvrageQuantity, resizeOuvrage } from "@/lib/estimates/ouvrage-quantity";
 import type {
   EditorEstimateItem,
   EstimateItem,
@@ -50,6 +55,8 @@ type EstimateEditorStructureControllerInput = {
   document?: EstimateEditorDocument;
   routeVersionId: string;
   isMutationBlocked: boolean;
+  /** History may execute while controls are busy, but never while access/status/lock blocks writes. */
+  isHistoryMutationBlocked?: boolean;
   mutationBlockedMessage: string;
   getItemsSnapshot: () => EditorEstimateItem[];
   getVersionSnapshot: () => EstimateVersionRow | null;
@@ -66,6 +73,7 @@ type EstimateEditorStructureControllerInput = {
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   pushHistoryCommand: (command: EstimateEditorHistoryCommand) => void;
   reloadItems: () => Promise<void>;
+  onResizeConfirmed?: (data: EstimateEditorData) => void;
   /** Lot 3.2, entrée 1 : conversion ligne ↔ section d'une v3 par l'écrivain de lot ; absent en v1/v2. */
   convertV3Items?: typeof convertEstimateV3Items;
   /** Vide l'historique d'annulation, dont les commandes visent les anciens identifiants d'une conversion. */
@@ -76,6 +84,7 @@ export function useEstimateEditorStructureController({
   document,
   routeVersionId,
   isMutationBlocked,
+  isHistoryMutationBlocked = isMutationBlocked,
   mutationBlockedMessage,
   getItemsSnapshot,
   getVersionSnapshot,
@@ -89,6 +98,7 @@ export function useEstimateEditorStructureController({
   ensureGroupedActionCanProceed,
   pushHistoryCommand,
   reloadItems,
+  onResizeConfirmed,
   convertV3Items,
   clearHistory,
 }: EstimateEditorStructureControllerInput) {
@@ -111,15 +121,17 @@ export function useEstimateEditorStructureController({
   const assemblyInsertionsToReviewRef = useRef(new Set<string>());
   const mutationGuardRef = useRef({
     isBlocked: isMutationBlocked,
+    isHistoryBlocked: isHistoryMutationBlocked,
     message: mutationBlockedMessage,
   });
 
   useLayoutEffect(() => {
     mutationGuardRef.current = {
       isBlocked: isMutationBlocked,
+      isHistoryBlocked: isHistoryMutationBlocked,
       message: mutationBlockedMessage,
     };
-  }, [isMutationBlocked, mutationBlockedMessage]);
+  }, [isMutationBlocked, isHistoryMutationBlocked, mutationBlockedMessage]);
 
   useLayoutEffect(() => {
     if (routeVersionIdRef.current === routeVersionId && documentGenerationRef.current === documentGeneration) return;
@@ -154,11 +166,11 @@ export function useEstimateEditorStructureController({
   }, []);
 
   const beginMutation = useCallback(
-    async (actionLabel: string): Promise<StructureMutationScope | null> => {
+    async (actionLabel: string, history = false): Promise<StructureMutationScope | null> => {
       if (!isItemsDocumentCurrent()) return null;
       const documentScope = document?.captureScope();
       const initialGuard = mutationGuardRef.current;
-      if (initialGuard.isBlocked) {
+      if (history ? initialGuard.isHistoryBlocked : initialGuard.isBlocked) {
         reportError(initialGuard.message);
         return null;
       }
@@ -180,7 +192,7 @@ export function useEstimateEditorStructureController({
       }
 
       const currentGuard = mutationGuardRef.current;
-      if (currentGuard.isBlocked) {
+      if (history ? currentGuard.isHistoryBlocked : currentGuard.isBlocked) {
         reportError(currentGuard.message);
         return null;
       }
@@ -237,7 +249,7 @@ export function useEstimateEditorStructureController({
       context?: EstimateEditorHistoryCommandContext
     ) => {
       if (context && !context.isCurrentScope()) return null;
-      const scope = await beginMutation(actionLabel);
+      const scope = await beginMutation(actionLabel, true);
       if (!scope) {
         throw new Error("Modification de structure indisponible.");
       }
@@ -849,9 +861,50 @@ export function useEstimateEditorStructureController({
     ]
   );
 
+  const resizeAssembly = useCallback(async (itemId: string, quantity: number) => {
+    const scope = await beginMutation("modifier la quantité de l’ouvrage");
+    if (!scope) throw new Error("Modification indisponible. Réessayez après l’enregistrement en cours.");
+    const previous = getItemsSnapshot().find(item => item.id === itemId);
+    const previousQuantity = previous ? ouvrageQuantity(previous) : 1;
+    const commit = async (activeScope: StructureMutationScope, value: number) => {
+      // Validate locally before sending; publish the complete causal reread, including every component.
+      resizeOuvrage(getItemsSnapshot(), itemId, value, usesPerUnitLabor(requireEstimateEngineVersion(activeScope.version)));
+      const result = await batchEstimateOperations(activeScope.version.id, activeScope.version.updated_at, [
+        { op: "update", id: itemId, data: { assembly_quantity: value } },
+      ], { onPrepared: onResizeConfirmed ? refreshed => {
+        if (routeGenerationRef.current !== activeScope.routeGeneration || routeVersionIdRef.current !== activeScope.version.id ||
+          (document && (!activeScope.documentScope || !document.isCurrent(activeScope.documentScope)))) throw new Error("L’éditeur a changé. Relecture annulée.");
+        onResizeConfirmed(refreshed);
+      } : undefined });
+      if (!result.committed) throw new Error("La quantité de l’ouvrage n’a pas pu être enregistrée.");
+      if (isCurrentMutation(activeScope)) setTotalsOutOfSync(false);
+    };
+    const replay = async (value: number, context?: EstimateEditorHistoryCommandContext) => {
+      const historyScope = await beginHistoryMutation("modifier la quantité de l’ouvrage", context);
+      if (!historyScope) return false;
+      try { await commit(historyScope, value); return isCurrentHistoryMutation(historyScope, context); }
+      catch (error) {
+        if (isCurrentHistoryMutation(historyScope, context)) {
+          (context?.reportError ?? reportError)(error instanceof Error ? error.message : "Impossible de rétablir la quantité de l’ouvrage.");
+        }
+        throw error;
+      } finally { finishMutation(historyScope); }
+    };
+    try {
+      await commit(scope, quantity);
+      if (!isCurrentMutation(scope)) return;
+      pushHistoryCommand({ label: "resize-assembly", undo: context => replay(previousQuantity, context), redo: context => replay(quantity, context) });
+    } catch (error) {
+      if (isCurrentMutation(scope)) {
+        if (!handleVersionConflict(error, { persistDraft: true })) reportError(error instanceof Error ? error.message : "Quantité non enregistrée.");
+      }
+      throw error;
+    } finally { finishMutation(scope); }
+  }, [beginMutation, beginHistoryMutation, finishMutation, getItemsSnapshot, handleVersionConflict, isCurrentHistoryMutation, isCurrentMutation, pushHistoryCommand, onResizeConfirmed, document, reportError, setTotalsOutOfSync]);
+
   const actions = useMemo(
-    () => ({ insertAssembly, insertTemplate, duplicateSection, convertItems }),
-    [convertItems, duplicateSection, insertAssembly, insertTemplate]
+    () => ({ insertAssembly, resizeAssembly, insertTemplate, duplicateSection, convertItems }),
+    [convertItems, duplicateSection, insertAssembly, resizeAssembly, insertTemplate]
   );
 
   return { actions };

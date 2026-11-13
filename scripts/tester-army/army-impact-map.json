@@ -20,6 +20,7 @@
       "e2e/army/critical/document-upload-feedback.e2e.ts",
       "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
+      "e2e/army/critical/editable-ouvrage.e2e.ts",
       "e2e/army/critical/editor-idle-requests.e2e.ts",
       "e2e/army/critical/estimate-integrity.e2e.ts",
       "e2e/army/critical/hub-launch-metre.e2e.ts",
@@ -277,6 +278,7 @@
     ],
     "editor": [
       "@wizard",
+      "e2e/army/critical/editable-ouvrage.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
