@@ -1,6 +1,7 @@
 import { expect } from "e2e";
 
 import { armyTest, recordEvidence, type ArmyState } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import {
   captureScreen, closePolicy, createV2Affaire, linkDpgfThroughHub, openPolicy3, openWizard, policySnapshot, seedV2Lines,
   sentExpectation, signUpCreatorOwner, storedVersions, submitWizard, type Ui,
@@ -47,8 +48,13 @@ async function readHub(ui: Ui, projectId: string) {
   const study = ui.screen.getByRole("button", /Étude Structure, métrés et prix/);
   const manual = ui.screen.getByRole("link", "Continuer en manuel", { exact: true });
   await expect.poll(async () => (await study.isVisible()) || (await manual.isVisible()), { timeout: 60_000 }).toBe(true);
-  const studyExpanded = await ui.browser.evaluate(() => document.getElementById("journey-etude") !== null);
-  if (await study.count() && !studyExpanded) await study.click();
+  // The server HTML shows the journey before React handles it, and its panel (a lazy chunk) hydrates after the
+  // rest of the hub: a press on « Étude » is lost until then, and the read would see a stage that never opened.
+  await waitForHydration(ui.browser);
+  if (await study.count()) {
+    if (await study.getAttribute("aria-expanded") !== "true") await study.click();
+    await expect(study).toHaveAttribute("aria-expanded", "true");
+  }
   const entry = await ui.browser.evaluate(() => {
     const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
     const manualLink = Array.from(document.querySelectorAll("main a"))
