@@ -163,8 +163,9 @@ export function TakeoffPagesAlreadyInEstimateBanner({ read, items, applied, jobH
     <Frame className={className}>
       <PageRows data={read.data} pages={shown.pages} jobHref={jobHref} />
       <p className="text-foreground-secondary">
+        {/* TI-682: never a choice a page may not offer (the DPGF dead end, PR #259): the assistant says which, page by page. */}
         {!applied
-          ? "À l’application, choisissez pour chaque page de remplacer sa mesure précédente ou de garder les deux : une page n’entre qu’une fois au devis sans votre choix."
+          ? "À l’application, l’assistant dit pour chaque page ce qui est possible : remplacer sa mesure précédente, garder les deux avec un motif ou, avec un DPGF, ce qui débloque la page quand ni l’un ni l’autre ne l’est. Une page n’entre qu’une fois au devis sans votre choix."
           : keptBoth.length === shown.pages.length
             ? `Mesures gardées toutes les deux à l’application : ${[...new Set(keptBoth)].join(", ")}.`
             : "Ce métré est déjà appliqué : ces pages sont au devis deux fois. Retirez du devis les lignes en double."}
@@ -202,7 +203,7 @@ export function TakeoffLaunchPagesNotice({ versionId, sources }: Readonly<{
   return (
     <Frame>
       <PageRows data={read.data} pages={read.data.pages} />
-      <p className="text-foreground-secondary">Vous pouvez lancer ce métré ; à l’application, vous choisirez pour chaque page de remplacer sa mesure précédente ou de garder les deux.</p>
+      <p className="text-foreground-secondary">Vous pouvez lancer ce métré ; à l’application, l’assistant dira pour chaque page ce qui est possible : remplacer sa mesure précédente, garder les deux, ou ce qui débloque la page.</p>
     </Frame>
   );
 }

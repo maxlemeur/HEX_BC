@@ -63,6 +63,15 @@ export function assertEstimateForceSendAllowed(force: boolean | undefined, isAdm
   }
 }
 
+/** The never-forced blockers the refusal below writes a sentence for; any other one is named by its label. */
+const NOT_FORCEABLE_REASON_KEYS = [
+  "not_priced_unclassified",
+  "excluded_without_reason",
+  "offer_limits_required",
+  "provisional_quantity_mention_missing",
+  "offer_choice_unreadable",
+] as const;
+
 /** TI-682, lot C, PR 5: the refusal of missing provisional sentences, with what unblocks when the text has no room left. */
 function provisionalMentionsRefusal(gating: EstimateSendGatingResult) {
   const reason = "des quantités provisionnelles déclarées n'ont pas leur phrase, écrite d'après la ligne actuelle, dans le texte "
@@ -102,7 +111,17 @@ export function resolveEstimateSendOverride(
       ...(notForceable.includes("provisional_quantity_mention_missing")
         ? [provisionalMentionsRefusal(gating)]
         : []),
+      ...(notForceable.includes("offer_choice_unreadable")
+        ? ["une réserve ou une quantité provisionnelle déclarée sur des lignes ne peut pas être relue (un administrateur la "
+          + "déclare de nouveau depuis la ligne)"]
+        : []),
     ];
+    // A blocker never forced that has no sentence above still names itself: the refusal never reads « Envoi bloqué : . ».
+    for (const key of notForceable) {
+      if (!(NOT_FORCEABLE_REASON_KEYS as readonly string[]).includes(key)) {
+        reasons.push(gating.blockingFlags.find((flag) => flag.key === key)?.label ?? key);
+      }
+    }
     throw badRequest(
       `Envoi bloqué : ${reasons.join(" ; ")}. Un administrateur ne peut pas forcer cet envoi.`,
       { gating, not_forceable: notForceable },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EstimateSendGatingResult } from "@/lib/estimates/gating";
+import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import { ESTIMATE_STATUS_VALUES, type EstimateStatus } from "@/lib/estimates/status";
 import {
   assertEstimateForceSendAllowed,
@@ -155,5 +156,42 @@ describe("manual estimate lifecycle decisions", () => {
     );
     expect(() => resolveEstimateSendOverride(result, false)).toThrowError(
       expect.objectContaining({ code: "ESTIMATE_GATING_BLOCKED" }));
+  });
+  // TI-682, lot C: a choice the tool cannot read back is declared again; the refusal says so, never « Envoi bloqué : . ».
+  it("names an unreadable offer choice when an administrator forces it alone", () => {
+    const result: EstimateSendGatingResult = {
+      ...gating(true),
+      blockingFlags: [{
+        key: "offer_choice_unreadable",
+        severity: "blocking",
+        count: 1,
+        item_ids: ["line-1"],
+        label: "Choix d'offre illisible",
+        description: "À déclarer de nouveau",
+      }],
+    };
+    expect(() => resolveEstimateSendOverride(result, true)).toThrowError(
+      expect.objectContaining({
+        status: 400,
+        code: "ESTIMATE_GATING_NOT_FORCEABLE",
+        details: { gating: result, not_forceable: ["offer_choice_unreadable"] },
+        message: "Envoi bloqué : une réserve ou une quantité provisionnelle déclarée sur des lignes ne peut pas être relue "
+          + "(un administrateur la déclare de nouveau depuis la ligne). Un administrateur ne peut pas forcer cet envoi.",
+      })
+    );
+  });
+  it.each(ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS)("gives a reason for %s forced alone", (key) => {
+    const result: EstimateSendGatingResult = {
+      ...gating(true),
+      blockingFlags: [{ key, severity: "blocking", count: 1, item_ids: ["line-1"], label: `Libellé ${key}`, description: "" }],
+    };
+    let message = "";
+    try {
+      resolveEstimateSendOverride(result, true);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/^Envoi bloqué : \S/);
+    expect(message).not.toContain(" : .");
   });
 });
