@@ -1,19 +1,22 @@
 "use client";
 
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
+import { EstimateSendBlockers } from "@/components/estimates/EstimateSendBlockers";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DRAFT_LOCK_HEARTBEAT_INTERVAL_MS } from "@/hooks/useDraftLock";
 import {
   acquireEstimateDraftLock,
+  fetchEstimateSendGating,
   getEstimateDraftLockSessionId,
   isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
+  type EstimateSendGatingFlag,
 } from "@/lib/estimates/client";
 import { hasEstimateEditorMutationSession } from "@/lib/estimates/editor-mutations";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
@@ -37,6 +40,8 @@ type EstimateStatusActionsProps = {
   /** updated_at réel de la version, utilisé comme jeton de concurrence (If-Match). */
   updatedAt: string;
   projectName?: string;
+  /** The affaire, for the register's blockers. */
+  projectId?: string | null;
   clientEmail?: string;
   emailDispatchProblem?: EstimateEmailDispatchProblem | null;
 };
@@ -62,6 +67,7 @@ export function EstimateStatusActions({
   currentStatus,
   updatedAt,
   projectName,
+  projectId = null,
   clientEmail,
   emailDispatchProblem = null,
 }: EstimateStatusActionsProps) {
@@ -71,7 +77,44 @@ export function EstimateStatusActions({
   const [sendModalMounted, setSendModalMounted] = useState(false);
   const [isRefreshingPdf, startPdfRefresh] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // The blockers the gating names when « Marquer envoyé » is refused, each with what lifts it (TI-691).
+  const [sendBlockers, setSendBlockers] = useState<EstimateSendGatingFlag[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const statusChangePendingRef = useRef(false);
+
+  /** Reads the send's preconditions again; `false` when the read failed. */
+  const readSendBlockers = useCallback(async () => {
+    try {
+      const gating = await fetchEstimateSendGating(versionId);
+      setSendBlockers(gating.blockingFlags.length > 0 ? gating.blockingFlags : null);
+      return gating.blockingFlags;
+    } catch {
+      return null;
+    }
+  }, [versionId]);
+
+  // A draft names what blocks its send as the page opens, before « Marquer envoyé » is refused (TI-691), and again
+  // whenever the page reads the version anew.
+  useEffect(() => {
+    if (currentStatus !== "draft") return;
+    let current = true;
+    void fetchEstimateSendGating(versionId)
+      .then((gating) => {
+        if (current) setSendBlockers(gating.blockingFlags.length > 0 ? gating.blockingFlags : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [currentStatus, versionId, updatedAt]);
+
+  const handlePdfReady = useCallback(() => {
+    // The PDF changes the version: the page's concurrency token is read again with it.
+    startPdfRefresh(() => router.refresh());
+    void readSendBlockers().then((flags) => {
+      if (flags?.length === 0) setNotice("PDF généré : le devis peut être marqué envoyé.");
+    });
+  }, [readSendBlockers, router]);
 
   const handleStatusChange = useCallback(
     async (nextStatus: EstimateStatus) => {
@@ -79,6 +122,7 @@ export function EstimateStatusActions({
       statusChangePendingRef.current = true;
       setIsPending(true);
       setError(null);
+      setNotice(null);
       let ownsNewLease = false;
       let intervalId: number | undefined;
       let renewal: Promise<void> | null = null;
@@ -155,6 +199,11 @@ export function EstimateStatusActions({
           let message =
             errorObject?.message ?? "Impossible de mettre à jour le statut.";
           if (code === "ESTIMATE_GATING_BLOCKED") {
+            const flags = await readSendBlockers();
+            if (flags && flags.length > 0) {
+              setError("Envoi refusé : levez d’abord les anomalies listées ci-dessous.");
+              return;
+            }
             message =
               "Envoi bloqué : des anomalies bloquantes doivent être corrigées avant de marquer le devis envoyé.";
           } else if (code === "VERSION_CONFLICT") {
@@ -165,6 +214,7 @@ export function EstimateStatusActions({
           return;
         }
 
+        setSendBlockers(null);
         router.refresh();
       } catch (statusError) {
         setError(statusError instanceof Error
@@ -179,7 +229,7 @@ export function EstimateStatusActions({
         setIsPending(false);
       }
     },
-    [versionId, currentStatus, updatedAt, router]
+    [versionId, currentStatus, updatedAt, router, readSendBlockers]
   );
 
   const [providerMessageId, setProviderMessageId] = useState("");
@@ -333,6 +383,25 @@ export function EstimateStatusActions({
           {error}
         </p>
       )}
+      {sendBlockers && currentStatus === "draft" ? (
+        <Alert variant="warning" className="mt-2 px-3 py-2 text-xs" data-testid="estimate-send-blockers-alert">
+          <AlertDescription>
+            <EstimateSendBlockers
+              flags={sendBlockers}
+              versionId={versionId}
+              versionStatus={currentStatus}
+              projectId={projectId}
+              editHref={`/dashboard/estimates/${versionId}/edit`}
+              onPdfReady={handlePdfReady}
+            />
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {notice ? (
+        <p className="mt-2 text-xs text-success" role="status">
+          {notice}
+        </p>
+      ) : null}
       {sendModalMounted && <SendEstimateModal
         open={sendModalOpen}
         onClose={() => setSendModalOpen(false)}

@@ -106,6 +106,8 @@ type MoreActionsDropdownProps = {
   versionStatus: EstimateStatus;
   onBeforeGeneratePdf?: () => Promise<boolean>;
   onPdfPrepared?: (data: EstimateEditorData) => void;
+  /** A PDF is ready: the send gating is read again (TI-691, « PDF absent »). */
+  onPdfReady?: () => void;
   canArchive: boolean;
   onArchive: () => void;
   isArchiveDisabled: boolean;
@@ -168,6 +170,7 @@ function MoreActionsDropdown({
   versionStatus,
   onBeforeGeneratePdf,
   onPdfPrepared,
+  onPdfReady,
   canArchive,
   onArchive,
   isArchiveDisabled,
@@ -486,7 +489,7 @@ function MoreActionsDropdown({
           </button>
           <div role="none" className="my-1">
             <EstimatePdfDownloadButton versionId={versionId} versionStatus={versionStatus}
-              onBeforeGenerate={onBeforeGeneratePdf} onPrepared={onPdfPrepared} />
+              onBeforeGenerate={onBeforeGeneratePdf} onPrepared={onPdfPrepared} onSuccess={() => onPdfReady?.()} />
           </div>
           <div role="none" className="my-1">
             <SaveAsTemplateButton versionId={versionId} />
@@ -528,6 +531,8 @@ function MoreActionsDropdown({
 type EstimateEditorToolbarProps = {
   onBeforeGeneratePdf?: () => Promise<boolean>;
   onPdfPrepared?: (data: EstimateEditorData) => void;
+  /** A PDF is ready: the send gating is read again (TI-691, « PDF absent »). */
+  onPdfReady?: () => void;
   projectId?: string | null;
   projectName: string;
   versionNumber: number;
@@ -578,6 +583,7 @@ type EstimateEditorToolbarProps = {
 export function EstimateEditorToolbar({
   onBeforeGeneratePdf,
   onPdfPrepared,
+  onPdfReady,
   projectId = null,
   projectName,
   versionNumber,
@@ -739,6 +745,7 @@ export function EstimateEditorToolbar({
             versionStatus={status}
             onBeforeGeneratePdf={onBeforeGeneratePdf}
             onPdfPrepared={onPdfPrepared}
+            onPdfReady={onPdfReady}
             canArchive={canArchive}
             onArchive={onArchive}
             isArchiveDisabled={isStatusActionsDisabled}

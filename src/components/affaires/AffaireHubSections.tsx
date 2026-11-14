@@ -154,14 +154,12 @@ export function VersionTimelineCard({
   projectId,
   currentVersionId,
   acceptedVersionId,
-  isReadOnlyReview,
   errorMessage,
 }: {
   timeline: AffaireHubTimelineResult | null;
   projectId: string;
   currentVersionId: string | null;
   acceptedVersionId: string | null;
-  isReadOnlyReview?: boolean;
   errorMessage?: string;
 }) {
   if (timeline === null) {
@@ -231,12 +229,10 @@ export function VersionTimelineCard({
                     )}
                   />
 
+                  {/* A version opens its estimate page (status, send, acceptance), even as a draft: the editor
+                      sits one click further, and « Éditer Vn » leads there directly (TI-691). */}
                   <Link
-                    href={
-                      isReadOnlyReview
-                        ? `/dashboard/estimates/${version.id}`
-                        : `/dashboard/estimates/${version.id}/edit`
-                    }
+                    href={`/dashboard/estimates/${version.id}`}
                     className={cn(
                       "block rounded-lg border px-3 py-3 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4",
                       isCurrent

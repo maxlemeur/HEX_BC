@@ -1931,6 +1931,10 @@ export function useEstimateEditorState({
     );
   }, [setVersion]);
 
+  // A PDF generated from the send-blocked alert lifts « PDF absent »: the gating is read again (TI-691).
+  const [pdfGatingNonce, setPdfGatingNonce] = useState(0);
+  const requestPdfGatingRead = useCallback(() => setPdfGatingNonce((value) => value + 1), []);
+
   const statusController = useEstimateEditorStatusController({
     document: editorDocument,
     routeVersionId: resolvedVersionId,
@@ -1941,7 +1945,7 @@ export function useEstimateEditorState({
           updated_at: version.updated_at,
         }
       : null,
-    gatingReloadToken: reloadNonce,
+    gatingReloadToken: `${reloadNonce}:${pdfGatingNonce}`,
     getVersionSnapshot,
     applyUpdatedVersion: applyStatusVersion,
     isAdmin,
@@ -1981,6 +1985,7 @@ export function useEstimateEditorState({
     canArchive,
     isStatusActionsDisabled,
     isSendBlockedForCurrentUser,
+    sendBlockingFlags,
     isSendGatingRefreshing,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
@@ -2503,6 +2508,7 @@ export function useEstimateEditorState({
         },
         onBeforeGeneratePdf: flushBeforeExternalAction,
         onPdfPrepared: reconcileEditorData,
+        onPdfReady: requestPdfGatingRead,
         canSend,
         canAccept,
         canArchive,
@@ -2545,6 +2551,12 @@ export function useEstimateEditorState({
       isViewerReadOnly,
       canSend,
       isSendBlockedForCurrentUser,
+      sendBlockingFlags,
+      versionId: version?.id ?? null,
+      projectId: version?.project_id ?? null,
+      onBeforeGeneratePdf: flushBeforeExternalAction,
+      onPdfPrepared: reconcileEditorData,
+      onPdfReady: requestPdfGatingRead,
       isDraftLockedByOther,
       lockHolderLabel,
       isAdmin,
@@ -2597,6 +2609,12 @@ export function useEstimateEditorState({
       isSendBlockedForCurrentUser,
       isSendGatingRefreshing,
       isStatusReadOnly,
+      sendBlockingFlags,
+      version?.id,
+      version?.project_id,
+      flushBeforeExternalAction,
+      reconcileEditorData,
+      requestPdfGatingRead,
       isUndoingBulkSuggest,
       isViewerReadOnly,
       lockHolderLabel,
