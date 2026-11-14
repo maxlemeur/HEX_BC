@@ -78,6 +78,9 @@ function createDispatch(
 describe("estimate email outbox provider boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The cases below assert the provider request as frozen: delivery as written.
+    process.env.EMAIL_DELIVERY_MODE = "live";
+    delete process.env.EMAIL_REDIRECT_TO;
   });
 
   it("replays the identical provider request when provider success precedes a DB failure", async () => {
@@ -339,5 +342,57 @@ describe("drainEstimateEmailOutbox", () => {
       failed: 0,
       skipped: false,
     });
+  });
+
+  it("hands the provider the test mailbox, not the frozen recipients, when delivery is redirected", async () => {
+    delete process.env.EMAIL_DELIVERY_MODE;
+    process.env.EMAIL_REDIRECT_TO = "recette@test.invalid";
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token, lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "complete_estimate_email_dispatch") {
+        return { data: createDispatch("sent"), error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
+
+    await deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"),
+      actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key",
+      loadPdfBuffer: async () => PDF_BUFFER,
+      retryDelaysMs: [],
+    });
+
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    const [request, options] = mocks.send.mock.calls[0]!;
+    expect(request).toMatchObject({
+      from: "noreply@example.com",
+      to: "recette@test.invalid",
+      subject: "[TEST → client@example.com, cc copy@example.com] Devis fige",
+    });
+    expect(request.cc).toBeUndefined();
+    expect(JSON.stringify(request.to)).not.toContain("client@example.com");
+    // The frozen envelope is still what is sent: same key, same attachment.
+    expect(options).toEqual({ idempotencyKey: "estimate-email/11111111-1111-4111-8111-111111111111" });
+    expect(request.attachments[0].content).toEqual(PDF_BUFFER.toString("base64"));
+  });
+
+  it("neither claims the dispatch nor calls the provider when redirecting has no mailbox", async () => {
+    delete process.env.EMAIL_DELIVERY_MODE;
+    delete process.env.EMAIL_REDIRECT_TO;
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"),
+      actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key",
+      loadPdfBuffer: async () => PDF_BUFFER,
+      retryDelaysMs: [],
+    })).rejects.toMatchObject({ code: "EMAIL_REDIRECT_NOT_CONFIGURED" });
+
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

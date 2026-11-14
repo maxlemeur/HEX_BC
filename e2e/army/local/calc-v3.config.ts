@@ -103,7 +103,7 @@ if (emission) {
     E2E_OFFER_RUN_DIRECTORY: runDirectory, E2E_OFFER_COLLECTOR_DIRECTORY: collectorDirectory, E2E_OFFER_SECRET_POINTER: pointer,
     E2E_OFFER_SERVER_GUARD: "1", E2E_OFFER_NETWORK_LOG: networkLog,
     NODE_OPTIONS: `--import=${pathToFileURL(path.resolve("scripts/tester-army/offer-network-guard.mjs")).href}`,
-    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
+    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM, EMAIL_DELIVERY_MODE: "live",
     NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL: "",
   };
   const portalSecret = async (name: "portalUrl" | "portalToken"): Promise<string> => {

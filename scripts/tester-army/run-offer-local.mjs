@@ -203,7 +203,7 @@ try {
     E2E_OFFER_COLLECTOR_ORIGIN: collector.origin, E2E_OFFER_COLLECTOR_DIRECTORY: collector.directory,
     E2E_OFFER_RUN_DIRECTORY: campaign, E2E_OFFER_SECRET_POINTER: path.join(campaign, "private/portal-pointer.json"),
     E2E_OFFER_NETWORK_LOG: path.join(publicDirectory, "server-network.jsonl"),
-    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: "ARMY Local <offer@army.invalid>",
+    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: "ARMY Local <offer@army.invalid>", EMAIL_DELIVERY_MODE: "live",
     NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL: "", NEXT_TELEMETRY_DISABLED: "1", E2E_TELEMETRY_DISABLED: "1",
     PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? "C:/Users/thann/AppData/Local/ms-playwright",
   };

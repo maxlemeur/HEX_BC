@@ -297,7 +297,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
         E2E_OFFER_COLLECTOR_DIRECTORY: collector.directory, E2E_OFFER_SECRET_POINTER: path.join(runDirectory, "private", "portal-pointer.json"),
         E2E_OFFER_COLLECTOR_HTTP_LOG: httpLog, E2E_OFFER_FAULT_PLAN: faultPlanPath, E2E_OFFER_ATTEMPT_LOG: attemptLogPath,
         E2E_OFFER_NETWORK_LOG: networkLog, E2E_OFFER_SERVER_MODE: definition.serverMode === "production" ? "production" : "dev",
-        RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
+        RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM, EMAIL_DELIVERY_MODE: "live",
       });
       summary.collector = { origin: collector.origin, delivery: "local-collection-only" };
     } else {
