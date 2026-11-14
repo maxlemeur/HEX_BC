@@ -25,13 +25,14 @@
 //    not know, which the selection by impact runs the whole suite for; a pull request that edits the map beyond its
 //    rules (its full, docs or non-runtime globs) hides a file from the guards; the anchor the change itself reaches is
 //    dropped once the model leaves out the rest.
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { DECISION_FILTER, decisionFromPairs } from "../../scripts/tester-army/decision-listing";
 import { DECISION_KEY, DECISION_MIN_PERCENT, armyDecisionFilter, armyImpactFilter } from "../../scripts/tester-army/impact-filter";
 import {
-  MAP_PATH, buildSourceGraph, classifyPath, decisionSkipped, expandJourneys, listRepositoryFiles, loadImpactMap, mapChangesBeyondRules,
-  matchesAny, narrowSelection, selectFromRepository, type DecisionListing, type DecisionSuite, type ImpactMap, type Selection,
+  MAP_PATH, buildSourceGraph, classifyPath, decisionSkipped, expandJourneys, isEntryPoint, listRepositoryFiles, loadImpactMap,
+  mapChangesBeyondRules, matchesAny, narrowSelection, selectFromRepository, selectJourneys, type DecisionListing, type DecisionSuite,
+  type ImpactMap, type Selection, type SourceGraph,
 } from "../../scripts/tester-army/select-journeys";
 
 const root = process.cwd();
@@ -40,6 +41,11 @@ const repositoryFiles = listRepositoryFiles(root);
 const setup = map.suite.setup;
 const anchor = map.suite.anchor;
 const BASE = "b".repeat(40);
+
+// The working tree's source graph, built once for the file: reading and scanning its sources takes about 0.15 s on
+// a workstation and several times that on a CI runner, and each selectFromRepository builds its own.
+let graph: SourceGraph;
+beforeAll(() => { graph = buildSourceGraph(root, map, repositoryFiles); });
 
 type Candidate = { id: string; file: string; titlePath: string[]; tags: string[] };
 const candidate = (file: string, index = 0): Candidate => ({ id: `${file}#${index}`, file, titlePath: [file], tags: ["critical"] });
@@ -61,9 +67,13 @@ function ruledFile(): { file: string; journeys: string[]; selection: Selection }
     const file = repositoryFiles.find((name) => name.startsWith("src/") && matchesAny(name, rule.paths) && !matchesAny(name, map.full)
       && !matchesAny(name, map.nonRuntime) && !matchesAny(name, map.docs));
     if (!file) continue;
+    // Probed on the file's graph: the same decision as the army-select job's, whose selection only adds its shards.
+    const probe = selectJourneys({ map, graph, event: "pull_request", paths: [file], base: BASE });
+    const authenticated = probe.files.filter((journey) => journey !== setup && journey !== anchor && !map.suite.anonymous.includes(journey));
+    if (probe.mode !== "files" || authenticated.length <= 1) continue;
     const selection = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file], repositoryFiles });
-    const authenticated = selection.files.filter((journey) => journey !== setup && journey !== anchor && !map.suite.anonymous.includes(journey));
-    if (selection.mode === "files" && authenticated.length > 1) return (ruled = { file, journeys, selection });
+    expect({ mode: selection.mode, files: selection.files }, file).toEqual({ mode: probe.mode, files: probe.files });
+    return (ruled = { file, journeys, selection });
   }
   throw new Error("No rule of the impact map names a runtime source file that selects some journeys.");
 }
@@ -81,8 +91,8 @@ const listing = (overrides: Partial<DecisionListing> = {}): DecisionListing => (
 
 describe("the runner's impact filter", () => {
   it("leaves out exactly the journeys the army-select job does not plan, and none the map does not know", () => {
-    const { file } = ruledFile();
-    const selection = selectFromRepository(root, { event: "pull_request", paths: [file], repositoryFiles });
+    // The army-select job's selection for the file: the runner's filter must plan the same journeys.
+    const { file, selection } = ruledFile();
     expect(selection.mode).toBe("files");
     const unknown = "e2e/army/critical/not-in-the-map.e2e.ts";
     const journeys = [...map.suite.journeys, ...map.fullOnly.journeys, unknown];
@@ -112,7 +122,7 @@ describe("the decision filter behind its guards", () => {
   it("does not ask the model about the shared core, what the runner loads, or a change without a runtime file", async () => {
     const { file } = ruledFile();
     // Every `full` glob of the map names at least one of these, and the runner loads the last two itself.
-    const loadedByRunner = [...buildSourceGraph(root, map).runnerClosure].filter((name) => !matchesAny(name, map.full));
+    const loadedByRunner = [...graph.runnerClosure].filter((name) => !matchesAny(name, map.full));
     expect(loadedByRunner).toEqual(expect.arrayContaining(["src/test/local-supabase-ci.ts"]));
     const first = (glob: string) => repositoryFiles.find((name) => matchesAny(name, [glob]))!;
     const core = [
@@ -144,14 +154,22 @@ describe("the decision filter behind its guards", () => {
 
   it("does not ask the model about a file the shared core loads, nor about one the map does not know", async () => {
     const { file } = ruledFile();
-    const graph = buildSourceGraph(root, map);
     const sources = repositoryFiles.filter((name) => name.startsWith("src/") && !matchesAny(name, map.full)
       && !matchesAny(name, map.nonRuntime) && !matchesAny(name, map.docs) && !graph.runnerClosure.has(name));
-    const decisions = sources.map((name) => classifyPath(map, graph, name, "pull_request"));
-    const loaded = decisions.find((decision) => decision.class === "full" && decision.reason.startsWith("loaded by the shared core"));
-    const unmapped = decisions.find((decision) => decision.class === "unmapped");
+    // Only the sources that the graph's edges make candidates are classified, each walking its own impact closure:
+    // classifying all 1,800 of them (0.5 s of this test's 0.8 s on a workstation) timed it out on a CI runner.
+    const classify = (name: string) => classifyPath(map, graph, name, "pull_request");
+    const loaders = (name: string) => [...graph.importers.get(name) ?? [], ...graph.apiCallers.get(name) ?? []];
+    // A source that a file under a `full` glob imports, or whose API route it calls.
+    const loaded = sources.filter((name) => loaders(name).some((loader) => matchesAny(loader, map.full))).map(classify)
+      .find((decision) => decision.class === "full" && decision.reason.startsWith("loaded by the shared core"));
+    // An entry point of the working tree that no rule covers, when there is one, and a path the working tree does not
+    // hold (a deleted file) that no rule names: the map knows neither.
+    const unmapped = sources.filter((name) => isEntryPoint(graph, name)).map(classify).find((decision) => decision.class === "unmapped");
+    const unknown = classify("src/not-in-the-map/deleted-entry-point.ts");
     expect(loaded, "a source file the shared core loads").toBeDefined();
-    const named = [loaded!, unmapped].filter((decision) => decision !== undefined).map((decision) => decision!.path);
+    expect(unknown).toMatchObject({ class: "unmapped", reason: "deleted or unknown path without a map rule" });
+    const named = [loaded!, unmapped, unknown].filter((decision) => decision !== undefined).map((decision) => decision!.path);
     const together = selectFromRepository(root, { event: "pull_request", base: BASE, paths: [file, ...named], repositoryFiles });
     for (const changed of named) {
       const { calls, filter } = recording({ [`${journeys[0]}#0`]: "0% likely affected" });
