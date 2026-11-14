@@ -10,6 +10,7 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, resolveDownload,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 // The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
 import { controlCents } from "../../../src/lib/imports/optima-control";
 import { ownedEstimateContext, querySql } from "./calculation-gate-support";
@@ -346,7 +347,12 @@ async function expectLargeDownloads(ui: Ui, army: ArmyState, projectId: string, 
   expect(Math.round(Number(cell(footer!, "Total HT (EUR)")) * 100)).toBe(state.version.total_ht_cents);
 
   await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
-  await ui.screen.getByRole("button", /Étude Structure, métrés et prix/).tap();
+  // The server HTML shows the journey before React handles it, and its panel (a lazy chunk) hydrates after the
+  // rest of the hub: a press on « Étude » is lost until then, and the stage would never open.
+  await waitForHydration(ui.browser);
+  const study = ui.screen.getByRole("button", /Étude Structure, métrés et prix/);
+  await study.tap();
+  await expect(study).toHaveAttribute("aria-expanded", "true");
   await expect(ui.screen.getByText(/^1900 lignes dans la version courante/)).toBeVisible();
   await ui.screen.getByRole("button", /Remise Validation, PDF et email client/).tap();
   await ui.screen.getByRole("button", "Préparer le PDF", { exact: true }).tap();
