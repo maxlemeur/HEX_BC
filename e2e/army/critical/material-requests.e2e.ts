@@ -348,7 +348,7 @@ armyTest(
     // Grey buttons say why they are at zero, and what to do.
     await expect(screen.getByRole("button", "Rattacher les références et noms connus (0)", { exact: true })).toBeDisabled();
     await expect(screen.getByText(
-      "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel retenu au rattachement sera reconnu ensuite.",
+      "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel mémorisé au rattachement sera reconnu ensuite.",
       { exact: true },
     )).toBeVisible({ timeout: 30_000 });
     await expect(screen.getByText(

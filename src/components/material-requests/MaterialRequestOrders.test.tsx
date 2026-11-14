@@ -212,14 +212,22 @@ async function openEditor(routes: Record<string, Route>) {
     ...routes,
   });
   const user = userEvent.setup();
+  // The page shows one step at a time: the address names the one these tests read.
+  window.history.replaceState(null, "", "?etape=commande");
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} affaireName="Résidence des Tilleuls" />);
-  const heading = await screen.findByRole("heading", { name: "Commandes" });
+  const heading = await screen.findByRole("heading", { name: "Bons de commande" });
   return { user, section: () => heading.closest("section") as HTMLElement };
+}
+
+/** Opens a step of the page (1 lines, 2 quotes, 3 purchase orders), as the office does: one is shown at a time. */
+async function openStep(user: ReturnType<typeof userEvent.setup>, step: 1 | 2 | 3) {
+  await user.click(screen.getByRole("tab", { name: new RegExp(`^Étape ${step} :`) }));
 }
 
 describe("purchase orders from a request", () => {
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
     vi.unstubAllGlobals();
   });
 
@@ -279,7 +287,8 @@ describe("purchase orders from a request", () => {
     expect(await within(section()).findByText("Aucune ligne prête à commander.")).toBeVisible();
     expect(within(section()).queryByRole("alert")).not.toBeInTheDocument();
     expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
-    const table = screen.getByRole("region", { name: "Tableau des lignes" });
+    await openStep(user, 1);
+    const table = screen.getByRole("list", { name: "Lignes de la demande" });
     const marks = within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" });
     expect(marks).toHaveLength(2);
     expect(marks[0]).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
@@ -324,9 +333,9 @@ describe("purchase orders from a request", () => {
 
     const reasons = await within(section()).findByRole("list", { name: "Lignes pas encore à commander" });
     expect(within(reasons).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Ligne 4 · Té égal DN 50 : pas validée : réglez ses alertes, puis validez-la",
-      "Ligne 5 · Bride plate DN 50 : sans devis retenu : consultez un fournisseur et retenez son devis",
-      "Ligne 6 · Manchon DN 50 : sans fournisseur : choisissez-le dans la colonne Fournisseur",
+      "Ligne 4 · Té égal DN 50 : pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
+      "Ligne 5 · Bride plate DN 50 : sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
+      "Ligne 6 · Manchon DN 50 : sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
     ]);
     expect(within(section()).getByText("Aucune ligne prête à commander.")).toBeVisible();
     expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
@@ -335,7 +344,7 @@ describe("purchase orders from a request", () => {
   });
 
   it("shows a reader the orders and the reasons, and nothing that creates (7)", async () => {
-    const { section } = await openEditor({
+    const { user, section } = await openEditor({
       [`GET ${BASE}`]: { data: detail(LINES, false) },
       [`GET ${ORDERS}`]: { data: { ...summary("after"), can_create: false } },
     });
@@ -344,7 +353,8 @@ describe("purchase orders from a request", () => {
     expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(section()).getByRole("list", { name: "Lignes pas encore à commander" })).toBeVisible();
     expect(within(section()).queryByRole("button", { name: /Créer les brouillons de commande/ })).not.toBeInTheDocument();
-    const table = screen.getByRole("region", { name: "Tableau des lignes" });
+    await openStep(user, 1);
+    const table = screen.getByRole("list", { name: "Lignes de la demande" });
     expect(within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" })).toHaveLength(2);
     expect(creations()).toEqual([]);
   });
@@ -363,7 +373,7 @@ describe("purchase orders from a request", () => {
 
   it("names without a link an order its reader may not open: an admin made it (review)", async () => {
     const after = summary("after");
-    const { section } = await openEditor({
+    const { user, section } = await openEditor({
       [`GET ${BASE}`]: { data: detail(LINES) },
       [`GET ${ORDERS}`]: {
         data: {
@@ -378,7 +388,8 @@ describe("purchase orders from a request", () => {
     expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(list).queryByRole("link", { name: "C-2026-0042" })).not.toBeInTheDocument();
     expect(within(list).getByText("C-2026-0042")).toBeVisible();
-    const table = screen.getByRole("region", { name: "Tableau des lignes" });
+    await openStep(user, 1);
+    const table = screen.getByRole("list", { name: "Lignes de la demande" });
     expect(within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" })).toHaveLength(2);
     expect(within(table).queryByRole("link", { name: "Brouillon de bon : C-2026-0042" })).not.toBeInTheDocument();
     expect(within(table).getByText("Brouillon de bon : C-2026-0042")).toBeVisible();
@@ -423,7 +434,9 @@ describe("purchase orders from a request", () => {
     });
 
     expect(await within(section()).findByRole("button", { name: "Créer les brouillons de commande (1)" })).toBeEnabled();
+    await openStep(user, 2);
     await user.click(screen.getByRole("button", { name: "Retenir ce devis (Comptoir Bêta)" }));
+    await openStep(user, 3);
 
     expect(await within(section()).findByRole("button", { name: "Créer les brouillons de commande (2)" })).toBeEnabled();
     expect(within(section()).getByText("2 lignes prêtes à commander.")).toBeVisible();

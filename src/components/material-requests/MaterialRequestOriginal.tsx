@@ -404,7 +404,13 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
           </div>
         </>
       ) : sourceText ? (
-        <p className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground">
+        // A long message scrolls in place, so that the lines stay close under it.
+        <p
+          tabIndex={0}
+          role="group"
+          aria-label="Texte du message reçu"
+          className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
           {sourceText}
         </p>
       ) : (
@@ -515,8 +521,11 @@ export function MaterialRequestOriginal({
       <h2 id={headingId} className="typo-h3 text-foreground">
         Original
       </h2>
-      <Photos editor={editor} />
-      <SourceText editor={editor} />
+      {/* Side by side where the width allows: the photo keeps a readable size, the message the rest. */}
+      <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-6">
+        <Photos editor={editor} />
+        <SourceText editor={editor} />
+      </div>
     </section>
   );
 }

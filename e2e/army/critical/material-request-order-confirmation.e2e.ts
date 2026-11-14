@@ -281,6 +281,9 @@ armyTest(
     const section = screen.getByRole("region", "Coût des fournitures", { exact: true });
     await expect(section.getByText("Budget en attente du devis accepté : le commandé et l’en-cours sont affichés sans budget.", { exact: true }))
       .toBeVisible({ timeout: 60_000 });
+    // The affaire's totals lead the page; the table per supply type opens under them.
+    const detail = section.getByRole("button", "Détail par type de fourniture", { exact: true });
+    await detail.tap();
     const table = section.getByRole("table", "Budget et commandé par type de fourniture", { exact: true });
     await expect(table.getByRole("row", /^Non classé\s+—\s+0,00\s€\s+119,28\s€\s+—$/)).toBeVisible();
 
@@ -292,6 +295,7 @@ armyTest(
 
     // The confirmed order is « commandé » at its real price, 115,00 € + 4,40 €; nothing is left « en cours ».
     await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel`, { waitUntil: "domcontentloaded" });
+    await detail.tap({ timeout: 60_000 });
     await expect(table.getByRole("row", /^Non classé\s+—\s+119,40\s€\s+0,00\s€\s+—$/)).toBeVisible({ timeout: 60_000 });
     await expect(table.getByRole("row", /^Total HT\s+—\s+119,40\s€\s+0,00\s€\s+—$/)).toBeVisible();
     const after = await apiRequest<Envelope<SupplyCost>>(browser, "GET", costPath);

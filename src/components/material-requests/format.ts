@@ -35,6 +35,9 @@ export function plural(count: number, singular: string, pluralForm: string): str
   return `${count} ${count > 1 ? pluralForm : singular}`;
 }
 
+/** The anchor of « Coût des fournitures » on the purchasing page of an affaire: a link may open the page on it. */
+export const SUPPLY_COST_ANCHOR = "cout-des-fournitures";
+
 export function materialRequestsHref(projectId: string): string {
   return `/dashboard/affaires/${projectId}/demandes-materiel`;
 }

@@ -115,16 +115,16 @@ armyTest(
     // The bulk link teaches nothing: the technician's « goujon » is not a name of the rod for the whole tenant.
     const untaught = await apiRequest<Envelope<{ items: Array<{ alias: string }> }>>(browser, "GET", `/api/products/${rod}/aliases`);
     expect(untaught.body.data.items).toEqual([]);
-    await expect(screen.getByText(/^Nom usuel retenu :/)).toHaveCount(0);
+    await expect(screen.getByText(/^Nom usuel mémorisé :/)).toHaveCount(0);
 
     // The office retains the technician's words for the elbow, by a choice it checks at the link.
-    const retain = screen.getByLabel("Retenir « coude 90 » comme nom usuel, ligne 2", { exact: true });
+    const retain = screen.getByLabel("Mémoriser « coude 90 » comme nom usuel, ligne 2", { exact: true });
     await expect(retain).not.toBeChecked();
     await retain.check();
     await screen.getByRole("button", "Rattacher l’article proposé à la ligne 2", { exact: true }).tap();
     await expect.poll(async () => (await line(2)).product_id, { timeout: 30_000 }).toBe(elbow28);
     expect((await line(2)).product_match).toBe("ranked");
-    await expect(screen.getByText("Nom usuel retenu : « coude 90 »", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(screen.getByText("Nom usuel mémorisé : « coude 90 »", { exact: true })).toBeVisible({ timeout: 15_000 });
 
     // The plug is not in the catalogue: the office creates it from the line, as a draft marked new.
     await screen.getByRole("button", "Chercher ou créer l’article, ligne 3", { exact: true }).tap();

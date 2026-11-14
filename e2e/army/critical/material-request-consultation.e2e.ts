@@ -193,7 +193,11 @@ armyTest(
     expect([retained.status, retained.body.data.skipped]).toEqual([200, []]);
 
     // The usual supplier's message: its reference where it is known, the full designation otherwise.
+    // The request page shows one step at a time (1 lines, 2 quotes, 3 purchase orders): the lines are drafts, so it
+    // opens on the lines, and the office goes to the quotes by the steps of the head.
+    const openStep = (step: 1 | 2 | 3) => screen.getByRole("tab", new RegExp(`^Étape ${step} :`)).tap({ timeout: 60_000 });
     await browser.goto(page, { waitUntil: "domcontentloaded" });
+    await openStep(2);
     const withReferences = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
       `- 10 u Coude 90° — réf. ${sku}`,
@@ -301,11 +305,13 @@ armyTest(
     ]);
     expect((await read()).lines.map((line) => [line.status, line.price_quote_id])).toEqual([["draft", null], ["draft", null]]);
 
-    // Validated from the lines table, the quote may be retained.
+    // Validated at the lines step, the quote may be retained back at the quotes: it kept what was typed there.
+    await openStep(1);
     await screen.getByRole("button", "Valider les lignes sans alerte (2)", { exact: true }).tap();
     await expect.poll(async () => (await read()).lines.map((line) => line.status), { timeout: 30_000 }).toEqual([
       "validated", "validated",
     ]);
+    await openStep(2);
     await expect(retain).toBeEnabled({ timeout: 30_000 });
     await retain.tap();
     await expect(betaCard.getByText("Retenu", { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -321,9 +327,11 @@ armyTest(
       return [quote.status, quote.closed_at !== null, quote.retained_at !== null];
     };
     expect([final.length, stateOf(alpha), stateOf(beta)]).toEqual([2, ["closed", true, false], ["retained", false, true]]);
+    await openStep(1);
     await expect(screen.getByText(/^Prix unitaire HT : 11,50\s€ \(devis retenu\)$/)).toBeVisible({ timeout: 15_000 });
     await expect(screen.getByText(/^Prix unitaire HT : 3,80\s€ les 100 \(devis retenu\)$/)).toBeVisible();
     await expect(screen.getByLabel("Fournisseur, ligne 1", { exact: true })).toHaveCount(0);
+    await openStep(2);
     const alphaCard = screen.getByRole("article", `Devis ${alphaName}`, { exact: true });
     await expect(alphaCard.getByText("Clos", { exact: true })).toBeVisible();
     await expect(alphaCard.getByText("Devis clos : il reste lisible, rien n’y change.", { exact: true })).toBeVisible();

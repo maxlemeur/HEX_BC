@@ -222,6 +222,19 @@ async function openEditor(routes: Record<string, Route>) {
   return user;
 }
 
+/** Shows the fields a line keeps on demand (precision, reference, zone, imputation), as the office does. */
+async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position: number) {
+  const toggle = screen.getByRole("button", { name: `Précision, référence, repère, imputation : ligne ${position}` });
+  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+}
+
+/** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
+async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
+  const heading = screen.getByRole("heading", { name: "Demande" });
+  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier|Détails|Replier)$/ });
+  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+}
+
 describe("MaterialRequestEditor", () => {
   beforeEach(() => {
     splitSourceTextMock.mockReset();
@@ -249,12 +262,12 @@ describe("MaterialRequestEditor", () => {
     const missing = screen.getByLabelText("Quantité, ligne 2");
     expect(missing).toHaveAttribute("aria-invalid", "true");
     expect(missing).toHaveAccessibleDescription(expect.stringContaining("Quantité à renseigner."));
-    expect(missing.closest("td")).toHaveClass("bg-warning-light");
+    expect(missing.closest("label")).toHaveClass("bg-warning-light");
 
     const complete = screen.getByLabelText("Quantité, ligne 1");
     expect(complete).not.toHaveAttribute("aria-invalid", "true");
     expect(complete).toHaveAccessibleDescription("");
-    expect(complete.closest("td")).not.toHaveClass("bg-warning-light");
+    expect(complete.closest("label")).not.toHaveClass("bg-warning-light");
 
     expect(within(screen.getByRole("list", { name: "Points à régler, ligne 2" })).getByText("Quantité à renseigner.")).toBeVisible();
     expect(screen.queryByRole("list", { name: "Points à régler, ligne 1" })).not.toBeInTheDocument();
@@ -273,8 +286,8 @@ describe("MaterialRequestEditor", () => {
     const material = screen.getByLabelText("Matière, ligne 1");
     expect(material).toHaveAccessibleDescription(expect.stringContaining("Diffère de la matière de la demande"));
     expect(material).not.toHaveAttribute("aria-invalid", "true");
-    expect(material.closest("td")).toHaveClass("bg-warning-subtle");
-    expect(material.closest("td")).not.toHaveClass("bg-warning-light");
+    expect(material.closest("label")).toHaveClass("bg-warning-subtle");
+    expect(material.closest("label")).not.toHaveClass("bg-warning-light");
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeEnabled();
   });
@@ -477,7 +490,7 @@ describe("MaterialRequestEditor", () => {
       .getAllByRole("button")
       .filter((button) => !(button as HTMLButtonElement).disabled)
       .map((button) => button.textContent?.trim() || button.getAttribute("aria-label"));
-    expect(enabledButtons.sort()).toEqual(["Agrandir", "Demandes précédentes de Alpha", "Message au technicien"].sort());
+    expect(enabledButtons.sort()).toEqual(["Agrandir", "Demandes précédentes de Alpha", "Détails", "Message au technicien"].sort());
     expect(screen.getByText(/lecture seule/i)).toBeVisible();
   });
 
@@ -578,6 +591,7 @@ describe("MaterialRequestEditor", () => {
     await user.tab();
     expect(writes()).toHaveLength(0);
 
+    await showMoreFields(user, 1);
     const zone = screen.getByLabelText("Repère, ligne 1");
     await user.type(zone, "  Local technique B {Enter}");
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -962,6 +976,8 @@ describe("MaterialRequestEditor", () => {
 
       const consequence =
         "1 ligne validée compte sur cette matière : la modifier, l’effacer ou annuler sa confirmation la fera repasser en brouillon.";
+      // The request's fields are summarised until opened: the consequence is read there, before anything is changed.
+      await openRequestFields(user);
       expect(screen.getByText(consequence)).toBeVisible();
       const withdraw = screen.getByRole("button", { name: "Annuler la confirmation de la matière" });
       expect(withdraw).toHaveAccessibleDescription(consequence);
@@ -996,6 +1012,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
+      await openRequestFields(user);
       expect(screen.getByText(/^2 lignes validées comptent sur cette matière/)).toBeVisible();
       const material = screen.getByLabelText("Matière présumée");
       await user.clear(material);
@@ -1015,7 +1032,7 @@ describe("MaterialRequestEditor", () => {
     });
 
     it("says nothing about lines when no validated line relies on the material (16)", async () => {
-      await openEditor({
+      const user = await openEditor({
         [`GET ${BASE}`]: {
           data: detail({
             request: confirmed,
@@ -1024,6 +1041,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
+      await openRequestFields(user);
       expect(screen.getByText("Matière confirmée")).toBeVisible();
       expect(screen.queryByText(/compte sur cette matière|comptent sur cette matière/)).not.toBeInTheDocument();
     });
@@ -1069,7 +1087,8 @@ describe("MaterialRequestEditor", () => {
     await user.click(await screen.findByRole("button", { name: "Rouvrir la ligne 1" }));
 
     expect(await screen.findByRole("checkbox", { name: "Sélectionner la ligne 1" })).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Valider la sélection" })).toBeDisabled();
+    // Nothing is selected: the form that fills or validates a selection is not shown.
+    expect(screen.queryByRole("button", { name: "Valider la sélection" })).not.toBeInTheDocument();
 
     // A bulk action made now reaches only what the operator checks now.
     await user.click(screen.getByRole("checkbox", { name: "Sélectionner la ligne 2" }));
@@ -1183,6 +1202,7 @@ describe("MaterialRequestEditor", () => {
       },
     });
 
+    await openRequestFields(user);
     const needed = screen.getByLabelText("Date de besoin");
     await user.type(needed, "2026-11-20");
     await user.tab();
@@ -1221,7 +1241,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
-      const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+      const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
       expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
       // TI-691: the office chooses the supplier of a validated line in place (it stays validated), in a search
       // field; a line without its own supplier says, as text, the one it is bought from.
@@ -1348,6 +1368,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
+      await openRequestFields(user);
       const material = screen.getByLabelText("Matière présumée");
       await user.clear(material);
       await user.type(material, "PVC pression");
@@ -1402,6 +1423,7 @@ describe("MaterialRequestEditor", () => {
         [`POST ${BASE}/lines/validate`]: validation,
       });
 
+      await showMoreFields(user, 1);
       await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
       // Leaving the cell queues its save; the validation is queued right behind it.
       await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
@@ -1426,6 +1448,7 @@ describe("MaterialRequestEditor", () => {
       });
       expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (2)" })).toBeEnabled();
 
+      await showMoreFields(user, 1);
       await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
       await user.tab();
       await screen.findByRole("alert");
@@ -1445,6 +1468,7 @@ describe("MaterialRequestEditor", () => {
         [`POST ${BASE}/lines/validate`]: validation,
       });
 
+      await showMoreFields(user, 1);
       await user.type(screen.getByLabelText("Repère, ligne 1"), "Local technique B");
       await user.tab();
       await screen.findByRole("alert");
@@ -1474,6 +1498,7 @@ describe("MaterialRequestEditor", () => {
         }),
       });
 
+      await showMoreFields(user, 1);
       const zone = screen.getByLabelText("Repère, ligne 1");
       await user.type(zone, "Local technique B");
       await user.tab();
@@ -1503,6 +1528,7 @@ describe("MaterialRequestEditor", () => {
         [`POST ${BASE}/lines/validate`]: validation,
       });
 
+      await showMoreFields(user, 1);
       const zone = screen.getByLabelText("Repère, ligne 1");
       await user.type(zone, "Local technique B");
       await user.tab();
@@ -1531,6 +1557,7 @@ describe("MaterialRequestEditor", () => {
         }),
       });
 
+      await showMoreFields(user, 1);
       await user.type(screen.getByLabelText("Repère, ligne 1"), "Local pompes");
       await user.tab();
       await screen.findByRole("alert");
@@ -1554,5 +1581,156 @@ describe("MaterialRequestEditor", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Non enregistré");
       await waitFor(() => expect(screen.getByLabelText("Repère, ligne 2")).toHaveValue("Local technique B"));
     });
+  });
+});
+
+describe("the steps of a request", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  const ready = (patch: Partial<MaterialRequestLine> = {}) =>
+    line({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z", supplier_id: "99999999-9999-4999-8999-999999999999", ...patch });
+
+  async function open(lines: MaterialRequestLine[], orders: Record<string, unknown> = {}, canWrite = true) {
+    mockApi({
+      "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+      [`GET ${BASE}`]: { data: detail({ lines, canWrite }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+      [`GET ${BASE}/quotes`]: { data: { items: [] } },
+      [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true, ...orders } },
+    });
+    const user = userEvent.setup();
+    render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+    await screen.findByRole("tablist", { name: "Étapes de la demande" });
+    return user;
+  }
+  const tab = (step: number) => screen.getByRole("tab", { name: new RegExp(`^Étape ${step} :`) });
+
+  it("opens on the step that has work, says what to do next, and shows one step at a time", async () => {
+    await open([line()]);
+
+    expect(tab(1)).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Rattachez un article à la ligne qui n’en a pas" })).toBeVisible();
+    expect(tab(1)).toHaveTextContent("0 validée sur 1");
+    expect(screen.getByRole("heading", { name: "Lignes" })).toBeVisible();
+    // The other steps are there, not shown: their headings are not offered.
+    expect(screen.queryByRole("heading", { name: "Devis" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Bons de commande" })).not.toBeInTheDocument();
+    // On the step where the work is, nothing sends elsewhere.
+    expect(screen.queryByRole("button", { name: /^Aller à l’étape/ })).not.toBeInTheDocument();
+  });
+
+  it("opens validated lines on the quotes, and leads back there from another step with the focus", async () => {
+    const user = await open([ready()]);
+
+    expect(tab(2)).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Consultez les fournisseurs" })).toBeVisible();
+    expect(tab(1)).toHaveTextContent("terminée");
+    expect(screen.queryByRole("heading", { name: "Lignes" })).not.toBeInTheDocument();
+
+    await user.click(tab(1));
+    expect(screen.getByRole("heading", { name: "Lignes" })).toBeVisible();
+    // The address keeps the step: a reload opens the same one.
+    expect(window.location.search).toBe("?etape=lignes");
+
+    await user.click(screen.getByRole("button", { name: "Aller à l’étape Devis" }));
+    expect(tab(2)).toHaveAttribute("aria-selected", "true");
+    expect(window.location.search).toBe("?etape=devis");
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveFocus());
+    expect(screen.getByRole("tabpanel")).toContainElement(screen.getByRole("heading", { name: "Devis" }));
+  });
+
+  it("opens the step the address names, whatever the step that has work", async () => {
+    window.history.replaceState(null, "", "?etape=commande");
+    await open([line()]);
+
+    expect(tab(3)).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Bons de commande" })).toBeVisible();
+    // The head still says where the work is, and leads there.
+    expect(screen.getByRole("button", { name: "Aller à l’étape Lignes" })).toBeVisible();
+  });
+
+  it("says a request whose lines are all in a purchase order is done", async () => {
+    const lines = [ready({ price_quote_id: "77777777-7777-4777-8777-777777777777", unit_price_ht_cents: 100 })];
+    await open(lines, {
+      ordered: [{ line_id: LINE_A, purchase_order_id: "88888888-8888-4888-8888-888888888888", purchase_order_reference: "C-2026-0001", status: "draft", can_open: true }],
+      orders: [],
+    });
+
+    expect(await screen.findByRole("heading", { name: "Toutes les lignes ont leur bon de commande" })).toBeVisible();
+    expect(tab(3)).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Demande traitée")).toBeVisible();
+  });
+
+  it("tells a reader where the request stands, never what to do", async () => {
+    await open([line()], {}, false);
+
+    // Not « Rattachez un article… »: the actions are not a reader's.
+    expect(screen.getByRole("heading", { name: "Lignes · 0 validée sur 1" })).toBeVisible();
+    expect(screen.getByText("Où en est la demande")).toBeVisible();
+    expect(screen.queryByText(/^Rattachez/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/apporte à la ligne/)).not.toBeInTheDocument();
+  });
+
+  it("tells a writer who may not buy that the purchase orders are someone else's to create", async () => {
+    const lines = [ready({ price_quote_id: "77777777-7777-4777-8777-777777777777", unit_price_ht_cents: 100 })];
+    await open(lines, { ready_line_ids: [LINE_A], can_create: false });
+
+    expect(await screen.findByRole("heading", { name: "Faites créer les bons de commande" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Créer les brouillons de commande/ })).not.toBeInTheDocument();
+  });
+
+  it("names, on each tab, the panel it shows", async () => {
+    await open([line()]);
+
+    for (const step of [1, 2, 3]) {
+      const panel = document.getElementById(tab(step).getAttribute("aria-controls") ?? "");
+      expect(panel).toHaveAttribute("role", "tabpanel");
+      expect(panel).toHaveAttribute("aria-labelledby", tab(step).id);
+    }
+  });
+
+  it("opens the fields of a line kept on demand when a fill of the selection writes one of them", async () => {
+    mockApi({
+      "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+      [`GET ${BASE}/quotes`]: { data: { items: [] } },
+      [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true } },
+      [`PATCH ${BASE}/lines`]: { data: { lines: [line({ zone: "R+1" })] } },
+    });
+    const user = userEvent.setup();
+    render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+    const more = await screen.findByRole("button", { name: "Précision, référence, repère, imputation : ligne 1" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(screen.getByRole("checkbox", { name: "Tout sélectionner" }));
+    const bar = screen.getByRole("group", { name: "Actions sur la sélection" });
+    await user.selectOptions(within(bar).getByLabelText("Champ à remplir"), "Repère");
+    await user.type(within(bar).getByLabelText("Valeur à appliquer"), "R+1");
+    await user.click(within(bar).getByRole("button", { name: "Appliquer à la sélection" }));
+
+    // What was filled is shown: before, the field stayed behind its closed disclosure and nothing changed on screen.
+    await waitFor(() => expect(more).toHaveAttribute("aria-expanded", "true"));
+    expect(screen.getByLabelText("Repère, ligne 1")).toBeVisible();
+    expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("R+1");
+  });
+
+  it("summarises what the technician said, and opens the fields at once when a material waits for its confirmation", async () => {
+    mockApi({
+      "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+      [`GET ${BASE}`]: { data: detail({ request: request({ presumed_material: "Laiton brut", material_confirmed: false }), lines: [line()] }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+      [`GET ${BASE}/quotes`]: { data: { items: [] } },
+      [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true } },
+    });
+    render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+
+    expect(await screen.findByText("Laiton brut (à confirmer)")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Replier" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Confirmer la matière" })).toBeVisible();
   });
 });

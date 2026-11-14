@@ -21,7 +21,7 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
     <>
       <PageHeader
         title="Demande de matériel"
-        description="L’original d’un côté, sa réécriture de l’autre. Les cases en jaune sont à compléter ou à vérifier ; rien n’est validé sans vous."
+        description="De la demande du technicien aux bons de commande, une étape à la fois. Rien n’est validé ni envoyé sans vous."
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: project.name, href: `/dashboard/affaires/${projectId}` },

@@ -57,7 +57,7 @@ export function learnableWords(words: string | null, article?: Pick<MaterialRequ
 /** What a usual name does, said under the choice that teaches it. */
 export const LEARN_ALIAS_HINT = "Pour toute l’équipe : les prochaines demandes qui l’écrivent proposeront cet article.";
 
-/** « Retenir « coude 90 » comme nom usuel »: unchecked unless the office checks it. */
+/** « Mémoriser « coude 90 » comme nom usuel »: unchecked unless the office checks it. */
 export function LearnAliasChoice({
   words,
   checked,
@@ -86,7 +86,7 @@ export function LearnAliasChoice({
           aria-describedby={hintId}
           onChange={(event) => onChange(event.currentTarget.checked)}
         />
-        <span className="min-w-0 break-words">Retenir « {words} » comme nom usuel</span>
+        <span className="min-w-0 break-words">Mémoriser « {words} » comme nom usuel</span>
       </label>
       <p id={hintId} className="text-xs text-muted-foreground">
         {hint}
@@ -183,7 +183,7 @@ function Notice({ notice }: Readonly<{ notice: ArticleNotice | undefined }>) {
   return (
     <div role="status" className="text-xs text-success empty:hidden">
       {notice && notice.filled.length > 0 ? <p>Repris de l’article : {notice.filled.join(", ")}.</p> : null}
-      {notice?.aliasLearned ? <p>Nom usuel retenu : « {notice.aliasLearned} »</p> : null}
+      {notice?.aliasLearned ? <p>Nom usuel mémorisé : « {notice.aliasLearned} »</p> : null}
       {notice?.reopened ? <p className="text-warning">Ligne repassée en brouillon.</p> : null}
       {notice?.quantityToCheck ? (
         <p className="text-warning">Unité changée pour celle de l’article : vérifiez la quantité.</p>
@@ -231,7 +231,7 @@ export function MaterialRequestArticleCell({
   const ids = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** The proposal for which the office checked « Retenir … comme nom usuel »: another proposal starts unchecked. */
+  /** The proposal for which the office checked « Mémoriser … comme nom usuel »: another proposal starts unchecked. */
   const [learnFor, setLearnFor] = useState<string | null>(null);
   const n = line.position;
   const validated = line.status === "validated";
@@ -330,7 +330,7 @@ export function MaterialRequestArticleCell({
         <LearnAliasChoice
           words={learnable}
           checked={learn}
-          ariaLabel={`Retenir « ${learnable} » comme nom usuel, ligne ${n}`}
+          ariaLabel={`Mémoriser « ${learnable} » comme nom usuel, ligne ${n}`}
           onChange={(checked) => setLearnFor(checked ? first.article.id : null)}
         />
       ) : null}

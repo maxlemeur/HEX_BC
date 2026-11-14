@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, CheckCheck, Link2, Plus, Truck } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppliersDialog";
@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
+import { cn } from "@/lib/utils";
 
 import { lineTitle, plural } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
-import { LINE_COLUMNS, LINE_TABLE_COLUMN_COUNT, MaterialRequestLineRow } from "./MaterialRequestLineRow";
+import { LINE_COLUMN_TITLES, LINE_GRID, MaterialRequestLineRow } from "./MaterialRequestLineRow";
 import type {
   ArticleLinkEntry,
   BulkLinkResult,
@@ -24,11 +25,6 @@ import type {
   SupplierRetainEntry,
   WithheldLines,
 } from "./useMaterialRequestEditor";
-
-const COLUMN_TITLES: Partial<Record<(typeof LINE_COLUMNS)[number]["key"], string>> = {
-  position: "Numéro de ligne",
-  quantity: "Quantité",
-};
 
 /** Which lines the server held back, and why, in the words of the shared alert rules. */
 function BlockedReport({
@@ -143,7 +139,7 @@ function linkHint(
   if (drafts.length === 0) return "Rien à rattacher d’un coup : aucune ligne n’est en brouillon.";
   if (unlinked.length === 0) return "Rien à rattacher d’un coup : toutes les lignes en brouillon ont un article.";
   if (unlinked.some((line) => proposalsOf(line.id).status !== "ready")) return null;
-  return "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel retenu au rattachement sera reconnu ensuite.";
+  return "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel mémorisé au rattachement sera reconnu ensuite.";
 }
 
 /**
@@ -164,6 +160,42 @@ function supplierHint(lines: readonly MaterialRequestLine[], read: (lineId: stri
   };
 }
 
+/**
+ * One of the three things a line needs before it is quoted, in the order they are done: where it stands, the
+ * shortcut that does the sure ones at once, and why that shortcut has nothing to do when it has not.
+ */
+function PreparationRow({
+  index,
+  name,
+  done,
+  progress,
+  hint,
+  action,
+}: Readonly<{ index: number; name: string; done: boolean; progress: string; hint: ReactNode; action: ReactNode }>) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:px-4">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold",
+          done ? "bg-success-light text-success" : "bg-muted text-foreground-secondary",
+        )}
+      >
+        {done ? <Check className="size-3.5" strokeWidth={3} /> : index}
+      </span>
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="text-sm text-foreground">
+          <span className="font-semibold">{name}</span>
+          <span className="text-muted-foreground">{` · ${progress}`}</span>
+          {done ? <span className="sr-only"> (terminé)</span> : null}
+        </p>
+        {hint ? <div className="mt-0.5 text-xs leading-snug text-muted-foreground">{hint}</div> : null}
+      </div>
+      {action}
+    </li>
+  );
+}
+
 export function MaterialRequestLines({
   editor,
   materialListId,
@@ -178,7 +210,7 @@ export function MaterialRequestLines({
   /** The purchase order each ordered line went into (TI-691, delivery 3a). */
   orderedLine?: (lineId: string) => MaterialRequestOrderLink | null;
   /** Read-only actions shown beside the validation button (message, previous requests). */
-  toolbar?: React.ReactNode;
+  toolbar?: ReactNode;
   /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
   canEditCatalogue?: boolean;
 }>) {
@@ -274,6 +306,8 @@ export function MaterialRequestLines({
       : null;
   const linkHintId = `${hintIds}-link`;
   const supplierHintId = `${hintIds}-supplier`;
+  const validateHintId = `${hintIds}-validate`;
+  const selectAllHintId = `${hintIds}-select-all`;
   const chooseTypeSupplier = canWrite && canEditCatalogue ? () => setTypeSuppliersOpen(true) : null;
 
   const report = (result: SaveResult) => {
@@ -324,8 +358,13 @@ export function MaterialRequestLines({
       return next;
     });
 
+  const linkedCount = lines.filter((line) => line.product_id).length;
+  // A retained quote prices a line from its own supplier.
+  const suppliedCount = lines.filter((line) => line.supplier_id || line.price_quote_id).length;
+  const BULK_BUTTON = "h-auto min-h-8 max-w-full whitespace-normal py-1";
+
   return (
-    <section ref={section} aria-labelledby={headingId} className="min-w-0 space-y-3">
+    <section ref={section} aria-labelledby={headingId} className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h2 id={headingId} className="typo-h3 text-foreground">
@@ -344,63 +383,99 @@ export function MaterialRequestLines({
                   .join(" · ")}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {toolbar}
-          {canWrite ? (
-            <Button
-              type="button"
-              variant="primary"
-              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
-              disabled={clearIds.length === 0 || busy}
-              onClick={() => void validate(clearIds)}
-            >
-              <CheckCheck aria-hidden="true" />
-              Valider les lignes sans alerte ({clearIds.length})
-            </Button>
-          ) : null}
-          {canWrite ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
-              disabled={sureLinks.length === 0 || busy}
-              aria-describedby={linkNothing ? linkHintId : undefined}
-              onClick={() => void linkSure()}
-            >
-              <Link2 aria-hidden="true" />
-              Rattacher les références et noms connus ({sureLinks.length})
-            </Button>
-          ) : null}
-          {canWrite ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
-              disabled={proposedSuppliers.length === 0 || busy}
-              aria-describedby={supplierNothing ? supplierHintId : undefined}
-              onClick={() => void retainProposed()}
-            >
-              <Truck aria-hidden="true" />
-              Retenir les fournisseurs proposés ({proposedSuppliers.length})
-            </Button>
-          ) : null}
-        </div>
+        {toolbar ? <div className="flex flex-wrap items-center gap-2">{toolbar}</div> : null}
       </div>
 
-      {linkNothing || supplierNothing ? (
-        <div className="space-y-1 text-sm text-muted-foreground">
-          {linkNothing ? <p id={linkHintId}>{linkNothing}</p> : null}
-          {supplierNothing ? (
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              <p id={supplierHintId}>{supplierNothing.text}</p>
-              {supplierNothing.missing > 0 && chooseTypeSupplier ? (
-                <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={chooseTypeSupplier}>
-                  Choisir les fournisseurs des types
+      {lines.length > 0 ? (
+        <ol role="list" aria-label="Préparation des lignes, dans l’ordre" className="divide-y divide-border rounded-lg border border-border bg-surface">
+          <PreparationRow
+            index={1}
+            name="Articles"
+            done={linkedCount === lines.length}
+            progress={`${linkedCount} sur ${plural(lines.length, "ligne", "lignes")} avec un article du catalogue`}
+            hint={linkNothing ? <p id={linkHintId}>{linkNothing}</p> : null}
+            action={
+              canWrite ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={BULK_BUTTON}
+                  disabled={sureLinks.length === 0 || busy}
+                  aria-describedby={linkNothing ? linkHintId : undefined}
+                  onClick={() => void linkSure()}
+                >
+                  <Link2 aria-hidden="true" />
+                  Rattacher les références et noms connus ({sureLinks.length})
                 </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+              ) : null
+            }
+          />
+          <PreparationRow
+            index={2}
+            name="Fournisseurs"
+            done={suppliedCount === lines.length}
+            progress={`${suppliedCount} sur ${plural(lines.length, "ligne", "lignes")} avec un fournisseur`}
+            hint={
+              supplierNothing ? (
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <p id={supplierHintId}>{supplierNothing.text}</p>
+                  {supplierNothing.missing > 0 && chooseTypeSupplier ? (
+                    <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={chooseTypeSupplier}>
+                      Choisir les fournisseurs des types
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null
+            }
+            action={
+              canWrite ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={BULK_BUTTON}
+                  disabled={proposedSuppliers.length === 0 || busy}
+                  aria-describedby={supplierNothing ? supplierHintId : undefined}
+                  onClick={() => void retainProposed()}
+                >
+                  <Truck aria-hidden="true" />
+                  Retenir les fournisseurs proposés ({proposedSuppliers.length})
+                </Button>
+              ) : null
+            }
+          />
+          <PreparationRow
+            index={3}
+            name="Validation"
+            done={drafts.length === 0}
+            progress={`${validatedCount} sur ${plural(lines.length, "ligne validée", "lignes validées")}`}
+            hint={
+              canWrite && drafts.length > 0 && clearIds.length === 0 ? (
+                <p id={validateHintId}>
+                  Aucune ligne à valider d’un coup : chaque ligne en brouillon porte une alerte à régler, ou une remarque à
+                  lire avant de la valider par son propre bouton.
+                </p>
+              ) : null
+            }
+            action={
+              canWrite ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className={BULK_BUTTON}
+                  disabled={clearIds.length === 0 || busy}
+                  aria-describedby={drafts.length > 0 && clearIds.length === 0 ? validateHintId : undefined}
+                  onClick={() => void validate(clearIds)}
+                >
+                  <CheckCheck aria-hidden="true" />
+                  Valider les lignes sans alerte ({clearIds.length})
+                </Button>
+              ) : null
+            }
+          />
+        </ol>
       ) : null}
       {canWrite && editor.supplierProposalsStatus === "error" ? (
         <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
@@ -446,70 +521,70 @@ export function MaterialRequestLines({
         </Alert>
       ) : null}
 
-      {canWrite && drafts.length > 0 ? (
-        <MaterialRequestBulkBar
-          selectedCount={selectedIds.length}
-          busy={busy}
-          materialListId={materialListId}
-          unitListId={unitListId}
-          onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
-          onValidate={() => void validate(selectedIds)}
-          onClear={() => setSelection(new Set())}
-        />
-      ) : null}
-
       <datalist id={unitListId}>
         {MEASUREMENT_UNITS.filter((unit) => unit.active && unit.dimension !== "inch").map((unit) => (
           <option key={unit.code} value={unit.code} label={unit.label} />
         ))}
       </datalist>
 
+      {canWrite && drafts.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+            {/* The label is the checkbox's whole name: what follows it describes it. */}
+            <label className="flex w-fit items-center gap-2 font-medium text-foreground-secondary">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                aria-describedby={selectAllHintId}
+                checked={allSelected}
+                onChange={(event) =>
+                  setSelection(event.currentTarget.checked ? new Set(drafts.map((line) => line.id)) : new Set())
+                }
+              />
+              Tout sélectionner
+            </label>
+            <span id={selectAllHintId} className="text-muted-foreground">
+              {`· ${plural(drafts.length, "ligne en brouillon", "lignes en brouillon")}, pour les remplir ou les valider ensemble`}
+            </span>
+          </div>
+          {/*
+            The form is shown once a line is checked: until then it could do nothing. It stays mounted, so that the
+            field chosen and the value typed survive a line unchecked then checked again.
+          */}
+          <div hidden={selectedIds.length === 0}>
+            <MaterialRequestBulkBar
+              selectedCount={selectedIds.length}
+              busy={busy}
+              materialListId={materialListId}
+              unitListId={unitListId}
+              onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
+              onValidate={() => void validate(selectedIds)}
+              onClear={() => setSelection(new Set())}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {lines.length > 0 ? (
-        <div
-          role="region"
-          aria-label="Tableau des lignes"
-          tabIndex={0}
-          // `relative`: the visually hidden labels and the select chevrons inside are absolutely positioned;
-          // without a positioned scroll container they widen the page itself instead of scrolling here.
-          className="relative overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          <table className="w-full min-w-[1800px] border-collapse text-left">
-            <caption className="sr-only">
-              Lignes de la demande. Les cases en jaune sont à compléter ou à vérifier avant validation.
-            </caption>
-            <thead className="border-b border-border bg-surface-subtle text-xs font-semibold text-muted-foreground">
-              <tr>
-                <th scope="col" className="w-9 px-2 py-2">
-                  {canWrite && drafts.length > 0 ? (
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      aria-label="Tout sélectionner"
-                      checked={allSelected}
-                      onChange={(event) =>
-                        setSelection(event.currentTarget.checked ? new Set(drafts.map((line) => line.id)) : new Set())
-                      }
-                    />
-                  ) : (
-                    <span className="sr-only">Sélection</span>
-                  )}
-                </th>
-                {LINE_COLUMNS.map((column) => (
-                  <th key={column.key} scope="col" className={`px-2 py-2 ${column.width}`}>
-                    {COLUMN_TITLES[column.key] ? (
-                      <abbr title={COLUMN_TITLES[column.key]} className="no-underline">
-                        {column.label}
-                      </abbr>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
-                ))}
-                <th scope="col" className="min-w-40 px-2 py-2">
-                  État
-                </th>
-              </tr>
-            </thead>
+        <>
+          {/* A table on the whole width at desktop width, cards below it: see `MaterialRequestLineRow`. */}
+          <div className="xl:rounded-lg xl:border xl:border-border xl:bg-surface">
+            <div
+              aria-hidden="true"
+              className={cn(
+                LINE_GRID,
+                // Stuck under the application's top bar (60 px, itself stuck at the top of the window).
+                "hidden rounded-t-lg border-b border-border bg-surface-subtle px-3 py-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground xl:sticky xl:top-[60px] xl:z-10",
+              )}
+            >
+              {LINE_COLUMN_TITLES.map((title, index) => (
+                <span key={title} className={cn("min-w-0", index < 2 && "text-right", index === 1 && "pr-2")}>
+                  {title}
+                </span>
+              ))}
+            </div>
+          {/* `role="list"`: without it a list with no markers is not announced as one by Safari. */}
+          <ol role="list" aria-label="Lignes de la demande" className="space-y-3 xl:space-y-0">
             {lines.map((line) => (
               <MaterialRequestLineRow
                 key={line.id}
@@ -551,30 +626,21 @@ export function MaterialRequestLines({
                 ordered={orderedLine?.(line.id) ?? null}
               />
             ))}
-            {canWrite ? (
-              <tfoot>
-                <tr>
-                  <td colSpan={LINE_TABLE_COLUMN_COUNT} className="px-2 py-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void addLine()}
-                    >
-                      <Plus aria-hidden="true" />
-                      Ajouter une ligne
-                    </Button>
-                  </td>
-                </tr>
-              </tfoot>
-            ) : null}
-          </table>
-        </div>
+          </ol>
+          </div>
+          {canWrite ? (
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void addLine()}>
+              <Plus aria-hidden="true" />
+              Ajouter une ligne
+            </Button>
+          ) : null}
+        </>
       ) : canWrite ? (
         <div className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center">
           <p className="text-sm text-muted-foreground">
-            Recopiez la demande ligne par ligne, à partir de l’original.
+            {data.request.source_text?.trim()
+              ? "Découpez le message reçu en lignes (« Découper le texte en lignes », sous le message) ; ou recopiez la demande ligne par ligne."
+              : "Collez le message du technicien (« Coller un message », dans l’original) pour le découper ; ou recopiez la demande ligne par ligne."}
           </p>
           <Button
             type="button"

@@ -11,6 +11,7 @@ import type { MaterialRequestOrderNotReadyReason } from "@/lib/material-requests
 import { formatEUR } from "@/lib/money";
 
 import { lineTitle, plural, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
+import { REQUEST_STEP_KEYS, type RequestStepKey } from "./request-steps";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
 
@@ -21,34 +22,42 @@ import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
 
 /** Said after the line's name, with what to do: « Ligne 4 · Té égal DN 50 : pas validée, réglez ses alertes… ». */
 const NOT_READY_REASONS: Record<MaterialRequestOrderNotReadyReason, string> = {
-  not_validated: "pas validée : réglez ses alertes, puis validez-la",
-  not_priced: "sans devis retenu : consultez un fournisseur et retenez son devis",
-  no_supplier: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
+  not_validated: "pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
+  not_priced: "sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
+  no_supplier: "sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
+};
+
+/** The step where each reason is settled. */
+const REASON_STEP: Record<MaterialRequestOrderNotReadyReason, RequestStepKey> = {
+  not_validated: "lignes",
+  not_priced: "devis",
+  no_supplier: "lignes",
 };
 
 /** The same reasons for several lines at once, in the reminder at the top of the request. */
 const LEFT_BEHIND: Record<MaterialRequestOrderNotReadyReason | "ready", { one: string; several: string }> = {
   ready: {
-    one: "prête, dans aucun bon : créez son brouillon de commande, plus bas",
-    several: "prêtes, dans aucun bon : créez leurs brouillons de commande, plus bas",
+    one: "prête, dans aucun bon : créez son brouillon de commande, ci-dessous",
+    several: "prêtes, dans aucun bon : créez leurs brouillons de commande, ci-dessous",
   },
   no_supplier: {
-    one: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
-    several: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
+    one: "sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes",
+    several: "sans fournisseur : choisissez-le sur chaque ligne, à l’étape Lignes",
   },
   not_priced: {
-    one: "sans devis retenu : consultez un fournisseur et retenez son devis",
-    several: "sans devis retenu : consultez un fournisseur et retenez son devis",
+    one: "sans devis retenu : consultez un fournisseur et retenez son devis, à l’étape Devis",
+    several: "sans devis retenu : consultez un fournisseur et retenez son devis, à l’étape Devis",
   },
   not_validated: {
-    one: "pas validée : réglez ses alertes, puis validez-la",
-    several: "pas validées : réglez leurs alertes, puis validez-les",
+    one: "pas validée : réglez ses alertes, puis validez-la, à l’étape Lignes",
+    several: "pas validées : réglez leurs alertes, puis validez-les, à l’étape Lignes",
   },
 };
 
 /**
- * Once some lines of the request are in a purchase order, those that are in none are said at the top of the request,
+ * Once some lines of the request are in a purchase order, those that are in none are said at the top of the step,
  * by reason and with what to do (TI-691: on a long request, a line left behind is the one the technician waits for).
+ * The head of the page counts them too, whatever the step shown.
  */
 export function MaterialRequestToOrderReminder({
   editor,
@@ -127,14 +136,21 @@ function OrderItem({ order }: Readonly<{ order: MaterialRequestOrder }>) {
 }
 
 /**
- * The « Commandes » section of a request, after the consultation: how many lines are ready, the creation, why the
+ * The « Bons de commande » step of a request, after the quotes: how many lines are ready, the creation, why the
  * others are not, and the drafts made. A reader sees all of it but the creation.
  */
 export function MaterialRequestOrders({
   editor,
   orders,
   headingId,
-}: Readonly<{ editor: MaterialRequestEditorApi; orders: MaterialRequestOrdersApi; headingId: string }>) {
+  onGoToStep,
+}: Readonly<{
+  editor: MaterialRequestEditorApi;
+  orders: MaterialRequestOrdersApi;
+  headingId: string;
+  /** Opens the step where a line that is not ready is settled. */
+  onGoToStep?: (step: RequestStepKey) => void;
+}>) {
   const { data, canWrite } = editor;
   const { summary, status } = orders;
   // The server says who may create: a writer of the request who may also buy. Until it answers, the request's rights.
@@ -153,7 +169,7 @@ export function MaterialRequestOrders({
     <section aria-labelledby={headingId} className="min-w-0 space-y-4">
       <div className="min-w-0">
         <h2 id={headingId} className="typo-h3 text-foreground">
-          Commandes
+          Bons de commande
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {canCreate
@@ -162,17 +178,19 @@ export function MaterialRequestOrders({
         </p>
       </div>
 
+      <MaterialRequestToOrderReminder editor={editor} orders={orders} />
+
       {summary === null ? (
         status === "error" ? (
           <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-            <p>Les commandes n’ont pas pu être chargées.</p>
-            <Button type="button" variant="link" size="xs" className="h-auto px-0" aria-label="Recharger les commandes" onClick={orders.retry}>
+            <p>Les bons de commande n’ont pas pu être chargés.</p>
+            <Button type="button" variant="link" size="xs" className="h-auto px-0" aria-label="Recharger les bons de commande" onClick={orders.retry}>
               Réessayer
             </Button>
           </div>
         ) : (
           <p role="status" className="text-sm text-muted-foreground">
-            Chargement des commandes…
+            Chargement des bons de commande…
           </p>
         )
       ) : (
@@ -202,8 +220,8 @@ export function MaterialRequestOrders({
           ) : null}
           {status === "error" ? (
             <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-              <p>Les commandes n’ont pas pu être relues.</p>
-              <Button type="button" variant="link" size="xs" className="h-auto px-0" aria-label="Recharger les commandes" onClick={orders.retry}>
+              <p>Les bons de commande n’ont pas pu être relus.</p>
+              <Button type="button" variant="link" size="xs" className="h-auto px-0" aria-label="Recharger les bons de commande" onClick={orders.retry}>
                 Réessayer
               </Button>
             </div>
@@ -224,11 +242,20 @@ export function MaterialRequestOrders({
                   );
                 })}
               </ul>
+              {canWrite && onGoToStep ? (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                  {REQUEST_STEP_KEYS.filter((key) => notReady.some((entry) => REASON_STEP[entry.reason] === key)).map((key) => (
+                    <Button key={key} type="button" variant="link" size="xs" className="h-auto px-0" onClick={() => onGoToStep(key)}>
+                      {key === "lignes" ? "Régler les lignes, à l’étape Lignes" : "Faire chiffrer, à l’étape Devis"}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           <div className="min-w-0 space-y-2">
-            <h3 className="text-base font-semibold text-foreground">Bons de commande</h3>
+            <h3 className="text-base font-semibold text-foreground">Bons de cette demande</h3>
             {drafts.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>
             ) : (

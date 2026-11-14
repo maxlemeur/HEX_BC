@@ -11,9 +11,11 @@ import {
   PencilIcon,
   PlusIcon,
   RulerIcon,
+  ShoppingCartIcon,
   SplitIcon,
 } from "lucide-react";
 
+import { SUPPLY_COST_ANCHOR } from "@/components/material-requests/format";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
 import type { AffaireHubSummaryResult } from "@/lib/affaires/server";
@@ -146,6 +148,14 @@ export function AffaireHubActionBar({
           >
             <ClipboardListIcon aria-hidden="true" />
             Demandes de matériel
+          </DropdownMenuItem>
+          {/* Where the affaire's money is read: the supplies' budget against what was ordered (TI-691). */}
+          <DropdownMenuItem
+            className="min-h-10 px-2"
+            render={<Link href={`/dashboard/affaires/${summary.project.id}/demandes-materiel#${SUPPLY_COST_ANCHOR}`} />}
+          >
+            <ShoppingCartIcon aria-hidden="true" />
+            Coût des fournitures
           </DropdownMenuItem>
           <DropdownMenuItem
             className="min-h-10 px-2"

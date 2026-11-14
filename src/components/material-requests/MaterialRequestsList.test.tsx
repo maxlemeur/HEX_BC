@@ -165,6 +165,37 @@ describe("MaterialRequestsList", () => {
     expect(rows[1]).toHaveTextContent("2 lignes validées sur 2");
   });
 
+  it("says where each request stands, and numbers a step only when the list can know it", async () => {
+    const stage = (id: string, partial: Record<string, unknown>) =>
+      ({ ...summary({ id }), ...partial }) as MaterialRequestSummary;
+    mockApi({
+      [`GET ${BASE}`]: list({
+        items: [
+          stage("60000000-0000-4000-8000-000000000001", { line_count: 0, to_order_line_count: 0, has_orders: false }),
+          stage("60000000-0000-4000-8000-000000000002", { line_count: 3, validated_line_count: 1, to_order_line_count: 3, has_orders: false }),
+          // Past the lines the list does not know whether a line is priced: it names no step the page could contradict.
+          stage("60000000-0000-4000-8000-000000000003", { line_count: 3, validated_line_count: 3, to_order_line_count: 3, has_orders: false }),
+          stage("60000000-0000-4000-8000-000000000004", { line_count: 3, validated_line_count: 3, to_order_line_count: 2, has_orders: true }),
+          stage("60000000-0000-4000-8000-000000000005", { line_count: 3, validated_line_count: 3, to_order_line_count: 0, has_orders: true }),
+          // The orders could not be read for this one: nothing is said rather than a guess.
+          stage("60000000-0000-4000-8000-000000000006", { line_count: 3, validated_line_count: 3, to_order_line_count: null, has_orders: false }),
+        ],
+      }),
+    });
+    render(<MaterialRequestsList projectId={PROJECT_ID} />);
+
+    const rows = within(await screen.findByRole("list", { name: "Demandes de matériel" })).getAllByRole("listitem");
+    const stages = ["Lignes à saisir", "Étape 1 · Lignes", "À chiffrer ou à commander", "Bons de commande faits"];
+    expect(rows.map((row) => stages.filter((label) => within(row).queryByText(label) !== null))).toEqual([
+      ["Lignes à saisir"],
+      ["Étape 1 · Lignes"],
+      ["À chiffrer ou à commander"],
+      ["À chiffrer ou à commander"],
+      ["Bons de commande faits"],
+      [],
+    ]);
+  });
+
   it("gives a way forward when the affaire has no request yet (1)", async () => {
     mockApi({ [`GET ${BASE}`]: list({}) });
     render(<MaterialRequestsList projectId={PROJECT_ID} />);
