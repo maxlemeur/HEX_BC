@@ -24,7 +24,7 @@ import {
 } from "./useMaterialRequestEditor";
 
 /** How the line was linked, when it tells the operator something; a ranked pick says nothing more. */
-const MATCH_LABELS: Partial<Record<MaterialRequestProductMatch, string>> = {
+export const MATCH_LABELS: Partial<Record<MaterialRequestProductMatch, string>> = {
   reference: "par la référence",
   alias: "par un nom usuel",
   manual: "choisi à la main",
@@ -99,7 +99,7 @@ export function LearnAliasChoice({
  * What a linked article leaves to every line that uses it (TI-691): a missing material is asked on each line, and a
  * missing size is read as « sans dimension ». Completing the article once serves the next lines.
  */
-function IncompleteArticle({
+export function IncompleteArticle({
   article,
   canEditCatalogue,
 }: Readonly<{ article: MaterialRequestArticleSummary; canEditCatalogue: boolean }>) {
@@ -207,6 +207,7 @@ type ArticleCellProps = Readonly<{
   onRetryProposals: () => void;
   /** May complete the linked article's sheet (admins and engineers). */
   canEditCatalogue?: boolean;
+  compact?: boolean;
 }>;
 
 /**
@@ -227,6 +228,7 @@ export function MaterialRequestArticleCell({
   onOpenPanel,
   onRetryProposals,
   canEditCatalogue = false,
+  compact = false,
 }: ArticleCellProps) {
   const ids = useId();
   const [busy, setBusy] = useState(false);
@@ -251,10 +253,10 @@ export function MaterialRequestArticleCell({
     const how = line.product_match ? MATCH_LABELS[line.product_match] : undefined;
     return (
       <div className="space-y-1.5">
-        {article ? <ArticleIdentity article={article} /> : <p className="text-sm text-foreground">Article rattaché</p>}
-        {how ? <p className="text-xs text-muted-foreground">{how}</p> : null}
+        {!compact ? article ? <ArticleIdentity article={article} /> : <p className="text-sm text-foreground">Article rattaché</p> : null}
+        {how && !compact ? <p className="text-xs text-muted-foreground">{how}</p> : null}
         <Notice notice={notice} />
-        {article && canWrite ? <IncompleteArticle article={article} canEditCatalogue={canEditCatalogue} /> : null}
+        {article && canWrite && !compact ? <IncompleteArticle article={article} canEditCatalogue={canEditCatalogue} /> : null}
         {canWrite ? (
           <>
             <Button

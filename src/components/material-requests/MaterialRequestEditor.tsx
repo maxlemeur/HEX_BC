@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@base-ui/react/tabs";
-import { History, MessageSquareText, Trash2 } from "lucide-react";
+import { ArrowRight, History, MessageSquareText, Trash2 } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -29,6 +29,8 @@ import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import { useMaterialRequestOrders } from "./useMaterialRequestOrders";
 import { useMaterialRequestQuotes } from "./useMaterialRequestQuotes";
+
+import "./material-request-workbench.css";
 
 const STEP_PARAM = "etape";
 
@@ -126,13 +128,14 @@ function ReadyEditor({
     <Tabs.Root
       value={step}
       onValueChange={(value) => openStep(value as RequestStepKey)}
-      className="space-y-6"
+      className="material-request-editor space-y-0"
     >
       {canWrite ? null : (
         <Alert variant="info">
           <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
         </Alert>
       )}
+      {step === "lignes" ? <p className="mb-2 text-base text-foreground-secondary">Table de pilotage</p> : null}
       <MaterialRequestSteps model={model} active={step} canWrite={canWrite} idBase={ids} onGoTo={goToStep} />
       {/* Each step has the whole width of the page: the lines are a table, as in the estimate editor. */}
       <div className="min-w-0">
@@ -143,17 +146,15 @@ function ReadyEditor({
             ))}
           </datalist>
           <Tabs.Panel {...panel("lignes")}>
-            {/* What the technician sent, above the lines it is rewritten into. */}
-            <div className="mb-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-              <MaterialRequestOriginal editor={editor} headingId={`${ids}-original`} />
-              <MaterialRequestHeader editor={editor} technicians={known} materialListId={materialListId} />
-            </div>
+            <MaterialRequestHeader compact editor={editor} technicians={known} materialListId={materialListId} />
             <MaterialRequestLines
               editor={editor}
               materialListId={materialListId}
               headingId={`${ids}-lines`}
               orderedLine={orders.orderedLine}
               canEditCatalogue={canEditCatalogue}
+              original={<MaterialRequestOriginal compact editor={editor} headingId={`${ids}-original`} />}
+              nextAction={<Button type="button" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
               toolbar={
                 <>
                   <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
@@ -161,9 +162,9 @@ function ReadyEditor({
                     Message au technicien
                   </Button>
                   {technician ? (
-                    <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setHistoryOpen(true)}>
+                    <Button type="button" variant="outline" size="sm" aria-label={`Demandes précédentes de ${technician.name}`} title={`Demandes précédentes de ${technician.name}`} className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setHistoryOpen(true)}>
                       <History aria-hidden="true" />
-                      Demandes précédentes de {technician.name}
+                      Historique
                     </Button>
                   ) : null}
                 </>
@@ -177,6 +178,7 @@ function ReadyEditor({
               affaireName={affaireName}
               headingId={`${ids}-consultation`}
               onGoToLines={() => goToStep("lignes")}
+              onGoToOrders={() => goToStep("commande")}
             />
           </Tabs.Panel>
           <Tabs.Panel {...panel("commande")}>
@@ -190,7 +192,7 @@ function ReadyEditor({
         </div>
       </div>
       {canWrite ? (
-        <div className="border-t border-border pt-4">
+        <details className="mr-request-actions border-t border-border py-3 text-sm"><summary role="button" className="w-fit cursor-pointer font-medium text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">Demande</summary><div className="mt-3">
           <ConfirmButton
             variant="outline"
             label="Supprimer la demande"
@@ -213,7 +215,7 @@ function ReadyEditor({
               {deleteError}
             </p>
           ) : null}
-        </div>
+        </div></details>
       ) : null}
       <ClarificationMessageDialog
         open={messageOpen}

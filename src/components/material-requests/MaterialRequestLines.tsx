@@ -6,6 +6,7 @@ import { Check, CheckCheck, Link2, Plus, Truck } from "lucide-react";
 import { useToast } from "@/components/feedback/toast-provider";
 import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppliersDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
@@ -16,6 +17,7 @@ import { lineTitle, plural } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMN_TITLES, LINE_GRID, MaterialRequestLineRow } from "./MaterialRequestLineRow";
+import { MaterialRequestLineInspector, MaterialRequestLineSummary } from "./MaterialRequestLineWorkbench";
 import type {
   ArticleLinkEntry,
   BulkLinkResult,
@@ -203,6 +205,8 @@ export function MaterialRequestLines({
   orderedLine,
   toolbar,
   canEditCatalogue = false,
+  original,
+  nextAction,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   materialListId: string;
@@ -213,6 +217,8 @@ export function MaterialRequestLines({
   toolbar?: ReactNode;
   /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
   canEditCatalogue?: boolean;
+  original?: ReactNode;
+  nextAction?: ReactNode;
 }>) {
   const toast = useToast();
   const unitListId = useId();
@@ -222,6 +228,8 @@ export function MaterialRequestLines({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkReport, setLinkReport] = useState<string[] | null>(null);
+  const [inspectedLineId, setInspectedLineId] = useState<string | null>(null);
+  const [preparationOpen, setPreparationOpen] = useState(false);
   const [articleLineId, setArticleLineId] = useState<string | null>(null);
   const section = useRef<HTMLElement>(null);
   const focusAddedLine = useRef(false);
@@ -362,15 +370,68 @@ export function MaterialRequestLines({
   // A retained quote prices a line from its own supplier.
   const suppliedCount = lines.filter((line) => line.supplier_id || line.price_quote_id).length;
   const BULK_BUTTON = "h-auto min-h-8 max-w-full whitespace-normal py-1";
+  const prepared = lines.length > 0 && drafts.length === 0 && linkedCount === lines.length && suppliedCount === lines.length;
+  const settled = lines.every((line) => line.status === "validated" || !canWrite);
+  const inspectedLine = lines.find((line) => line.id === inspectedLineId) ?? lines[lines.length - 1] ?? null;
+  const renderLine = (line: MaterialRequestLine, inspector = false) => {
+    const Component = inspector ? MaterialRequestLineInspector : line.status === "validated" || !canWrite ? MaterialRequestLineSummary : MaterialRequestLineRow;
+    return (
+      <Component
+                key={line.id}
+                line={line}
+                showFieldLabels={!settled}
+                inspected={inspectedLine?.id === line.id}
+                onInspect={() => setInspectedLineId(line.id)}
+                alerts={alertsByLine.get(line.id) ?? []}
+                request={data.request}
+                supplierOptions={data.supplierOptions}
+                canWrite={inspector && line.status === "draft" ? false : canWrite}
+                selected={selection.has(line.id)}
+                onSelectedChange={(selected) => toggle(line, selected)}
+                change={lineChanges.get(line.id)}
+                onSave={(patch) => editor.saveLine(line.id, patch)}
+                onForget={(fields) => editor.forgetLineFailure(line.id, fields)}
+                onDelete={() => editor.removeLine(line.id)}
+                onValidate={() => editor.validateLines([line.id])}
+                onReopen={() => editor.reopenLines([line.id])}
+                materialListId={materialListId}
+                unitListId={unitListId}
+                article={line.product_id ? (editor.articles[line.product_id] ?? null) : null}
+                proposals={proposalsOf(line.id)}
+                articleNotice={editor.articleNotices.get(line.id)}
+                articleConflict={editor.articleConflicts.get(line.id)}
+                onLinkArticle={(candidate, learnAlias) =>
+                  editor.linkArticle(line.id, {
+                    product_id: candidate.article.id,
+                    via: candidate.via,
+                    ...(learnAlias ? { learn_alias: true } : {}),
+                  })
+                }
+                onUnlinkArticle={() => editor.unlinkArticle(line.id)}
+                onOpenArticles={() => setArticleLineId(line.id)}
+                onRetryProposals={editor.retryProposals}
+                supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
+                supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
+                supplierProposalRead={editor.supplierReferenceKnown(line.id)}
+                onChooseTypeSupplier={chooseTypeSupplier}
+                canEditCatalogue={canEditCatalogue}
+                onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
+                ordered={orderedLine?.(line.id) ?? null}
+              />
+    );
+  };
+
 
   return (
-    <section ref={section} aria-labelledby={headingId} className="min-w-0 space-y-4">
+    <section ref={section} aria-labelledby={headingId} className="min-w-0">
+      <div className={cn("mr-workbench grid min-w-0 gap-6 py-5", settled && "xl:grid-cols-[minmax(0,1fr)_22rem]")}>
+      <div className={cn("min-w-0 space-y-4", settled && "mr-workbench-main")}>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id={headingId} className="typo-h3 text-foreground">
+        <div className={prepared ? "sr-only" : "min-w-0"}>
+          <h2 id={headingId} className={prepared ? "sr-only" : "typo-h3 text-foreground"}>
             Lignes
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className={prepared ? "sr-only" : "mt-1 text-sm text-muted-foreground"}>
             {lines.length === 0
               ? "Aucune ligne pour le moment."
               : [
@@ -383,11 +444,15 @@ export function MaterialRequestLines({
                   .join(" · ")}
           </p>
         </div>
+        {prepared ? <div className="flex flex-wrap items-center gap-2 text-sm">
+          <button type="button" className="mr-2 flex items-center gap-2 text-left font-semibold focus-visible:outline-2 focus-visible:outline-ring" aria-expanded={preparationOpen} onClick={() => setPreparationOpen((value) => !value)}><Check aria-hidden="true" className="size-6 rounded-full bg-success p-1 text-white" />Préparation de la demande complète</button>
+          <Badge variant="success">Articles {linkedCount}/{lines.length}</Badge><Badge variant="success">Fournisseurs {suppliedCount}/{lines.length}</Badge><Badge variant="success">Validation {validatedCount}/{lines.length}</Badge>
+        </div> : null}
         {toolbar ? <div className="flex flex-wrap items-center gap-2">{toolbar}</div> : null}
       </div>
 
       {lines.length > 0 ? (
-        <ol role="list" aria-label="Préparation des lignes, dans l’ordre" className="divide-y divide-border rounded-lg border border-border bg-surface">
+        <ol hidden={prepared && !preparationOpen} role="list" aria-label="Préparation des lignes, dans l’ordre" className="divide-y divide-border rounded-lg border border-border bg-surface">
           <PreparationRow
             index={1}
             name="Articles"
@@ -572,68 +637,25 @@ export function MaterialRequestLines({
             <div
               aria-hidden="true"
               className={cn(
-                LINE_GRID,
+                settled ? "xl:grid xl:grid-cols-[minmax(10rem,1.35fr)_4rem_minmax(8rem,1fr)_minmax(8rem,1fr)_6rem_minmax(7rem,0.8fr)_2rem] xl:gap-x-4" : LINE_GRID,
                 // Stuck under the application's top bar (60 px, itself stuck at the top of the window).
-                "hidden rounded-t-lg border-b border-border bg-surface-subtle px-3 py-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground xl:sticky xl:top-[60px] xl:z-10",
+                "hidden rounded-t-lg border-b border-border bg-surface-subtle px-4 py-3 text-xs font-medium text-muted-foreground",
+                !settled && "xl:hidden",
+                settled ? "xl:sticky xl:top-[60px] xl:z-10" : "xl:sticky xl:top-[60px] xl:z-10",
               )}
             >
-              {LINE_COLUMN_TITLES.map((title, index) => (
-                <span key={title} className={cn("min-w-0", index < 2 && "text-right", index === 1 && "pr-2")}>
+              {(settled ? ["Article", "Qté", "Dimension / matière", "Fournisseur", "Statut", "Bon", "Actions"] : LINE_COLUMN_TITLES).map((title, index) => (
+                <span key={title} className={cn("min-w-0", !settled && index < 2 && "text-right", index === 1 && "pr-2")}>
                   {title}
                 </span>
               ))}
             </div>
           {/* `role="list"`: without it a list with no markers is not announced as one by Safari. */}
           <ol role="list" aria-label="Lignes de la demande" className="space-y-3 xl:space-y-0">
-            {lines.map((line) => (
-              <MaterialRequestLineRow
-                key={line.id}
-                line={line}
-                alerts={alertsByLine.get(line.id) ?? []}
-                request={data.request}
-                supplierOptions={data.supplierOptions}
-                canWrite={canWrite}
-                selected={selection.has(line.id)}
-                onSelectedChange={(selected) => toggle(line, selected)}
-                change={lineChanges.get(line.id)}
-                onSave={(patch) => editor.saveLine(line.id, patch)}
-                onForget={(fields) => editor.forgetLineFailure(line.id, fields)}
-                onDelete={() => editor.removeLine(line.id)}
-                onValidate={() => editor.validateLines([line.id])}
-                onReopen={() => editor.reopenLines([line.id])}
-                materialListId={materialListId}
-                unitListId={unitListId}
-                article={line.product_id ? (editor.articles[line.product_id] ?? null) : null}
-                proposals={proposalsOf(line.id)}
-                articleNotice={editor.articleNotices.get(line.id)}
-                articleConflict={editor.articleConflicts.get(line.id)}
-                onLinkArticle={(candidate, learnAlias) =>
-                  editor.linkArticle(line.id, {
-                    product_id: candidate.article.id,
-                    via: candidate.via,
-                    ...(learnAlias ? { learn_alias: true } : {}),
-                  })
-                }
-                onUnlinkArticle={() => editor.unlinkArticle(line.id)}
-                onOpenArticles={() => setArticleLineId(line.id)}
-                onRetryProposals={editor.retryProposals}
-                supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
-                supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
-                supplierProposalRead={editor.supplierReferenceKnown(line.id)}
-                onChooseTypeSupplier={chooseTypeSupplier}
-                canEditCatalogue={canEditCatalogue}
-                onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
-                ordered={orderedLine?.(line.id) ?? null}
-              />
-            ))}
+            {lines.map((line) => renderLine(line))}
           </ol>
           </div>
-          {canWrite ? (
-            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void addLine()}>
-              <Plus aria-hidden="true" />
-              Ajouter une ligne
-            </Button>
-          ) : null}
+
         </>
       ) : canWrite ? (
         <div className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center">
@@ -654,6 +676,14 @@ export function MaterialRequestLines({
           </Button>
         </div>
       ) : null}
+      {original ? <div className={settled ? "mr-workbench-original" : "pt-8"}>{original}</div> : null}
+      </div>
+      {lines.filter((line) => line.status === "validated" || !canWrite).map((line) => <div key={line.id} hidden={inspectedLine?.id !== line.id} className="min-w-0">{renderLine(line, true)}</div>)}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-5">
+        {canWrite && lines.length > 0 ? <Button type="button" variant="outline" disabled={busy} onClick={() => void addLine()}><Plus aria-hidden="true" />Ajouter une ligne</Button> : <span />}
+        {nextAction}
+      </div>
       {chooseTypeSupplier ? (
         <SupplyTypeSuppliersDialog
           open={typeSuppliersOpen}

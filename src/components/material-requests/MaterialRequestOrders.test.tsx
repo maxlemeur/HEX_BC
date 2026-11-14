@@ -272,17 +272,21 @@ describe("purchase orders from a request", () => {
 
     // The drafts, each opening its purchase order.
     const list = await within(section()).findByRole("list", { name: "Bons de commande de la demande" });
-    const alpha = within(list).getByRole("link", { name: "C-2026-0041" }).closest("li") as HTMLElement;
-    expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
+    const alpha = within(list).getByRole("button", { name: "Afficher le bon C-2026-0041" }).closest("li") as HTMLElement;
+    await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0041" }));
+    expect(within(section()).getByRole("link", { name: "Ouvrir le bon C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(alpha).getByText("Négoce Alpha")).toBeVisible();
     expect(within(alpha).getByText("Brouillon")).toBeVisible();
     expect(within(alpha).getByText(`${euros(27200)} HT`)).toBeVisible();
     expect(within(alpha).getByText("2 lignes")).toBeVisible();
-    const beta = within(list).getByRole("link", { name: "C-2026-0042" }).closest("li") as HTMLElement;
+    const beta = within(list).getByRole("button", { name: "Afficher le bon C-2026-0042" }).closest("li") as HTMLElement;
     expect(within(beta).getByText("Comptoir Bêta")).toBeVisible();
     expect(within(beta).getByText(`${euros(850)} HT`)).toBeVisible();
     expect(within(beta).getByText("1 ligne")).toBeVisible();
 
+    await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0042" }));
+    expect(within(section()).getByRole("link", { name: "Ouvrir le bon C-2026-0042" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_B}`);
+    await user.click(within(section()).getByRole("button", { name: "Création de brouillons · 0 ligne éligible" }));
     // Read again once created: nothing is left to order, and each ordered line says where it went.
     expect(await within(section()).findByText("Aucune ligne prête à commander.")).toBeVisible();
     expect(within(section()).queryByRole("alert")).not.toBeInTheDocument();
@@ -294,9 +298,16 @@ describe("purchase orders from a request", () => {
     expect(marks[0]).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(table).getByRole("link", { name: "Brouillon de bon : C-2026-0042" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_B}`);
     // An ordered line is not reopened from the request; a validated line not ordered still is.
-    expect(within(table).queryByRole("button", { name: "Rouvrir la ligne 1" })).not.toBeInTheDocument();
-    expect(within(table).queryByRole("button", { name: "Rouvrir la ligne 3" })).not.toBeInTheDocument();
-    expect(within(table).getByRole("button", { name: "Rouvrir la ligne 5" })).toBeVisible();
+    for (const position of [1, 3, 5]) {
+      await user.click(within(table).getByRole("button", { name: `Afficher les détails de la ligne ${position}` }));
+      const inspector = screen.getByRole("complementary", { name: `Détails de la ligne ${position}` });
+      await user.click(within(inspector).getByRole("button", { name: "Actions sur la ligne" }));
+      if (position === 5) {
+        expect(within(inspector).getByRole("button", { name: "Rouvrir la ligne 5" })).toBeVisible();
+      } else {
+        expect(within(inspector).queryByRole("button", { name: `Rouvrir la ligne ${position}` })).not.toBeInTheDocument();
+      }
+    }
     expect(creations()).toHaveLength(2);
   });
 
@@ -350,8 +361,10 @@ describe("purchase orders from a request", () => {
     });
 
     const list = await within(section()).findByRole("list", { name: "Bons de commande de la demande" });
-    expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
+    await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0041" }));
+    expect(within(section()).getByRole("link", { name: "Ouvrir le bon C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(section()).getByRole("list", { name: "Lignes pas encore à commander" })).toBeVisible();
+    await user.click(within(section()).getByRole("button", { name: "Création de brouillons · 0 ligne éligible" }));
     expect(within(section()).queryByRole("button", { name: /Créer les brouillons de commande/ })).not.toBeInTheDocument();
     await openStep(user, 1);
     const table = screen.getByRole("list", { name: "Lignes de la demande" });
@@ -385,8 +398,10 @@ describe("purchase orders from a request", () => {
     });
 
     const list = await within(section()).findByRole("list", { name: "Bons de commande de la demande" });
-    expect(within(list).getByRole("link", { name: "C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
-    expect(within(list).queryByRole("link", { name: "C-2026-0042" })).not.toBeInTheDocument();
+    await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0041" }));
+    expect(within(section()).getByRole("link", { name: "Ouvrir le bon C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
+    await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0042" }));
+    expect(within(section()).queryByRole("link", { name: "Ouvrir le bon C-2026-0042" })).not.toBeInTheDocument();
     expect(within(list).getByText("C-2026-0042")).toBeVisible();
     await openStep(user, 1);
     const table = screen.getByRole("list", { name: "Lignes de la demande" });

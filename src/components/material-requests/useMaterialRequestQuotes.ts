@@ -52,13 +52,15 @@ export function supplierAlreadyConsulted(supplierName: string, forOtherLines = f
   return `${supplierName} a déjà une consultation en cours ${which} : retenez ou fermez d’abord son devis (« Clore »), puis consultez-le de nouveau.`;
 }
 
+export type QuoteCreationResult = { ok: true; quoteId: string } | Extract<SaveResult, { ok: false }>;
+
 export type MaterialRequestQuotesApi = {
   status: QuotesStatus;
   /** As the server answered them; the screen orders them itself. */
   items: MaterialRequestQuote[];
   retry: () => void;
   /** « Consultation envoyée »: the quote is recorded with the message the office copied. */
-  createQuote: (input: CreateQuoteInput, supplierName: string) => Promise<SaveResult>;
+  createQuote: (input: CreateQuoteInput, supplierName: string) => Promise<QuoteCreationResult>;
   /** The price of one line, in cents for `per` units: the two are always sent together. */
   savePrice: (quoteId: string, lineId: string, cents: number | null, per: MaterialRequestPricePer) => Promise<SaveResult>;
   /** The office dropped a price that could not be saved: the line holds the saved price again. */
@@ -220,10 +222,11 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   );
 
   const createQuote = useCallback(
-    async (input: CreateQuoteInput, supplierName: string): Promise<SaveResult> => {
+    async (input: CreateQuoteInput, supplierName: string): Promise<QuoteCreationResult> => {
       try {
-        upsert(await queueWrite(() => createMaterialRequestQuote(projectId, requestId, input)));
-        return { ok: true };
+        const item = await queueWrite(() => createMaterialRequestQuote(projectId, requestId, input));
+        upsert(item);
+        return { ok: true, quoteId: item.id };
       } catch (error) {
         if (isStale(error)) reload();
         // Said in words, not in the server's code: the consultation in progress is read again and shown.

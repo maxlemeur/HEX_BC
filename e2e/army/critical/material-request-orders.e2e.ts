@@ -149,6 +149,7 @@ armyTest(
     await create.doubleTap();
     const list = screen.getByRole("list", "Bons de commande de la demande", { exact: true });
     await expect(list).toBeVisible({ timeout: 30_000 });
+    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
     await expect(screen.getByText("Aucune ligne prête à commander.", { exact: true })).toBeVisible({ timeout: 30_000 });
     const bodies = await creations();
     expect(bodies).toHaveLength(1);
@@ -169,7 +170,11 @@ armyTest(
     ]);
     // Their author opens them: the summary links them.
     expect([...after.orders.map((order) => order.can_open), ...after.ordered.map((entry) => entry.can_open)]).toEqual(Array(5).fill(true));
-    await expect(list.getByRole("link", alphaOrder.reference, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${alphaOrder.id}`);
+    await list.getByRole("button", `Afficher le bon ${alphaOrder.reference}`, { exact: true }).tap();
+    await expect(screen.getByRole("link", `Ouvrir le bon ${alphaOrder.reference}`, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${alphaOrder.id}`);
+    await list.getByRole("button", `Afficher le bon ${betaOrder.reference}`, { exact: true }).tap();
+    await expect(screen.getByRole("link", `Ouvrir le bon ${betaOrder.reference}`, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${betaOrder.id}`);
+    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
     // A draft is not an order yet (TI-691): the line says where its order stands.
     // Each line says its purchase order at the lines step; the page shows one step at a time.
     const openStep = (step: 1 | 2 | 3) => screen.getByRole("tab", new RegExp(`^Étape ${step} :`)).tap();
@@ -178,6 +183,7 @@ armyTest(
     await expect(screen.getByRole("link", `Brouillon de bon : ${betaOrder.reference}`, { exact: true })).toBeVisible();
     await expect(screen.getByText(/^Commandé : /)).toHaveCount(0);
     await openStep(3);
+    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
     await expect(screen.getByRole("button", "Créer les brouillons de commande (0)", { exact: true })).toBeDisabled();
 
     // The same creation sent again answers what it made; a new one finds nothing left to order.

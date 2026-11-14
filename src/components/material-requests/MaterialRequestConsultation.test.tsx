@@ -297,8 +297,13 @@ async function openEditor(routes: Record<string, Route>) {
   // The page shows one step at a time: the address names the one these tests read.
   window.history.replaceState(null, "", "?etape=devis");
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} affaireName={AFFAIRE} />);
-  await screen.findByRole("heading", { name: "Devis" });
+  await screen.findByRole("heading", { name: "Dossier fournisseur" });
   return user;
+}
+
+/** The chosen design shows one supplier dossier; selection must not change its prices or status. */
+async function selectQuote(user: ReturnType<typeof userEvent.setup>, supplier: string) {
+  await user.click(await screen.findByRole("button", { name: new RegExp(`^Consulter le devis ${supplier} du`) }));
 }
 
 function quoteCard(supplier: string) {
@@ -394,6 +399,30 @@ describe("consultation of suppliers", () => {
     expect(within(card).getByText("Demandé le 12/11/2026")).toBeVisible();
   });
 
+  it("keeps the created quote selected when a refused price refresh discovers a later quote for that supplier", async () => {
+    let items: Quote[] = [];
+    const first = quote({ lines: [{ line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 }] });
+    const later = quote({ id: QUOTE_B, requested_at: "2026-11-13T10:00:00.000Z", lines: [{ line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 }] });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED)] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: () => ({ data: { items } }),
+      [`POST ${QUOTES}`]: () => { items = [first]; return { status: 201, data: { item: first } }; },
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: () => {
+        items = [{ ...first, status: "closed", closed_at: "2026-11-13T09:00:00.000Z" }, later];
+        return { status: 409, error: { code: "MATERIAL_REQUEST_QUOTE_READ_ONLY", message: "Ce devis a été clos entre-temps." } };
+      },
+    });
+    await user.click(await screen.findByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
+    const price = await screen.findByRole("textbox", { name: "Prix unitaire HT, ligne 1, Négoce Alpha" });
+    await user.type(price, "15,00");
+    await user.tab();
+    const original = await screen.findByRole("button", { name: "Consulter le devis Négoce Alpha du 12/11/2026 (Clos)" });
+    expect(original).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Consulter le devis Négoce Alpha du 13/11/2026 (Demandé)" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(quoteCard("Négoce Alpha")).getByText("Devis clos : il reste lisible, rien n’y change.")).toBeVisible();
+  });
+
   it("offers the message only once the references at the supplier are read (1)", async () => {
     let answer!: (reply: Reply) => void;
     await openEditor({
@@ -480,6 +509,7 @@ describe("consultation of suppliers", () => {
 
     // A refusal is said beside the button in plain words, not the server's code, and the quotes are read again so
     // the screen shows the consultation recorded meanwhile.
+    await user.click(screen.getByRole("button", { name: "Préparer une consultation pour Négoce Alpha" }));
     await addCompetitor(user, "Dépôt Gamma");
     const readsBefore = reads(QUOTES).length;
     await user.click(screen.getByRole("button", { name: "Consultation envoyée à Dépôt Gamma" }));
@@ -489,6 +519,7 @@ describe("consultation of suppliers", () => {
       ),
     ).toBeVisible();
     await waitFor(() => expect(reads(QUOTES).length).toBeGreaterThan(readsBefore));
+    await selectQuote(user, "Dépôt Gamma");
     expect(await screen.findByRole("article", { name: "Devis Dépôt Gamma" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Consultation envoyée à Dépôt Gamma" })).not.toBeInTheDocument();
   });
@@ -647,7 +678,8 @@ describe("consultation of suppliers", () => {
     await user.selectOptions(within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" }), "10");
     await waitFor(() => expect(writes()).toHaveLength(3));
     expect(writes()[2].body).toEqual({ lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 10 }] });
-    expect(await within(card).findByText(`Total des lignes : ${euros(2500 + 14)} HT`)).toBeVisible();
+    // Label and amount are now aligned separately; retain the exact monetary sentence assertion.
+    await waitFor(() => expect(within(card).getByText("Total des lignes :").closest("p")?.textContent?.replace(/\s/g, " ")).toBe(`Total des lignes : ${euros(2500 + 14)} HT`));
   });
 
   it("holds « Retenir ce devis » while a price on screen cannot be read, until it is corrected or given up (15)", async () => {
@@ -827,6 +859,8 @@ describe("consultation of suppliers", () => {
 
     // The reopen is on its way: the line still reads validated, and the retain is queued behind it.
     await openStep(user, 1);
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    await user.click(screen.getByRole("button", { name: "Actions sur la ligne" }));
     await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
     await openStep(user, 2);
     await user.click(retain);
@@ -1277,7 +1311,7 @@ describe("consultation of suppliers", () => {
       { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { received: true } },
       { method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { lines: [{ line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }] } },
     ]);
-    expect(screen.getByText(`Total des lignes : ${euros(20 * 1250 + 4 * 400)} HT`)).toBeVisible();
+    expect(screen.getByText("Total des lignes :").closest("p")?.textContent?.replace(/\s/g, " ")).toBe(`Total des lignes : ${euros(20 * 1250 + 4 * 400)} HT`);
   });
 
   it("retaining a competitor prices the lines from the server's answer and shows the other quote closed, read-only (8, 9)", async () => {
@@ -1320,9 +1354,10 @@ describe("consultation of suppliers", () => {
       },
     });
 
+    await selectQuote(user, "Comptoir Bêta");
     const competitor = await screen.findByRole("article", { name: "Devis Comptoir Bêta" });
     // 4 tees at 3,80 € les 100 are 0,152 €: 0,15 €.
-    expect(within(competitor).getByText(`Total des lignes : ${euros(20 * 1100 + 15)} HT`)).toBeVisible();
+    expect(within(competitor).getByText("Total des lignes :").closest("p")?.textContent?.replace(/\s/g, " ")).toBe(`Total des lignes : ${euros(20 * 1100 + 15)} HT`);
     expect(within(competitor).getByRole("combobox", { name: "Prix donné pour, ligne 2, Comptoir Bêta" })).toHaveValue("100");
     await user.click(screen.getByRole("button", { name: "Retenir ce devis (Comptoir Bêta)" }));
 
@@ -1331,8 +1366,14 @@ describe("consultation of suppliers", () => {
     expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_B}/retain`, body: null }]);
     // The lines are bought from the retained quote's supplier, at its prices, and that supplier no longer changes.
     await openStep(user, 1);
-    expect(screen.getByText(`Prix unitaire HT : ${euros(1100)} (devis retenu)`)).toBeVisible();
-    expect(screen.getByText(`Prix unitaire HT : ${euros(380)} les 100 (devis retenu)`)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    const firstDetails = screen.getByRole("complementary", { name: "Détails de la ligne 1" });
+    expect(within(firstDetails).getByText("Prix unitaire HT (devis retenu)")).toBeVisible();
+    expect(within(firstDetails).getByText(euros(1100))).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 2" }));
+    const secondDetails = screen.getByRole("complementary", { name: "Détails de la ligne 2" });
+    expect(within(secondDetails).getByText("Prix unitaire HT (devis retenu)")).toBeVisible();
+    expect(within(secondDetails).getByText(`${euros(380)} les 100`)).toBeVisible();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 2")).not.toBeInTheDocument();
     await openStep(user, 2);
@@ -1342,6 +1383,7 @@ describe("consultation of suppliers", () => {
     expect(screen.queryByRole("group", { name: "Négoce Alpha" })).not.toBeInTheDocument();
 
     // The competitor is closed, readable and read-only: its prices are shown, nothing writes.
+    await selectQuote(user, "Négoce Alpha");
     const closed = quoteCard("Négoce Alpha");
     expect(within(closed).getByText("Clos")).toBeVisible();
     expect(within(closed).getByText("Devis clos : il reste lisible, rien n’y change.")).toBeVisible();
@@ -1436,7 +1478,7 @@ describe("consultation of suppliers", () => {
       },
     });
 
-    const section = screen.getByRole("region", { name: "Devis" });
+    const section = screen.getByRole("region", { name: "Dossier fournisseur" });
     const card = await within(section).findByRole("article", { name: "Devis Négoce Alpha" });
     const group = within(section).getByRole("group", { name: "Négoce Alpha" });
     expect(within(group).getByText("Ligne 1 · Coude 90° DN 50")).toBeVisible();
@@ -1446,7 +1488,11 @@ describe("consultation of suppliers", () => {
     expect(within(card).getByRole("link", { name: "devis-alpha.pdf" })).toBeVisible();
     expect(within(section).queryByRole("textbox")).not.toBeInTheDocument();
     expect(within(section).queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(within(section).queryAllByRole("button")).toEqual([]);
+    expect(within(card).queryAllByRole("button")).toEqual([]);
+    expect(within(group).queryAllByRole("button")).toEqual([]);
+    expect(within(section).queryAllByRole("button").map((button) => button.getAttribute("aria-label") || button.textContent?.trim()).sort()).toEqual([
+      "Consulter le devis Négoce Alpha du 12/11/2026 (Reçu)", "Retour aux lignes", "Voir les bons de commande",
+    ].sort());
     expect(section.querySelector('input[type="file"]')).toBeNull();
     expect(writes()).toEqual([]);
   });

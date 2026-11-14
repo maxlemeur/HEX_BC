@@ -285,7 +285,8 @@ armyTest(
       { line_id: lineIds[1], unit_price_ht_cents: 380, price_per: 100 },
     ]);
     // 10 × 11,50 € + 4 × 3,80 € ÷ 100 (0,152 €, rounded to the cent).
-    await expect(betaCard.getByText(/^Total des lignes : 115,15\s€ HT$/)).toBeVisible();
+    await expect(betaCard.getByText("Total des lignes :", { exact: true })).toBeVisible();
+    await expect(betaCard.getByText(/^115,15\s€ HT$/)).toBeVisible();
     const retain = screen.getByRole("button", `Retenir ce devis (${betaName})`, { exact: true });
     await expect(retain).toBeDisabled();
     await expect(betaCard.getByText("Pour retenir ce devis, marquez-le reçu.", { exact: true })).toBeVisible();
@@ -328,10 +329,17 @@ armyTest(
     };
     expect([final.length, stateOf(alpha), stateOf(beta)]).toEqual([2, ["closed", true, false], ["retained", false, true]]);
     await openStep(1);
-    await expect(screen.getByText(/^Prix unitaire HT : 11,50\s€ \(devis retenu\)$/)).toBeVisible({ timeout: 15_000 });
-    await expect(screen.getByText(/^Prix unitaire HT : 3,80\s€ les 100 \(devis retenu\)$/)).toBeVisible();
+    await screen.getByRole("button", "Afficher les détails de la ligne 1", { exact: true }).tap();
+    const firstDetails = screen.getByRole("complementary", "Détails de la ligne 1", { exact: true });
+    await expect(firstDetails.getByText("Prix unitaire HT (devis retenu)", { exact: true })).toBeVisible();
+    await expect(firstDetails.getByText(/^11,50\s€$/)).toBeVisible({ timeout: 15_000 });
+    await screen.getByRole("button", "Afficher les détails de la ligne 2", { exact: true }).tap();
+    const secondDetails = screen.getByRole("complementary", "Détails de la ligne 2", { exact: true });
+    await expect(secondDetails.getByText("Prix unitaire HT (devis retenu)", { exact: true })).toBeVisible();
+    await expect(secondDetails.getByText(/^3,80\s€ les 100$/)).toBeVisible();
     await expect(screen.getByLabel("Fournisseur, ligne 1", { exact: true })).toHaveCount(0);
     await openStep(2);
+    await screen.getByRole("button", new RegExp(`^Consulter le devis ${alphaName} du`)).tap();
     const alphaCard = screen.getByRole("article", `Devis ${alphaName}`, { exact: true });
     await expect(alphaCard.getByText("Clos", { exact: true })).toBeVisible();
     await expect(alphaCard.getByText("Devis clos : il reste lisible, rien n’y change.", { exact: true })).toBeVisible();

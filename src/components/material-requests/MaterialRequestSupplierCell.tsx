@@ -36,13 +36,14 @@ export function supplierReasonLabel(proposal: LineSupplierProposal, supplyTypeNa
 function ReferenceDetails({
   reference,
   supplierName,
-}: Readonly<{ reference: LineSupplierReference | null; supplierName: string }>) {
+  showSku = true,
+}: Readonly<{ reference: LineSupplierReference | null; supplierName: string; showSku?: boolean }>) {
   const sku = reference?.supplier_sku?.trim() || null;
   const url = safeProductUrl(reference?.product_url);
   if (!sku && !url) return null;
   return (
     <div className="min-w-0 space-y-0.5">
-      {sku ? <p className="break-all font-mono text-xs text-foreground-secondary">Réf. fournisseur : {sku}</p> : null}
+      {sku && showSku ? <p className="break-all font-mono text-xs text-foreground-secondary">Réf. fournisseur : {sku}</p> : null}
       {url ? (
         <a
           href={url}
@@ -80,6 +81,7 @@ type SupplierCellProps = Readonly<{
   onChooseTypeSupplier: (() => void) | null;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
   onRetain: (supplierId: string) => Promise<RetainResult>;
+  layout?: "cell" | "inspector";
 }>;
 
 /**
@@ -143,6 +145,7 @@ export function MaterialRequestSupplierCell({
   onChooseTypeSupplier,
   onSave,
   onRetain,
+  layout = "cell",
 }: SupplierCellProps) {
   const ids = useId();
   const [choosing, setChoosing] = useState(false);
@@ -155,6 +158,14 @@ export function MaterialRequestSupplierCell({
 
   // A line priced by a retained quote (TI-691) is bought from that quote's supplier: it no longer changes.
   if (!editable || line.price_quote_id) {
+    if (layout === "inspector") {
+      const values = [
+        ["Fournisseur", ownSupplier ?? requestSupplierLabel ?? "Non renseigné"],
+        ...(reference?.supplier_sku ? [["Réf. fournisseur", reference.supplier_sku]] : []),
+        ...(line.unit_price_ht_cents !== null ? [["Prix unitaire HT (devis retenu)", formatQuotedPrice(line.unit_price_ht_cents, line.price_per)]] : []),
+      ];
+      return <div className="space-y-3"><dl className="space-y-3 text-sm">{values.map(([name, value]) => <div key={name} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4"><dt className="text-muted-foreground">{name}</dt><dd className="min-w-0 break-words font-medium text-foreground">{value}</dd></div>)}</dl>{ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} showSku={false} /> : null}</div>;
+    }
     return (
       <div className="min-w-0 space-y-1">
         <p className="text-sm text-foreground">

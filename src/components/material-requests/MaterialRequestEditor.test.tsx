@@ -231,7 +231,7 @@ async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position
 /** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
 async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
   const heading = screen.getByRole("heading", { name: "Demande" });
-  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier|Détails|Replier)$/ });
+  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier la demande|Détails de la demande|Replier)$/ });
   if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
 }
 
@@ -489,8 +489,13 @@ describe("MaterialRequestEditor", () => {
     const enabledButtons = screen
       .getAllByRole("button")
       .filter((button) => !(button as HTMLButtonElement).disabled)
-      .map((button) => button.textContent?.trim() || button.getAttribute("aria-label"));
-    expect(enabledButtons.sort()).toEqual(["Agrandir", "Demandes précédentes de Alpha", "Détails", "Message au technicien"].sort());
+      .map((button) => button.getAttribute("aria-label") || button.textContent?.trim());
+    // Exact whitelist: the new line selectors and next-step button only navigate; no write control is enabled.
+    expect(enabledButtons.sort()).toEqual([
+      "Agrandir", "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2", "Consulter les devis",
+      "Demandes précédentes de Alpha", "Détails de la demande", "Message au technicien",
+    ].sort());
+    expect(writes()).toEqual([]);
     expect(screen.getByText(/lecture seule/i)).toBeVisible();
   });
 
@@ -1084,7 +1089,9 @@ describe("MaterialRequestEditor", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Sélectionner la ligne 1" }));
     await user.click(screen.getByRole("button", { name: "Valider la sélection" }));
-    await user.click(await screen.findByRole("button", { name: "Rouvrir la ligne 1" }));
+    await user.click(await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    await user.click(within(screen.getByRole("complementary", { name: "Détails de la ligne 1" })).getByRole("button", { name: "Actions sur la ligne" }));
+    await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
 
     expect(await screen.findByRole("checkbox", { name: "Sélectionner la ligne 1" })).not.toBeChecked();
     // Nothing is selected: the form that fills or validates a selection is not shown.
@@ -1228,7 +1235,7 @@ describe("MaterialRequestEditor", () => {
       line({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z", ...partial });
 
     it("shows on a validated line what the confirmed request gives it, apart from what it names itself (20)", async () => {
-      await openEditor({
+      const user = await openEditor({
         [`GET ${BASE}`]: {
           data: detail({
             request: confirmed,
@@ -1245,10 +1252,13 @@ describe("MaterialRequestEditor", () => {
       expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
       // TI-691: the office chooses the supplier of a validated line in place (it stays validated), in a search
       // field; a line without its own supplier says, as text, the one it is bought from.
-      expect(within(rows[0]).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("");
-      expect(within(rows[0]).getByText("Acheté chez : Négoce Exemple (demande)")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+      const firstDetails = screen.getByRole("complementary", { name: "Détails de la ligne 1" });
+      expect(within(firstDetails).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("");
+      expect(within(firstDetails).getByText("Acheté chez : Négoce Exemple (demande)")).toBeVisible();
       expect(within(rows[1]).getByText("PVC pression")).toBeVisible();
-      expect(within(rows[1]).getByLabelText("Fournisseur, ligne 2")).toHaveDisplayValue("Négoce Exemple");
+      await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 2" }));
+      expect(within(screen.getByRole("complementary", { name: "Détails de la ligne 2" })).getByLabelText("Fournisseur, ligne 2")).toHaveDisplayValue("Négoce Exemple");
       expect(within(rows[1]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
       // Overhead is not ordered in the sheet's material.
       expect(within(rows[2]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
@@ -1259,8 +1269,9 @@ describe("MaterialRequestEditor", () => {
         [`GET ${BASE}`]: { data: detail({ canWrite: false, request: confirmed, lines: [line({ material: null })] }) },
       });
 
-      expect(screen.getByText("Laiton brut (demande)")).toBeVisible();
-      expect(screen.getByText("Négoce Exemple (demande)")).toBeVisible();
+      const table = screen.getByRole("list", { name: "Lignes de la demande" });
+      expect(within(table).getByText("Laiton brut (demande)")).toBeVisible();
+      expect(within(table).getByText("Négoce Exemple (demande)")).toBeVisible();
     });
 
     it("does not show an unconfirmed presumption as applying (20)", async () => {
@@ -1613,7 +1624,7 @@ describe("the steps of a request", () => {
     await open([line()]);
 
     expect(tab(1)).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { name: "Rattachez un article à la ligne qui n’en a pas" })).toBeVisible();
+    expect(screen.getByText("Rattachez un article à la ligne qui n’en a pas", { exact: true })).toBeVisible();
     expect(tab(1)).toHaveTextContent("0 validée sur 1");
     expect(screen.getByRole("heading", { name: "Lignes" })).toBeVisible();
     // The other steps are there, not shown: their headings are not offered.
@@ -1627,7 +1638,7 @@ describe("the steps of a request", () => {
     const user = await open([ready()]);
 
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByRole("heading", { name: "Consultez les fournisseurs" })).toBeVisible();
+    expect(await screen.findByText("Consultez les fournisseurs", { exact: true })).toBeVisible();
     expect(tab(1)).toHaveTextContent("terminée");
     expect(screen.queryByRole("heading", { name: "Lignes" })).not.toBeInTheDocument();
 
@@ -1640,7 +1651,7 @@ describe("the steps of a request", () => {
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toBe("?etape=devis");
     await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveFocus());
-    expect(screen.getByRole("tabpanel")).toContainElement(screen.getByRole("heading", { name: "Devis" }));
+    expect(screen.getByRole("tabpanel")).toContainElement(screen.getByRole("heading", { name: "Dossier fournisseur" }));
   });
 
   it("opens the step the address names, whatever the step that has work", async () => {
@@ -1660,17 +1671,17 @@ describe("the steps of a request", () => {
       orders: [],
     });
 
-    expect(await screen.findByRole("heading", { name: "Toutes les lignes ont leur bon de commande" })).toBeVisible();
+    expect(await screen.findByText(/Toutes les lignes ont un bon ·/)).toBeVisible();
     expect(tab(3)).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Demande traitée")).toBeVisible();
+    expect(tab(3)).toHaveTextContent("Toutes les lignes ont leur bon");
   });
 
   it("tells a reader where the request stands, never what to do", async () => {
     await open([line()], {}, false);
 
     // Not « Rattachez un article… »: the actions are not a reader's.
-    expect(screen.getByRole("heading", { name: "Lignes · 0 validée sur 1" })).toBeVisible();
-    expect(screen.getByText("Où en est la demande")).toBeVisible();
+    expect(screen.getByText("Lignes · 0 validée sur 1", { exact: true })).toBeVisible();
+    expect(tab(1)).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText(/^Rattachez/)).not.toBeInTheDocument();
     expect(screen.queryByText(/apporte à la ligne/)).not.toBeInTheDocument();
   });
@@ -1679,7 +1690,7 @@ describe("the steps of a request", () => {
     const lines = [ready({ price_quote_id: "77777777-7777-4777-8777-777777777777", unit_price_ht_cents: 100 })];
     await open(lines, { ready_line_ids: [LINE_A], can_create: false });
 
-    expect(await screen.findByRole("heading", { name: "Faites créer les bons de commande" })).toBeVisible();
+    expect(await screen.findByText("Faites créer les bons de commande", { exact: true })).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Créer les brouillons de commande/ })).not.toBeInTheDocument();
   });
 

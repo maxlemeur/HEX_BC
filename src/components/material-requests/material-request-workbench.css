@@ -1,0 +1,111 @@
+.material-request-page .typo-h1 { font-size: 2.125rem; line-height: 1.2; }
+.material-request-page { position: relative; }
+.material-request-editor { font-size: 1rem; --primary: #1e3a5f; --warning-subtle: #fff4e8; --warning-border: #f4d4b1; }
+.material-request-editor .text-sm { font-size: 1rem; line-height: 1.5; }
+.material-request-editor .text-xs { font-size: 0.875rem; line-height: 1.45; }
+.material-request-editor .text-base { font-size: 1.125rem; line-height: 1.5; }
+.material-request-editor .text-lg { font-size: 1.375rem; line-height: 1.4; }
+.material-request-editor .text-xl { font-size: 1.5rem; line-height: 1.35; }
+.material-request-editor .text-2xl { font-size: 1.875rem; line-height: 1.25; }
+.material-request-editor .mr-original-compact { padding: 1.25rem; }
+.material-request-editor .mr-original-compact summary { display: flex; align-items: center; gap: 0.75rem; cursor: pointer; list-style: none; }
+.material-request-editor .mr-original-compact summary::-webkit-details-marker { display: none; }
+.material-request-editor .mr-original-compact summary h2 { font-size: 1.25rem; }
+.material-request-editor .mr-original-compact details[open] > summary { margin-bottom: 1.5rem; }
+.material-request-editor .mr-quote-files { padding-top: 1rem; border-top: 1px solid var(--border); }
+.material-request-editor .mr-quote-files a { display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0.5rem 0.75rem; background: var(--surface-subtle); border-radius: 0.5rem; }
+@media (min-width: 1280px) {
+  .material-request-editor .mr-workbench { min-height: 34rem; }
+  .material-request-editor .mr-workbench-main { display: flex; min-width: 0; flex-direction: column; }
+  .material-request-editor .mr-workbench-original { margin-top: auto; padding-top: 3rem; }
+  .material-request-editor .mr-source-text { display: grid; grid-template-columns: 8rem minmax(0,1fr) auto; align-items: center; gap: 1rem; }
+  .material-request-editor .mr-source-text > * { margin-top: 0; }
+  .material-request-editor .mr-source-text > :is([role="alert"],[role="status"]) { grid-column: 1 / -1; }
+  .material-request-editor .mr-source-text .mr-original-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
+}
+@media (max-width: 639px) {
+  .material-request-page .typo-h1 { font-size: 1.65rem; }
+  .material-request-editor .text-sm { font-size: 0.875rem; }
+  .material-request-editor .text-xs { font-size: 0.8125rem; }
+}
+
+.material-request-editor .mr-supplier-workspace { min-height: 37.5rem; }
+.material-request-editor .mr-order-workspace { min-height: 34rem; }
+.material-request-editor .mr-request-actions > summary { width: fit-content; min-height: 2.5rem; border: 1px solid var(--border-strong); border-radius: 0.5rem; background: var(--surface); padding: 0.5rem 1rem; color: var(--foreground); list-style: none; }
+.material-request-editor .mr-request-actions > div { min-width: 16rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); padding: 1rem; }
+@media (min-width: 768px) {
+ .material-request-editor .mr-request-actions { position: absolute; right: 0; top: 2.5rem; z-index: 20; border: 0; padding: 0; }
+ .material-request-editor .mr-request-actions > div { position: absolute; right: 0; top: 2.5rem; box-shadow: 0 8px 24px #0f172a12; }
+}
+
+/* Match the selected light mockups without changing the application shell. */
+:root:not(.dark) .material-request-page { isolation: isolate; }
+:root:not(.dark) .material-request-page::before {
+  content: "";
+  position: fixed;
+  inset: 60px 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(145deg, #edf2f8 0%, #f8fafc 75%);
+}
+:root:not(.dark) .material-request-editor {
+  --color-primary: #1e3a5f;
+  --color-brand-orange: #b95607;
+  --color-success: #15803d;
+  --color-warning: #a44806;
+  --color-warning-subtle: #fff3e5;
+  --color-warning-border: #f5d9b9;
+}
+.material-request-editor .mr-quote-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.material-request-editor .mr-quote-card > * { margin-block: 0; }
+.material-request-editor .mr-quote-files li {
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-subtle);
+}
+.material-request-editor .mr-quote-files a { padding: 0.25rem 0; background: transparent; }
+@media (min-width: 1280px) {
+  .material-request-editor .mr-supplier-workspace nav > button { position: relative; padding-block: 1rem; }
+  .material-request-editor .mr-supplier-workspace nav > button > span:first-child {
+    justify-content: flex-start;
+    padding-right: 8.5rem;
+  }
+  .material-request-editor .mr-supplier-workspace nav > button > span:nth-child(3) {
+    position: absolute;
+    right: 1.25rem;
+    top: 1rem;
+    max-width: 8rem;
+    margin: 0;
+    text-align: right;
+  }
+  .material-request-editor .mr-orders { padding-top: 1rem; }
+  .material-request-editor .mr-orders h2,
+  .material-request-editor .mr-order-workspace .text-2xl { font-size: 2.25rem; }
+  .material-request-editor .mr-order-workspace { min-height: 36rem; }
+  .material-request-editor .mr-order-workspace a[aria-label^="Ouvrir le bon"] {
+    min-height: 3rem;
+    padding-inline: 1.75rem;
+    font-size: 1.125rem;
+  }
+}
+
+:root:not(.dark) .material-request-editor .bg-primary { background-color: #1e3a5f; }
+:root:not(.dark) .material-request-editor .bg-brand-orange { background-color: #b95607; }
+:root:not(.dark) .material-request-editor .text-brand-orange { color: #a44806; }
+:root:not(.dark) .material-request-editor [role="tab"][data-active] { border-bottom-color: #c25a00; }
+:root:not(.dark) .material-request-editor .mr-supplier-workspace nav > button[aria-pressed="true"],
+:root:not(.dark) .material-request-editor .mr-workbench li:has(> div > button[aria-pressed="true"]) { background-color: #e9f0fc; }
+@media (min-width: 1280px) {
+  .material-request-page { margin-top: -0.75rem; }
+  .material-request-editor .mr-quote-card { padding: 1.25rem 1.5rem; }
+  .material-request-editor .mr-quote-card > details { padding-top: 0.75rem; }
+  .material-request-editor .mr-quote-card li { padding-block: 0.75rem; }
+  .material-request-editor .mr-quote-files { padding-top: 0.75rem; }
+  .material-request-editor .mr-supplier-workspace > div > [role="group"] { padding-block: 0.5rem; }
+}
