@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.8.0](https://github.com/maxlemeur/HEX_BC/compare/v0.7.0...v0.8.0) (2026-11-14)
+
+
+### Features
+
+* **email:** record and show when an estimate e-mail was redirected to the test mailbox (TI-691) ([#348](https://github.com/maxlemeur/HEX_BC/issues/348)) ([0b129c9](https://github.com/maxlemeur/HEX_BC/commit/0b129c9104fe1b441b40b6300ec5be7dead7268e))
+* **email:** redirect every outgoing email to one test mailbox by default ([#341](https://github.com/maxlemeur/HEX_BC/issues/341)) ([ddd527b](https://github.com/maxlemeur/HEX_BC/commit/ddd527ba70beb76a8ff7a07856f7bae71b02ccdf))
+* **estimates:** reach the estimate page from the affaire and name what blocks its send (TI-691) ([#346](https://github.com/maxlemeur/HEX_BC/issues/346)) ([1b8485f](https://github.com/maxlemeur/HEX_BC/commit/1b8485fa37b78fc5de22378f40b8aa4ddc2ac2ca))
+* **estimates:** simplify the editor toolbar and move totals below the table ([#337](https://github.com/maxlemeur/HEX_BC/issues/337)) ([fcf7ae8](https://github.com/maxlemeur/HEX_BC/commit/fcf7ae89607732f23a387bfa9541c016854a0fbb))
+* **material-requests:** add line inspector and supplier/order workspaces (TI-691) ([#350](https://github.com/maxlemeur/HEX_BC/issues/350)) ([6762355](https://github.com/maxlemeur/HEX_BC/commit/67623551caa14c8f539dfa93b17ce1eb95625878))
+* **material-requests:** show the purchase one step at a time, the lines as a full-width table (TI-691) ([#343](https://github.com/maxlemeur/HEX_BC/issues/343)) ([fb92449](https://github.com/maxlemeur/HEX_BC/commit/fb92449668e690e66250e2c751abeb626ae86ec4))
+* **purchase-orders:** say what comes next on an affaire's order and lead back to its request (TI-691) ([#347](https://github.com/maxlemeur/HEX_BC/issues/347)) ([81ec8ea](https://github.com/maxlemeur/HEX_BC/commit/81ec8ea982a3769c061fc6b75c6d638f078ab778))
+* **purchase-orders:** send a purchase order to its supplier by e-mail (TI-691) ([#342](https://github.com/maxlemeur/HEX_BC/issues/342)) ([54f6dae](https://github.com/maxlemeur/HEX_BC/commit/54f6dae0e2136224b10126a4b5816b2d53ae8523))
+
+
+### Bug Fixes
+
+* **material-requests:** explain the purchasing journey where the owner got stuck (TI-691) ([#340](https://github.com/maxlemeur/HEX_BC/issues/340)) ([682d5e4](https://github.com/maxlemeur/HEX_BC/commit/682d5e4c00311774ba1f2fc5758e141ce6c13ad6))
+
+
+### Performance Improvements
+
+* **affaires:** qualify the manager queue with portfolio reads instead of a per-affaire fan-out ([#338](https://github.com/maxlemeur/HEX_BC/issues/338)) ([8c5f9eb](https://github.com/maxlemeur/HEX_BC/commit/8c5f9eb74c5482b3a0a6acacbb7964e0a66245c4))
+
 ## [0.7.0](https://github.com/maxlemeur/HEX_BC/compare/v0.6.0...v0.7.0) (2026-11-14)
 
 
