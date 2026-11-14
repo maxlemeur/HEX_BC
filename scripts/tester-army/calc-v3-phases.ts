@@ -5,13 +5,15 @@
 
 import { COVERAGE_PHASE_DEFINITIONS, COVERAGE_PHASES } from "./coverage-phases.ts";
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", ...COVERAGE_PHASES] as const;
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", "order-send", "order-send-redirect", ...COVERAGE_PHASES] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
 export const CALC_V3_FORBIDDEN_PORTS: ReadonlySet<string> = new Set(["45585", "33485"]);
 
 export const CALC_V3_EMAIL_FROM = "ARMY Local <offer@army.invalid>";
+/** The test mailbox of a phase whose outgoing e-mails are redirected (docs/testing/email-redirection.md): fictional. */
+export const CALC_V3_EMAIL_REDIRECT_TO = "boite-de-test@army.invalid";
 
 export type CalcV3PhaseDefinition = {
   target?: "chromium-desktop" | "chromium-mobile";
@@ -25,6 +27,11 @@ export type CalcV3PhaseDefinition = {
    * offer network guard and the collected PDFs are read back (emission and emission-v3 only).
    */
   sentinelCollector?: boolean;
+  /**
+   * With the collector only. The application redirects its outgoing e-mails to CALC_V3_EMAIL_REDIRECT_TO, as it does
+   * by default in development and in production; without it the phase delivers as written (EMAIL_DELIVERY_MODE=live).
+   */
+  emailRedirect?: boolean;
   /** The first file is the phase's own login setup; each phase runs in its own TesterArmy invocation. */
   tests: readonly string[];
   setupTitle: string;
@@ -161,6 +168,31 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     setupTitle: "ordinary native ARMY login for local offer profile",
     expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 7 },
     maxDuration: 3_600_000,
+  },
+  // The send of a purchase order to its supplier by e-mail (docs/testing/purchase-order-send.md): a draft of an
+  // affaire made through the API from a material request, sent from its page; the collector holds the message and the
+  // order as a PDF. Same owned production build, collector and server guard as `emission`; the journeys run under the
+  // critical browser guard, which admits the send of an owned order only where the provider is the local collector.
+  "order-send": {
+    serverMode: "production",
+    sentinelCollector: true,
+    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/purchase-order-send.e2e.ts"],
+    setupTitle: "ordinary native ARMY login for local offer profile",
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/purchase-order-send.e2e.ts": 2 },
+    collectedPdfMustContain: [/BON DE COMMANDE/u, /Total\s+HT\s+119,28\s*€/u],
+    maxDuration: 1_200_000,
+  },
+  // The same send while the outgoing e-mails are redirected, the default of the application: the test mailbox
+  // receives the message, the supplier named in its subject, and the order says its send was a test.
+  "order-send-redirect": {
+    serverMode: "production",
+    sentinelCollector: true,
+    emailRedirect: true,
+    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/purchase-order-send-redirect.e2e.ts"],
+    setupTitle: "ordinary native ARMY login for local offer profile",
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/purchase-order-send-redirect.e2e.ts": 1 },
+    collectedPdfMustContain: [/BON DE COMMANDE/u, /Total\s+HT\s+119,28\s*€/u],
+    maxDuration: 1_200_000,
   },
 };
 

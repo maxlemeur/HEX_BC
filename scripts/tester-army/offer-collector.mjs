@@ -24,13 +24,17 @@ const addresses = (value, required) => {
 };
 function validate(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) invalid("Expected JSON object.");
-  const allowed = new Set(["from", "to", "cc", "subject", "html", "text", "attachments"]);
+  const allowed = new Set(["from", "to", "cc", "reply_to", "subject", "html", "text", "attachments"]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) invalid("Unsupported email field.");
   if (typeof payload.from !== "string" || /[\r\n]/.test(payload.from) || payload.from.length > 512) invalid("Expected local sender.");
   const sender = payload.from.match(/^[^<>\r\n]*<([^<>]+)>$/)?.[1] ?? payload.from;
   addresses(sender, true);
   const to = addresses(payload.to, true);
   const cc = addresses(payload.cc, false);
+  // The member a supplier answers (the send of a purchase order). Not a recipient: the campaign account's own
+  // address, on a reserved domain that cannot receive mail (.invalid, or .test for the accounts the runner creates).
+  if (payload.reply_to !== undefined && (typeof payload.reply_to !== "string" || payload.reply_to.length > 320
+    || !/^[^\s<>@]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.(?:invalid|test)$/i.test(payload.reply_to))) invalid("Reply address must be one reserved fixture address.");
   if (to.length + cc.length > LIMITS.recipients) invalid("Too many fixture recipients.");
   for (const field of ["subject", "html", "text"]) {
     if (typeof payload[field] !== "string" || !payload[field].trim()) invalid("Subject, HTML and text are required.");

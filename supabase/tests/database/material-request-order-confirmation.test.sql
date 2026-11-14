@@ -274,7 +274,7 @@ select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
   '42501 PURCHASE_ORDER_CONFIRM_THROUGH_FUNCTION', '4 a draft of an affaire is not confirmed by a direct write');
 select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000002',
   $$update public.purchase_orders set status = 'sent' where id = current_setting('test.order_beta')::uuid$$),
-  '23514 PURCHASE_ORDER_STATUS_TRANSITION_INVALID', '4 nor marked sent, even by an admin');
+  '42501 PURCHASE_ORDER_SEND_THROUGH_FUNCTION', '4 nor marked sent, even by an admin: only a send by e-mail does (purchase-order-sends.test.sql)');
 select is(pg_temp.pls_run('a9320000-0000-4000-8000-000000000001',
   $$update public.purchase_orders set status = 'received' where id = current_setting('test.order_beta')::uuid$$),
   '23514 PURCHASE_ORDER_STATUS_TRANSITION_INVALID', '4 nor received without being ordered');

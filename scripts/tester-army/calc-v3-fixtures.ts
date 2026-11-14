@@ -761,6 +761,9 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
     case "resend-portal": return { env: {}, secretEnv: {}, identities: { note: "Resend, portal and incident journeys create their own offers; no sent status or capability is preinserted." } };
     case "emission-v3": return emissionV3Fixtures(context, campaign);
+    case "order-send":
+    case "order-send-redirect":
+      return { env: {}, secretEnv: {}, identities: { note: "BC journeys make their own affaire, supplier, material request and draft order through the API; no send is preinserted." } };
   }
   throw new Error(`No owned fixture is registered for calc-v3 phase ${phase}.`);
 }

@@ -35,6 +35,8 @@ on:
           - emission
           - emission-v3
           - resend-portal
+          - order-send
+          - order-send-redirect
           - source-coverage-decisions
           - source-coverage-edits
           - source-coverage-recovery

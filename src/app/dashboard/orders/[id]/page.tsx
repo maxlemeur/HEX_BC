@@ -9,6 +9,7 @@ import { DevisManager } from "@/components/DevisManager";
 import { PageHeader } from "@/components/layout/page-header";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import { OrderLifecycle, type OrderLifecycleLine } from "@/components/purchase-orders/OrderLifecycle";
+import { OrderSendButton, OrderSendHistory } from "@/components/purchase-orders/OrderSend";
 import {
   PurchaseOrderDocument,
   type SupplierData,
@@ -24,8 +25,18 @@ import {
 } from "@/components/purchase-orders/order-lines";
 import { buttonVariants } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
+import { COMPANY_INFO } from "@/lib/company-info";
+import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
+import { readOutgoingEmailRouting } from "@/lib/email/outgoing-routing";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
 import { parisToday } from "@/lib/purchase-orders/lifecycle";
+import {
+  defaultSendMessage,
+  defaultSendSubject,
+  purchaseOrderPdfFilename,
+  type PurchaseOrderSendRecord,
+  type PurchaseOrderSendRouting,
+} from "@/lib/purchase-orders/send";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { OrderLineHistory } from "../_components/OrderLineHistory";
@@ -106,6 +117,16 @@ type PurchaseOrderItem = StoredOrderLineFields & {
   position: number;
 };
 
+/** Where the server's e-mails go, for the send dialog to say before sending; never the test mailbox itself. */
+function sendRouting(): PurchaseOrderSendRouting {
+  if (!process.env.RESEND_API_KEY?.trim() || !process.env.EMAIL_FROM?.trim()) return "unconfigured";
+  try {
+    return readOutgoingEmailRouting().mode;
+  } catch {
+    return "unconfigured";
+  }
+}
+
 export default async function OrderPage({
   params,
 }: Readonly<{ params: Promise<{ id: string }> }>) {
@@ -131,6 +152,19 @@ export default async function OrderPage({
     .select("received_on, note")
     .eq("purchase_order_id", id)
     .maybeSingle();
+
+  // The sends of the order to its supplier by e-mail, the latest first (read like the order itself).
+  const sendsPromise = supabase
+    .from("purchase_order_sends")
+    .select("id, status, recipient, subject, redirected, requested_by_name, requested_at, settled_at")
+    .eq("purchase_order_id", id)
+    .order("requested_at", { ascending: false })
+    .limit(20);
+
+  // The member who would send it signs the proposed message (not always the order's author).
+  const viewerPromise = supabase.auth.getUser().then(async ({ data }) => data.user
+    ? (await supabase.from("profiles").select("full_name, work_email").eq("id", data.user.id).maybeSingle()).data
+    : null);
 
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
@@ -229,7 +263,32 @@ export default async function OrderPage({
   );
 
   const isDraft = order.status === "draft";
-  const [{ data: confirmationRow }, { data: receptionRow }] = await Promise.all([confirmationPromise, receptionPromise]);
+  const [{ data: confirmationRow }, { data: receptionRow }, { data: sendRows }, viewer] =
+    await Promise.all([confirmationPromise, receptionPromise, sendsPromise, viewerPromise]);
+  // A send in flight is not history yet: the page shows what is settled.
+  const sends = ((sendRows ?? []) as PurchaseOrderSendRecord[]).filter((send) => send.status !== "sending");
+  const sendHistory = <OrderSendHistory sends={sends} />;
+  const sendAction = isDraft ? (
+    <OrderSendButton
+      orderId={order.id}
+      reference={order.reference}
+      editRevision={order.edit_revision}
+      supplierName={supplier?.name ?? null}
+      supplierEmail={supplier?.email?.trim() || null}
+      defaultSubject={defaultSendSubject({ reference: order.reference, companyName: COMPANY_INFO.name })}
+      defaultMessage={defaultSendMessage({
+        reference: order.reference,
+        affaireName: affaire?.name ?? null,
+        expectedDeliveryDate: order.expected_delivery_date,
+        // A profile whose name is an e-mail address signs with a name, as on the document.
+        issuerName: normalizeDocumentIssuerDisplay({
+          issuerName: viewer?.full_name, issuerEmail: viewer?.work_email, fallbackName: "",
+        }).displayName || null,
+      })}
+      attachmentFilename={purchaseOrderPdfFilename(order.reference)}
+      routing={sendRouting()}
+    />
+  ) : null;
   const lifecycleLines: OrderLifecycleLine[] = items.map((item) => ({
     id: item.id,
     position: item.position,
@@ -277,6 +336,7 @@ export default async function OrderPage({
         actions={
           <>
             {fromRequest ? null : <PurchaseOrderStatusUpdater orderId={order.id} status={order.status} />}
+            {fromRequest ? null : sendAction}
             {isDraft ? (
               <Link
                 className={buttonVariants({ variant: "accent", size: "lg" })}
@@ -318,8 +378,13 @@ export default async function OrderPage({
             } : null}
             reception={receptionRow ? { receivedOn: receptionRow.received_on, note: receptionRow.note } : null}
             today={parisToday()}
+            sendAction={sendAction}
+            sendHistory={sendHistory}
+            sentAsTest={sends.find((send) => send.status === "sent")?.redirected === true}
           />
         </section>
+      ) : sends.length > 0 ? (
+        <div className="no-print mx-auto mb-4 w-full max-w-[210mm]">{sendHistory}</div>
       ) : null}
 
       <OrderDocumentViewport label={`Bon de commande ${order.reference}`}>

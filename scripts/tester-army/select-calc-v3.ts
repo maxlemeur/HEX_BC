@@ -26,6 +26,7 @@ const rules: { paths: string[]; phases: CalcV3Phase[] }[] = [
   { paths: ["src/**/draft-lock*", "src/**/useEstimateDraftLock*", "src/**/useEstimateBatch*", "src/**/batch-operations*"], phases: ["journeys", "navigation-lease", "batch-client", "generated-atomic", "generated-recovery", "resume"] },
   { paths: ["src/**/email*", "src/**/portal*", "src/**/resend*", "src/**/send-route*", "src/**/send/**", "src/**/pdf*", "src/**/pdf/**", "src/**/Portal*"], phases: ["emission", "emission-v3", "resend-portal"] },
   { paths: ["src/**/supplier-offer*", "src/**/supplier-pric*", "src/**/SupplierOffer*"], phases: ["offers-zero-price", "offers-purchase-unit"] },
+  { paths: ["src/**/purchase-orders/**/send/**", "src/**/purchase-orders/send*", "src/**/OrderSend*", "src/**/templates/purchase-order*", "src/**/outgoing-routing*"], phases: ["order-send", "order-send-redirect"] },
 ];
 
 /**
