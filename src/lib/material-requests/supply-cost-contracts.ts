@@ -6,14 +6,10 @@ import { z } from "zod";
  * Amounts are integer cents. budget_cents is null when no version is accepted: there is no budget then.
  */
 
-export const AFFAIRE_SUPPLY_COST_ROW_KINDS = ["supply_type", "unclassified", "shipping_discount"] as const;
-export type AffaireSupplyCostRowKind = (typeof AFFAIRE_SUPPLY_COST_ROW_KINDS)[number];
+const ROW_KINDS = ["supply_type", "unclassified", "shipping_discount"] as const;
 
-export type AffaireSupplyCostRow = {
-  kind: AffaireSupplyCostRowKind;
-  supply_type_id: string | null;
-  code: string | null;
-  name: string | null;
+/** The three amounts of a row, and of the totals. */
+export type AffaireSupplyCostAmounts = {
   /** The accepted version's supply cost of these lines; null without accepted version. */
   budget_cents: number | null;
   /** Confirmed and received orders, at their real price. */
@@ -22,25 +18,31 @@ export type AffaireSupplyCostRow = {
   pending_cents: number;
 };
 
-export type AffaireSupplyCostBudgetVersion = {
-  id: string;
-  version_number: number;
-  variant_label: string | null;
-  title: string | null;
-  /** How many versions of the affaire are accepted; the highest number makes the budget. */
-  accepted_count: number;
+export type AffaireSupplyCostRow = AffaireSupplyCostAmounts & {
+  kind: (typeof ROW_KINDS)[number];
+  supply_type_id: string | null;
+  code: string | null;
+  name: string | null;
 };
 
 export type AffaireSupplyCost = {
-  budget_version: AffaireSupplyCostBudgetVersion | null;
+  budget_version: {
+    id: string;
+    version_number: number;
+    variant_label: string | null;
+    title: string | null;
+    /** How many versions of the affaire are accepted; the highest number makes the budget. */
+    accepted_count: number;
+  } | null;
   rows: AffaireSupplyCostRow[];
-  totals: { budget_cents: number | null; ordered_cents: number; pending_cents: number };
+  totals: AffaireSupplyCostAmounts;
   /** Orders made from an estimate of the affaire, canceled ones excepted: they carry no affaire and are not counted. */
   not_counted: { estimate_orders: number };
 };
 
 /** Integer cents, refused beyond the safe integers rather than rounded silently. */
 const cents = z.number().int().refine(Number.isSafeInteger, "montant hors des entiers sûrs");
+const amounts = { budget_cents: cents.nullable(), ordered_cents: cents, pending_cents: cents };
 
 export const affaireSupplyCostSchema: z.ZodType<AffaireSupplyCost> = z.object({
   budget_version: z.object({
@@ -51,14 +53,12 @@ export const affaireSupplyCostSchema: z.ZodType<AffaireSupplyCost> = z.object({
     accepted_count: z.number().int().min(1),
   }).nullable(),
   rows: z.array(z.object({
-    kind: z.enum(AFFAIRE_SUPPLY_COST_ROW_KINDS),
+    kind: z.enum(ROW_KINDS),
     supply_type_id: z.string().uuid().nullable(),
     code: z.string().nullable(),
     name: z.string().nullable(),
-    budget_cents: cents.nullable(),
-    ordered_cents: cents,
-    pending_cents: cents,
+    ...amounts,
   })),
-  totals: z.object({ budget_cents: cents.nullable(), ordered_cents: cents, pending_cents: cents }),
+  totals: z.object(amounts),
   not_counted: z.object({ estimate_orders: z.number().int().min(0) }),
 });

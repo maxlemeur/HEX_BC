@@ -1,23 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ClipboardList, Plus } from "lucide-react";
 
 import { EmptyState } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  fetchMaterialRequests,
-  materialRequestErrorMessage,
-  type MaterialRequestList,
-} from "@/lib/material-requests/client";
+import { fetchMaterialRequests } from "@/lib/material-requests/client";
 import type { MaterialRequestSummary } from "@/lib/material-requests/contracts";
 
 import { formatDateOnly, materialRequestHref, plural } from "./format";
+import { LoadFailure } from "./LoadFailure";
 import { NewMaterialRequestDialog } from "./NewMaterialRequestDialog";
+import { useRetryableLoad } from "./useRetryableLoad";
 
 function validationProgress(request: MaterialRequestSummary): string {
   if (request.line_count === 0) return "Aucune ligne";
@@ -53,9 +50,9 @@ function RequestRow({ projectId, request }: Readonly<{ projectId: string; reques
 
 /** The material requests of one affaire, most recent first as the server returns them. */
 export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string }>) {
-  const [list, setList] = useState<MaterialRequestList | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const { data: list, setData: setList, error, reload } = useRetryableLoad(
+    fetchMaterialRequests, projectId, "Les demandes de matériel n’ont pas pu être chargées.",
+  );
   const [creating, setCreating] = useState(false);
   /**
    * One dialog instance per opening. The dialog stays mounted once closed, and what it holds (the form,
@@ -65,41 +62,8 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
    */
   const [opening, setOpening] = useState(0);
 
-  useEffect(() => {
-    const abort = new AbortController();
-    fetchMaterialRequests(projectId, abort.signal)
-      .then((next) => {
-        if (!abort.signal.aborted) setList(next);
-      })
-      .catch((cause: unknown) => {
-        if (!abort.signal.aborted) {
-          setError(materialRequestErrorMessage(cause, "Les demandes de matériel n’ont pas pu être chargées."));
-        }
-      });
-    return () => abort.abort();
-  }, [projectId, attempt]);
-
   if (error && !list) {
-    return (
-      <Alert variant="danger">
-        <AlertTitle>Les demandes de matériel n’ont pas pu être affichées.</AlertTitle>
-        <AlertDescription>
-          <p>{error}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-3"
-            onClick={() => {
-              setError(null);
-              setAttempt((current) => current + 1);
-            }}
-          >
-            Réessayer
-          </Button>
-        </AlertDescription>
-      </Alert>
-    );
+    return <LoadFailure title="Les demandes de matériel n’ont pas pu être affichées." message={error} onRetry={reload} />;
   }
   if (!list) return <LoadingState label="Chargement des demandes de matériel…" />;
 
@@ -150,7 +114,7 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
         <NewMaterialRequestDialog
           key={opening}
           open={creating}
-          onRequestCreated={() => setAttempt((current) => current + 1)}
+          onRequestCreated={reload}
           onOpenChange={setCreating}
           projectId={projectId}
           technicians={list.technicians}
