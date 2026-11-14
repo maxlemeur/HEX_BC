@@ -15,12 +15,12 @@ export default async function AffaireMaterialRequestsPage({ params }: Props) {
   return (
     <>
       <PageHeader
-        title="Demandes de matériel"
-        description="Ce que les techniciens demandent au bureau, recopié en lignes claires avec l’original à côté."
+        title="Achats"
+        description="Les demandes de matériel des techniciens, de l’original jusqu’à la commande, et ce que les fournitures coûtent à l’affaire."
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: project.name, href: `/dashboard/affaires/${projectId}` },
-          { label: "Demandes de matériel" },
+          { label: "Achats" },
         ]}
       />
 

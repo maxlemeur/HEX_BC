@@ -87,6 +87,8 @@ import {
   type CockpitExecuteActionEventDetail,
 } from "@/lib/cockpit/events";
 import { XIcon } from "lucide-react";
+import { materialRequestsHref } from "@/components/material-requests/format";
+
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
@@ -1179,7 +1181,12 @@ export function AffaireHub({
       )}
 
       <IntakeUploadFeedback feedback={uploadFeedback} />
-      <AffaireWorkbench active={activeSection} onSelect={selectSection} criticalCount={registerSummary?.criticalOpenCount ?? 0}>
+      <AffaireWorkbench
+        active={activeSection}
+        onSelect={selectSection}
+        criticalCount={registerSummary?.criticalOpenCount ?? 0}
+        purchasingHref={materialRequestsHref(summary.project.id)}
+      >
         {!showImportFlow && ((isFreshStartState && activeSection === "register") || ((isFreshStartState || !summary.currentVersion) && activeSection === "submission")) ? <section className="affaire-workbench-intro" aria-label={activeSection === "register" ? "Suivi du dossier" : "Préparation de la remise"}>
           <h2>{activeSection === "register" ? "Points à traiter" : "Préparer la remise"}</h2>
           <p>{activeSection === "register" ? "Ajoutez les pièces et précisez le périmètre du dossier pour organiser les points à suivre." : "Le devis n’est pas encore chiffré. Préparez le dossier et ses lignes avant la validation et l’envoi."}</p>

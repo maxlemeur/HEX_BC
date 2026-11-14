@@ -1,12 +1,17 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import { Check, ExternalLink } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { safeProductUrl } from "@/lib/catalogue/supplier-items-client";
 import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
-import type { MaterialRequestLine, MaterialRequestLineInput } from "@/lib/material-requests/contracts";
+import type {
+  MaterialRequestArticleSummary,
+  MaterialRequestLine,
+  MaterialRequestLineInput,
+} from "@/lib/material-requests/contracts";
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
 
 import { ChoiceCell } from "./cells";
@@ -67,9 +72,57 @@ type SupplierCellProps = Readonly<{
   /** The article's reference at the line's own supplier. */
   reference: LineSupplierReference | null;
   supplyTypeName: string | null;
+  /** The line's article, when it has one: without it, no supplier is proposed. */
+  article: MaterialRequestArticleSummary | null;
+  /** The proposals were read for this line as it is now: « none » is then an answer, not a wait. */
+  proposalRead: boolean;
+  /** Opens the preferred suppliers of the supply types; null for who may not change them. */
+  onChooseTypeSupplier: (() => void) | null;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
   onRetain: (supplierId: string) => Promise<RetainResult>;
 }>;
+
+/**
+ * Why a linked line has no proposed supplier, and where to give it one (TI-691): the preferred supplier of its
+ * supply type, set in place by who may change the catalogue, or the supply type the article lacks, on its sheet.
+ */
+function NoProposal({
+  article,
+  supplyTypeName,
+  onChooseTypeSupplier,
+}: Readonly<{
+  article: MaterialRequestArticleSummary;
+  supplyTypeName: string | null;
+  onChooseTypeSupplier: (() => void) | null;
+}>) {
+  if (!supplyTypeName) {
+    return (
+      <div className="space-y-0.5 text-xs text-muted-foreground">
+        <p>Aucun fournisseur proposé : l’article n’a pas de type de fourniture.</p>
+        <Link
+          href={`/dashboard/products?product_id=${encodeURIComponent(article.id)}`}
+          className="font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Ouvrir la fiche de l’article
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      <p>
+        {onChooseTypeSupplier
+          ? `Aucun fournisseur proposé : choisissez-en un ci-dessus, ou réglez le fournisseur privilégié du type « ${supplyTypeName} ».`
+          : `Aucun fournisseur proposé : choisissez-en un ci-dessus. Le fournisseur privilégié du type « ${supplyTypeName} » se règle par un administrateur ou un ingénieur (Référentiel › Produits › Types de fourniture).`}
+      </p>
+      {onChooseTypeSupplier ? (
+        <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onChooseTypeSupplier}>
+          Choisir le fournisseur du type
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * The « Fournisseur » column of a line (TI-691). A line with a supplier shows it with the article's
@@ -85,6 +138,9 @@ export function MaterialRequestSupplierCell({
   proposal,
   reference,
   supplyTypeName,
+  article,
+  proposalRead,
+  onChooseTypeSupplier,
   onSave,
   onRetain,
 }: SupplierCellProps) {
@@ -116,6 +172,9 @@ export function MaterialRequestSupplierCell({
 
   // While the select holds a choice not saved yet, the proposal steps aside: one gesture at a time.
   const shown = !line.supplier_id && !choosing ? proposal : null;
+  // A homonym is shown as the pickers show it.
+  const shownLabel = shown ? (supplierOptions.find((option) => option.id === shown.supplier_id)?.label ?? shown.supplier_name) : null;
+  const missing = !line.supplier_id && !choosing && line.product_id !== null && article !== null && proposalRead && proposal === null;
 
   const retain = async (supplierId: string) => {
     setBusy(true);
@@ -131,9 +190,11 @@ export function MaterialRequestSupplierCell({
       <ChoiceCell
         label={`Fournisseur, ligne ${n}`}
         value={line.supplier_id}
-        options={supplierOptions.map((option) => ({ value: option.id, label: option.name }))}
+        options={supplierOptions.map((option) => ({ value: option.id, label: option.label }))}
         emptyLabel={requestSupplierLabel ?? "—"}
         unknownLabel="Fournisseur retiré de la liste"
+        searchable
+        placeholder={requestSupplierLabel ? "Chercher un autre fournisseur…" : "Chercher un fournisseur…"}
         onUnsavedChange={setChoosing}
         onCommit={async (supplier_id) => {
           setError(null);
@@ -141,13 +202,17 @@ export function MaterialRequestSupplierCell({
           return onSave({ supplier_id });
         }}
       />
+      {!line.supplier_id && requestSupplierLabel ? (
+        // Said as text, not only in the field's hint: what the line is bought from while it names no supplier.
+        <p className="text-xs text-foreground-secondary">{`Acheté chez : ${requestSupplierLabel}`}</p>
+      ) : null}
       {line.supplier_id && ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
       {shown ? (
         <div className="space-y-1 rounded-md border border-dashed border-border px-2 py-1.5">
           <p className="text-micro font-semibold uppercase text-muted-foreground">Proposé</p>
           <div id={proposalId} className="min-w-0 space-y-0.5">
             <p className="break-words text-sm font-medium leading-snug text-foreground">
-              {`${shown.supplier_name} · ${supplierReasonLabel(shown, supplyTypeName)}`}
+              {`${shownLabel} · ${supplierReasonLabel(shown, supplyTypeName)}`}
             </p>
             <ReferenceDetails reference={shown} supplierName={shown.supplier_name} />
           </div>
@@ -164,6 +229,9 @@ export function MaterialRequestSupplierCell({
             Retenir
           </Button>
         </div>
+      ) : null}
+      {missing && article ? (
+        <NoProposal article={article} supplyTypeName={supplyTypeName} onChooseTypeSupplier={onChooseTypeSupplier} />
       ) : null}
       <p role="status" className="text-xs text-muted-foreground empty:hidden">
         {alreadySet ? SUPPLIER_ALREADY_SET : ""}

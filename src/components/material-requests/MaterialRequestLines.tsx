@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
+import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppliersDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
@@ -130,12 +131,46 @@ function bulkRetainReport(result: BulkRetainResult): string[] {
   return sentences;
 }
 
+/**
+ * Why « Rattacher les références et noms connus » has nothing to do, in the office's words; null while it has, or
+ * while the proposals are still read.
+ */
+function linkHint(
+  drafts: readonly MaterialRequestLine[],
+  proposalsOf: MaterialRequestEditorApi["proposalsOf"],
+): string | null {
+  const unlinked = drafts.filter((line) => !line.product_id);
+  if (drafts.length === 0) return "Rien à rattacher d’un coup : aucune ligne n’est en brouillon.";
+  if (unlinked.length === 0) return "Rien à rattacher d’un coup : toutes les lignes en brouillon ont un article.";
+  if (unlinked.some((line) => proposalsOf(line.id).status !== "ready")) return null;
+  return "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel retenu au rattachement sera reconnu ensuite.";
+}
+
+/**
+ * Why « Retenir les fournisseurs proposés » has nothing to do; null while it has, or while the proposals are read.
+ * `missing` counts the linked lines without a supplier that no source proposes one for.
+ */
+function supplierHint(lines: readonly MaterialRequestLine[], read: (lineId: string) => boolean): { text: string; missing: number } | null {
+  const linked = lines.filter((line) => line.product_id);
+  const without = linked.filter((line) => !line.supplier_id);
+  if (linked.length === 0) {
+    return { text: "Aucun fournisseur à retenir : un fournisseur se propose une fois l’article de la ligne rattaché.", missing: 0 };
+  }
+  if (without.length === 0) return { text: "Aucun fournisseur à retenir : toutes les lignes rattachées en ont un.", missing: 0 };
+  if (!without.every((line) => read(line.id))) return null;
+  return {
+    text: `Aucun fournisseur à retenir : rien n’en propose pour ${without.length > 1 ? `les ${without.length} lignes rattachées` : "la ligne rattachée"} sans fournisseur. Donnez un fournisseur privilégié au type de fourniture de l’article, ou choisissez-le sur la ligne.`,
+    missing: without.length,
+  };
+}
+
 export function MaterialRequestLines({
   editor,
   materialListId,
   headingId,
   orderedLine,
   toolbar,
+  canEditCatalogue = false,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   materialListId: string;
@@ -144,9 +179,13 @@ export function MaterialRequestLines({
   orderedLine?: (lineId: string) => MaterialRequestOrderLink | null;
   /** Read-only actions shown beside the validation button (message, previous requests). */
   toolbar?: React.ReactNode;
+  /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
+  canEditCatalogue?: boolean;
 }>) {
   const toast = useToast();
   const unitListId = useId();
+  const hintIds = useId();
+  const [typeSuppliersOpen, setTypeSuppliersOpen] = useState(false);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +266,15 @@ export function MaterialRequestLines({
     [canWrite, lines, supplierProposalOf],
   );
   const articleLine = articleLineId ? (lines.find((line) => line.id === articleLineId) ?? null) : null;
+  // A button at zero says why, and what to do, instead of staying grey without a word (the owner's walk, 2026-11-14).
+  const linkNothing = canWrite && lines.length > 0 && sureLinks.length === 0 ? linkHint(drafts, proposalsOf) : null;
+  const supplierNothing =
+    canWrite && lines.length > 0 && proposedSuppliers.length === 0 && editor.supplierProposalsStatus === "ready"
+      ? supplierHint(lines, editor.supplierReferenceKnown)
+      : null;
+  const linkHintId = `${hintIds}-link`;
+  const supplierHintId = `${hintIds}-supplier`;
+  const chooseTypeSupplier = canWrite && canEditCatalogue ? () => setTypeSuppliersOpen(true) : null;
 
   const report = (result: SaveResult) => {
     setError(result.ok || result.blocked ? null : result.message);
@@ -316,6 +364,7 @@ export function MaterialRequestLines({
               variant="outline"
               className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
               disabled={sureLinks.length === 0 || busy}
+              aria-describedby={linkNothing ? linkHintId : undefined}
               onClick={() => void linkSure()}
             >
               <Link2 aria-hidden="true" />
@@ -328,6 +377,7 @@ export function MaterialRequestLines({
               variant="outline"
               className="h-auto min-h-9 max-w-full whitespace-normal py-1.5"
               disabled={proposedSuppliers.length === 0 || busy}
+              aria-describedby={supplierNothing ? supplierHintId : undefined}
               onClick={() => void retainProposed()}
             >
               <Truck aria-hidden="true" />
@@ -337,6 +387,21 @@ export function MaterialRequestLines({
         </div>
       </div>
 
+      {linkNothing || supplierNothing ? (
+        <div className="space-y-1 text-sm text-muted-foreground">
+          {linkNothing ? <p id={linkHintId}>{linkNothing}</p> : null}
+          {supplierNothing ? (
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <p id={supplierHintId}>{supplierNothing.text}</p>
+              {supplierNothing.missing > 0 && chooseTypeSupplier ? (
+                <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={chooseTypeSupplier}>
+                  Choisir les fournisseurs des types
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {canWrite && editor.supplierProposalsStatus === "error" ? (
         <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
           <p>Fournisseurs proposés indisponibles.</p>
@@ -467,14 +532,21 @@ export function MaterialRequestLines({
                 proposals={proposalsOf(line.id)}
                 articleNotice={editor.articleNotices.get(line.id)}
                 articleConflict={editor.articleConflicts.get(line.id)}
-                onLinkArticle={(candidate) =>
-                  editor.linkArticle(line.id, { product_id: candidate.article.id, via: candidate.via })
+                onLinkArticle={(candidate, learnAlias) =>
+                  editor.linkArticle(line.id, {
+                    product_id: candidate.article.id,
+                    via: candidate.via,
+                    ...(learnAlias ? { learn_alias: true } : {}),
+                  })
                 }
                 onUnlinkArticle={() => editor.unlinkArticle(line.id)}
                 onOpenArticles={() => setArticleLineId(line.id)}
                 onRetryProposals={editor.retryProposals}
                 supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
                 supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
+                supplierProposalRead={editor.supplierReferenceKnown(line.id)}
+                onChooseTypeSupplier={chooseTypeSupplier}
+                canEditCatalogue={canEditCatalogue}
                 onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
                 ordered={orderedLine?.(line.id) ?? null}
               />
@@ -515,6 +587,16 @@ export function MaterialRequestLines({
             Ajouter une ligne
           </Button>
         </div>
+      ) : null}
+      {chooseTypeSupplier ? (
+        <SupplyTypeSuppliersDialog
+          open={typeSuppliersOpen}
+          onOpenChange={(open) => {
+            setTypeSuppliersOpen(open);
+            // A type given a supplier there proposes it here: the proposals are read again on closing.
+            if (!open) editor.retrySupplierProposals();
+          }}
+        />
       ) : null}
       {canWrite ? (
         <MaterialRequestArticleSheet

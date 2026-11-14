@@ -22,12 +22,18 @@ import { splitSourceText } from "./source-text";
  *  8. "1.000 colliers" or "1 000 vis" is read as one piece, or as a thousand without anyone being told
  *     the figure needs a look;
  *  9. a tube, a hose, a duct or a cable asked without a unit is proposed in pieces, so the missing-unit
- *     alert never shows and 12 lengths are ordered where 12 metres were meant.
+ *     alert never shows and 12 lengths are ordered where 12 metres were meant;
+ * 10. articles written on one line with a comma or a semicolon between them ("50 coudes DN50, 10 manchons
+ *     DN15", as SMS are written) come out as one wrong line, or a comma inside an article ("2,5 ml", "robinet,
+ *     laiton") cuts it in two (TI-691, the owner's walk of 2026-11-14);
+ * 11. two articles the splitter does not cut ("10 coudes et 5 manchons", "DN50,10 manchons") come out as one
+ *     line that looks right: its quantity must be flagged for a look at the original.
  *
  * What the function deliberately does not attempt: materials and their precision, suppliers, zones, angles,
  * bare numbers as sizes ("coude 20"), sizes in several figures ("110 x 60"), units other than pieces and
- * metres, telling a date from a fraction ("12/11"), and merging or deduplicating lines. The operator reads
- * every line against the original; this only saves typing.
+ * metres, telling a date from a fraction ("12/11"), cutting at « et » or « + » (they join sizes as often as
+ * articles: such a line is flagged instead), and merging or deduplicating lines. The operator reads every line
+ * against the original; this only saves typing.
  */
 
 type Draft = MaterialRequestLineInput;
@@ -158,6 +164,106 @@ describe("splitSourceText", () => {
       "0 bouchon DN 15",
       [{ original_text: "0 bouchon DN 15", dimension: "DN 15", product_type: "0 bouchon" }],
     ],
+    [
+      "articles separated by commas, as an SMS writes them, a trailing comma kept in the words",
+      "50 coudes DN50, 10 manchons DN15,",
+      [
+        { original_text: "50 coudes DN50", quantity: 50, unit: "u", dimension: "DN 50", product_type: "coudes" },
+        { original_text: "10 manchons DN15,", quantity: 10, unit: "u", dimension: "DN 15", product_type: "manchons" },
+      ],
+    ],
+    [
+      "articles separated by semicolons, with or without a space",
+      "12 manchons Dn 80; 6 réductions Dn 40;4 bouchons Dn 40",
+      [
+        { original_text: "12 manchons Dn 80", quantity: 12, unit: "u", dimension: "DN 80", product_type: "manchons" },
+        { original_text: "6 réductions Dn 40", quantity: 6, unit: "u", dimension: "DN 40", product_type: "réductions" },
+        { original_text: "4 bouchons Dn 40", quantity: 4, unit: "u", dimension: "DN 40", product_type: "bouchons" },
+      ],
+    ],
+    [
+      "dashes and commas on the same line",
+      "À prendre au comptoir Y - 12 manchons Dn 80, 6 réductions Dn 40",
+      [
+        { original_text: "À prendre au comptoir Y" },
+        { original_text: "12 manchons Dn 80", quantity: 12, unit: "u", dimension: "DN 80", product_type: "manchons" },
+        { original_text: "6 réductions Dn 40", quantity: 6, unit: "u", dimension: "DN 40", product_type: "réductions" },
+      ],
+    ],
+    [
+      "a quantity alone after a comma belongs to the article before it",
+      "coude 90° DN 32, 25 pièces",
+      [{ original_text: "coude 90° DN 32, 25 pièces", quantity: 25, unit: "u", dimension: "DN 32", product_type: "coude 90°" }],
+    ],
+    [
+      "a decimal comma is not a separator, before or after a cut",
+      "2,5 ml gaine Ø 20, 4 colliers Ø 20",
+      [
+        { original_text: "2,5 ml gaine Ø 20", quantity: 2.5, unit: "ml", dimension: "Ø 20", product_type: "gaine" },
+        { original_text: "4 colliers Ø 20", quantity: 4, unit: "u", dimension: "Ø 20", product_type: "colliers" },
+      ],
+    ],
+    [
+      "a comma that is not followed by a quantity stays inside the article",
+      "robinet d'arrêt, laiton, 20/27",
+      [{ original_text: "robinet d'arrêt, laiton, 20/27", dimension: "20/27", product_type: "robinet d'arrêt, laiton" }],
+    ],
+    [
+      "a size after a comma is not a quantity, and no space is left before the comma",
+      "té égal DN 32, 15/21 mamelon",
+      [{ original_text: "té égal DN 32, 15/21 mamelon", dimension: "DN 32", product_type: "té égal, 15/21 mamelon" }],
+    ],
+    [
+      "a thousand before a comma, and a size in millimetres after one",
+      "1 000 vis, 200 rondelles M8, 6 mm",
+      [
+        { original_text: "1 000 vis", quantity: 1000, quantity_doubtful: true, unit: "u", product_type: "vis" },
+        { original_text: "200 rondelles M8, 6 mm", quantity: 200, unit: "u", dimension: "M8", product_type: "rondelles, 6 mm" },
+      ],
+    ],
+    [
+      "a comma between two figures is not cut, and the second article flags the quantity",
+      "50 coudes DN50,10 manchons DN15",
+      [{
+        original_text: "50 coudes DN50,10 manchons DN15", quantity: 50, quantity_doubtful: true, unit: "u", dimension: "DN 50",
+        product_type: "coudes,10 manchons DN15",
+      }],
+    ],
+    [
+      "two articles joined by « et » are not cut: the quantity is flagged",
+      "10 coudes DN 50 et 5 manchons",
+      [{ original_text: "10 coudes DN 50 et 5 manchons", quantity: 10, quantity_doubtful: true, unit: "u", dimension: "DN 50", product_type: "coudes et 5 manchons" }],
+    ],
+    [
+      "two articles joined by « + » are not cut: the quantity is flagged",
+      "4 brides DN 80 + 8 joints",
+      [{ original_text: "4 brides DN 80 + 8 joints", quantity: 4, quantity_doubtful: true, unit: "u", dimension: "DN 80", product_type: "brides + 8 joints" }],
+    ],
+    [
+      "a quantity before a dotted reference stays the quantity, never a size (the owner's walk of 2026-11-14)",
+      "50 coudes réf. C45.FPH.50",
+      [{ original_text: "50 coudes réf. C45.FPH.50", quantity: 50, unit: "u", reference: "C45.FPH.50", product_type: "coudes" }],
+    ],
+    [
+      "a size in two figures after a comma is not an article (review of the first comma cut)",
+      "vis agglo, 6 x 40, 200 pièces",
+      [{ original_text: "vis agglo, 6 x 40, 200 pièces", quantity: 200, unit: "u", product_type: "vis agglo, 6 x 40" }],
+    ],
+    [
+      "a size in two figures after a comma, with no quantity, stays one article",
+      "cheville, 8 x 50",
+      [{ original_text: "cheville, 8 x 50" }],
+    ],
+    [
+      "a trailing comma after a quantity alone keeps it with its article",
+      "coude 90° DN 32, 25 pièces,",
+      [{ original_text: "coude 90° DN 32, 25 pièces,", quantity: 25, unit: "u", dimension: "DN 32", product_type: "coude 90°" }],
+    ],
+    [
+      "two angles joined by « et » are not a second article",
+      "6 coudes cuivre 90 et 45",
+      [{ original_text: "6 coudes cuivre 90 et 45", quantity: 6, unit: "u", product_type: "coudes cuivre 90 et 45" }],
+    ],
   ])("%s", (_label, text, expected) => {
     expect(splitSourceText(text)).toStrictEqual(expected);
   });
@@ -212,6 +318,12 @@ describe("splitSourceText", () => {
     ["a diameter and a run of spaces", `diamètre${" ".repeat(19_980)}x`],
     ["commas and colons", `${",;:=".repeat(4_990)} coude DN 20`],
     ["twenty thousand one-character lines", "1\n".repeat(10_000)],
+    ["a run of commas", ",".repeat(20_000)],
+    ["commas each before a quantity", ", 1 x".repeat(4_000)],
+    ["commas between figures", "9,".repeat(10_000)],
+    ["semicolons before groups of three digits", "; 123 123".repeat(2_222)],
+    ["commas before a long run of digits", `vis, ${"9".repeat(9_990)}, ${"9".repeat(9_990)} x`],
+    ["« et » before figures", " et 1".repeat(4_000)],
   ])("stays fast on %s", (_label, text) => {
     expect(text.length).toBeLessThanOrEqual(20_000);
     const started = performance.now();

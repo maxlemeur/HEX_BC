@@ -11,6 +11,11 @@
 .affaire-workbench-nav > button:hover { background: var(--muted); }
 .affaire-workbench-nav > button[aria-current=page] { background: var(--info-subtle); color: var(--primary); font-weight: 650; }
 .affaire-workbench-nav svg { flex-shrink: 0; }
+.affaire-workbench-nav-divider { display: block; height: 1px; margin: 16px 4px 16px; background: var(--border); }
+.affaire-workbench-nav > .affaire-workbench-nav-link { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 10px 12px; border-radius: 8px; color: var(--foreground); font-size: 15px; font-weight: 500; text-decoration: none; }
+.affaire-workbench-nav > .affaire-workbench-nav-link:hover { background: var(--muted); }
+.affaire-workbench-nav > .affaire-workbench-nav-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.affaire-workbench-nav-detail { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: 12.5px; font-weight: 400; line-height: 1.35; }
 .affaire-workbench-count { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; margin-left: auto; border-radius: 20px; background: var(--warning); color: var(--warning-foreground); font-size: 12px; }
 .affaire-workbench-content { min-width: 0; padding: 30px; }
 .affaire-workbench [hidden] { display: none !important; }
@@ -48,6 +53,7 @@
 .affaire-file-other { color: var(--primary); }
 .affaire-workbench-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 22px; font-size: 14px; line-height: 1.6; color: var(--muted-foreground); }
 .affaire-workbench-note svg { margin-top: 2px; flex-shrink: 0; }
+.affaire-workbench-supplier-hint { margin: -4px 0 16px; font-size: 14px; line-height: 1.5; color: var(--muted-foreground); }
 .affaire-dossier-brief { min-width: 0; border-left: 1px solid var(--border); padding-left: 24px; }
 .affaire-brief-status { display: inline-flex; padding: 5px 10px; margin-top: 16px; border-radius: 8px; background: var(--warning-subtle); color: var(--warning); font-size: 14px; font-weight: 550; }
 .affaire-brief-status.is-confirmed { background: var(--success-subtle); color: var(--success); }
@@ -89,6 +95,9 @@
   .affaire-workbench-nav { display: flex; gap: 6px; padding: 10px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .affaire-workbench-nav > button { width: auto; flex-shrink: 0; margin: 0; padding: 9px 12px; gap: 8px; font-size: 13px; }
   .affaire-workbench-nav svg { width: 17px; }
+  .affaire-workbench-nav-divider { width: 1px; height: auto; flex-shrink: 0; margin: 4px 2px; }
+  .affaire-workbench-nav > .affaire-workbench-nav-link { width: auto; min-height: 0; flex-shrink: 0; padding: 9px 12px; gap: 8px; font-size: 13px; }
+  .affaire-workbench-nav-detail { display: none; }
   .affaire-workbench-content { padding: 24px 16px; }
   .affaire-workbench-intro { margin-bottom: 28px; }
   .affaire-workbench-intro h2 { font-size: 25px; }

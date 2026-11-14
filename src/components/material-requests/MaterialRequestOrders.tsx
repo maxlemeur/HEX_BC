@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MaterialRequestOrder } from "@/lib/material-requests/client";
@@ -18,12 +19,77 @@ import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
  * draft purchase order per supplier, overhead lines included in their supplier's draft. Nothing is sent.
  */
 
-/** Said after the line's name: « Ligne 4 · Té égal DN 50 : pas validée ». */
+/** Said after the line's name, with what to do: « Ligne 4 · Té égal DN 50 : pas validée, réglez ses alertes… ». */
 const NOT_READY_REASONS: Record<MaterialRequestOrderNotReadyReason, string> = {
-  not_validated: "pas validée",
-  not_priced: "sans devis retenu",
-  no_supplier: "sans fournisseur",
+  not_validated: "pas validée : réglez ses alertes, puis validez-la",
+  not_priced: "sans devis retenu : consultez un fournisseur et retenez son devis",
+  no_supplier: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
 };
+
+/** The same reasons for several lines at once, in the reminder at the top of the request. */
+const LEFT_BEHIND: Record<MaterialRequestOrderNotReadyReason | "ready", { one: string; several: string }> = {
+  ready: {
+    one: "prête, dans aucun bon : créez son brouillon de commande, plus bas",
+    several: "prêtes, dans aucun bon : créez leurs brouillons de commande, plus bas",
+  },
+  no_supplier: {
+    one: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
+    several: "sans fournisseur : choisissez-le dans la colonne Fournisseur",
+  },
+  not_priced: {
+    one: "sans devis retenu : consultez un fournisseur et retenez son devis",
+    several: "sans devis retenu : consultez un fournisseur et retenez son devis",
+  },
+  not_validated: {
+    one: "pas validée : réglez ses alertes, puis validez-la",
+    several: "pas validées : réglez leurs alertes, puis validez-les",
+  },
+};
+
+/**
+ * Once some lines of the request are in a purchase order, those that are in none are said at the top of the request,
+ * by reason and with what to do (TI-691: on a long request, a line left behind is the one the technician waits for).
+ */
+export function MaterialRequestToOrderReminder({
+  editor,
+  orders,
+}: Readonly<{ editor: MaterialRequestEditorApi; orders: MaterialRequestOrdersApi }>) {
+  const { summary } = orders;
+  if (!summary || summary.ordered.length === 0) return null;
+  const positionOf = new Map(editor.data.lines.map((line) => [line.id, line.position]));
+  const groups = new Map<MaterialRequestOrderNotReadyReason | "ready", number[]>();
+  const add = (reason: MaterialRequestOrderNotReadyReason | "ready", lineId: string) => {
+    const position = positionOf.get(lineId);
+    if (position !== undefined) groups.set(reason, [...(groups.get(reason) ?? []), position]);
+  };
+  for (const lineId of summary.ready_line_ids) add("ready", lineId);
+  for (const entry of summary.not_ready) add(entry.reason, entry.line_id);
+  const left = [...groups.values()].reduce((total, positions) => total + positions.length, 0);
+  if (left === 0) return null;
+  const order: Array<MaterialRequestOrderNotReadyReason | "ready"> = ["no_supplier", "not_priced", "not_validated", "ready"];
+  return (
+    <Alert variant="warning">
+      <AlertTitle>
+        {left > 1
+          ? `${left} lignes de cette demande ne sont dans aucun bon de commande`
+          : "1 ligne de cette demande n’est dans aucun bon de commande"}
+      </AlertTitle>
+      <AlertDescription>
+        <ul aria-label="Lignes à commander encore" className="mt-1 list-disc space-y-0.5 pl-5">
+          {order.flatMap((reason) => {
+            const positions = [...(groups.get(reason) ?? [])].sort((first, second) => first - second);
+            if (positions.length === 0) return [];
+            const several = positions.length > 1;
+            const named = several
+              ? `Lignes ${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`
+              : `Ligne ${positions[0]}`;
+            return [<li key={reason}>{`${named}, ${several ? LEFT_BEHIND[reason].several : LEFT_BEHIND[reason].one}.`}</li>];
+          })}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 const STATUS_VARIANT: Record<string, "neutral" | "info" | "success" | "warning" | "danger"> = {
   draft: "neutral",

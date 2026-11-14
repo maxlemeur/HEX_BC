@@ -24,12 +24,14 @@ type Product = { id: string };
 // - the technician's reference does not bring its article first, or brings an article of another size;
 // - once linked, the line keeps the technician's wording instead of the catalogue's, or loses his words;
 // - the usual name is not learned, so the same words are not recognised on the next request;
+// - (TI-691, the owner's walk of 2026-11-14) a usual name is learned without the office choosing it: the bulk
+//   link taught the technician's word to the whole tenant, silently, at its first use;
 // - an article missing from the catalogue cannot be created from the line, is created validated, or
 //   is not marked new in the catalogue;
 // - unlinking a validated line leaves it validated although it no longer says what was validated, or
 //   keeps the article's wording, so the next proposals and usual names start from the wrong words.
 armyTest(
-  "MR02 request lines are linked to catalogue articles by the office, and the usual names are learned",
+  "MR02 request lines are linked to catalogue articles by the office, and a usual name is learned only when the office retains it",
   { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
@@ -110,11 +112,19 @@ armyTest(
     expect([rodLine.product_match, rodLine.product_type, rodLine.material, rodLine.dimension, rodLine.original_text, rodLine.reference])
       .toEqual(["reference", "Tige filetée", "Acier zingué", "M12", "goujon M12 ref TF12", reference]);
     expect((await line(2)).product_id).toBeNull();
-    await expect(screen.getByText("Nom usuel retenu : « goujon »", { exact: false }).first()).toBeVisible({ timeout: 15_000 });
+    // The bulk link teaches nothing: the technician's « goujon » is not a name of the rod for the whole tenant.
+    const untaught = await apiRequest<Envelope<{ items: Array<{ alias: string }> }>>(browser, "GET", `/api/products/${rod}/aliases`);
+    expect(untaught.body.data.items).toEqual([]);
+    await expect(screen.getByText(/^Nom usuel retenu :/)).toHaveCount(0);
 
+    // The office retains the technician's words for the elbow, by a choice it checks at the link.
+    const retain = screen.getByLabel("Retenir « coude 90 » comme nom usuel, ligne 2", { exact: true });
+    await expect(retain).not.toBeChecked();
+    await retain.check();
     await screen.getByRole("button", "Rattacher l’article proposé à la ligne 2", { exact: true }).tap();
     await expect.poll(async () => (await line(2)).product_id, { timeout: 30_000 }).toBe(elbow28);
     expect((await line(2)).product_match).toBe("ranked");
+    await expect(screen.getByText("Nom usuel retenu : « coude 90 »", { exact: true })).toBeVisible({ timeout: 15_000 });
 
     // The plug is not in the catalogue: the office creates it from the line, as a draft marked new.
     await screen.getByRole("button", "Chercher ou créer l’article, ligne 3", { exact: true }).tap();
@@ -130,20 +140,27 @@ armyTest(
     await browser.goto(`/dashboard/products?q=${encodeURIComponent("bouchon mâle")}&catalogue_status=draft`, { waitUntil: "domcontentloaded" });
     await expect(screen.getByText("Nouveau", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 
-    // The usual name is learned on the article: the same words are recognised on the next request.
-    const aliases = await apiRequest<Envelope<{ items: Array<{ alias: string }> }>>(browser, "GET", `/api/products/${rod}/aliases`);
+    // The usual name retained is learned on its article only: the same words are recognised on the next request,
+    // and the words the office did not retain are not.
+    const aliases = await apiRequest<Envelope<{ items: Array<{ alias: string }> }>>(browser, "GET", `/api/products/${elbow28}/aliases`);
     expect(aliases.status).toBe(200);
-    expect(aliases.body.data.items.map((item) => item.alias)).toEqual(["goujon"]);
+    expect(aliases.body.data.items.map((item) => item.alias)).toEqual(["coude 90"]);
+    const rodAliases = await apiRequest<Envelope<{ items: Array<{ alias: string }> }>>(browser, "GET", `/api/products/${rod}/aliases`);
+    expect(rodAliases.body.data.items).toEqual([]);
     const next = await apiRequest<Envelope<Detail>>(browser, "POST", base, { source_text: "Deuxième demande inventée" });
     const nextAdded = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "POST", `${base}/${next.body.data.request.id}/lines`, {
-      lines: [{ original_text: "goujons M12", quantity: 5, unit: "u", product_type: "goujon", dimension: "M12" }],
+      lines: [
+        { original_text: "coudes cuivre 28", quantity: 5, unit: "u", product_type: "coude 90", dimension: "28", material: "Cuivre" },
+        { original_text: "goujons M12", quantity: 5, unit: "u", product_type: "goujon", dimension: "M12" },
+      ],
     });
     expect(nextAdded.status).toBe(201);
     const nextProposals = await apiRequest<Envelope<{ lines: Record<string, Candidate[]> }>>(
       browser, "GET", `${base}/${next.body.data.request.id}/candidates`,
     );
     const [learned] = nextProposals.body.data.lines[nextAdded.body.data.lines[0].id];
-    expect([learned.article.id, learned.via]).toEqual([rod, "alias"]);
+    expect([learned.article.id, learned.via]).toEqual([elbow28, "alias"]);
+    expect((nextProposals.body.data.lines[nextAdded.body.data.lines[1].id] ?? []).map((candidate) => candidate.via)).not.toContain("alias");
 
     // Unlinking a validated line returns it to draft, with the technician's words again.
     const validated = await apiRequest<Envelope<unknown>>(browser, "POST", `${one}/lines/validate`, { ids: [rodLine.id] });

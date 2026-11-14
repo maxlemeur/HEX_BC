@@ -1,3 +1,4 @@
+import { supplierPickerLabels, type SupplierIdentity } from "@/lib/catalogue/supplier-labels";
 import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { requestJsonUncoordinated } from "@/lib/estimates/client-http";
@@ -14,7 +15,8 @@ import type {
 
 export type SupplyTypeWithPreferredSupplier = SupplyTypeListItem;
 
-export type SupplierDirectoryEntry = { id: string; name: string };
+/** `label` is what a picker shows: the name, with what tells it apart when another supplier bears the same one. */
+export type SupplierDirectoryEntry = { id: string; name: string; label: string };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -102,12 +104,13 @@ export async function saveSupplyTypePreferredSupplier(
 
 /** The tenant's active suppliers, by name, as the suppliers page lists them. */
 export async function fetchSupplierDirectory(signal?: AbortSignal): Promise<SupplierDirectoryEntry[]> {
-  const { items } = await read<{ items: SupplierDirectoryEntry[] }>(
+  const { items } = await read<{ items: SupplierIdentity[] }>(
     "/api/suppliers",
     "La liste des fournisseurs n’a pas pu être chargée.",
     signal,
   );
-  return (items ?? []).map(({ id, name }) => ({ id, name }));
+  const labels = supplierPickerLabels(items ?? []);
+  return (items ?? []).map(({ id, name }) => ({ id, name, label: labels.get(id) ?? name }));
 }
 
 /** Only a web address is turned into a link: anything else typed in the field stays text. */

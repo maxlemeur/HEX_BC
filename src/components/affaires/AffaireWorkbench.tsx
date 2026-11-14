@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState, useTransition, type ReactNode } from "react";
-import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Send, TriangleAlert } from "lucide-react";
+import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Send, ShoppingCart, TriangleAlert } from "lucide-react";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
+import { NavigationLink } from "@/components/navigation/NavigationFeedback";
 import { Button } from "@/components/ui/button";
+import { SupplierDocumentsHint } from "./SupplierDocumentsHint";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { canClassifyDossierDocument, dossierDocumentAiConfidence, dossierDocumentState, type DossierDocument } from "@/lib/affaires/document-triage";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
@@ -33,10 +35,15 @@ export function affaireSectionFromLocation(params: URLSearchParams, hash: string
   return "dossier";
 }
 
-export function AffaireWorkbench({ active, onSelect, criticalCount, children }: {
+export function AffaireWorkbench({ active, onSelect, criticalCount, purchasingHref, children }: {
   active: AffaireWorkbenchSection;
   onSelect: (section: AffaireWorkbenchSection) => void;
   criticalCount: number;
+  /**
+   * The affaire's purchasing page (TI-691: its material requests and its supply cost): a link, since it leaves the
+   * workbench. The owner could not find it behind « Chiffrage › Plus » (2026-11-14).
+   */
+  purchasingHref?: string;
   children: ReactNode;
 }) {
   return (
@@ -49,6 +56,18 @@ export function AffaireWorkbench({ active, onSelect, criticalCount, children }: 
             {id === "register" && criticalCount > 0 ? <span className="affaire-workbench-count" aria-label={`${criticalCount} points critiques`}>{criticalCount}</span> : null}
           </button>
         ))}
+        {purchasingHref ? (
+          <>
+            <span className="affaire-workbench-nav-divider" aria-hidden="true" />
+            <NavigationLink href={purchasingHref} className="affaire-workbench-nav-link">
+              <ShoppingCart size={20} aria-hidden="true" />
+              <span>
+                Achats{" "}
+                <span className="affaire-workbench-nav-detail">Demandes de matériel, coût des fournitures</span>
+              </span>
+            </NavigationLink>
+          </>
+        ) : null}
       </nav>
       <div className="affaire-workbench-content" id="affaire-workbench-content">{children}</div>
     </div>
@@ -138,6 +157,7 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
             <h3>Pièces du dossier</h3>
             {workspace ? <Button variant="outline" onClick={isReadOnly || !workspace.canManageDocuments ? onOpenDocuments : onAddDocuments}><Plus size={16} aria-hidden="true" />{isReadOnly || !workspace.canManageDocuments ? "Consulter les pièces" : "Ajouter des pièces"}</Button> : null}
           </div>
+          {canManage && workspace ? <SupplierDocumentsHint projectId={workspace.projectId} className="affaire-workbench-supplier-hint" /> : null}
           {documents.length > 0 ? (
             <>
               {selectedDocuments.length > 0 ? <div className="affaire-file-selection" role="group" aria-label="Actions sur les pièces sélectionnées">

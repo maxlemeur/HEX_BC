@@ -24,7 +24,14 @@ import type {
   MaterialRequestLine,
 } from "@/lib/material-requests/contracts";
 
-import { ArticleIdentity, articleLinkHold, CandidateReasons, REOPENS_ON_LINK } from "./MaterialRequestArticleCell";
+import {
+  ArticleIdentity,
+  articleLinkHold,
+  CandidateReasons,
+  LearnAliasChoice,
+  learnableWords,
+  REOPENS_ON_LINK,
+} from "./MaterialRequestArticleCell";
 import { lineTitle } from "./format";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 
@@ -116,6 +123,9 @@ function ArticleCreationForm({
   const [supplyTypes, setSupplyTypes] = useState<SupplyTypes>({ status: "loading" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [learn, setLearn] = useState(false);
+  // The technician's words, unless the article created says them already.
+  const learnable = learnableWords(line.product_type, { product_type: fields.product_type, designation: fields.designation });
 
   useEffect(() => {
     const abort = new AbortController();
@@ -156,6 +166,7 @@ function ArticleCreationForm({
       ...(value("dimensions") ? { dimensions: value("dimensions") } : {}),
       ...(value("designation") ? { designation: value("designation") } : {}),
       ...(value("reference") ? { reference: value("reference") } : {}),
+      ...(learn && learnable ? { learn_alias: true } : {}),
     };
     setBusy(true);
     const result = await onCreate(input);
@@ -247,6 +258,15 @@ function ArticleCreationForm({
           <Input id={id("reference")} size="sm" autoComplete="off" maxLength={255} value={fields.reference} onChange={set("reference")} />
         </div>
       </div>
+      {learnable ? (
+        <LearnAliasChoice
+          words={learnable}
+          checked={learn}
+          size="sm"
+          hint="Pour toute l’équipe : les prochaines demandes qui l’écrivent proposeront l’article créé."
+          onChange={setLearn}
+        />
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm font-medium text-danger">
           {error}
@@ -288,6 +308,8 @@ export function MaterialRequestArticleSheet({
   const [mode, setMode] = useState<{ lineId: string; view: "choose" | "create" } | null>(null);
   const [search, setSearch] = useState<{ lineId: string; query: string; result: Search } | null>(null);
   const [linkError, setLinkError] = useState<{ lineId: string; message: string } | null>(null);
+  /** « Retenir … comme nom usuel », checked for one line: unchecked again for the next. */
+  const [learnFor, setLearnFor] = useState<string | null>(null);
 
   const lineId = line?.id ?? null;
   const view = mode && mode.lineId === lineId ? mode.view : "choose";
@@ -296,6 +318,8 @@ export function MaterialRequestArticleSheet({
 
   const proposals = line ? editor.proposalsOf(line.id) : null;
   const hold = line ? articleLinkHold(editor.lineChanges.get(line.id)) : null;
+  const learnable = line ? learnableWords(line.product_type) : null;
+  const learning = learnable !== null && learnFor !== null && learnFor === lineId;
 
   const runSearch = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -341,7 +365,11 @@ export function MaterialRequestArticleSheet({
   const link = async (candidate: MaterialRequestArticleCandidate, searched: boolean) => {
     if (!line) return;
     await settle(
-      await editor.linkArticle(line.id, { product_id: candidate.article.id, via: searched ? "manual" : candidate.via }),
+      await editor.linkArticle(line.id, {
+        product_id: candidate.article.id,
+        via: searched ? "manual" : candidate.via,
+        ...(learning ? { learn_alias: true } : {}),
+      }),
     );
   };
 
@@ -429,6 +457,15 @@ export function MaterialRequestArticleSheet({
                       <p className="text-sm text-muted-foreground">
                         {searched ? "Aucun article trouvé." : "Aucun article proposé."}
                       </p>
+                    ) : null}
+                    {listed.length > 0 && learnable ? (
+                      <LearnAliasChoice
+                        words={learnable}
+                        checked={learning}
+                        size="sm"
+                        hint="Pour toute l’équipe : les prochaines demandes qui l’écrivent proposeront l’article que vous rattachez. Rien n’est retenu s’il porte déjà ce nom."
+                        onChange={(checked) => setLearnFor(checked ? line.id : null)}
+                      />
                     ) : null}
                     {listed.length > 0 ? (
                       <ul className="space-y-2">

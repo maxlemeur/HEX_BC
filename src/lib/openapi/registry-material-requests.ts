@@ -19,6 +19,7 @@ import {
   linkMaterialRequestLineArticleSchema,
   materialRequestLineIdsSchema,
   prepareMaterialRequestFilesSchema,
+  replaceMaterialRequestLinesSchema,
   updateMaterialRequestFileSchema,
   updateMaterialRequestLineSchema,
   updateMaterialRequestSchema,
@@ -31,7 +32,7 @@ import {
   type MaterialRequestLine,
   type MaterialRequestLineArticleResult,
   type MaterialRequestPricePer,
-  type MaterialRequestSummary,
+  type MaterialRequestListItem,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
 } from "@/lib/material-requests/contracts";
@@ -101,7 +102,10 @@ const summaryShape = {
   ...requestShape, technician_name: z.string().nullable(), line_count: z.number().int().min(0),
   validated_line_count: z.number().int().min(0), file_count: z.number().int().min(0),
 };
-const summary: z.ZodType<MaterialRequestSummary> = z.object(summaryShape);
+// TI-691: the lines no standing purchase order holds yet, and whether one holds any.
+const listItem: z.ZodType<MaterialRequestListItem> = z.object({
+  ...summaryShape, to_order_line_count: z.number().int().min(0).nullable(), has_orders: z.boolean(),
+});
 // An original is an image; the file of a quote (quote_id, TI-691) may also be a PDF.
 const file: z.ZodType<MaterialRequestFile> = z.object({
   id: uuid, request_id: uuid, quote_id: uuid.nullable(), file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES),
@@ -297,7 +301,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: "Demandes de l'affaire, la plus récente d'abord, avec leurs compteurs, les techniciens du tenant et le droit d'écriture de l'appelant.",
     parameters: [project],
     responses: {
-      "200": success("ApiMaterialRequestList", "Demandes de l'affaire.", z.object({ items: z.array(summary), technicians: z.array(technician), canWrite: z.boolean() })),
+      "200": success("ApiMaterialRequestList", "Demandes de l'affaire.", z.object({ items: z.array(listItem), technicians: z.array(technician), canWrite: z.boolean() })),
       ...readRefusals,
     },
   },
@@ -315,7 +319,8 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: {
       "200": success("ApiMaterialRequestDetail", "Demande et listes de choix.", z.object({
         ...detailShape, canWrite: z.boolean(), materialOptions: z.array(z.string()),
-        supplierOptions: z.array(z.object({ id: uuid, name: z.string() })),
+        // label: what a picker shows, the name with what tells two suppliers of the same name apart (TI-691).
+        supplierOptions: z.array(z.object({ id: uuid, name: z.string(), label: z.string() })),
       })),
       ...readRefusals,
     },
@@ -514,6 +519,18 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     },
   },
   {
+    tags, method: "post", path: `${one}/lines/replace`, summary: "Redécouper le message : remplacer les lignes en brouillon",
+    description: `Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes lues à nouveau dans le message, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec son message, qui se redécoupe. ${MATERIAL_REQUEST_MAX_LINES} lignes au plus de part et d'autre.`,
+    parameters: [project, requestId],
+    requestBody: jsonBody({ name: "MaterialRequestLinesReplace", description: "Lignes remplacées et lignes nouvelles.", schema: replaceMaterialRequestLinesSchema }),
+    responses: {
+      "200": success("ApiMaterialRequestLinesReplaced", "Toutes les lignes de la demande, dans l'ordre.", linesData),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_LINES_CHANGED : les lignes ont changé entre-temps ; recharger la demande. MATERIAL_REQUEST_LINES_KEPT : une ligne est validée, ou dans un devis ou un bon de commande ; rien n'est remplacé."),
+      "422": refusal(`MATERIAL_REQUEST_LINE_LIMIT : la demande dépasserait ${MATERIAL_REQUEST_MAX_LINES} lignes.`),
+    },
+  },
+  {
     tags, method: "post", path: `${one}/lines/reopen`, summary: "Rouvrir des lignes validées",
     description: "Ramène en brouillon les lignes désignées ; auteur et date de validation sont effacés. Une ligne chiffrée par un devis retenu se rouvre et se revalide de même : son prix et ce qu'elle commande ne changent pas.",
     parameters: [project, requestId],
@@ -555,7 +572,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "put", path: `${one}/lines/{lineId}/article`, summary: "Rattacher une ligne à un article",
-    description: `Le libellé du catalogue devient celui de la ligne : type, matière, précision (nuance et norme), dimension et unité viennent de l'article ; une colonne vide de l'article garde la valeur de la ligne. Une dimension donnée par l'article décoche « sans dimension ». Une autre unité que celle de la ligne marque la quantité à vérifier (quantity_doubtful). Les mots du technicien (original_text, rempli à partir d'eux s'il était vide) et sa référence restent. Le libellé de la ligne avant son premier rattachement est conservé côté serveur ; ses mots de type deviennent un nom usuel de l'article, sauf s'ils disent déjà son type ou sa désignation, y compris lors d'un nouveau rattachement ; le rattachement tient même si ce nom ne peut être enregistré. ${articleRule}`,
+    description: `Le libellé du catalogue devient celui de la ligne : type, matière, précision (nuance et norme), dimension et unité viennent de l'article ; une colonne vide de l'article garde la valeur de la ligne. Une dimension donnée par l'article décoche « sans dimension ». Une autre unité que celle de la ligne marque la quantité à vérifier (quantity_doubtful). Les mots du technicien (original_text, rempli à partir d'eux s'il était vide) et sa référence restent. Le libellé de la ligne avant son premier rattachement est conservé côté serveur. Avec learn_alias à true seulement (choix du bureau au rattachement ; absent vaut non), ses mots de type deviennent un nom usuel de l'article pour tout le tenant, sauf s'ils disent déjà son type ou sa désignation, y compris lors d'un nouveau rattachement ; le rattachement tient même si ce nom ne peut être enregistré. ${articleRule}`,
     parameters: [project, requestId, lineId],
     requestBody: jsonBody({ name: "MaterialRequestLineArticleLink", description: "Article actif du tenant et voie par laquelle il a été choisi.", schema: linkMaterialRequestLineArticleSchema }),
     responses: {
@@ -567,7 +584,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/lines/{lineId}/article`, summary: "Créer l'article d'une ligne et l'y rattacher",
-    description: `Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created ». ${articleRule}`,
+    description: `Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created », et n'apprend un nom usuel qu'avec learn_alias à true. ${articleRule}`,
     parameters: [project, requestId, lineId],
     requestBody: jsonBody({ name: "MaterialRequestLineArticleCreate", description: "Article à créer.", schema: createMaterialRequestLineArticleSchema }),
     responses: {

@@ -56,6 +56,8 @@ export type FakeSupabaseOptions = {
   stallStreamCancel?: boolean;
   /** Called just before an update runs: what another session did in the meantime. */
   beforeUpdate?: (table: string, values: FakeRow, tables: FakeTables) => void;
+  /** Called just before a delete runs: what another session did in the meantime. */
+  beforeDelete?: (table: string, tables: FakeTables) => void;
 };
 
 function readPath(row: FakeRow, column: string): unknown {
@@ -222,6 +224,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         return { data: inserted.map((row) => project(row, columns)), error: null };
       }
       if (operation === "update") options.beforeUpdate?.(table, payload as FakeRow, tables);
+      if (operation === "delete") options.beforeDelete?.(table, tables);
       const matching = tables[table].filter((row) => filters.every((filter) => filter(row)));
       if (operation === "update") {
         const refusal = options.refuseUpdate?.(table, payload as FakeRow);

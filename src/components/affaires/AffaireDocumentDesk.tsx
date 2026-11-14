@@ -44,6 +44,7 @@ import {
 import { IntakeDocumentPreview } from "./IntakeDocumentPreview";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeDropzone } from "./IntakeDropzone";
+import { SupplierDocumentsHint } from "./SupplierDocumentsHint";
 import { useIntakeUploadFeedback, type IntakeUploadFeedbackState } from "./IntakeUploadFeedback";
 import { useDossierPoll } from "./useAffaireDossier";
 import { GoogleDriveImport, openGoogleDriveImport } from "./GoogleDriveImport";
@@ -853,6 +854,7 @@ export function AffaireDocumentDesk({
               Ajoutez les pièces du dossier de consultation.
             </DialogDescription>
           </DialogHeader>
+          <SupplierDocumentsHint projectId={projectId} />
           <IntakeDropzone
             projectId={projectId}
             onUploadComplete={() => void onReload()}

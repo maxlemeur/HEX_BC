@@ -170,8 +170,10 @@ armyTest(
     // Their author opens them: the summary links them.
     expect([...after.orders.map((order) => order.can_open), ...after.ordered.map((entry) => entry.can_open)]).toEqual(Array(5).fill(true));
     await expect(list.getByRole("link", alphaOrder.reference, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${alphaOrder.id}`);
-    await expect(screen.getByRole("link", `Commandé : ${alphaOrder.reference}`, { exact: true })).toHaveCount(2);
-    await expect(screen.getByRole("link", `Commandé : ${betaOrder.reference}`, { exact: true })).toBeVisible();
+    // A draft is not an order yet (TI-691): the line says where its order stands.
+    await expect(screen.getByRole("link", `Brouillon de bon : ${alphaOrder.reference}`, { exact: true })).toHaveCount(2);
+    await expect(screen.getByRole("link", `Brouillon de bon : ${betaOrder.reference}`, { exact: true })).toBeVisible();
+    await expect(screen.getByText(/^Commandé : /)).toHaveCount(0);
     await expect(screen.getByRole("button", "Créer les brouillons de commande (0)", { exact: true })).toBeDisabled();
 
     // The same creation sent again answers what it made; a new one finds nothing left to order.

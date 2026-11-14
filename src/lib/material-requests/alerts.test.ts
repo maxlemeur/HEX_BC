@@ -22,6 +22,8 @@ import type { MaterialRequestLine } from "./contracts";
  *  6. overhead lines (PPE) are held back by the sheet's material;
  *  7. the message to the technician asks about what the office can settle alone, hides a question, is long,
  *     or asks "combien ?" about a greeting or a note that the pre-reading of a pasted message turned into a line.
+ *  8. (review of TI-691) a linked line whose size the office cleared is validated without one: the article's
+ *     lack of size is written by the link (« sans dimension »), never presumed from the link itself.
  */
 
 function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
@@ -63,6 +65,13 @@ const codes = (target: MaterialRequestLine, ctx: AlertContext) =>
   materialRequestLineAlerts(target, ctx).map((alert) => alert.code);
 
 describe("materialRequestLineAlerts", () => {
+  it("still asks for a size on a linked line whose size was cleared, unless it says « sans dimension »", () => {
+    const cleared = line({ dimension: null, product_id: "article-1", product_match: "reference" });
+    expect(blockingAlertCodes(cleared, context([cleared]))).toEqual(["dimension_missing"]);
+    const sizeless = line({ dimension: null, no_dimension: true, product_id: "article-1", product_match: "reference" });
+    expect(blockingAlertCodes(sizeless, context([sizeless]))).toEqual([]);
+  });
+
   it("raises nothing on a complete line", () => {
     const complete = line();
     expect(materialRequestLineAlerts(complete, context([complete]))).toEqual([]);

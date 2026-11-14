@@ -22,6 +22,7 @@ import {
   materialRequestErrorMessage,
   readBlockedLines,
   reopenMaterialRequestLines,
+  replaceMaterialRequestLines,
   retainMaterialRequestSuppliers,
   rotateMaterialRequestFile,
   unlinkMaterialRequestLineArticle,
@@ -78,13 +79,31 @@ export type LineProposals =
  * learned, a validated line returned to draft, a unit replaced by the article's (the quantity was
  * counted in the technician's unit, so the server marks it to check).
  */
-export type ArticleNotice = { aliasLearned: string | null; reopened: boolean; quantityToCheck: boolean };
+export type ArticleNotice = {
+  aliasLearned: string | null;
+  reopened: boolean;
+  quantityToCheck: boolean;
+  /** The columns the link wrote from the article (TI-691: the owner could not see what the link had filled). */
+  filled: string[];
+};
+
+/** The columns a link may write from the article, as the table names them. */
+const FILLED_COLUMNS: ReadonlyArray<[keyof MaterialRequestLine, string]> = [
+  ["product_type", "type"],
+  ["material", "matière"],
+  ["material_precision", "précision"],
+  ["dimension", "dimension"],
+  ["unit", "unité"],
+];
 
 function noticeOf(before: MaterialRequestLine | undefined, after: MaterialRequestLine, aliasLearned: string | null): ArticleNotice {
   return {
     aliasLearned,
     reopened: before?.status === "validated" && after.status === "draft",
     quantityToCheck: before?.quantity_doubtful !== true && after.quantity_doubtful,
+    filled: before
+      ? FILLED_COLUMNS.filter(([column]) => (before[column] ?? null) !== (after[column] ?? null)).map(([, label]) => label)
+      : [],
   };
 }
 
@@ -168,6 +187,11 @@ export type MaterialRequestEditorApi = {
   updateRequest: (patch: UpdateMaterialRequestInput) => Promise<SaveResult>;
   saveLine: (lineId: string, patch: MaterialRequestLineInput) => Promise<SaveResult>;
   addLines: (lines: MaterialRequestLineInput[]) => Promise<SaveResult>;
+  /**
+   * Splits the message again: every line shown gives way to these drafts, in one request. The server refuses
+   * while a line is validated or in a quote, or once the lines are no longer those shown (read again then).
+   */
+  replaceLines: (lines: MaterialRequestLineInput[]) => Promise<SaveResult>;
   removeLine: (lineId: string) => Promise<SaveResult>;
   applyToLines: (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]) => Promise<SaveResult>;
   validateLines: (ids: string[]) => Promise<SaveResult>;
@@ -616,6 +640,28 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           return { ok: true };
         } catch (error) {
           return { ok: false, message: materialRequestErrorMessage(error, "Les lignes n’ont pas pu être ajoutées.") };
+        }
+      },
+      replaceLines: async (lines: MaterialRequestLineInput[]): Promise<SaveResult> => {
+        // The lines as shown at the gesture: the server replaces those and no other.
+        const replaced_ids = (latest.current?.lines ?? []).map((line) => line.id);
+        try {
+          const all = await enqueue(() => replaceMaterialRequestLines(projectId, requestId, { replaced_ids, lines }));
+          // What was said of the former lines is said of lines that no longer exist.
+          lineWrites.current.clear();
+          publishLineChanges();
+          setArticleNotices(new Map());
+          setArticleConflicts(new Map());
+          setBlocked(null);
+          setWithheld(null);
+          setData((current) => (current ? { ...current, lines: byPosition(all) } : current));
+          markProposalsStale("all");
+          markSupplierProposalsStale("all");
+          return { ok: true };
+        } catch (error) {
+          // Refused: the screen shows the lines as the server holds them, whatever changed in between.
+          void resync();
+          return { ok: false, message: materialRequestErrorMessage(error, "Le message n’a pas pu être redécoupé.") };
         }
       },
       removeLine: async (lineId: string) => {

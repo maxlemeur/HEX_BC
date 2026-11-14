@@ -57,6 +57,9 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 18. after a refused price (the field shows 20 €, 10 € is saved), choosing « pour 100 » saves the saved 10 € for
  *     100 and releases « Retenir ce devis », which would apply 10 € les 100 while the field shows 20 €; or a lot
  *     change sends something while the price shown cannot be read.
+ * 19. (TI-691, the owner's walk of 2026-11-14) a quote whose « Montant HT du devis » differs from the total of its
+ *     lines (343 € for 340 €) is retained without a word: the gap is not shown, the retain does not ask to account
+ *     for it, or the card does not say the order is made from the line prices.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -92,9 +95,9 @@ const QUOTES = `${BASE}/quotes`;
 const PROPOSALS = `${BASE}/supplier-proposals`;
 const AFFAIRE = "Résidence des Tilleuls";
 const SUPPLIERS = [
-  { id: ALPHA, name: "Négoce Alpha" },
-  { id: BETA, name: "Comptoir Bêta" },
-  { id: GAMMA, name: "Dépôt Gamma" },
+  { id: ALPHA, name: "Négoce Alpha", label: "Négoce Alpha" },
+  { id: BETA, name: "Comptoir Bêta", label: "Comptoir Bêta" },
+  { id: GAMMA, name: "Dépôt Gamma", label: "Dépôt Gamma" },
 ];
 
 /** `price_per` (review of delivery 2): a price is in whole cents for that many units, on quote and request lines. */
@@ -300,6 +303,14 @@ function quoteCard(supplier: string) {
   return screen.getByRole("article", { name: `Devis ${supplier}` });
 }
 
+/** A competitor added through the searchable picker of « Mettre en concurrence » (TI-691). */
+async function addCompetitor(user: ReturnType<typeof userEvent.setup>, supplier: string) {
+  const input = screen.getByRole("combobox", { name: "Ajouter un fournisseur" });
+  await user.click(input);
+  await user.type(input, supplier.slice(0, 4));
+  await user.click(await screen.findByRole("option", { name: supplier }));
+}
+
 describe("consultation of suppliers", () => {
   beforeEach(() => {
     uploadToSignedUrlMock.mockReset();
@@ -435,7 +446,7 @@ describe("consultation of suppliers", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     // The usual supplier is not its own competitor.
     expect(screen.queryByRole("checkbox", { name: "Négoce Alpha" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("checkbox", { name: "Comptoir Bêta" }));
+    await addCompetitor(user, "Comptoir Bêta");
 
     const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
     expect(message).toHaveValue(competition);
@@ -461,7 +472,7 @@ describe("consultation of suppliers", () => {
 
     // A refusal is said beside the button in plain words, not the server's code, and the quotes are read again so
     // the screen shows the consultation recorded meanwhile.
-    await user.click(screen.getByRole("checkbox", { name: "Dépôt Gamma" }));
+    await addCompetitor(user, "Dépôt Gamma");
     const readsBefore = reads(QUOTES).length;
     await user.click(screen.getByRole("button", { name: "Consultation envoyée à Dépôt Gamma" }));
     expect(
@@ -494,7 +505,7 @@ describe("consultation of suppliers", () => {
     );
     await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
     expect(screen.getByText("Ligne 2 : donnez-lui un type dans le tableau avant de la mettre en concurrence.")).toBeVisible();
-    await user.click(screen.getByRole("checkbox", { name: "Comptoir Bêta" }));
+    await addCompetitor(user, "Comptoir Bêta");
 
     const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
     expect(message).toHaveValue(
@@ -578,7 +589,7 @@ describe("consultation of suppliers", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
-    await user.click(screen.getByRole("checkbox", { name: "Comptoir Bêta" }));
+    await addCompetitor(user, "Comptoir Bêta");
 
     expect(
       screen.getByText(
@@ -1323,6 +1334,57 @@ describe("consultation of suppliers", () => {
     expect(within(closed).queryByRole("button", { name: /Retenir|Clore|Marquer|Joindre/ })).not.toBeInTheDocument();
     expect(closed.querySelector('input[type="file"]')).toBeNull();
     await waitFor(() => expect(within(closed).getByText("Demandé le 12/11/2026 · reçu le 13/11/2026 · clos le 14/11/2026")).toBeVisible());
+  });
+
+  it("shows the gap between the quote's amount and its lines, and retains it only once the office accounts for it (19)", async () => {
+    const stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      amount_ht_cents: 20 * 1250 + 4 * 400 + 300,
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`POST ${QUOTES}/${QUOTE_A}/retain`]: () => ({
+        data: { item: { ...stored, status: "retained", retained_at: "2026-11-14T08:00:00.000Z" }, lines: [], closed_quote_ids: [] },
+      }),
+    });
+
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    expect(within(card).getByText(
+      `Écart de ${euros(300)} entre le montant du devis (${euros(26900)} HT) et le total des lignes (${euros(26600)} HT).`,
+    )).toBeVisible();
+    expect(within(card).getByText(
+      "Le bon de commande est fait au prix des lignes : un port ou une remise se reporte sur le bon de commande.",
+    )).toBeVisible();
+
+    await user.click(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" }));
+    expect(writes()).toEqual([]);
+    await user.click(within(card).getByRole("button", { name: "Retenir avec cet écart (Négoce Alpha)" }));
+    await waitFor(() => expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_A}/retain`, body: null }]));
+  });
+
+  it("retains in one click a quote whose amount matches its lines, or gives none", async () => {
+    const stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      amount_ht_cents: 20 * 1250 + 4 * 400,
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`POST ${QUOTES}/${QUOTE_A}/retain`]: () => ({
+        data: { item: { ...stored, status: "retained", retained_at: "2026-11-14T08:00:00.000Z" }, lines: [], closed_quote_ids: [] },
+      }),
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    expect(within(card).queryByText(/^Écart de/)).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" }));
+    await waitFor(() => expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_A}/retain`, body: null }]));
   });
 
   it("closes a quote only after a confirmation, and it stays readable (9)", async () => {

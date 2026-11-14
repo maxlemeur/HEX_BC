@@ -19,10 +19,12 @@ import {
   type MaterialRequestFileUploads,
   type MaterialRequestLine,
   type MaterialRequestLineInput,
+  type MaterialRequestListItem,
   type MaterialRequestSummary,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
   type PrepareMaterialRequestFilesInput,
+  type ReplaceMaterialRequestLinesInput,
   type UpdateMaterialRequestInput,
 } from "./contracts";
 import type {
@@ -48,10 +50,11 @@ import type { AffaireSupplyCost } from "./supply-cost-contracts";
  * returns what the server answered: the screens show that answer, never their own guess of it.
  */
 
-export type MaterialRequestSupplierOption = { id: string; name: string };
+/** `label` is what a picker shows: the name, with what tells it apart when another supplier bears the same one. */
+export type MaterialRequestSupplierOption = { id: string; name: string; label: string };
 
 export type MaterialRequestList = {
-  items: MaterialRequestSummary[];
+  items: MaterialRequestListItem[];
   technicians: MaterialRequestTechnician[];
   canWrite: boolean;
 };
@@ -284,6 +287,21 @@ export async function createMaterialRequestLines(
     "Les lignes n’ont pas pu être ajoutées.",
   );
   return created;
+}
+
+/** Splits the message again: every line the screen shows gives way to these drafts; answers all the request's lines. */
+export async function replaceMaterialRequestLines(
+  projectId: string,
+  requestId: string,
+  input: ReplaceMaterialRequestLinesInput,
+): Promise<MaterialRequestLine[]> {
+  const { lines } = await write<{ lines: MaterialRequestLine[] }>(
+    requestsPath(projectId, requestId, "lines", "replace"),
+    "POST",
+    input,
+    "Le message n’a pas pu être redécoupé.",
+  );
+  return lines;
 }
 
 export async function updateMaterialRequestLine(

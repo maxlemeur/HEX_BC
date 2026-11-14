@@ -298,3 +298,105 @@ armyTest(
     });
   },
 );
+
+// TI-691, the owner's walk of 2026-11-14. Failure modes, written before the journey was first run:
+// - the affaire gives no visible way to its purchasing (the entry hid behind « Chiffrage › Plus »);
+// - « 50 coudes DN50, 10 manchons DN15, » becomes one wrong line, without a warning;
+// - a corrected message cannot be split again without deleting each line by hand, or splitting it again
+//   adds lines after the old ones, or replaces a validated line;
+// - « Rattacher les références et noms connus (0) » and « Retenir les fournisseurs proposés (0) » stay grey
+//   without a word on why, or on what to do.
+armyTest(
+  "MR10 a corrected message is split again in place of its draft lines, never over a validated one, and the purchasing is one click from the affaire",
+  { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const ids = await createEstimateViaWizard(ui, {
+      projectName: army.projectName,
+      title: `${army.runPrefix} redécoupage du message`,
+    }, army);
+    ownEstimate(army, ids);
+    const base = `/api/affaires/${ids.projectId}/material-requests`;
+
+    // The affaire leads to its purchasing from its left column.
+    await browser.goto(`/dashboard/affaires/${ids.projectId}`, { waitUntil: "domcontentloaded" });
+    const navigation = screen.getByRole("navigation", "Navigation de l'affaire", { exact: true });
+    await navigation.getByRole("link", "Achats Demandes de matériel, coût des fournitures", { exact: true }).tap({ timeout: 60_000 });
+    await expect(browser).toHaveURL(new RegExp(`/dashboard/affaires/${ids.projectId}/demandes-materiel$`), { timeout: 60_000 });
+    await expect(screen.getByRole("heading", "Demandes de matériel", { exact: true })).toBeVisible({ timeout: 60_000 });
+
+    // An SMS that writes its articles on one line, separated by commas.
+    const created = await apiRequest<Envelope<Detail>>(browser, "POST", base, { source_text: "50 coudes DN50, 10 manchons DN15," });
+    expect(created.status).toBe(201);
+    const requestId = created.body.data.request.id;
+    const read = async () => {
+      const response = await apiRequest<Envelope<Detail>>(browser, "GET", `${base}/${requestId}`);
+      expect(response.status).toBe(200);
+      return response.body.data;
+    };
+    const readLines = async () => (await read()).lines.map((line) => [line.position, line.original_text, line.quantity, line.unit, line.dimension, line.product_type]);
+
+    const page = `/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`;
+    await browser.goto(page, { waitUntil: "domcontentloaded" });
+    await screen.getByRole("button", "Découper le texte en lignes", { exact: true }).tap({ timeout: 60_000 });
+    await expect.poll(readLines, { timeout: 30_000 }).toEqual([
+      [1, "50 coudes DN50", 50, "u", "DN 50", "coudes"],
+      [2, "10 manchons DN15,", 10, "u", "DN 15", "manchons"],
+    ]);
+    const first = (await read()).lines.map((line) => line.id);
+
+    // Grey buttons say why they are at zero, and what to do.
+    await expect(screen.getByRole("button", "Rattacher les références et noms connus (0)", { exact: true })).toBeDisabled();
+    await expect(screen.getByText(
+      "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel retenu au rattachement sera reconnu ensuite.",
+      { exact: true },
+    )).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByText(
+      "Aucun fournisseur à retenir : un fournisseur se propose une fois l’article de la ligne rattaché.",
+      { exact: true },
+    )).toBeVisible();
+
+    // The message is corrected: the lines do not follow by themselves, and splitting it again replaces them.
+    await screen.getByRole("button", "Modifier le message", { exact: true }).tap();
+    await screen.getByLabel("Message reçu, tel quel", { exact: true }).fill("50 coudes DN50, 10 manchons DN15\n4 tés égaux DN50");
+    await screen.getByRole("button", "Enregistrer le message", { exact: true }).tap();
+    await expect(screen.getByText(
+      "Message enregistré. Les lignes ne suivent pas d’elles-mêmes : redécoupez le message pour les remplacer.",
+      { exact: true },
+    )).toBeVisible({ timeout: 30_000 });
+    await screen.getByRole("button", "Redécouper le message", { exact: true }).tap();
+    await screen.getByRole("button", "Remplacer les 2 lignes", { exact: true }).tap();
+    await expect.poll(readLines, { timeout: 30_000 }).toEqual([
+      [1, "50 coudes DN50", 50, "u", "DN 50", "coudes"],
+      [2, "10 manchons DN15", 10, "u", "DN 15", "manchons"],
+      [3, "4 tés égaux DN50", 4, "u", "DN 50", "tés égaux"],
+    ]);
+    const second = await read();
+    expect(second.lines.map((line) => line.id).filter((id) => first.includes(id))).toEqual([]);
+    expect(second.lines.map((line) => line.status)).toEqual(["draft", "draft", "draft"]);
+
+    // Once a line is validated, the message is no longer split over it.
+    const confirmed = await apiRequest<Envelope<unknown>>(browser, "PATCH", `${base}/${requestId}`, {
+      presumed_material: "Cuivre", material_confirmed: true,
+    });
+    expect(confirmed.status).toBe(200);
+    const validated = await apiRequest<Envelope<unknown>>(browser, "POST", `${base}/${requestId}/lines/validate`, { ids: [second.lines[0].id] });
+    expect(validated.status).toBe(200);
+    const kept = await apiRequest<Envelope<never>>(browser, "POST", `${base}/${requestId}/lines/replace`, {
+      replaced_ids: second.lines.map((line) => line.id), lines: [{ original_text: "1 coude DN50" }],
+    });
+    expect([kept.status, kept.body.error?.code, kept.body.error?.message]).toEqual([
+      409, "MATERIAL_REQUEST_LINES_KEPT", "Le message n’est pas redécoupé : la ligne 1 est validée. Corrigez les lignes dans le tableau.",
+    ]);
+    expect((await read()).lines.map((line) => [line.id, line.status])).toEqual(
+      second.lines.map((line, index) => [line.id, index === 0 ? "validated" : "draft"]),
+    );
+    await browser.goto(page, { waitUntil: "domcontentloaded" });
+    await expect(screen.getByRole("button", "Modifier le message", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(screen.getByRole("button", "Redécouper le message", { exact: true })).toHaveCount(0);
+
+    await recordEvidence(army, "material-request-resplit", {
+      ...ids, requestId, first, second: second.lines.map((line) => line.id), kept: kept.body.error,
+    });
+  },
+);
