@@ -39,7 +39,8 @@
   "calcV3": {
     "note": "Répartition des phases calc-v3 en groupes (docs/testing/tester-army-ci.md, « Jobs parallèles »), lue par select-calc-v3.ts : chaque groupe est un job qui exécute ses phases l'une après l'autre sur une seule pile. maxGroups : nombre maximal de jobs d'une campagne. secondsPerGroup : secondes de parcours mesurées qu'un job porte avant qu'un autre vaille sa pile et son build ; une sélection compte autant de groupes que ses parcours en remplissent, jamais plus que de phases ni que maxGroups (les 19 phases, environ 1 800 s : quatre groupes). seconds : durée mesurée des parcours de chaque phase, sans la préparation que le groupe ne paie qu'une fois ; elle ne sert qu'à équilibrer les groupes, jamais à choisir les phases. Une phase absente compte defaultSeconds. Une phase n'est jamais coupée entre deux groupes.",
     "measured": [
-      "Jobs verts « army-calc-v3 <phase> » du 3 au 10/11/2026 (API GitHub Actions des jobs, un job par phase) : médiane par phase de l'étape « Run native database and TesterArmy calc-v3 phases », moins les 133 s de préparation fixe (pile, contrôles de la base et build) qu'un groupe ne paie qu'une fois. Étape entière : offers-zero-price 403 s, source-coverage-decisions 383, source-coverage-edits 381, source-coverage-recovery 315, offers-purchase-unit 269, resend-portal 251, journeys 208, resume 207, emission 206, numeric 196, generated-recovery 188, components 184, emission-v3 181, assembly-totals 173, batch-client 171, navigation-lease 167, mobile 155, generated-atomic 149, access 146. defaultSeconds : moyenne des 19 phases (1806 s / 19)."
+      "Jobs verts « army-calc-v3 <phase> » du 3 au 10/11/2026 (API GitHub Actions des jobs, un job par phase) : médiane par phase de l'étape « Run native database and TesterArmy calc-v3 phases », moins les 133 s de préparation fixe (pile, contrôles de la base et build) qu'un groupe ne paie qu'une fois. Étape entière : offers-zero-price 403 s, source-coverage-decisions 383, source-coverage-edits 381, source-coverage-recovery 315, offers-purchase-unit 269, resend-portal 251, journeys 208, resume 207, emission 206, numeric 196, generated-recovery 188, components 184, emission-v3 181, assembly-totals 173, batch-client 171, navigation-lease 167, mobile 155, generated-atomic 149, access 146. defaultSeconds : moyenne des 19 phases (1806 s / 19).",
+      "emission-redirect (TI-691) : 11 s, durée de la phase RD01 mesurée sur une pile possédée le 14/11/2026 (phase.json, campagne emission-redirect,emission,resend-portal), à remplacer par la médiane de ses jobs verts."
     ],
     "maxGroups": 5,
     "secondsPerGroup": 480,
@@ -57,6 +58,7 @@
       "resend-portal": 118,
       "order-send": 45,
       "order-send-redirect": 30,
+      "emission-redirect": 11,
       "source-coverage-decisions": 250,
       "source-coverage-edits": 248,
       "source-coverage-recovery": 182,

@@ -5,7 +5,7 @@
 
 import { COVERAGE_PHASE_DEFINITIONS, COVERAGE_PHASES } from "./coverage-phases.ts";
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", "order-send", "order-send-redirect", ...COVERAGE_PHASES] as const;
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", "order-send", "order-send-redirect", "emission-redirect", ...COVERAGE_PHASES] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
@@ -192,6 +192,25 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     setupTitle: "ordinary native ARMY login for local offer profile",
     expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/purchase-order-send-redirect.e2e.ts": 1 },
     collectedPdfMustContain: [/BON DE COMMANDE/u, /Total\s+HT\s+119,28\s*€/u],
+    maxDuration: 1_200_000,
+  },
+  // TI-691: the offer sent while the outgoing e-mails are redirected, the default of the application. The test mailbox
+  // receives it, the client named in its subject; the send answers, and the estimate page says, that it was a test.
+  "emission-redirect": {
+    serverMode: "production",
+    sentinelCollector: true,
+    emailRedirect: true,
+    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
+    setupTitle: "ordinary native ARMY login for local offer profile",
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 1 },
+    defaultGrep: "^RD01\\s",
+    // RD01 sends one ARMY-OFFER line of 1 u at 20,00 € HT with 20 % VAT, as OF00 does.
+    collectedPdfMustContain: [
+      /ARMY-OFFER-/u,
+      /Désignation\s+Qté\s+Unité\s+PU\s+HT\s+Total\s+HT/u,
+      /\s1\s+u\s+20,00\s*€\s+20,00\s*€/u,
+      /Total\s+HT\s+20,00\s*€\s+TVA\s+4,00\s*€\s+Total\s+TTC\s+24,00\s*€/u,
+    ],
     maxDuration: 1_200_000,
   },
 };

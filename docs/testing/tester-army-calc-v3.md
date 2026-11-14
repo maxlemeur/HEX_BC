@@ -40,6 +40,7 @@ campagne. Un run filtré conserve sa portée et ne vaut pas campagne complète.
 | `offers-zero-price`, `offers-purchase-unit` | Prix fournisseur nul et unité d'achat, une phase chacun avec ses fixtures catalogue dédiées |
 | `emission` | Émission historique, fichiers réellement reçus par le collecteur local |
 | `emission-v3` | Émission et document v3, témoin v2, approbation et refus d'unité manquante |
+| `emission-redirect` | Le devis envoyé pendant la [redirection des e-mails](email-redirection.md) (RD01) : seule la boîte de test fictive le reçoit, le client dans l'objet ; la réponse et la page du devis disent « envoi de test » |
 | `order-send`, `order-send-redirect` | [Envoi d'un bon de commande](purchase-order-send.md) au fournisseur : livré tel qu'écrit (BC01, BC02), puis redirigé vers une boîte de test fictive (BC10) |
 
 Les phases d'émission et d'envoi de bon de commande démarrent un collecteur

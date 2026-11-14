@@ -27,9 +27,19 @@ est `src/lib/email/outgoing-routing.ts`.
 ## Ce que la redirection ne change pas
 
 - **Ce qui est enregistré.** Le destinataire, l'objet, le contenu figé, les empreintes et la clé d'idempotence restent
-  ceux que l'utilisateur a écrits. Un envoi de devis redirigé est donc noté « envoyé » à l'adresse du client, alors
-  que le client n'a rien reçu : rien ne distingue aujourd'hui un devis redirigé dans son historique. L'envoi d'un bon
-  de commande, lui, note qu'il a été redirigé, et le bon l'affiche comme un envoi de test.
+  ceux que l'utilisateur a écrits. Chaque envoi note en plus s'il a été redirigé :
+  - le devis (`estimate_emails.redirected`, migration `20261114133955_estimate_email_redirected.sql`) : la tentative
+    qui tient l'envoi l'écrit avant d'appeler le fournisseur, et rien ne part si elle ne peut pas l'écrire. Le devis
+    passe « Envoyé » comme avant ; sa page dit « Envoi de test le … : redirigé vers la boîte de test, client@… n’a rien
+    reçu », la réponse de l'envoi porte `redirected: true` et la confirmation à l'écran s'intitule « Envoi de test » ;
+  - la confirmation d'acceptation du portail, notée une fois à son départ ;
+  - le bon de commande (`purchase_order_sends.redirected`), que le bon affiche comme un envoi de test.
+
+  La marque s'écrit une fois et ne change plus. Une nouvelle tentative du même envoi (reprise après un fournisseur
+  muet) ne part pas sous une autre redirection que celle notée : une tentative précédente a pu arriver, l'envoi passe
+  « à rapprocher ». Seule une demande refusée puis réarmée, qui n'a rien laissé partir, l'oublie. Les envois antérieurs
+  à la migration n'ont pas de marque (`null`) : la page du devis dit qu'ils ont pu être redirigés. La demande de
+  validation interne n'est pas journalisée.
 - **Le lien du portail.** L'e-mail redirigé contient le vrai lien : accepter le devis depuis la boîte de test est une
   vraie acceptation.
 - **Les e-mails de Supabase Auth** (confirmation d'inscription) partent de Supabase, pas de l'application. Ils sont
@@ -55,5 +65,6 @@ un nouvel envoi depuis le devis, ou remettre le bon de commande en brouillon pui
 
 Les campagnes Army qui branchent le fournisseur sur un collecteur local (`127.0.0.1`) déclarent
 `EMAIL_DELIVERY_MODE: "live"` : rien ne peut sortir de la machine, et elles vérifient l'enveloppe telle qu'écrite.
-Une phase fait exception, `order-send-redirect` : elle redirige vers une boîte de test fictive et vérifie que le
+Deux phases font exception, `order-send-redirect` (le bon de commande) et `emission-redirect` (le devis, RD01) :
+elles redirigent vers une boîte de test fictive et vérifient que le
 collecteur reçoit le message pour cette boîte, le fournisseur dans l'objet, et rien pour le fournisseur.

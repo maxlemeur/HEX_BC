@@ -309,7 +309,7 @@ export function SendEstimateModal({
           setPendingSubmission(pending);
           persistPendingEstimateEmail(versionId, pending);
         }
-        await sendEstimateEmailRequest({
+        const receipt = await sendEstimateEmailRequest({
           versionId,
           requestId: pending.requestId,
           payload: pending.payload,
@@ -321,7 +321,11 @@ export function SendEstimateModal({
         clearPendingEstimateEmail(versionId);
         pendingSubmissionRef.current = null;
         setPendingSubmission(null);
-        toast.success({
+        // TI-691: a redirected send left for the test mailbox only; the client received nothing.
+        toast.success(receipt.redirected === true ? {
+          title: "Envoi de test",
+          description: `Le devis est parti vers la boîte de test : ${pending.payload.to} n’a rien reçu.`,
+        } : {
           title: "Devis envoyé",
           description: "L'envoi du devis est confirmé.",
         });

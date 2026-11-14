@@ -24,7 +24,7 @@ describe("estimate send route", () => {
   });
 
   it.each([null])("returns a validated receipt, including historical provider ID %s", async (messageId) => {
-    const data = { version_id: VERSION_ID, request_id: REQUEST_ID, message_id: messageId };
+    const data = { version_id: VERSION_ID, request_id: REQUEST_ID, message_id: messageId, redirected: false };
     vi.mocked(sendEstimateEmail).mockResolvedValueOnce(data);
     const response = await POST(validRequest(), { params: Promise.resolve({ versionId: VERSION_ID }) });
     expect(response.status).toBe(200);

@@ -282,6 +282,32 @@ export async function completeEstimateEmailDispatch(input: {
   );
 }
 
+/**
+ * Records the routing of the attempt holding the dispatch, before its provider call (TI-691): whether the provider
+ * receives the message for the test mailbox instead of its written recipients. Only the attempt holding the lease, while
+ * the dispatch is leaving, may write it; the database refuses any later change (guard_estimate_email_redirected).
+ */
+export async function recordEstimateEmailDispatchRouting(input: {
+  dispatchId: string;
+  tenantId: string;
+  leaseToken: string;
+  redirected: boolean;
+}) {
+  const { data, error } = await createServiceRoleClient()
+    .from("estimate_emails")
+    .update({ redirected: input.redirected })
+    .eq("id", input.dispatchId)
+    .eq("tenant_id", input.tenantId)
+    .eq("lease_token", input.leaseToken)
+    .eq("status", "processing")
+    .select("id");
+  if (error) throw mapSupabaseError(error, "Impossible d'enregistrer le routage de l'envoi.");
+  if (data?.length !== 1) {
+    throw conflict("L'envoi n'est plus réservé par cette tentative.", { dispatch_id: input.dispatchId },
+      "ESTIMATE_EMAIL_ROUTING_LEASE_LOST");
+  }
+}
+
 export async function failEstimateEmailDispatch(input: {
   dispatchId: string;
   tenantId: string;

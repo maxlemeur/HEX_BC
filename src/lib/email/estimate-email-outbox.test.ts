@@ -7,11 +7,26 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   send: vi.fn(),
   download: vi.fn(),
+  // A direct update of the service client: (table, values, equality filters) -> { data, error }.
+  update: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: () => ({
     rpc: mocks.rpc,
+    from: (table: string) => ({
+      update: (values: Record<string, unknown>) => {
+        const filters: Record<string, unknown> = {};
+        const chain = {
+          eq: (column: string, value: unknown) => {
+            filters[column] = value;
+            return chain;
+          },
+          select: async () => mocks.update(table, values, filters),
+        };
+        return chain;
+      },
+    }),
     storage: {
       from: (bucket: string) => ({
         download: (path: string) => mocks.download(bucket, path),
@@ -81,6 +96,122 @@ describe("estimate email outbox provider boundary", () => {
     // The cases below assert the provider request as frozen: delivery as written.
     process.env.EMAIL_DELIVERY_MODE = "live";
     delete process.env.EMAIL_REDIRECT_TO;
+    mocks.update.mockResolvedValue({ data: [{ id: "11111111-1111-4111-8111-111111111111" }], error: null });
+  });
+
+  // TI-691: a redirected send was recorded as sent to the client. The attempt holding the dispatch writes its routing
+  // before the provider call, so no send reaches the provider without it.
+  it("records the attempt's routing on the dispatch it holds before the provider call", async () => {
+    process.env.EMAIL_DELIVERY_MODE = "redirect";
+    process.env.EMAIL_REDIRECT_TO = "boite-de-test@example.test";
+    let leaseToken: unknown = null;
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        leaseToken = args.p_lease_token;
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "complete_estimate_email_dispatch") return { data: createDispatch("sent"), error: null };
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).resolves.toEqual({ providerId: "email-1", redirected: true });
+
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+    expect(mocks.update).toHaveBeenCalledWith("estimate_emails", { redirected: true }, {
+      id: "11111111-1111-4111-8111-111111111111", tenant_id: "22222222-2222-4222-8222-222222222222",
+      lease_token: leaseToken, status: "processing",
+    });
+    expect(mocks.update.mock.invocationCallOrder[0]).toBeLessThan(mocks.send.mock.invocationCallOrder[0]);
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ to: "boite-de-test@example.test", cc: undefined });
+  });
+
+  it("sends nothing and frees the request when the routing cannot be recorded", async () => {
+    mocks.update.mockResolvedValue({ data: null, error: { code: "XX000", message: "write refused", details: null } });
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "fail_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), status: "failed", lease_token: null }, error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_ROUTING_NOT_RECORDED" });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      "claim_estimate_email_dispatch", "fail_estimate_email_dispatch",
+    ]);
+    expect(mocks.update).toHaveBeenCalledWith("estimate_emails", { redirected: false }, expect.anything());
+  });
+
+  // Review of the routing record: an earlier attempt may have reached the provider under the routing it recorded.
+  it("never sends under another routing than the one an earlier attempt recorded", async () => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), attempt_count: 2, redirected: true, lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "mark_estimate_email_dispatch_unknown") {
+        return { data: { ...createDispatch("processing"), status: "unknown", lease_token: null }, error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_DELIVERY_UNKNOWN" });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      "claim_estimate_email_dispatch", "mark_estimate_email_dispatch_unknown",
+    ]);
+  });
+
+  it("sends a later attempt under the routing already recorded without writing it again", async () => {
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), attempt_count: 2, redirected: false, lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      if (functionName === "complete_estimate_email_dispatch") return { data: createDispatch("sent"), error: null };
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+    mocks.send.mockResolvedValue({ data: { id: "email-1" }, error: null });
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).resolves.toEqual({ providerId: "email-1", redirected: false });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("settles nothing when its lease was lost before the routing was written", async () => {
+    mocks.update.mockResolvedValue({ data: [], error: null });
+    mocks.rpc.mockImplementation(async (functionName: string, args: Record<string, unknown>) => {
+      if (functionName === "claim_estimate_email_dispatch") {
+        return { data: { ...createDispatch("processing"), lease_token: args.p_lease_token,
+          lease_expires_at: "2026-08-12T00:02:00.000Z" }, error: null };
+      }
+      throw new Error(`Unexpected RPC ${functionName}`);
+    });
+
+    await expect(deliverEstimateEmailDispatch({
+      dispatch: createDispatch("queued"), actorUserId: "55555555-5555-4555-8555-555555555555",
+      apiKey: "test-key", loadPdfBuffer: async () => PDF_BUFFER, retryDelaysMs: [0],
+    })).rejects.toMatchObject({ code: "ESTIMATE_EMAIL_ROUTING_LEASE_LOST" });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual(["claim_estimate_email_dispatch"]);
   });
 
   it("replays the identical provider request when provider success precedes a DB failure", async () => {
