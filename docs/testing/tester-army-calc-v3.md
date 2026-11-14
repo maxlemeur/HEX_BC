@@ -40,9 +40,10 @@ campagne. Un run filtré conserve sa portée et ne vaut pas campagne complète.
 | `offers-zero-price`, `offers-purchase-unit` | Prix fournisseur nul et unité d'achat, une phase chacun avec ses fixtures catalogue dédiées |
 | `emission` | Émission historique, fichiers réellement reçus par le collecteur local |
 | `emission-v3` | Émission et document v3, témoin v2, approbation et refus d'unité manquante |
+| `order-send`, `order-send-redirect` | [Envoi d'un bon de commande](purchase-order-send.md) au fournisseur : livré tel qu'écrit (BC01, BC02), puis redirigé vers une boîte de test fictive (BC10) |
 
-Les deux phases d'émission démarrent un collecteur sentinelle local et les
-gardes réseau d'offre. Les destinataires sont des fixtures `army.invalid`,
+Les phases d'émission et d'envoi de bon de commande démarrent un collecteur
+sentinelle local et les gardes réseau d'offre. Les destinataires sont des fixtures `army.invalid`,
 les PDF reçus sont relus avec assertions métier. Les données préparées ne
 prouvent pas le parcours : les montants, états et téléchargements finaux
 restent vérifiés par les scénarios.

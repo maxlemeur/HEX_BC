@@ -23400,6 +23400,129 @@
         }
       }
     },
+    "/api/purchase-orders/{id}/send": {
+      "post": {
+        "tags": [
+          "Achats"
+        ],
+        "summary": "Envoyer un bon de commande à son fournisseur par e-mail",
+        "description": "Envoie un bon de commande en brouillon (d'une affaire ou non) à une adresse, le bon en pièce jointe PDF. Le destinataire, laissé vide, est l'adresse de la fiche du fournisseur. Le bon devient envoyé seulement quand le service d'e-mail a accepté le message ; l'envoi reste lisible sur le bon (qui, quand, à qui). Tant que les e-mails sortants sont redirigés (réglage par défaut du serveur), le message part vers la boîte de test, le destinataire écrit dans son objet, et send.redirected vaut true : le destinataire n'a rien reçu. idempotency_key identifie une demande d'envoi : la même demande renvoyée après son acceptation répond ce qui a été envoyé (replayed: true), sans rien renvoyer. Un bon d'affaire envoyé se confirme ensuite comme un brouillon.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bon de commande d'une affaire, lisible par l'appelant.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseOrderLifecycleId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision lue, clé de la demande, destinataire, objet et message.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOrderSend"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message accepté par le service d'e-mail : l'envoi et le bon tels qu'ils sont enregistrés.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiPurchaseOrderSent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : seuls l'auteur du bon et les administrateurs, avec le rôle admin ou engineer, l'écrivent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : bon introuvable ou illisible pour l'appelant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "PURCHASE_ORDER_SEND_NOT_DRAFT : le bon n'est plus un brouillon. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. PURCHASE_ORDER_SEND_IN_PROGRESS : un envoi de ce bon est en cours. PURCHASE_ORDER_SEND_UNCONFIRMED : un envoi précédent, demandé il y a plus de cinq minutes, n'a jamais été confirmé ; il est noté comme tel et rien n'est envoyé cette fois-ci. PURCHASE_ORDER_SEND_KEY_SPENT : cette demande a déjà reçu sa réponse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PURCHASE_ORDER_SEND_NO_RECIPIENT : fournisseur sans adresse valide et destinataire vide. PURCHASE_ORDER_SEND_EMPTY : aucun article. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "PURCHASE_ORDER_SEND_RECORD_FAILED : le message est parti mais son enregistrement a échoué ; ne pas renvoyer. PURCHASE_ORDER_SEND_RENDER_FAILED : le PDF n'a pas pu être produit, rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "EMAIL_PROVIDER_NOT_CONFIGURED, EMAIL_REDIRECT_NOT_CONFIGURED, EMAIL_DELIVERY_MODE_INVALID : configuration du serveur, rien n'est écrit. PURCHASE_ORDER_SEND_REFUSED : le service d'e-mail a refusé le message, rien n'est parti. PURCHASE_ORDER_SEND_UNCONFIRMED : le service n'a pas répondu, le message est peut-être parti. Dans tous les cas le bon reste en brouillon.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/purchase-orders/{id}/zip": {
       "get": {
         "tags": [
@@ -81381,6 +81504,154 @@
               "id",
               "status",
               "edit_revision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "PurchaseOrderSend": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "recipient": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 5000
+          }
+        },
+        "required": [
+          "expected_revision",
+          "idempotency_key",
+          "subject",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ApiPurchaseOrderSent": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "send": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "sending",
+                      "sent",
+                      "failed",
+                      "unconfirmed"
+                    ]
+                  },
+                  "recipient": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "redirected": {
+                    "type": "boolean"
+                  },
+                  "requested_by_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "requested_at": {
+                    "type": "string"
+                  },
+                  "settled_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "status",
+                  "recipient",
+                  "subject",
+                  "redirected",
+                  "requested_by_name",
+                  "requested_at",
+                  "settled_at"
+                ],
+                "additionalProperties": false
+              },
+              "order": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "sent",
+                      "confirmed",
+                      "received",
+                      "canceled"
+                    ]
+                  },
+                  "edit_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "status",
+                  "edit_revision"
+                ],
+                "additionalProperties": false
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "send",
+              "order",
+              "replayed"
             ],
             "additionalProperties": false
           }

@@ -55,6 +55,8 @@
       "emission": 73,
       "emission-v3": 48,
       "resend-portal": 118,
+      "order-send": 45,
+      "order-send-redirect": 30,
       "source-coverage-decisions": 250,
       "source-coverage-edits": 248,
       "source-coverage-recovery": 182,

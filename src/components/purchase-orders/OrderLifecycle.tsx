@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,8 @@ import {
 /**
  * Ordering and receiving an order of an affaire (TI-691, lot 2 « l'achat », delivery 3b-1). A draft is confirmed once
  * passed, at its real prices, with the supplier's confirmation as proof; a confirmed order is received whole, dated,
- * with a note for what is still to come. Once ordered, its status no longer changes directly.
+ * with a note for what is still to come. Once ordered, its status no longer changes directly. Before that, a draft may
+ * be sent to its supplier by e-mail (OrderSend.tsx): it is then « envoyée », and confirmed the same way.
  */
 
 const PRICE_LOTS = [1, 10, 100, 1000] as const;
@@ -73,6 +74,11 @@ export type OrderLifecycleProps = {
   reception: { receivedOn: string; note: string | null } | null;
   /** Today in Paris, AAAA-MM-JJ (from the server, so the page and the database agree on the day). */
   today: string;
+  /** The action that sends a draft to its supplier by e-mail, beside the confirmation; and the sends already made. */
+  sendAction?: ReactNode;
+  sendHistory?: ReactNode;
+  /** The latest accepted send was redirected to the test mailbox: the supplier has nothing. */
+  sentAsTest?: boolean;
 };
 
 export function OrderLifecycle(props: OrderLifecycleProps) {
@@ -87,7 +93,8 @@ export function OrderLifecycle(props: OrderLifecycleProps) {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         {direct.length > 1 ? <PurchaseOrderStatusUpdater orderId={props.orderId} status={status} statuses={direct} /> : null}
-        {status === "draft" ? (
+        {status === "draft" ? props.sendAction : null}
+        {status === "draft" || status === "sent" ? (
           <Button variant="primary" size="lg" type="button" onClick={() => setConfirming(true)}>
             Confirmer la commande…
           </Button>
@@ -98,6 +105,14 @@ export function OrderLifecycle(props: OrderLifecycleProps) {
           </Button>
         ) : null}
       </div>
+      {status === "sent" ? (
+        <p className="text-sm text-muted-foreground">
+          {props.sentAsTest
+            ? "Envoi de test : le fournisseur n’a rien reçu. Pour lui envoyer réellement ce bon, remettez-le en brouillon ; s’il est commandé autrement, confirmez la commande."
+            : "Bon envoyé au fournisseur. À la réception de son accusé, confirmez la commande avec ses prix réels ; pour le corriger, remettez-le en brouillon."}
+        </p>
+      ) : null}
+      {props.sendHistory}
       {confirmation && (status === "confirmed" || status === "received") ? (
         <p className="text-sm text-muted-foreground">
           {[

@@ -18,6 +18,11 @@ type RoutingEnvironment = Readonly<Record<string, string | undefined>>;
 const ONE_MAILBOX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 const SUBJECT_MAX = 200;
 
+/** Whether a text is one mailbox, and nothing else: what a typed recipient must be before it reaches the provider. */
+export function isOneMailbox(address: string): boolean {
+  return address.length <= 320 && ONE_MAILBOX.test(address);
+}
+
 export function readOutgoingEmailRouting(env: RoutingEnvironment = process.env): OutgoingEmailRouting {
   const mode = env.EMAIL_DELIVERY_MODE?.trim() || "redirect";
   if (mode === "live") return { mode: "live" };

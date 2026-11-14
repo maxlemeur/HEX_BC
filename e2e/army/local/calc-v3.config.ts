@@ -8,7 +8,7 @@ import type { E2EConfig } from "e2e";
 import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
 import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
 import {
-  CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase,
+  CALC_V3_EMAIL_FROM, CALC_V3_EMAIL_REDIRECT_TO, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase,
 } from "../../../scripts/tester-army/calc-v3-phases";
 
 assertInstalledDependencies();
@@ -76,7 +76,9 @@ if (emission) {
   if (new Set([appOrigin.origin, backend.origin, collector.origin]).size !== 3 ||
     process.env.E2E_OFFER_APP_ORIGIN !== appOrigin.origin || process.env.E2E_OFFER_BACKEND_ORIGIN !== backend.origin ||
     process.env.RESEND_BASE_URL !== collector.origin || process.env.RESEND_API_KEY !== COLLECTOR_SENTINEL ||
-    process.env.EMAIL_FROM !== CALC_V3_EMAIL_FROM) {
+    process.env.EMAIL_FROM !== CALC_V3_EMAIL_FROM ||
+    process.env.EMAIL_DELIVERY_MODE !== (definition.emailRedirect ? "redirect" : "live") ||
+    process.env.EMAIL_REDIRECT_TO !== (definition.emailRedirect ? CALC_V3_EMAIL_REDIRECT_TO : undefined)) {
     throw new Error("calc-v3 emission origins or sentinel collector environment mismatch.");
   }
   // offer-emission-fixtures.ts confines the campaign under .e2e/army/offer/runs.
@@ -103,7 +105,12 @@ if (emission) {
     E2E_OFFER_RUN_DIRECTORY: runDirectory, E2E_OFFER_COLLECTOR_DIRECTORY: collectorDirectory, E2E_OFFER_SECRET_POINTER: pointer,
     E2E_OFFER_SERVER_GUARD: "1", E2E_OFFER_NETWORK_LOG: networkLog,
     NODE_OPTIONS: `--import=${pathToFileURL(path.resolve("scripts/tester-army/offer-network-guard.mjs")).href}`,
-    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM, EMAIL_DELIVERY_MODE: "live",
+    RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
+    // A redirecting phase sends as the application does by default; the others deliver as written. Either way the
+    // provider is the collector on 127.0.0.1 and nothing leaves the machine.
+    ...(definition.emailRedirect
+      ? { EMAIL_DELIVERY_MODE: "redirect", EMAIL_REDIRECT_TO: CALC_V3_EMAIL_REDIRECT_TO }
+      : { EMAIL_DELIVERY_MODE: "live" }),
     NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL: "",
   };
   const portalSecret = async (name: "portalUrl" | "portalToken"): Promise<string> => {

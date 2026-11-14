@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/types/database";
 import { prepareCalcV3Fixtures, type CalcV3FixtureContext, type CalcV3Owner, type CalcV3PhaseFixtures } from "./calc-v3-fixtures";
 import {
-  CALC_V3_EMAIL_FROM, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
+  CALC_V3_EMAIL_FROM, CALC_V3_EMAIL_REDIRECT_TO, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, CALC_V3_PHASES, type CalcV3Phase,
 } from "./calc-v3-phases";
 import { assertLocalAppPortAvailable, describeArmyRunFailure } from "./app-port";
 import { describeNotPassed, journeyOutcomes, quarantineProblems, type QuarantinedJourney } from "./journey-outcomes";
@@ -297,7 +297,10 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
         E2E_OFFER_COLLECTOR_DIRECTORY: collector.directory, E2E_OFFER_SECRET_POINTER: path.join(runDirectory, "private", "portal-pointer.json"),
         E2E_OFFER_COLLECTOR_HTTP_LOG: httpLog, E2E_OFFER_FAULT_PLAN: faultPlanPath, E2E_OFFER_ATTEMPT_LOG: attemptLogPath,
         E2E_OFFER_NETWORK_LOG: networkLog, E2E_OFFER_SERVER_MODE: definition.serverMode === "production" ? "production" : "dev",
-        RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM, EMAIL_DELIVERY_MODE: "live",
+        RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
+        ...(definition.emailRedirect
+          ? { EMAIL_DELIVERY_MODE: "redirect", EMAIL_REDIRECT_TO: CALC_V3_EMAIL_REDIRECT_TO }
+          : { EMAIL_DELIVERY_MODE: "live" }),
       });
       summary.collector = { origin: collector.origin, delivery: "local-collection-only" };
     } else {

@@ -11,6 +11,9 @@ const STATUS_REFUSALS: Record<string, string> = {
   // TI-691, delivery 3b-1: an order of an affaire is confirmed and received through its own actions, and stays ordered.
   PURCHASE_ORDER_CONFIRM_THROUGH_FUNCTION:
     "Un bon d’affaire se confirme depuis sa page, avec ses prix réels et la confirmation du fournisseur.",
+  // An order of an affaire is « envoyée » by its send by e-mail only.
+  PURCHASE_ORDER_SEND_THROUGH_FUNCTION:
+    "Un bon d’affaire passe « Envoyée » par son envoi au fournisseur, depuis sa page.",
   PURCHASE_ORDER_RECEIVE_THROUGH_FUNCTION: "Un bon d’affaire se reçoit depuis sa page, avec la date de réception.",
   PURCHASE_ORDER_STATUS_TRANSITION_INVALID:
     "Un bon d’affaire commandé ne change plus de statut : il ne peut être ni annulé ni remis en brouillon.",

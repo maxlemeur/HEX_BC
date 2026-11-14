@@ -73,6 +73,8 @@ import {
   type PurchaseOrderConfirmed,
   type PurchaseOrderReceived,
 } from "@/lib/purchase-orders/lifecycle-contracts";
+import type { PurchaseOrderSent } from "@/lib/purchase-orders/send";
+import { sendPurchaseOrderSchema } from "@/lib/purchase-orders/send-contracts";
 import {
   jsonBody, jsonResponse, pathParameter, queryParameter, schemaDefinition,
   successResponseSchemaDefinition, type OpenApiOperationDefinition, type OpenApiResponseDefinition,
@@ -279,6 +281,17 @@ const orderConfirmed: z.ZodType<PurchaseOrderConfirmed> = z.object({
 });
 const orderReceived: z.ZodType<PurchaseOrderReceived> = z.object({
   id: uuid, status: z.literal("received"), edit_revision: z.number().int().min(0),
+});
+// The send of a draft order to its supplier by e-mail (src/lib/purchase-orders/send-contracts.ts).
+const orderSent: z.ZodType<PurchaseOrderSent> = z.object({
+  send: z.object({
+    id: uuid, status: z.enum(["sending", "sent", "failed", "unconfirmed"]), recipient: z.string(), subject: z.string(),
+    redirected: z.boolean(), requested_by_name: z.string().nullable(), requested_at: z.string(), settled_at: z.string().nullable(),
+  }),
+  order: z.object({
+    id: uuid, status: z.enum(["draft", "sent", "confirmed", "received", "canceled"]), edit_revision: z.number().int().min(0),
+  }),
+  replayed: z.boolean(),
 });
 const lifecycleRights = refusal("FORBIDDEN : seuls l'auteur du bon et les administrateurs, avec le rôle admin ou engineer, l'écrivent.");
 const lifecycleNotFound = refusal("NOT_FOUND : bon introuvable ou illisible pour l'appelant.");
@@ -723,6 +736,21 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "404": lifecycleNotFound,
       "409": refusal("PURCHASE_ORDER_CONFIRMATION_NOT_DRAFT : le bon n'est plus un brouillon. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. PURCHASE_ORDER_ITEMS_INVALID : une ligne n'est pas de ce bon ou est donnée deux fois. Rien n'est écrit."),
       "422": refusal("PURCHASE_ORDER_AFFAIRE_ONLY : bon sans affaire. PURCHASE_ORDER_CONFIRMATION_DATE_INVALID : commande dans le futur ou livraison avant la commande. PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED : aucun document de ce bon. PURCHASE_ORDER_CONFIRMATION_EMPTY : aucun article. PURCHASE_ORDER_TOTAL_NEGATIVE : les remises dépassent les articles. PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE : montant hors capacité. Rien n'est écrit."),
+    },
+  },
+  {
+    tags: lifecycleTags, method: "post", path: "/api/purchase-orders/{id}/send", summary: "Envoyer un bon de commande à son fournisseur par e-mail",
+    description: "Envoie un bon de commande en brouillon (d'une affaire ou non) à une adresse, le bon en pièce jointe PDF. Le destinataire, laissé vide, est l'adresse de la fiche du fournisseur. Le bon devient envoyé seulement quand le service d'e-mail a accepté le message ; l'envoi reste lisible sur le bon (qui, quand, à qui). Tant que les e-mails sortants sont redirigés (réglage par défaut du serveur), le message part vers la boîte de test, le destinataire écrit dans son objet, et send.redirected vaut true : le destinataire n'a rien reçu. idempotency_key identifie une demande d'envoi : la même demande renvoyée après son acceptation répond ce qui a été envoyé (replayed: true), sans rien renvoyer. Un bon d'affaire envoyé se confirme ensuite comme un brouillon.",
+    parameters: [purchaseOrderId],
+    requestBody: jsonBody({ name: "PurchaseOrderSend", description: "Révision lue, clé de la demande, destinataire, objet et message.", schema: sendPurchaseOrderSchema }),
+    responses: {
+      "200": success("ApiPurchaseOrderSent", "Message accepté par le service d'e-mail : l'envoi et le bon tels qu'ils sont enregistrés.", orderSent),
+      "403": lifecycleRights,
+      "404": lifecycleNotFound,
+      "409": refusal("PURCHASE_ORDER_SEND_NOT_DRAFT : le bon n'est plus un brouillon. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. PURCHASE_ORDER_SEND_IN_PROGRESS : un envoi de ce bon est en cours. PURCHASE_ORDER_SEND_UNCONFIRMED : un envoi précédent, demandé il y a plus de cinq minutes, n'a jamais été confirmé ; il est noté comme tel et rien n'est envoyé cette fois-ci. PURCHASE_ORDER_SEND_KEY_SPENT : cette demande a déjà reçu sa réponse."),
+      "422": refusal("PURCHASE_ORDER_SEND_NO_RECIPIENT : fournisseur sans adresse valide et destinataire vide. PURCHASE_ORDER_SEND_EMPTY : aucun article. Rien n'est écrit."),
+      "500": refusal("PURCHASE_ORDER_SEND_RECORD_FAILED : le message est parti mais son enregistrement a échoué ; ne pas renvoyer. PURCHASE_ORDER_SEND_RENDER_FAILED : le PDF n'a pas pu être produit, rien n'est écrit."),
+      "503": refusal("EMAIL_PROVIDER_NOT_CONFIGURED, EMAIL_REDIRECT_NOT_CONFIGURED, EMAIL_DELIVERY_MODE_INVALID : configuration du serveur, rien n'est écrit. PURCHASE_ORDER_SEND_REFUSED : le service d'e-mail a refusé le message, rien n'est parti. PURCHASE_ORDER_SEND_UNCONFIRMED : le service n'a pas répondu, le message est peut-être parti. Dans tous les cas le bon reste en brouillon."),
     },
   },
   {

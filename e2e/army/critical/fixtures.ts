@@ -5,6 +5,7 @@ import path from "node:path";
 import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type JsonValue, type Screen } from "e2e";
 
+import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
 import { sdkResultsRoot } from "../local/sdk-results";
 import { allowsOwnedPurchaseRead, type OwnedPurchaseOrder } from "./owned-purchase-reads";
 
@@ -65,6 +66,21 @@ export type ArmyEstimate = {
 type Ui = { app: App; screen: Screen; browser: Browser };
 type ApiEnvelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
+/**
+ * The e-mail provider of this campaign is the local collector (a calc-v3 phase with its sentinel, on 127.0.0.1):
+ * the only place where a journey of this guard may send anything.
+ */
+function providerIsLocalCollector(): boolean {
+  const collector = process.env.E2E_OFFER_COLLECTOR_ORIGIN;
+  if (!collector || process.env.RESEND_BASE_URL !== collector || process.env.RESEND_API_KEY !== COLLECTOR_SENTINEL) return false;
+  try {
+    const url = new URL(collector);
+    return url.protocol === "http:" && url.hostname === "127.0.0.1" && Boolean(url.port) && url.origin === collector;
+  } catch {
+    return false;
+  }
+}
+
 export async function restrictCriticalBrowser(browser: Browser, app: App, army?: ArmyState) {
   const origin = new URL(app.baseUrl!).origin;
   const supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
@@ -120,7 +136,11 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
     const ownedPdfRead = localBackend && route.request.method === "GET" && pdfObject !== null &&
       (army?.ownedEstimates ?? []).some(estimate =>
         estimate.projectId === pdfObject[2] && estimate.versionId === pdfObject[3]);
-    const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
+    // The send of a purchase order this journey made, and only where the provider is the local collector.
+    const collectedOrderSend = route.request.method === "POST" && url.origin === origin && providerIsLocalCollector() &&
+      (army?.ownedPurchaseOrders ?? []).some((order) => url.pathname === `/api/purchase-orders/${order.orderId}/send`);
+    const forbiddenMutation = !readOnly && !collectedOrderSend &&
+      /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
     if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedMaterialRequestUpload && !ownedPlanRead && !ownedTakeoffUploadRead && !ownedPurchaseRead && !ownedPdfRead && !ownedIntakeRead) || forbiddenMutation) {
       await route.abort();
       const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");

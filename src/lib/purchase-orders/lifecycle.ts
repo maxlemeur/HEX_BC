@@ -8,8 +8,9 @@ export type OrderStatus = "draft" | "sent" | "confirmed" | "received" | "cancele
 
 /**
  * The statuses an order of an affaire may be given directly, from the one it has: a draft is canceled, a canceled
- * draft reopened, and one marked « envoyée » before delivery 3b-1 returns to draft or is canceled. Confirming and
- * receiving go through their own actions; once ordered, nothing else changes.
+ * draft reopened, and one « envoyée » (sent to its supplier by e-mail, or marked so before delivery 3b-1) returns to
+ * draft or is canceled. Sending, confirming and receiving go through their own actions; once ordered, nothing else
+ * changes.
  */
 export function affaireDirectStatuses(status: OrderStatus): OrderStatus[] {
   switch (status) {
