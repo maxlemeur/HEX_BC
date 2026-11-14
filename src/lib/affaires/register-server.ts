@@ -1389,7 +1389,49 @@ export async function fetchAffaireRegisterGateSummary(input: {
     throw mapSupabaseError(error, "Impossible de charger la synthèse du registre affaire.");
   }
 
-  const normalized = ((data ?? []) as Array<Record<string, unknown>>)
+  return buildAffaireRegisterGateSummary((data ?? []) as Array<Record<string, unknown>>);
+}
+
+/**
+ * The gate summaries of a whole portfolio in one read per chunk of affaires, instead of one request per affaire.
+ * Each affaire keeps the scope of fetchAffaireRegisterGateSummary: with a version, the entries of that version and
+ * those tied to none; without one, every active entry. An affaire without entries gets an empty summary.
+ */
+export async function fetchAffaireRegisterGateSummaries(input: {
+  supabase: Supabase;
+  scopes: ReadonlyArray<{ projectId: string; versionId: string | null }>;
+}): Promise<Map<string, AffaireRegisterGateSummary>> {
+  const { data, error } = await readAllRowsInChunks(
+    input.scopes.map((scope) => scope.projectId),
+    (projectIds) => input.supabase
+      .from("affaire_register_entries" as never)
+      .select(`${GATE_ENTRY_SELECT}, project_id, updated_at` as never, { count: "exact" })
+      .in("project_id", projectIds as never)
+      .eq("is_active", true as never) as never,
+    { order: [{ column: "updated_at", ascending: false }] }
+  );
+
+  if (error) {
+    throw mapSupabaseError(error as never, "Impossible de charger la synthèse du registre affaire.");
+  }
+
+  const rowsByProjectId = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const projectId = typeof row.project_id === "string" ? row.project_id : "";
+    rowsByProjectId.set(projectId, [...(rowsByProjectId.get(projectId) ?? []), row]);
+  }
+
+  return new Map(input.scopes.map((scope) => [
+    scope.projectId,
+    buildAffaireRegisterGateSummary((rowsByProjectId.get(scope.projectId) ?? []).filter((row) =>
+      !scope.versionId || row.version_id === null || row.version_id === scope.versionId)),
+  ]));
+}
+
+function buildAffaireRegisterGateSummary(
+  rows: Array<Record<string, unknown>>
+): AffaireRegisterGateSummary {
+  const normalized = rows
     .map((row) => ({
       id: typeof row.id === "string" ? row.id : "",
       kind: affaireRegisterEntryKindSchema.parse(row.kind),

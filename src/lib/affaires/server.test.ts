@@ -22,10 +22,12 @@ vi.mock("@/lib/takeoff/server", () => ({
 
 vi.mock("@/lib/affaires/register-server", () => ({
   fetchAffaireRegisterGateSummary: vi.fn(),
+  fetchAffaireRegisterGateSummaries: vi.fn(),
 }));
 
 vi.mock("@/lib/affaires/intake-server", () => ({
   fetchAffaireIntakeWorkspace: vi.fn(),
+  fetchAffaireIntakeManagerSignals: vi.fn(),
 }));
 
 vi.mock("@/lib/estimates/v3-margin-evidence-server", () => ({
@@ -33,8 +35,8 @@ vi.mock("@/lib/estimates/v3-margin-evidence-server", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import {
@@ -616,6 +618,56 @@ describe("affaires server (list + counters)", () => {
     });
   });
 
+  const EMPTY_GATE_SUMMARY = {
+    openQuestionsCount: 0,
+    criticalOpenEntries: [],
+    nonCriticalOpenEntries: [],
+    clarifyWithClientEntries: [],
+    criticalClarifyWithClientEntries: [],
+    openAssumptionEntries: [],
+    openMissingPieceEntries: [],
+    continuedWithHypothesisEntries: [],
+    continuedCriticalMissingPieceEntries: [],
+    revalidationRequiredEntries: [],
+    criticalRevalidationRequiredEntries: [],
+    revalidationImpactedStages: [],
+  };
+  const CLEAR_INTAKE_READINESS = {
+    reviewDocumentsCount: 0,
+    confirmedMissingPiecesCount: 0,
+    confirmedCriticalMissingPiecesCount: 0,
+  };
+
+  /** A portfolio read: the signals of each listed affaire, as the two portfolio readers return them. */
+  function mockManagerPortfolio(input: {
+    rows: ReturnType<typeof buildAffaireRow>[];
+    counters?: Record<string, number>;
+    briefStatus?: (projectId: string) => "a_confirmer" | "confirme" | null;
+    gateSummary?: (projectId: string) => Record<string, unknown>;
+    unreadableProjectIds?: string[];
+  }) {
+    const rpc = vi.fn(async (fnName: string): Promise<RpcResult> => fnName === "get_affaires_counters"
+      ? { data: [{ total_count: input.rows.length, filtered_count: input.rows.length, draft_count: input.rows.length,
+          sending_count: 0, sent_count: 0, accepted_count: 0, archived_count: 0, ...input.counters }], error: null }
+      : { data: fnName === "list_affaires_page" ? input.rows : [], error: null });
+    const context = {
+      supabase: { rpc, from: createFromMock({}) },
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer" as const,
+    };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireIntakeManagerSignals).mockImplementation(async ({ projectIds }) => new Map(projectIds
+      .filter((projectId) => !input.unreadableProjectIds?.includes(projectId))
+      .map((projectId) => [projectId, {
+        briefStatus: input.briefStatus ? input.briefStatus(projectId) : "confirme",
+        readiness: CLEAR_INTAKE_READINESS,
+      }])) as never);
+    vi.mocked(fetchAffaireRegisterGateSummaries).mockImplementation(async ({ scopes }) => new Map(scopes
+      .map(({ projectId }) => [projectId, { ...EMPTY_GATE_SUMMARY, ...input.gateSummary?.(projectId) }])) as never);
+    return context;
+  }
+
   it("applies the manager queue filter before pagination and counters", async () => {
     const rows = Array.from({ length: 21 }, (_, index) =>
       buildAffaireRow(index + 1, {
@@ -625,94 +677,15 @@ describe("affaires server (list + counters)", () => {
         current_updated_at: `2026-03-${String(21 - index).padStart(2, "0")}T10:00:00+00:00`,
       })
     );
-    const rpc = vi.fn(async (fnName: string): Promise<RpcResult> => {
-      if (fnName === "list_affaires_page") {
-        return {
-          data: rows,
-          error: null,
-        };
-      }
-
-      if (fnName === "get_affaires_counters") {
-        return {
-          data: [
-            {
-              total_count: 5,
-              filtered_count: 3,
-              draft_count: 3,
-              sending_count: 0,
-              sent_count: 0,
-              accepted_count: 0,
-              archived_count: 0,
-            },
-          ],
-          error: null,
-        };
-      }
-
-      return { data: [], error: null };
+    const followUpProjectId = "00000000-0000-4000-8000-000000000021";
+    mockManagerPortfolio({
+      rows,
+      counters: { total_count: 5, filtered_count: 3, draft_count: 3 },
+      briefStatus: (projectId) => projectId === followUpProjectId ? "a_confirmer" : "confirme",
+      gateSummary: (projectId) => projectId === followUpProjectId
+        ? { criticalOpenEntries: [{ id: `critical-${projectId}` }] }
+        : {},
     });
-    const context = {
-      supabase: {
-        rpc,
-        from: createFromMock({
-          estimate_items: Array.from({ length: 21 }, () => ({
-            limit: {
-              data: null,
-              count: 0,
-              error: null,
-            },
-          })),
-        }),
-      },
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "engineer" as const,
-    };
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-    vi.mocked(fetchAffaireIntakeWorkspace).mockImplementation(async (projectId: string) => ({
-      projectId,
-      uploadId: null,
-      documents: [],
-      missingPieces: [],
-      readiness: {
-        reviewDocumentsCount: 0,
-        missingPiecesCount: 0,
-        criticalMissingPiecesCount: 0,
-        provisionalMissingPiecesCount: 0,
-        provisionalCriticalMissingPiecesCount: 0,
-        confirmedMissingPiecesCount: 0,
-        confirmedCriticalMissingPiecesCount: 0,
-        reviewCouldLiftCriticalMissing: false,
-        reviewBeforeMissing: false,
-        dominantAction: "none",
-        hubReadinessImpact: "none",
-      },
-      briefDraft:
-        projectId === "00000000-0000-4000-8000-000000000021"
-          ? { status: "a_confirmer" }
-          : { status: "confirme" },
-    } as never));
-    vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async ({ projectId }) => ({
-      openQuestionsCount: 0,
-      criticalOpenEntries: [],
-      nonCriticalOpenEntries: [],
-      clarifyWithClientEntries: [],
-      criticalClarifyWithClientEntries: [],
-      openAssumptionEntries: [],
-      openMissingPieceEntries: [],
-      continuedWithHypothesisEntries: [],
-      continuedCriticalMissingPieceEntries: [],
-      revalidationRequiredEntries: [],
-      criticalRevalidationRequiredEntries: [],
-      revalidationImpactedStages: [],
-      ...(projectId === "00000000-0000-4000-8000-000000000021"
-        ? {
-            criticalOpenEntries: [{ id: `critical-${projectId}` }],
-          }
-        : {}),
-    }) as never);
 
     const result = await fetchAffairePageData({
       manager: "follow_up",
@@ -720,7 +693,7 @@ describe("affaires server (list + counters)", () => {
     });
 
     expect(result.list.items).toHaveLength(1);
-    expect(result.list.items[0]?.projectId).toBe("00000000-0000-4000-8000-000000000021");
+    expect(result.list.items[0]?.projectId).toBe(followUpProjectId);
     expect(result.counters.totalCount).toBe(5);
     expect(result.counters.filteredCount).toBe(1);
     expect(result.counters.statusCounts.draft).toBe(1);
@@ -730,6 +703,47 @@ describe("affaires server (list + counters)", () => {
         reservations: 0,
         revalidation: 0,
       },
+      incompleteCount: 0,
+    });
+  });
+
+  it("qualifies the whole portfolio with one read of each signal, whatever its size", async () => {
+    const rows = Array.from({ length: 21 }, (_, index) => buildAffaireRow(index + 1));
+    const context = mockManagerPortfolio({ rows });
+
+    await fetchAffaireManagerQueueSummary();
+
+    const projectIds = rows.map((row) => row.project_id);
+    expect(fetchAffaireIntakeManagerSignals).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchAffaireIntakeManagerSignals).mock.calls[0][0].projectIds).toEqual(projectIds);
+    expect(fetchAffaireRegisterGateSummaries).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchAffaireRegisterGateSummaries).mock.calls[0][0].scopes).toEqual(
+      rows.map((row) => ({ projectId: row.project_id, versionId: row.current_version_id }))
+    );
+    expect(fetchAffaireIntakeWorkspace).not.toHaveBeenCalled();
+    expect(fetchAffaireRegisterGateSummary).not.toHaveBeenCalled();
+    // The list's currencies and the presence of lines: two reads for twenty-one versions.
+    expect(context.supabase.from.mock.calls).toEqual([["estimate_versions"], ["estimate_versions"]]);
+  });
+
+  it("counts a version's lines as an established working basis", async () => {
+    const rows = [buildAffaireRow(1), buildAffaireRow(2)];
+    const context = mockManagerPortfolio({ rows, briefStatus: () => null });
+    context.supabase.from = createFromMock({
+      estimate_versions: [
+        {},
+        { limit: { data: [
+          { id: rows[0].current_version_id, estimate_items: [{ id: "line-1" }] },
+          { id: rows[1].current_version_id, estimate_items: [] },
+        ], error: null } },
+      ],
+    });
+
+    const summary = await fetchAffaireManagerQueueSummary();
+
+    // Without a brief, only the affaire whose version has no line lacks a working basis.
+    expect(summary).toEqual({
+      counts: { followUp: 1, reservations: 1, revalidation: 0 },
       incompleteCount: 0,
     });
   });
@@ -745,79 +759,15 @@ describe("affaires server (list + counters)", () => {
         project_name: "Projet reserve",
       }),
     ];
-    const context = {
-      supabase: {
-        rpc: vi.fn(async (fnName: string) => ({
-          data:
-            fnName === "get_affaires_counters"
-              ? [
-                  {
-                    total_count: 2,
-                    filtered_count: 2,
-                    draft_count: 2,
-                    sending_count: 0,
-                    sent_count: 0,
-                    accepted_count: 0,
-                    archived_count: 0,
-                  },
-                ]
-              : rows,
-          error: null,
-        })),
-        from: createFromMock({
-          estimate_items: Array.from({ length: 2 }, () => ({
-            limit: {
-              data: null,
-              count: 0,
-              error: null,
-            },
-          })),
-        }),
-      },
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "engineer" as const,
-    };
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-    vi.mocked(fetchAffaireIntakeWorkspace).mockImplementation(async (projectId: string) => ({
-      projectId,
-      uploadId: null,
-      documents: [],
-      missingPieces: [],
-      readiness: {
-        reviewDocumentsCount: 0,
-        missingPiecesCount: 0,
-        criticalMissingPiecesCount: 0,
-        provisionalMissingPiecesCount: 0,
-        provisionalCriticalMissingPiecesCount: 0,
-        confirmedMissingPiecesCount: 0,
-        confirmedCriticalMissingPiecesCount: 0,
-        reviewCouldLiftCriticalMissing: false,
-        reviewBeforeMissing: false,
-        dominantAction: "none",
-        hubReadinessImpact: "none",
-      },
-      briefDraft: { status: "confirme" },
-    }) as never);
-    vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async ({ projectId }) => ({
-      openQuestionsCount: 0,
-      criticalOpenEntries: [],
-      nonCriticalOpenEntries: [],
-      clarifyWithClientEntries:
-        projectId === "00000000-0000-4000-8000-000000000102" ? [{ id: "clarify-1" }] : [],
-      criticalClarifyWithClientEntries: [],
-      openAssumptionEntries: [],
-      openMissingPieceEntries: [],
-      continuedWithHypothesisEntries: [],
-      continuedCriticalMissingPieceEntries: [],
-      revalidationRequiredEntries:
-        projectId === "00000000-0000-4000-8000-000000000101"
-          ? [{ id: "revalidation-1" }]
-          : [],
-      criticalRevalidationRequiredEntries: [],
-      revalidationImpactedStages: [],
-    }) as never);
+    mockManagerPortfolio({
+      rows,
+      gateSummary: (projectId) => ({
+        clarifyWithClientEntries:
+          projectId === "00000000-0000-4000-8000-000000000102" ? [{ id: "clarify-1" }] : [],
+        revalidationRequiredEntries:
+          projectId === "00000000-0000-4000-8000-000000000101" ? [{ id: "revalidation-1" }] : [],
+      }),
+    });
 
     const reservationsResult = await fetchAffairePageData({
       manager: "reservations",
@@ -839,37 +789,9 @@ describe("affaires server (list + counters)", () => {
     });
   });
 
-  it("treats manager classification failures as incomplete instead of silently dropping dossiers", async () => {
-    const row = buildAffaireRow(1, {
-      project_id: "00000000-0000-4000-8000-000000000010",
-    });
-    const context = {
-      supabase: {
-        rpc: vi.fn(async () => ({
-          data: [row],
-          error: null,
-        })),
-        from: createFromMock({
-          estimate_items: [
-            {
-              limit: {
-                data: null,
-                count: 0,
-                error: null,
-              },
-            },
-          ],
-        }),
-      },
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "engineer" as const,
-    };
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-    vi.mocked(fetchAffaireIntakeWorkspace).mockRejectedValueOnce(
-      new Error("temporary")
-    );
+  it("treats an affaire whose signals are unavailable as incomplete instead of silently dropping it", async () => {
+    const rows = [buildAffaireRow(1), buildAffaireRow(2)];
+    mockManagerPortfolio({ rows, unreadableProjectIds: [rows[1].project_id] });
 
     const summary = await fetchAffaireManagerQueueSummary();
 
@@ -881,6 +803,41 @@ describe("affaires server (list + counters)", () => {
       },
       incompleteCount: 1,
     });
+  });
+
+  it("treats a failed portfolio read as an unqualified portfolio, never as a ready one", async () => {
+    const rows = [buildAffaireRow(1), buildAffaireRow(2)];
+    mockManagerPortfolio({ rows });
+    vi.mocked(fetchAffaireRegisterGateSummaries).mockRejectedValueOnce(new Error("temporary"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const summary = await fetchAffaireManagerQueueSummary();
+
+    expect(summary).toEqual({
+      counts: { followUp: 0, reservations: 0, revalidation: 0 },
+      incompleteCount: 2,
+    });
+    expect(logged).toHaveBeenCalledWith("Affaire manager queue signals unavailable", {
+      code: undefined, message: "temporary",
+    });
+    logged.mockRestore();
+  });
+
+  it("refuses a qualification that outlived its time budget", async () => {
+    const rows = [buildAffaireRow(1), buildAffaireRow(2)];
+    mockManagerPortfolio({ rows });
+    const now = vi.spyOn(Date, "now");
+    const start = Date.now();
+    vi.mocked(fetchAffaireIntakeManagerSignals).mockImplementationOnce(async ({ deadlineAt }) => {
+      // The reader is told when to stop, and here returns after that.
+      expect(deadlineAt).toBe(start + 6_500);
+      now.mockReturnValue(start + 6_501);
+      return new Map();
+    });
+    now.mockReturnValue(start);
+
+    await expect(fetchAffaireManagerQueueSummary()).rejects.toThrow("MANAGER_QUEUE_TIME_BUDGET_EXCEEDED");
+    now.mockRestore();
   });
 
   it("rejects oversized manager portfolios before the per-affaire fan-out", async () => {
