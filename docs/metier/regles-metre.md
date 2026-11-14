@@ -239,11 +239,80 @@ seconde fois sans décision.
   voir, le choix est toujours demandé.
 - **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
   ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
-  ingénieurs comme aux administrateurs. Refusé sur une page qui alimente une ligne
-  DPGF déjà alimentée par un autre métré, tant que la ligne DPGF ne garde que la
-  dernière mesure. À l'inverse, une ligne DPGF de la page que le nouveau métré
-  n'alimente pas ne peut pas être « remplacée » : sa mesure resterait à côté de la
-  nouvelle ; on garde alors les deux, avec un motif.
+  ingénieurs comme aux administrateurs. Refusé seulement quand « Fusionner »,
+  obligatoire avec un DPGF, envoie une nouvelle ligne sur une ligne précédente de
+  la page.
+- **Une ligne DPGF** (TI-682 D4) somme les mesures qu'elle garde, métré par métré :
+  remplacer une page retire la part de cette page, que le nouveau métré alimente de
+  nouveau la ligne ou non ; garder les deux garde les deux parts.
+- **Une part DPGF dont la part par page est inconnue** (TI-716). Appliquée avant le
+  cumul par un seul métré sur plusieurs pages, et dont les lignes figées ne redonnent
+  plus le calcul, la mesure d'une ligne DPGF forme un bloc. Remplacer une seule de
+  ses pages est refusé (`dpgf_part_unknown`) : une quantité que personne ne peut
+  attribuer n'est jamais retirée. Aucune remise à zéro de la ligne n'est proposée :
+  elle retirerait, sans le montrer, ce que les autres pages ont mesuré. L'assistant
+  le dit avant l'envoi et le refus de la base le nomme : la ligne (désignation,
+  unité, quantité), les pages que le bloc mêle, puis deux issues. Recommandée :
+  relire aussi ces pages dans le métré (une relance qui les lit, ou « Remplacer »
+  sur celles qu'il relit déjà) et les remplacer ensemble : le bloc sort entier.
+  Sinon, garder les deux sur la page : elle compte alors deux fois, à corriger à la
+  main (TKD05).
+- **« Fusionner » sur une ligne DPGF** (TI-716). La fusion rattache une ligne du
+  métré à la première ligne de même titre et de même unité de la section, hors du
+  rapprochement. Sur une ligne DPGF que l'application alimente, une ligne que le
+  rapprochement ne relie à aucune ligne DPGF est refusée : la somme de la ligne DPGF
+  effacerait sa mesure. Sur une ligne DPGF dont l'application remplace une page
+  sans l'alimenter, toute ligne est refusée, même reliée ailleurs (D4). Le refus
+  (`TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT`, `merged_outside_reconciliation`)
+  nomme les deux lignes ; relier la ligne dans le rapprochement, ou l'exclure à la
+  revue. Une ligne qui alimente une ligne DPGF compte dans la somme de celle-ci
+  ([`…_takeoff_dpgf_merge_refusals.sql`](../../supabase/migrations/20261113175750_takeoff_dpgf_merge_refusals.sql)).
+  Sur une ligne DPGF que l'application n'alimente pas et dont elle ne remplace
+  aucune page (TI-723), la fusion en faisait sans un mot une ligne de métré
+  ordinaire : sa quantité du DPGF et sa composition, max(référence DPGF,
+  Σ mesuré + Σ protecteur), étaient perdues. Elle est refusée de même, même reliée
+  ailleurs, le détail disant que l'application ne compose pas la ligne
+  (`composed`) et ce qu'elle tient (`dpgf_quantity`). L'issue est le rapprochement :
+  reliée à cette ligne DPGF, la ligne l'alimente par sa composition, sa référence
+  gardée. Une fusion ne devient jamais une part de la composition : ce serait
+  changer ce que « Fusionner » veut dire. La règle tient en une phrase : une ligne
+  DPGF ne reçoit une mesure que par le rapprochement ; « Fusionner » n'y envoie une
+  ligne que si l'application l'alimente et que le rapprochement relie cette ligne à
+  une ligne DPGF. La proposition des pages (`dpgf_merge_refusals`) nomme chaque
+  ligne refusée avant l'envoi ; l'assistant le dit, n'offre pas la confirmation et
+  ouvre le rapprochement (TKD06,
+  [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113202356_takeoff_dpgf_merge_any_line.sql)).
+- **« Remplacer la section » sur des lignes DPGF** (TI-726). Ce remplacement vide la
+  section cible, sous-sections comprises, avant d'écrire le métré. Avec un DPGF,
+  l'assistant n'offre que « Fusionner » ; envoyé directement à l'API par un métré qui
+  n'alimente aucune ligne DPGF, il supprimait sans un mot les lignes DPGF de la
+  section, leur quantité du DPGF et leur composition avec elles. Une ligne DPGF ne
+  sort jamais du devis sans un geste qui la nomme : la base refuse ce remplacement dès
+  que la section ou l'une de ses sous-sections tient une ligne DPGF, que le métré
+  l'alimente ou non (`TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT`,
+  `replace_deletes_dpgf_lines`). Le refus nomme la section et ses lignes DPGF
+  (désignation, quantité, unité ; les 20 premières, et leur nombre). L'issue est
+  « Fusionner » par le rapprochement : les lignes DPGF restent, une ligne du métré
+  reliée à l'une d'elles l'alimente par sa composition. Une section qui ne tient
+  aucune ligne DPGF se remplace toujours. « Ajouter » à côté d'une ligne DPGF
+  alimentée reste refusé (« Fusionner » obligatoire). Le remplacement de la racine
+  reste désactivé, et une décision de page ne remplace ni ne retire une ligne DPGF
+  (TKD07,
+  [`…_takeoff_dpgf_section_replace.sql`](../../supabase/migrations/20261113211347_takeoff_dpgf_section_replace.sql)).
+- **Une ligne DPGF arrivée pendant l'application** (TI-728). Une version sans ligne
+  DPGF s'applique sans autorisation DPGF ; une version qui en tient une est refusée
+  (`TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED`) et passe par le rapprochement. Ce
+  contrôle se lisait avant les verrous : une ligne DPGF copiée dans le brouillon à cet
+  instant (« Importer la DPGF » liée, copie de section) y échappait, puis « Remplacer
+  la section » la supprimait ou « Fusionner » la réécrivait en ligne de métré, sa
+  quantité du DPGF perdue sans un mot. Il se lit maintenant sous le verrou de la ligne
+  de la version, que toute écriture d'une ligne du devis tient jusqu'à sa validation
+  (les copies le prennent avant d'insérer) : une
+  copie validée avant est vue et l'application est refusée ; une copie qui arrive
+  après attend la fin de l'application, puis se pose à côté de ses lignes. Le serveur
+  dit que la validation DPGF n'est plus valable et la relance relit la version (pgTAP
+  `takeoff-apply-dpgf-check-race`,
+  [`…_takeoff_apply_dpgf_check_under_lock.sql`](../../supabase/migrations/20261113224854_takeoff_apply_dpgf_check_under_lock.sql)).
 - **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
   « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
   vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
@@ -604,7 +673,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 - Axes parallèles à 2° près, à moins de **D = 5 cm** l'un de l'autre, sur une longueur commune d'au moins **L = 30 cm**, et de plus d'une bande du dessin à l'échelle la plus grossière des deux pages (49 cm au 1/200).
 - La longueur commune est l'union des tronçons couverts, la plus petite des deux directions, arrondie au millimètre (un demi-millimètre vers le haut).
 - La distance D est comprise : une copie à 5 cm pile est un doublon. Deux tronçons bout à bout ne se recouvrent sur rien, quel que soit le bruit des calculs ; aucun résultat ne dépend de la page prise pour repère.
-- Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur B R+4) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
+- Le minimum vaut pour chaque tronçon continu. Deux morceaux couverts se continuent quand leurs extrémités se touchent à D près (un coude), ou dans le prolongement l'un de l'autre (parallèles, à D de son axe) à moins du minimum : les tirets d'un réseau en pointillés (20 cm, espacés de 5 cm sur un plan du banc) font un seul tronçon. Quatre contacts de 10 cm en limite de zone, ou trois tuyaux parallèles qui la touchent chacun, ne font pas un doublon.
 - La détection ne dépend pas du règlement : une paire, sa longueur commune et son minimum sont les mêmes qu'elle soit isolée ou dans un groupe (voir Résolution).
 
 **Copies lues autrement** (TI-684, décision D14 du 6 nov. 2026 ; version 2 de la règle) :
@@ -665,7 +734,7 @@ les pages d'un même niveau, sur tous les jobs de la version, appliqués compris
 **Zones non recalées** : deux lignes qui pourraient être un même tronçon, sur deux
 pages sans repère commun, échouent toutes deux en `ZONE_OVERLAP_UNREGISTERED`.
 
-**Valeurs de départ** (mesurées le 3 nov. 2026 sur B R+4 Z1/Z2, hors réserve, figées
+**Valeurs de départ** (mesurées le 3 nov. 2026 sur un plan du banc à deux zones, hors réserve, figées
 avant la réserve) :
 
 - **Recalage** : translation de 42,43 m × 6,57 m, résidu 2,4 mm, 335 traits contre 0 pour la translation suivante.
@@ -1190,10 +1259,62 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
 (sens sûr ; l'assistant et le serveur la laissent de côté).
 
 - **Écran** : `/dashboard/affaires/<affaire>/takeoff/<job>/review/targeted?versionId=…`,
-  en mise en page outil (TI-658). À gauche les lignes, le filtre « Règle en échec » et
-  l'application ; au centre le plan et sa lecture vectorielle, la ligne en évidence ; à
-  droite ses raisons et ses décisions. La revue complète y renvoie (« Revue ciblée · N
-  lignes »), comme le panneau des lignes bloquées de l'assistant d'application.
+  en mise en page outil (TI-658). À gauche les lignes, leurs filtres et l'application ;
+  au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
+  et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
+  panneau des lignes bloquées de l'assistant d'application.
+- **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
+  ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
+  - **vue**, un seul choix : « À revoir » (toutes), « Blocages » (les lignes que le garde
+    d'application arrête, `reviewBlockReasons`), « Règle en échec », « Incertaines » ;
+  - **Gros montants** : les lignes qui font ensemble 80 % du montant chiffré du métré, de la
+    plus grosse à la plus petite (Pareto), sans seuil en euros. Le montant d'une ligne est
+    sa quantité × le prix unitaire de la ligne de devis qui la porte, en centimes entiers
+    (`quantityAmountCents`, arrondi à l'unité la plus proche, moitié vers l'extérieur).
+    Des lignes de même montant entrent ensemble à la coupure : la liste ne dépend jamais
+    de l'ordre de lecture. Une ligne non chiffrée, ou chiffrée à zéro, n'en fait jamais
+    partie et ne compte pas dans le total. Ce montant classe les lignes ; ce n'est pas un
+    total HT du devis : le prix unitaire est pris avant la remise commerciale au moteur 3,
+    après elle au moteur 2, et plusieurs lignes du métré partagent une ligne de devis dont
+    la quantité arrondit leur somme. Le filtre actif dit donc seulement la part couverte et
+    ce qu'il en reste à revoir, sans montant en euros (« 2 lignes du métré, 95 % du montant
+    estimé (quantité × prix unitaire), dont 2 à revoir ») ;
+  - **Hypothèses** : les lignes dont la quantité est une hypothèse de TI-682
+    (`takeoffHypothesisCause`), pas une confiance. Le filtre de confiance de la revue de
+    validation garde son nom, « Confiance à confirmer » ;
+  - **Non chiffré** : une ligne retenue qu'aucune ligne de devis ne porte (« sans
+    rattachement chiffré » du contexte de revue) ou que porte seulement une ligne
+    « Non chiffrée ». Une ligne « Inclus » ou « Pour mémoire » n'a pas de prix par choix :
+    elle n'est ni non chiffrée ni un gros montant. Une ligne exclue n'est ni l'une ni l'autre.
+    Portée par plusieurs lignes de devis, une ligne du métré prend la meilleure, quel que soit
+    leur ordre : un prix unitaire non nul, sinon un prix écarté exprès, sinon un prix nul,
+    sinon « Non chiffrée » ; un prix négatif (remise) compte comme un prix nul. Le moteur 2
+    ne donne pas de prix unitaire à une ligne sans quantité ;
+  - **Réseau ou lot**, **Niveau ou zone**, **Plan et indice** : des valeurs que les lignes
+    portent, jamais un texte libre. Le réseau vient des entrées des règles, sinon le lot
+    (section racine) de la ligne de devis qui porte la ligne ; le niveau et la zone de la
+    page viennent du tri des pages, sinon de la localisation de la ligne
+    (`takeoffItemLocation`) ; le plan est le fichier source, avec l'indice que lui donne la
+    préparation quand il est connu. Une ligne porte au plus une valeur de chaque sorte :
+    plusieurs valeurs d'une sorte élargissent la liste (OU), les sortes la restreignent (ET).
+
+  Chaque choix affiche son compte, lu avec les filtres des autres sortes. Un filtre dont le
+  métré n'a pas la donnée n'est pas proposé : « Gros montants » sans ligne chiffrée,
+  « Non chiffré » sans contexte de revue lisible (version scellée, lecture en échec), une
+  sorte qu'aucune ligne ne porte. Choisi avant (repris d'une adresse, ou quand la dernière
+  ligne qui portait la sorte a été tranchée), il est ignoré et l'écran le dit. Les filtres
+  qui lisent les montants ou les lots attendent le contexte de revue. Une
+  valeur d'une sorte que les lignes portent reste un choix quand ses propres lignes sont
+  parties (tranchées) : la liste dit alors qu'aucune ligne ne répond aux filtres.
+  Les filtres et la ligne en évidence vivent dans l'adresse (`view`, `large`, `hypotheses`,
+  `unpriced`, `network`, `location`, `plan`, `line`) : un rechargement ou un lien partagé
+  montre les mêmes lignes. L'adresse est réécrite sur place, sous l'état d'historique du
+  routeur (aucune navigation), la ligne en évidence une fois le focus posé. « Effacer les filtres » les retire tous. La ligne en cours de
+  modification (quantité tapée, dialogue ouvert, décision en cours d'enregistrement) n'est
+  jamais masquée : un filtre qui l'écarte la laisse à sa place, marquée « Hors filtres »,
+  avec un avis ; une ligne ouverte exprès (son lien, un partenaire, un poste à contrôler)
+  reste de même affichée tant qu'elle est en évidence. Ouvrir un partenaire ou un poste met
+  fin à une saisie de quantité non enregistrée, comme un clic sur une autre ligne.
 - **Décisions**, enregistrées aussitôt sur la ligne, une à la fois (la suivante attend la
   réponse de la précédente, qui porte l'état relu de ses partenaires), raccourcis affichés sur
   les boutons :

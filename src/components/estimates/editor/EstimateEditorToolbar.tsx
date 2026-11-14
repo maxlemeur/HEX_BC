@@ -13,6 +13,7 @@ import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability"
 import type { EstimateEditorData, EstimateExportMode } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { AssistantToggle } from "@/components/assistant/AssistantDock";
 
 // Rendered inside the "Plus d’actions" menu only: load it when the menu opens.
 const SaveAsTemplateButton = dynamic(
@@ -702,6 +703,7 @@ export function EstimateEditorToolbar({
           className="flex items-center gap-2"
           data-testid="estimate-page-toolbar-actions"
         >
+          <AssistantToggle />
           <MoreActionsDropdown
             showAutoSaveControls={showAutoSaveStatus}
             isAutoSaveEnabled={isAutoSaveEnabled}

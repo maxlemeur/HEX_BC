@@ -7,7 +7,7 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
 }));
 
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
-import { getTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-server";
+import { getTakeoffJobPageContributions, readTakeoffJobPageReading } from "@/lib/takeoff/page-contributions-server";
 
 // TI-682 lot D: a takeoff carried over into a copied estimate version is reviewed under that copy. The warning reads
 // the estimate the review shows, the copy, never the version the takeoff was launched in; and a version id from the
@@ -36,8 +36,8 @@ function job(id: string, versionId: string, createdAt: string): Row {
   return { id, tenant_id: TENANT, estimate_version_id: versionId, status: "applied", level: "C", source_file_name: "plan-rdc.pdf",
     source_file_type: "application/pdf", source_file_size_bytes: 1024, created_at: createdAt, updated_at: createdAt, sources: null };
 }
-const takeoffLine = (n: number, jobId: string): Row =>
-  ({ id: item(n), tenant_id: TENANT, job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: 1, source_document: null });
+const takeoffLine = (n: number, jobId: string, page = 1): Row =>
+  ({ id: item(n), tenant_id: TENANT, job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: page, source_document: null, is_excluded: false });
 const estimateLine = (n: number, versionId: string, jobId: string, itemId: string): Row => ({ id: line(n), tenant_id: TENANT,
   version_id: versionId, item_type: "line", source_provider: "takeoff", source_job_id: jobId, source_file_name: "plan-rdc.pdf", source_page: 1,
   takeoff_item_id: itemId, rounding_item_ids: null, rounding_job_id: null, policy_item_ids: null, policy_job_id: null });
@@ -97,7 +97,7 @@ function database() {
   const estimateReads = () => reads.filter((read) => read.table === "estimate_items")
     .map((read) => read.filters.find((filter) => filter.column === "version_id"))
     .map((filter) => (filter && "values" in filter ? filter.values[0] : null));
-  return { supabase: { from }, estimateReads };
+  return { supabase: { from }, estimateReads, tables };
 }
 
 let db: ReturnType<typeof database>;
@@ -134,5 +134,30 @@ describe("getTakeoffJobPageContributions — the estimate version the review sho
   ])("refuses %s with 404 and reads none of its lines", async (_label, jobId, versionId) => {
     await expect(getTakeoffJobPageContributions(jobId, versionId)).rejects.toMatchObject({ status: 404 });
     expect(db.estimateReads()).toEqual([]);
+  });
+});
+
+describe("readTakeoffJobPageReading — the pages the application brings again (TI-696, Codex review of PR 288)", () => {
+  // J1 reviewed in V1, where J3 brought page 1. J1 reads page 1 (its line 1) and page 2 (its line 6). The DPGF
+  // reconciliation leaves out of a line's total the earlier parts of the pages read again: only the lines the application
+  // brings read a page again, as the database reads them (private.takeoff_prepare_page_decisions: not excluded, neither
+  // skipped nor folded into an assembly by the mapping plan).
+  it("reads a page again through a line the application brings, never through an excluded or left-out one", async () => {
+    db.tables.takeoff_items.push(takeoffLine(6, J1, 2));
+    const context = { supabase: db.supabase, tenantId: TENANT } as never;
+    const included = await readTakeoffJobPageReading(context, J1, V1);
+    expect([...included.readAgainItemIds()]).toEqual([item(3)]);
+    // Left out by the mapping plan: page 1 no longer comes again.
+    expect([...included.readAgainItemIds(new Set([item(1)]))]).toEqual([]);
+
+    db.tables.takeoff_items.find((row) => row.id === item(1))!.is_excluded = true;
+    const excluded = await readTakeoffJobPageReading(context, J1, V1);
+    expect([...excluded.readAgainItemIds()]).toEqual([]);
+  });
+
+  it("leaves the review's notice reading every line: the screen hides a page once its lines are excluded", async () => {
+    db.tables.takeoff_items.find((row) => row.id === item(1))!.is_excluded = true;
+    const read = await getTakeoffJobPageContributions(J1, V1);
+    expect(read.pages).toMatchObject([{ page: 1, item_ids: [item(1)], earlier: [{ job_id: J3 }] }]);
   });
 });

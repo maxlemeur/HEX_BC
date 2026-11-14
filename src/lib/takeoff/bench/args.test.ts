@@ -82,11 +82,11 @@ describe("takeoff bench arguments", () => {
   it("reads a vector run without model nor effort, its baseline null unless given", () => {
     expect(parseBenchArgs(vector)).toEqual({
       pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 1, out: "/fixture/run", baseline: null,
-      maxDecisionsTokens: null, visionReview: false, groupTruth: null,
+      maxDecisionsTokens: null, visionReview: false, groupTruth: null, groupModel: "decisions",
     });
     expect(parseBenchArgs([...vector, "--baseline", "/fixture/baseline/report.json", "--repeat", "3"]))
       .toEqual({ pipeline: "vector", dataset: "/fixture/dataset", docs: ["a-plan-01", "load-plan-01"], repeat: 3, out: "/fixture/run",
-        baseline: "/fixture/baseline/report.json", maxDecisionsTokens: null, visionReview: false, groupTruth: null });
+        baseline: "/fixture/baseline/report.json", maxDecisionsTokens: null, visionReview: false, groupTruth: null, groupModel: "decisions" });
     expect(parseBenchArgs(["--pipeline=vector", "--dataset=/fixture/dataset", "--docs=all", "--out=/fixture/run",
       "--baseline=/fixture/baseline/report.json"])).toMatchObject({ pipeline: "vector", docs: "all", baseline: "/fixture/baseline/report.json" });
   });
@@ -101,6 +101,16 @@ describe("takeoff bench arguments", () => {
       maxDecisionsTokens: null });
     expect(parseBenchArgs([...vector, "--group-truth=/fixture/labels", "--max-decisions-tokens", "10"])).toMatchObject({ groupTruth: "/fixture/labels",
       maxDecisionsTokens: 10 });
+  });
+
+  // TI-704 option B, written before the flag: the local plan is asked with a Decisions ceiling (two providers for one run),
+  // an unknown value is taken for Decisions, or the flag is accepted by the level C pipeline.
+  it("reads a vector run whose groups the local ChatGPT plan reads, never with a Decisions ceiling", () => {
+    expect(parseBenchArgs([...vector, "--group-model", "local", "--group-truth", "/fixture/labels"])).toMatchObject({ groupModel: "local", maxDecisionsTokens: null });
+    expect(() => parseBenchArgs([...vector, "--group-model", "local", "--max-decisions-tokens", "10"])).toThrow(/no --max-decisions-tokens/);
+    expect(() => parseBenchArgs([...vector, "--group-model", "gpt"])).toThrow(/decisions or local/);
+    expect(() => parseBenchArgs(["--dataset", "/fixture/dataset", "--docs", "all", "--models", "gpt-fixture", "--efforts", "auto", "--out", "/fixture/run",
+      "--group-model", "local"])).toThrow(/vector pipeline/);
   });
 
   it("reads a vector run with the vision pass on its rejected lines", () => {

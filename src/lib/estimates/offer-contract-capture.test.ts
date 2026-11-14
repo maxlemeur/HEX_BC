@@ -60,6 +60,24 @@ describe("offer capture source completeness with the actual calculator and prepa
     expect(input.prepared.lineSplitsById[model.items[0].id].totalHtCents).toBe(0);
     expect(() => capture(input)).toThrowError(expect.objectContaining({ code: "OFFER_CAPTURE_SOURCE_INVALID" }));
   });
+  it("captures nested ouvrages below the last chapter while retaining all calculation lines", () => {
+    const model = source();
+    const original = model.items[0];
+    const sections = Array.from({ length: 7 }, (_, index) => ({ ...original,
+      id: `71800000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      item_type: "section" as const, quantity: null, position: 1, title: `Section ${index}`,
+      parent_id: index ? `71800000-0000-4000-8000-${String(index).padStart(12, "0")}` : null,
+      source_metadata: index >= 4 ? { kit_metier: true } : {},
+    }));
+    model.items = [...sections, { ...original, parent_id: sections[6].id }];
+    model.breakdown = computeEstimateBreakdown({ items: model.items, marginMultiplier: 1.5, marginMode: "fixed", marginTiers: [],
+      discountCents: 0, discountMode: "simple", discountStepsBp: [], globalCoefficient: 1, taxRateBp: 2000,
+      roundingMode: "none", roundingStepCents: 0, isLaborSplitEnabled: false, laborRateById: new Map(),
+      laborRateAtelierById: new Map(), laborRateChantierById: new Map(), calcEngineVersion: 2 });
+    const snapshot = capture(captureInput(model));
+    expect(snapshot.rows).toHaveLength(8);
+    expect(snapshot.rows.at(-1)).toMatchObject({ id: original.id, depth: 7, saleHtCents: 0 });
+  });
   it("keeps a genuine computed free line and its exact footer, without mutating the source", () => {
     const input = captureInput(source());
     const before = structuredClone(input);

@@ -18,7 +18,19 @@ export type PurchaseOrderListRow = {
   delivery_sites: RelatedLookup | RelatedLookup[] | null;
   devis_count: number;
   has_devis: "with" | "without";
+  /** TI-691: the affaire of an order made from a material request (the list reads both); absent or null otherwise. */
+  project_id?: string | null;
+  project?: RelatedLookup | RelatedLookup[] | null;
 };
+
+/**
+ * An order made from a material request belongs to an affaire: it is confirmed and received from its own page. Its
+ * own project_id says so even when the affaire is not readable (RLS then hides the embedded affaire).
+ */
+export function isAffaireOrder(order: Pick<PurchaseOrderListRow, "project" | "project_id">): boolean {
+  if (order.project_id) return true;
+  return Array.isArray(order.project) ? order.project.length > 0 : Boolean(order.project);
+}
 
 export type OrderItemRow = {
   id: string;

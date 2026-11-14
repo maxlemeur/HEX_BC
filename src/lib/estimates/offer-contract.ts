@@ -1,3 +1,4 @@
+import { offerHierarchyWithinLimits } from "@/lib/estimates/offer-hierarchy";
 import { createHash } from "node:crypto";
 
 import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
@@ -189,7 +190,7 @@ function row(value: unknown): CommercialRow1 {
   const common = {
     id: uuid(source.id, "rows.id"), parentId: nullableUuid(source.parentId, "rows.parentId"),
     position: integer(source.position, 0, MAX_CENTS, "rows.position"),
-    depth: integer(source.depth, 0, section ? 3 : 4, "rows.depth"),
+    depth: integer(source.depth, 0, section ? 6 : 7, "rows.depth"),
     title: text(source.title, "rows.title"), saleHtCents: cents(source.saleHtCents, "rows.saleHtCents"),
   };
   let portions: SaleFoMo1 | Record<string, never> = {};
@@ -227,6 +228,7 @@ function validateRows(rows: CommercialRow1[], contract: ClientContract1): void {
     if (entry.parentId !== null && (!parent || parent.kind !== "section")) invalid("rows.parent");
     if (entry.depth !== (parent ? parent.depth + 1 : 0)) invalid("rows.depth");
   }
+  if (!offerHierarchyWithinLimits(rows)) invalid("rows.depth");
   // Positive parent-depth increments with bounded depth exclude all cycles.
   // Engine1 deliberately retains its original presented detail/footer mismatch.
   if (isLegacyEngine(contract.version.calcEngineVersion)) return;

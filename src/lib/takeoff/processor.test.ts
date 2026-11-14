@@ -8,10 +8,17 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ resolveLocalTakeoffProvider: vi.fn().mockResolvedValue(null), assertLocalTakeoffExecutionHost: vi.fn().mockResolvedValue(null) }));
+// The vector reading's hooks pass through to the real ones; the routing test (TI-704) reads which one a job gets.
+vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/takeoff/vectors/worker-server")>();
+  return { ...actual, readTakeoffVectorPages: vi.fn(actual.readTakeoffVectorPages), takeoffVectorDecisionsHook: vi.fn(actual.takeoffVectorDecisionsHook),
+    takeoffVectorLocalGroupsHook: vi.fn(actual.takeoffVectorLocalGroupsHook) };
+});
 
 import { PDFDocument } from "pdf-lib";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { readTakeoffVectorPages, takeoffVectorDecisionsHook, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -1390,7 +1397,8 @@ describe("processLevelA", () => {
     const call = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
       { designation: "Tube cuivre", quantity: 12, unit: "m" },
     ]), { model: "account-model", costCents: 0 }));
-    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call });
+    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call,
+      selection: { profileId: "profile", model: "account-model", reasoningEffort: null }, assertOwnerActive: vi.fn() });
     const callGemini = vi.fn(); const submitGeminiBatch = vi.fn();
     const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, callGemini, submitGeminiBatch });
     expect(result.status).toBe("completed");
@@ -1404,7 +1412,8 @@ describe("processLevelA", () => {
   it("does not escalate or call Gemini when the selected plan rejects the extraction", async () => {
     const mock = createTakeoffProcessorSupabaseMock({ featureFlags: { TAKEOFF_AI_ESCALATION_ENABLED: "true" } });
     const call = vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.AI_SCHEMA, message: "Plan rejected", retryable: false }));
-    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call });
+    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call,
+      selection: { profileId: "profile", model: "account-model", reasoningEffort: null }, assertOwnerActive: vi.fn() });
     const callGemini = vi.fn();
     await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, callGemini }))
       .rejects.toMatchObject({ code: "AI_SCHEMA", retryable: false });
@@ -3397,6 +3406,46 @@ describe("processLevelB", () => {
 describe("processLevelC", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // TI-704 option B, written before the routing was tested: a local ChatGPT job with Decisions configured gets the
+  // Decisions hook (a server key and its spending), or a server job gets its creator's local plan.
+  it("reads a local ChatGPT job's vector groups with its creator's plan, never Decisions, and a server job's with Decisions", async () => {
+    for (const [name, value] of Object.entries({ MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1",
+      OPENAI_DECISIONS_API_KEY: "fictional-key", MERGEONE_CHATGPT_LOCAL: "1", CI: "", VERCEL: "" })) vi.stubEnv(name, value);
+    try {
+      const planSetId = "55555555-5555-4555-8555-555555555555";
+      const planPath = `${TENANT_ID}/${planSetId}/f1/Plan-R-1.pdf`;
+      const setup = async () => createTakeoffProcessorSupabaseMock({
+        job: { level: "C", plan_set_id: planSetId, source_file_name: "Plan R+1.pdf", source_file_path: null, source_file_type: "application/pdf" },
+        planFiles: [{ id: "88888888-8888-4888-8888-888888888881", plan_set_id: planSetId, file_path: planPath, file_name: "Plan-R-1.pdf",
+          file_type: "application/pdf", page_count: 1, metadata: { original_file_name: "Plan R+1.pdf" } }],
+        planFileDownloads: { [planPath]: { bytes: await createPdfArrayBuffer(1), mimeType: "application/pdf" } },
+      });
+      const exchange = buildTakeoffExchange([{ designation: "Tube cuivre", quantity: 12, unit: "m" }]);
+      const selection = { profileId: "profile", model: "account-model", reasoningEffort: null };
+      const call = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "account-model", costCents: 0 }));
+      vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call, selection, assertOwnerActive: vi.fn() });
+      vi.mocked(readTakeoffVectorPages).mockResolvedValueOnce([]);
+      const local = await setup();
+      await processLevelC(JOB_ID, { supabase: local.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini: vi.fn() });
+      expect(call).toHaveBeenCalled();
+      expect(takeoffVectorDecisionsHook).not.toHaveBeenCalled();
+      expect(vi.mocked(readTakeoffVectorPages).mock.calls[0]?.[1]?.decisions).toMatchObject({ owner: { tenantId: TENANT_ID, userId: USER_ID },
+        local: { selection } });
+
+      vi.clearAllMocks();
+      vi.mocked(readTakeoffVectorPages).mockResolvedValueOnce([]);
+      const server = await setup();
+      const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-c-v1" }));
+      await processLevelC(JOB_ID, { supabase: server.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+      expect(takeoffVectorLocalGroupsHook).not.toHaveBeenCalled();
+      const decisions = vi.mocked(readTakeoffVectorPages).mock.calls[0]?.[1]?.decisions;
+      expect(decisions).toMatchObject({ owner: { tenantId: TENANT_ID, userId: USER_ID } });
+      expect(decisions?.local).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   // M1b : chaque morceau d'un jeu de plans d'un seul fichier est annoncé sous le libellé d'origine ;

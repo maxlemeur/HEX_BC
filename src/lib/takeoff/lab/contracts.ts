@@ -190,7 +190,7 @@ export const LAB_VECTOR_TASK_ID = "classe-de-calque";
 /** Segments of a page's groups the vectors page draws at most; past it the geometry is cut and says so. */
 export const LAB_VECTOR_MAX_SEGMENTS = 20_000;
 
-export type LabVectorClassSource = "keyword" | "legend" | "label" | "document" | "user" | "decisions";
+export type LabVectorClassSource = "keyword" | "legend" | "label" | "rule" | "document" | "user" | "decisions" | "chatgpt";
 
 /** One group of traces of the page (a layer, else a colour, width and dash), as the vectors page shows it. */
 export type LabVectorGroup = {
@@ -210,6 +210,8 @@ export type LabVectorGroup = {
   confidence: number | null;
   /** Networks a shared legend colour hesitates between. */
   candidates: string[];
+  /** A group left « à revoir » with what the classification proposes (TI-704 « hors_liste »), else null. */
+  proposal: string | null;
   /** classifyByKeywords alone (layer name, else legend colour). */
   keyword: { class: string | null; source: "keyword" | "legend" | null };
   length_pt: number;

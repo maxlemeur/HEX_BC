@@ -9,7 +9,8 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target 
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { QuantityEntryDialog } from "@/components/takeoff/review/QuantityEntryDialog";
-import { TakeoffReviewPolicyPanel } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
+import { TakeoffReviewPolicyPanel, importantReviewItemIds, useTakeoffReviewContext } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
+import { TargetedReviewFilterBar } from "@/components/takeoff/review/TargetedReviewFilters";
 import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
@@ -33,6 +34,16 @@ import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/take
 import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 import { TAKEOFF_RULE_LABELS, ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
+import { takeoffPreparationSchema } from "@/lib/takeoff/preparation";
+import {
+  LOT_VALUE_PREFIX,
+  filterTargetedReview,
+  readTargetedReviewFilters,
+  takeoffPricingIndex,
+  targetedReviewFacts,
+  writeTargetedReviewFilters,
+  type TargetedReviewFilters,
+} from "@/lib/takeoff/targeted-review-filters";
 import {
   acceptanceOf,
   duplicateExclusionReason,
@@ -49,7 +60,8 @@ import { cn } from "@/lib/utils";
 // Targeted review of a takeoff job (TI-664 step 4), a « tool » screen (TI-658 « Mise en page outil »): only the lines
 // the apply guard rejects or finds uncertain (lib/takeoff/targeted-review.ts), one decision at a time, each saved at
 // once and read back with the rule state of its partners (PATCH rule_states). Left: the lines and their filters
-// (« Règle en échec »), the application at the bottom. Centre: the plan and its vector reading (TI-662), the line in
+// (TI-701, D13: the view, « Gros montants », « Hypothèses », « Non chiffré », network or lot, level or zone, plan and
+// revision; kept in the address), the application at the bottom. Centre: the plan and its vector reading (TI-662), the line in
 // focus. Right: its reasons, the Z1/Z2 duplicate (length counted twice, the other zone's line) and its decisions:
 // exclude (E, with a reason), correct (direct entry or F2), accept (V), enter a quantity the plan cannot show (with
 // what it rests on, TI-686 D12: QuantityEntryDialog).
@@ -63,17 +75,36 @@ const LazyTakeoffVectorViewer = dynamic(
   { ssr: false, loading: () => <LoadingState label="Chargement de la lecture vectorielle…" /> }
 );
 
-type Filter = "all" | "rule_failed" | "uncertain";
 type Job = TakeoffJobDetailResponse["job"];
 type Line = TargetedReviewLine<TakeoffJobItem>;
 
 const RIGHT_MIN = 340;
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
+  ? value as Record<string, unknown> : {};
 const metres = (value: number) => `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(value)} m`;
 const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
 
 /** A shortcut shown on its button; the button names it with aria-keyshortcuts, so it is not read twice. */
 function Kbd({ children }: Readonly<{ children: React.ReactNode }>) {
   return <kbd aria-hidden="true" className="ml-1.5 rounded border border-border bg-surface-subtle px-1 font-mono text-[10px] text-muted-foreground">{children}</kbd>;
+}
+
+/**
+ * The address with other parameters, in place: no navigation, nothing read again. The history state stays the
+ * router's own, so the router takes no part (with another state it would restore the page, and drop a navigation
+ * under way); a browser that refuses (too many writes in a row) leaves the address as it was.
+ */
+function replaceAddress(change: (params: URLSearchParams) => URLSearchParams, pathname = window.location.pathname) {
+  // Scheduled on this page and run after a navigation away: the next page's address is not this page's.
+  if (window.location.pathname !== pathname) return;
+  const query = change(new URLSearchParams(window.location.search)).toString();
+  const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  if (next === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+  try {
+    window.history.replaceState(window.history.state, "", next);
+  } catch {
+    // The address is a convenience: the page holds the filters and the line.
+  }
 }
 
 /** A quantity as the field shows it: fr-FR decimal comma, no grouping. */
@@ -113,10 +144,18 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const savingRef = useRef(new Set<string>());
   const mutationRevision = useRef(0);
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
-  const [filter, setFilter] = useState<Filter>("all");
+  // The filters and the line in focus live in the address (TI-701): a reload or a shared link shows the same lines.
+  // Written in place, so the review is not navigated again; read once, the page holds them.
+  const [filters, setFilters] = useState<TargetedReviewFilters>(() => readTargetedReviewFilters(new URLSearchParams(searchParams.toString())));
+  const updateFilters = useCallback((next: TargetedReviewFilters) => {
+    setFilters(next);
+    replaceAddress((params) => writeTargetedReviewFilters(params, next));
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("line"));
-  const lastIndex = useRef(0);
-  const nextId = useRef<string | null>(null);
+  // A line opened on purpose (its link, a partner, a post): listed while in focus, even when the filters drop it.
+  const [pinnedId, setPinnedId] = useState<string | null>(searchParams.get("line"));
+  // Where the line in focus was last seen in the list: its index and the line that followed it (or preceded it, last).
+  const [position, setPosition] = useState<{ index: number; nextId: string | null }>({ index: 0, nextId: null });
   const [exclusion, setExclusion] = useState<{ itemId: string; reason: string; key: number; expectedEvaluation?: string | null } | null>(null);
   const [draft, setDraft] = useState<{ itemId: string; text: string } | null>(null);
   // The line V is being justified for (TI-685, TI-686 D9), read live from the lines: a quantity retained from the dialog
@@ -131,7 +170,6 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const resize = useRef<{ x: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [providerMeta, setProviderMeta] = useState<Record<string, unknown> | null>(null);
-  const [importantIds, setImportantIds] = useState<string[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
@@ -171,33 +209,64 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }, [loaded]);
 
   const level = job?.level ?? null;
+  const reviewContext = useTakeoffReviewContext(jobId, items);
+  const importantIds = useMemo(() => importantReviewItemIds(reviewContext.context), [reviewContext.context]);
   const review = useMemo(() => targetedReviewLines(items, threshold, level, importantIds), [items, level, threshold, importantIds]);
   const counts = useMemo(() => ({
     all: review.lines.length,
-    rule_failed: review.lines.filter((line) => line.reasons.includes("rule_failed")).length,
     uncertain: review.lines.filter((line) => line.tier === "uncertain").length,
   }), [review.lines]);
-  const visible = useMemo(() => review.lines.filter((line) => (filter === "all" ? true
-    : filter === "uncertain" ? line.tier === "uncertain" : line.reasons.includes("rule_failed"))), [filter, review.lines]);
+  // TI-701: the amounts and unpriced lines from the review context, the plans and pages from the preparation.
+  const pricing = useMemo(() => takeoffPricingIndex(reviewContext.context, items), [items, reviewContext.context]);
+  // The amounts and the lots arrive with the review context: their filters wait for it, never shown unapplied.
+  const pricingPending = reviewContext.context === null && reviewContext.error === null
+    && (filters.large || filters.unpriced || filters.network.some((value) => value.startsWith(LOT_VALUE_PREFIX)));
+  const sources = useMemo(() => {
+    const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
+    return parsed.success ? parsed.data.sources : [];
+  }, [providerMeta]);
+  const facts = useMemo(() => targetedReviewFacts(review.lines, { pricing, sources }), [pricing, review.lines, sources]);
+  const available = useMemo(() => ({ large: pricing.large.ids.size > 0, unpriced: pricing.available, hypotheses: true }), [pricing]);
+  const lots = useMemo(() => new Map([...pricing.lots.values()].map((lot) => [lot.id, lot.title])), [pricing]);
+  // The line being edited is never hidden (TI-721's rule): a quantity typed, a dialog open, a decision being saved, or
+  // a line opened on purpose while in focus.
+  const editingId = draft?.itemId ?? pendingEntry?.itemId ?? justification?.itemId ?? exclusion?.itemId
+    ?? (selectedId !== null && saving.has(selectedId) ? selectedId : null);
+  const keepId = editingId ?? (selectedId !== null && pinnedId === selectedId ? selectedId : null);
+  const filtered = useMemo(() => filterTargetedReview(facts, filters, { available, kept: keepId }), [available, facts, filters, keepId]);
+  const visible = useMemo(() => {
+    const byId = new Map(review.lines.map((line) => [line.item.id, line]));
+    return pricingPending ? [] : filtered.visible.map((id) => byId.get(id) as Line);
+  }, [filtered.visible, pricingPending, review.lines]);
+  const keptLine = filtered.kept ? visible.find((line) => line.item.id === filtered.kept) ?? null : null;
 
-  // A decided line leaves the list: the selection goes to the line that followed it (or, gone too, the one now at
-  // its place), and stays in view.
+  // The line in focus: none chosen, the first line; a decided line leaves the list: the line that followed it (or, gone
+  // too, the one now at its place); a line being saved keeps it. Settled while rendering, so the screen shows the lines
+  // with their focus: an effect ran after they were shown and replaced a line clicked meanwhile (TI-719).
   const selectedIndex = visible.findIndex((line) => line.item.id === selectedId);
-  useEffect(() => {
-    if (!job) return;
-    if (selectedIndex >= 0) {
-      lastIndex.current = selectedIndex;
-      nextId.current = visible[selectedIndex + 1]?.item.id ?? visible[selectedIndex - 1]?.item.id ?? null;
-      return;
-    }
-    if (selectedId && savingRef.current.has(selectedId)) return;
-    const next = (visible.some((line) => line.item.id === nextId.current) ? nextId.current : null)
-      ?? visible[Math.min(lastIndex.current, visible.length - 1)]?.item.id ?? null;
+  if (job && selectedIndex >= 0) {
+    const nextId = visible[selectedIndex + 1]?.item.id ?? visible[selectedIndex - 1]?.item.id ?? null;
+    if (position.index !== selectedIndex || position.nextId !== nextId) setPosition({ index: selectedIndex, nextId });
+  } else if (job && !pricingPending && !(selectedId && saving.has(selectedId))) {
+    const next = (visible.some((line) => line.item.id === position.nextId) ? position.nextId : null)
+      ?? visible[Math.min(position.index, visible.length - 1)]?.item.id ?? null;
     if (next !== selectedId) setSelectedId(next);
-  }, [job, selectedId, selectedIndex, visible]);
+  }
+  // It stays in view, and in the address once the focus rests (keys held down write it once): reloaded, the review
+  // opens on it.
   useEffect(() => {
     if (selectedId) document.getElementById(`targeted-line-${selectedId}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedId]);
+    if (!job) return;
+    const pathname = window.location.pathname;
+    const timer = window.setTimeout(() => replaceAddress((params) => {
+      if (selectedId) params.set("line", selectedId);
+      else params.delete("line");
+      return params;
+    }, pathname), 300);
+    return () => window.clearTimeout(timer);
+  }, [job, selectedId]);
+  // A line opened on purpose stays listed while it is in focus, not once the focus left it.
+  if (pinnedId !== null && job && selectedId !== pinnedId && !pricingPending) setPinnedId(null);
   const current: Line | null = review.lines.find((line) => line.item.id === selectedId) ?? null;
   const guidance = current ? zoneOverlapGuidance(current.item) : null;
   const acceptance = current ? acceptanceOf(current.item, level) : null;
@@ -443,8 +512,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
           jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
       ) : null}
-      <TakeoffReviewPolicyPanel jobId={jobId} items={items} providerMeta={providerMeta}
-        onImportantItems={setImportantIds} onFocusItem={setSelectedId} />
+      <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error}
+        onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
       <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}
         beginRevision={() => ++mutationRevision.current}
         getRevision={() => mutationRevision.current}
@@ -457,22 +526,25 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lignes à revoir</span>
               <IconButton label="Replier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftClose />} onClick={() => { setLeftOpen(false); rootRef.current?.focus(); }} />
             </div>
-            <div role="group" aria-label="Filtrer les lignes" className="flex shrink-0 flex-wrap gap-1 border-b border-border px-3 py-2">
-              {([["all", "À revoir"], ["rule_failed", "Règle en échec"], ["uncertain", "Incertaines"]] as const).map(([value, label]) => (
-                <Button key={value} size="xs" variant={filter === value ? "secondary" : "ghost"} aria-pressed={filter === value} onClick={() => setFilter(value)}>
-                  {label} <span className="tabular-nums text-muted-foreground">{counts[value]}</span>
-                </Button>
-              ))}
-            </div>
+            <TargetedReviewFilterBar filters={filters} result={filtered} available={available} pricingPending={pricingPending}
+              large={pricing.large} largeToReview={facts.filter((line) => line.large).length} lots={lots} onChange={updateFilters} />
+            {keptLine ? (
+              <p role="status" className="shrink-0 border-b border-border bg-warning-light px-3 py-1.5 text-xs text-foreground-secondary">
+                {`« ${keptLine.item.designation} » ne correspond pas aux filtres : elle reste affichée ${
+                  editingId === keptLine.item.id ? "pendant sa modification" : "tant qu’elle est ouverte"}.`}
+              </p>
+            ) : null}
             {!job ? (
               <p className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground"><Spinner aria-label="Chargement" />Chargement des lignes…</p>
+            ) : pricingPending ? (
+              <p className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground"><Spinner aria-label="Chargement" />Chargement des montants…</p>
             ) : visible.length === 0 ? (
               <p role="status" className="px-3 py-3 text-sm text-muted-foreground">
-                {counts.all === 0 ? "Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu." : "Aucune ligne pour ce filtre."}
+                {counts.all === 0 ? "Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu." : "Aucune ligne pour ces filtres."}
               </p>
             ) : null}
             <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2 I"
-              aria-activedescendant={current ? `targeted-line-${current.item.id}` : undefined}
+              aria-activedescendant={current && !pricingPending ? `targeted-line-${current.item.id}` : undefined}
               className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring">
               {visible.map((line) => {
                 const selected = line.item.id === selectedId;
@@ -486,6 +558,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-foreground" title={line.item.designation}>{line.item.designation}</span>
                         <span className="block text-muted-foreground">
+                          {line.item.id === filtered.kept ? <Badge size="sm" variant="outline" className="mr-1">Hors filtres</Badge> : null}
                           {first ? TAKEOFF_RULE_LABELS[first.rule]
                             : hypothesis ? "Hypothèse non présélectionnée"
                             : line.tier === "uncertain" ? "Confiance moyenne"
@@ -582,7 +655,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                     focusList();
                     void decide(current.item, { quantity: to }, "Longueur retirée", current.item.rules_evaluated_at ?? null);
                   }}
-                  onSelectPartner={(itemId) => { setSelectedId(itemId); setFilter("all"); focusList(); }}
+                  onSelectPartner={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); focusList(); }}
                   partnerListed={(itemId) => review.lines.some((line) => line.item.id === itemId)}
                   partnerHref={targetedHref} />
               ) : (
@@ -639,7 +712,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
-          onReturnToReview={() => setWizardOpen(false)} />
+          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={`${reviewHref}&reviewMode=production&view=dpgf`} />
       ) : null}
     </div>
   );

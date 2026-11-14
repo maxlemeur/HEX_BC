@@ -73,6 +73,7 @@ beforeEach(() => {
   vi.mocked(repository.listTakeoffApplyGuardItems).mockResolvedValue([]);
   vi.mocked(repository.loadTakeoffApplyConcurrencyToken).mockResolvedValue(TOKEN);
   vi.mocked(loadTakeoffDpgfComparisonContext).mockResolvedValue({ jobId: JOB_ID, estimateItems: [], takeoffItems: [],
+    compositions: { targets: new Map(), lines: new Map(), jobs: new Map() },
     comparisonInput: { versionId: VERSION_ID, jobId: JOB_ID, dpgfLines: [], takeoffLines: [] } } as never);
   vi.mocked(fetchAllTakeoffDpgfComparisonRows).mockResolvedValue({ summary, rows: [] } as never);
   vi.mocked(repository.issueTakeoffDpgfApplyAuthorization).mockImplementation(async (input) => input.authorizationToken);

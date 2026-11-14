@@ -80,15 +80,15 @@ export const takeoffPageReplacementPageSchema = z.object({
   lines: z.array(pageLineSchema).min(1),
   /** This takeoff's lines read on this page (a line without a page lies on every page it may be). */
   new_line_ids: z.array(uuid),
-  /** The DPGF targets of the page this takeoff's lines feed again: replacing the page replaces their measure. */
+  /** The DPGF targets of the page this takeoff's lines feed again (TI-682 D4: what replacing the page puts in their sum). */
   dpgf_fed_again: z.array(uuid),
   /** A new line known only by its name meets two identified documents of that name here: no pair across them. */
   ambiguous_document: z.boolean(),
   /**
-   * Why keeping both is refused on this page, if it is: its new lines feed a DPGF target another takeoff fed (D-6), or
-   * « Fusionner », required on a DPGF version, sends a new line onto an earlier line of the page.
+   * Why keeping both is refused on this page, if it is: « Fusionner », required on a DPGF version, sends a new line onto
+   * an earlier line of the page. (TI-682 D4: a DPGF target sums both measures; keeping both is no longer refused for it.)
    */
-  keep_both_refused: z.enum(["dpgf_target", "merge_match"]).nullable(),
+  keep_both_refused: z.enum(["merge_match"]).nullable(),
 }).strict();
 export type TakeoffPageReplacementPage = z.infer<typeof takeoffPageReplacementPageSchema>;
 
@@ -102,7 +102,10 @@ const earlierLineSchema = z.object({
   changed_by_hand: z.boolean(),
   updated_at: z.string(),
   unit_price_ht_cents: z.number().int().nullable(),
-  /** A DPGF target: its own policy replaces it; it is only kept or replaced by the DPGF reconciliation. */
+  /**
+   * A DPGF target: never updated nor removed here; it sums the measures it keeps (TI-682 D4), and replacing a page takes
+   * that page's part out of it (dpgf_targets).
+   */
   dpgf_target: z.boolean(),
   /** A line an ouvrage materialized: its quantity is the ouvrage's; it is kept or removed, never paired. */
   assembly: z.boolean(),
@@ -132,6 +135,49 @@ const newLineSchema = z.object({
 }).strict();
 export type TakeoffPageReplacementNewLine = z.infer<typeof newLineSchema>;
 
+/**
+ * TI-682 D4: a DPGF target the application touches (this takeoff feeds it, or it holds a part of a page this takeoff
+ * reads again), with what it holds of each takeoff and what this one brings: the screen shows what it will hold, before
+ * and after, under the estimator's page decisions. Contributions are raw, in the target's unit; a part of several lines
+ * whose share per page is unknown (a policy applied before D4) lists them all.
+ */
+const contributionPlace = { source_file_name: z.string().nullable(), source_page: z.number().int().positive().nullable() };
+const dpgfTargetSchema = z.object({
+  id: uuid,
+  title: z.string(),
+  unit_key: z.string(),
+  /** What it holds now. */
+  quantity: z.number().nullable(),
+  /** The DPGF reference: the written quantity never falls below it. */
+  reference: z.number().nullable(),
+  length_factor: z.number().nullable(),
+  earlier: z.array(z.object({ job_id: uuid, item_ids: z.array(uuid).min(1), quantity: z.number(), protective: z.number(),
+    printed_gap: z.number(), ...contributionPlace }).strict()),
+  fed: z.array(z.object({ item_id: uuid, quantity: z.number(), protective: z.number(), printed_gap: z.number(), ...contributionPlace }).strict()),
+}).strict();
+export type TakeoffPageReplacementDpgfTarget = z.infer<typeof dpgfTargetSchema>;
+
+/**
+ * TI-723: a line « Fusionner » sends onto a DPGF line outside the reconciliation, which the database refuses
+ * (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT, merged_outside_reconciliation) whatever the page decisions: a DPGF line takes a
+ * measure only through its reconciliation. Accepted only when this takeoff feeds that DPGF line (`fed`) and the
+ * reconciliation links the line to some DPGF line (`linked`).
+ */
+const dpgfMergeRefusalSchema = z.object({
+  takeoff_item_id: uuid,
+  designation: z.string(),
+  quantity: z.number(),
+  unit: z.string(),
+  /** The DPGF line « Fusionner » sends it onto, and what it holds now. */
+  estimate_item_id: uuid,
+  title: z.string(),
+  dpgf_quantity: z.number().nullable(),
+  unit_key: z.string(),
+  fed: z.boolean(),
+  linked: z.boolean(),
+}).strict();
+export type TakeoffPageReplacementDpgfMergeRefusal = z.infer<typeof dpgfMergeRefusalSchema>;
+
 export const takeoffPageReplacementResponseSchema = z.object({
   job_id: uuid,
   /** The version the application writes into: the takeoff's own. */
@@ -152,6 +198,10 @@ export const takeoffPageReplacementResponseSchema = z.object({
   unidentified_count: z.number().int().nonnegative(),
   /** The version has DPGF lines: « Fusionner » is required and its pairs are imposed. */
   merge_required: z.boolean(),
+  /** TI-682 D4: the DPGF targets the application touches (empty outside a DPGF version). */
+  dpgf_targets: z.array(dpgfTargetSchema),
+  /** TI-723: the lines « Fusionner » sends onto a DPGF line outside the reconciliation (empty outside a DPGF version). */
+  dpgf_merge_refusals: z.array(dpgfMergeRefusalSchema),
 }).strict().superRefine((proposal, ctx) => {
   const pairs = new Set<string>();
   for (const pair of proposal.pairs) {

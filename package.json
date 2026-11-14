@@ -1,6 +1,6 @@
 {
   "name": "projet_bc",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "engines": {
     "node": "^26.12.1"
@@ -116,6 +116,7 @@
   },
   "devDependencies": {
     "@ai-sdk/openai": "4.0.111",
+    "@e2e-dev/decision": "0.3.3",
     "@e2e-dev/web": "0.15.5",
     "@mergeone/minimatch-v3-api": "file:tools/minimatch-v3-api",
     "@mergeone/next-eslint-root-glob": "file:tools/next-eslint-root-glob",
@@ -130,7 +131,7 @@
     "@vitest/coverage-v8": "5.1.0",
     "ai": "7.0.165",
     "axe-core": "4.14.0",
-    "e2e": "0.23.0",
+    "e2e": "0.23.1",
     "esbuild": "0.28.2",
     "eslint": "^10.14.0",
     "eslint-config-next": "16.4.5",

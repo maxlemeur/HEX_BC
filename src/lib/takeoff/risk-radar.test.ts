@@ -186,6 +186,19 @@ describe("takeoff risk radar", () => {
     ).toBe("inference");
   });
 
+  it("compares the DPGF reference with the total a line other takeoffs feed will hold (TI-696)", () => {
+    const fed = makeRow({ takeoff_quantity: 130, delta_absolute: 50, delta_percent: 50, composition: {
+      earlier: [{ job_id: JOB_ID, job_created_at: "2026-03-01T10:00:00.000Z", job_level: "B", quantity: 20, read_again: false,
+        pages: [{ source_file_name: "plan-b.pdf", source_page: 2, quantity: 20 }] }],
+      earlier_quantity: 20, earlier_protective: 0, earlier_printed_gap: 0, total_quantity: 150, double_counted: [] } });
+    const { candidates } = buildTakeoffRiskCandidates({
+      comparisonRows: [fed], estimateItems: [], lotContextByItemId: {}, projectId: PROJECT_ID, projectLabel: "Projet fictif",
+      qualityFlagsByItemId: {}, versionTaxRateBp: 2000, marginThresholdBp: 1000, versionMarginBp: 1500, missingPieces: [],
+    } as unknown as Parameters<typeof buildTakeoffRiskCandidates>[0]);
+    const gap = JSON.stringify(candidates.find((candidate) => candidate.cause_code === "dpgf_takeoff_gap"));
+    expect([gap.includes("vs métré 150 m2"), gap.includes("vs métré 130 m2")]).toEqual([true, false]);
+  });
+
   it("aggregates open alerts into line, lot and project scores", () => {
     const alerts: TakeoffRiskAlert[] = [
       {

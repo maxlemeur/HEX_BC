@@ -3,7 +3,7 @@ import type { BenchPass, BenchRunResult, BenchStop, ChunkCall, DocumentRun, Stop
 import { describeError } from "@/lib/takeoff/bench/run";
 import type { GroupTruthFile } from "@/lib/takeoff/bench/schemas";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
-import { isClassified, isMeasuredNetwork, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
+import { isClassified, isLocalModelPromptVersion, isMeasuredNetwork, isNetworkClass, isVectorClass } from "@/lib/takeoff/vectors/classify";
 import {
   decisionsOfOutcome,
   isDecisionsRunStop,
@@ -16,7 +16,8 @@ import type { CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filt
 import { vectorItems } from "@/lib/takeoff/vectors/items";
 import { buildPageModel } from "@/lib/takeoff/vectors/page-model";
 import type { NetworkMeasure } from "@/lib/takeoff/vectors/measure";
-import { readVectorPage, VECTOR_READING_VERSION, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
+import { isRasterExtraction, readVectorPage, VECTOR_READING_VERSION, type VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
+import type { GroupEvidenceSession } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import type { VectorClass } from "@/lib/takeoff/vectors/vocabulary";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import {
@@ -61,6 +62,10 @@ import {
 // run there: the page keeps the answers it got, the document is not scored
 // (incomplete), later pages and passes are not run. A page whose images could
 // not be drawn keeps its groups « à revoir » and the run goes on.
+// The page's drawing starts once its extraction has ended, or with it
+// (hook.startDrawing, as in the worker, TI-704 latency), and goes to the hook
+// with the page; one the hook leaves, or a raster page's, is ended here. Each page read records its durations: extraction,
+// keyword reading, groups (the hook: drawing and calls), the rest and the total.
 // With a vision hook (--vision-review, TI-664 L5c), once a pass is read and its rules computed, the lines the DN ×
 // network rule rejects are reviewed page by page (vision-review.ts); the corrected lines and their rules computed
 // again are the pass « after vision » (result.vision), the pass itself is left as read. A stop of the hook (quota,
@@ -108,7 +113,13 @@ export type VectorPageDecisions = {
   calls: GroupDecisionsCall[];
   stop: GroupDecisionsStop | null;
   render: GroupDecisionsOutcome["render"];
-  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "dedicated" }>;
+  answers: Array<{ alias: string; group: string; class: string | null; confidence: number | null; status: string; via: "batch" | "rule" | "local";
+    rule?: string; proposal?: string }>;
+  /** Groups never asked by reason, and candidates the rules classed (TI-704). */
+  filtered: GroupDecisionsOutcome["filtered"];
+  ruled: GroupDecisionsOutcome["ruled"];
+  /** Time with at least one call in flight (TI-704 latency); null without a call. */
+  calls_ms?: number | null;
 };
 
 /**
@@ -129,12 +140,22 @@ export type VectorPageSummary = {
   decisions?: VectorPageDecisions | null;
   /** The candidates of the keyword reading (TI-704); absent from a failed page. */
   candidates?: VectorPageCandidates;
+  /**
+   * Wall-clock durations of the page (TI-704 latency): extraction, keyword reading (with the candidates' selection),
+   * groups (the hook: its drawing, as far as it was not done meanwhile, and its calls), the rest (reading again, items).
+   */
+  durations?: { extraction_ms: number; keywords_ms: number; groups_ms: number | null; rest_ms: number; total_ms: number };
 };
 
 export type VectorDecisionsHook = {
   /** Recorded with the reading's version as the run's prompt version. */
   promptVersion: string;
-  classify: (document: VectorBenchDocument, page: number, extraction: VectorPageExtraction, reading: VectorPageReading) => Promise<GroupDecisionsOutcome>;
+  /** A page's drawing, started once its extraction has ended or with it (`drawWithExtraction`), as the worker does; none for a raster page. */
+  startDrawing?: (document: VectorBenchDocument, page: number) => GroupEvidenceSession;
+  drawWithExtraction?: boolean;
+  /** One page of one pass (`pass` from 1): its groups classified, with the drawing started for it (the hook ends it). */
+  classify: (document: VectorBenchDocument, page: number, extraction: VectorPageExtraction, reading: VectorPageReading, pass: number,
+    session?: GroupEvidenceSession | null) => Promise<GroupDecisionsOutcome>;
 };
 
 export type VectorDocumentSummary = { id: string; pages: VectorPageSummary[] };
@@ -177,7 +198,7 @@ function summarize(reading: VectorPageReading): VectorReadingSummary {
       nearWhite: group.nearWhite, grey: group.grey, class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates })),
     surfaces: surfaces.map((surface) => ({ room: surface.room, printed_m2: surface.printed_m2, anchor: surface.anchor, polygon_m2: surface.polygon_m2,
       polygon_points: surface.polygon_points, deviation: surface.deviation, method: surface.method, fill_rejected: surface.fill_rejected })),
-    // As the detection badge and the measure count them: a Decisions proposal under 0.8 is neither.
+    // As the detection badge and the measure count them: a Decisions proposal under its accepted margin is neither.
     groups_classified: groups.filter((group) => isClassified(group)).length,
     groups_network: groups.filter((group) => isMeasuredNetwork(group)).length,
     near_white_network_groups: groups.filter((group) => group.nearWhite && isNetwork(group)).length,
@@ -234,8 +255,10 @@ export function baselineRasterFallback(passes: ReadonlyArray<Pick<BenchPass, "do
 function pageDecisions(outcome: GroupDecisionsOutcome): VectorPageDecisions {
   return {
     candidates: outcome.candidates, eligible: outcome.eligible, left_out: outcome.left_out, calls: outcome.calls, stop: outcome.stop, render: outcome.render,
+    filtered: outcome.filtered, ruled: outcome.ruled, calls_ms: outcome.calls_ms,
     answers: [...outcome.answers].map(([group, answer]) => ({ alias: answer.alias, group, class: answer.class, confidence: answer.confidence,
-      status: answer.status, via: answer.via })).sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
+      status: answer.status, via: answer.via, ...(answer.rule ? { rule: answer.rule } : {}), ...(answer.proposal ? { proposal: answer.proposal } : {}) }))
+      .sort((left, right) => (left.alias < right.alias ? -1 : left.alias > right.alias ? 1 : 0)),
   };
 }
 
@@ -389,8 +412,19 @@ export async function runVectorBench(input: {
           model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, prompt_version: promptVersion, usage: null,
         };
         const startedAt = clock();
+        let drawing: GroupEvidenceSession | null = null;
         try {
+          if (input.decisions?.startDrawing && input.decisions.drawWithExtraction) drawing = input.decisions.startDrawing(document, page);
           const extraction = await extract(document.bytes, page);
+          const extracted = clock();
+          if (isRasterExtraction(extraction)) {
+            drawing?.cancel();
+            drawing = null;
+          } else if (input.decisions?.startDrawing && !input.decisions.drawWithExtraction) {
+            // It has the PDF before the reading holds this event loop, as in the worker.
+            drawing = input.decisions.startDrawing(document, page);
+            await drawing.ready;
+          }
           const calibration = groups?.calibrations?.find((entry) => entry.page === page) ?? null;
           const options = { calibration, correspondences: correspondencesOf(groups, page), correspondenceSource: "document" as const };
           let reading = readVectorPage(extraction, options);
@@ -398,9 +432,19 @@ export async function runVectorBench(input: {
           const selection = selectDecisionCandidates(buildPageModel(extraction), reading);
           const candidates: VectorPageCandidates = { selected: selection.candidates.map((candidate) => candidate.id), eligible: selection.eligible,
             left_out: selection.left_out, filtered: selection.filtered.map((entry) => ({ group: entry.id, reason: entry.reason })) };
+          const read = clock();
           let decided: GroupDecisionsOutcome | null = null;
+          let classified: number | null = null;
           if (input.decisions) {
-            decided = await input.decisions.classify(document, page, extraction, reading);
+            const given = drawing;
+            drawing = null;
+            try {
+              decided = await input.decisions.classify(document, page, extraction, reading, pass, given);
+            } finally {
+              // A drawing the hook left running ends here (a real one ends once).
+              given?.cancel();
+            }
+            classified = clock();
             const answers = decisionsOfOutcome(decided);
             if (answers.size > 0) reading = readVectorPage(extraction, { ...options, decisions: answers });
           }
@@ -421,21 +465,26 @@ export async function runVectorBench(input: {
             fallback = items.length;
           }
           ruleData.push(...(reading.mode === "raster" ? items.map(() => null) : data));
-          const duration = Math.max(0, clock() - startedAt);
+          const ended = clock();
+          const duration = Math.max(0, ended - startedAt);
+          const durations = { extraction_ms: Math.round(extracted - startedAt), keywords_ms: Math.round(read - extracted),
+            groups_ms: classified === null ? null : Math.round(classified - read), rest_ms: Math.round(ended - (classified ?? read)), total_ms: Math.round(duration) };
           done += 1;
           run.items.push(...items);
           run.item_chunks.push(...items.map(() => [page]));
           run.calls.push({ ...base, status: "ok", duration_ms: Math.round(duration), duration_per_page_ms: Math.round(duration), items: items.length, warnings: 0, error: null });
           summary.pages.push({ page, status: "ok", error: null, reading: summarize(reading), raster_items_from_baseline: fallback,
-            ...(decided ? { decisions: pageDecisions(decided) } : {}), candidates });
+            ...(decided ? { decisions: pageDecisions(decided) } : {}), candidates, durations });
           input.log?.(`[vector pass ${pass}/${input.repeat}] ${document.id} p${page}: ${reading.mode}, scale ${reading.scale.status}, ${items.length} items, ${(duration / 1000).toFixed(1)} s`
-            + (decided ? `, Decisions ${decided.calls.length} calls${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
+            + (decided ? `, ${isLocalModelPromptVersion(input.decisions?.promptVersion) ? "ChatGPT local" : "Decisions"} ${decided.calls.length} calls`
+              + `${decided.stop ? ` (${decided.stop.reason})` : ""}` : ""));
           if (decided?.stop && isDecisionsRunStop(decided.stop.reason)) {
             stop = decisionsStop(decided.stop, done, planned, { model: VECTOR_PIPELINE_LABEL, reasoning_effort: null, pass, document: document.id, chunk: page });
             finishRules();
             break bench;
           }
         } catch (error) {
+          drawing?.cancel();
           // Only the extraction fails a page; any other error is the bench's own and stops the run.
           if (!(error instanceof VectorExtractionError)) throw error;
           const duration = Math.max(0, clock() - startedAt);

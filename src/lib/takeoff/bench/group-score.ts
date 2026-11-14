@@ -7,7 +7,7 @@ import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { GroupTruthFileSchema, type GroupTruthFile, type TakeoffBenchManifest } from "@/lib/takeoff/bench/schemas";
 import { nearestRank, table } from "@/lib/takeoff/bench/vector-report";
 import { CANDIDATE_FILTER_REASONS, type CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filter";
-import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
+import { acceptedConfidence, DECISIONS_ACCEPTED_MARGIN, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 
 // The per-group score of a vector run (TI-704): how the run classed the groups
@@ -21,12 +21,13 @@ import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 //   user's correspondences. The report records the hash of its JSON files (the
 //   dataset SHA's rule), never their content.
 // - A truth group is judged on the run's final reading of its page: a network
-//   class taken by the measure (any source; Decisions at 0.8 or more) is
-//   « found », a Decisions network under 0.8 « proposed » (never measured);
+//   class taken by the measure (any source; Decisions at its accepted margin,
+//   classify.ts) is « found », a Decisions network under it « proposed »
+//   (never measured);
 //   exact, or at parent level (HW for HW-S, and HW-R for HW-S: both are HW). It
 //   is « à revoir » when it has no class (a legend colour shared by networks
 //   included, which the review leaves to the labels), or a Decisions class
-//   under 0.8; a Decisions « autre » at 0.8 or more is decided. A group of a
+//   under that margin; a Decisions « autre » at it or more is decided. A group of a
 //   page that failed, of a document a pass did not reach (another pass read
 //   it), or that the reading no longer has, is « not read ».
 // - The candidates the run recorded for each page (vector-run.ts): selected
@@ -43,7 +44,7 @@ import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
 export const GROUP_SCORE_VERSION = 1;
 const BANDS = [
   { band: "[0 ; 0,5[", from: 0 }, { band: "[0,5 ; 0,6[", from: 0.5 }, { band: "[0,6 ; 0,7[", from: 0.6 },
-  { band: "[0,7 ; 0,8[", from: 0.7 }, { band: "[0,8 ; 1]", from: CLASSIFIED_DECISIONS_CONFIDENCE },
+  { band: "[0,7 ; 0,8[", from: 0.7 }, { band: "[0,8 ; 1]", from: 0.8 },
 ] as const;
 
 /** The private truth of a run: by document, with the hash of its files. */
@@ -136,7 +137,9 @@ type Judgment = {
 function statusOf(entry: ScoredGroup | undefined): Status {
   if (!entry) return "not_read";
   if (entry.class === null) return "to_review";
-  const decided = entry.source !== "decisions" || (entry.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE;
+  // As the reading decides (classify.ts): a Decisions class from its accepted margin, any other source's class.
+  const needed = acceptedConfidence(entry.source as ClassSource | null);
+  const decided = needed === null || (entry.confidence ?? 0) >= needed;
   if (asNetwork(entry.class)) return decided ? "network" : "proposal";
   return decided ? "other" : "to_review";
 }
@@ -256,10 +259,11 @@ function costOf(pass: GroupScorePassInput) {
   };
 }
 
-export function scoreGroupTruth(input: { passes: readonly GroupScorePassInput[]; truth: GroupTruthSet }): GroupScore {
+/** `threshold`: the accepted confidence of the model that read the groups, recorded (Decisions' margin by default). */
+export function scoreGroupTruth(input: { passes: readonly GroupScorePassInput[]; truth: GroupTruthSet; threshold?: number }): GroupScore {
   const run = new Set(input.passes.flatMap((pass) => pass.documents.map((document) => document.id)));
   return {
-    version: GROUP_SCORE_VERSION, threshold: CLASSIFIED_DECISIONS_CONFIDENCE,
+    version: GROUP_SCORE_VERSION, threshold: input.threshold ?? DECISIONS_ACCEPTED_MARGIN,
     truth: { sha256: input.truth.sha256, files: input.truth.files, groups: input.truth.groups,
       documents_not_run: [...input.truth.documents.keys()].filter((id) => !run.has(id)).sort() },
     passes: input.passes.map((pass) => {

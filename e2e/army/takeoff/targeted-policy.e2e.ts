@@ -165,3 +165,101 @@ armyTest("TKQ03 a vector measure the worker did not pair is refused beside the v
     refused: { status: refused.status, error: refusal }, applied: { status: applied.status, quantity: lines[0].quantity },
     boundary: "Real extraction of an owned fictional PDF; controlled model interpretation; no human timing measurement." });
 });
+
+// TI-701 (D13): the targeted review read by « Gros montants » and one network. Ways it fails: the filters live in the
+// page only, so a reload or a shared link shows every line again; a count ignores the other filters or comes back
+// different; a run no estimate line holds counts as a large amount; the filters cannot be reached on a phone.
+armyTest("TKQ04 the targeted review filters by large amounts and one network, kept with their counts after a reload", options, async ui => {
+  const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY TI701 filtres" }, ui.army);
+  // Four runs priced on the estimate (quantity × unit price: 500 €, 20 €, 320 €, 15 € of 855 €): 500 € and 320 € make
+  // 95 % of the amount, the large ones. The ECS run is on no estimate line (« Non chiffré ») and has no page: blocked.
+  const runs = [
+    { designation: "EF cuivre DN 22", network: "EF", quantity: 10, price: 5000, page: 1 },
+    { designation: "EF cuivre DN 28", network: "EF", quantity: 2, price: 1000, page: 1 },
+    { designation: "EU PVC DN 100", network: "EU", quantity: 8, price: 4000, page: 1 },
+    { designation: "EU PVC DN 125", network: "EU", quantity: 1, price: 1500, page: 1 },
+    { designation: "ECS cuivre DN 16", network: "ECS", quantity: 3, price: null, page: null },
+  ] as const;
+  const [first, ...others] = runs.filter(run => run.price !== null);
+  // The review context reads a line's unit in its unit code, else its description: the description serves both engines.
+  const line = { line_nature: "supply_only", tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1, description: "ml" };
+  const lot = await createLineViaApi(ui.browser, ids.versionId, first.designation, { ...line, quantity: first.quantity,
+    unit_price_ht_cents: first.price } as never);
+  for (const run of others) {
+    const created = await apiRequest(ui.browser, "POST", `/api/estimates/${ids.versionId}/items`, { ...line, item_type: "line",
+      parent_id: lot.parent_id, title: run.designation, quantity: run.quantity, unit_price_ht_cents: run.price });
+    expect([created.status, created.status === 201 ? null : created.body]).toEqual([201, null]);
+  }
+  const fixture = await localTakeoffFixture(ui.army, ids);
+  const seed = await fixture.seed("C", runs.map(run => ({ designation: run.designation, quantity: run.quantity, unit: "ml", confidence: 0.6,
+    source_page: run.page, metadata: { rule_inputs: { version: 2, source: "designation", kind: "network", network: run.network,
+      material: run.designation.includes("PVC") ? "pvc" : "cuivre", dn: null, non_observable: null, model_quantity: run.quantity } } })),
+  "Plan RDC Z1.pdf");
+  const idOf = (designation: string) => seed.items.find(item => item.designation === designation)!.id;
+  // An estimate to rank the lines (quantity × unit price), never an HT total of the estimate: no euro figure.
+  const LARGE_AMOUNTS = "Gros montants : 2 lignes du métré, 95 % du montant estimé (quantité × prix unitaire), dont 2 à revoir.";
+
+  // The review context prices each run at its estimate line and names the run no line holds.
+  const context = await apiRequest<{ data: { unlinked_item_ids: string[];
+    item_pricing: Array<{ item_id: string; pricing_status: string | null; unit_price_cents: number | null }> } }>(
+    ui.browser, "GET", `/api/takeoff/jobs/${seed.jobId}/review-context`);
+  expect(context.status).toBe(200);
+  expect(context.body.data.unlinked_item_ids).toEqual([idOf("ECS cuivre DN 16")]);
+  const pricing = context.body.data.item_pricing;
+  expect(pricing.map(entry => entry.item_id).sort()).toEqual(runs.filter(run => run.price !== null).map(run => idOf(run.designation)).sort());
+  expect(pricing.every(entry => entry.pricing_status === "priced" && Number.isSafeInteger(entry.unit_price_cents) && entry.unit_price_cents! > 0)).toBe(true);
+
+  await ui.browser.setViewport({ width: 1440, height: 900 });
+  const path = `/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review/targeted?versionId=${ids.versionId}`;
+  await ui.app.open(path);
+  const list = ui.screen.getByRole("listbox", "Lignes à trancher", { exact: true });
+  const filters = ui.screen.getByRole("group", "Filtrer les lignes", { exact: true });
+  await expect(list.getByRole("option")).toHaveCount(5);
+  for (const name of ["À revoir 5", "Blocages 1", "Incertaines 4", "Gros montants 2", "Hypothèses 0", "Non chiffré 1"]) {
+    await expect(filters.getByRole("button", name, { exact: true })).toBeVisible();
+  }
+
+  await filters.getByRole("button", "Gros montants 2", { exact: true }).click();
+  await expect(filters.getByRole("button", "Gros montants 2", { exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(filters.getByText(LARGE_AMOUNTS, { exact: true })).toBeVisible();
+  await expect(filters).not.toContainText("€");
+  await expect(list.getByRole("option")).toHaveCount(2);
+  await filters.getByRole("button", "Réseau ou lot", { exact: true }).click();
+  await filters.getByRole("checkbox", "EF · Eau froide 1", { exact: true }).check();
+  // Expected after the two filters: one line, and each count read with the other kinds' filters.
+  const expected = async () => {
+    await expect(list.getByRole("option")).toHaveCount(1);
+    await expect(list.getByRole("option", /^EF cuivre DN 22/)).toBeVisible();
+    for (const name of ["À revoir 1", "Blocages 0", "Incertaines 1", "Gros montants 1", "Non chiffré 0"]) {
+      await expect(filters.getByRole("button", name, { exact: true })).toBeVisible();
+    }
+    await expect(filters.getByRole("button", "Gros montants 1", { exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(filters.getByRole("checkbox", "EF · Eau froide 1", { exact: true })).toBeChecked();
+    await expect(filters.getByRole("checkbox", "EU · Eaux usées 1", { exact: true })).not.toBeChecked();
+    await expect(filters.getByRole("checkbox", "ECS · Eau chaude sanitaire 0", { exact: true })).not.toBeChecked();
+  };
+  await expected();
+  await expect(ui.browser).toHaveURL(/[?&]large=1(&|$)/);
+  await expect(ui.browser).toHaveURL(/[?&]network=EF(&|$)/);
+  const desktop = await ui.app.screenshot("ti701-targeted-filters-1440");
+
+  await ui.browser.reload();
+  await expected();
+  await expect(filters.getByText(LARGE_AMOUNTS, { exact: true })).toBeVisible();
+
+  // On a phone the filters stay in view and usable: the list widens again, then narrows back.
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  const phoneLayout = await ui.browser.evaluate(() => {
+    const box = document.querySelector("[role='group'][aria-label='Filtrer les lignes']")!.getBoundingClientRect();
+    return { left: box.left >= 0, right: box.right <= window.innerWidth, top: box.top >= 0 && box.top < window.innerHeight / 2 };
+  });
+  expect(phoneLayout).toEqual({ left: true, right: true, top: true });
+  await filters.getByRole("checkbox", "EU · Eaux usées 1", { exact: true }).check();
+  await expect(list.getByRole("option")).toHaveCount(2);
+  const phone = await ui.app.screenshot("ti701-targeted-filters-390");
+  await filters.getByRole("button", "Effacer les filtres", { exact: true }).click();
+  await expect(list.getByRole("option")).toHaveCount(5);
+  await expect(ui.browser).not.toHaveURL(/[?&](large|network)=/);
+  await recordEvidence(ui.army, "TKQ04-targeted-filters", { ids, jobId: seed.jobId, pricing, screenshots: [desktop, phone],
+    boundary: "Owned fictional takeoff seed on a local stack; prices from the estimate engine; no model call." });
+});

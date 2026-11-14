@@ -129,7 +129,7 @@ describe("TakeoffApplyWizard", () => {
     vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
       unidentified_item_ids: [], other_takeoff_line_count: 0 });
     vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ job_id: JOB_ID, version_id: VERSION_ID, pages: [], lines: [], new_lines: [],
-      pairs: [], jobs: [], unidentified_count: 0, merge_required: false });
+      pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [] });
   });
 
   it("requires a fresh preview after an override changes", async () => {
@@ -248,7 +248,7 @@ describe("TakeoffApplyWizard", () => {
       dpgf_target: false, sources: [{ id: `${id.slice(0, -1)}9`, quantity: 12.4 }],
       length_factor: 1, assembly: false, outside_pages: false, ...extra });
     const proposal = (pageExtra: Record<string, unknown> = {}, lineA: Record<string, unknown> = {}): TakeoffPageReplacementResponse => ({
-      job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false,
+      job_id: JOB_ID, version_id: VERSION_ID, unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [],
       jobs: [{ id: EARLIER_JOB, created_at: "2026-11-10T09:30:00.000Z", level: "C", source_file_name: "plan.pdf" }],
       pages: [{ key: "row-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [EARLIER_JOB],
         lines: [{ id: LINE_A, item_ids: [`${LINE_A.slice(0, -1)}9`] }, { id: LINE_B, item_ids: [`${LINE_B.slice(0, -1)}9`] }],
@@ -374,14 +374,20 @@ describe("TakeoffApplyWizard", () => {
       expect(within(panel).getByRole("status")).toHaveTextContent("rien n’y est remplacé");
     });
 
-    it("does not offer to keep both where the page feeds a DPGF line another takeoff fed", async () => {
-      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({ keep_both_refused: "dpgf_target" }));
+    // TI-682 D4: keeping both is no longer refused where the page feeds a DPGF line another takeoff fed (it sums both);
+    // the confirmation shows what each DPGF line it touches will hold, even with no page already in the estimate.
+    it("shows each DPGF line the application touches, before and after, even without a page already in the estimate", async () => {
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...proposal(), pages: [], lines: [], new_lines: [], pairs: [],
+        dpgf_targets: [{ id: LINE_B, title: "EF cuivre DN 22 (DPGF)", unit_key: "ml", quantity: 20, reference: 20, length_factor: 1,
+          earlier: [{ job_id: EARLIER_JOB, item_ids: [`${LINE_B.slice(0, -1)}9`], quantity: 12.4, protective: 0, printed_gap: 0,
+            source_file_name: "plan.pdf", source_page: 1 }],
+          fed: [{ item_id: ITEM_ID, quantity: 10.2, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 2 }] }] });
       renderWizard(undefined, { presetStrategy: "append" });
       await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
       fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
-      const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
-      expect(within(panel).getByRole("radio", { name: "Garder les deux" })).toBeDisabled();
-      expect(panel).toHaveTextContent("alimente une ligne DPGF déjà alimentée par un autre métré");
+      const panel = await screen.findByRole("region", { name: "Lignes DPGF" });
+      expect(panel).toHaveTextContent("EF cuivre DN 22 (DPGF) : 20 → 23 (+3) — alimentée par 2 métrés");
+      expect(screen.queryByRole("region", { name: "Pages déjà au devis" })).toBeNull();
     });
 
     it("reads the proposal again after the application refused a page decision", async () => {

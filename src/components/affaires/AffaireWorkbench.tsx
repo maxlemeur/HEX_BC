@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Send, TriangleAlert } from "lucide-react";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
@@ -70,7 +69,6 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
   estimateHref: string | null;
   versionLabel: string;
 }) {
-  const router = useRouter();
   const [drafts, setDrafts] = useState<Record<string, AffaireIntakeDocumentKind>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selection, setSelection] = useState<string[]>([]);
@@ -117,8 +115,9 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
           setDrafts((prior) => Object.fromEntries(Object.entries(prior).filter(([id]) => !successful.includes(id))));
           setSelection((prior) => prior.filter((id) => !successful.includes(id)));
           setErrors(failures);
+          // Each classification re-renders the page in its own response: a refresh after them held
+          // the saved state back until its own render had landed (TI-722).
           setMessage(successful.length === 1 ? "Classification enregistrée." : successful.length > 1 ? `${successful.length} classifications enregistrées.` : "");
-          if (successful.length > 0) router.refresh();
         });
       } finally {
         running.current = false;

@@ -121,7 +121,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     const banner = ui.screen.getByRole("region", REGION, { exact: true });
     await expect(banner).toBeVisible();
     await expect(banner).toContainText(pageRow);
-    await expect(banner).toContainText("À l’application, choisissez pour chaque page de remplacer sa mesure précédente ou de garder les deux");
+    await expect(banner).toContainText("À l’application, l’assistant dit pour chaque page ce qui est possible : remplacer sa mesure précédente, garder les deux avec un motif ou, avec un DPGF, ce qui débloque la page");
     await expect(banner.getByRole("button")).toHaveCount(0);
     const screenshots = [await ui.app.screenshot("ti682-targeted-review-page-already-in-estimate")];
 

@@ -64,6 +64,81 @@ alternative de filtre sans correspondance et un fichier local oublié des
 collecteurs ou du registre d'exclusions. Chaque fichier demandé doit ensuite
 être réellement exécuté et réussi.
 
+## Filtre par modèle de décision
+
+Sur une PR, un modèle de décision réduit la sélection par impact : il lit le
+diff et estime, pour chaque parcours retenu, la probabilité que le changement
+le touche. Les fichiers de parcours dont il écarte tous les tests ne lancent
+aucun job. C'est le filtre natif du runner e2e
+([Test filters](https://e2e.com/docs/filters), paquet `@e2e-dev/decision`),
+derrière le nôtre. Il ne fait que retirer des parcours ; il n'en ajoute jamais.
+
+Le job `army-select` enchaîne trois étapes, la première sans installation :
+
+1. `select-journeys.ts` sélectionne par impact, comme ci-dessus. Une sélection
+   vide s'arrête là.
+2. [`decision-listing.ts`](../../scripts/tester-army/decision-listing.ts) fait
+   lister les parcours retenus par le runner avec `--changed-since <base>` :
+   les filtres de `e2e.config.ts`
+   ([`impact-filter.ts`](../../scripts/tester-army/impact-filter.ts)) jugent le
+   changement, le modèle en dernier.
+3. `select-journeys.ts --decision` replanifie les jobs sans les fichiers écartés.
+
+Le résumé du job liste chaque parcours écarté avec l'avis du modèle, et
+`selection.json` les conserve sous `decision`.
+
+| Garde | Effet |
+| --- | --- |
+| Événement autre qu'une PR, label `army-full` (pris en compte au push suivant), sélection forcée ou de repli | Le modèle n'est pas interrogé |
+| Chemin qui fait tourner toute la suite par impact : le cœur partagé de la carte (globs `full` : dépendances, `e2e.config.ts`, fixtures partagées, runner, layout, auth, moteur de calcul, migrations), ce que le runner ou le cœur partagé charge, ou un chemin que la carte ne connaît pas | Le modèle n'est pas interrogé : les dépendances ne sont pas installées, et la sélection par impact (toute la suite) est conservée |
+| Carte d'impact modifiée au-delà de ses règles (globs `full`, `docs`, `nonRuntime`, suites, groupes) | Le modèle ne juge rien. Quand seules les règles changent, celles de la base comptent aussi dans le plancher |
+| Parcours qu'une règle de la carte lie directement à un fichier modifié | Toujours exécuté |
+| Avis de 8 % ou plus, ou avis illisible | Parcours exécuté (le filtre d'origine écarte sous 20 %) |
+| Diff de plus de 60 kB, fichier de parcours trop gros pour être joint au diff | Le modèle ne juge pas : les parcours concernés tournent |
+| Clé absente (fork, Dependabot), panne du modèle, erreur d'une des trois étapes | La sélection par impact est conservée telle quelle |
+
+Le modèle ne voit que ce qui peut changer le comportement de l'application : la
+documentation, les tests unitaires, les types générés et les autres chemins
+`nonRuntime` de la carte sont retirés du changement qu'il lit, ce qui garde
+davantage de PR sous la limite de 60 kB.
+
+Ce filtre est probabiliste : une régression peut passer une PR parce que le
+parcours qui l'aurait montrée a été écarté. Le filet est la suite complète
+lancée [après chaque push `main`](#campagnes-de-main-après-un-push). Sur une PR
+à risque, poser le label `army-full` fait tourner tous les parcours. Un check
+vert sur une PR prouve donc les parcours listés dans le résumé de sélection,
+pas la suite entière.
+
+La clé du modèle (`ARMY_DECISION_FILTER_API_KEY`, modèle `gpt-6-luna`) est le
+seul secret des workflows Army. Elle n'est donnée qu'à l'étape 2, dans un job
+qui ne lance ni pile ni parcours, et seulement quand la sélection interroge le
+modèle. Le code de la PR s'y exécute toutefois : `e2e.config.ts`, fichiers de
+parcours, scripts de sélection, et l'arbre de dépendances qu'elle installe. Une
+PR qui change les dépendances ou l'infrastructure n'interroge jamais le modèle
+et ne reçoit donc pas la clé. Une PR d'une branche du dépôt qui change le code
+de l'application peut, elle, la lire. Les parcours eux-mêmes restent sans modèle.
+
+Coût : une PR interrogée lance deux listages (critical et takeoff), chacun par
+lots d'environ 80 kB de diff, avec plusieurs appels au modèle. Chaque push en
+relance autant. Le filtre s'arrête après trois appels en échec ; il n'a pas
+d'autre plafond de dépense.
+
+Aperçu local, sans le modèle puis avec lui (commiter d'abord : le modèle ne lit
+que les commits) :
+
+```sh
+E2E_ARMY_SUITE=critical NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+  npx e2e list --tag critical --exclude-tag agent --changed-since origin/main
+E2E_ARMY_DECISION_FILTER=1 ARMY_DECISION_FILTER_API_KEY=… E2E_ARMY_SUITE=critical \
+  NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+  npx e2e list --tag critical --exclude-tag agent --changed-since origin/main
+```
+
+Mesure du 12/11/2026, rejeu sur 16 PR fusionnées dont le diff utile tient sous
+60 kB : 47 285 s de parcours critical retenus par impact, 33 667 s après le
+filtre (−29 %). Les PR plus grosses (14 des 45 dernières) et celles qui touchent
+l'infrastructure ne gagnent rien. Les phases calc-v3 ne sont pas filtrées.
+
 ## Check rouge sur une pull request
 
 Les runners sont partagés par toutes les pull requests et par `main`. Un

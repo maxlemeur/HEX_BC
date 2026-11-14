@@ -3,7 +3,7 @@
 import { buildIntakeAnalysisFeedback, type IntakeAnalysisAttempt } from "@/lib/affaires/intake-analysis-feedback";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Check,
@@ -45,6 +45,7 @@ import { IntakeDocumentPreview } from "./IntakeDocumentPreview";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeDropzone } from "./IntakeDropzone";
 import { useIntakeUploadFeedback, type IntakeUploadFeedbackState } from "./IntakeUploadFeedback";
+import { useDossierPoll } from "./useAffaireDossier";
 import { GoogleDriveImport, openGoogleDriveImport } from "./GoogleDriveImport";
 import { PlanDossierSyncNotice } from "@/components/takeoff/PlanDossierSyncNotice";
 import {
@@ -72,6 +73,7 @@ export function AffaireDocumentDesk({
   canManage,
   onOverview,
   onImportDpgf,
+  onReload,
   initialAddFiles = false,
   uploadFeedback: sharedUploadFeedback,
   uploadRequestId = 0,
@@ -82,13 +84,14 @@ export function AffaireDocumentDesk({
   canManage: boolean;
   onOverview: (anchor?: string) => void;
   onImportDpgf: (documentId: string) => void;
+  // Reads the dossier again (useAffaireDossier) without refreshing the router.
+  onReload: () => Promise<void>;
   initialAddFiles?: boolean;
   uploadFeedback?: IntakeUploadFeedbackState;
   uploadRequestId?: number;
 }) {
-  const router = useRouter();
   const params = useSearchParams();
-  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
+  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, onReload);
   const uploadFeedback = sharedUploadFeedback ?? localUploadFeedback;
   const [filter, setFilter] = useState(
     params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
@@ -171,15 +174,9 @@ export function AffaireDocumentDesk({
     if (canManage) setAddFiles(true);
   }, [uploadRequestId, canManage]);
 
-  useEffect(() => {
-    if (!processing || busy) return;
-    const started = Date.now();
-    const interval = setInterval(() => {
-      if (Date.now() - started >= 120_000) clearInterval(interval);
-      else router.refresh();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [processing, busy, router]);
+  // Follows the analyses for two minutes. A read, not a refresh of the router: a refresh in flight
+  // holds back what a classification brings to the screen (TI-722).
+  useDossierPoll(processing, onReload, { intervalMs: 5000, maxMs: 120_000 });
   useEffect(() => {
     const openUpload = (event: Event) => {
       const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>)
@@ -265,7 +262,9 @@ export function AffaireDocumentDesk({
         setMessage(
           `${successful.length} document${successful.length > 1 ? "s" : ""} enregistré${successful.length > 1 ? "s" : ""}.`,
         );
-      router.refresh();
+      // Each classification re-renders the page in its own response. Only a failure, whose write
+      // may still have landed, asks for the dossier again.
+      if (failed.length) void onReload();
     } finally {
       running.current = false;
       setBusy(false);
@@ -274,7 +273,7 @@ export function AffaireDocumentDesk({
   }
   function uploaded() {
     setAddFiles(false);
-    router.refresh();
+    void onReload();
   }
   async function retryAnalysis(items: DossierDocument[]) {
     if (!canManage || busy || running.current || !analysisAvailable) return;
@@ -285,6 +284,7 @@ export function AffaireDocumentDesk({
     const eligible = items.filter(canRetryDossierDocument);
     const attempts: IntakeAnalysisAttempt[] = [];
     let notRun: string[] = [];
+    let interrupted = false;
     try {
       for (let index = 0; index < eligible.length; index++) {
         const item = eligible[index];
@@ -305,9 +305,9 @@ export function AffaireDocumentDesk({
           attempts.push({ fileName: item.fileName, succeeded: false, manualPreserved: false,
             reason: cause instanceof Error ? cause.message : "Analyse interrompue. Réessayez." });
           notRun = eligible.slice(index + 1).map(document => document.fileName);
+          interrupted = true;
           break;
         }
-        router.refresh();
       }
       const report = buildIntakeAnalysisFeedback(attempts, notRun);
       setFailures(report.failures);
@@ -316,7 +316,8 @@ export function AffaireDocumentDesk({
       running.current = false;
       setBusy(false);
       setProgress("");
-      router.refresh();
+      // Each analysis re-renders the page in its own response; an interrupted one may not have.
+      if (interrupted) void onReload();
     }
   }
   const selectableRows = rows.filter(canClassifyDossierDocument);
@@ -332,7 +333,7 @@ export function AffaireDocumentDesk({
           projectId={projectId}
           automatic
           onSynchronized={(changed) => {
-            if (changed) router.refresh();
+            if (changed) void onReload();
           }}
         />
       )}
@@ -841,7 +842,7 @@ export function AffaireDocumentDesk({
           projectId={projectId}
           showTrigger={false}
           onUploadComplete={uploaded}
-          onRefresh={() => router.refresh()}
+          onRefresh={() => void onReload()}
         />
       )}
       <Dialog open={addFiles} onOpenChange={setAddFiles}>
@@ -854,12 +855,11 @@ export function AffaireDocumentDesk({
           </DialogHeader>
           <IntakeDropzone
             projectId={projectId}
-            onUploadComplete={() => router.refresh()}
+            onUploadComplete={() => void onReload()}
             onUploadEvent={(event) => {
               uploadFeedback.onUploadEvent(event);
               if (event.type === "started") setAddFiles(false);
             }}
-            onRefresh={() => router.refresh()}
           />
         </DialogContent>
       </Dialog>
@@ -883,7 +883,7 @@ export function AffaireDocumentDesk({
               canManage={canManage && !running.current}
               canClassify={canClassifyDossierDocument(details)}
               onPendingChange={setBusy}
-              onReclassified={() => router.refresh()}
+              onReclassified={() => void onReload()}
             />
           )}
         </DialogContent>

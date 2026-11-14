@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCurrencyToCents, roundHalfAwayFromZero } from "@/lib/money";
+import { parseCurrencyToCents, quantityAmountCents, roundHalfAwayFromZero } from "@/lib/money";
 
 describe("money helpers", () => {
 
@@ -42,5 +42,35 @@ describe("half away from zero", () => {
   it("3 stays exact beyond the safe integers and refuses a divisor that is not positive", () => {
     expect(roundHalfAwayFromZero(BigInt("4611686014132420609500"), BigInt(1000))).toBe(BigInt("4611686014132420610"));
     expect(() => roundHalfAwayFromZero(BigInt(1), BigInt(0))).toThrow(RangeError);
+  });
+});
+
+/**
+ * TI-701: a takeoff line's amount, its quantity (numeric(12,3)) at its estimate line's unit price. Failure modes:
+ *  1. read in floating point, 2,5 × 19,99 € gives 4 997 cents (49,974999…) instead of 4 998;
+ *  2. a quantity stored to the thousandth is multiplied at another precision;
+ *  3. a negative unit price (a discount line) rounds towards zero.
+ */
+describe("quantity amount", () => {
+  it("1 prices a quantity at a unit price in cents, halves away from zero", () => {
+    expect(quantityAmountCents(2.5, 1999)).toBe(4998);
+    expect(quantityAmountCents(12.345, 1001)).toBe(12_357);
+    expect(quantityAmountCents(0.001, 1)).toBe(0);
+    expect(quantityAmountCents(1.005, 100)).toBe(101);
+  });
+
+  it("2 reads the quantity to the thousandth, as stored", () => {
+    expect(quantityAmountCents(2.675, 1000)).toBe(2675);
+    expect(quantityAmountCents(0.0004, 1_000_000)).toBe(0);
+  });
+
+  it("3 rounds a negative unit price as its positive twin", () => {
+    expect(quantityAmountCents(1.5, -999)).toBe(-1499);
+  });
+
+  it("refuses what cannot be an amount", () => {
+    expect(() => quantityAmountCents(Number.NaN, 100)).toThrow(RangeError);
+    expect(() => quantityAmountCents(1, 1.5)).toThrow(RangeError);
+    expect(() => quantityAmountCents(1e15, 1e6)).toThrow(RangeError);
   });
 });

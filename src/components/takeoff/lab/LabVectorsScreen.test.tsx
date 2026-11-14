@@ -93,7 +93,7 @@ const SUMMARY_P2 = { ...SUMMARY_A, id: RUN_P2.id, campaign: RUN_P2.campaign, cro
 
 function group(id: string, name: string, cls: string, source: "keyword" | "decisions", metres: number) {
   return { id, name, layer: name, colors: ["#0000ff"], width: 0.5, dash: null, visible: true, near_white: false, grey: false,
-    class: cls, source, confidence: source === "decisions" ? 0.8 : null, candidates: [], keyword: { class: source === "keyword" ? cls : null, source: null },
+    class: cls, source, confidence: source === "decisions" ? 0.8 : null, candidates: [], proposal: null, keyword: { class: source === "keyword" ? cls : null, source: null },
     length_pt: metres * 100, length_m: metres, segments: 1, geometry: [0, 0, 10, 0], geometry_capped: false };
 }
 

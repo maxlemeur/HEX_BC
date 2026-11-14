@@ -111,4 +111,10 @@ export const openApiRouteExclusions = [
     methods: ["GET"],
     reason: LOCAL_TAKEOFF_LAB,
   },
+  {
+    path: "/api/assistant/threads/{threadId}/messages",
+    methods: ["POST"],
+    reason:
+      "Flux d'evenements de l'assistant, servi seulement par MergeOne local (MERGEONE_ASSISTANT et forfait ChatGPT sur 127.0.0.1), hors contrat applicatif public tant que le site heberge ne l'ouvre pas.",
+  },
 ] as const satisfies readonly OpenApiRouteExclusion[];

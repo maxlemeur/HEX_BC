@@ -684,6 +684,107 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Lire le dossier de l'affaire",
+        "description": "Lecture privée sans cache du dossier de l'affaire accessible (pièces, pièces manquantes, brief), telle que la page de l'affaire la rend. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeWorkspaceProjectIdParameter"
+            }
+          },
+          {
+            "name": "plans",
+            "in": "query",
+            "description": "Ajouter le résumé des plans et métrés de l'affaire.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireIntakeWorkspacePlansParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dossier de l'affaire, avec Cache-Control private/no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/files": {
       "post": {
         "tags": [
@@ -715,7 +816,7 @@
         },
         "responses": {
           "201": {
-            "description": "Upload intake cree.",
+            "description": "Résultat par fichier. Un contenu identique déjà présent ou en cours d’ajout dans cette affaire est refusé sans nouvelle copie (status rejected, rejectionReason explicite, documentId existant). Le nom seul ne définit pas un doublon. Les liens Drive gardent leur identité fournisseur.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4928,6 +5029,98 @@
         }
       }
     },
+    "/api/affaires/{projectId}/supply-cost": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Coût des fournitures d'une affaire",
+        "description": "Pour les lecteurs de l'affaire (propriétaire, administrateur, directeur), par type de fourniture, puis « non classé » (lignes sans type de fourniture ou sans article) et le port et les remises : le budget fournitures de la version acceptée par le client et le coût de ses bons de commande. budget_version : la version acceptée qui fait le budget (la plus haute si plusieurs, accepted_count dit combien), quelle que soit sa variante ; null quand aucune version n'est acceptée, et alors chaque budget_cents est null (pas de budget). Budget d'une ligne chiffrée : quantité × prix d'achat FO × provision FO × K FO (moteur 3 ; quantité × prix × K FO avant), arrondi au centime par ligne ; une ligne non chiffrée compte 0. ordered_cents : bons confirmés ou reçus de l'affaire, au prix réel ; pending_cents : brouillons et bons envoyés, au prix du devis retenu ; bons annulés et frais généraux exclus ; une remise compte en négatif. not_counted.estimate_orders : bons créés depuis un devis de l'affaire, quel que soit leur statut sauf annulé ; ils ne portent pas l'affaire et ne sont pas comptés. Une affaire archivée n'est pas trouvée (404). Montants en centimes.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Budget et commandé par type de fourniture.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAffaireSupplyCost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'affaire n'est lisible que par son propriétaire, un administrateur ou un directeur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/bulk-archive": {
       "post": {
         "tags": [
@@ -7393,7 +7586,7 @@
           "Estimate Items"
         ],
         "summary": "Executer un batch d'operations",
-        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio : au-delà, 413 ESTIMATE_BATCH_RECEIPT_TOO_LARGE, aucune écriture. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
+        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Une mise à jour assembly_quantity sur un ouvrage multiplie ses composants dans ce même commit ; la quantité d’un sous-ouvrage est relative au parent. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio : au-delà, 413 ESTIMATE_BATCH_RECEIPT_TOO_LARGE, aucune écriture. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
         "parameters": [
           {
             "name": "versionId",
@@ -22260,6 +22453,119 @@
         }
       }
     },
+    "/api/purchase-orders/{id}/confirmation": {
+      "post": {
+        "tags": [
+          "Achats"
+        ],
+        "summary": "Confirmer la commande d'un brouillon d'affaire",
+        "description": "Enregistre qu'un brouillon de bon de commande d'une affaire a été passé : le prix réel et le lot des lignes données (les autres gardent le leur), la date de commande (aujourd'hui au plus tard, heure de Paris), la livraison annoncée (pas avant la commande ; absente, la date du brouillon reste, et elle non plus ne précède pas la commande, sauf « TBD »), la référence du fournisseur et la preuve, un document déjà joint au bon (POST /api/purchase-orders/{id}/devis). Le brouillon devient confirmé ; ses lignes et son en-tête sont alors figés. Montant d'une ligne : quantité × prix ÷ lot, arrondi au centime le plus proche, la moitié s'éloignant de zéro. Dans un brouillon, le prix d'une ligne de demande ne change qu'ici.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bon de commande d'une affaire, lisible par l'appelant.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseOrderLifecycleId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision lue, dates, référence, preuve et prix réels.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOrderConfirmation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bon confirmé, avec ses totaux au prix réel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiPurchaseOrderConfirmed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : seuls l'auteur du bon et les administrateurs, avec le rôle admin ou engineer, l'écrivent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : bon introuvable ou illisible pour l'appelant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "PURCHASE_ORDER_CONFIRMATION_NOT_DRAFT : le bon n'est plus un brouillon. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. PURCHASE_ORDER_ITEMS_INVALID : une ligne n'est pas de ce bon ou est donnée deux fois. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PURCHASE_ORDER_AFFAIRE_ONLY : bon sans affaire. PURCHASE_ORDER_CONFIRMATION_DATE_INVALID : commande dans le futur ou livraison avant la commande. PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED : aucun document de ce bon. PURCHASE_ORDER_CONFIRMATION_EMPTY : aucun article. PURCHASE_ORDER_TOTAL_NEGATIVE : les remises dépassent les articles. PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE : montant hors capacité. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/purchase-orders/{id}/devis": {
       "get": {
         "tags": [
@@ -22852,6 +23158,119 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/purchase-orders/{id}/reception": {
+      "post": {
+        "tags": [
+          "Achats"
+        ],
+        "summary": "Enregistrer la réception d'un bon d'affaire",
+        "description": "Enregistre la réception d'un bon d'affaire confirmé, en entier : sa date, entre la date de commande et aujourd'hui (heure de Paris), et une note libre pour ce qui reste à venir. Le bon devient reçu. Une fois commandé, un bon d'affaire n'est plus ni annulé ni supprimé.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bon de commande d'une affaire, lisible par l'appelant.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseOrderLifecycleId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision lue, date de réception et note.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOrderReception"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bon reçu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiPurchaseOrderReceived"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : seuls l'auteur du bon et les administrateurs, avec le rôle admin ou engineer, l'écrivent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : bon introuvable ou illisible pour l'appelant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "PURCHASE_ORDER_RECEPTION_NOT_CONFIRMED : seul un bon confirmé est reçu. PURCHASE_ORDER_REVISION_CONFLICT : le bon a changé depuis sa lecture. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PURCHASE_ORDER_AFFAIRE_ONLY : bon sans affaire. PURCHASE_ORDER_RECEPTION_DATE_INVALID : réception avant la commande ou dans le futur. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
                 }
               }
             }
@@ -23792,7 +24211,7 @@
           "Takeoff"
         ],
         "summary": "Appliquer un job Takeoff",
-        "description": "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items). TI-682 lot D : une page de plan qu'un autre metre a deja apportee au devis n'entre que par une decision (page_decisions : remplacer sa mesure ligne a ligne, ou garder les deux avec un motif) ; sans elle, 422 details.guard page_already_applied ; une decision invalide, 422 page_decision ; une decision perimee, 409 page_decision.",
+        "description": "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session. Sur un brouillon en moteur de calcul 3, l'unite de chaque item inclus passe par le referentiel des unites : une unite inconnue refuse toute l'application (422 VALIDATION_ERROR, details.guard v3_unit_unresolved, items nommes dans details.items). TI-682 lot D : une page de plan qu'un autre metre a deja apportee au devis n'entre que par une decision (page_decisions : remplacer sa mesure ligne a ligne, ou garder les deux avec un motif) ; sans elle, 422 details.guard page_already_applied ; une decision invalide, 422 page_decision ; une decision perimee, 409 page_decision. TI-726 : « replace » vide la section cible, sous-sections comprises ; une section qui contient une ligne DPGF est refusee (422 details.guard dpgf_quantities, details.reason replace_deletes_dpgf_lines, lignes DPGF nommees dans details.dpgf_lines, leur nombre dans details.dpgf_line_count) : utiliser « merge ».",
         "parameters": [
           {
             "name": "jobId",
@@ -24730,7 +25149,7 @@
           "Takeoff"
         ],
         "summary": "Proposition de remplacement des pages deja au devis",
-        "description": "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base.",
+        "description": "Lecture seule (TI-682, lot D) : pour chaque page de ce metre que sa propre version de devis porte deja par un autre metre, les lignes du devis anterieures (quantite mesuree, quantite modifiee a la main), les lignes du nouveau metre et les paires proposees (meme designation et meme unite, meme reseau, designation proche). Les lignes que le plan de mapping ignore ou integre a un ouvrage sont ecartees. Les decisions sont envoyees avec l'application (page_decisions) et revalidees par la base. TI-723 : sur une version DPGF, dpgf_merge_refusals nomme chaque ligne que « Fusionner » enverrait sur une ligne DPGF hors du rapprochement, que la base refuse (TAKEOFF_DPGF_QUANTITY_MAPPING_CONFLICT).",
         "parameters": [
           {
             "name": "jobId",
@@ -25605,7 +26024,7 @@
           "Takeoff"
         ],
         "summary": "Recommandations financieres du controle cible",
-        "description": "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants.",
+        "description": "Montants commerciaux du devis et du lot, avec impacts estimes des ecarts ; les montants inconnus restent explicites. Avertissements non bloquants. item_pricing (TI-701) : chaque ligne de metre retenue rattachee a une ligne de devis, au prix unitaire de celle-ci (null hors statut chiffre) et avec son lot ; la revue ciblee en tire ses filtres « Gros montants » et « Non chiffre ». Version scellee : listes vides.",
         "parameters": [
           {
             "name": "jobId",
@@ -29885,6 +30304,15 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "ReadAffaireIntakeWorkspaceProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireIntakeWorkspacePlansParameter": {
+        "type": "string",
+        "const": "1"
       },
       "CreateAffaireIntakeFilesProjectIdParameter": {
         "type": "string",
@@ -38091,6 +38519,198 @@
         ],
         "additionalProperties": false
       },
+      "ApiAffaireSupplyCost": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "budget_version": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "version_number": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "variant_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "accepted_count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "version_number",
+                      "variant_label",
+                      "title",
+                      "accepted_count"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "supply_type",
+                        "unclassified",
+                        "shipping_discount"
+                      ]
+                    },
+                    "supply_type_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "budget_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ordered_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "pending_cents": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "supply_type_id",
+                    "code",
+                    "name",
+                    "budget_cents",
+                    "ordered_cents",
+                    "pending_cents"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "budget_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ordered_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "pending_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "budget_cents",
+                  "ordered_cents",
+                  "pending_cents"
+                ],
+                "additionalProperties": false
+              },
+              "not_counted": {
+                "type": "object",
+                "properties": {
+                  "estimate_orders": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "estimate_orders"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "budget_version",
+              "rows",
+              "totals",
+              "not_counted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "BulkArchiveAffairesRequest": {
         "type": "object",
         "properties": {
@@ -45346,6 +45966,11 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "assembly_quantity": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 999999999.999
                         }
                       }
                     }
@@ -46560,6 +47185,11 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "assembly_quantity": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 999999999.999
                                     }
                                   },
                                   "additionalProperties": false
@@ -47970,6 +48600,11 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "assembly_quantity": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 999999999.999
                                     }
                                   },
                                   "additionalProperties": false
@@ -79758,6 +80393,173 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "PurchaseOrderLifecycleId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "PurchaseOrderConfirmation": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "ordered_on": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplier_reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "lines": {
+            "default": [],
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "unit_price_ht_cents": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "price_per": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 1
+                    },
+                    {
+                      "type": "number",
+                      "const": 10
+                    },
+                    {
+                      "type": "number",
+                      "const": 100
+                    },
+                    {
+                      "type": "number",
+                      "const": 1000
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "unit_price_ht_cents",
+                "price_per"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "expected_revision",
+          "ordered_on",
+          "document_id"
+        ],
+        "additionalProperties": false
+      },
+      "ApiPurchaseOrderConfirmed": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "status": {
+                "type": "string",
+                "const": "confirmed"
+              },
+              "edit_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "order_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "expected_delivery_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_ht_cents": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "total_tax_cents": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "total_ttc_cents": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "edit_revision",
+              "order_date",
+              "expected_delivery_date",
+              "total_ht_cents",
+              "total_tax_cents",
+              "total_ttc_cents"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ListPurchaseOrderQuotesIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -79938,6 +80740,75 @@
             },
             "required": [
               "events"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "PurchaseOrderReception": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "received_on": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "expected_revision",
+          "received_on"
+        ],
+        "additionalProperties": false
+      },
+      "ApiPurchaseOrderReceived": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "status": {
+                "type": "string",
+                "const": "received"
+              },
+              "edit_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "edit_revision"
             ],
             "additionalProperties": false
           }
@@ -85550,6 +86421,17 @@
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 9007199254740991
+                        },
+                        "length_factor": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -86024,6 +86906,169 @@
                             "severity",
                             "causes",
                             "status"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "composition": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "earlier": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "job_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "job_created_at": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "job_level": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "quantity": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "read_again": {
+                                    "type": "boolean"
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "source_file_name": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "source_page": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "quantity": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "source_file_name",
+                                        "source_page",
+                                        "quantity"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "job_id",
+                                  "job_created_at",
+                                  "job_level",
+                                  "quantity",
+                                  "read_again",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "earlier_quantity": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "earlier_protective": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "earlier_printed_gap": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "total_quantity": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "double_counted": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "item_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "partner_item_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "partner_job_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "overlap_m": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  }
+                                },
+                                "required": [
+                                  "item_id",
+                                  "partner_item_id",
+                                  "partner_job_id",
+                                  "overlap_m"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "unfed_quantity": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "unfed_protective": {
+                              "type": "number",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "earlier",
+                            "earlier_quantity",
+                            "earlier_protective",
+                            "earlier_printed_gap",
+                            "total_quantity",
+                            "double_counted"
                           ],
                           "additionalProperties": false
                         },
@@ -88014,7 +89059,6 @@
                         {
                           "type": "string",
                           "enum": [
-                            "dpgf_target",
                             "merge_match"
                           ]
                         },
@@ -88280,6 +89324,220 @@
               },
               "merge_required": {
                 "type": "boolean"
+              },
+              "dpgf_targets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "unit_key": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reference": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "length_factor": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "earlier": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "job_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "item_ids": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "protective": {
+                            "type": "number"
+                          },
+                          "printed_gap": {
+                            "type": "number"
+                          },
+                          "source_file_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_page": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "job_id",
+                          "item_ids",
+                          "quantity",
+                          "protective",
+                          "printed_gap",
+                          "source_file_name",
+                          "source_page"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "fed": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "protective": {
+                            "type": "number"
+                          },
+                          "printed_gap": {
+                            "type": "number"
+                          },
+                          "source_file_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_page": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "item_id",
+                          "quantity",
+                          "protective",
+                          "printed_gap",
+                          "source_file_name",
+                          "source_page"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "unit_key",
+                    "quantity",
+                    "reference",
+                    "length_factor",
+                    "earlier",
+                    "fed"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "dpgf_merge_refusals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "takeoff_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "estimate_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "dpgf_quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "unit_key": {
+                      "type": "string"
+                    },
+                    "fed": {
+                      "type": "boolean"
+                    },
+                    "linked": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "takeoff_item_id",
+                    "designation",
+                    "quantity",
+                    "unit",
+                    "estimate_item_id",
+                    "title",
+                    "dpgf_quantity",
+                    "unit_key",
+                    "fed",
+                    "linked"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -88291,7 +89549,9 @@
               "pairs",
               "jobs",
               "unidentified_count",
-              "merge_required"
+              "merge_required",
+              "dpgf_targets",
+              "dpgf_merge_refusals"
             ],
             "additionalProperties": false
           }
@@ -90773,12 +92033,82 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "item_pricing": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "line_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "pricing_status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unit_price_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lot": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "line_id",
+                    "pricing_status",
+                    "unit_price_cents",
+                    "lot"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
               "version_id",
               "unlinked_item_ids",
-              "posts"
+              "posts",
+              "item_pricing"
             ],
             "additionalProperties": false
           }
@@ -92333,6 +93663,10 @@
                                   "type": "string",
                                   "maxLength": 16
                                 }
+                              },
+                              "proposal": {
+                                "type": "string",
+                                "maxLength": 120
                               }
                             },
                             "required": [
@@ -92439,6 +93773,56 @@
                               "type": "string",
                               "maxLength": 64
                             },
+                            "rules_version": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "filtered": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "enum": [
+                                  "grey",
+                                  "pattern",
+                                  "frame_layer",
+                                  "architecture_layer",
+                                  "legend_sample",
+                                  "air_duct"
+                                ]
+                              },
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "ruled": {
+                              "type": "object",
+                              "properties": {
+                                "same_colour": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "band": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "propagated": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "same_colour",
+                                "band",
+                                "propagated"
+                              ],
+                              "additionalProperties": false
+                            },
                             "candidates": {
                               "anyOf": [
                                 {
@@ -92542,7 +93926,10 @@
                                         "exception",
                                         "canvas_unavailable",
                                         "render_failed",
-                                        "call_limit"
+                                        "call_limit",
+                                        "local_quota",
+                                        "local_access",
+                                        "local_model_unavailable"
                                       ]
                                     },
                                     "message": {

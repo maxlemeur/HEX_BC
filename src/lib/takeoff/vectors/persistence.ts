@@ -2,8 +2,9 @@ import { z } from "zod";
 
 import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { takeoffTextPrintsLevel } from "@/lib/takeoff/page-triage";
+import { CANDIDATE_FILTER_REASONS } from "@/lib/takeoff/vectors/candidate-filter";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";
-import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
+import { isMeasuredNetwork, isModelSource } from "@/lib/takeoff/vectors/classify";
 import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@/lib/takeoff/vectors/items";
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
@@ -46,12 +47,19 @@ const VectorClassSchema = z.union([z.enum(NETWORK_CODES), z.enum(OTHER_CLASSES)]
 /** Why Decisions stopped on a page: a stop of classifyVectorGroups, or the document's call caps (worker). */
 export const VECTOR_DECISIONS_STOP_REASONS = [
   "budget_reached", "call_failed", "decisions_unavailable", "exception", "canvas_unavailable", "render_failed", "call_limit",
+  "local_quota", "local_access", "local_model_unavailable",
 ] as const;
 const count = z.number().int().nonnegative();
 
 /** The Decisions classification of one page in the worker (worker-server.ts). */
 export const VectorPageDecisionsSchema = z.object({
   prompt_version: text(64),
+  /** The candidates' selection and rules version (group-decisions.ts GROUP_DECISIONS_VERSION); absent from rows of before TI-704 v2. */
+  rules_version: z.number().int().positive().optional(),
+  /** Groups never asked because they can never be a network, by reason (candidate-filter.ts); absent from rows of before it. */
+  filtered: z.partialRecord(z.enum(CANDIDATE_FILTER_REASONS), count).optional(),
+  /** Candidates the rules classed (same colour, band, propagation: group-rules.ts); absent from rows of before it. */
+  ruled: z.object({ same_colour: count, band: count, propagated: count }).strict().optional(),
   /**
    * Groups asked, groups that could be, groups past the batch caps, groups whose weak batch answer was not asked again
    * alone (the dedicated caps); null when the page was not asked (an earlier stop of the job).
@@ -60,9 +68,9 @@ export const VectorPageDecisionsSchema = z.object({
   eligible: count.nullable(),
   left_out: count.nullable(),
   dedicated_left_out: count.nullable(),
-  /** Calls sent; `failed`: failed, unavailable or thrown before sending, among them. */
+  /** Calls sent (`dedicated`: only rows of before TI-704 v2); `failed`: failed, unavailable or thrown before sending, among them. */
   calls: z.object({ batch: count, dedicated: count, failed: count }).strict(),
-  /** Groups given a class by Decisions (at any confidence: under 0.8, a proposal shown, neither classified nor measured). */
+  /** Groups given a class by Decisions (at any confidence: under its accepted margin, a proposal shown, neither classified nor measured). */
   answered: count,
   total_tokens: count,
   latency_ms: count,
@@ -91,6 +99,8 @@ export const VectorPageRecordSchema = z.object({
   groups: z.array(z.object({
     id: text(120), class: VectorClassSchema.nullable(), source: text(16).nullable(), confidence: finite.nullable(),
     candidates: z.array(z.enum(NETWORK_CODES)).max(8), length_pt: finite, near_white: z.boolean(), colors: z.array(text(16)).max(4),
+    /** A group left « à revoir » with a proposal in words (TI-704 « hors_liste »); absent otherwise and from rows of before it. */
+    proposal: text(120).optional(),
   }).strict()).max(VECTOR_PAGE_LIMITS.groups),
   groups_total: z.number().int().nonnegative(),
   labels: z.object({ blocks: z.number().int(), attached: z.number().int(), superposed: z.number().int(), incomplete: z.number().int() }).strict().nullable(),
@@ -169,6 +179,7 @@ export function vectorPageRecord(reading: VectorPageReading, location: VectorPag
     groups: groups.slice(0, VECTOR_PAGE_LIMITS.groups).map((group) => ({
       id: group.id.slice(0, 120), class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates.slice(0, 8),
       length_pt: round(group.length_pt, 1), near_white: group.nearWhite, colors: group.colors.slice(0, 4),
+      ...(group.proposal ? { proposal: group.proposal.slice(0, 120) } : {}),
     })),
     groups_total: reading.groups.length,
     to_review: reading.counts.to_review,
@@ -241,9 +252,9 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   const metres = (value: number) => round((value * MM_PER_POINT * denominator) / 1000, 4);
   const segmentOf = ({ segment }: NetworkRun) => [metres(segment.x0), metres(segment.y0), metres(segment.x1), metres(segment.y1)] as [number, number, number, number];
   const scale = `1/${round(denominator, 2)} (${reading.scale.status})`;
-  // The groups the length comes from: a Decisions proposal under 0.8 is not measured (isMeasuredNetwork), never named.
-  // Decisions groups first, the least sure first: past the 64 named, the review still reads how the class was given.
-  const decisionsFirst = (group: VectorPageReading["groups"][number]) => (group.source === "decisions" ? group.confidence ?? 0 : 2);
+  // The groups the length comes from: a model's proposal under its accepted confidence is not measured (isMeasuredNetwork), never named.
+  // A model's groups first (Decisions, the local plan's), the least sure first: past the 64 named, the review still reads how the class was given.
+  const decisionsFirst = (group: VectorPageReading["groups"][number]) => (isModelSource(group.source) ? group.confidence ?? 0 : 2);
   const groupsOf = (network: NetworkCode) => reading.groups
     .filter((group) => (group.class === network && isMeasuredNetwork(group)) || group.candidates.includes(network))
     .sort((left, right) => decisionsFirst(left) - decisionsFirst(right))

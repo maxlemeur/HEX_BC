@@ -53,7 +53,9 @@ describe("dossier selection validation", () => {
       ["plan", "plans"], ["cctp", "cctp"], ["unknown", "annexes"],
     ]);
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "Sélectionner plan.pdf" })).not.toBeChecked());
-    expect(refresh).toHaveBeenCalledTimes(1);
+    // Each classification re-renders the page in its own response. A refresh after them held the
+    // saved state back until its own render had landed (TI-722).
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("keeps only failed documents selected and retains their category for a retry", async () => {

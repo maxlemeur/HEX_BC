@@ -374,7 +374,8 @@ returns void language sql as $$
       'reference_quantity', 30, 'measured_quantity', 30, 'priced_quantity', 30, 'absolute_gap', 0, 'reviewed', false,
       'source_file_name', 'dpgf-fictif.xlsx', 'source_page', 7,
       'source_metadata', jsonb_build_object('dpgf_source_quantity', 30, 'dpgf_source_unit', 'ml'),
-      'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at))
+      'takeoff_items', (select jsonb_agg(jsonb_build_object('id', ti.id, 'quantity', ti.quantity, 'updated_at', ti.updated_at,
+          'measured', ti.quantity, 'protective', 0, 'printed_gap', 0))
         from public.takeoff_items ti where ti.job_id = pg_temp.po_job(p_case, p_job))))),
     now() + interval '5 minutes'
   from public.estimate_items target where target.id = pg_temp.po_id(p_case * 1000 + 3)
@@ -790,23 +791,18 @@ select is((select jsonb_agg(jsonb_build_array(item.title, item.quantity, item.un
 select is((select total_ht_cents from public.estimate_versions where id = pg_temp.po_version(16)), 75000,
   'engine 2: the version total is recomputed on the new quantity');
 
--- DPGF: keeping both is refused where the page now feeds a target another takeoff fed (D-6).
+-- DPGF: TI-682 D4 (…_takeoff_dpgf_accumulation.sql), a DPGF target sums the measures it keeps. Keeping both, refused here
+-- until D4 (D-6, dpgf_keep_both), counts both; replacing is takeoff-dpgf-accumulation.test.sql.
 set local role authenticated;
 select is(pg_temp.po_decide(pg_temp.po_job(17, 2), jsonb_build_array(pg_temp.po_decision(17, 'keep_both', 'other_zone', null,
     jsonb_build_array(pg_temp.po_ref(17, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(17, 1, 1)])), '[]'::jsonb))),
   'ok 1', 'fixture: both kept on a DPGF target');
-select is(pg_temp.po_apply('dpgf keep both', pg_temp.po_job(17, 2), 'merge', '{}'::jsonb, 'page-once-17-2'),
-  '22023 TAKEOFF_PAGE_DECISION_INVALID', 'keeping both is refused where the page feeds a DPGF target another takeoff fed');
-select is(pg_temp.po_decide(pg_temp.po_job(17, 2), jsonb_build_array(pg_temp.po_decision(17, 'replace', null, null,
-    jsonb_build_array(pg_temp.po_ref(17, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(17, 1, 1)])), '[]'::jsonb))),
-  'ok 1', 'fixture: the target left to its own policy');
-select is(pg_temp.po_apply('dpgf replace', pg_temp.po_job(17, 2), 'merge', '{}'::jsonb, 'page-once-17-2b'), 'ok',
-  'a replacement leaves the DPGF target to its own policy: the new measure replaces the earlier one');
+select is(pg_temp.po_apply('dpgf keep both', pg_temp.po_job(17, 2), 'merge', '{}'::jsonb, 'page-once-17-2'), 'ok',
+  'keeping both where the page feeds a DPGF target another takeoff fed is accepted: the target holds both');
 reset role;
-select is((select detail ->> 'reason' from po_outcome where case_name = 'dpgf keep both'), 'dpgf_keep_both', 'the refusal says why');
 select is(jsonb_build_array((pg_temp.po_line(17, 'EF cuivre DN 22')).quantity,
     (pg_temp.po_line(17, 'EF cuivre DN 22')).source_metadata #>> '{takeoff_quantity_policy,job_id}'),
-  jsonb_build_array(30, pg_temp.po_job(17, 2)), 'the DPGF target holds the new measure once');
+  jsonb_build_array(60, pg_temp.po_job(17, 2)), 'the DPGF target holds both measures, 30 + 30');
 
 -- Never across two documents; never decided by someone else; never beside « Remplacer la section ».
 set local role authenticated;
@@ -880,13 +876,9 @@ set local role authenticated;
 select is(pg_temp.po_decide(pg_temp.po_job(27, 2), jsonb_build_array(pg_temp.po_decision(27, 'replace', null, null,
     jsonb_build_array(pg_temp.po_ref(27, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(27, 1, 1)])), '[]'::jsonb))),
   'ok 1', 'fixture: a DPGF target left to a policy that does not feed it');
-select is(pg_temp.po_apply('dpgf not fed', pg_temp.po_job(27, 2), 'append', '{}'::jsonb, 'page-once-27-2'),
-  '22023 TAKEOFF_PAGE_DECISION_INVALID', 'a DPGF target the new takeoff does not feed again is not « replaced »: its earlier measure stays');
-select is(pg_temp.po_decide(pg_temp.po_job(27, 2), jsonb_build_array(pg_temp.po_decision(27, 'keep_both', 'other_trade', null,
-    jsonb_build_array(pg_temp.po_ref(27, 'EF cuivre DN 22', 'keep', null, array[pg_temp.po_item(27, 1, 1)])), '[]'::jsonb))),
-  'ok 1', 'fixture: both kept');
-select is(pg_temp.po_apply('dpgf kept both', pg_temp.po_job(27, 2), 'append', '{}'::jsonb, 'page-once-27-2b'), 'ok',
-  'keeping both is allowed where the DPGF target is not fed again');
+-- TI-682 D4: replacing the page takes its part out of the target, refused here until D4 (dpgf_not_replaced).
+select is(pg_temp.po_apply('dpgf not fed', pg_temp.po_job(27, 2), 'append', '{}'::jsonb, 'page-once-27-2'), 'ok',
+  'a DPGF target the new takeoff does not feed again loses the replaced page''s part');
 select is(pg_temp.po_decide(pg_temp.po_job(28, 2), jsonb_build_array(pg_temp.po_decision(28, 'replace', null, null,
     jsonb_build_array(pg_temp.po_ref(28, 'EF cuivre DN 20', 'update', null, array[pg_temp.po_item(28, 1, 1)])),
     jsonb_build_array(pg_temp.po_pair(pg_temp.po_item(28, 2, 1), 28, 'EF cuivre DN 20'))))), 'ok 1', 'fixture: an unrounded length');
@@ -894,8 +886,10 @@ select is(pg_temp.po_apply('unrounded', pg_temp.po_job(28, 2), 'append', '{}'::j
   'a length applied before TI-681 (its raw measure, never rounded) is no quantity changed by hand');
 reset role;
 select is((select jsonb_agg(detail ->> 'reason' order by case_name) from po_outcome
-    where case_name in ('remove other pages', 'assembly paired', 'nothing replaced', 'dpgf not fed', 'engine 2 no choice')),
-  '["assembly_line", "dpgf_not_replaced", "take_required", "nothing_replaced", "remove_other_pages"]'::jsonb, 'each refusal says why');
+    where case_name in ('remove other pages', 'assembly paired', 'nothing replaced', 'engine 2 no choice')),
+  '["assembly_line", "take_required", "nothing_replaced", "remove_other_pages"]'::jsonb, 'each refusal says why');
+select is((pg_temp.po_line(27, 'EF cuivre DN 22')).quantity, 30::numeric,
+  'the target falls to its DPGF reference, 30: nothing feeds it any more');
 select is((pg_temp.po_line(23, 'WC suspendu')).quantity, 6::numeric, '« keep mine » keeps the estimator''s 6, not what « Fusionner » wrote');
 select is((select jsonb_agg(jsonb_build_array(item.title, item.quantity) order by item.title) from public.estimate_items item
     where item.version_id = pg_temp.po_version(25) and item.item_type = 'line'),

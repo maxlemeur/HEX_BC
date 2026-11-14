@@ -50,7 +50,7 @@ import {
   classifyTakeoffPlanSetSource,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
   resolveAffairePreliminaryStructureCapability,
   type AffairePreliminaryStructureCapability,
@@ -75,7 +75,7 @@ import {
   type NormalizedAffaireListQuery,
 } from "./schemas";
 import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
-import { fetchAffaireRegisterGateSummary } from "./register-server";
+import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
@@ -1813,7 +1813,6 @@ async function fetchAffaireListWithContext<TPageSize extends number>(
   return page;
 }
 
-const MANAGER_QUEUE_BATCH_SIZE = 10;
 const MANAGER_QUEUE_LIST_PAGE_SIZE: AffairePageSize = 100;
 const MANAGER_QUEUE_MAX_PROJECTS = 200;
 const MANAGER_QUEUE_TIME_BUDGET_MS = 6_500;
@@ -1860,98 +1859,36 @@ async function fetchAllAffaireListItemsWithContext(
   }
 }
 
-async function fetchAffaireManagerReadinessWithContext(
+/** The current versions, among `versionIds`, that hold at least one line: one read per chunk, one line per version. */
+async function fetchVersionIdsWithLines(
   context: AffaireContext,
-  item: AffaireListItem
-): Promise<AffaireHubReadinessResult | null> {
-  const projectRow = {
-    id: item.projectId,
-    tenant_id: context.tenantId,
-    user_id: getOwnerScopeUserId(context) ?? context.userId,
-    name: item.projectName,
-    reference: item.projectReference,
-    client_name: item.projectClient,
-    site_address: null,
-    is_archived: false,
-  } satisfies AffaireHubProjectRow;
+  versionIds: string[]
+): Promise<Set<string>> {
+  const { data, error } = await selectInChunks(versionIds, (ids) => context.supabase
+    .from("estimate_versions")
+    .select("id, estimate_items!estimate_items_version_id_fkey(id)")
+    .eq("tenant_id", context.tenantId)
+    .in("id", ids)
+    .eq("estimate_items.tenant_id", context.tenantId)
+    .eq("estimate_items.item_type", "line")
+    .limit(1, { referencedTable: "estimate_items" }));
 
-  if (item.currentVersionId) {
-    const [{ count, error }, intakeResult, registerGateSummaryResult] = await Promise.all([
-      context.supabase
-        .from("estimate_items")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", context.tenantId)
-        .eq("version_id", item.currentVersionId)
-        .eq("item_type", "line")
-        .limit(1),
-      Promise.resolve(fetchAffaireIntakeWorkspace(projectRow.id)).catch(() => null),
-      Promise.resolve(
-        fetchAffaireRegisterGateSummary({
-          supabase: context.supabase as never,
-          projectId: projectRow.id,
-          versionId: item.currentVersionId,
-        })
-      ).catch(() => null),
-    ]);
-
-    if (error) {
-      throw mapSupabaseError(
-        error,
-        "Impossible de qualifier la readiness manager de l'affaire."
-      );
-    }
-
-    if (!intakeResult || !registerGateSummaryResult) {
-      throw new Error("MANAGER_QUEUE_SIGNAL_UNAVAILABLE");
-    }
-
-    return buildAffaireHubReadinessSnapshot({
-      lineCount: count ?? 0,
-      briefStatus: intakeResult.briefDraft?.status ?? null,
-      intakeReadiness: intakeResult.readiness
-        ? {
-            reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
-            confirmedMissingPiecesCount:
-              intakeResult.readiness.confirmedMissingPiecesCount,
-            confirmedCriticalMissingPiecesCount:
-              intakeResult.readiness.confirmedCriticalMissingPiecesCount,
-          }
-        : null,
-      registerGateSummary: registerGateSummaryResult,
-    });
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de qualifier la readiness manager des affaires."
+    );
   }
 
-  const [intakeResult, registerGateSummaryResult] = await Promise.all([
-    Promise.resolve(fetchAffaireIntakeWorkspace(projectRow.id)).catch(() => null),
-    Promise.resolve(
-      fetchAffaireRegisterGateSummary({
-        supabase: context.supabase as never,
-        projectId: projectRow.id,
-        versionId: null,
-      })
-    ).catch(() => null),
-  ]);
-
-  if (!intakeResult || !registerGateSummaryResult) {
-    throw new Error("MANAGER_QUEUE_SIGNAL_UNAVAILABLE");
-  }
-
-  return buildAffaireHubReadinessSnapshot({
-    lineCount: 0,
-    briefStatus: intakeResult.briefDraft?.status ?? null,
-    intakeReadiness: intakeResult.readiness
-      ? {
-          reviewDocumentsCount: intakeResult.readiness.reviewDocumentsCount,
-          confirmedMissingPiecesCount:
-            intakeResult.readiness.confirmedMissingPiecesCount,
-          confirmedCriticalMissingPiecesCount:
-            intakeResult.readiness.confirmedCriticalMissingPiecesCount,
-        }
-      : null,
-    registerGateSummary: registerGateSummaryResult,
-  });
+  return new Set(data.flatMap((version) => version.estimate_items.length > 0 ? [version.id] : []));
 }
 
+/**
+ * Qualifies the whole portfolio at once: the dossier signals, the register gates and the presence of lines are each
+ * read for every affaire together, one request per table and per chunk of affaires. Only the stored bytes of a
+ * dossier's plans are still checked affaire by affaire, within the time budget. The previous fan-out cost about
+ * eight requests per affaire, ten affaires at a time, and exhausted the budget of a fifteen-affaire portfolio.
+ */
 async function classifyAffaireManagerQueueWithContext(
   context: AffaireContext,
   items: AffaireListItem[],
@@ -1961,26 +1898,56 @@ async function classifyAffaireManagerQueueWithContext(
   incompleteCount: number;
 }> {
   const readinessByProjectId = new Map<string, AffaireHubReadinessResult | null>();
-  let incompleteCount = 0;
+  assertManagerQueueWithinLimits({ deadlineAt });
+  if (items.length === 0) {
+    return { readinessByProjectId, incompleteCount: 0 };
+  }
 
-  for (let startIndex = 0; startIndex < items.length; startIndex += MANAGER_QUEUE_BATCH_SIZE) {
-    assertManagerQueueWithinLimits({ deadlineAt });
-    const batch = items.slice(startIndex, startIndex + MANAGER_QUEUE_BATCH_SIZE);
-    const settled = await Promise.allSettled(
-      batch.map(async (item) => ({
-        projectId: item.projectId,
-        readiness: await fetchAffaireManagerReadinessWithContext(context, item),
-      }))
-    );
-
-    settled.forEach((result) => {
-      if (result.status === "fulfilled") {
-        readinessByProjectId.set(result.value.projectId, result.value.readiness);
-        return;
-      }
-
-      incompleteCount += 1;
+  const signals = await Promise.all([
+    fetchAffaireIntakeManagerSignals({
+      context: context as never,
+      projectIds: items.map((item) => item.projectId),
+      deadlineAt,
+    }),
+    fetchAffaireRegisterGateSummaries({
+      supabase: context.supabase as never,
+      scopes: items.map((item) => ({ projectId: item.projectId, versionId: item.currentVersionId })),
+    }),
+    fetchVersionIdsWithLines(
+      context,
+      items.flatMap((item) => item.currentVersionId ? [item.currentVersionId] : [])
+    ),
+  ]).catch((error: unknown) => {
+    console.error("Affaire manager queue signals unavailable", {
+      code: error && typeof error === "object" && "code" in error ? error.code : undefined,
+      message: error instanceof Error ? error.message : undefined,
     });
+    return null;
+  });
+  // The budget still bounds the qualification: past it, the caller gets the budget error, not a partial portfolio.
+  assertManagerQueueWithinLimits({ deadlineAt });
+  // A portfolio whose signals cannot be read is unqualified as a whole, never reported as ready.
+  if (!signals) {
+    return { readinessByProjectId, incompleteCount: items.length };
+  }
+
+  const [intakeSignals, registerGateSummaries, versionIdsWithLines] = signals;
+  let incompleteCount = 0;
+  for (const item of items) {
+    const intakeSignal = intakeSignals.get(item.projectId);
+    const registerGateSummary = registerGateSummaries.get(item.projectId);
+    if (!intakeSignal || !registerGateSummary) {
+      incompleteCount += 1;
+      continue;
+    }
+
+    readinessByProjectId.set(item.projectId, buildAffaireHubReadinessSnapshot({
+      // The readiness rules only ask whether the version has lines.
+      lineCount: item.currentVersionId && versionIdsWithLines.has(item.currentVersionId) ? 1 : 0,
+      briefStatus: intakeSignal.briefStatus,
+      intakeReadiness: intakeSignal.readiness,
+      registerGateSummary,
+    }));
   }
 
   return {

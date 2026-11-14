@@ -7,6 +7,7 @@ import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { useToast } from "@/components/feedback/toast-provider";
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
 import { useIntakeUploadFeedback, IntakeUploadFeedback } from "./IntakeUploadFeedback";
+import { useAffaireDossier } from "./useAffaireDossier";
 import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 
 const UnifiedImportFlow = dynamic(
@@ -18,7 +19,7 @@ const UnifiedImportFlow = dynamic(
 export function AffaireDocumentPage({
   projectId,
   projectName,
-  workspace,
+  workspace: serverWorkspace,
   canManage,
   takeoffEnabled,
 }: {
@@ -30,7 +31,11 @@ export function AffaireDocumentPage({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
+  // The workspace is the whole of what this page renders on the server: the reads keep it current
+  // while documents are added or analysed, without refreshing the router.
+  const dossier = useAffaireDossier(projectId, { workspace: serverWorkspace });
+  const workspace = dossier.workspace ?? serverWorkspace;
+  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, dossier.reload);
   const [candidates, setCandidates] = useState<IntakeDpgfCandidate[] | null>(
     null,
   );
@@ -78,6 +83,7 @@ export function AffaireDocumentPage({
       workspace={workspace}
       canManage={canManage}
       uploadFeedback={uploadFeedback}
+      onReload={dossier.reload}
       onOverview={overview}
       onImportDpgf={(documentId) => {
         if (!canManage) return;

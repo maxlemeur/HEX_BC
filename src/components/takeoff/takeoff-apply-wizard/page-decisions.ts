@@ -1,9 +1,11 @@
+import { composeDpgfTarget, removeDpgfParts } from "@/lib/takeoff/dpgf-composition";
 import { replacementQuantities } from "@/lib/takeoff/page-replacement";
 import {
   TAKEOFF_PAGE_KEEP_BOTH_REASONS,
   TAKEOFF_PAGE_NOTE_MIN,
   type TakeoffPageDecision,
   type TakeoffPageKeepBothReason,
+  type TakeoffPageReplacementDpgfTarget,
   type TakeoffPageReplacementLine,
   type TakeoffPageReplacementNewLine,
   type TakeoffPageReplacementPage,
@@ -49,20 +51,23 @@ export function pageLabel(page: Pick<TakeoffPageReplacementPage, "file_name" | "
 /**
  * What the screen asks of the estimator to confirm, and how. `choose` names the choices of this screen the text
  * advises: each one enabled where it is advised, and part of a state that can be confirmed. `elsewhere` names what is
- * done outside the step when no choice here can confirm, each way out written in `exits` with what it opens. The text
- * is written from these only.
+ * done outside the step: when no choice here can confirm, each way out written in `exits` with what it opens; beside a
+ * choice here (TI-716: a relaunch reading more pages, recommended before keeping both), written in the text itself. The
+ * text is written from these only.
  */
 export type Advice = {
   text: string;
   choose: Array<{ control: string; value: string | null }>;
-  elsewhere: Array<"exclude_at_review" | "link_in_dpgf_review">;
+  elsewhere: Array<"exclude_at_review" | "link_in_dpgf_review" | "read_pages_again">;
   exits: string[];
 };
 /** The text of an advice as one message (its sentence, then its ways out). */
 const adviceMessage = (advice: Advice) => [advice.text, ...advice.exits].join(" ");
 export type ResolvedPage = { page: TakeoffPageReplacementPage; choice: PageChoice; label: string; missing: string[]; advice: Advice[];
   /** « Remplacer » is marked « (recommandé) »: only where replacing can be confirmed on the page. */
-  recommended: boolean };
+  recommended: boolean;
+  /** Why « Garder les deux » is not offered on the page, if it is not. */
+  keepBothRefused: string | null };
 export type LinePageRole = "replaced" | "part" | "kept_both" | "vanished" | "dpgf";
 export type ResolvedLine = {
   line: TakeoffPageReplacementLine;
@@ -81,6 +86,33 @@ export type ResolvedLine = {
   removeRefused: string | null;
   missing: string[];
   advice: Advice[];
+  /** A DPGF line: what it will hold (TI-682 D4). */
+  dpgf?: DpgfTargetOutcome | null;
+};
+/**
+ * TI-682 D4: what a DPGF line the application touches will hold under the draft: the sum of the takeoffs it keeps (by
+ * takeoff and page; `job_id` null for this one), the part of each page replaced taken out, and when it falls, each page
+ * that took its part away, whether this takeoff feeds the line from it again, and where that page's new measure went (its
+ * lines of the line's unit added outside the DPGF; none: nowhere).
+ */
+export type DpgfTargetOutcome = {
+  target: TakeoffPageReplacementDpgfTarget;
+  before: number | null;
+  after: number;
+  takeoffs: Array<{ job_id: string | null; quantity: number; pages: Array<{ label: string; quantity: number | null }> }>;
+  falls: boolean;
+  drops: Array<{ pageKey: string; label: string; refed: boolean;
+    destinations: Array<{ designation: string; quantity: number; unit: string }> }>;
+  /**
+   * The pages replaced that take only part of a contribution whose share per page is unknown, once every page replaced
+   * is counted together (the database refuses them: dpgf_part_unknown), each with the pages read again that hold the
+   * rest of it and are not replaced (replacing them too takes it out whole), or none when part of it lies on a page this
+   * takeoff does not read. TI-716: with the pages read again that hold the parts it cuts (`mixes`, this one included),
+   * whether part of them lies on a page this takeoff does not read (`outside`: only a relaunch reading it too takes them
+   * out whole), and whether this takeoff feeds the line again from the page (`refed`: keeping both counts it twice there).
+   */
+  indivisible: Array<{ pageKey: string; label: string; alsoReplace: Array<{ key: string; label: string }>;
+    mixes: Array<{ key: string; label: string }>; outside: boolean; refed: boolean }>;
 };
 export type ResolvedNewLine = {
   newLine: TakeoffPageReplacementNewLine;
@@ -101,33 +133,179 @@ export type Resolution = {
   complete: boolean;
   payload: TakeoffPageDecision[];
   counts: { updated: number; added: number; removed: number; kept: number; keptBoth: number };
+  /** TI-682 D4: every DPGF line the application touches, before and after. */
+  dpgf: DpgfTargetOutcome[];
+  /**
+   * TI-723: each line « Fusionner » sends onto a DPGF line outside the reconciliation, which the database refuses whatever
+   * the page decisions: no choice here confirms, the way out is the reconciliation (or the line excluded at the review).
+   */
+  merges: Advice[];
 };
+
+const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
+/** « a », « a et b », « a, b et c ». */
+const listOf = (items: readonly string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`);
+const placeLabel = (place: { source_file_name: string | null; source_page: number | null }) =>
+  pageLabel({ file_name: place.source_file_name, page: place.source_page });
+const samePlace = (place: { source_file_name: string | null; source_page: number | null }, page: TakeoffPageReplacementPage) =>
+  place.source_file_name === page.file_name && place.source_page === page.page;
+
+/**
+ * TI-696: the pages linked by DPGF parts whose share per page is unknown (a policy applied before D4), by group. The
+ * application takes such a part out whole or refuses (dpgf_part_unknown), counting the pages replaced together: a group
+ * is replaced together or kept together. `whole`: none of its parts lies on a page this takeoff does not read, so
+ * replacing the group takes them out.
+ */
+type PageGroup = { pages: string[]; whole: boolean };
+function unknownPartGroups(proposal: TakeoffPageReplacementResponse): Map<string, PageGroup> {
+  const parent = new Map(proposal.pages.map((page) => [page.key, page.key]));
+  const find = (key: string): string => (parent.get(key) === key ? key : find(parent.get(key)!));
+  const notWhole = new Set<string>();
+  for (const target of proposal.dpgf_targets) {
+    const holding = (itemId: string) => proposal.pages.filter((page) => page.lines.some((entry) => entry.id === target.id
+      && entry.item_ids.includes(itemId))).map((page) => page.key);
+    for (const part of target.earlier.filter((entry) => entry.item_ids.length > 1)) {
+      const pages = [...new Set(part.item_ids.flatMap(holding))];
+      if (pages.length === 0) continue;
+      for (const key of pages.slice(1)) parent.set(find(key), find(pages[0]));
+      if (part.item_ids.some((itemId) => holding(itemId).length === 0)) notWhole.add(pages[0]);
+    }
+  }
+  const groups = new Map<string, PageGroup>();
+  for (const page of proposal.pages) {
+    const group = groups.get(find(page.key)) ?? { pages: [], whole: true };
+    group.pages.push(page.key);
+    groups.set(find(page.key), group);
+  }
+  for (const key of notWhole) groups.get(find(key))!.whole = false;
+  return new Map(proposal.pages.map((page) => [page.key, groups.get(find(page.key))!]));
+}
+
+/** What one DPGF line will hold once the pages of `replacing` are replaced (the application's arithmetic, D4). */
+function dpgfOutcome(proposal: TakeoffPageReplacementResponse, target: TakeoffPageReplacementDpgfTarget,
+  replacing: ReadonlySet<string>, groups: ReadonlyMap<string, PageGroup>): DpgfTargetOutcome {
+  const pages = proposal.pages.filter((page) => replacing.has(page.key));
+  const removedOn = new Map(pages.map((page) => [page.key, new Set(page.lines.find((entry) => entry.id === target.id)?.item_ids ?? [])]));
+  // Every page replaced, together, as the application takes them out (removeDpgfParts, the twin of
+  // private.takeoff_compose_dpgf_targets): a part goes whole, or the replacement is refused.
+  const removed = new Set([...removedOn.values()].flatMap((ids) => [...ids]));
+  const parts = removeDpgfParts(target.earlier, removed);
+  // The pages kept both of its group: replacing them too takes every part out whole, unless one lies on a page this
+  // takeoff does not read (then the group is only kept both).
+  const holds = (page: TakeoffPageReplacementPage, itemId: string) => page.lines.some((entry) => entry.id === target.id && entry.item_ids.includes(itemId));
+  const indivisible = pages.filter((page) => parts.indivisible.some((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))))
+    .map((page) => {
+      const group = groups.get(page.key)!;
+      const others = group.whole ? proposal.pages.filter((other) => group.pages.includes(other.key) && !replacing.has(other.key)) : [];
+      const cut = parts.indivisible.filter((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))).flatMap((part) => part.item_ids);
+      return { pageKey: page.key, label: pageLabel(page), alsoReplace: others.map((other) => ({ key: other.key, label: pageLabel(other) })),
+        mixes: proposal.pages.filter((other) => cut.some((id) => holds(other, id))).map((other) => ({ key: other.key, label: pageLabel(other) })),
+        outside: cut.some((id) => !proposal.pages.some((other) => holds(other, id))),
+        refed: target.fed.some((line) => samePlace(line, page)) };
+    });
+  const kept = parts.kept;
+  const total = composeDpgfTarget(target.reference, [...kept,
+    ...target.fed.map((line) => ({ job_id: proposal.job_id, item_ids: [line.item_id], quantity: line.quantity, protective: line.protective,
+      printed_gap: line.printed_gap }))]).priced;
+  // Rounded once, up to the unit for a length, as the application rounds the sum. The application writes only a line it
+  // feeds or whose page it replaces (private.takeoff_compose_dpgf_targets): any other keeps what it holds.
+  const written = target.fed.length > 0 || pages.some((page) => page.lines.some((entry) => entry.id === target.id));
+  const composed = target.length_factor ? Math.ceil(Number((total * target.length_factor).toFixed(9))) / target.length_factor : total;
+  const after = written || target.quantity === null ? composed : target.quantity;
+  const created = new Map(proposal.jobs.map((job) => [job.id, job.created_at]));
+  const byJob = new Map<string | null, DpgfTargetOutcome["takeoffs"][number]>();
+  for (const part of [...kept.map((entry) => ({ job: entry.job_id as string | null, quantity: entry.quantity, place: entry,
+    split: entry.item_ids.length === 1 })), ...target.fed.map((line) => ({ job: null, quantity: line.quantity, place: line, split: true }))]) {
+    const entry = byJob.get(part.job) ?? { job_id: part.job, quantity: 0, pages: [] };
+    entry.quantity = Number((entry.quantity + part.quantity).toFixed(4));
+    const label = placeLabel(part.place);
+    const page = entry.pages.find((known) => known.label === label);
+    if (page && page.quantity !== null && part.split) page.quantity = Number((page.quantity + part.quantity).toFixed(4));
+    else if (page) page.quantity = null;
+    else entry.pages.push({ label, quantity: part.split ? part.quantity : null });
+    byJob.set(part.job, entry);
+  }
+  const takeoffs = [...byJob.values()].sort((left, right) => (left.job_id === null ? 1 : 0) - (right.job_id === null ? 1 : 0)
+    || (created.get(left.job_id ?? "") ?? "").localeCompare(created.get(right.job_id ?? "") ?? ""));
+  const falls = target.quantity !== null && after < target.quantity;
+  const fedIds = new Set(target.fed.map((line) => line.item_id));
+  const newLines = new Map(proposal.new_lines.map((line) => [line.id, line]));
+  const drops = falls ? pages.filter((page) => target.earlier.some((part) => part.item_ids.some((id) => removedOn.get(page.key)!.has(id))))
+    .map((page) => {
+      const refed = target.fed.some((line) => samePlace(line, page));
+      return { pageKey: page.key, label: pageLabel(page), refed, destinations: refed ? [] : page.new_line_ids
+        .flatMap((id) => (newLines.get(id) && !fedIds.has(id) && newLines.get(id)!.unit_key === target.unit_key ? [newLines.get(id)!] : []))
+        .map((line) => ({ designation: line.designation, quantity: line.quantity, unit: line.unit })) };
+    }) : [];
+  return { target, before: target.quantity, after, takeoffs, falls, drops, indivisible };
+}
 
 /** One reading of the draft: what each page, each line and each new line does, and the decisions sent. */
 export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, draft: ConfirmationDraft): Resolution {
+  const labels = new Map(proposal.pages.map((page) => [page.key, pageLabel(page)]));
+  const groups = unknownPartGroups(proposal);
+  // TI-696: the pages always replaced: keeping both is refused there (keep_both_refused), and, to a fixed point, on a page
+  // whose part of unknown share a page always replaced takes from, unless the other pages hold all of it (replacing
+  // them takes it out whole without this one). Keeping both there would leave that part cut (dpgf_part_unknown).
+  const idsOn = (page: TakeoffPageReplacementPage, targetId: string) => page.lines.find((entry) => entry.id === targetId)?.item_ids ?? [];
+  const always = new Set(proposal.pages.filter((page) => page.keep_both_refused).map((page) => page.key));
+  const forcedBy = new Map<string, { pages: string[]; leaves: boolean }>();
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const page of proposal.pages.filter((entry) => !always.has(entry.key))) {
+      const forcing = new Set<string>();
+      let leaves = true;
+      for (const target of proposal.dpgf_targets) {
+        const onPage = new Set(idsOn(page, target.id));
+        const elsewhere = new Set(proposal.pages.filter((other) => other.key !== page.key).flatMap((other) => idsOn(other, target.id)));
+        for (const part of target.earlier) {
+          if (part.item_ids.length < 2 || !part.item_ids.some((itemId) => onPage.has(itemId))
+            || part.item_ids.every((itemId) => elsewhere.has(itemId))) continue;
+          const by = proposal.pages.filter((other) => always.has(other.key) && idsOn(other, target.id).some((itemId) => part.item_ids.includes(itemId)));
+          for (const other of by) forcing.add(other.key);
+          // A line on no page this takeoff reads: the part never leaves, whatever is chosen here.
+          if (by.length > 0 && part.item_ids.some((itemId) => !onPage.has(itemId) && !elsewhere.has(itemId))) leaves = false;
+        }
+      }
+      if (forcing.size > 0) {
+        always.add(page.key);
+        forcedBy.set(page.key, { pages: [...forcing], leaves });
+        grew = true;
+      }
+    }
+  }
+  const keepBothRefused = new Map(proposal.pages.map((page) => {
+    const forced = forcedBy.get(page.key);
+    const named = forced?.pages.map((key) => labels.get(key)).join(", ");
+    return [page.key, keepBothRefusal(page) ?? (!forced ? null : forced.leaves
+      ? `une ligne DPGF y garde une part d’un métré appliqué avant le cumul, qui ne sort qu’entière avec ${named}, toujours remplacée`
+      : `une ligne DPGF y garde une part d’un métré appliqué avant le cumul que ${named}, toujours remplacée, coupe : elle ne peut sortir de ce métré`)] as const;
+  }));
   const choiceOf = (key: string) => {
     const choice = draft.pages[key] ?? REPLACE;
-    const page = proposal.pages.find((entry) => entry.key === key);
     // A refused « keep both » is never in effect, whatever the draft holds.
-    return choice.decision === "keep_both" && page?.keep_both_refused ? REPLACE : choice;
+    return choice.decision === "keep_both" && keepBothRefused.get(key) ? REPLACE : choice;
   };
-  const labels = new Map(proposal.pages.map((page) => [page.key, pageLabel(page)]));
   const replacing = new Set(proposal.pages.filter((page) => choiceOf(page.key).decision === "replace").map((page) => page.key));
   const locked = new Map(proposal.pairs.filter((pair) => pair.locked).map((pair) => [pair.takeoff_item_id, pair.estimate_item_id]));
   const linesById = new Map(proposal.lines.map((line) => [line.id, line]));
-  // What each page can replace, whatever the estimator chooses on it: a DPGF line it feeds again, a line some new line
-  // can replace, or a line it can remove. « Remplacer » is confirmed on a page only with one of these (else
-  // nothing_replaced), and never beside a DPGF line it no longer feeds (dpgf_not_replaced).
+  // What each page can replace, whatever the estimator chooses on it: a DPGF line (TI-682 D4: the page's part leaves its
+  // sum, fed again or not), a line some new line can replace, or a line it can remove. « Remplacer » is confirmed on a
+  // page only with one of these (else nothing_replaced).
   const replaceableLines = new Set([...proposal.new_lines.flatMap((newLine) => newLine.candidates.flatMap((candidate) => candidate.line_ids)),
     ...locked.values()]);
-  const notFedOn = (page: TakeoffPageReplacementPage) => page.lines.map((entry) => linesById.get(entry.id)!)
-    .filter((line) => line.dpgf_target && !page.dpgf_fed_again.includes(line.id));
-  const replacesOtherThan = (page: TakeoffPageReplacementPage, lineId: string | null) => page.dpgf_fed_again.length > 0
-    || page.lines.some((entry) => entry.id !== lineId && !linesById.get(entry.id)!.dpgf_target
-      && (replaceableLines.has(entry.id) || !linesById.get(entry.id)!.outside_pages));
-  const replaceable = new Map(proposal.pages.map((page) => [page.key, notFedOn(page).length === 0 && replacesOtherThan(page, null)]));
+  const replacesOtherThan = (page: TakeoffPageReplacementPage, lineId: string | null) => page.lines.some((entry) => entry.id !== lineId
+    && (linesById.get(entry.id)!.dpgf_target || replaceableLines.has(entry.id) || !linesById.get(entry.id)!.outside_pages));
+  // A page whose group holds a DPGF part of unknown share lying partly on a page this takeoff does not read: no
+  // replacement takes it out whole (dpgf_part_unknown), so replacing is not recommended there; the group is kept both.
+  // A group whose parts all lie on pages read again leaves whole when all of them are replaced; the line says so when
+  // only some are.
+  const cutsUnknownPart = (page: TakeoffPageReplacementPage) => !groups.get(page.key)!.whole;
+  const replaceable = new Map(proposal.pages.map((page) => [page.key, replacesOtherThan(page, null) && !cutsUnknownPart(page)]));
+  const dpgf = proposal.dpgf_targets.map((target) => dpgfOutcome(proposal, target, replacing, groups));
+  const dpgfById = new Map(dpgf.map((outcome) => [outcome.target.id, outcome]));
   const pagesByKey = new Map(proposal.pages.map((page) => [page.key, page]));
-  const keepBothOffered = (key: string) => !pagesByKey.get(key)!.keep_both_refused;
+  const keepBothOffered = (key: string) => !keepBothRefused.get(key);
 
   const newLines: ResolvedNewLine[] = proposal.new_lines.map((newLine) => {
     const pageKeys = proposal.pages.filter((page) => page.new_line_ids.includes(newLine.id)).map((page) => page.key);
@@ -148,7 +326,55 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const before = line.quantity;
     const base = { line, before, take: null, vanished: null, removeRefused: null, newLineIds: [] as string[], measured: null };
     if (line.dpgf_target) {
-      return { ...base, state: "dpgf" as const, after: before, missing: [], advice: [],
+      // TI-682 D4: it sums the takeoffs it keeps; a replaced page's part leaves it. A part whose share per page is unknown
+      // (a policy applied before D4) cannot leave with one page: the page is kept both.
+      const outcome = dpgfById.get(line.id);
+      const cut = outcome?.indivisible ?? [];
+      // TI-716: the line named (its designation, what it holds), the pages its part mixes, the way out recommended (its
+      // pages read again and replaced together: the part leaves whole), then the other (both kept on the page, which then
+      // counts twice). Never « reset the line »: it would remove the measures of its other pages unseen.
+      const held = outcome?.target.quantity ?? line.quantity;
+      // A unit key without a code (« status:… ») is not a unit the estimator reads.
+      const unit = outcome?.target.unit_key && !outcome.target.unit_key.startsWith("status:") ? ` ${outcome.target.unit_key}` : "";
+      const measure = held === null ? "" : ` (${quantityFormat.format(held)}${unit})`;
+      const named = (entry: (typeof cut)[number]) => `La ligne DPGF « ${line.title} »${measure} tient la mesure d’un métré appliqué avant `
+        + `le cumul, qui mêle ${listOf([...entry.mixes.map((page) => page.label), ...(entry.outside ? ["des pages que ce métré ne relit pas"] : [])])}`
+        + ` sans la part de chacune : elle ne sort pas avec ${entry.label} seule.`;
+      const relaunch = "Recommandé : relancez le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure "
+        + "précédente sort alors entière.";
+      const advice: Advice[] = cut.filter(({ pageKey, alsoReplace }) => alsoReplace.length > 0 || keepBothOffered(pageKey))
+        .map((entry) => {
+          const { pageKey, label, alsoReplace } = entry;
+          const keepBoth = keepBothOffered(pageKey);
+          const recommended = entry.outside ? relaunch : alsoReplace.length > 0
+            ? `Recommandé : remplacez aussi ${listOf(alsoReplace.map((other) => other.label))} : remplacées ensemble, ces pages font sortir la `
+              + "mesure précédente entière." : "";
+          const other = keepBoth ? `Sinon, gardez les deux mesures de ${label} : ${entry.refed ? "la page comptera deux fois sur cette ligne"
+            : "la ligne garde la mesure précédente et la nouvelle mesure de la page entre ailleurs, la page comptera deux fois au devis"}, à corriger à la main.` : "";
+          return { text: [named(entry), recommended, other].filter(Boolean).join(" "),
+            choose: [...alsoReplace.map((page) => ({ control: `page:${page.key}`, value: "replace" })),
+              ...(keepBoth ? [{ control: `page:${pageKey}`, value: "keep_both" }] : [])],
+            elsewhere: entry.outside ? ["read_pages_again" as const] : [], exits: [] };
+        });
+      // Neither replacing nor keeping both confirms here: a page « Fusionner » always replaces cuts the part. Once its
+      // imposed lines are set aside at the review, keeping both is possible again.
+      const stuck = cut.filter(({ pageKey, alsoReplace }) => alsoReplace.length === 0 && !keepBothOffered(pageKey));
+      if (stuck.length > 0) {
+        const imposing = new Set(stuck.flatMap(({ pageKey }) => groups.get(pageKey)!.pages)
+          .filter((key) => pagesByKey.get(key)!.keep_both_refused));
+        const imposed = newLines.filter((entry) => entry.locked && entry.pageKeys.some((key) => imposing.has(key)))
+          .map((entry) => `« ${entry.newLine.designation} »`).join(", ");
+        // A part that cannot leave lies partly on a page this takeoff does not read (else replacing its pages would take
+        // it out whole): a relaunch reading them is the way out recommended.
+        const outside = stuck.some((entry) => entry.outside);
+        advice.push({ text: `La ligne DPGF « ${line.title} »${measure} tient la mesure d’un métré appliqué avant le cumul, qui mêle `
+            + `${listOf([...new Set(stuck.flatMap((entry) => entry.mixes.map((page) => page.label))), ...(outside ? ["des pages que ce métré ne relit pas"] : [])])}`
+            + ` sans la part de chacune : elle ne sort pas avec ${listOf(stuck.map(({ label }) => label))} ; ni remplacer ni garder les deux ne se confirme ici.`,
+          choose: [], elsewhere: [...(outside ? ["read_pages_again" as const] : []), ...(imposed ? ["exclude_at_review" as const] : [])],
+          exits: [...(outside ? [relaunch] : []),
+            ...(imposed ? [`Écarter ${imposed} à la revue du métré : garder les deux mesures de la page redevient possible.`] : [])] });
+      }
+      return { ...base, state: "dpgf" as const, after: outcome?.after ?? before, missing: advice.map(adviceMessage), advice, dpgf: outcome ?? null,
         pages: onPages.map((page) => ({ ...page, role: "dpgf" as const, part: null })) };
     }
     const by = pairedBy.get(line.id) ?? [];
@@ -231,7 +457,8 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const choice = choiceOf(page.key);
     const label = labels.get(page.key)!;
     const advice: Advice[] = [];
-    const done = () => ({ page, choice, label, advice, missing: advice.map(adviceMessage), recommended: replaceable.get(page.key)! });
+    const done = () => ({ page, choice, label, advice, missing: advice.map(adviceMessage), recommended: replaceable.get(page.key)!,
+      keepBothRefused: keepBothRefused.get(page.key) ?? null });
     if (choice.decision === "keep_both") {
       if (!choice.reason) {
         advice.push({ text: `${label} : choisissez le motif pour garder les deux mesures.`,
@@ -242,38 +469,11 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       return done();
     }
     // « Keep both » is advised only where the screen offers it.
-    const keepBothOpen = !page.keep_both_refused;
+    const keepBothOpen = keepBothOffered(page.key);
     const keepBoth = { control: `page:${page.key}`, value: "keep_both" };
     const held = page.lines.map((entry) => resolvedLines.get(entry.id)!);
-    const notFed = held.filter((entry) => entry.line.dpgf_target && !page.dpgf_fed_again.includes(entry.line.id));
-    if (notFed.length > 0) {
-      const targets = notFed.map((entry) => `« ${entry.line.title} »`).join(", ");
-      if (keepBothOpen) {
-        advice.push({ text: `${label} : ${targets}, ligne DPGF que ce métré n’alimente pas ; sa mesure resterait à côté de la nouvelle. Gardez les deux mesures avec un motif.`,
-          choose: [keepBoth], elsewhere: [], exits: [] });
-      } else {
-        // Neither choice confirms here (TI-682, until the DPGF accumulation, D4): replacing would leave the DPGF line's
-        // earlier measure beside the new one, and keeping both is refused. One sentence for what blocks, then each way
-        // out (done before this step) with what it opens.
-        const merged = newLines.filter((entry) => entry.locked && entry.pageKeys.includes(page.key));
-        const named = merged.map((entry) => `« ${entry.newLine.designation} »`).join(", ");
-        const plural = notFed.length > 1;
-        const why = page.keep_both_refused === "merge_match"
-          ? `et la fusion, obligatoire avec un DPGF, met ${named} sur une ligne de la page`
-          : "et cette page alimente une autre ligne DPGF déjà alimentée par un autre métré, qui ne garde qu’une mesure";
-        const excluding = page.keep_both_refused === "merge_match" && merged.length > 0;
-        advice.push({ text: `${label} : ${targets} ${plural ? "sont des lignes DPGF" : "est une ligne DPGF"} que ce métré n’alimente pas, ${why} : `
-            + "ni remplacer ni garder les deux ne se confirme ici.",
-          choose: [],
-          elsewhere: [...(excluding ? ["exclude_at_review" as const] : []), "link_in_dpgf_review" as const],
-          exits: [
-            ...(excluding ? [`Écarter ${named} à la revue du métré : garder les deux redevient possible.`] : []),
-            `Lier à ${plural ? "chacune de ces lignes DPGF" : "cette ligne DPGF"}, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure `
-              + "(même unité, matériau et diamètre) : remplacer redevient possible.",
-          ] });
-      }
-    }
-    if (notFed.length === 0 && !replaceable.get(page.key)) {
+    // The DPGF line says why a page cutting its unknown part is kept both.
+    if (!replaceable.get(page.key) && !cutsUnknownPart(page)) {
       // Nothing on the page can be replaced (no new line replaces one of its lines, none can be removed): replacing it
       // is never confirmed (nothing_replaced). Keeping both is what confirms it.
       advice.push({ text: `${label} : Remplacer ne se confirme pas sur cette page : aucune ligne du nouveau métré ne remplace une de ses lignes, `
@@ -311,7 +511,23 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
         .map((entry) => ({ takeoff_item_id: entry.newLine.id, estimate_item_id: entry.pair! })) };
   });
 
-  const missing = [...pages.flatMap((page) => page.missing), ...lines.flatMap((entry) => entry.missing)];
+  // TI-723: both lines named, what the database refuses and why, then the reconciliation: linked to the DPGF line, the line
+  // feeds it through its composition (never « Fusionner » turned into a part of it). A line linked elsewhere is counted
+  // there: its links are checked, it is not asked to be linked here too.
+  const merges: Advice[] = proposal.dpgf_merge_refusals.map((refusal) => {
+    const unit = refusal.unit_key.startsWith("status:") ? "" : ` ${refusal.unit_key}`;
+    const dpgf = `la ligne DPGF « ${refusal.title} »${refusal.dpgf_quantity === null ? "" : ` (${quantityFormat.format(refusal.dpgf_quantity)}${unit})`}`;
+    const line = `« ${refusal.designation} » (${quantityFormat.format(refusal.quantity)}${refusal.unit.trim() ? ` ${refusal.unit.trim()}` : ""}) de ce métré`;
+    const why = "Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base refuse cette fusion.";
+    return refusal.linked
+      ? { text: `« Fusionner » enverrait ${line}, que le rapprochement relie à une autre ligne DPGF, aussi sur ${dpgf}, que ce métré n’alimente pas. ${why}`,
+        choose: [], elsewhere: ["link_in_dpgf_review" as const], exits: ["Vérifiez les rattachements DPGF de cette ligne dans le rapprochement."] }
+      : { text: `« Fusionner » enverrait ${line} sur ${dpgf}, ${refusal.fed ? "à laquelle le rapprochement ne la relie pas" : "que ce métré n’alimente pas"}. ${why}`,
+        choose: [], elsewhere: ["link_in_dpgf_review" as const, "exclude_at_review" as const],
+        exits: ["Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.",
+          "Sinon, excluez-la à la revue du métré."] };
+  });
+  const missing = [...pages.flatMap((page) => page.missing), ...lines.flatMap((entry) => entry.missing), ...merges.map(adviceMessage)];
   // The introduction names a choice only where some page can be confirmed with it.
   const replaceablePages = proposal.pages.filter((page) => replaceable.get(page.key));
   const keepablePages = proposal.pages.filter((page) => keepBothOffered(page.key));
@@ -324,7 +540,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       ...keepablePages.map((page) => ({ control: `page:${page.key}`, value: "keep_both" }))],
     elsewhere: [], exits: [] };
   return {
-    pages, lines, newLines, missing, complete: missing.length === 0, payload, introduction,
+    pages, lines, newLines, missing, complete: missing.length === 0, payload, introduction, dpgf, merges,
     counts: {
       updated: lines.filter((entry) => entry.state === "updated").length,
       added: newLines.filter((entry) => entry.pair === null).length,
@@ -345,7 +561,6 @@ export type ConfirmationControl =
   | { id: string; kind: "part"; lineId: string; pageKey: string; value: "drop" | "keep" | null; options: ControlOption<"drop" | "keep">[] };
 
 const KEEP_BOTH_REFUSED = {
-  dpgf_target: "cette page alimente une ligne DPGF déjà alimentée par un autre métré, qui ne garde qu’une mesure",
   merge_match: "la fusion, obligatoire avec un DPGF, met une nouvelle ligne sur une ligne précédente de la page",
 } as const;
 export const keepBothRefusal = (page: TakeoffPageReplacementPage) => (page.keep_both_refused ? KEEP_BOTH_REFUSED[page.keep_both_refused] : null);
@@ -354,9 +569,9 @@ const LOCKED = "imposée par la fusion, obligatoire avec un DPGF";
 /** Every control the screen shows for this draft, with its options and why an option is not offered. */
 export function confirmationControls(resolution: Resolution): ConfirmationControl[] {
   const controls: ConfirmationControl[] = [];
-  for (const { page, choice } of resolution.pages) {
+  for (const { page, choice, keepBothRefused } of resolution.pages) {
     controls.push({ id: `page:${page.key}`, kind: "page", pageKey: page.key, value: choice.decision,
-      options: [{ value: "replace", disabled: null }, { value: "keep_both", disabled: keepBothRefusal(page) }] });
+      options: [{ value: "replace", disabled: null }, { value: "keep_both", disabled: keepBothRefused }] });
     if (choice.decision === "keep_both") {
       controls.push({ id: `reason:${page.key}`, kind: "reason", pageKey: page.key, value: choice.reason,
         options: [{ value: null, disabled: null }, ...TAKEOFF_PAGE_KEEP_BOTH_REASONS.map((reason) => ({ value: reason, disabled: null }))] });

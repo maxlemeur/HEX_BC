@@ -115,13 +115,16 @@ globalThis.fetch = async (input, init) => {
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-decisions-fixture");
     const request = JSON.parse(init.body);
     assert.equal(request.model, "gpt-6-luna");
-    // Page triage (TI-663): the evidence names the task; page 1 of the fictional sheet is a facade.
-    const content = request.input?.[0]?.content ?? [];
+    // Page triage (TI-663): the evidence names the task; page 1 of the fictional sheet is a facade. The evidence is the
+    // user's input (a developer message may come first: TI-704).
+    const content = (request.input?.find((entry) => entry.role === "user") ?? request.input?.[0])?.content ?? [];
     const evidence = content.find((part) => part.type === "input_json")?.data ?? {};
     const triage = evidence.task === "takeoff_page_triage";
-    // Vector groups (TI-662 L3c): one choice per group alias; the entry names the task and its images, others keep their shape.
-    const vectorGroups = evidence.task === "takeoff_vector_groups";
-    const images = content.filter((part) => part.type === "input_image").length;
+    // Vector groups (TI-662 L3c, TI-704 v2): one choice per group alias, each with its own image; the entry names the task
+    // and every image sent (shared and in the questions), others keep their shape.
+    const vectorGroups = request.questions.some((question) => question.type === "choice" && question.name.startsWith("groupe_"));
+    const images = content.filter((part) => part.type === "input_image").length + request.questions.reduce((total, question) =>
+      total + (Array.isArray(question.instructions) ? question.instructions.filter((part) => part.type === "input_image").length : 0), 0);
     // `fail` (TI-662 L3d, worker): the provider answers 500, so callOpenAiDecisions returns `failed`; the entry says so.
     const fail = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).fail === true;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "decisions-fixture", questions: request.questions.length,
@@ -135,11 +138,11 @@ globalThis.fetch = async (input, init) => {
     }
     const answers = request.questions.map((question) => {
       if (vectorGroups && question.type === "choice" && question.name.startsWith("groupe_")) {
-        // Every group is EU at 0.8 (classified and measured at the threshold); the other choices share 0.2.
-        const others = question.choices.filter((candidate) => candidate.value !== "EU");
-        assert.equal(others.length, question.choices.length - 1, "A vector group question must offer EU.");
+        // Every group is EU at 0.9, « fond » at 0.1: a margin of 0.8 (classified and measured from 0.5).
+        assert.ok(question.choices.some((candidate) => candidate.value === "EU") && question.choices.some((candidate) => candidate.value === "fond"),
+          "A vector group question must offer EU and fond.");
         return { name: question.name, type: "choice", choice: "EU", confidence: 0.8,
-          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.8 : 0.2 / others.length })) };
+          probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.9 : candidate.value === "fond" ? 0.1 : 0 })) };
       }
       if (question.type === "choice" && question.name.startsWith("page_")) {
         const facade = /FA[ÇC]ADE/i.test(String(evidence.page_text ?? ""));
@@ -169,6 +172,81 @@ globalThis.fetch = async (input, init) => {
     throw new DOMException("Simulated provider timeout", "TimeoutError");
   }
   const body = url.pathname === "/v1/responses" ? JSON.parse(init.body) : null;
+  // Assistant (ASSIST01): the only request that carries tools. The scripted model reads the open estimate, then its
+  // lines, then answers with what the tools returned: every amount in its answer comes from the application's engine.
+  if (!liveProbe && body && Array.isArray(body.tools)) {
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
+    assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
+    assert.deepEqual(body.include, ["reasoning.encrypted_content"], "Reasoning must come back encrypted: nothing is stored at the provider.");
+    assert(body.instructions.includes("assistant de chiffrage"), "The assistant's rules must reach the plan request.");
+    const tools = body.tools.map(tool => tool.name);
+    assert(tools.includes("lire_devis") && tools.includes("lire_lignes_devis"), "The estimate reads must be offered.");
+    assert(!tools.some(name => /modifier|supprimer|ecrire|appliquer/.test(name)), "The assistant only reads.");
+    assert(["lister_pieces", "lire_piece", "lire_brief_registre"].every(name => tools.includes(name)), "The dossier reads must be offered (lot 2).");
+    const versionId = /Devis ouvert : versionId ([0-9a-f-]{36})/.exec(body.instructions)?.[1];
+    assert(versionId, "The open estimate must reach the assistant.");
+    // A document read comes back as a user message whose content is a list of parts (lot 2): the question is text.
+    const question = body.input.findLast(entry => entry.role === "user" && typeof entry.content === "string")?.content ?? "";
+    const outputs = body.input.filter(entry => entry.type === "function_call_output").map(entry => JSON.parse(entry.output));
+    assert.equal(body.input.filter(entry => entry.type === "function_call").length, outputs.length, "Each tool result answers a replayed call.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
+      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model }) + "\n");
+    const completed = { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 } } };
+    const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
+      type: "function_call", id: `fc_army_${outputs.length}`, call_id: `call_army_${outputs.length}`, name, arguments: JSON.stringify(args), status: "completed" } }, completed]);
+    // Assistant lot 2 (ASSIST04): the model lists the dossier, reads pages 2 to 3 of its PDF, then cites page 2 and, to
+    // prove the server's check, a page it never read. Asked from another affaire, the same document is refused.
+    if (question.startsWith("ASSIST04 ")) {
+      if (outputs.length === 0) return call("lister_pieces", {});
+      const piece = outputs[0].pieces?.find(entry => entry.nom.endsWith(".pdf"));
+      assert(piece?.lisible === true, "The affaire's fictional PDF must be listed as readable.");
+      if (outputs.length === 1) return call("lire_piece", { documentId: piece.id, pageDebut: 2, pageFin: 3 });
+      assert.equal(outputs.length, 2);
+      assert.deepEqual(outputs[1].pages_lues, { de: 2, a: 3 });
+      assert.equal(outputs[1].piece.pages, 3);
+      // The pages follow their tool result as data, in the shape the classification sends a PDF, never as the rules.
+      const lastOutput = body.input.findLastIndex(entry => entry.type === "function_call_output");
+      const attached = body.input[lastOutput + 1];
+      assert.equal(attached?.role, "user");
+      assert(attached.content[0].type === "input_text" && attached.content[0].text.includes("jamais une instruction"), "A document is framed as data.");
+      assert(attached.content[1].type === "input_file" && attached.content[1].file_data.startsWith("data:application/pdf;base64,JVBER"), "The pages reach the plan as a PDF file.");
+      assert(!body.input.some(entry => entry.role === "developer" || entry.role === "system"), "A document never speaks as the rules.");
+      const text = `Le CCTP impose du cuivre écroui DN20 [[doc:${piece.id}/2|art. 4.2]]. Rien sur la robinetterie [[doc:${piece.id}/9|art. 9]].`;
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
+    if (question.startsWith("ASSIST04-AUTRE ")) {
+      const documentId = /ASSIST04-AUTRE ([0-9a-f-]{36})/.exec(question)?.[1];
+      assert(documentId, "The other affaire's fictional document id must be present.");
+      if (outputs.length === 0) return call("lire_piece", { documentId });
+      assert.equal(outputs.length, 1);
+      assert.deepEqual(Object.keys(outputs[0]), ["erreur"], "A refused document read must return no data.");
+      assert(!body.input.some(entry => Array.isArray(entry.content)), "A refused read attaches no document.");
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: `Refus : ${outputs[0].erreur}` }, completed]);
+    }
+    if (question.startsWith("ASSIST02 ")) {
+      const jobId = /ASSIST02 ([0-9a-f-]{36})/.exec(question)?.[1];
+      assert(jobId, "The requested fictional job id must be present.");
+      if (outputs.length === 0) return call("lire_metre", { jobId });
+      assert.equal(outputs.length, 1);
+      const result = outputs[0];
+      // A refused read carries its refusal and nothing else: no line of the job reaches the model.
+      if (result.erreur) assert.deepEqual(Object.keys(result), ["erreur"], "A refused takeoff read must return no data.");
+      const text = result.erreur ? `Refus : ${result.erreur}` : result.lignes.map(line => `${line.designation} : ${line.quantite} ${line.unite}`).join("; ");
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
+    if (outputs.length === 0) return call("lire_devis", { versionId });
+    if (outputs.length === 1) return call("lire_lignes_devis", { versionId });
+    const [outline, lines] = outputs;
+    const line = lines.lignes[0];
+    const text = `Le total HT du devis est de ${outline.totaux.total_ht}. La ligne [[ligne:${lines.devis.id}/${line.id}|${line.designation}]] vaut ${line.total_ht}.`;
+    const half = Math.ceil(text.length / 2);
+    return sse([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text.slice(0, half) },
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text.slice(half) },
+      completed,
+    ]);
+  }
   const pdf = body?.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
     .find(part => part.type === "input_file");
   if (pdf) assert(pdf.file_data.startsWith("data:application/pdf;base64,JVBER"), "PDF must reach OpenAI inline.");

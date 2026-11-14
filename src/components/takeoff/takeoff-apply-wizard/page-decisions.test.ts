@@ -33,7 +33,7 @@ const newLine = (n: number, quantity: number, candidates: Array<[number, number[
   id: id(n), designation, unit, quantity, unit_key: unit, candidates: candidates.map(([pageNumber, lines]) => ({ key: key(pageNumber), line_ids: lines.map(id) })),
 });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [], ...extra,
 });
 /** Re-measured on both pages: 15 m on page 1, 20 m on page 2, each proposed onto the merged line. */
 const twoPages = (lineExtra: Partial<TakeoffPageReplacementResponse["lines"][number]> = {}) => proposal({

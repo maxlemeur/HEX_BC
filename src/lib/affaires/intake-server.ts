@@ -1,8 +1,10 @@
+import { findDuplicateIntakeDocument, hashIntakeContent } from "@/lib/affaires/intake-content-identity";
 import { AFFAIRE_INTAKE_MAX_BATCH_FILES, AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES } from "@/lib/affaires/intake-limits";
 import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpreadsheetBudget, SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import {
   AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
   buildClassificationPrompt,
@@ -84,7 +86,7 @@ import {
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
-import { hasStoredIntakePlan, hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
+import { hasStoredIntakePlan, hasStoredStandalonePlan, readStandalonePlanRowsByProject, type StandalonePlanRow } from "@/lib/affaires/plan-presence";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { driveProvenance } from "@/lib/affaires/google-drive/store";
@@ -980,6 +982,13 @@ export async function requireAffaireProjectReadAccess(
   project: AffaireProjectAccessRow;
 }> {
   return requireAffaireProjectAccess(projectId, "reader");
+}
+
+/** The affaire's brief as its readers see it (owner, admin or director), or null when none was drafted yet. */
+export async function readAffaireBriefDraft(projectId: string) {
+  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const brief = await fetchAffaireBriefForProject({ supabase: context.supabase, projectId: project.id });
+  return brief?.draft ?? null;
 }
 
 async function requireAffaireProjectBriefEditor(
@@ -2085,6 +2094,8 @@ async function getMissingPiecesForProject(input: {
   supabase: AffaireIntakeSupabaseClient;
   project: AffaireProjectAccessRow;
   documents: AffaireIntakeDocumentRow[];
+  /** The affaire's plan files when a portfolio read already holds them. */
+  standalonePlanRows?: readonly StandalonePlanRow[];
 }) {
   const activeDocuments = input.documents.filter((document) => !document.deletion_token);
   const candidatePlans = activeDocuments.filter((document) =>
@@ -2108,6 +2119,7 @@ async function getMissingPiecesForProject(input: {
     supabase: createServiceRoleClient() as never,
     projectId: input.project.id,
     tenantId: input.project.tenant_id,
+    rows: input.standalonePlanRows,
   });
   return hasPlan ? missing.filter((piece) => piece.code !== "missing_plans") : missing;
 }
@@ -2285,6 +2297,7 @@ export async function createAffaireIntakeUpload(
   });
 
   let uploadedCount = 0;
+  let duplicateCount = 0;
   const responses: UploadCreateResponseFile[] = [];
 
   for (const file of files) {
@@ -2306,6 +2319,20 @@ export async function createAffaireIntakeUpload(
       allowEmptyMimeType: true,
     });
 
+    const contentSha256 = validation.valid ? await hashIntakeContent(file) : null;
+    const rejectDuplicate = (duplicate: { documentId: string; message: string }) => {
+      duplicateCount += 1;
+      responses.push({ documentId: duplicate.documentId, fileName: file.name, mimeType, sizeBytes: file.size,
+        status: "rejected", rejectionReason: duplicate.message });
+    };
+    if (contentSha256) {
+      const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+      if (duplicate) {
+        rejectDuplicate(duplicate);
+        continue;
+      }
+    }
+
     const { error: insertError } = await resolveSupabaseQuery<{
       error: unknown;
     }>(
@@ -2319,6 +2346,7 @@ export async function createAffaireIntakeUpload(
           file_name: file.name,
           mime_type: mimeType,
           size_bytes: file.size,
+          content_sha256: contentSha256,
           upload_status: validation.valid ? "pending" : "rejected",
           rejection_reason: validation.valid ? null : validation.error,
           classification_status: validation.valid ? "queued" : "failed",
@@ -2329,6 +2357,14 @@ export async function createAffaireIntakeUpload(
     );
 
     if (insertError) {
+      // The partial unique index arbitrates two requests that both passed the lookup.
+      if (contentSha256 && isRecord(insertError) && insertError.code === "23505") {
+        const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+        if (duplicate) {
+          rejectDuplicate(duplicate);
+          continue;
+        }
+      }
       throw internalError(
         "Impossible d'enregistrer le document intake.",
         insertError
@@ -2414,6 +2450,9 @@ export async function createAffaireIntakeUpload(
           upload_status: "uploaded",
         } as never)
         .eq("id", documentId)
+        .eq("upload_status", "pending")
+        .select("id")
+        .single()
     );
 
     if (uploadedError) {
@@ -2448,8 +2487,9 @@ export async function createAffaireIntakeUpload(
     });
   }
 
+  const onlyDuplicates = duplicateCount === files.length;
   const finalUploadStatus: AffaireIntakeUploadStatus =
-    uploadedCount > 0 ? "queued" : "failed";
+    uploadedCount > 0 ? "queued" : onlyDuplicates ? "ready" : "failed";
 
   const { error: finalizeError } = await resolveSupabaseQuery<{
     error: unknown;
@@ -2459,7 +2499,7 @@ export async function createAffaireIntakeUpload(
       .update({
         status: finalUploadStatus,
         completed_at: uploadedCount > 0 ? null : new Date().toISOString(),
-        last_error: uploadedCount > 0 ? null : "Aucun fichier n'a pu être televerse.",
+        last_error: uploadedCount > 0 || onlyDuplicates ? null : "Aucun fichier n'a pu être televerse.",
       } as never)
       .eq("id", upload.id)
   );
@@ -2954,6 +2994,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   projectId: string
 ): Promise<AffaireIntakeWorkspace> => {
   const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  // The brief is independent of the latest upload and its documents. Keep the
+  // original error order by awaiting it later, with early rejections observed.
+  const briefPromise = startConcurrentRead(fetchAffaireBriefForProject({
+    supabase: context.supabase,
+    projectId: project.id,
+  }));
 
   const { data: uploadData, error: uploadError } = await resolveSupabaseQuery<{
     data: unknown;
@@ -2979,10 +3025,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const upload = normalizeUploadRow(uploadData);
 
   if (!upload) {
-    const brief = await fetchAffaireBriefForProject({
-      supabase: context.supabase,
-      projectId: project.id,
-    });
+    const brief = await briefPromise;
 
     return {
       projectId: project.id,
@@ -2996,6 +3039,10 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       briefDraft: brief?.draft ?? null,
     };
   }
+
+  const analysisAvailabilityPromise = project.user_id === context.userId || context.tenantRole === "admin"
+    ? startConcurrentRead(getIntakeAnalysisAvailability(context))
+    : undefined;
 
   const { data: docsData, error: docsError } = await resolveSupabaseQuery<{
     data: unknown[];
@@ -3020,10 +3067,11 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const documents = (docsData ?? [])
     .map(normalizeDocumentRow)
     .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-  const brief = await fetchAffaireBriefForProject({
-    supabase: context.supabase,
-    projectId: project.id,
-  });
+  // Plan presence depends on the documents, but not on the brief.
+  const missingPiecesPromise = startConcurrentRead(getMissingPiecesForProject({
+    supabase: context.supabase, project, documents,
+  }));
+  const brief = await briefPromise;
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
@@ -3046,8 +3094,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     ],
   }));
   const [missingPieces, analysisAvailability] = await Promise.all([
-    getMissingPiecesForProject({ supabase: context.supabase, project, documents }),
-    project.user_id === context.userId || context.tenantRole === "admin" ? getIntakeAnalysisAvailability(context) : undefined,
+    missingPiecesPromise,
+    analysisAvailabilityPromise,
   ]);
 
   return {
@@ -3057,23 +3105,127 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     canManageDocuments: project.user_id === context.userId || context.tenantRole === "admin",
     documents: workspaceDocuments,
     missingPieces,
-    readiness: buildAffaireIntakeReadinessSnapshot({
-      documents: documents.filter((document) => !document.deletion_token).map((document) => ({
-        fileName: document.file_name,
-        uploadStatus: document.upload_status,
-        classificationStatus: document.classification_status,
-        detectedCategory: document.document_kind,
-        confidence: document.confidence,
-        issues: [
-          ...document.issues,
-          ...(document.rejection_reason ? [document.rejection_reason] : []),
-        ],
-      })),
-      missingPieces,
-    }),
+    readiness: buildStoredDocumentsReadiness(documents, missingPieces),
     briefDraft: brief?.draft ?? null,
   };
 });
+
+/** Readiness of a dossier from its stored documents; a document whose deletion is reserved no longer counts. */
+function buildStoredDocumentsReadiness(
+  documents: AffaireIntakeDocumentRow[],
+  missingPieces: AffaireIntakeWorkspaceMissingPiece[]
+) {
+  return buildAffaireIntakeReadinessSnapshot({
+    documents: documents.filter((document) => !document.deletion_token).map((document) => ({
+      fileName: document.file_name,
+      uploadStatus: document.upload_status,
+      classificationStatus: document.classification_status,
+      detectedCategory: document.document_kind,
+      confidence: document.confidence,
+      issues: [
+        ...document.issues,
+        ...(document.rejection_reason ? [document.rejection_reason] : []),
+      ],
+    })),
+    missingPieces,
+  });
+}
+
+export type AffaireIntakeManagerSignal = {
+  briefStatus: AffaireIntakeBriefDraft["status"] | null;
+  readiness: Pick<
+    AffaireIntakeReadinessSnapshot,
+    "reviewDocumentsCount" | "confirmedMissingPiecesCount" | "confirmedCriticalMissingPiecesCount"
+  >;
+};
+
+const MANAGER_SIGNAL_PLAN_CHECK_CONCURRENCY = 8;
+
+/**
+ * What a portfolio screen needs from each affaire's dossier (the brief's status and the readiness counts of
+ * fetchAffaireIntakeWorkspace), read for all the affaires at once: one request per table and per chunk of affaires,
+ * where calling the workspace reader per affaire costs about eight requests each. Only the bytes behind a plan are
+ * still checked affaire by affaire, as the workspace does, and no longer once `deadlineAt` has passed.
+ *
+ * An affaire the caller may not read, an archived or unknown one, or one whose signals could not be established
+ * (in time), is absent from the result: the caller must count it as unqualified, never as ready.
+ */
+export async function fetchAffaireIntakeManagerSignals(input: {
+  context: AuthenticatedContext;
+  projectIds: readonly string[];
+  deadlineAt?: number;
+}): Promise<Map<string, AffaireIntakeManagerSignal>> {
+  const { context } = input;
+  const { data: projectData, error: projectError } = await readAllRowsInChunks(input.projectIds, (ids) =>
+    context.supabase
+      .from("estimate_projects")
+      .select(PROJECT_SELECT, { count: "exact" })
+      .eq("tenant_id", context.tenantId)
+      .in("id", ids));
+  if (projectError) throw mapSupabaseError(projectError, "Impossible de charger les affaires.");
+
+  // Same rule as requireAffaireProjectAccess in "reader" mode.
+  const projects = ((projectData ?? []) as AffaireProjectAccessRow[]).filter((project) =>
+    !project.is_archived && (project.user_id === context.userId
+      || context.tenantRole === "admin" || context.tenantRole === "director"));
+  const readByProject = async (table: string, columns: string, live = false) => {
+    const { data, error } = await readAllRowsInChunks(projects.map((project) => project.id), (ids) => {
+      const query = context.supabase.from(table as never).select(columns as never, { count: "exact" })
+        .in("project_id", ids as never);
+      return (live ? query.is("deleted_at", null) : query) as never;
+    }, { order: table === "affaire_intake_uploads"
+      ? [{ column: "created_at", ascending: false }, { column: "id", ascending: false }]
+      : [{ column: "created_at", ascending: true }] });
+    if (error) throw internalError("Impossible de charger les dossiers des affaires.", error);
+    const rowsByProjectId = new Map<string, unknown[]>();
+    for (const row of (data ?? []) as unknown[]) {
+      const projectId = isRecord(row) && typeof row.project_id === "string" ? row.project_id : "";
+      rowsByProjectId.set(projectId, [...(rowsByProjectId.get(projectId) ?? []), row]);
+    }
+    return rowsByProjectId;
+  };
+  const [briefRows, uploadRows, documentRows] = await Promise.all([
+    readByProject("affaire_briefs", BRIEF_SELECT),
+    // Only the latest upload opens the dossier, as in the workspace: its identity and status are enough.
+    readByProject("affaire_intake_uploads", "id, project_id, status, created_at"),
+    readByProject("affaire_intake_documents", DOCUMENT_SELECT, true),
+  ]);
+  const opened = projects.filter((project) => normalizeUploadRow(uploadRows.get(project.id)?.[0]));
+  // Access is established above: the server client gives a director the owner's presence boolean. Affaires
+  // without a dossier have no missing piece to lift, so their plan files are not read.
+  const planRows = opened.length === 0 ? new Map<string, StandalonePlanRow[]>() : await readStandalonePlanRowsByProject({
+    supabase: createServiceRoleClient() as never, tenantId: context.tenantId, projectIds: opened.map((project) => project.id),
+  });
+
+  const signals = new Map<string, AffaireIntakeManagerSignal>();
+  const readSignal = async (project: AffaireProjectAccessRow) => {
+    const briefs = briefRows.get(project.id) ?? [];
+    // The workspace reader refuses an affaire with several briefs or one whose draft does not parse.
+    if (briefs.length > 1) return;
+    const brief = normalizeAffaireBriefRow(briefs[0]);
+    const briefStatus = brief ? normalizeAffaireBriefDraftFromRows({ brief, sources: [] }).status : null;
+    const documents = !opened.includes(project) ? [] : (documentRows.get(project.id) ?? [])
+      .map(normalizeDocumentRow)
+      .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+    const { reviewDocumentsCount, confirmedMissingPiecesCount, confirmedCriticalMissingPiecesCount } =
+      buildStoredDocumentsReadiness(documents, !opened.includes(project) ? [] : await getMissingPiecesForProject({
+        supabase: context.supabase, project, documents, standalonePlanRows: planRows.get(project.id) ?? [],
+      }));
+    signals.set(project.id, { briefStatus,
+      readiness: { reviewDocumentsCount, confirmedMissingPiecesCount, confirmedCriticalMissingPiecesCount } });
+  };
+
+  // Affaires without a dossier cost no request: qualify them first, then spend the remaining time on the others.
+  const queue = [...projects].sort((left, right) => Number(opened.includes(left)) - Number(opened.includes(right)));
+  await Promise.all(Array.from({ length: MANAGER_SIGNAL_PLAN_CHECK_CONCURRENCY }, async () => {
+    for (let project = queue.shift(); project; project = queue.shift()) {
+      if (opened.includes(project) && input.deadlineAt !== undefined && Date.now() > input.deadlineAt) return;
+      // One affaire's failure leaves it unqualified without hiding the others.
+      await readSignal(project).catch(() => undefined);
+    }
+  }));
+  return signals;
+}
 
 export async function resolveAffaireBriefPlanGap(input: {
   projectId: string; entryIndex: number; expectedUpdatedAt: string;

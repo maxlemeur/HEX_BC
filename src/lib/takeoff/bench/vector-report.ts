@@ -2,7 +2,7 @@ import type { DecisionsTokenBudgetSnapshot } from "@/lib/ai/decisions-budget";
 import { measuredKey, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
 import type { BenchReport } from "@/lib/takeoff/bench/report";
 import { toleranceOf, withinTolerance, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
-import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_ACCEPTED_MARGIN, LOCAL_MODEL_ACCEPTED_PROBABILITY } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 
 // Comparison of the vector reading with the level C baseline (TI-662
@@ -15,9 +15,9 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // in all their passes, the others are listed. The baseline is re-scored with
 // the current scorer, so both sides use the same rules. report.md prints shares and
 // errors, never a quantity. With Decisions (TI-662 L3c), per document: calls
-// by kind, tokens of the calls that report usage, latency of the calls and of
-// the renders apart (nearest rank), answers classified (≥ 0.8), proposed or
-// left « à revoir », and the stops; report.md never prints a group id, colour
+// and tokens of the calls that report usage, latency of the calls and of the
+// drawings apart (nearest rank), classes from the rules, Decisions answers at
+// its accepted margin, proposed under it or left « à revoir », and the stops; report.md never prints a group id, colour
 // or layer (report.json keeps each group's answer).
 //
 // Vector and raster slices (TI-678, decision Q8 of 5 Nov): added after the v1
@@ -50,6 +50,18 @@ import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 // on the judged keys (median, signed): it is what the judgment on the devis
 // asks of a reading beyond the drawing. report.json keeps, per judged plan and
 // key, the devis, the measurement and each run's reading per pass.
+//
+// Count keys (TI-676): a measurement beside the lengths and surfaces, with no
+// verdict, that leaves every other figure as it is. Per scope, total and slice,
+// each run's scored count keys (kind count, unit u as the score reads it), those
+// read (at least one item attached, never the score's status: a key expected at
+// 0 that no item reads is « ok » there), among them exact (ok at the score's u
+// tolerance) and within one of the truth, and missed; and its extra counts, the count
+// keys it read that the truth lacks (false-positive groups of a count, a key
+// read one DN apart from a missed key included; unreadable lines, whose key is
+// unknown, are not). Each figure is the median over the passes. On the raster
+// slice the vector reading abstains, as for the lengths. report.md prints
+// numbers of keys, never a count of the devis or of a reading.
 
 export type KindMetrics = { keys: number; within: number | null; share: number | null; median_error: number | null };
 export type SideMetrics = { lengths: KindMetrics; surfaces: KindMetrics };
@@ -91,6 +103,34 @@ export type SliceComparison = {
   /** The acceptance rule on the slice's keys (share strictly higher, median error strictly lower, a missed key 100 %); null on an abstention. */
   lengths_gain: boolean | null;
 };
+/** Count keys of a run (TI-676), each figure the median over the passes; null without a scored key (extra: without a scope). */
+export type CountMetrics = {
+  keys: number;
+  /** Keys with at least one item attached; exact and within_one count among them. */
+  found: number | null;
+  exact: number | null;
+  /** Within one of the truth, the exact keys included. */
+  within_one: number | null;
+  missed: number | null;
+  /** Count keys read that the truth lacks: false-positive groups of a count. */
+  extra: number | null;
+};
+export type CountSlice = {
+  plans: string[];
+  /** The vector reading hands the slice's pages to a human: its keys are counted, nothing is read. */
+  abstained: boolean;
+  vector: CountMetrics;
+  baseline: CountMetrics;
+};
+export type CountComparison = {
+  /** A measurement: no verdict, and no other figure of the comparison depends on it. */
+  declared: "measurement_only";
+  scopes: Array<{ scope: string; documents: string[]; role: "truth" | "reserve"; vector: CountMetrics; baseline: CountMetrics }>;
+  /** On the scopes of the comparison's totals. */
+  totals: Record<"reserve" | "truth" | "all", { vector: CountMetrics; baseline: CountMetrics }>;
+  /** On the plans of each slice; null when the pages of the vector run are not given. */
+  slices: Record<"reserve" | "truth" | "all", Record<"vector" | "raster", CountSlice>> | null;
+};
 export type VectorComparison = {
   passes: { vector: number; baseline: number };
   scopes: ScopeComparison[];
@@ -113,6 +153,8 @@ export type VectorComparison = {
     /** Measured plans left to their devis, and why. */
     not_judged: Array<{ scope: string; reason: MeasuredNotJudged }>;
   } | null;
+  /** Count keys of each run (TI-676), beside the lengths and surfaces. */
+  counts: CountComparison;
 };
 /**
  * Why a measured plan is not judged on its measurement: its truth covers several plans; the two runs did not both
@@ -262,6 +304,30 @@ function sliceSide(passes: ScopeScore[][], plans: readonly string[], abstained: 
   return { abstained, lengths: kind(isLength), surfaces: kind(isSurface), silent_errors: abstained ? null : silent };
 }
 
+const NO_COUNTS: CountMetrics = { keys: 0, found: null, exact: null, within_one: null, missed: null, extra: null };
+
+function countsOfPass(scopes: readonly ScopeScore[]) {
+  const scored = scopes.flatMap((scope) => scope.keys).filter((key) => key.key.kind === "count" && key.status !== "out_of_score");
+  // Read: an item attached. The score's status would count a key expected at 0 that no item reads (« ok », actual 0).
+  const found = scored.filter((key) => key.items > 0);
+  return {
+    keys: scored.length, found: found.length, exact: found.filter((key) => key.status === "ok").length,
+    within_one: found.filter((key) => key.actual !== null && key.expected !== null && Math.abs(key.actual - key.expected) <= 1 + 1e-9).length,
+    missed: scored.length - found.length,
+    extra: scopes.reduce((total, scope) => total + scope.false_positives.filter((group) => group.key?.kind === "count").length, 0),
+  };
+}
+
+/** The count keys of some scopes, each figure the median over the passes that hold any of them. */
+function countMetrics(passes: ReadonlyArray<readonly ScopeScore[]>): CountMetrics {
+  const perPass = passes.filter((scopes) => scopes.length > 0).map(countsOfPass);
+  if (perPass.length === 0) return NO_COUNTS;
+  const keys = perPass[0].keys;
+  const of = (pick: (entry: (typeof perPass)[number]) => number) => (keys === 0 ? null : median(perPass.map(pick)));
+  return { keys, found: of((entry) => entry.found), exact: of((entry) => entry.exact), within_one: of((entry) => entry.within_one),
+    missed: of((entry) => entry.missed), extra: median(perPass.map((entry) => entry.extra)) };
+}
+
 function isScoredLength(key: KeyScore) {
   return isLength(key) && key.status !== "out_of_score";
 }
@@ -305,8 +371,10 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
   };
   // Slices use the plans of the totals (scored on both sides in every pass), so each compares the same keys.
   const roleOf = (id: string) => (vectorPasses.flat().find((scope) => scope.id === id) as ScopeScore).role;
+  const slicePlans = (role: "reserve" | "truth" | "all", name: "vector" | "raster") =>
+    common.filter((id) => slices?.get(id) === name && (role === "all" || roleOf(id) === role));
   const slice = (role: "reserve" | "truth" | "all", name: "vector" | "raster"): SliceComparison => {
-    const plans = common.filter((id) => slices?.get(id) === name && (role === "all" || roleOf(id) === role));
+    const plans = slicePlans(role, name);
     const pick = (passes: ScopeScore[][]) => passes.map((scopes) => scopes.filter((scope) => plans.includes(scope.id)).flatMap((scope) => scope.keys));
     return {
       plans, vector: sliceSide(vectorPasses, plans, name === "raster"), baseline: sliceSide(baselinePasses, plans, false),
@@ -342,6 +410,20 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
       }) };
   };
   const measuredScopes = judgedPlans.map(measuredScope);
+  // Counts (TI-676) on the same scopes as the lengths: per scope, the totals' scopes, and the plans of each slice.
+  const scopesOf = (passes: ScopeScore[][], pick: (scope: ScopeScore) => boolean) => passes.map((scopes) => scopes.filter(pick));
+  const countTotal = (role: "reserve" | "truth" | "all") => {
+    const pick = (scope: ScopeScore) => common.includes(scope.id) && (role === "all" || scope.role === role);
+    return { vector: countMetrics(scopesOf(vectorPasses, pick)), baseline: countMetrics(scopesOf(baselinePasses, pick)) };
+  };
+  const countSlice = (role: "reserve" | "truth" | "all", name: "vector" | "raster"): CountSlice => {
+    const plans = slicePlans(role, name);
+    const pick = (scope: ScopeScore) => plans.includes(scope.id);
+    const vectorCounts = countMetrics(scopesOf(vectorPasses, pick));
+    return { plans, abstained: name === "raster", vector: name === "raster" ? { ...NO_COUNTS, keys: vectorCounts.keys } : vectorCounts,
+      baseline: countMetrics(scopesOf(baselinePasses, pick)) };
+  };
+  const countSlices = (role: "reserve" | "truth" | "all") => ({ vector: countSlice(role, "vector"), raster: countSlice(role, "raster") });
   const judgment = (role: "reserve" | "truth" | "all"): MeasuredJudgment => {
     const judged = measuredScopes.filter((scope) => role === "all" || scope.role === role);
     const plans = judged.map((scope) => scope.scope);
@@ -368,6 +450,14 @@ export function compareVectorWithBaseline(vector: BenchReport, baseline: BenchRe
         ...measuredIds.flatMap((scope) => { const reason = notJudged(scope); return reason ? [{ scope, reason }] : []; }),
       ].sort((left, right) => (left.scope < right.scope ? -1 : left.scope > right.scope ? 1 : 0)),
     } : null,
+    counts: {
+      declared: "measurement_only",
+      scopes: scopes.map((entry) => ({ scope: entry.scope, documents: entry.documents, role: entry.role,
+        vector: countMetrics(scopesOf(vectorPasses, (scope) => scope.id === entry.scope)),
+        baseline: countMetrics(scopesOf(baselinePasses, (scope) => scope.id === entry.scope)) })),
+      totals: { reserve: countTotal("reserve"), truth: countTotal("truth"), all: countTotal("all") },
+      slices: slices ? { reserve: countSlices("reserve"), truth: countSlices("truth"), all: countSlices("all") } : null,
+    },
   };
 }
 
@@ -422,30 +512,35 @@ function decisionsPages(passes: readonly VectorBenchPass[], id: string | null): 
     .flatMap((document) => document.pages.flatMap((page) => (page.decisions ? [{ pass: pass.pass, page: page.page, decisions: page.decisions }] : []))));
 }
 
-/** The Decisions of some pages: calls by kind, tokens of the calls with usage, latency of calls and renders apart, answers, stops. */
+/** The classification of some pages: calls, tokens of the calls with usage, latency of calls and renders apart, answers (the rules' apart), stops. */
 function summarizeDecisions(document: string | null, pages: readonly DecisionsPage[]) {
   const calls = pages.flatMap((entry) => entry.decisions.calls);
   const answers = pages.flatMap((entry) => entry.decisions.answers);
   const latency = calls.map((call) => call.latency_ms);
-  const renders = pages.flatMap((entry) => [...(entry.decisions.render.legend_ms === null ? [] : [entry.decisions.render.legend_ms]), ...entry.decisions.render.sheets_ms]);
+  // The page's one analysis and drawing, then each image cut from it.
+  const renders = pages.flatMap((entry) => [...(entry.decisions.render.page_ms === null ? [] : [entry.decisions.render.page_ms]), ...entry.decisions.render.legends_ms,
+    ...entry.decisions.render.groups_ms]);
   const sum = (pick: (usage: NonNullable<(typeof calls)[number]["usage"]>) => number) => calls.reduce((total, call) => total + (call.usage ? pick(call.usage) : 0), 0);
   return {
     document, pages: pages.length,
-    calls: { batch: calls.filter((call) => call.kind === "batch").length, dedicated: calls.filter((call) => call.kind === "dedicated").length,
-      without_usage: calls.filter((call) => call.usage === null).length },
+    calls: { batch: calls.length, without_usage: calls.filter((call) => call.usage === null).length },
     tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
     latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
     render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
     candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
     left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
     answers: (() => {
-      // As isClassified reads them: « autre » is never classified; every candidate without such an answer (unanswered,
-      // refused, « autre », or never asked: images not drawn, budget refused, a failed call or a stop) is to review.
+      // As isClassified reads them: « autre » is never classified, a rule's class always is, Decisions' from its accepted
+      // margin, the local plan's model's from its probability of 0.8; every candidate without such an answer (unanswered,
+      // refused, « autre », « inconnu », « hors_liste », or never asked: images not drawn, budget refused, a failed call or
+      // a stop) is to review.
       const proposed = answers.filter((answer) => answer.status === "answered" && answer.class !== null && answer.class !== "autre");
-      const classified = proposed.filter((answer) => (answer.confidence ?? 0) >= CLASSIFIED_DECISIONS_CONFIDENCE).length;
-      const proposals = proposed.length - classified;
+      const ruled = proposed.filter((answer) => answer.via === "rule").length;
+      const threshold = (via: string) => (via === "local" ? LOCAL_MODEL_ACCEPTED_PROBABILITY : DECISIONS_ACCEPTED_MARGIN);
+      const classified = proposed.filter((answer) => answer.via !== "rule" && (answer.confidence ?? 0) >= threshold(answer.via)).length;
+      const proposals = proposed.length - ruled - classified;
       const candidates = pages.reduce((total, entry) => total + entry.decisions.candidates, 0);
-      return { classified, proposals, review: Math.max(0, candidates - classified - proposals) };
+      return { ruled, classified, proposals, review: Math.max(0, candidates - ruled - classified - proposals) };
     })(),
     stops: pages.flatMap((entry) => (entry.decisions.stop ? [{ pass: entry.pass, page: entry.page, reason: entry.decisions.stop.reason }] : [])),
   };
@@ -469,6 +564,21 @@ function percent(value: number | null) {
   return value === null ? "–" : `${(value * 100).toFixed(0)} %`;
 }
 
+function plural(value: number | null, one: string, many: string) {
+  return (value ?? 0) >= 2 ? many : one;
+}
+
+/** Numbers of count keys, never a count of the devis or of a reading. */
+function countCell(counts: CountMetrics, abstained = false) {
+  if (abstained) return counts.keys === 0 ? "–" : `abstention (${counts.keys} ${plural(counts.keys, "clé", "clés")})`;
+  if (counts.keys === 0) return counts.extra ? `aucune clé notée, ${counts.extra} en trop` : "–";
+  return `${counts.exact} ${plural(counts.exact, "exacte", "exactes")} sur ${counts.keys}, ${counts.within_one} à ±1, `
+    + `${counts.found} ${plural(counts.found, "lue", "lues")}, ${counts.missed} ${plural(counts.missed, "manquée", "manquées")}, ${counts.extra} en trop`;
+}
+
+const COUNTS_NOTE = "Comptages : clés de comptage notées (u). Lues : au moins un item rattaché à la clé ; parmi elles, exactes comme au score, et "
+  + "« à ±1 », les exactes comprises ; en trop : clés de comptage lues que la vérité n’a pas, une clé lue avec un autre DN comprise. Une mesure, sans verdict.";
+
 function sliceCell(kind: SliceKind, abstained: boolean) {
   if (kind.keys === 0) return "–";
   if (abstained) return `abstention (${kind.keys} clés)`;
@@ -481,7 +591,7 @@ function sliceCell(kind: SliceKind, abstained: boolean) {
 }
 
 /** The slices of the comparison: shares and counts only, declared as added after the v1 results. */
-function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
+function renderSlices(slices: NonNullable<VectorComparison["slices"]>, counts: CountComparison["slices"]) {
   const lines = ["### Tranches vecteur et raster (ajoutées après lecture des résultats v1)", "",
     "Le chiffre global ci-dessus reste le chiffre de tête. Couverture : clés notées lues ; l’erreur médiane ne porte que sur les clés lues. "
     + "Une page raster est confiée à un humain : la lecture vectorielle s’y abstient, ce n’est jamais un succès. "
@@ -494,10 +604,11 @@ function renderSlices(slices: NonNullable<VectorComparison["slices"]>) {
       sliceCell(entry.vector.lengths, entry.vector.abstained), sliceCell(entry.baseline.lengths, false),
       entry.vector.abstained ? "abstention" : verdict(entry.lengths_gain, "gain", "pas de gain"),
       sliceCell(entry.vector.surfaces, entry.vector.abstained), sliceCell(entry.baseline.surfaces, false),
+      counts ? countCell(counts[role][name].vector, counts[role][name].abstained) : "–", counts ? countCell(counts[role][name].baseline) : "–",
       `${silent(entry.vector)} / ${silent(entry.baseline)}`];
   }));
   lines.push(...table(["Tranche", "Plans", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline",
-    "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
+    "Comptages, vecteurs", "Comptages, baseline", "Erreurs silencieuses (vecteurs / baseline)"], rows), "");
   if (slices.left_out.length > 0) lines.push(`Hors tranches (pages vecteur et raster mêlées, ou passes qui ne s’accordent pas) : ${slices.left_out.join(", ")}.`, "");
   return lines;
 }
@@ -535,9 +646,12 @@ function renderMeasured(measured: NonNullable<VectorComparison["measured"]>) {
   return lines;
 }
 
-/** report.md sections of a vector run: page readings (codes and counts only), Decisions when used, and the comparison. */
+/**
+ * report.md sections of a vector run: page readings (codes and counts only), the groups' model when used (Decisions, or
+ * with `model: "local"` the local plan's), and the comparison.
+ */
 export function renderVectorSections(passes: readonly VectorBenchPass[], comparison: VectorComparison | null,
-  decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null) {
+  decisions: { budget: DecisionsTokenBudgetSnapshot } | null = null, options: { model?: "decisions" | "local" } = {}) {
   const lines: string[] = ["## Lecture vectorielle par page (passe 1)", ""];
   const first = passes[0];
   lines.push(...table(["Document", "Page", "Mode", "Échelle", "Cotes (cohérentes / lues)", "Légende (codes)", "Groupes (visibles / classés / réseau)",
@@ -561,6 +675,23 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
       (reading.timings.total_ms / 1000).toFixed(2), (reading.timings.reading_ms / 1000).toFixed(2),
     ];
   }))), "");
+  const timed = (first?.documents ?? []).flatMap((document) => document.pages.flatMap((page) => (page.durations ? [{ document: document.id, page }] : [])));
+  if (timed.length > 0) {
+    // TI-704 latency: where a page's time goes, the drawing begun during its keyword reading.
+    const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
+    lines.push("## Durées de chaque page (passe 1)", "",
+      "Groupes : le classement des groupes (dessin, demandes), après la lecture par mots-clés pendant laquelle la page est déjà analysée "
+      + "pour ses images. Le dessin des groupes additionne leurs temps, y compris dans des processus en parallèle.", "");
+    lines.push(...table(["Document", "Page", "Extraction (s)", "Mots-clés (s)", "Groupes (s)", "Analyse de la page (s)", "Dessin des groupes (s)",
+      "Appels en cours (s)", "Reste (s)", "Total (s)"], timed.map(({ document, page }) => {
+      const durations = page.durations as NonNullable<typeof page.durations>;
+      const render = page.decisions?.render;
+      return [document, page.page, seconds(durations.extraction_ms), seconds(durations.keywords_ms), seconds(durations.groups_ms),
+        seconds(render?.page_ms ?? null), render && render.groups_ms.length ? seconds(sum(render.groups_ms)) : "–",
+        seconds(page.decisions?.calls_ms ?? null), seconds(durations.rest_ms),
+        seconds(durations.total_ms)];
+    })), "");
+  }
   lines.push(`## Durées par page, toutes passes (${passes.length})`, "");
   lines.push(...table(["Document", "Pages lues", "Échecs", "Opérateurs", "Tracés en trait", "Extraction p50 / p95 (s)", "Lecture p50 / p95 (s)",
     "Mémoire max de l’extraction (Mo)"], vectorTimings(passes).map((entry) => [entry.document, entry.samples, entry.failed, entry.operators, entry.stroke_paths,
@@ -568,7 +699,8 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     entry.max_rss_mb])), "");
   const decided = vectorDecisionsSummary(passes);
   if (decided.length > 0) {
-    lines.push(`## Decisions, classes des groupes (toutes passes, ${passes.length})`, "");
+    const local = options.model === "local";
+    lines.push(`## ${local ? "ChatGPT local" : "Decisions"}, classes des groupes (toutes passes, ${passes.length})`, "");
     if (decisions) {
       const { budget } = decisions;
       lines.push(`Budget : ${budget.spent_tokens} jetons sur ${budget.max_tokens}, ${budget.calls} appels (${budget.calls_without_usage} sans usage), `
@@ -576,32 +708,38 @@ export function renderVectorSections(passes: readonly VectorBenchPass[], compari
     }
     const total = vectorDecisionsTotal(passes);
     const rows = total ? [...decided, { ...total, document: "Total" }] : decided;
-    lines.push(...table(["Document", "Pages", "Appels (lot / dédiés)", "Jetons (entrée / sortie / total)", "Appel p50 / p95 (s)", "Rendu p50 / p95 (s)",
-      "Candidats (hors limite)", "Réponses (≥ 0,8 / < 0,8 / à revoir)", "Arrêts"], rows.map((entry) => [
-      entry.document, entry.pages, `${entry.calls.batch} / ${entry.calls.dedicated}`, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
+    const margin = String(local ? LOCAL_MODEL_ACCEPTED_PROBABILITY : DECISIONS_ACCEPTED_MARGIN).replace(".", ",");
+    lines.push(...table(["Document", "Pages", local ? "Demandes" : "Appels", "Jetons (entrée / sortie / total)", `${local ? "Demande" : "Appel"} p50 / p95 (s)`,
+      "Rendu p50 / p95 (s)", "Candidats (hors limite)", `Classes (règles / ${local ? "modèle" : "Decisions"} ≥ ${margin} / < ${margin} / à revoir)`, "Arrêts"],
+    rows.map((entry) => [
+      entry.document, entry.pages, entry.calls.batch, `${entry.tokens.input} / ${entry.tokens.output} / ${entry.tokens.total}`,
       `${seconds(entry.latency_ms.p50)} / ${seconds(entry.latency_ms.p95)}`, `${seconds(entry.render_ms.p50)} / ${seconds(entry.render_ms.p95)}`,
-      `${entry.candidates} (${entry.left_out})`, `${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,
+      `${entry.candidates} (${entry.left_out})`, `${entry.answers.ruled} / ${entry.answers.classified} / ${entry.answers.proposals} / ${entry.answers.review}`,
       entry.stops.map((stop) => `p${stop.page} passe ${stop.pass} : ${stop.reason}`).join(", ") || "–",
     ])), "");
   }
   if (comparison) {
     lines.push(`## Comparaison avec la baseline niveau C (médianes de ${comparison.passes.vector} passes vectorielles et ${comparison.passes.baseline} passes de la baseline, re-notée au score courant)`, "");
+    const counts = comparison.counts;
+    const scopeCounts = (id: string) => counts.scopes.find((entry) => entry.scope === id);
     const rows = [
       ...(["reserve", "truth", "all"] as const).map((role) => {
         const entry = comparison.totals[role];
         return [role === "reserve" ? "**Réserve**" : role === "truth" ? "**Hors réserve**" : "**Tous**", share(entry.vector.lengths), share(entry.baseline.lengths),
           verdict(entry.lengths_gain, "gain", "pas de gain"), share(entry.vector.surfaces), share(entry.baseline.surfaces),
-          verdict(entry.surfaces_no_regression, "sans régression", "régression")];
+          verdict(entry.surfaces_no_regression, "sans régression", "régression"), countCell(counts.totals[role].vector), countCell(counts.totals[role].baseline)];
       }),
       ...comparison.scopes.map((scope) => [`${scope.documents.join(", ")}${scope.role === "reserve" ? " (réserve)" : ""}`, share(scope.vector.lengths),
         share(scope.baseline.lengths), verdict(scope.lengths_gain, "gain", "pas de gain"), share(scope.vector.surfaces), share(scope.baseline.surfaces),
-        verdict(scope.surfaces_no_regression, "sans régression", "régression")]),
+        verdict(scope.surfaces_no_regression, "sans régression", "régression"), countCell(scopeCounts(scope.scope)?.vector ?? NO_COUNTS),
+        countCell(scopeCounts(scope.scope)?.baseline ?? NO_COUNTS)]),
     ];
-    lines.push(...table(["Périmètre", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline", "Surfaces"], rows), "");
+    lines.push(...table(["Périmètre", "Longueurs, vecteurs", "Longueurs, baseline", "Longueurs", "Surfaces, vecteurs", "Surfaces, baseline", "Surfaces",
+      "Comptages, vecteurs", "Comptages, baseline"], rows), "", COUNTS_NOTE, "");
     if (comparison.left_out_of_totals.length > 0) {
       lines.push(`Hors totaux (non notés par les deux runs à chaque passe) : ${comparison.left_out_of_totals.join(", ")}.`, "");
     }
-    if (comparison.slices) lines.push(...renderSlices(comparison.slices));
+    if (comparison.slices) lines.push(...renderSlices(comparison.slices, comparison.counts.slices));
     if (comparison.measured) lines.push(...renderMeasured(comparison.measured));
   }
   return lines;

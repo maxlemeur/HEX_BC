@@ -2092,6 +2092,7 @@ export function useEstimateEditorState({
     document: editorDocument,
     routeVersionId: resolvedVersionId,
     isMutationBlocked: isReadOnly || isConflictLocked,
+    isHistoryMutationBlocked: isSyncReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
       ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
       : readOnlyActionErrorMessage,
@@ -2107,10 +2108,12 @@ export function useEstimateEditorState({
     ensureGroupedActionCanProceed,
     pushHistoryCommand,
     reloadItems: reloadItemsForStructuralMutation,
+    onResizeConfirmed: reconcileEditorData,
     convertV3Items: isV3 ? convertEstimateV3Items : undefined,
     clearHistory: clearUndoRedoHistory,
   });
   const {
+    resizeAssembly: handleResizeOuvrage,
     insertAssembly: handleInsertAssembly,
     insertTemplate: handleInsertTemplate,
     duplicateSection: handleDuplicateSection,
@@ -2282,6 +2285,7 @@ export function useEstimateEditorState({
       onToggleOutlierDismiss: handleToggleOutlierDismiss,
       onAddSection: handleAddSection,
       onAddLine: handleAddLine,
+      onResizeOuvrage: handleResizeOuvrage,
       onInsertAssembly: handleInsertAssembly,
       onInsertTemplate: handleInsertTemplate,
       sectionDuplicateTargets,
@@ -2344,6 +2348,7 @@ export function useEstimateEditorState({
       highlightedItemIds,
       handleAddLine,
       handleAddSection,
+      handleResizeOuvrage,
       handleInsertAssembly,
       handleInsertTemplate,
       handleDuplicateSection,

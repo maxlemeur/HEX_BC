@@ -8,6 +8,7 @@ import { type DevisItem } from "@/components/DevisList";
 import { DevisManager } from "@/components/DevisManager";
 import { PageHeader } from "@/components/layout/page-header";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
+import { OrderLifecycle, type OrderLifecycleLine } from "@/components/purchase-orders/OrderLifecycle";
 import {
   PurchaseOrderDocument,
   type SupplierData,
@@ -24,6 +25,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
+import { parisToday } from "@/lib/purchase-orders/lifecycle";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { OrderLineHistory } from "../_components/OrderLineHistory";
@@ -117,6 +119,18 @@ export default async function OrderPage({
     )
     .eq("purchase_order_id", id)
     .order("position", { ascending: true });
+
+  // TI-691, delivery 3b-1: how an order of an affaire was ordered and received (read like the order itself).
+  const confirmationPromise = supabase
+    .from("purchase_order_confirmations")
+    .select("document_id, supplier_reference")
+    .eq("purchase_order_id", id)
+    .maybeSingle();
+  const receptionPromise = supabase
+    .from("purchase_order_receptions")
+    .select("received_on, note")
+    .eq("purchase_order_id", id)
+    .maybeSingle();
 
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
@@ -215,6 +229,19 @@ export default async function OrderPage({
   );
 
   const isDraft = order.status === "draft";
+  const [{ data: confirmationRow }, { data: receptionRow }] = await Promise.all([confirmationPromise, receptionPromise]);
+  const lifecycleLines: OrderLifecycleLine[] = items.map((item) => ({
+    id: item.id,
+    position: item.position,
+    designation: item.designation,
+    quantity: Number(item.quantity),
+    unit: item.unit,
+    unitPriceHtCents: item.unit_price_ht_cents,
+    pricePer: item.price_per ?? 1,
+    taxRateBp: item.tax_rate_bp,
+    kind: item.line_kind === "shipping" || item.line_kind === "discount" ? item.line_kind : "article",
+    fromRequest: Boolean(item.material_request_line_id),
+  }));
 
   return (
     <div className="mx-auto max-w-5xl animate-fade-in">
@@ -249,7 +276,7 @@ export default async function OrderPage({
         }
         actions={
           <>
-            <PurchaseOrderStatusUpdater orderId={order.id} status={order.status} />
+            {fromRequest ? null : <PurchaseOrderStatusUpdater orderId={order.id} status={order.status} />}
             {isDraft ? (
               <Link
                 className={buttonVariants({ variant: "accent", size: "lg" })}
@@ -272,6 +299,28 @@ export default async function OrderPage({
           </>
         }
       />
+
+      {fromRequest ? (
+        <section aria-label="Commande" className="no-print mx-auto mb-4 w-full max-w-[210mm]">
+          <OrderLifecycle
+            orderId={order.id}
+            reference={order.reference}
+            status={order.status}
+            editRevision={order.edit_revision}
+            orderDate={order.order_date}
+            expectedDeliveryDate={order.expected_delivery_date}
+            lines={lifecycleLines}
+            documents={devisRecords.map((record) => ({ id: record.id, name: record.name }))}
+            confirmation={confirmationRow ? {
+              documentId: confirmationRow.document_id,
+              documentName: devisRecords.find((record) => record.id === confirmationRow.document_id)?.name ?? "document joint",
+              supplierReference: confirmationRow.supplier_reference,
+            } : null}
+            reception={receptionRow ? { receivedOn: receptionRow.received_on, note: receptionRow.note } : null}
+            today={parisToday()}
+          />
+        </section>
+      ) : null}
 
       <OrderDocumentViewport label={`Bon de commande ${order.reference}`}>
         <PurchaseOrderDocument

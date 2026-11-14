@@ -1,5 +1,7 @@
 "use client";
 
+import { OuvrageQuantityInput } from "@/components/estimates/components/estimate-editor-row/OuvrageQuantityInput";
+import { ouvrageMetadata, ouvrageQuantity } from "@/lib/estimates/ouvrage-quantity";
 import { isKitSection } from "@/lib/estimates/kit-presentation";
 
 import {
@@ -58,6 +60,8 @@ type SectionRowProps = {
     sectionId: string,
     position: { x: number; y: number }
   ) => void;
+  onResizeOuvrage?: (itemId: string, quantity: number) => Promise<void>;
+  onInsertOuvrage?: (itemId: string) => void;
   onPatchItem: (
     itemId: string,
     patch: { title: string },
@@ -141,6 +145,8 @@ export function SectionRow({
   isSectionCollapsed,
   onToggleSectionCollapsed,
   onOpenSectionContextMenu,
+  onResizeOuvrage,
+  onInsertOuvrage,
   onPatchItem,
   onAddLine,
   onAddSection,
@@ -151,6 +157,7 @@ export function SectionRow({
   setNodeRef,
   treeConnectorMeta,
 }: SectionRowProps) {
+  const isOuvrage = isKitSection(item);
   const defaultSectionTitle = getDefaultSectionTitleForLevel(sectionLevel ?? 1);
   const shouldSelectTitleOnInteraction = item.title === defaultSectionTitle;
   const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
@@ -182,11 +189,11 @@ export function SectionRow({
     <div
       ref={setNodeRef}
       style={style}
-      className={`estimate-row estimate-row--section${
+      className={`estimate-row ${isOuvrage ? "estimate-row--line estimate-row--ouvrage" : "estimate-row--section"}${
         isHighlighted ? " animate-pulse ring-2 ring-emerald-400 rounded" : ""
       }`}
       data-estimate-item-id={item.id}
-      data-testid="estimate-section-row"
+      data-testid={isOuvrage ? "estimate-ouvrage-row" : "estimate-section-row"}
       data-highlighted={isHighlighted ? "true" : undefined}
       data-depth={depth}
       data-section-level={sectionLevel ?? undefined}
@@ -208,20 +215,22 @@ export function SectionRow({
         <div className="estimate-cell__content">
           {!hideEditingActions ? dragHandle : null}
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            {onToggleSectionCollapsed && !isKitSection(item) ? (
+            {onToggleSectionCollapsed ? (
               <button
                 type="button"
                 className="estimate-section-collapse-btn"
                 onClick={() => onToggleSectionCollapsed(item.id)}
                 aria-label={
-                  isSectionCollapsed ? "Deplier la section" : "Replier la section"
+                  isOuvrage ? `${isSectionCollapsed ? "Déplier" : "Replier"} le détail de ${item.title}` : isSectionCollapsed ? "Deplier la section" : "Replier la section"
                 }
+                aria-expanded={!isSectionCollapsed}
                 title={isSectionCollapsed ? "Deplier" : "Replier"}
               >
                 {isSectionCollapsed ? "▸" : "▾"}
               </button>
             ) : null}
             <div className="estimate-designation-meta">
+              {isOuvrage ? <span className="text-xs text-[var(--slate-500)]">Ouvrage</span> : null}
               {itemNumber ? (
                 <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
                   {itemNumber}
@@ -281,6 +290,8 @@ export function SectionRow({
               }
             >
               <div className="estimate-section-quick-actions__items">
+                {isOuvrage && onInsertOuvrage ? <button type="button" className="estimate-section-hover-btn"
+                  disabled={isReadOnly || isPendingCreate} onClick={() => onInsertOuvrage(item.id)}>Insérer un ouvrage après cette ligne</button> : null}
                 {canAddLine ? (
                   <button
                     className="estimate-section-hover-btn"
@@ -319,8 +330,9 @@ export function SectionRow({
           ) : null}
         </div>
       </div>
-      <div />
-      <div />
+      {isOuvrage ? <OuvrageQuantityInput itemId={item.id} title={item.title} quantity={ouvrageQuantity(item)}
+        disabled={isReadOnly || !onResizeOuvrage} onCommit={onResizeOuvrage} /> : <div />}
+      {isOuvrage ? <div className="estimate-cell" data-estimate-column="unit">{String(ouvrageMetadata(item).ouvrage_unit ?? "u")}</div> : <div />}
       <div
         className="estimate-section-total-cell estimate-section-total-cell--fo gap-1"
         title={
@@ -392,8 +404,11 @@ export function SectionRow({
       {visibleColumns?.has("ds") ? <div /> : null}
       {visibleColumns?.has("marge") ? <div /> : null}
       {visibleColumns?.has("marque") ? <div /> : null}
-      <div />
+      {isOuvrage ? <div className="estimate-cell estimate-cell--number" data-estimate-column="unit_price">
+        {ouvrageQuantity(item) > 0 ? formatCurrency(Math.round((sectionTotals?.totalHtCents ?? 0) / ouvrageQuantity(item)), estimateCurrency) : "—"}
+      </div> : <div />}
       <div
+        data-estimate-column="total_price"
         className="estimate-section-total-cell estimate-section-total-cell--ht"
         title={`TTC ${formatCurrency(sectionTotals?.totalTtcCents ?? 0, estimateCurrency)}`}
       >

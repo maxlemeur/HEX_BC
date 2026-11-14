@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { LoaderCircle, Maximize2, Minus, Plus } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { CLASS_SOURCE_LABELS, type ClassSource } from "@/lib/takeoff/vectors/classify";
+import { CLASS_SOURCE_LABELS, isLocalModelPromptVersion, isModelSource, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
@@ -16,18 +16,23 @@ import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse }
 // isolates it), the room polygons (one « Surfaces » toggle), the detection
 // badge and the page scale (« échelle non vérifiée » and its reason). Each
 // network says how its class was read (« mots-clés », « légende », « libellés »,
-// « Decisions 80 % » at the lowest confidence of its Decisions groups); the
-// page says what Decisions did (calls, tokens, why it stopped) and how many of
-// its groups stay « à revoir », as the worker counted them on the whole page
-// (classify.ts groupsToReview: visible groups without class, or a Decisions
-// proposal under 80 %, neither classified nor measured). Data
+// « Decisions 80 % » at the lowest confidence of its Decisions groups, or
+// « ChatGPT local 90 % » for a local job's plan, TI-704 option B); the page
+// says what the model did (Decisions' calls or the plan's requests, tokens, why
+// it stopped) and how many of its groups stay « à revoir », as the worker
+// counted them on the whole page (classify.ts groupsToReview: visible groups
+// without class, or a model's proposal under its accepted confidence, neither
+// classified nor measured). Data
 // comes from GET /api/takeoff/jobs/{id}/
 // vector-pages under the user's session; the PDF from the plan file's signed
 // URL, or for a direct upload (no plan file) from the job's own, signed by that
 // read. Without a source PDF, or when it cannot be drawn, the viewer says so
 // and keeps the geometry. Geometry is in metres from the page's top-left corner at the page's
 // scale. Ctrl/⌘ + wheel zooms (a plain wheel scrolls the review); the canvas
-// is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond.
+// is capped at MAX_CANVAS_PIXELS, drawn smaller and stretched beyond. Each page
+// keeps its own zoom and pan while the viewer is mounted (TI-721): a page seen
+// again shows the area left on it, a page never seen opens fitted, and
+// « Ajuster » fits the page shown again.
 
 const MM_PER_POINT = 25.4 / 72;
 /** Pixels of the rendered page at most (Safari refuses larger canvases; an A0 at zoom 8 would be hundreds of MB). */
@@ -38,17 +43,30 @@ const SURFACES = "Surfaces";
 const SURFACE_COLOR = "var(--color-info)";
 
 type VectorPage = TakeoffVectorReadingResponse["pages"][number];
+/** What a page shows: its zoom over the fitted width, and its pan in screen pixels. */
+type View = { zoom: number; offset: { x: number; y: number } };
+
+const FITTED: View = { zoom: 1, offset: { x: 0, y: 0 } };
+const zoomed = (view: View, factor: number): View => ({ ...view, zoom: Math.min(8, Math.max(0.25, view.zoom * factor)) });
+
+/** The views with one page's changed, a page never seen starting fitted. */
+function withView(views: ReadonlyMap<string, View>, pageId: string, change: (view: View) => View): ReadonlyMap<string, View> {
+  return new Map(views).set(pageId, change(views.get(pageId) ?? FITTED));
+}
 
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 const plural = (count: number, word: string) => `${new Intl.NumberFormat("fr-FR").format(count)} ${word}${count > 1 ? "s" : ""}`;
 
-/** How each network's class was read, from the groups its items measure: sources in order, Decisions at its lowest confidence. */
+/**
+ * How each network's class was read, from the groups its items measure: sources in order, a model's (Decisions, the
+ * local plan's) at its lowest confidence.
+ */
 function networkSources(page: VectorPage | null) {
   const groups = new Map((page?.reading.groups ?? []).map((group) => [group.id, group]));
-  const found = new Map<string, { sources: Set<ClassSource>; decisions: number | null }>();
+  const found = new Map<string, { sources: Set<ClassSource>; lowest: Map<ClassSource, number> }>();
   for (const item of page?.items ?? []) {
     if (item.geometry.kind !== "network") continue;
-    const entry = found.get(networkLabel(item)) ?? { sources: new Set<ClassSource>(), decisions: null };
+    const entry = found.get(networkLabel(item)) ?? { sources: new Set<ClassSource>(), lowest: new Map<ClassSource, number>() };
     found.set(networkLabel(item), entry);
     for (const id of item.geometry.groups) {
       const group = groups.get(id);
@@ -56,13 +74,13 @@ function networkSources(page: VectorPage | null) {
       const source = (group?.source ?? (group && group.candidates.length > 0 ? "label" : null)) as ClassSource | null;
       if (!source || !(source in CLASS_SOURCE_LABELS)) continue;
       entry.sources.add(source);
-      if (source === "decisions" && group?.confidence != null) entry.decisions = Math.min(entry.decisions ?? 1, group.confidence);
+      if (isModelSource(source) && group?.confidence != null) entry.lowest.set(source, Math.min(entry.lowest.get(source) ?? 1, group.confidence));
     }
   }
-  // In one order (keywords, legend, labels, document, user, Decisions), whatever the order of the item's groups.
+  // In one order (keywords, legend, labels, document, user, Decisions, ChatGPT local), whatever the order of the item's groups.
   const order = Object.keys(CLASS_SOURCE_LABELS) as ClassSource[];
-  return new Map([...found].map(([name, { sources, decisions }]) => [name, order.filter((source) => sources.has(source))
-    .map((source) => (source === "decisions" && decisions !== null ? `${CLASS_SOURCE_LABELS.decisions} ${percent(decisions)}` : CLASS_SOURCE_LABELS[source]))
+  return new Map([...found].map(([name, { sources, lowest }]) => [name, order.filter((source) => sources.has(source))
+    .map((source) => (lowest.has(source) ? `${CLASS_SOURCE_LABELS[source]} ${percent(lowest.get(source) as number)}` : CLASS_SOURCE_LABELS[source]))
     .join(", ")]));
 }
 
@@ -101,12 +119,11 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const [renderError, setRenderError] = useState("");
   const [pageId, setPageId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  /** Each page's view, by page id, kept across page changes; a page that is not in it is shown fitted. */
+  const [views, setViews] = useState<ReadonlyMap<string, View>>(() => new Map());
   /** The loaded PDF and the source it was loaded for (its plan file, or the job's upload): a page draws only its own source. */
   const [pdf, setPdf] = useState<{ source: string; document: PDFDocumentProxy } | null>(null);
   const [rendering, setRendering] = useState(false);
-  const [base, setBase] = useState<{ width: number; height: number } | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
@@ -126,17 +143,25 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [jobId]);
 
-  // The page of the first focused line that has geometry; a line without geometry leaves the page as it is.
+  // The page of the first focused line that has geometry, turned to when the reading or the focus changes; a line
+  // without geometry leaves the page as it is. Settled while rendering, so the page list shows it: an effect ran after
+  // the list was shown and replaced a page picked meanwhile (TI-719).
   const focusKey = (focusItemIds ?? []).join(",");
-  useEffect(() => {
-    if (!reading || focusKey === "") return;
-    const ids = focusKey.split(",");
-    const target = ids.map((id) => reading.pages.find((entry) => entry.items.some((item) => item.takeoff_item_id === id))).find(Boolean);
-    if (target) setPageId(target.id);
-  }, [focusKey, reading]);
+  const [turnedFor, setTurnedFor] = useState<{ reading: TakeoffVectorReadingResponse | null; focusKey: string }>({ reading: null, focusKey: "" });
+  if (reading && (turnedFor.reading !== reading || turnedFor.focusKey !== focusKey)) {
+    setTurnedFor({ reading, focusKey });
+    const target = focusKey.split(",").filter(Boolean)
+      .map((id) => reading.pages.find((entry) => entry.items.some((item) => item.takeoff_item_id === id))).find(Boolean);
+    if (target && target.id !== pageId) setPageId(target.id);
+  }
   const focus = useMemo(() => new Set(focusKey === "" ? [] : focusKey.split(",")), [focusKey]);
 
   const page = reading?.pages.find((entry) => entry.id === pageId) ?? null;
+  // Read while rendering, so a page change draws the next page at its own view at once, never at the previous page's.
+  const { zoom, offset } = (pageId === null ? undefined : views.get(pageId)) ?? FITTED;
+  const changeView = (change: (view: View) => View) => {
+    if (pageId !== null) setViews((current) => withView(current, pageId, change));
+  };
   const networks = useMemo(() => {
     const totals = new Map<string, number>();
     for (const item of page?.items ?? []) {
@@ -193,26 +218,20 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [hasPage, planFileId, planSetId, uploadUrl]);
 
-  useEffect(() => {
-    if (!page) return;
-    setBase({ width: page.reading.size_pt[0], height: page.reading.size_pt[1] });
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
-  }, [page]);
-
-  // `fill`: the frame follows its panel, and the page fits it again when the panel or the window changes width.
+  // The frame's width, measured once the frame is mounted (it appears with the reading, after the loading message)
+  // and before it is painted, then followed: the page fits it again when its panel or the window changes width.
   const [frameWidth, setFrameWidth] = useState(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = frame.current;
-    if (!fill || !element || typeof ResizeObserver === "undefined") return;
+    if (!element) return;
+    setFrameWidth(element.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => setFrameWidth(element.clientWidth));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [fill, reading]);
-  const fit = useMemo(() => {
-    const width = (fill ? frameWidth : 0) || (frame.current?.clientWidth ?? 0);
-    return base && width > 0 ? width / base.width : 0.25;
-  }, [base, fill, frameWidth]);
+  }, [reading]);
+  const base = useMemo(() => (page ? { width: page.reading.size_pt[0], height: page.reading.size_pt[1] } : null), [page]);
+  const fit = base && frameWidth > 0 ? frameWidth / base.width : 0.25;
   const scale = fit * zoom;
 
   useEffect(() => {
@@ -248,18 +267,18 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     };
   }, [pdf, page, scale, sourceKey]);
 
-  // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan, without zooming the page: a non-passive listener.
+  // Ctrl/⌘ + wheel (and trackpad pinch) zooms the plan shown, without zooming the page: a non-passive listener.
   useEffect(() => {
     const element = frame.current;
-    if (!element) return;
+    if (!element || pageId === null) return;
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setZoom((current) => Math.min(8, Math.max(0.25, current * (event.deltaY < 0 ? 1.15 : 1 / 1.15))));
+      setViews((current) => withView(current, pageId, (view) => zoomed(view, event.deltaY < 0 ? 1.15 : 1 / 1.15)));
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [reading]);
+  }, [reading, pageId]);
 
   if (error && !reading) return <p className="text-sm text-danger">{error}</p>;
   if (!reading) return <p className="text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Lecture vectorielle…</p>;
@@ -280,7 +299,8 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
     drag.current = { x: event.clientX - offset.x, y: event.clientY - offset.y };
   };
   const onPointerMove = (event: ReactPointerEvent) => {
-    if (drag.current) setOffset({ x: event.clientX - drag.current.x, y: event.clientY - drag.current.y });
+    const start = drag.current;
+    if (start) changeView((view) => ({ ...view, offset: { x: event.clientX - start.x, y: event.clientY - start.y } }));
   };
   const scaleStatus = page?.reading.scale.status ?? "unverified";
   const decisions = page?.reading.decisions ?? null;
@@ -309,7 +329,9 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
         ) : null}
         {decisions ? (
           <p className="text-xs text-muted-foreground">
-            Decisions : {plural(decisionCalls, "appel")}, {plural(decisions.total_tokens, "jeton")}, {plural(decisions.answered, "réponse")}
+            {isLocalModelPromptVersion(decisions.prompt_version)
+              ? <>ChatGPT local : {plural(decisionCalls, "demande")}</>
+              : <>Decisions : {plural(decisionCalls, "appel")}</>}, {plural(decisions.total_tokens, "jeton")}, {plural(decisions.answered, "réponse")}
           </p>
         ) : null}
         {decisions?.stop ? <p role="status" className="text-xs text-warning">{decisions.stop.message}</p> : null}
@@ -347,10 +369,10 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
       </div>
       <div className={fill ? "flex min-h-0 min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}>
         <div className="flex items-center gap-1" role="toolbar" aria-label="Zoom du plan">
-          <Button size="icon-sm" variant="outline" aria-label="Zoom arrière" onClick={() => setZoom((value) => Math.max(0.25, value / 1.25))}><Minus className="size-4" /></Button>
-          <Button size="sm" variant="outline" onClick={() => setZoom(1)}>100 %</Button>
-          <Button size="icon-sm" variant="outline" aria-label="Zoom avant" onClick={() => setZoom((value) => Math.min(8, value * 1.25))}><Plus className="size-4" /></Button>
-          <Button size="sm" variant="ghost" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
+          <Button size="icon-sm" variant="outline" aria-label="Zoom arrière" onClick={() => changeView((view) => zoomed(view, 1 / 1.25))}><Minus className="size-4" /></Button>
+          <Button size="sm" variant="outline" onClick={() => changeView((view) => ({ ...view, zoom: 1 }))}>100 %</Button>
+          <Button size="icon-sm" variant="outline" aria-label="Zoom avant" onClick={() => changeView((view) => zoomed(view, 1.25))}><Plus className="size-4" /></Button>
+          <Button size="sm" variant="ghost" onClick={() => changeView(() => FITTED)}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
           {rendering ? <LoaderCircle aria-label="Rendu du plan" className="ml-2 size-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div ref={frame} className={`relative ${fill ? "min-h-0 flex-1" : "h-[32rem]"} cursor-grab overflow-hidden rounded-md border border-border-subtle bg-surface-subtle`}

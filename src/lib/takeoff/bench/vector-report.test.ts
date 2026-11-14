@@ -4,10 +4,11 @@ import { buildBenchReport, type BenchReport, type BenchReportMetadata, type Pass
 import { createFixtureDataset } from "@/lib/takeoff/bench/bench-dataset.test-utils";
 import { loadBenchDataset } from "@/lib/takeoff/bench/dataset";
 import { measuredLengthsByScope, type MeasuredLengths } from "@/lib/takeoff/bench/measured";
-import { GroupTruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
-import { buildScoreScopes, scoreScopes, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
+import { GroupTruthFileSchema, ManifestDocumentSchema, TruthFileSchema, type MeasuredTruthFile } from "@/lib/takeoff/bench/schemas";
+import { buildScoreScopes, scoreScopes, type FalsePositiveGroup, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { compareVectorWithBaseline, renderVectorSections, scopeSlices, vectorDecisionsSummary, vectorDecisionsTotal, type KindMetrics } from "@/lib/takeoff/bench/vector-report";
 import { runVectorBench, type VectorBenchPass, type VectorPageDecisions } from "@/lib/takeoff/bench/vector-run";
+import type { TakeoffItem } from "@/lib/takeoff/types";
 import type { VectorPageExtraction, VectorPath } from "@/lib/takeoff/vectors/extraction";
 
 // Ways the comparison of the vector reading with the level C baseline (TI-662
@@ -291,36 +292,38 @@ describe("takeoff bench vector comparison", () => {
 });
 
 describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
-  const call = (kind: "batch" | "dedicated", latency: number, total: number | null, status: "available" | "failed" = "available") => ({
-    kind, questions: kind === "batch" ? 36 : 1, status, latency_ms: latency, render_ms: 50,
+  const call = (latency: number, total: number | null, status: "available" | "failed" = "available") => ({
+    kind: "batch" as const, questions: 20, status, latency_ms: latency, render_ms: null,
     usage: total === null ? null : { input_tokens: total - 100, output_tokens: 100, total_tokens: total },
   });
   const decisions = (calls: VectorPageDecisions["calls"], stop: VectorPageDecisions["stop"] = null): VectorPageDecisions => ({
-    candidates: 40, eligible: 45, left_out: 5, calls, stop, render: { legend_ms: 400, sheets_ms: [100, 300] },
+    candidates: 40, eligible: 45, left_out: 5, calls, stop, render: { page_ms: 400, legends_ms: [50], groups_ms: [100, 300], dropped_images: 0 },
+    filtered: { grey: 3 }, ruled: { same_colour: 1, band: 0, propagated: 0 },
     answers: [
       { alias: "groupe_01", group: "oc:FICTIF_SECRET_LAYER", class: "EF", confidence: 0.9, status: "answered", via: "batch" },
-      { alias: "groupe_02", group: "c:#123456|w:0.5|d:", class: "EU", confidence: 0.6, status: "answered", via: "dedicated" },
+      { alias: "groupe_02", group: "c:#123456|w:0.5|d:", class: "EU", confidence: 0.4, status: "answered", via: "batch" },
       { alias: "groupe_03", group: "c:#654321|w:0.5|d:", class: null, confidence: null, status: "refused", via: "batch" },
+      { alias: "groupe_04", group: "c:#abcdef|w:0.5|d:", class: "CHW", confidence: null, status: "answered", via: "rule", rule: "same_colour" },
     ],
   });
   const passes: VectorBenchPass[] = [{ pass: 1, documents: [
     { id: "a-plan-01", pages: [
       { page: 1, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
-        decisions: decisions([call("batch", 1000, 5000), call("dedicated", 2000, 1500), call("dedicated", 4000, 1500)]) },
+        decisions: decisions([call(1000, 5000), call(2000, 1500), call(4000, 1500)]) },
       { page: 2, status: "ok", error: null, reading: null, raster_items_from_baseline: null,
-        decisions: decisions([call("batch", 3000, null, "failed")], { reason: "call_failed", message: "Fictional failure." }) },
+        decisions: decisions([call(3000, null, "failed")], { reason: "call_failed", message: "Fictional failure." }) },
     ] },
   ] }];
 
-  it("sums calls by kind, tokens of the calls with usage, latency of calls and renders apart, and the stops", () => {
+  it("sums calls, tokens of the calls with usage, latency of calls and drawings apart, the rules' classes apart, and the stops", () => {
     const [document] = vectorDecisionsSummary(passes);
     expect(document).toMatchObject({
-      document: "a-plan-01", calls: { batch: 2, dedicated: 2, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
+      document: "a-plan-01", calls: { batch: 4, without_usage: 1 }, tokens: { input: 7700, output: 300, total: 8000 },
       latency_ms: { p50: 2000, p95: 4000 }, candidates: 80, left_out: 10,
-      answers: { classified: 2, proposals: 2, review: 76 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
+      answers: { ruled: 2, classified: 2, proposals: 2, review: 74 }, stops: [{ pass: 1, page: 2, reason: "call_failed" }],
     });
-    // Renders: the legend and the sheets of each page, never the calls.
-    expect(document.render_ms.raw).toEqual([400, 100, 300, 400, 100, 300]);
+    // Drawings: the page's one analysis, its legend blocks and groups, never the calls.
+    expect(document.render_ms.raw).toEqual([400, 50, 100, 300, 400, 50, 100, 300]);
   });
 
   it("counts « autre » and every candidate left unanswered as to review (Codex review of the PR)", () => {
@@ -328,12 +331,12 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
       { page: 1, status: "ok" as const, error: null, reading: null, raster_items_from_baseline: null, decisions }] }] }];
     const autre = { alias: "groupe_01", group: "c:#123456|w:0.5|d:", class: "autre" as const, confidence: 0.95, status: "answered" as const, via: "batch" as const };
     // Four candidates: one answered « autre » at 0.95, three never asked (the budget refused the next call).
-    const [stopped] = vectorDecisionsSummary(page({ ...decisions([call("batch", 1000, 5000)], { reason: "budget_reached", message: "Fictional." }),
+    const [stopped] = vectorDecisionsSummary(page({ ...decisions([call(1000, 5000)], { reason: "budget_reached", message: "Fictional." }),
       candidates: 4, answers: [autre] }));
-    expect(stopped.answers).toEqual({ classified: 0, proposals: 0, review: 4 });
+    expect(stopped.answers).toEqual({ ruled: 0, classified: 0, proposals: 0, review: 4 });
     // No call at all (the images could not be drawn): every candidate stays to review.
     const [undrawn] = vectorDecisionsSummary(page({ ...decisions([]), candidates: 3, answers: [] }));
-    expect(undrawn.answers).toEqual({ classified: 0, proposals: 0, review: 3 });
+    expect(undrawn.answers).toEqual({ ruled: 0, classified: 0, proposals: 0, review: 3 });
   });
 
   it("totals the Decisions of the whole run across documents, calls and renders of every page (review of the PR)", () => {
@@ -341,24 +344,38 @@ describe("Decisions of the groups in the vector report (TI-662 L3c)", () => {
     expect(vectorDecisionsSummary(two)).toHaveLength(2);
     const total = vectorDecisionsTotal(two);
     expect(total).toMatchObject({
-      document: null, pages: 4, calls: { batch: 4, dedicated: 4, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
-      candidates: 160, left_out: 20, answers: { classified: 4, proposals: 4, review: 152 },
+      document: null, pages: 4, calls: { batch: 8, without_usage: 2 }, tokens: { input: 15400, output: 600, total: 16000 },
+      candidates: 160, left_out: 20, answers: { ruled: 4, classified: 4, proposals: 4, review: 148 },
     });
     expect(total?.latency_ms.raw).toHaveLength(8);
-    expect(total?.render_ms.raw).toHaveLength(12);
+    expect(total?.render_ms.raw).toHaveLength(16);
     expect(vectorDecisionsTotal([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }])).toBeNull();
-    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 4 \/ 4 \|/);
+    expect(renderVectorSections(two, null).join("\n")).toMatch(/\| Total \| 4 \| 8 \|/);
   });
 
   it("prints the Decisions section with the budget, never a group id, colour or layer", () => {
     const budget = { max_tokens: 100_000, spent_tokens: 8000, calls: 4, calls_without_usage: 1, refused_starts: 0, largest_call_tokens: 5000 };
     const markdown = renderVectorSections(passes, null, { budget }).join("\n");
     expect(markdown).toContain("## Decisions");
-    expect(markdown).toContain("2 / 2");
+    expect(markdown).toContain("Classes (règles / Decisions ≥ 0,5 / < 0,5 / à revoir)");
+    expect(markdown).toContain("2 / 2 / 2 / 74");
     expect(markdown).toContain("8000 jetons sur 100000");
     expect(markdown).toContain("call_failed");
     for (const secret of ["FICTIF_SECRET_LAYER", "#123456", "#654321", "oc:"]) expect(markdown).not.toContain(secret);
     expect(renderVectorSections([{ pass: 1, documents: [{ id: "a-plan-01", pages: [] }] }], null).join("\n")).not.toContain("## Decisions");
+  });
+
+  it("reads a local model's answers at its own probability of 0.8 and names the local plan (TI-704 option B, review of 13/11)", () => {
+    const local = (confidence: number) => ({ alias: "groupe_01", group: "c:#123456|w:0.5|d:", class: "EU" as const, confidence, status: "answered" as const,
+      via: "local" as const });
+    const run = [{ pass: 1, documents: [{ id: "a-plan-01", pages: [{ page: 1, status: "ok" as const, error: null, reading: null, raster_items_from_baseline: null,
+      decisions: { ...decisions([call(9000, 17000)]), candidates: 2, left_out: 0, answers: [local(0.6), { ...local(0.85), alias: "groupe_02" }] } }] }] }];
+    // 0.6 clears Decisions' margin, never the local model's probability.
+    expect(vectorDecisionsSummary(run)[0].answers).toEqual({ ruled: 0, classified: 1, proposals: 1, review: 0 });
+    const markdown = renderVectorSections(run, null, null, { model: "local" }).join("\n");
+    expect(markdown).toContain("## ChatGPT local, classes des groupes");
+    expect(markdown).toContain("Classes (règles / modèle ≥ 0,8 / < 0,8 / à revoir)");
+    expect(markdown).not.toContain("Decisions");
   });
 });
 
@@ -751,5 +768,198 @@ describe("lengths judged on the hand measurement (TI-662)", () => {
     }
     // Without a measurement the section is absent.
     expect(renderVectorSections(passes, compareVectorWithBaseline(vector, baseline)).join("\n")).not.toContain("mesure au trait");
+  });
+});
+
+// Count keys in the comparison (TI-676): the counts (unit u) get a column of their own beside the lengths and the
+// surfaces, a measurement without verdict that leaves every score as it was. Ways it could misstate the counting,
+// written before the code:
+// - a count key out of score (« ens », not observable, ambiguous) counted among the scored keys, or a length or a
+//   surface counted as a count;
+// - a key read out of tolerance (an item attached) counted as missed, or a missed key as read;
+// - « exact » looser than the score's (u exact), or « à ±1 » leaving out the exact keys or letting a key two apart in;
+// - an extra count taken from a length's false positive, from an unreadable line whose key is unknown, or from an
+//   item the score keeps out of score (its key is priced « ens »); an extra count lost because the scope has no count
+//   key; a count read with the wrong DN counted only as missed, though the reading gave a key the truth lacks;
+// - the passes pooled or averaged instead of the median of each figure;
+// - the totals over other plans than the lengths' (a plan one run lost, the reserve mixed with the others);
+// - the raster slice credited to the vector reading, whose lines there are the baseline's;
+// - the lengths, the surfaces, their verdicts or the slices moved by the counts;
+// - report.md printing a quantity (the count of a devis line, a count read) instead of numbers of keys.
+describe("count keys in the vector comparison (TI-676)", () => {
+  /** A count key: the truth's count and the count a run read (null: missed), status as the score gives it (u exact). */
+  function countKey(index: number, expected: number, actual: number | null): KeyScore {
+    const status = actual === null ? "missed" : actual === expected ? "ok" : "out_of_tolerance";
+    return { ...key("count", status, actual === null ? -1 : (actual - expected) / expected, index), expected, actual, tolerance: 0 };
+  }
+  /** A false-positive group: a count key the truth lacks, a length, or unreadable lines (no key). */
+  function extra(kind: "count" | "length" | "unreadable", pairedWith: KeyLabel | null = null): FalsePositiveGroup {
+    return {
+      key: kind === "unreadable" ? null : kind === "count" ? { ...LABELS.count, organ: "purgeur", dn: null } : LABELS.length,
+      reason: kind === "unreadable" ? "organ_missing" : null, items: 1, quantity: 7, pages: ["a-plan-01:1"], designations: ["Fictional line"],
+      cause: kind === "unreadable" ? { label: "indetermine:illisible", origin: "indetermine", reason: "organ_missing" } : { label: "nous:invente", origin: "nous" },
+      paired_with: pairedWith,
+    };
+  }
+  /** The same scopes without their count keys nor their count groups: what the comparison stood on before the counts. */
+  function withoutCounts(source: BenchReport): BenchReport {
+    return { ...source, couples: source.couples.map((couple) => ({ ...couple, passes: couple.passes.map((pass) => ({ ...pass,
+      scopes: pass.scopes.map((entry) => ({ ...entry, keys: entry.keys.filter((score) => score.key.kind !== "count"),
+        false_positives: entry.false_positives.filter((group) => group.key?.kind !== "count") })) })) })) };
+  }
+  const counts = (keysCount: number, found: number | null, exact: number | null, withinOne: number | null, missed: number | null, extraCount: number | null) =>
+    ({ keys: keysCount, found, exact, within_one: withinOne, missed, extra: extraCount });
+  // Quantities no number of keys equals, so that report.md can be searched for them.
+  const EXPECTED = [137, 83, 59, 211];
+  const VECTOR = [countKey(0, 137, 137), countKey(1, 83, 82), countKey(2, 59, 61), countKey(3, 211, null), key("count", "out_of_score")];
+  const BASELINE = [countKey(0, 137, 136), countKey(1, 83, 83), countKey(2, 59, null), countKey(3, 211, 211), key("count", "out_of_score")];
+  const reserve = { role: "reserve" as const };
+
+  it("counts per scope the scored count keys, read, exact, within one, missed and extra", () => {
+    // A count read with the wrong DN: the truth's key is missed and the key read is extra, as the score pairs them.
+    const groups = [extra("count"), extra("count", VECTOR[3].key), extra("length"), extra("unreadable")];
+    const vector = report([[scope("a-plan-01", [...VECTOR, ...keys("length", [["ok", 0.02]])], { false_positives: groups })]], "vector");
+    const baseline = report([[scope("a-plan-01", [...BASELINE, ...keys("length", [["ok", 0.03]])])]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    // 137 exact; 82 for 83 within one; 61 for 59 two apart; 211 missed; the « ens » key out of score.
+    expect(comparison.counts.scopes).toEqual([{ scope: "truth/a-plan-01.json", documents: ["a-plan-01"], role: "truth",
+      vector: counts(4, 3, 1, 2, 1, 2), baseline: counts(4, 3, 2, 3, 1, 0) }]);
+    expect(comparison.counts.declared).toBe("measurement_only");
+    // The lengths are read as before: the count keys are none of them.
+    expect(comparison.scopes[0].vector.lengths).toEqual(metrics(1, 1, 1, 0.02));
+  });
+
+  it("reports the extra counts of a scope without count key, and nothing for a scope without counts", () => {
+    const vector = report([[scope("d-plan-01", keys("surface", [["ok", 0.01]])), scope("a-plan-01", keys("length", [["ok", 0.01]]))]], "vector");
+    const baseline = report([[scope("d-plan-01", keys("surface", [["ok", 0.01]]), { false_positives: [extra("count"), extra("count")] }),
+      scope("a-plan-01", keys("length", [["ok", 0.01]]))]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    expect(comparison.counts.scopes.map((entry) => [entry.scope, entry.vector, entry.baseline])).toEqual([
+      ["truth/a-plan-01.json", counts(0, null, null, null, null, 0), counts(0, null, null, null, null, 0)],
+      ["truth/d-plan-01.json", counts(0, null, null, null, null, 0), counts(0, null, null, null, null, 2)],
+    ]);
+  });
+
+  it("takes the median over the passes of each figure, never their pooled keys nor their mean", () => {
+    const pass = (vectorKeys: KeyScore[], extras: number) => [scope("a-plan-01", vectorKeys, { false_positives: Array.from({ length: extras }, () => extra("count")) })];
+    // Exact 0, 2 and 2 (mean 1.33, pooled 4); extra 0, 6 and 1 (mean 2.33, pooled 7).
+    const vector = report([pass([countKey(0, 137, null), countKey(1, 83, null)], 0), pass([countKey(0, 137, 137), countKey(1, 83, 83)], 6),
+      pass([countKey(0, 137, 137), countKey(1, 83, 83)], 1)], "vector");
+    const comparison = compareVectorWithBaseline(vector, vector);
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 2, 2, 2, 0, 1));
+    expect(comparison.counts.totals.truth.vector).toEqual(counts(2, 2, 2, 2, 0, 1));
+  });
+
+  it("totals the counts on the plans of the totals, the reserve apart, and leaves every other figure as it was", () => {
+    const vector = report([[
+      scope("a-plan-01", [countKey(0, 137, 137), countKey(1, 83, null), ...keys("length", [["ok", 0.01], ["missed"]])], { false_positives: [extra("count")] }),
+      scope("a-plan-02", [], { status: "read_failed", unread_pages: [{ document: "a-plan-02", start_page: 1, end_page: 1, status: "timeout" }] }),
+      scope("a-plan-09", [countKey(0, 59, 59), ...keys("length", [["missed"]])], reserve),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-01", [countKey(0, 137, 137), countKey(1, 83, 84), ...keys("length", [["ok", 0.05], ["missed"]])]),
+      scope("a-plan-02", [countKey(0, 211, 211), countKey(1, 59, 59), countKey(2, 83, 83)]),
+      scope("a-plan-09", [countKey(0, 59, null), ...keys("length", [["ok", 0.01]])], reserve),
+    ]]);
+    const comparison = compareVectorWithBaseline(vector, baseline);
+    expect(comparison.counts.totals).toEqual({
+      truth: { vector: counts(2, 1, 1, 1, 1, 1), baseline: counts(2, 2, 1, 2, 0, 0) },
+      reserve: { vector: counts(1, 1, 1, 1, 0, 0), baseline: counts(1, 0, 0, 0, 1, 0) },
+      all: { vector: counts(3, 2, 2, 2, 1, 1), baseline: counts(3, 2, 1, 2, 1, 0) },
+    });
+    // The plan the vector run lost is no scope of the comparison, as for the lengths.
+    expect(comparison.counts.scopes.map((entry) => entry.scope)).toEqual(comparison.scopes.map((entry) => entry.scope));
+    // The lengths, the surfaces and their verdicts are those of the same scopes without any count.
+    const before = compareVectorWithBaseline(withoutCounts(vector), withoutCounts(baseline));
+    expect(comparison.scopes).toEqual(before.scopes);
+    expect(comparison.totals).toEqual(before.totals);
+    expect(comparison.left_out_of_totals).toEqual(before.left_out_of_totals);
+  });
+
+  it("gives the counts per slice, the raster slice as an abstention of the vector reading, and leaves the slices as they were", () => {
+    const vector = report([[
+      scope("a-plan-02", [countKey(0, 137, 137), countKey(1, 83, null), ...keys("length", [["ok", 0.02]])], reserve),
+      // The vector run copies the baseline's lines on a raster plan: its counts here are the baseline's reading.
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], { ...reserve, false_positives: [extra("count")] }),
+      scope("c-plan-03", [countKey(0, 59, 59)], reserve),
+    ]], "vector");
+    const baseline = report([[
+      scope("a-plan-02", [countKey(0, 137, 138), countKey(1, 83, 83), ...keys("length", [["missed"]])], reserve),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], { ...reserve, false_positives: [extra("count")] }),
+      scope("c-plan-03", [countKey(0, 59, null)], reserve),
+    ]]);
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [3], "c-plan-03": ["vector", 1] })];
+    const slices = scopeSlices(passes, vector.couples[0].passes[0].scopes);
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices });
+    expect(comparison.counts.slices!.reserve).toEqual({
+      vector: { plans: ["truth/a-plan-02.json"], abstained: false, vector: counts(2, 1, 1, 1, 1, 0), baseline: counts(2, 2, 1, 2, 0, 0) },
+      raster: { plans: ["truth/c-plan-02.json"], abstained: true, vector: counts(2, null, null, null, null, null), baseline: counts(2, 2, 2, 2, 0, 1) },
+    });
+    // The mixed plan is in neither slice; the other plans' slices are empty.
+    expect(comparison.counts.slices!.all.vector.plans).toEqual(["truth/a-plan-02.json"]);
+    expect(comparison.counts.slices!.truth.vector).toEqual({ plans: [], abstained: false, vector: counts(0, null, null, null, null, null),
+      baseline: counts(0, null, null, null, null, null) });
+    expect(compareVectorWithBaseline(vector, baseline).counts.slices).toBeNull();
+    const before = compareVectorWithBaseline(withoutCounts(vector), withoutCounts(baseline), { slices });
+    expect(comparison.slices).toEqual(before.slices);
+    expect(comparison.totals).toEqual(before.totals);
+  });
+
+  /** One fictional plan scored by the real scorer: its count lines (count, Z1, R+1, u, 1 by default) and the items read. */
+  function scoredScope(lines: Array<Record<string, unknown>>, items: Array<[designation: string, quantity: number, unit: string]>): ScopeScore {
+    const manifest = ManifestDocumentSchema.parse({
+      id: "a-plan-01", lot: "a", kind: "plan", drive_id: "fixture-a-plan-01", original_title: "Fictional a-plan-01", project: null, file_type: "pdf",
+      file_size: 100, modified_time: "2026-01-06T10:00:00.000Z", raw_status: "binary", raw_path: "raw/a-plan-01.pdf", sha256: "0".repeat(64),
+      structure_check: { status: "passed", method: "fixture", detail: null }, pages: 1, format: "A0", scale: "1/50", index: "A", vector: true,
+      ocg_count: 0, level: "R+1", zone: "Z1", role: "truth", duplicate_of: null, notes: null,
+    });
+    const truthFile = TruthFileSchema.parse({ schema_version: 1, lot: "a", scope: "document", documents: ["a-plan-01"], source_document: "a-devis-01",
+      rules: "Fictional rule.", lines: lines.map((overrides, index) => ({
+        kind: "count", zone: "Z1", level: "R+1", network: "EF", material: null, dn: null, organ: null, room: null, unit: "u", quantity: 1,
+        observable_on_plan: true, source: { document: "a-devis-01", sheet: "Lot", row: index + 1, row_basis: "workbook", text: "Fictional row" }, ...overrides,
+      })) });
+    const read = items.map(([designation, quantity, unit]): TakeoffItem =>
+      ({ designation, quantity, unit, source_page: 1, confidence: 0.9, evidence: "Fictional evidence" }));
+    return scoreScopes(buildScoreScopes([{ file: "truth/a-plan-01.json", truth: truthFile }], [manifest]), new Map([["a-plan-01", read]]))[0];
+  }
+
+  it("scores the count lines the scorer builds: u and pce, a key priced « ens » out of score, a key the truth lacks extra", () => {
+    const scored = scoredScope([
+      { dn: "DN 20", organ: "vanne", quantity: 3 }, { organ: "purgeur", quantity: 2 }, { dn: "DN 20", organ: "compteur", unit: "ens" },
+      { kind: "network", material: "cuivre", dn: "DN 22", unit: "ml", quantity: 10 },
+    ], [["Vanne DN 20", 3, "u"], ["Purgeur d'air", 1, "pce"], ["Clapet anti-retour DN 20", 2, "u"], ["Compteur DN 20", 1, "u"], ["Tube cuivre EF DN 22", 10, "ml"]]);
+    const run = report([[scored]], "vector");
+    const comparison = compareVectorWithBaseline(run, report([[scored]]));
+    // The vanne exact, the purgeur one apart, the clapet a key the truth lacks; the compteur's key is priced « ens ».
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 2, 1, 2, 0, 1));
+    expect(comparison.scopes[0].vector.lengths).toEqual(metrics(1, 1, 1, 0));
+  });
+
+  it("counts a key expected at 0 that no item reads as missed, though the score calls it ok (Codex review of #327)", () => {
+    // Written before the fix: the scorer adds no item as 0, within the u tolerance of 0, so the key is « ok » with no
+    // item. Taken from its status, the column would report it read, exact and within one.
+    const scored = scoredScope([{ organ: "purgeur", quantity: 0 }, { dn: "DN 20", organ: "vanne", quantity: 1 }], [["Vanne DN 20", 2, "u"]]);
+    // The score stays as it is: the key is ok, with no item.
+    expect(scored.keys.find((entry) => entry.key.organ === "purgeur")).toMatchObject({ status: "ok", items: 0, expected: 0 });
+    const comparison = compareVectorWithBaseline(report([[scored]], "vector"), report([[scored]]));
+    // The vanne read one apart; the purgeur missed: neither read, nor exact, nor within one.
+    expect(comparison.counts.scopes[0].vector).toEqual(counts(2, 1, 0, 1, 1, 0));
+  });
+
+  it("prints the counts in the comparison and the slices as numbers of keys, never a quantity", () => {
+    const groups = [extra("count"), extra("count")];
+    const vector = report([[scope("a-plan-02", [...VECTOR, ...keys("length", [["ok", 0.02]])], { ...reserve, false_positives: groups }),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], reserve), scope("d-plan-01", keys("surface", [["ok", 0.01]]))]], "vector");
+    const baseline = report([[scope("a-plan-02", [...BASELINE, ...keys("length", [["ok", 0.03]])], reserve),
+      scope("c-plan-02", [countKey(0, 59, 59), countKey(1, 211, 211)], reserve),
+      scope("d-plan-01", keys("surface", [["ok", 0.01]]), { false_positives: [extra("count")] })]]);
+    const passes = [vectorPass({ "a-plan-02": ["vector"], "c-plan-02": [2], "d-plan-01": ["vector"] })];
+    const comparison = compareVectorWithBaseline(vector, baseline, { slices: scopeSlices(passes, vector.couples[0].passes[0].scopes) });
+    const markdown = renderVectorSections(passes, comparison).join("\n");
+    expect(markdown).toContain("| Comptages, vecteurs | Comptages, baseline |");
+    expect(markdown).toContain("| 1 exacte sur 4, 2 à ±1, 3 lues, 1 manquée, 2 en trop | 2 exactes sur 4, 3 à ±1, 3 lues, 1 manquée, 0 en trop |");
+    expect(markdown).toContain("aucune clé notée, 1 en trop");
+    expect(markdown).toContain("abstention (2 clés)");
+    for (const quantity of [...EXPECTED, 82, 61, 136, ...QUANTITIES.length, ...QUANTITIES.surface]) expect(markdown).not.toContain(String(quantity));
   });
 });

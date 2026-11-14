@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
@@ -31,6 +31,78 @@ export async function createLocalChatGptOwner() {
   return { client, email, userId: data.user.id };
 }
 
+/**
+ * One second of the runner and of a development server's processes, from Linux /proc. Memory in MB; the stall
+ * fields are the milliseconds, since the previous sample, during which tasks waited for memory, the processor or
+ * the disk (pressure stall information: "some" for at least one task, "full" for all of them at once), null on the
+ * first sample or where the kernel publishes no pressure.
+ */
+type ResourceSample = {
+  at: string; availableMb: number; swapUsedMb: number;
+  memorySomeMs: number | null; memoryFullMs: number | null; cpuSomeMs: number | null; ioFullMs: number | null;
+  /** The server is the largest process of the tree; the workers are Next's jest-worker children. */
+  serverRssMb: number; workers: number; workersRssMb: number; otherRssMb: number;
+};
+
+const readProc = (file: string) => readFile(file, "utf8").catch(() => "");
+const procKb = (status: string, key: string) => Number(new RegExp(`^${key}:\\s+(\\d+) kB`, "m").exec(status)?.[1] ?? 0);
+const stallUs = (pressure: string, kind: "some" | "full") => {
+  const total = new RegExp(`^${kind} .*total=(\\d+)`, "m").exec(pressure)?.[1];
+  return total === undefined ? null : Number(total);
+};
+
+/** Samples the runner and the process tree under `rootPid` once a second, where `proc` exists (Linux); elsewhere none. */
+export function watchResources(rootPid: number, proc = "/proc") {
+  const samples: ResourceSample[] = [];
+  let previous: Array<number | null> | null = null;
+  let reading = false;
+  const sample = async () => {
+    if (reading) return;
+    reading = true;
+    try {
+      const [meminfo, memory, cpu, io, names] = await Promise.all([readProc(`${proc}/meminfo`), readProc(`${proc}/pressure/memory`),
+        readProc(`${proc}/pressure/cpu`), readProc(`${proc}/pressure/io`), readdir(proc).catch(() => [] as string[])]);
+      if (!meminfo) return;
+      const children = new Map<number, number[]>();
+      await Promise.all(names.filter(name => /^\d+$/.test(name)).map(async name => {
+        const stat = await readProc(`${proc}/${name}/stat`);
+        // The command name may hold spaces and parentheses; the fields after the last ")" are fixed: state, ppid.
+        const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+        if (Number.isInteger(ppid)) children.set(ppid, [...children.get(ppid) ?? [], Number(name)]);
+      }));
+      const tree: number[] = [];
+      for (const queue = [rootPid]; queue.length;) {
+        const pid = queue.shift()!;
+        tree.push(pid);
+        queue.push(...children.get(pid) ?? []);
+      }
+      const processes = await Promise.all(tree.map(async pid => {
+        const [status, command] = await Promise.all([readProc(`${proc}/${pid}/status`), readProc(`${proc}/${pid}/cmdline`)]);
+        return { rssMb: procKb(status, "VmRSS") / 1024, worker: command.includes("jest-worker/processChild") };
+      }));
+      const totals = [stallUs(memory, "some"), stallUs(memory, "full"), stallUs(cpu, "some"), stallUs(io, "full")];
+      const stalled = totals.map((total, index) => {
+        const before = previous?.[index];
+        return total === null || before === null || before === undefined ? null : Math.round((total - before) / 1000);
+      });
+      previous = totals;
+      const workers = processes.filter(entry => entry.worker);
+      const server = Math.max(0, ...processes.filter(entry => !entry.worker).map(entry => entry.rssMb));
+      const sum = (entries: typeof processes) => entries.reduce((total, entry) => total + entry.rssMb, 0);
+      samples.push({ at: new Date().toISOString(), availableMb: Math.round(procKb(meminfo, "MemAvailable") / 1024),
+        swapUsedMb: Math.round((procKb(meminfo, "SwapTotal") - procKb(meminfo, "SwapFree")) / 1024),
+        memorySomeMs: stalled[0], memoryFullMs: stalled[1], cpuSomeMs: stalled[2], ioFullMs: stalled[3],
+        serverRssMb: Math.round(server), workers: workers.length, workersRssMb: Math.round(sum(workers)),
+        otherRssMb: Math.round(sum(processes.filter(entry => !entry.worker)) - server) });
+    } finally {
+      reading = false;
+    }
+  };
+  const timer = setInterval(() => void sample(), 1000);
+  timer.unref();
+  return { samples, stop: () => clearInterval(timer) };
+}
+
 /** Next development servers also need separate output and TypeScript files. */
 export async function prepareChatGptServerWorkspace() {
   const id = `chatgpt-${randomUUID()}`;
@@ -40,43 +112,57 @@ export async function prepareChatGptServerWorkspace() {
   await writeFile(tsconfig, JSON.stringify({ extends: "../../tsconfig.json", compilerOptions: { paths: { "@/*": ["../../src/*"] } },
     include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", `next-${id}/types/**/*.ts`, `next-${id}/dev/types/**/*.ts`],
     exclude: ["../../node_modules", "../../src/**/*.test.ts", "../../src/**/*.test.tsx"] }), { flag: "wx" });
-  return { id, environment: { E2E_ARMY: "1", E2E_ARMY_DEV_SERVER_ID: id }, assertReady: () => access(distDir), cleanup: async () => {
-    // Preserve only numeric resource metadata, never traced URLs or OAuth parameters.
-    const memory: Array<{ event: string; values: Record<string, string> }> = [];
-    for (const file of [path.join(distDir, "dev/trace"), path.join(distDir, "trace")]) {
-      const content = await readFile(file, "utf8").catch(() => "");
-      for (const line of content.split("\n")) {
-        let events;
-        try { events = JSON.parse(line); } catch { continue; }
-        if (!Array.isArray(events)) continue;
-        for (const event of events) {
-          if (!["start-dev-server", "server-restart-close-to-memory-threshold"].includes(event.name)) continue;
-          const values = Object.fromEntries(Object.entries(event.tags ?? {}).filter(([key, value]) =>
-            key.startsWith("memory.") && /^\d+$/.test(String(value))).map(([key, value]) => [key, String(value)]));
-          memory.push({ event: event.name, values });
+  let watcher: ReturnType<typeof watchResources> | undefined;
+  return { id, environment: { E2E_ARMY: "1", E2E_ARMY_DEV_SERVER_ID: id }, assertReady: () => access(distDir),
+    /** Samples the machine and the server's processes until cleanup (`resources` of `${id}-resources.json`). */
+    watch: (serverPid: number) => { watcher ??= watchResources(serverPid); },
+    cleanup: async () => {
+      watcher?.stop();
+      // Preserve only numeric resource metadata, never traced URLs or OAuth parameters.
+      const memory: Array<{ event: string; values: Record<string, string> }> = [];
+      // Next's own sample at each request it answers: [epoch ms, rss MB, heap used MB].
+      const requests: Array<[number, number, number]> = [];
+      for (const file of [path.join(distDir, "dev/trace"), path.join(distDir, "trace")]) {
+        const content = await readFile(file, "utf8").catch(() => "");
+        for (const line of content.split("\n")) {
+          let events;
+          try { events = JSON.parse(line); } catch { continue; }
+          if (!Array.isArray(events)) continue;
+          for (const event of events) {
+            if (event.name === "memory-usage" && Number.isFinite(event.startTime)) {
+              const megabytes = (key: string) => Math.round(Number(event.tags?.[key]) / 1048576);
+              requests.push([event.startTime, megabytes("memory.rss"), megabytes("memory.heapUsed")]);
+            }
+            if (!["start-dev-server", "server-restart-close-to-memory-threshold"].includes(event.name)) continue;
+            const values = Object.fromEntries(Object.entries(event.tags ?? {}).filter(([key, value]) =>
+              key.startsWith("memory.") && /^\d+$/.test(String(value))).map(([key, value]) => [key, String(value)]));
+            memory.push({ event: event.name, values });
+          }
         }
       }
-    }
-    const artifacts = path.resolve(".e2e/army/critical/artifacts");
-    await mkdir(artifacts, { recursive: true });
-    await writeFile(path.join(artifacts, `${id}-resources.json`), JSON.stringify(memory));
-    await rm(distDir, { recursive: true, force: true });
-    await rm(tsconfig, { force: true });
-  } };
+      const artifacts = path.resolve(".e2e/army/critical/artifacts");
+      await mkdir(artifacts, { recursive: true });
+      await writeFile(path.join(artifacts, `${id}-resources.json`), JSON.stringify({ events: memory,
+        requests: requests.sort((left, right) => left[0] - right[0]), resources: watcher?.samples ?? [] }));
+      await rm(distDir, { recursive: true, force: true });
+      await rm(tsconfig, { force: true });
+    } };
 }
 
 /**
  * The compile waves of a ChatGPT development server. "profile" and "journeys" are the readiness of a server: the real
- * protected pages and the callback's missing-state rejection, before UI assertions. The two "takeoff" waves are every
- * other page and API route the tests of chatgpt-local-takeoff.e2e.ts use, so that no test waits for a compile.
+ * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
+ * other page and API route the takeoff tests of both journey files use (chatgpt-local-takeoff.e2e.ts and
+ * chatgpt-local-decisions.e2e.ts), so that no test waits for a compile.
  */
 export type ChatGptCompileWave = "profile" | "journeys" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
- * routes, then the job routes. One wave a hook: see compileChatGptRoutes.
+ * routes, then the job routes, then the review page with the reads it makes on load. One wave a hook: see
+ * compileChatGptRoutes.
  */
-export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs"] as const;
+export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs", "takeoff-review"] as const;
 
 type CompileRequest = { path: string; method?: "OPTIONS"; anonymous?: boolean; expected: number[] };
 
@@ -97,6 +183,7 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         .map(path => ({ path, expected: [200] })),
       { path: `/api/estimates/${absent}`, expected: [404] },
       { path: `/api/estimates/${absent}/suggestion-learning`, expected: [200, 404] },
+      route(`/api/assistant/threads/${absent}/messages`),
       page(`/dashboard/affaires/${absent}/plans`), page(`/dashboard/affaires/${absent}/takeoff`), callback,
       ...[`/api/takeoff/plan-sets/${absent}/files`, `/api/takeoff/plan-sets/${absent}/files/reconcile`]
         .map(path => ({ path, expected: [400, 403, 404, 405] })),
@@ -116,6 +203,14 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(name => `/api/estimates/${absent}/${name}`),
       ].map(route),
     ];
+  }
+  if (wave === "takeoff-review") {
+    // The review page of a job. Cold, it compiled in ASSIST02's body for 26.7 s (next.js 23.3 s), then the page's
+    // first job read, behind the compile of its page-contributions route, passed the client's 10 s read limit
+    // (TAKEOFF_REQUEST_TIMEOUT, « Le chargement prend trop de temps ») and the assistant toggle never appeared
+    // (run 43413882933). Its versionId keeps the page past notFound(); the reads below are the ones it makes on load.
+    return [page(`/dashboard/affaires/${absent}/takeoff/${absent}/review?versionId=${absent}`),
+      ...["compare", "dpgf-compare", "review-context"].map(name => route(`/api/takeoff/jobs/${absent}/${name}`))];
   }
   return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
     "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`,

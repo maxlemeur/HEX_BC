@@ -49,25 +49,23 @@ import {
 } from "@/lib/takeoff/page-triage-server";
 import { VECTOR_EXTRACTION_HEAP_MB, VECTOR_EXTRACTION_LIMITS, VECTOR_EXTRACTION_TIMEOUT_MS_PER_PAGE, VECTOR_EXTRACTION_VERSION } from "@/lib/takeoff/vectors/extraction";
 import { AIR_LEGEND_MIN_CODES, CANDIDATE_FILTER_REASONS, LEGEND_SAMPLE_STRIP } from "@/lib/takeoff/vectors/candidate-filter";
-import { CLASSIFIED_DECISIONS_CONFIDENCE } from "@/lib/takeoff/vectors/classify";
+import { DECISIONS_ACCEPTED_MARGIN, LOCAL_MODEL_ACCEPTED_PROBABILITY } from "@/lib/takeoff/vectors/classify";
 import { DOOR_ARC, DOOR_HINGE, FILL_CELL_M, FILL_FRAME_SHARE, FILL_HOLE_MAX_M2, FILL_MAX_CELL_M, FILL_MAX_CELLS, FILL_SANITY_RATIO, FILL_SEED_REACH_HEIGHTS, ISLAND_CIRCLE } from "@/lib/takeoff/vectors/fill";
 import { RING_CLOSURE_PT } from "@/lib/takeoff/vectors/geometry";
-import {
-  GROUP_DECISIONS_EVIDENCE_MAX_BYTES,
-  GROUP_DECISIONS_LABELS,
-  GROUP_DECISIONS_LIMITS,
-  GROUP_DECISIONS_PROMPT_VERSION,
-  GROUP_DECISIONS_VERSION,
-} from "@/lib/takeoff/vectors/group-decisions";
+import { GROUP_DECISIONS_LIMITS, GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
 import {
   classifyVectorGroups,
   GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
   GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
+  GROUP_DECISIONS_CALL_TIMEOUT_MS,
   GROUP_DECISIONS_CONCURRENCY,
-  GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+  GROUP_DECISIONS_LEGEND_IMAGES,
 } from "@/lib/takeoff/vectors/group-decisions-server";
-import { GROUP_SHEET } from "@/lib/takeoff/vectors/group-sheet";
-import { GROUP_LEGEND_RENDER, GROUP_SHEET_RENDER } from "@/lib/takeoff/vectors/group-sheet-server";
+import { GROUP_EVIDENCE } from "@/lib/takeoff/vectors/group-evidence";
+import { GROUP_EVIDENCE_IMAGES } from "@/lib/takeoff/vectors/group-evidence-images";
+import { GROUP_EVIDENCE_RENDER, groupEvidenceRenderPlan, startGroupEvidenceRenders } from "@/lib/takeoff/vectors/group-evidence-render-server";
+import { GROUP_LOCAL_MODEL, GROUP_LOCAL_MODEL_LIMITS, GROUP_LOCAL_MODEL_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-local-model";
+import { classifyVectorGroupsLocal, GROUP_LOCAL_MODEL_CONCURRENCY, localGroupsCall, LocalGroupsStop } from "@/lib/takeoff/vectors/group-local-model-server";
 import { VECTOR_ITEMS_VERSION } from "@/lib/takeoff/vectors/items";
 import { LEGEND_RULE_VERSION, TINT_TOLERANCE } from "@/lib/takeoff/vectors/legend";
 import { BAND_GAP_PT, BAND_MAX_PT, JOIN_PT, LABEL_CUT_MIN_PT, LABEL_FAMILY, LABEL_VOTES, LEADER_REACH_PT, MEASURE_RULE_VERSION, RUN_GAP_PT } from "@/lib/takeoff/vectors/measure";
@@ -296,12 +294,21 @@ function vectorRules() {
     items: { version: VECTOR_ITEMS_VERSION },
     decisions: {
       version: GROUP_DECISIONS_VERSION, prompt_version: GROUP_DECISIONS_PROMPT_VERSION, limits_per_page: GROUP_DECISIONS_LIMITS,
-      classified_confidence: CLASSIFIED_DECISIONS_CONFIDENCE, evidence_max_bytes: GROUP_DECISIONS_EVIDENCE_MAX_BYTES, labels: GROUP_DECISIONS_LABELS,
-      call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS, dedicated_render_chunk: GROUP_DECISIONS_DEDICATED_RENDER_CHUNK,
+      // Decisions' confidence is its margin p1 − p2 (TI-704): a class counts from this margin.
+      accepted_margin: DECISIONS_ACCEPTED_MARGIN, evidence: GROUP_EVIDENCE, images: GROUP_EVIDENCE_IMAGES, render: GROUP_EVIDENCE_RENDER,
+      legend_images: GROUP_DECISIONS_LEGEND_IMAGES, call_timeout_ms: GROUP_DECISIONS_CALL_TIMEOUT_MS,
+      // TI-704 option B (`--group-model local`): the local plan's model, effort, groups per request, requests at once and per
+      // document, and the probability a class counts from.
+      local_model: { ...GROUP_LOCAL_MODEL, concurrency: GROUP_LOCAL_MODEL_CONCURRENCY, limits: GROUP_LOCAL_MODEL_LIMITS,
+        accepted_probability: LOCAL_MODEL_ACCEPTED_PROBABILITY, prompt_version: GROUP_LOCAL_MODEL_PROMPT_VERSION },
+      call_estimate_tokens: GROUP_DECISIONS_CALL_ESTIMATE_TOKENS,
       candidate_filter: { reasons: CANDIDATE_FILTER_REASONS, legend_sample_strip: LEGEND_SAMPLE_STRIP, air_legend_min_codes: AIR_LEGEND_MIN_CODES },
       // Calls in flight per page (TI-704): the answers do not depend on it, the latencies and the provider's rate do.
       concurrency: GROUP_DECISIONS_CONCURRENCY, batch_reserve_margin: GROUP_DECISIONS_BATCH_RESERVE_MARGIN,
-      sheet: GROUP_SHEET, sheet_render: GROUP_SHEET_RENDER, legend_render: GROUP_LEGEND_RENDER, retries: 0,
+      // How a page is drawn, as the worker (TI-704 latency): one process after the extraction for Decisions (a server's),
+      // the machine's share with the extraction for the local plan.
+      render_plan: { server: groupEvidenceRenderPlan("server"), local: groupEvidenceRenderPlan("local") },
+      retries: 0,
     },
   };
 }
@@ -330,7 +337,8 @@ async function readBaseline(file: string) {
 
 async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   // Decisions and the vision pass need the owner whose tenant the calls are made for; keywords alone need none.
-  const owner = args.maxDecisionsTokens === null && !args.visionReview ? null : parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
+  const owner = args.maxDecisionsTokens === null && !args.visionReview && args.groupModel !== "local" ? null
+    : parseBenchOwner(process.env.TAKEOFF_BENCH_CHATGPT_OWNER);
   assertOwnCode();
   await assertOutput(args.out);
   const startedAt = new Date().toISOString();
@@ -375,10 +383,38 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
     }
   }
   const log = (line: string) => console.error(line);
-  const hook: VectorDecisionsHook | undefined = owner && budget ? {
+  // TI-704 option B: the owner's local plan reads the groups (its model and effort checked once, before the first page),
+  // each document within the worker's allowance of requests (GROUP_LOCAL_MODEL_LIMITS, per pass). A plan that cannot
+  // start, its quota or a refused access stops the run at the first page that asks it, with a partial report, as a
+  // Decisions stop does.
+  const localLeft = new Map<string, number>();
+  const localCall = owner && args.groupModel === "local"
+    ? await localGroupsCall(owner).catch((error: unknown) => (error instanceof LocalGroupsStop ? error
+      : new LocalGroupsStop("local_access", error instanceof Error ? error.message.slice(0, 200) : "Forfait ChatGPT illisible.")))
+    : null;
+  // The page's drawing as in the worker (TI-704 latency): one process after the extraction for Decisions (a server's), the
+  // machine's share with the extraction for the local plan.
+  const drawing = (mode: "server" | "local") => {
+    const plan = groupEvidenceRenderPlan(mode);
+    return { drawWithExtraction: plan.withExtraction,
+      startDrawing: (document: { bytes: Uint8Array }, page: number) => startGroupEvidenceRenders(document.bytes, page, { sessions: plan.sessions }) };
+  };
+  const hook: VectorDecisionsHook | undefined = owner && localCall ? {
+    promptVersion: GROUP_LOCAL_MODEL_PROMPT_VERSION,
+    ...drawing("local"),
+    classify: async (document, _page, extraction, reading, pass, session) => {
+      // Each document's allowance, per pass.
+      const key = `${pass}:${document.id}`;
+      const left = localLeft.get(key) ?? GROUP_LOCAL_MODEL_LIMITS.requestsPerDocument;
+      const outcome = await classifyVectorGroupsLocal({ bytes: document.bytes, extraction, reading, call: localCall, limits: { maxRequests: left }, log, session });
+      localLeft.set(key, left - outcome.calls.length);
+      return outcome;
+    },
+  } : owner && budget ? {
     promptVersion: GROUP_DECISIONS_PROMPT_VERSION,
-    classify: (document, _page, extraction, reading) => classifyVectorGroups({
-      bytes: document.bytes, extraction, reading, owner, budget, log,
+    ...drawing("server"),
+    classify: (document, _page, extraction, reading, _pass, session) => classifyVectorGroups({
+      bytes: document.bytes, extraction, reading, owner, budget, log, session,
       context: { tenantId: owner.tenantId, projectId: `bench:${document.id}`,
         preparationFingerprint: createHash("sha256").update(`${document.sha256}:${GROUP_DECISIONS_PROMPT_VERSION}`).digest("hex") },
     }),
@@ -429,7 +465,8 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
         after_rules: report.couples[0]?.passes.find((entry) => entry.pass === pass.pass)?.rules ?? null })) }),
     rules_after_vision: visionScored?.couples[0]?.passes.map((pass) => ({ pass: pass.pass, rules: pass.rules ?? null })) ?? [],
   } : null;
-  const groupScore = groupTruth ? scoreGroupTruth({ passes: result.vector.passes, truth: groupTruth }) : null;
+  const groupScore = groupTruth ? scoreGroupTruth({ passes: result.vector.passes, truth: groupTruth,
+    ...(args.groupModel === "local" ? { threshold: LOCAL_MODEL_ACCEPTED_PROBABILITY } : {}) }) : null;
   const full = {
     ...report, vector: { ...result.vector, timings: vectorTimings(result.vector.passes), decisions }, comparison, vision, group_score: groupScore,
     baseline: baseline ? {
@@ -441,7 +478,7 @@ async function mainVector(args: Extract<BenchArgs, { pipeline: "vector" }>) {
   await writeFile(path.join(args.out, "report.json"), `${JSON.stringify(full, null, 2)}\n`, { flag: "wx" });
   const baselineRules = (baselineReport?.couples[0]?.passes ?? []).flatMap((pass) => (pass.rules
     ? [`## Lecture niveau C (baseline) : passe ${pass.pass}`, "", ...rulesSection(pass.rules)] : []));
-  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions).join("\n")}\n`
+  const markdown = `${renderBenchReportMarkdown(report).trimEnd()}\n\n${renderVectorSections(result.vector.passes, comparison, decisions, { model: args.groupModel }).join("\n")}\n`
     + (baselineRules.length > 0 ? `\n${baselineRules.join("\n")}\n` : "")
     + (vision ? `\n${renderVisionSection(vision.summary).join("\n")}\n` : "")
     + (groupScore ? `\n${renderGroupScoreSection(groupScore).join("\n")}\n` : "");

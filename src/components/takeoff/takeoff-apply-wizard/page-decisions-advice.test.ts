@@ -37,8 +37,14 @@ const newLine = (n: number, designation: string, candidates: Array<[number, numb
   id: id(n), designation, unit, quantity: 5, unit_key: unit,
   candidates: candidates.map(([pageNumber, lines]) => ({ key: key(pageNumber), line_ids: lines.map(id) })),
 });
+// TI-696: a DPGF line holding, from a policy applied before D4, parts whose share per page is unknown (`blocks`, each the
+// pages its lines lie on; 0 for a page the relaunch does not read). The page helper names its line on page n id(n + 1000 + page).
+const dpgfLine = (n: number, title: string) => line(n, title, { unit_key: "ml", dpgf_target: true, measured_quantity: null });
+const unknownParts = (n: number, title: string, blocks: number[][]) => ({ id: id(n), title, unit_key: "ml", quantity: 16, reference: 5,
+  length_factor: 1, fed: [], earlier: blocks.map((pages) => ({ job_id: id(9000), item_ids: pages.map((onPage) => id(onPage === 0 ? 9999 - n : n + 1000 + onPage)),
+    quantity: 16, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 1 })) });
 const proposal = (extra: Partial<TakeoffPageReplacementResponse>): TakeoffPageReplacementResponse => ({
-  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, ...extra,
+  job_id: id(1), version_id: id(2), pages: [], lines: [], new_lines: [], pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [], ...extra,
 });
 
 /** The situations of TKD03 where a choice is disabled, as their proposals read. */
@@ -49,9 +55,9 @@ const SITUATIONS: Array<[string, TakeoffPageReplacementResponse]> = [
     lines: [line(201, "WC suspendu"), line(202, "EF cuivre DN 22 (DPGF)", { unit_key: "ml", dpgf_target: true, measured_quantity: null })],
     new_lines: [newLine(101, "WC suspendu", [[1, [201]]])],
     pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }] })],
-  // The same page, whose new lines feed again another DPGF line another takeoff fed (D-6).
+  // The same page, whose new lines feed again another DPGF line another takeoff fed (D-6 until D4).
   ["a DPGF line not fed again on a page that feeds another one again", proposal({ merge_required: true,
-    pages: [page(1, [202, 203], [101], { keep_both_refused: "dpgf_target", dpgf_fed_again: [id(203)] })],
+    pages: [page(1, [202, 203], [101], { dpgf_fed_again: [id(203)] })],
     lines: [line(202, "EF cuivre DN 22 (DPGF)", { unit_key: "ml", dpgf_target: true }), line(203, "EU PVC 100 (DPGF)", { unit_key: "ml", dpgf_target: true })],
     new_lines: [newLine(101, "EU PVC 100", [[1, []]], "ml")] })],
   ["a vanished line carrying a page the relaunch does not read", proposal({
@@ -63,6 +69,44 @@ const SITUATIONS: Array<[string, TakeoffPageReplacementResponse]> = [
   ["a line measured again", proposal({ pages: [page(1, [201], [101])], lines: [line(201, "WC suspendu")],
     new_lines: [newLine(101, "WC suspendu", [[1, [201]]])],
     pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "same_designation", locked: false }] })],
+  // TI-696 (Codex review of PR 288): parts whose share per page is unknown link the pages they lie on, replaced together
+  // or kept together. Both pages read again: replaced together.
+  ["a DPGF part of unknown share over two pages both read again", proposal({
+    pages: [page(1, [300], [101]), page(2, [300], [102])], lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)")],
+    new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "Regard", [[2, []]])],
+    dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2]])] })],
+  // A second line's part links page 2 to a page the relaunch does not read: neither page can be replaced.
+  ["two DPGF parts of unknown share, one on a page the relaunch does not read", proposal({
+    pages: [page(1, [300], [101]), page(2, [300, 301], [102])],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), dpgfLine(301, "EU PVC 100 (DPGF)")],
+    new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "Regard", [[2, []]])],
+    dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2]]), unknownParts(301, "EU PVC 100 (DPGF)", [[2, 0]])] })],
+  // Its other page is always replaced (« Fusionner » imposes a line there): both are replaced.
+  ["a DPGF part of unknown share over two pages, one always replaced", proposal({ merge_required: true,
+    pages: [page(1, [300], [101]), page(2, [201, 300], [102], { keep_both_refused: "merge_match" })],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), line(201, "WC suspendu")],
+    new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "WC suspendu", [[2, [201]]])],
+    pairs: [{ takeoff_item_id: id(102), estimate_item_id: id(201), reason: "merge", locked: true }],
+    dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2]])] })],
+  // Its line without a page lies on both pages; its other line on page 2, always replaced: replacing page 2 takes it out
+  // whole, so page 1 can still be kept both.
+  ["a DPGF part of unknown share with a line on both pages, one always replaced", proposal({ merge_required: true,
+    pages: [{ ...page(1, [], [101]), lines: [{ id: id(300), item_ids: [id(7001)] }] },
+      { ...page(2, [201], [102], { keep_both_refused: "merge_match" }), lines: [{ id: id(201), item_ids: [id(1203)] },
+        { id: id(300), item_ids: [id(7001), id(7002)] }] }],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), line(201, "WC suspendu")],
+    new_lines: [newLine(101, "Vanne d'arrêt", [[1, []]]), newLine(102, "WC suspendu", [[2, [201]]])],
+    pairs: [{ takeoff_item_id: id(102), estimate_item_id: id(201), reason: "merge", locked: true }],
+    dpgf_targets: [{ ...unknownParts(300, "EF cuivre DN 22 (DPGF)", []), earlier: [{ job_id: id(9000), item_ids: [id(7001), id(7002)],
+      quantity: 16, protective: 0, printed_gap: 0, source_file_name: "plan.pdf", source_page: 1 }] }] })],
+  // A part on a page the relaunch does not read, one of its pages always replaced: no state confirms here; nothing is
+  // advised on this step, and the line names the way out.
+  ["a DPGF part of unknown share that cannot leave, one of its pages always replaced", proposal({ merge_required: true,
+    pages: [page(1, [201, 300], [101], { keep_both_refused: "merge_match" }), page(2, [300], [102])],
+    lines: [dpgfLine(300, "EF cuivre DN 22 (DPGF)"), line(201, "WC suspendu")],
+    new_lines: [newLine(101, "WC suspendu", [[1, [201]]]), newLine(102, "Regard", [[2, []]])],
+    pairs: [{ takeoff_item_id: id(101), estimate_item_id: id(201), reason: "merge", locked: true }],
+    dpgf_targets: [unknownParts(300, "EF cuivre DN 22 (DPGF)", [[1, 2, 0]])] })],
 ];
 
 /** What a piece of advice tells the estimator to choose, read from its words. */
@@ -153,24 +197,20 @@ describe("advice never names a disabled choice", () => {
     expect([...new Set(named)]).toEqual([]);
   });
 
-  it("says what to do on a page where neither replacing nor keeping both is possible: exclude the merged line, or feed the DPGF line", () => {
+  // TI-682 D4: the two dead ends of #259 are gone. Replacing the page takes its part out of the DPGF line (C1); keeping
+  // both counts both (D-6 falls).
+  it("replaces the page of a DPGF line not fed again beside a line « Fusionner » imposes: complete and recommended", () => {
     const resolution = resolveConfirmation(SITUATIONS[0][1], initialConfirmationDraft(SITUATIONS[0][1]));
-    expect(resolution.complete).toBe(false);
-    const advice = resolution.pages[0].missing.join(" ");
-    expect(advice).toContain("« WC suspendu »");
-    expect(advice).toContain("« EF cuivre DN 22 (DPGF) »");
-    expect(advice).toMatch(/Écarter « WC suspendu » à la revue du métré : garder les deux redevient possible\./);
-    expect(advice).toMatch(/Lier à cette ligne DPGF, dans le rapprochement DPGF, une ligne de ce métré lue sur cette page qui la mesure \(même unité, matériau et diamètre\) : remplacer redevient possible\./);
-    expect(advice).not.toMatch(/gardez les deux/i);
-    expect(resolution.pages[0].advice.map((entry) => [entry.choose, entry.elsewhere, entry.exits.length])).toEqual([[[], ["exclude_at_review", "link_in_dpgf_review"], 2]]);
-    expect(resolution.pages[0].recommended).toBe(false);
-    expect(resolution.introduction.choose).toEqual([]);
+    expect([resolution.complete, resolution.pages[0].recommended, resolution.pages[0].missing]).toEqual([true, true, []]);
+    expect(resolution.payload[0].lines.find((line) => line.estimate_item_id === id(202))).toMatchObject({ action: "keep", item_ids: [id(1203)] });
+    expect(resolution.introduction.text).toBe("Une page n’entre qu’une fois : remplacez leur mesure précédente.");
   });
 
-  it("on a page feeding another DPGF line again, the only way out is to feed the line not fed", () => {
-    const resolution = resolveConfirmation(SITUATIONS[1][1], initialConfirmationDraft(SITUATIONS[1][1]));
-    expect(resolution.pages[0].advice.map((entry) => entry.elsewhere)).toEqual([["link_in_dpgf_review"]]);
-    expect(resolution.pages[0].missing.join(" ")).not.toMatch(/écarter/i);
+  it("offers keeping both on a page that feeds another DPGF line again: the line sums both", () => {
+    const data = SITUATIONS[1][1];
+    const control = confirmationControls(resolveConfirmation(data, initialConfirmationDraft(data))).find((entry) => entry.id === `page:${key(1)}`)!;
+    expect(control.options.find((option) => option.value === "keep_both")?.disabled).toBeNull();
+    expect(resolveConfirmation(data, initialConfirmationDraft(data)).complete).toBe(true);
   });
 
   it("where nothing on the page can be replaced, the page advises keeping both, and the vanished line advises nothing", () => {
@@ -179,5 +219,46 @@ describe("advice never names a disabled choice", () => {
     expect(resolution.pages[0].missing).toEqual(["plan.pdf, page 1 : Remplacer ne se confirme pas sur cette page : aucune ligne du nouveau métré ne remplace "
       + "une de ses lignes, et aucune ne peut en être retirée. Gardez les deux mesures avec un motif."]);
     expect([resolution.pages[0].recommended, resolution.complete]).toEqual([false, false]);
+  });
+});
+
+describe("pages a DPGF part of unknown share links (TI-696, Codex review of PR 288)", () => {
+  const situation = (name: string) => SITUATIONS.find(([entry]) => entry === name)![1];
+
+  it("never advises replacing a page whose group holds a part the relaunch cannot take out whole", () => {
+    const data = situation("two DPGF parts of unknown share, one on a page the relaunch does not read");
+    const reached = states(data);
+    expect(reached[0].pages.map((entry) => entry.recommended)).toEqual([false, false]);
+    expect(reached.flatMap(recommended).filter((choice) => choice.value === "replace")).toEqual([]);
+    expect(reached.some((resolution) => resolution.complete)).toBe(true);
+  });
+
+  it("withholds keeping both on a page whose part leaves only with a page always replaced", () => {
+    const data = situation("a DPGF part of unknown share over two pages, one always replaced");
+    const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
+    const keepBoth = confirmationControls(resolution).find((entry) => entry.id === `page:${key(1)}`)!.options
+      .find((option) => option.value === "keep_both")!;
+    expect([resolution.complete, keepBoth.disabled]).toEqual([true, "une ligne DPGF y garde une part d’un métré appliqué avant le cumul, "
+      + "qui ne sort qu’entière avec plan.pdf, page 2, toujours remplacée"]);
+  });
+
+  it("keeps both on a page whose part leaves whole with the page always replaced", () => {
+    const data = situation("a DPGF part of unknown share with a line on both pages, one always replaced");
+    const controls = confirmationControls(resolveConfirmation(data, initialConfirmationDraft(data)));
+    const keepBoth = controls.find((entry) => entry.id === `page:${key(1)}`)!.options.find((option) => option.value === "keep_both")!;
+    expect(keepBoth.disabled).toBeNull();
+    const kept = states(data).find((resolution) => resolution.complete && resolution.pages[0].choice.decision === "keep_both");
+    expect(kept?.payload.map((decision) => decision.decision)).toEqual(["keep_both", "replace"]);
+  });
+
+  it("names the way out where a part can never leave", () => {
+    const data = situation("a DPGF part of unknown share that cannot leave, one of its pages always replaced");
+    const reached = states(data);
+    expect([reached.some((resolution) => resolution.complete), reached.flatMap(recommended)]).toEqual([false, []]);
+    const advice = reached[0].lines.find((entry) => entry.line.id === id(300))!.advice;
+    // TI-716: the way out recommended first (its other pages read again by a relaunch, then replaced together).
+    expect(advice.map((entry) => [entry.elsewhere, entry.exits])).toEqual([[["read_pages_again", "exclude_at_review"],
+      ["Recommandé : relancez le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure précédente sort alors entière.",
+        "Écarter « WC suspendu » à la revue du métré : garder les deux mesures de la page redevient possible."]]]);
   });
 });

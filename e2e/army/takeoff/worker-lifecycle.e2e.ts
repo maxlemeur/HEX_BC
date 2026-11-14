@@ -11,8 +11,8 @@ import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
 import {
-  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readWorkerDecisionsCalls, startOwnedWorker,
-  workerDecisionsFixture,
+  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit, readWorkerDecisionsCalls,
+  startOwnedWorker, workerDecisionsFixture,
 } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
@@ -388,6 +388,17 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   const roomCorners = [650, 441.89, 876.77, 441.89, 876.77, 243.47, 650, 243.47, 650, 441.89];
   expect(drawn.polygons[0].map((value, index) => Math.round((value / (index % 2 === 0 ? drawn.width : drawn.height)) * 1000) / 1000))
     .toEqual(roomCorners.map((value, index) => Math.round((value / (index % 2 === 0 ? 1190.55 : 841.89)) * 1000) / 1000));
+  // The page fits its frame, which appears with the reading after the loading message; on a phone the frame narrows
+  // and the page fits it again (review of PR #317: the first page kept 0.25 px per point, measured before the frame).
+  const fit = async () => { const { plan, frame } = await readVectorViewerFit(ui); return { plan, frame, fits: plan === frame }; };
+  await expect.poll(fit).toMatchObject({ fits: true });
+  const desktopFit = await fit();
+  expect(desktopFit.frame).toBeGreaterThan(400);
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  await expect.poll(async () => { const now = await fit(); return { ...now, narrower: now.frame > 0 && now.frame < desktopFit.frame }; })
+    .toMatchObject({ fits: true, narrower: true });
+  await ui.browser.setViewport({ width: 1280, height: 800 });
+  await expect.poll(fit).toMatchObject({ fits: true, frame: desktopFit.frame });
   const efToggle = viewer.getByRole("checkbox", "Afficher EF", { exact: true });
   const euvToggle = viewer.getByRole("checkbox", "Afficher EUV", { exact: true });
   const surfacesToggle = viewer.getByRole("checkbox", "Afficher les surfaces", { exact: true });
@@ -532,17 +543,18 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   expect(answered.outcome.status).toBe("completed");
   expect(answered.job).toMatchObject({ status: "completed", level: "C" });
   expect(answered.providerCalls).toBe(1);
-  // One batch call, one question, its two images (page thumbnail and contact sheet); 0.8 is not asked again alone.
-  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2 }]);
+  // One call, one question with its own image (TI-704 v2: no legend block on this plan).
+  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1 }]);
   const [page] = answered.vectorPages;
   expect(answered.vectorPages).toHaveLength(1);
   // Groups longest first: the room's walls (300 mm), EF (100 mm), the unnamed red pipe (80 mm), EU/EV (60 mm).
   expect(page).toMatchObject({ scale: { status: "format", denominator: 50 }, detection: 1, classes: ["mur", "EF", "EU", "EUV"],
     sources: ["keyword", "keyword", "decisions", "keyword"], confidences: [null, null, 0.8, null] });
-  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v1", candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
+  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v2", rules_version: 3, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+    candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
     calls: { batch: 1, dedicated: 0, failed: 0 }, answered: 1, total_tokens: 1, latency_ms: expect.any(Number), stop: null });
   const exclusion = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
-  // The red pipe is measured at 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
+  // The red pipe is measured at a margin of 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
   expect(answered.items.filter((item) => item.unit === "ml").map(({ designation, quantity, is_excluded, exclusion_reason }) => ({ designation, quantity, is_excluded, exclusion_reason })))
     .toEqual([
       { designation: "EF PER DN 16", quantity: 5, is_excluded: true, exclusion_reason: exclusion },
@@ -582,7 +594,7 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   const failed = await startOwnedWorker(ui, ids, failedJobId, "success", { vectors: true, owner, decisions: failing }).done;
   expect(failed.outcome.status).toBe("completed");
   expect(failed.job).toMatchObject({ status: "completed", level: "C" });
-  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 2, failed: true }]);
+  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1, failed: true }]);
   const [failedPage] = failed.vectorPages;
   // Classified groups first in the page record, then the unclassified one.
   expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });

@@ -420,6 +420,7 @@ export function useEstimateEditorSyncController({
     setIsRecoveringRead(true);
     try {
       if (await recoverEstimateEditorRead(routeVersionId) && isCurrentLifetime()) {
+        reportError(null);
         if (recoveryReloadMessageRef.current) {
           recoveryReloadInFlightRef.current = true;
           triggerVersionReload();
@@ -572,6 +573,7 @@ export function useEstimateEditorSyncController({
     !isDraftLockedByOther &&
     !isDraftLockOwnedByCurrentUser;
   const isReadOnly =
+    readRequiredMessage !== null || recoveryReloadMessage !== null || isRecoveringRead ||
     batchRecovery.blocked || batchRecovery.isBusy ||
     isStatusReadOnly ||
     isDraftLockedByOther ||
@@ -580,7 +582,7 @@ export function useEstimateEditorSyncController({
   const isConflictLocked = conflict !== null;
   const isSaveBlocked = isReadOnly || isConflictLocked || readRequiredMessage !== null ||
     recoveryReloadMessage !== null || isRecoveringRead;
-  const readOnlyActionErrorMessage = batchRecovery.blocked
+  const readOnlyActionErrorMessage = visibleRecovery.blocked
     ? "Vérifiez le résultat de l'opération précédente avant de modifier ce devis."
     : isViewerReadOnly
     ? "Mode consultation activé."

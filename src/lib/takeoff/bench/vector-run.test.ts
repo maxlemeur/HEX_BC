@@ -7,6 +7,7 @@ import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import type { BenchPass, CallStatus, DocumentRun } from "@/lib/takeoff/bench/run";
 import { baselineRasterFallback, runVectorBench, stoppedVectorBench, type VectorBenchDocument } from "@/lib/takeoff/bench/vector-run";
 import type { GroupDecisionsOutcome } from "@/lib/takeoff/vectors/group-decisions-server";
+import type { GroupEvidenceSession } from "@/lib/takeoff/vectors/group-evidence-render-server";
 import {
   VectorExtractionError,
   type VectorGroupKey,
@@ -403,19 +404,20 @@ describe("the baseline's raster fallback (fourth Codex round of PR #145)", () =>
 });
 
 describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
-  function outcome(answers: Array<[string, string, string | null, number | null, "batch" | "dedicated"]>,
+  function outcome(answers: Array<[string, string, string | null, number | null, "batch" | "rule"]>,
     stop: GroupDecisionsOutcome["stop"] = null): GroupDecisionsOutcome {
     return {
       answers: new Map(answers.map(([id, alias, value, confidence, via]) => [id, {
-        alias, class: value as never, confidence, status: value === null ? "missing" as const : "answered" as const, via,
+        alias, class: value as never, confidence, status: value === null ? "missing" as const : "answered" as const, via, proposal: null,
       }])),
       calls: [{ kind: "batch", questions: answers.length, status: stop?.reason === "call_failed" ? "failed" : "available",
-        usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: 80 }],
-      stop, candidates: answers.length, eligible: answers.length, left_out: 0, dedicated_left_out: 0, render: { legend_ms: 300, sheets_ms: [80] }, calls_ms: null,
+        usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 }, latency_ms: 1200, render_ms: null }],
+      stop, candidates: answers.length, eligible: answers.length, left_out: 0, filtered: { grey: 1 }, ruled: { same_colour: 0, band: 0, propagated: 0 },
+      render: { page_ms: 300, legends_ms: [], groups_ms: [80], dropped_images: 0 }, calls_ms: null,
     };
   }
 
-  it("reads the page again with the hook's answers, measures 0.8 and more only, and records each group's answer", async () => {
+  it("reads the page again with the hook's answers, measures from a margin of 0.5 only, and records each group's answer", async () => {
     const seen: Array<[string, number, string | null]> = [];
     const result = await runVectorBench({
       documents: [benchDocument("a-plan-01", 1)], groups: new Map(), repeat: 1, extract: async () => plan(1, 1),
@@ -423,7 +425,7 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
         promptVersion: "fixture-groups-v1",
         classify: async (document, pageNumber, _extraction, reading) => {
           seen.push([document.id, pageNumber, reading.groups.find((group) => group.id === RED_ID)?.class ?? null]);
-          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"], [BLUE_ID, "groupe_02", "EU", 0.62, "dedicated"]]);
+          return outcome([[RED_ID, "groupe_01", "EF", 0.9, "batch"], [BLUE_ID, "groupe_02", "EU", 0.42, "batch"]]);
         },
       },
     });
@@ -433,14 +435,15 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(run.items.map((item) => [item.designation, item.quantity])).toEqual([["EF cuivre DN 22", 12.7]]);
     expect(result.run.couples[0].prompt_version).toMatch(/^vector-v\d+\+fixture-groups-v1$/);
     const summary = result.vector.passes[0].documents[0].pages[0];
-    expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.62 });
-    // The proposal at 0.62 is neither « classé » nor a measured network group in the page summary (review of the PR).
+    expect(summary.reading?.groups.find((group) => group.id === BLUE_ID)).toMatchObject({ class: "EU", source: "decisions", confidence: 0.42 });
+    // The proposal at 0.42 is neither « classé » nor a measured network group in the page summary (review of the PR).
     expect(summary.reading).toMatchObject({ groups_classified: 1, groups_network: 1 });
     expect(summary.decisions).toMatchObject({
       candidates: 2, left_out: 0, stop: null, calls: [{ kind: "batch", status: "available", usage: { total_tokens: 1000 } }],
+      filtered: { grey: 1 }, ruled: { same_colour: 0, band: 0, propagated: 0 },
       answers: [
         { alias: "groupe_01", group: RED_ID, class: "EF", confidence: 0.9, status: "answered", via: "batch" },
-        { alias: "groupe_02", group: BLUE_ID, class: "EU", confidence: 0.62, status: "answered", via: "dedicated" },
+        { alias: "groupe_02", group: BLUE_ID, class: "EU", confidence: 0.42, status: "answered", via: "batch" },
       ],
     });
     expect(result.run.status).toBe("complete");
@@ -516,6 +519,83 @@ describe("Decisions classes in the vector bench (TI-662 L3c)", () => {
     expect(result.vector.passes).toEqual([]);
     const report = buildBenchReport({ metadata, run: result.run, scopes: [], noise: null, pipeline: "vector" });
     expect(renderBenchReportMarkdown(report)).toContain("decisions_unavailable");
+  });
+});
+
+describe("the page's drawing and durations in the vector bench (TI-704 latency)", () => {
+  it("starts a page's drawing once its extraction ended, hands it to the hook, cancels the unused, and records each step's duration", async () => {
+    const log: string[] = [];
+    const sessions = { started: 0, cancelled: 0 };
+    let now = 0;
+    // A session's first cancel counts, as a real one ends once.
+    const session = (): GroupEvidenceSession => {
+      let ended = false;
+      return { draw: async () => { throw new Error("not drawn by the fake hook"); }, cancel: () => {
+        if (!ended) sessions.cancelled += 1;
+        ended = true;
+      } };
+    };
+    const result = await runVectorBench({
+      documents: [benchDocument("a-plan-01", 3)], groups: new Map(), repeat: 1, clock: () => now,
+      extract: async (_bytes, number) => {
+        log.push(`extract p${number}`);
+        now += 1000;
+        return plan(number, 3, number === 2 ? 0.95 : 0);
+      },
+      decisions: {
+        promptVersion: "fixture-groups-v1",
+        startDrawing: (_document, number) => {
+          log.push(`render p${number}`);
+          sessions.started += 1;
+          return session();
+        },
+        classify: async (_document, number, _extraction, _reading, _pass, given) => {
+          log.push(`classify p${number} ${given ? "with" : "without"} its drawing`);
+          now += 3000;
+          // Page 3 leaves its drawing unused: the bench ends it.
+          if (number === 1) given?.cancel();
+          return { answers: new Map(), calls: [], stop: null, candidates: 0, eligible: 0, left_out: 0, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+            render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null };
+        },
+      },
+    });
+    // A raster page draws nothing; every drawing started ends.
+    expect(log).toEqual(["extract p1", "render p1", "classify p1 with its drawing", "extract p2", "classify p2 without its drawing", "extract p3", "render p3",
+      "classify p3 with its drawing"]);
+    expect(sessions).toEqual({ started: 2, cancelled: 2 });
+    expect(result.vector.passes[0].documents[0].pages[0].durations).toMatchObject({ extraction_ms: 1000, groups_ms: 3000, total_ms: 4000 });
+  });
+});
+
+describe("the local plan's drawing in the vector bench (TI-704 latency)", () => {
+  it("starts the drawing with the extraction when the hook says so, and cancels a raster page's", async () => {
+    const log: string[] = [];
+    let cancelled = 0;
+    await runVectorBench({
+      documents: [benchDocument("a-plan-01", 2)], groups: new Map(), repeat: 1,
+      extract: async (_bytes, number) => {
+        log.push(`extract p${number}`);
+        return plan(number, 2, number === 2 ? 0.95 : 0);
+      },
+      decisions: {
+        promptVersion: "fixture-groups-v1", drawWithExtraction: true,
+        startDrawing: (_document, number) => {
+          log.push(`render p${number}`);
+          let ended = false;
+          return { draw: async () => { throw new Error("not drawn"); }, cancel: () => {
+            if (!ended) cancelled += 1;
+            ended = true;
+          } };
+        },
+        classify: async (_document, number, _extraction, _reading, _pass, given) => {
+          log.push(`classify p${number} ${given ? "with" : "without"} its drawing`);
+          return { answers: new Map(), calls: [], stop: null, candidates: 0, eligible: 0, left_out: 0, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
+            render: { page_ms: null, legends_ms: [], groups_ms: [], dropped_images: 0 }, calls_ms: null };
+        },
+      },
+    });
+    expect(log).toEqual(["render p1", "extract p1", "classify p1 with its drawing", "render p2", "extract p2", "classify p2 without its drawing"]);
+    expect(cancelled).toBe(2);
   });
 });
 

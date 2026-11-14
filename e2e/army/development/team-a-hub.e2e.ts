@@ -1,5 +1,6 @@
 import { describe, expect } from "e2e";
 import { nativeTest as test, buildEstimateName, loginWithUi, type NativeUi } from "../takeoff/native-ui";
+import { waitForHydration } from "../critical/hydration-support";
 
 
 async function createTeamAHubEstimateViaApi(ui: NativeUi, options: { projectName: string; title: string }) {
@@ -12,6 +13,9 @@ async function openTeamADevHubScenario(ui: NativeUi, input: { projectId: string;
  // The workbench shows one domain at a time: the journey and its study panel are in « Vue d’ensemble ».
  await ui.goto(`/dashboard/affaires/${input.projectId}?view=overview&devHubScenario=${input.scenario}`);
  await expect(ui.getByRole("heading", { name: "Pilotage de l'affaire" })).toBeVisible();
+ // goto returns at `load`, and `next dev` hydrates the page after it: a click before then never reaches React (the
+ // section stays on « Vue d’ensemble ») and a <details> opened natively makes React warn about its `open` (TI-725).
+ await waitForHydration(ui.browser);
 }
 function getTeamARegisterSection(ui: NativeUi) {
  return ui.locator("section").filter({ has: ui.getByRole("heading", { name: "Points à traiter" }) });

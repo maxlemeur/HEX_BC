@@ -1,7 +1,7 @@
 "use client";
 
 import { canRetainDpgfQuantity } from "@/lib/takeoff/dpgf-review-guards";
-import { dpgfQuantityPolicy } from "@/lib/takeoff/dpgf-quantity-policy";
+import { dpgfRowRetainedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -29,8 +29,10 @@ import {
   formatConfidence,
   formatProofConfidence,
   getDecisionImpactText,
+  retainedRoundingNote,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/utils";
 import { FieldLabel } from "@/components/ui/field";
+import { DpgfCompositionNote } from "@/components/takeoff/takeoff-dpgf-compare-view/DpgfCompositionNote";
 import { Textarea } from "@/components/ui/textarea";
 
 type RiskActionTarget = {
@@ -126,6 +128,11 @@ function DecisionPill({
   );
 }
 
+/** TI-721: what changed under the decision being typed since the line was read, shown next to it. */
+export type DecisionDraftNotice =
+  | { kind: "refreshed"; description: string; applied: boolean }
+  | { kind: "unlisted"; viewLabel: string };
+
 type SelectedRowReviewAsideProps = {
   selectedRow: TakeoffDpgfComparisonRow | null;
   selectedLineRiskItems: TakeoffRiskAlert[];
@@ -133,6 +140,8 @@ type SelectedRowReviewAsideProps = {
   draftDecision: TakeoffDpgfReviewDecision | null;
   decisionReason: string;
   decisionSaving: boolean;
+  draftNotice: DecisionDraftNotice | null;
+  onTakeRefreshedDecision: () => void;
   onDecisionSelect: (decision: TakeoffDpgfReviewDecision) => void;
   onDecisionReasonChange: (value: string) => void;
   onDecisionSave: () => void;
@@ -149,6 +158,8 @@ export function SelectedRowReviewAside({
   draftDecision,
   decisionReason,
   decisionSaving,
+  draftNotice,
+  onTakeRefreshedDecision,
   onDecisionSelect,
   onDecisionReasonChange,
   onDecisionSave,
@@ -186,15 +197,32 @@ export function SelectedRowReviewAside({
             </Badge>
           </div>
 
+          {draftNotice?.kind === "unlisted" ? (
+            <div
+              role="status"
+              aria-label="Ligne absente de la comparaison actualisée"
+              className="rounded-2xl border border-warning-border bg-warning-subtle p-4 text-sm"
+            >
+              <p className="font-semibold text-foreground">Ligne absente de la comparaison actualisée</p>
+              <p className="mt-1 text-foreground-secondary">
+                Elle ne figure plus dans la vue « {draftNotice.viewLabel} » ; ses valeurs datent d’avant l’actualisation.
+                Votre décision en cours est conservée : enregistrez-la ou choisissez une autre ligne.
+              </p>
+            </div>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-border bg-surface-subtle p-4 sm:col-span-2">
               <p className="text-sm font-semibold">Quantité proposée pour chiffrer</p>
               <p className="mt-1 text-lg font-semibold">
-                {dpgfQuantityPolicy(selectedRow)?.priced.toLocaleString("fr-FR", { maximumFractionDigits: 3 }) ?? "À confirmer"} {selectedRow.quantity_unit}
+                {dpgfRowRetainedQuantity(selectedRow)?.toLocaleString("fr-FR", { maximumFractionDigits: 4 }) ?? "À confirmer"} {selectedRow.quantity_unit}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Valeur supérieure retenue. Référence DPGF et métré conservés séparément. Vérification au-delà de 1 % d’écarts cumulés sur cette ligne.
+                {selectedRow.composition ? " La ligne somme les métrés qu’elle garde : l’écart se lit sur ce total." : ""}
+                {retainedRoundingNote(selectedRow) ? ` ${retainedRoundingNote(selectedRow)}` : ""}
               </p>
+              {selectedRow.composition ? <div className="mt-2"><DpgfCompositionNote row={selectedRow} /></div> : null}
             </div>
             <div className="rounded-2xl border border-border bg-surface-subtle p-4">
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
@@ -447,11 +475,31 @@ export function SelectedRowReviewAside({
               </Button>
             </div>
 
+            {draftNotice?.kind === "refreshed" ? (
+              <div
+                role="status"
+                aria-label="Ligne actualisée pendant votre saisie"
+                className="mt-4 rounded-xl border border-warning-border bg-warning-subtle px-3 py-3 text-sm"
+              >
+                <p className="font-semibold text-foreground">Ligne actualisée pendant votre saisie</p>
+                <p className="mt-1 text-foreground-secondary">{draftNotice.description}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {draftNotice.applied
+                    ? "Votre saisie est conservée : l’enregistrer remplace cette décision."
+                    : "Votre saisie est conservée : l’enregistrer l’applique à la place du choix proposé."}
+                </p>
+                <Button type="button" size="sm" variant="secondary" className="mt-2" onClick={onTakeRefreshedDecision}>
+                  {draftNotice.applied ? "Utiliser la décision appliquée" : "Utiliser le choix proposé"}
+                </Button>
+              </div>
+            ) : null}
+
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {(Object.keys(DECISION_LABELS) as TakeoffDpgfReviewDecision[]).map((decision) => (
                 <DecisionPill
                   key={decision}
-                  disabled={!canRetainDpgfQuantity(decision, selectedRow.dpgf_quantity, selectedRow.takeoff_quantity)}
+                  disabled={!canRetainDpgfQuantity(decision, selectedRow.dpgf_quantity, selectedRow.takeoff_quantity === null ? null
+                    : selectedRow.composition?.total_quantity ?? selectedRow.takeoff_quantity)}
                   active={draftDecision === decision}
                   decision={decision}
                   onClick={onDecisionSelect}

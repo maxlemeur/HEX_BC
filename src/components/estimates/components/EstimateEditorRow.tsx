@@ -282,6 +282,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   // Lot 2, sous-lot 2.6 : sur une v3, le PT affiché est le brut ⌈Q × PU⌋ du moteur (D7).
   const v3Line = useEstimateV3Line(item.id);
   const {
+    onInsertOuvrage,
+    onResizeOuvrage,
     onDeleteItem,
     onOpenArticle,
     onAssociateArticle,
@@ -437,6 +439,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         isSectionCollapsed={isSectionCollapsed}
         onToggleSectionCollapsed={onToggleSectionCollapsed}
         onOpenSectionContextMenu={onOpenSectionContextMenu}
+        onResizeOuvrage={onResizeOuvrage}
+        onInsertOuvrage={onInsertOuvrage}
         onPatchItem={onPatchItem}
         onAddLine={onAddLine}
         onAddSection={onAddSection}
@@ -688,6 +692,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onAssociateArticle={onAssociateArticle}
       onOpenSupplierComparisonPanel={onOpenSupplierComparisonPanel}
       onOpenSupplierComparisonContextMenu={onOpenSupplierComparisonContextMenu}
+      onInsertOuvrage={onInsertOuvrage}
       onConvertLineToSection={onConvertLineToSection}
       onToggleOutlierDismiss={onToggleOutlierDismiss}
       onLineSelectionInteraction={onLineSelectionInteraction}

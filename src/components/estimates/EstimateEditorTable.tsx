@@ -1,5 +1,7 @@
 "use client";
 
+import { EstimateOuvrageInsertionPicker } from "@/components/estimates/components/estimate-editor-table/EstimateOuvrageInsertionPicker";
+
 import { foProvisionsBySupplyType, staleAutomaticKfoPatches } from "@/lib/estimates/fo-provision";
 import { Button } from "@/components/ui/button";
 import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
@@ -163,11 +165,6 @@ const EstimateEditorTableLineContextMenu = dynamic(() =>
     "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu"
   ).then((module) => module.EstimateEditorTableLineContextMenu)
 );
-const AssemblyPicker = dynamic(() =>
-  import("@/components/estimates/AssemblyPicker").then(
-    (module) => module.AssemblyPicker
-  )
-);
 const QuickTemplatePicker = dynamic(() =>
   import("@/components/estimates/editor/QuickTemplatePicker").then(
     (module) => module.QuickTemplatePicker
@@ -291,6 +288,7 @@ type EstimateEditorTableProps = {
   ) => Promise<void>;
   onBulkSetCategory: (itemIds: string[], categoryId: string | null) => Promise<void>;
   onBulkSetLaborRole: (itemIds: string[], laborRoleId: string | null) => Promise<void>;
+  onResizeOuvrage?: (itemId: string, quantity: number) => Promise<void>;
   onInsertAssembly: (
     assemblyId: string,
     afterItemId: string | null
@@ -875,6 +873,7 @@ export function EstimateEditorTable({
   onBulkMoveLines,
   onBulkSetCategory,
   onBulkSetLaborRole,
+  onResizeOuvrage,
   onInsertAssembly,
   onInsertTemplate,
   onPasteRows,
@@ -943,6 +942,12 @@ export function EstimateEditorTable({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const columnResizeCleanupRef = useRef<(() => void) | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
+  const [assemblyAnchorItemId, setAssemblyAnchorItemId] = useState<string | null>(null);
+  const openAssemblyPicker = useCallback((itemId?: string) => {
+    if (isReadOnly) return;
+    setAssemblyAnchorItemId(itemId ?? insertionAnchorItemIdRef.current);
+    setIsAssemblyPickerOpen(true);
+  }, [isReadOnly]);
   const gridNavigationRef = useRef<GridNavigationResult | null>(null);
   const cellPasteHandlerRef = useRef<((text: string, target: Element) => boolean) | null>(null);
   const getPinnedRowId = useCallback(() => gridNavigationRef.current?.getActiveRowId() ?? null, []);
@@ -1777,7 +1782,7 @@ export function EstimateEditorTable({
     onCopySelectedRowsToClipboard: copySelectedRowsToClipboard,
     onUndo,
     onRedo,
-    onOpenAssemblyPicker: () => setIsAssemblyPickerOpen(true),
+    onOpenAssemblyPicker: () => openAssemblyPicker(),
   });
 
   const applySuggestion = useCallback(
@@ -2059,6 +2064,8 @@ export function EstimateEditorTable({
 
   const rowActionsContextValue = useMemo<EstimateEditorRowActionsContextValue>(
     () => ({
+      onInsertOuvrage: openAssemblyPicker,
+      onResizeOuvrage,
       onDeleteItem: requestDeleteItem,
       onOpenArticle: (itemId) => openArticleSheet(itemId, "view"),
       onAssociateArticle: (itemId) => openArticleSheet(itemId, "associate"),
@@ -2075,6 +2082,8 @@ export function EstimateEditorTable({
       onLineSelectionInteraction: handleLineSelectionInteraction,
     }),
     [
+      openAssemblyPicker,
+      onResizeOuvrage,
       handleConvertLineToSection,
       handleLineSelectionInteraction,
       handleOpenSupplierComparisonContextMenu,
@@ -2523,7 +2532,7 @@ export function EstimateEditorTable({
                 onOpenSupplierPreselectionDialog={
                   onOpenSupplierPreselectionDialog
                 }
-                onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
+                onOpenAssemblyPicker={() => openAssemblyPicker()}
                 onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
                 onOpenPriceReuseDialog={onOpenPriceReuseDialog}
                 onOpenEstimateStructureDraftDialog={
@@ -2785,22 +2794,9 @@ export function EstimateEditorTable({
         ))}
       </datalist>
 
-      {isAssemblyPickerOpen ? (
-        <GridActiveRow navigation={spreadsheetNavigation}>
-          {(activeClientKey) => (
-            <AssemblyPicker
-              isOpen
-              isReadOnly={isReadOnly}
-              anchorItemId={activeClientKey ? (itemByClientKey.get(activeClientKey)?.id ?? null) : null}
-              anchorLabel={resolveActiveLineBreadcrumb(activeClientKey, itemByClientKey, itemById)}
-              onClose={() => setIsAssemblyPickerOpen(false)}
-              onInsert={(assemblyId) =>
-                onInsertAssembly(assemblyId, insertionAnchorItemIdRef.current)
-              }
-            />
-          )}
-        </GridActiveRow>
-      ) : null}
+      {isAssemblyPickerOpen ? <EstimateOuvrageInsertionPicker isReadOnly={isReadOnly}
+        anchorItemId={assemblyAnchorItemId} items={itemById} onInsert={onInsertAssembly}
+        onClose={() => setIsAssemblyPickerOpen(false)} /> : null}
 
       {isPastePreviewOpen ? (
         <PastePreviewDialog
