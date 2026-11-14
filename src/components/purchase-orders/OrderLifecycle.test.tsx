@@ -26,7 +26,20 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh }) }));
-vi.mock("@/lib/supabase/client", () => ({ createSupabaseBrowserClient: () => ({ from: vi.fn() }) }));
+// The status write of an affaire's order: from("purchase_orders").update({ status }).eq("id", order) -> { error }.
+const statusWrites = vi.hoisted(() => ({ calls: [] as unknown[], error: null as { message: string } | null }));
+vi.mock("@/lib/supabase/client", () => ({
+  createSupabaseBrowserClient: () => ({
+    from: (table: string) => ({
+      update: (values: unknown) => ({
+        eq: async (column: string, value: unknown) => {
+          statusWrites.calls.push({ table, values, column, value });
+          return { error: statusWrites.error };
+        },
+      }),
+    }),
+  }),
+}));
 
 import { OrderLifecycle, type OrderLifecycleProps } from "@/components/purchase-orders/OrderLifecycle";
 
@@ -264,17 +277,65 @@ describe("OrderLifecycle — confirmation, review cases", () => {
 });
 
 describe("OrderLifecycle — status and reception", () => {
+  // TI-691 (owner's walkthrough of 14/11/2026): a status selector beside « Confirmer la commande… » read as a way to
+  // order without proof. The changes without proof are named actions under the step, and the step says what comes next.
   it("offers a draft only to be canceled, besides its confirmation", () => {
     render(<OrderLifecycle {...props()} />);
-    const select = screen.getByLabelText("Statut de la commande");
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["Brouillon", "Annulée"]);
+    expect(screen.queryByLabelText("Statut de la commande")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Envoyer le bon au fournisseur" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Annuler le bon…" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /brouillon/ })).not.toBeInTheDocument();
   });
 
   // Codex review of #311: an order of an affaire marked « Envoyée » before this delivery was offered nothing.
   it("offers a sent order of an affaire to return to draft or to be canceled", () => {
     render(<OrderLifecycle {...props({ status: "sent" })} />);
-    const select = screen.getByLabelText("Statut de la commande");
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["Brouillon", "Envoyée", "Annulée"]);
+    expect(screen.queryByLabelText("Statut de la commande")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Confirmer la commande" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remettre en brouillon" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Annuler le bon…" })).toBeEnabled();
+  });
+
+  it("cancels a draft only once its cancellation is confirmed, with the same write as before", async () => {
+    statusWrites.calls = [];
+    statusWrites.error = null;
+    const user = userEvent.setup();
+    render(<OrderLifecycle {...props()} />);
+    await user.click(screen.getByRole("button", { name: "Annuler le bon…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Annuler le bon C-2611-007" });
+    await user.click(within(dialog).getByRole("button", { name: "Garder le bon" }));
+    expect(statusWrites.calls).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Annuler le bon…" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Annuler le bon" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(statusWrites.calls).toEqual([{ table: "purchase_orders", values: { status: "canceled" }, column: "id", value: ORDER }]);
+  });
+
+  it("names the refusal of a cancellation in its dialog", async () => {
+    statusWrites.calls = [];
+    statusWrites.error = { message: "new row violates row-level security policy" };
+    const user = userEvent.setup();
+    render(<OrderLifecycle {...props({ status: "sent" })} />);
+    await user.click(screen.getByRole("button", { name: "Annuler le bon…" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Annuler le bon" }));
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
+    statusWrites.error = null;
+  });
+
+  it("returns a sent order to draft, and reopens a canceled one", async () => {
+    statusWrites.calls = [];
+    const user = userEvent.setup();
+    const { unmount } = render(<OrderLifecycle {...props({ status: "sent" })} />);
+    await user.click(screen.getByRole("button", { name: "Remettre en brouillon" }));
+    await waitFor(() => expect(statusWrites.calls).toHaveLength(1));
+    unmount();
+    render(<OrderLifecycle {...props({ status: "canceled" })} />);
+    expect(screen.getByRole("heading", { name: "Bon annulé" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Annuler le bon…" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rouvrir en brouillon" }));
+    await waitFor(() => expect(statusWrites.calls).toHaveLength(2));
+    expect(statusWrites.calls.map((call) => (call as { values: unknown }).values)).toEqual([{ status: "draft" }, { status: "draft" }]);
   });
 
   it("offers a confirmed order no direct status change, only its reception, and says how it was ordered", () => {

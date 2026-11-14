@@ -156,6 +156,30 @@ function first<T>(value: Embedded<T>): T | null {
   return value ?? null;
 }
 
+/**
+ * Where an order of an affaire leads back to (TI-691): the request its lines come from, open on its orders' step, or
+ * the affaire's requests when they come from several; null when no line comes from a request.
+ */
+export function orderRequestOrigin(
+  projectId: string,
+  lines: readonly StoredOrderLineFields[],
+): { href: string; label: string } | null {
+  const requests = new Map<string, string | null>();
+  for (const line of lines) {
+    const source = first(line.material_request_lines);
+    if (source) requests.set(source.request_id, first(source.material_requests)?.requested_on ?? null);
+  }
+  const base = `/dashboard/affaires/${encodeURIComponent(projectId)}/demandes-materiel`;
+  if (requests.size === 0) return null;
+  if (requests.size > 1) return { href: base, label: "Achats" };
+  const [[requestId, requestedOn]] = [...requests];
+  const day = /^(\d{4})-(\d{2})-(\d{2})/.exec(requestedOn ?? "");
+  return {
+    href: `${base}/${encodeURIComponent(requestId)}?etape=commande`,
+    label: day ? `Demande du ${day[3]}/${day[2]}/${day[1]}` : "Demande de matériel",
+  };
+}
+
 /** The columns a stored order line carries since TI-691; absent (or default) on every other order. */
 export type StoredOrderLineFields = {
   line_kind?: string | null;

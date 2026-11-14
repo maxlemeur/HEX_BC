@@ -13,9 +13,16 @@ type DevisManagerProps = {
   orderId: string;
   initialItems: DevisItem[];
   canManage: boolean;
+  /** What the drop zone invites to join; an order of an affaire takes its quotes on its request (TI-691). */
+  hint?: string;
 };
 
-export function DevisManager({ orderId, initialItems, canManage }: DevisManagerProps) {
+export function DevisManager({
+  orderId,
+  initialItems,
+  canManage,
+  hint = "Déposez vos devis fournisseurs (PDF, images, Excel, emails)",
+}: DevisManagerProps) {
   const [showUploader, setShowUploader] = useState(
     canManage && initialItems.length === 0
   );
@@ -41,9 +48,7 @@ export function DevisManager({ orderId, initialItems, canManage }: DevisManagerP
               </span>
               <span className="min-w-0">
                 <span className="block font-semibold text-foreground">Ajouter des documents</span>
-                <span className="block text-sm text-muted-foreground">
-                  Déposez vos devis fournisseurs (PDF, images, Excel, emails)
-                </span>
+                <span className="block text-sm text-muted-foreground">{hint}</span>
               </span>
             </span>
             <ChevronDownIcon

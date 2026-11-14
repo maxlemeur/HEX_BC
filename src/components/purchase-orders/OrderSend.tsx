@@ -46,6 +46,8 @@ export type OrderSendProps = {
   attachmentFilename: string;
   /** Where the server's e-mails go, said before sending. */
   routing: PurchaseOrderSendRouting;
+  /** The step of the moment on an order of an affaire (TI-691): the send is then its main action. */
+  primary?: boolean;
 };
 
 const FALLBACK = "Le bon n’a pas pu être envoyé. Il reste en brouillon : réessayez.";
@@ -54,7 +56,7 @@ export function OrderSendButton(props: OrderSendProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="outline" size="lg" type="button" onClick={() => setOpen(true)}>
+      <Button variant={props.primary ? "primary" : "outline"} size="lg" type="button" onClick={() => setOpen(true)}>
         <MailIcon aria-hidden="true" />
         Envoyer au fournisseur…
       </Button>

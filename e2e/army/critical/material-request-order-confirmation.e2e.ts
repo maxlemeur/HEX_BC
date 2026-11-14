@@ -30,6 +30,10 @@ type Document = { id: string; name: string };
 // - the affaire's supply cost shows a budget while its client has accepted no version, or loses an order line without
 //   article instead of putting it under « non classé »;
 // - a draft counts as ordered, or a confirmed order stays « en cours » at its quote's price instead of its real one.
+// TI-691, the owner's walkthrough of 14/11/2026 (order page):
+// - the order does not lead back to the request it comes from;
+// - the order does not say what comes next (send, confirm, receive);
+// - a status selector beside « Confirmer la commande… » reads as a way to order without proof.
 
 /** A one-page PDF with a line of invented text, as a supplier's acknowledgement would be. */
 function inventedPdf(text: string): Buffer {
@@ -105,11 +109,22 @@ armyTest(
   "MR07 a draft order of an affaire is confirmed at the price the supplier confirmed, with its confirmation as proof",
   { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
   async ({ app, screen, browser, army }) => {
-    const { requestId, one, screws, order } = await draftOrderOfAnAffaire({ app, screen, browser }, army, "confirmation");
+    const { ids, requestId, one, screws, order } = await draftOrderOfAnAffaire({ app, screen, browser }, army, "confirmation");
     const today = parisToday();
 
-    // The supplier confirms the screws at 3,52 € the hundred (the quote said 3,42 €), with its acknowledgement.
+    // The draft says its next step, leads back to its request, and names apart the status changes without proof.
     await browser.goto(`/dashboard/orders/${order.id}`, { waitUntil: "domcontentloaded" });
+    const draftHead = screen.getByRole("region", "Envoyer le bon au fournisseur", { exact: true });
+    await expect(draftHead).toBeVisible({ timeout: 60_000 });
+    await expect(draftHead.getByText("Étape 1 sur 3 · Envoyer", { exact: true })).toBeVisible();
+    const requestHref = `/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}?etape=commande`;
+    await expect(screen.getByRole("navigation", "Fil d'Ariane", { exact: true })
+      .getByRole("link", /^Demande du \d{2}\/\d{2}\/\d{4}$/)).toHaveAttribute("href", requestHref);
+    await expect(screen.getByLabel("Statut de la commande", { exact: true })).toHaveCount(0);
+    await expect(draftHead.getByRole("button", "Annuler le bon…", { exact: true })).toBeVisible();
+    await app.screenshot("MR07-draft-next-step");
+
+    // The supplier confirms the screws at 3,52 € the hundred (the quote said 3,42 €), with its acknowledgement.
     await screen.getByRole("button", "Confirmer la commande…", { exact: true }).tap({ timeout: 60_000 });
     const dialog = screen.getByRole("dialog", `Confirmer la commande ${order.reference}`, { exact: true });
     await expect(dialog).toBeVisible();
@@ -131,6 +146,9 @@ armyTest(
     )).toBeVisible({ timeout: 30_000 });
     await expect(screen.getByRole("button", "Confirmer la commande…", { exact: true })).toHaveCount(0);
     await expect(screen.getByRole("button", "Enregistrer la réception…", { exact: true })).toBeVisible();
+    // Ordered: the next step is the reception, and the order can no longer be canceled from here.
+    await expect(screen.getByRole("region", "Enregistrer la réception", { exact: true })).toBeVisible();
+    await expect(screen.getByRole("button", "Annuler le bon…", { exact: true })).toHaveCount(0);
     const confirmed = await readOrder(browser, order.id);
     expect([confirmed.header.status, confirmed.header.total_ht_cents]).toEqual(["confirmed", 11500 + 440]);
     const screwItem = confirmed.items.find((item) => item.material_request_line_id === screws)!;
@@ -179,6 +197,7 @@ armyTest(
     await expect(screen.getByText(`Reçue le ${today.shown} · reste à venir : Reliquat : 25 vis à suivre`, { exact: true }))
       .toBeVisible({ timeout: 30_000 });
     await expect(screen.getByRole("button", "Enregistrer la réception…", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("region", "Commande reçue", { exact: true })).toBeVisible();
     const received = await readOrder(browser, order.id);
     expect([received.header.status, received.header.total_ht_cents]).toEqual(["received", 11500 + 428]);
 
