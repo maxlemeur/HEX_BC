@@ -3,27 +3,62 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { internalError, mapSupabaseError } from "@/lib/estimates/errors";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { Database } from "@/types/database";
+
+export type StandalonePlanRow = {
+  id: string;
+  file_path: string;
+  file_size_bytes: number;
+  metadata: Record<string, unknown> | null;
+  plan_sets: { project_id: string };
+};
+
+const STANDALONE_PLAN_SELECT = "id, file_path, file_size_bytes, metadata, plan_sets!inner(project_id)";
+
+/**
+ * The plan files of a portfolio in one read per chunk of affaires, for hasStoredStandalonePlan's `rows`.
+ * An affaire without plan files is absent from the result.
+ */
+export async function readStandalonePlanRowsByProject(input: {
+  supabase: SupabaseClient<Database>;
+  tenantId: string;
+  projectIds: readonly string[];
+}) {
+  const { data, error } = await readAllRowsInChunks(input.projectIds, (projectIds) => input.supabase
+    .from("plan_files" as never)
+    .select(STANDALONE_PLAN_SELECT as never, { count: "exact" })
+    .eq("tenant_id", input.tenantId)
+    .in("plan_sets.project_id", projectIds) as never);
+  if (error) throw mapSupabaseError(error as never, "Impossible de vérifier les plans des affaires.");
+
+  const rowsByProjectId = new Map<string, StandalonePlanRow[]>();
+  for (const row of (data ?? []) as unknown as StandalonePlanRow[]) {
+    rowsByProjectId.set(row.plan_sets.project_id, [...(rowsByProjectId.get(row.plan_sets.project_id) ?? []), row]);
+  }
+  return rowsByProjectId;
+}
 
 /** Intake-sourced plans are accounted for by their live intake document instead. */
 export async function hasStoredStandalonePlan(input: {
   supabase: SupabaseClient<Database>;
   projectId: string;
   tenantId: string;
+  /** This affaire's plan files when a portfolio read already holds them; read here otherwise. */
+  rows?: readonly Pick<StandalonePlanRow, "file_path" | "file_size_bytes" | "metadata">[];
 }) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("plan_files" as never)
-    .select("id, file_path, file_size_bytes, metadata, plan_sets!inner(project_id)" as never, { count: "exact" })
-    .eq("tenant_id", input.tenantId)
-    .eq("plan_sets.project_id", input.projectId));
-  if (error) throw mapSupabaseError(error, "Impossible de vérifier les plans de l'affaire.");
+  let rows = input.rows;
+  if (!rows) {
+    const { data, error } = await readAllRows(() => input.supabase
+      .from("plan_files" as never)
+      .select(STANDALONE_PLAN_SELECT as never, { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("plan_sets.project_id", input.projectId));
+    if (error) throw mapSupabaseError(error, "Impossible de vérifier les plans de l'affaire.");
+    rows = (data ?? []) as unknown as StandalonePlanRow[];
+  }
 
-  for (const row of (data ?? []) as unknown as Array<{
-    file_path: string;
-    file_size_bytes: number;
-    metadata: Record<string, unknown> | null;
-  }>) {
+  for (const row of rows) {
     if (row.metadata?.source === "affaire-intake" || row.metadata?.intake_cleanup_pending === true) continue;
     const { data: object, error: storageError } = await input.supabase.storage
       .from(PLAN_FILES_BUCKET).info(row.file_path);
