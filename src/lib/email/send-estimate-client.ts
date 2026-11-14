@@ -50,6 +50,7 @@ export async function sendEstimateEmailRequest(input: EstimateEmailRequestIdenti
       confirmedError && (
       error.code === "ESTIMATE_EMAIL_PROVIDER_REJECTED" ||
       error?.code === "ESTIMATE_EMAIL_PDF_UNAVAILABLE" ||
+      error?.code === "ESTIMATE_EMAIL_ROUTING_NOT_RECORDED" ||
       error?.code === "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST");
     // A conflict is not proof that another attempt with this identity is absent.
     // Keep its key and payload; only a reread draft may supply a new token.

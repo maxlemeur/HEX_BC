@@ -8,6 +8,9 @@ export const estimateEmailReceiptSchema = z.object({
   request_id: z.string().uuid(),
   // Historical completed dispatches may not have retained the provider ID.
   message_id: z.string().trim().min(1).nullable(),
+  // The provider received the message for the test mailbox, not for the recipient the user wrote (TI-691); null for a
+  // send recorded before its routing was.
+  redirected: z.boolean().nullable(),
 });
 
 export type EstimateEmailReceipt = z.infer<typeof estimateEmailReceiptSchema>;

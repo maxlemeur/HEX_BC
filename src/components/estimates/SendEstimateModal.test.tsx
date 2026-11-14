@@ -22,13 +22,14 @@ import { ESTIMATE_EMAIL_CONFIRMATION_UNAVAILABLE } from "@/lib/email/send-estima
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_VERSION_ID = "22222222-2222-4222-8222-222222222222";
-function successfulSend(messageId: string | null = "email-1") {
+function successfulSend(messageId: string | null = "email-1", redirected = false) {
   return (url: RequestInfo | URL, options?: RequestInit) => Promise.resolve({
     ok: true,
     json: async () => ({ ok: true, data: {
       version_id: String(url).split("/").at(-2),
       request_id: new Headers(options?.headers).get("Idempotency-Key"),
       message_id: messageId,
+      redirected,
     } }),
   } as Response);
 }
@@ -73,6 +74,19 @@ describe("SendEstimateModal", () => {
     vi.restoreAllMocks();
   });
 
+  // TI-691: a send redirected to the test mailbox must not read as a send to the client.
+  it.each([
+    [false, { title: "Devis envoyé", description: "L'envoi du devis est confirmé." }],
+    [true, { title: "Envoi de test", description: "Le devis est parti vers la boîte de test : client@test.com n’a rien reçu." }],
+  ])("confirms a send redirected: %s as what the client received", async (redirected, toast) => {
+    const user = userEvent.setup();
+    vi.mocked(global.fetch).mockImplementationOnce(successfulSend("email-1", redirected));
+    const { props } = renderModal({ defaultRecipient: "client@test.com" });
+    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
+    await waitFor(() => expect(props.onSent).toHaveBeenCalledOnce());
+    expect(mockToast.success).toHaveBeenCalledWith(toast);
+  });
+
   it("ignores a late confirmation after navigating from A to B and back to A", async () => {
     const user = userEvent.setup();
     let resolveResponse!: (response: Response) => void;
@@ -109,7 +123,7 @@ describe("SendEstimateModal", () => {
     }
     const requestId = new Headers(vi.mocked(global.fetch).mock.calls[0][1]?.headers).get("Idempotency-Key");
     await act(async () => resolveBody({ ok: true, data: {
-      version_id: VERSION_ID, request_id: requestId, message_id: null,
+      version_id: VERSION_ID, request_id: requestId, message_id: null, redirected: false,
     } }));
 
     expect(mockToast.success).not.toHaveBeenCalled();

@@ -8,6 +8,7 @@ import type { Browser } from "@e2e-dev/web";
 import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, type ArmyItem, type ArmyState } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { allowOfferLaborRoleUpdate, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./offer-emission-fixtures";
+import { CALC_V3_EMAIL_REDIRECT_TO } from "../../../scripts/tester-army/calc-v3-phases";
 
 // Failure modes precede this harness in docs/testing/offer-emission-business-cases.md.
 const options = { session: "army", trace: "off" as const, tags: ["offer-emission"], timeout: 360000 };
@@ -358,7 +359,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
     ui.browser.waitForResponse(endpoint, { timeout: 120000 }),
     modal.getByRole("button", "Envoyer", { exact: true }).click(),
   ]);
-  const reply = await response.json<{ ok: boolean; data?: { message_id: string }; error?: { code: string; message: string; details?: unknown } }>();
+  const reply = await response.json<{ ok: boolean; data?: { message_id: string; redirected: boolean }; error?: { code: string; message: string; details?: unknown } }>();
   const state = await readEstimate(ui.browser, versionId);
   const networkAfter = JSON.parse(`[${(await readFile(networkFile, "utf8")).trim().split(/\r?\n/).join(",")}]`) as { kind: string; pid: number; allowed: boolean; role: string }[];
   await recordOfferEvidence(ui.army, `${caseId}-send-${resend ? "resend" : "initial"}`, {
@@ -388,7 +389,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   expect(pdfState.body.data.status).toBe("ready");
   expect(pdfState.body.data.sha256_hash).toBe(result.receipt.pdf.sha256);
   await ui.browser.unroute(endpoint);
-  return result;
+  return { ...result, redirected: reply.data!.redirected };
 }
 
 async function openAnonymous(ui: OfferUi, army: ArmyState, caseId: string, result: Awaited<ReturnType<typeof collected>>, originalName: string) {
@@ -429,6 +430,31 @@ async function openAnonymous(ui: OfferUi, army: ArmyState, caseId: string, resul
 offerTest("OF00 actual confirmation emits the same frozen PDF", options, async (ui) => {
   const p = await prepare(ui, "OF00");
   await send(ui, "OF00", p.ids.versionId);
+});
+
+// TI-691, owner's walkthrough of 14/11/2026: while the outgoing e-mails are redirected to the test mailbox (calc-v3 phase
+// `emission-redirect`, docs/testing/email-redirection.md), an estimate send was recorded as sent to the client with
+// nothing telling it from a real one. Failure modes, written before the change:
+// - the client receives the offer, or the test mailbox receives nothing, or a message that does not name the client;
+// - the send answers, and the estimate page shows, a send to the client;
+// - the test mailbox reaches the browser.
+offerTest("RD01 while e-mails are redirected, the offer reaches the test mailbox only and the estimate says it was a test", options, async (ui) => {
+  const p = await prepare(ui, "RD01");
+  const result = await send(ui, "RD01", p.ids.versionId);
+  const written = "army-rd01@offer.invalid";
+  const envelope = result.packet.payload as unknown as { to: string | string[]; cc?: string[] | null; subject: string };
+  await recordOfferEvidence(ui.army, "RD01-redirected", { redirected: result.redirected,
+    collected: { recipients: [envelope.to].flat(), cc: envelope.cc ?? [], subject: envelope.subject } });
+  expect(result.redirected).toBe(true);
+  expect([envelope.to].flat()).toEqual([CALC_V3_EMAIL_REDIRECT_TO]);
+  expect(envelope.cc ?? []).toEqual([]);
+  expect(envelope.subject).toBe(`[TEST → ${written}] RD01 offre commerciale`);
+  await openPage(ui, `/dashboard/estimates/${p.ids.versionId}`);
+  await expectEstimateSummaryStatus(ui, "Envoyé");
+  await expect(ui.screen.getByTestId("estimate-last-send")).toHaveText(new RegExp(
+    `^Envoi de test le \\d{2}/\\d{2}/\\d{4} à \\d{2}:\\d{2} : redirigé vers la boîte de test, ${written.replaceAll(".", "\\.")} n’a rien reçu$`,
+  ));
+  expect(await ui.browser.evaluate(() => document.body.innerText)).not.toContain(CALC_V3_EMAIL_REDIRECT_TO);
 });
 
 type EmailConfirmationWitness = {

@@ -10,6 +10,7 @@ import {
   deferEstimateEmailDispatch,
   failEstimateEmailDispatch,
   markEstimateEmailDispatchUnknown,
+  recordEstimateEmailDispatchRouting,
 } from "@/lib/email/estimate-email-dispatch-repository";
 import { sha256 } from "@/lib/email/estimate-email-hash";
 import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
@@ -106,7 +107,7 @@ export async function deliverEstimateEmailDispatch(input: {
     );
   }
   if (["sent", "delivered", "bounced"].includes(claimed.status)) {
-    return { providerId: claimed.provider_id };
+    return { providerId: claimed.provider_id, redirected: claimed.redirected ?? null };
   }
 
   assertFrozenProviderPayload(claimed);
@@ -147,6 +148,69 @@ export async function deliverEstimateEmailDispatch(input: {
     );
   }
 
+  // The send history says where this attempt goes (TI-691): written once, while the dispatch is held, before the
+  // provider call. A later attempt never leaves under another routing than the one recorded: an earlier attempt may have
+  // reached the provider with it, so the outcome is checked first. A routing that cannot be written: nothing leaves.
+  const redirected = routing.mode === "redirect";
+  const recorded = claimed.redirected ?? null;
+  if (recorded !== null && recorded !== redirected) {
+    await markEstimateEmailDispatchUnknown({
+      dispatchId: claimed.id,
+      tenantId: claimed.tenant_id,
+      actorUserId: input.actorUserId,
+      leaseToken,
+      errorCode: "ESTIMATE_EMAIL_ROUTING_CHANGED",
+      errorMessage: "The outgoing e-mail routing changed since an earlier attempt of this dispatch.",
+    });
+    throw conflict(
+      "La redirection des e-mails a changé depuis une tentative précédente de cet envoi : son issue doit être vérifiée avant toute reprise.",
+      { dispatch_id: claimed.id },
+      "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
+    );
+  }
+  if (recorded === null) {
+    try {
+      await recordEstimateEmailDispatchRouting({
+        dispatchId: claimed.id,
+        tenantId: claimed.tenant_id,
+        leaseToken,
+        redirected,
+      });
+    } catch (error) {
+      // A lease lost meanwhile belongs to another attempt: this one settles nothing.
+      if ((error as { code?: string } | null)?.code === "ESTIMATE_EMAIL_ROUTING_LEASE_LOST") throw error;
+      const errorMessage = error instanceof Error ? error.message : "Unable to record the email routing.";
+      const firstAttempt = claimed.attempt_count <= 1;
+      if (firstAttempt) {
+        await failEstimateEmailDispatch({
+          dispatchId: claimed.id,
+          tenantId: claimed.tenant_id,
+          actorUserId: input.actorUserId,
+          leaseToken,
+          errorCode: "ESTIMATE_EMAIL_ROUTING_NOT_RECORDED",
+          errorMessage,
+        });
+      } else {
+        // An earlier attempt may have reached the provider: its outcome is checked before any new send.
+        await markEstimateEmailDispatchUnknown({
+          dispatchId: claimed.id,
+          tenantId: claimed.tenant_id,
+          actorUserId: input.actorUserId,
+          leaseToken,
+          errorCode: "ESTIMATE_EMAIL_ROUTING_NOT_RECORDED",
+          errorMessage,
+        });
+      }
+      throw internalError(
+        firstAttempt
+          ? "Impossible d'enregistrer le routage de l'envoi : rien n'est parti."
+          : "Impossible d'enregistrer le routage de l'envoi : l'issue d'une tentative précédente doit être vérifiée.",
+        { dispatch_id: claimed.id },
+        firstAttempt ? "ESTIMATE_EMAIL_ROUTING_NOT_RECORDED" : "ESTIMATE_EMAIL_DELIVERY_UNKNOWN"
+      );
+    }
+  }
+
   const retryDelays = input.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   const resend = new Resend(input.apiKey);
   // The frozen recipient, copies and subject stay stored as written: only what the provider receives is rerouted.
@@ -181,7 +245,7 @@ export async function deliverEstimateEmailDispatch(input: {
           leaseToken,
           providerId: data.id,
         });
-        return { providerId: data.id };
+        return { providerId: data.id, redirected };
       }
 
       if (error) {
