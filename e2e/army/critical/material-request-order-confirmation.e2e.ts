@@ -5,6 +5,8 @@ import path from "node:path";
 import type { Browser } from "@e2e-dev/web";
 import { expect } from "e2e";
 
+import type { AffaireSupplyCost as SupplyCost } from "@/lib/material-requests/supply-cost-contracts";
+
 import {
   apiRequest,
   armyTest,
@@ -25,11 +27,6 @@ type Item = {
 };
 type OrderHeader = { id: string; status: string; total_ht_cents: number; edit_revision: number; expected_delivery_date: string | null };
 type Document = { id: string; name: string };
-type SupplyCostRow = { kind: string; budget_cents: number | null; ordered_cents: number; pending_cents: number };
-type SupplyCost = {
-  budget_version: unknown; rows: SupplyCostRow[];
-  totals: { budget_cents: number | null; ordered_cents: number; pending_cents: number };
-};
 
 // TI-691, lot 2 « l'achat », delivery 3b-1 « commander et recevoir ». Failure modes, written before the journeys were
 // first run against the product:
@@ -128,6 +125,32 @@ async function draftOrderOfAnAffaire(ui: Ui, army: ArmyState, label: string) {
   return { ids, requestId, one, elbows, screws, order, supplierName };
 }
 
+type RealPrice = { id: string; unit_price_ht_cents: number; price_per: number };
+
+/**
+ * Arranged through the API: an invented acknowledgement joined to the draft, then the order confirmed on `orderedOn`,
+ * at the quote's prices except the real ones `realPrices` gives for some of its lines.
+ */
+async function confirmThroughApi(
+  browser: Browser, orderId: string, text: string, orderedOn: string, realPrices: (items: Item[]) => RealPrice[] = () => [],
+) {
+  const pdf = inventedPdf(text);
+  const uploaded = await browser.evaluate(async ({ id, bytes }) => {
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(bytes)], "accuse.pdf", { type: "application/pdf" }));
+    form.set("name", "Accusé de réception");
+    const response = await fetch(`/api/purchase-orders/${id}/devis`, { method: "POST", body: form, credentials: "same-origin" });
+    return { status: response.status, body: await response.json() as { item?: { id: string } } };
+  }, { id: orderId, bytes: [...pdf] });
+  expect(uploaded.status).toBe(201);
+  const draft = await readOrder(browser, orderId);
+  const confirmation = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/purchase-orders/${orderId}/confirmation`, {
+    expected_revision: draft.header.edit_revision, ordered_on: orderedOn, document_id: uploaded.body.item!.id,
+    lines: realPrices(draft.items),
+  });
+  expect([confirmation.status, confirmation.body.data?.status]).toEqual([200, "confirmed"]);
+}
+
 async function readOrder(browser: Browser, orderId: string) {
   const response = await apiRequest<Envelope<{ orders: OrderHeader[]; items: Item[] }>>(
     browser, "GET", `/api/orders?view=items&order_id=${orderId}`,
@@ -207,20 +230,7 @@ armyTest(
     const today = parisToday();
 
     // Arranged through the API: the acknowledgement joined, the order confirmed at the quote's prices today.
-    const pdf = inventedPdf("Accuse de reception invente");
-    const uploaded = await browser.evaluate(async ({ orderId, bytes }) => {
-      const form = new FormData();
-      form.set("file", new File([new Uint8Array(bytes)], "accuse.pdf", { type: "application/pdf" }));
-      form.set("name", "Accusé de réception");
-      const response = await fetch(`/api/purchase-orders/${orderId}/devis`, { method: "POST", body: form, credentials: "same-origin" });
-      return { status: response.status, body: await response.json() as { item?: { id: string } } };
-    }, { orderId: order.id, bytes: [...pdf] });
-    expect(uploaded.status).toBe(201);
-    const draft = await readOrder(browser, order.id);
-    const confirmation = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/purchase-orders/${order.id}/confirmation`, {
-      expected_revision: draft.header.edit_revision, ordered_on: today.iso, document_id: uploaded.body.item!.id, lines: [],
-    });
-    expect([confirmation.status, confirmation.body.data?.status]).toEqual([200, "confirmed"]);
+    await confirmThroughApi(browser, order.id, "Accuse de reception invente", today.iso);
 
     // The goods come today, but 25 screws are still to come.
     await browser.goto(`/dashboard/orders/${order.id}`, { waitUntil: "domcontentloaded" });
@@ -276,22 +286,9 @@ armyTest(
 
     // Arranged through the API: the acknowledgement joined, the order confirmed with the screws at 3,52 € the hundred
     // (the quote said 3,42 €).
-    const pdf = inventedPdf("Accuse de reception invente : vis 3,52 les 100");
-    const uploaded = await browser.evaluate(async ({ orderId, bytes }) => {
-      const form = new FormData();
-      form.set("file", new File([new Uint8Array(bytes)], "accuse.pdf", { type: "application/pdf" }));
-      form.set("name", "Accusé de réception");
-      const response = await fetch(`/api/purchase-orders/${orderId}/devis`, { method: "POST", body: form, credentials: "same-origin" });
-      return { status: response.status, body: await response.json() as { item?: { id: string } } };
-    }, { orderId: order.id, bytes: [...pdf] });
-    expect(uploaded.status).toBe(201);
-    const draft = await readOrder(browser, order.id);
-    const screwItem = draft.items.find((item) => item.material_request_line_id === screws)!;
-    const confirmation = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/purchase-orders/${order.id}/confirmation`, {
-      expected_revision: draft.header.edit_revision, ordered_on: today.iso, document_id: uploaded.body.item!.id,
-      lines: [{ id: screwItem.id, unit_price_ht_cents: 352, price_per: 100 }],
-    });
-    expect([confirmation.status, confirmation.body.data?.status]).toEqual([200, "confirmed"]);
+    await confirmThroughApi(browser, order.id, "Accuse de reception invente : vis 3,52 les 100", today.iso, (items) => [
+      { id: items.find((item) => item.material_request_line_id === screws)!.id, unit_price_ht_cents: 352, price_per: 100 },
+    ]);
 
     // The confirmed order is « commandé » at its real price, 115,00 € + 4,40 €; nothing is left « en cours ».
     await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel`, { waitUntil: "domcontentloaded" });
