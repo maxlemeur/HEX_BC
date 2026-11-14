@@ -118,8 +118,7 @@ export async function openAndCompare(ui: Ui, army: ArmyState, fixture: PriceReus
   await switchToExpertMode(ui);
   await openV3Editor(ui, army, { versionId: fixture.target.versionId } as V3Draft, label);
   await waitForDraftLease(ui);
-  await ui.screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-  await ui.screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+  await ui.screen.getByTestId("estimate-editor-controls-button", { visible: true }).tap();
   await ui.screen.getByTestId("estimate-editor-price-reuse-button").tap();
   const dialog = priceReuseDialog(ui);
   const select = dialog.getByLabel("Devis de référence", { exact: true });

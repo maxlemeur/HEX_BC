@@ -59,7 +59,6 @@ armyTest(
     await waitForAutoSave(ui, ids.versionId, (snapshot) => snapshot.items.some((item) =>
       item.id === line.id && item.line_total_ht_cents === 1543200), army);
 
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
     // Precondition: the shared campaign account keeps its default Simplifié mode. In Expert mode the
     // « Contrôles avancés » push the settings button out of the 1280x800 viewport; no critical journey

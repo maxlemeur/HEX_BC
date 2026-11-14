@@ -166,6 +166,109 @@
   z-index: 10;
 }
 
+/* Totaux de la version : épinglés au bas de l'écran tant que le tableau est visible. */
+.estimate-totals-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px 20px;
+  margin-top: 8px;
+  padding: 0 0 0 16px;
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 -6px 18px rgb(15 23 42 / 0.08);
+}
+
+.estimate-totals-footer > [data-testid="estimate-editor-summary-bar"] {
+  min-width: 0;
+  flex: 1;
+}
+
+.estimate-totals-footer .estimate-summary-bar {
+  position: static;
+  gap: 8px 20px;
+  margin: 0;
+  padding-left: 0;
+  border: 0;
+  background: transparent;
+}
+
+.estimate-totals-footer .estimate-summary-bar__items {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.estimate-totals-footer__split {
+  display: flex;
+  flex-shrink: 0;
+  gap: 16px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.estimate-totals-footer__split > div,
+.estimate-summary-bar__margin {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.estimate-totals-footer__split dt {
+  color: var(--slate-500);
+}
+
+.estimate-totals-footer__split dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--slate-700);
+}
+
+.estimate-summary-bar__margin strong {
+  font-weight: 700;
+  color: var(--slate-800);
+}
+
+.estimate-summary-bar__margin--negative strong {
+  color: var(--danger, #b91c1c);
+}
+
+@media (max-width: 767px) {
+  .estimate-totals-footer {
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    padding: 12px;
+    box-shadow: none;
+  }
+
+  .estimate-totals-footer .estimate-summary-bar {
+    flex-wrap: wrap;
+    padding: 0;
+  }
+
+  .estimate-totals-footer .estimate-summary-bar__items {
+    justify-content: flex-start;
+  }
+
+  .estimate-totals-footer__split {
+    flex-wrap: wrap;
+  }
+}
+
+/* Une cellule atteinte au clavier ne s'arrête pas sous le pied de totaux. */
+@media (min-width: 768px) {
+  html:has(.estimate-totals-footer) {
+    scroll-padding-bottom: 88px;
+  }
+}
+
 .estimate-summary-bar__items {
   display: flex;
   flex-wrap: wrap;
@@ -585,9 +688,10 @@
 
 .production-ribbon__title-row {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: baseline;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
 .production-ribbon__title {
@@ -599,6 +703,24 @@
   line-height: 1.25;
   letter-spacing: var(--tracking-heading);
   transition: background 0.15s ease;
+}
+
+/* État du document (statut, enregistrement), lu à côté de son titre. */
+.production-ribbon__title-meta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+}
+
+.estimate-autosave-status {
+  display: inline-flex;
+  align-items: center;
+  color: var(--slate-500);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .production-ribbon__description {
@@ -2489,10 +2611,56 @@
   color: var(--slate-600);
 }
 
+/* Les actions suivent ce qu'elles appliquent, au lieu d'être repoussées au bord droit du tableau. */
 .estimate-suggestion__actions {
-  margin-left: auto;
   display: flex;
   gap: 8px;
+}
+
+.estimate-suggestion__details-toggle {
+  min-height: 24px;
+  cursor: pointer;
+  color: var(--slate-500);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.estimate-suggestion__details-toggle:hover {
+  color: var(--slate-700);
+}
+
+.estimate-suggestion__details-toggle:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
+/* Dans le flux de la ligne, sur toute sa largeur : un panneau flottant serait rogné par le défilement du tableau. */
+.estimate-suggestion__details-body {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--slate-200);
+}
+
+.estimate-suggestion__details-body[hidden] {
+  display: none;
+}
+
+.estimate-suggestion__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--slate-700);
+}
+
+.estimate-suggestion__reason {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .estimate-select {

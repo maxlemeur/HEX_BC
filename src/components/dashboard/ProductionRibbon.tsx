@@ -30,6 +30,7 @@ export function ProductionRibbonHeader({
   breadcrumbs,
   title,
   description,
+  titleMeta,
   metrics,
   actions,
   testId,
@@ -38,6 +39,8 @@ export function ProductionRibbonHeader({
   breadcrumbs: ProductionRibbonBreadcrumbItem[];
   title: string;
   description?: ReactNode;
+  /** State of the document (status, save state), read next to its title. */
+  titleMeta?: ReactNode;
   metrics?: ReactNode;
   actions?: ReactNode;
   testId?: string;
@@ -94,6 +97,9 @@ export function ProductionRibbonHeader({
             </h1>
             {description ? (
               <p className="production-ribbon__description">{description}</p>
+            ) : null}
+            {titleMeta ? (
+              <div className="production-ribbon__title-meta">{titleMeta}</div>
             ) : null}
           </div>
         </div>

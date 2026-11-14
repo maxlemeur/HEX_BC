@@ -244,7 +244,6 @@ export async function openV3Editor(ui: Ui, army: ArmyState, draft: V3Draft, labe
 
 /** Columns of the « Standard » preset (role, K FO, K MO): the role cell is typed through the grid. */
 export async function showStandardColumns(ui: Ui) {
-  await ui.screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
   const display = ui.screen.getByTestId("estimate-editor-display-button", { visible: true });
   await display.tap();
   await ui.screen.getByRole("button", "Standard", { exact: true }).tap();

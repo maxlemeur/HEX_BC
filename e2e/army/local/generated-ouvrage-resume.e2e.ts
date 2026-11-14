@@ -81,8 +81,7 @@ async function openDialog({ app, screen, browser }: Ui, scenario: Scenario) {
   await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible({ timeout: 45_000 });
   const opener = screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
   if (!await opener.isVisible()) {
-    const tab = screen.getByRole("tab", "Insérer", { exact: true });
-    if (await tab.isVisible()) await tab.tap();
+
     await screen.getByRole("button", "Insérer", { exact: true }).tap();
   }
   await expect(opener).toBeEnabled();

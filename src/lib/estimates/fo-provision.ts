@@ -85,6 +85,18 @@ export function automaticKfoRefreshPatches(
     .map(item => ({ id: item.id, patch: { k_fo: unifiedKfoValue(item.supply_type_id, provisions, item.fo_price_origin, item.line_nature), k_fo_manual: false } }));
 }
 
+/** The automatic rows whose stored K FO differs from the current settings: the only ones a refresh changes. */
+export function staleAutomaticKfoPatches(
+  items: readonly (Parameters<typeof automaticKfoRefreshPatches>[0][number] & { k_fo?: number | null })[],
+  provisions: FoProvisionBySupplyTypeId,
+) {
+  const storedById = new Map(items.map(item => [item.id, item.k_fo]));
+  return automaticKfoRefreshPatches(items, provisions).filter(({ id, patch }) => {
+    const stored = storedById.get(id);
+    return typeof stored !== "number" || Math.abs(stored - patch.k_fo) > 1e-9;
+  });
+}
+
 export function projectUnifiedKfo<
   T extends {
     supply_type_id?: string | null;

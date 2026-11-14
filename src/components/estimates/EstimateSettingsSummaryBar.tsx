@@ -5,7 +5,12 @@ import { useMemo, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import { formatEstimateV3TaxRate, type EstimateV3SummaryView } from "@/lib/estimates/v3-editor";
+import { formatMarkupRatio } from "@/lib/estimates/line-margin";
+import {
+  formatEstimateV3TaxRate,
+  readEstimateV3SummaryMargin,
+  type EstimateV3SummaryView,
+} from "@/lib/estimates/v3-editor";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { MoreHorizontalIcon, SettingsIcon } from "lucide-react";
 
@@ -170,21 +175,43 @@ function V3SummaryItems({
     ...summary.taxByRate.map((row) => ({
       key: `tax-${row.rateBp}`, label: `TVA ${formatEstimateV3TaxRate(row.rateBp)} %`, value: money(row.taxCents), section: "tax" as const,
     })),
-    { key: "tax", label: "TVA", value: money(summary.totalTaxCents), section: "tax" },
+    // Avec un seul taux, « TVA 20 % » porte déjà le total : le total « TVA » ne s'affiche qu'à plusieurs taux (ou aucun).
+    ...(summary.taxByRate.length === 1
+      ? []
+      : [{ key: "tax", label: "TVA", value: money(summary.totalTaxCents), section: "tax" as const }]),
     { key: "ttc", label: "TTC à payer", value: money(summary.payableTtcCents), section: "rounding", variant: "highlight" },
   ];
   const totalHt = { label: "Total HT", value: money(summary.totalHtCents) };
+  const margin = readEstimateV3SummaryMargin(summary);
+  const marginNode = margin ? (
+    <p
+      className={`estimate-summary-bar__margin${margin.marginCents < 0 ? " estimate-summary-bar__margin--negative" : ""}`}
+      title="Total HT, remise déduite, moins le déboursé sec (fournitures × K FO + main-d’œuvre × K MO). Le pourcentage est la marque : marge ÷ total HT."
+      data-testid="estimate-summary-margin"
+    >
+      <span className="estimate-summary-bar__chip-label">Marge</span>{" "}
+      <strong>{money(margin.marginCents)}</strong>
+      {margin.markupBp !== null ? (
+        <span className="estimate-summary-bar__chip-label"> · {formatMarkupRatio(margin.markupBp / 10000)}</span>
+      ) : null}
+    </p>
+  ) : null;
   if (isExpert) {
     return (
+      <>
+      {marginNode}
       <div className="estimate-summary-bar__items">
         <SummaryChip label={totalHt.label} value={totalHt.value} variant="primary" onClick={openSection("general")} />
         {entries.map((entry) => (
           <SummaryChip key={entry.key} label={entry.label} value={entry.value} variant={entry.variant} onClick={openSection(entry.section)} />
         ))}
       </div>
+      </>
     );
   }
   return (
+    <>
+    {marginNode}
     <div className="estimate-summary-bar__items">
       <SummaryChip label={totalHt.label} value={totalHt.value} variant="primary" onClick={openSection("general")} />
       <Popover open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
@@ -206,6 +233,7 @@ function V3SummaryItems({
         </PopoverContent>
       </Popover>
     </div>
+    </>
   );
 }
 

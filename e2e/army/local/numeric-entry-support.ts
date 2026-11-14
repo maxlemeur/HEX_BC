@@ -193,7 +193,7 @@ export async function reuseNumeric(c: NumericContext, versionId: string, project
   const objects = await p.objects(); expect(objects.assemblies).toHaveLength(1); expect(objects.snapshots[0].assembly_id).toBe(objects.assemblies[0].id);
   const assembly = objects.assemblies[0], name = assembly.name; expect(typeof name).toBe("string");
   const opener = ui.screen.getByTestId("estimate-editor-assemblies-button");
-  if (!await opener.isVisible()) { const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click(); await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
+  if (!await opener.isVisible()) { await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
   await opener.click(); const dialog = ui.screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true }); await expect(dialog).toBeVisible();
   await dialog.getByLabel("Rechercher", { exact: true }).fill(name as string); await dialog.getByRole("button", name as string, { exact: false }).click();
   await expect(dialog.getByRole("region", "Composants de l’ouvrage", { exact: true }).getByRole("row")).toHaveCount(c.oracle.components.length + 1);

@@ -741,7 +741,6 @@ armyTest("IO07 sections enter a v3 from a v2 (converted, listed) and from a v3 (
       await switchToExpertMode(ui);
       await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
       await waitForDraftLease(ui);
-      await screen.getByRole("tab", /^Insérer(?: \d+)?$/).tap();
       await screen.getByTestId("estimate-editor-insert-button").tap();
       await screen.getByTestId("estimate-editor-import-from-estimate-button").tap();
       const importDialog = screen.getByRole("dialog", "Importer depuis un autre devis", { exact: true });

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
@@ -573,7 +573,6 @@ type EstimateEditorToolbarProps = {
   isImportingDpgfSource: boolean;
   isImportDpgfSourceDisabled: boolean;
   versionId: string;
-  summaryNode?: ReactNode;
 };
 
 export function EstimateEditorToolbar({
@@ -620,7 +619,6 @@ export function EstimateEditorToolbar({
   isImportingDpgfSource,
   isImportDpgfSourceDisabled,
   versionId,
-  summaryNode,
 }: EstimateEditorToolbarProps) {
   const formattedLastSavedAt = formatLastSavedAt(lastSavedAt);
   const autoSaveStatusDescription = `État de synchronisation : ${autoSaveStatusLabel}${
@@ -628,6 +626,8 @@ export function EstimateEditorToolbar({
       ? `. Dernière sauvegarde : ${formattedLastSavedAt}`
       : ""
   }`;
+  // Un enregistrement à jour se lit sans attirer l'œil ; un envoi en cours, une erreur ou un conflit gardent leur badge.
+  const isQuietAutoSaveStatus = autoSaveStatus === "saved" || autoSaveStatus === "idle";
   const breadcrumbs = projectId
     ? [
         { label: "Affaires", href: "/dashboard/affaires" },
@@ -659,14 +659,8 @@ export function EstimateEditorToolbar({
           </>
         ) : projectName ? `${projectName} · V${versionNumber}` : `Version ${versionNumber}`
       }
-      metrics={summaryNode}
-      testId="estimate-page-toolbar"
-      titleTestId="estimate-page-toolbar-title"
-      actions={
-        <div
-          className="flex items-center gap-2"
-          data-testid="estimate-page-toolbar-actions"
-        >
+      titleMeta={
+        <>
           <span
             className={estimateStatusClass(status)}
             data-testid="estimate-page-toolbar-status-badge"
@@ -675,7 +669,7 @@ export function EstimateEditorToolbar({
           </span>
           {showAutoSaveStatus ? (
             <span
-              className={autoSaveStatusClassName}
+              className={isQuietAutoSaveStatus ? "estimate-autosave-status" : autoSaveStatusClassName}
               data-testid="estimate-page-toolbar-autosave-status"
               aria-live="polite"
               role="status"
@@ -700,38 +694,15 @@ export function EstimateEditorToolbar({
               )}
             </span>
           ) : null}
-          <ExportDropdown
-            onExportExcel={onExportExcel}
-            onExportCSV={onExportCSV}
-            excelDisabled={isExcelExportDisabled}
-            csvDisabled={isCsvExportDisabled}
-            loading={isExporting}
-            loadingLabel={exportLoadingLabel}
-          />
-          {canSend ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={onSend}
-              disabled={isStatusActionsDisabled}
-              data-testid="estimate-page-toolbar-send-button"
-            >
-              Envoyer
-            </Button>
-          ) : null}
-          {canAccept ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={onAccept}
-              disabled={isStatusActionsDisabled}
-              data-testid="estimate-page-toolbar-accept-button"
-            >
-              Accepter
-            </Button>
-          ) : null}
+        </>
+      }
+      testId="estimate-page-toolbar"
+      titleTestId="estimate-page-toolbar-title"
+      actions={
+        <div
+          className="flex items-center gap-2"
+          data-testid="estimate-page-toolbar-actions"
+        >
           <AssistantToggle />
           <MoreActionsDropdown
             showAutoSaveControls={showAutoSaveStatus}
@@ -772,6 +743,38 @@ export function EstimateEditorToolbar({
             onArchive={onArchive}
             isArchiveDisabled={isStatusActionsDisabled}
           />
+          <ExportDropdown
+            onExportExcel={onExportExcel}
+            onExportCSV={onExportCSV}
+            excelDisabled={isExcelExportDisabled}
+            csvDisabled={isCsvExportDisabled}
+            loading={isExporting}
+            loadingLabel={exportLoadingLabel}
+          />
+          {canSend ? (
+            <Button
+              type="button"
+              variant={canAccept ? "outline" : "primary"}
+              size="md"
+              onClick={onSend}
+              disabled={isStatusActionsDisabled}
+              data-testid="estimate-page-toolbar-send-button"
+            >
+              Envoyer
+            </Button>
+          ) : null}
+          {canAccept ? (
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={onAccept}
+              disabled={isStatusActionsDisabled}
+              data-testid="estimate-page-toolbar-accept-button"
+            >
+              Accepter
+            </Button>
+          ) : null}
         </div>
       }
     />

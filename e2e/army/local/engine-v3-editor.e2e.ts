@@ -64,7 +64,7 @@ const FORBIDDEN_V2_MARGIN = "Marge : 0%";
 
 const puText = (cents: number) => eur(cents).replace(" €", "");
 const chips = (totals: Totals, rates: Array<[string, number]>, extra: string[] = []) => [
-  `Total HT : ${eur(totals[0])}`, `TVA : ${eur(totals[1])}`, ...rates.map(([rate, tax]) => `TVA ${rate} % : ${eur(tax)}`),
+  `Total HT : ${eur(totals[0])}`, ...(rates.length === 1 ? [] : [`TVA : ${eur(totals[1])}`]), ...rates.map(([rate, tax]) => `TVA ${rate} % : ${eur(tax)}`),
   `TTC à payer : ${eur(totals[2])}`, ...extra,
 ];
 const discountChip = (applied: number) => `Remise commerciale : ${eur(-applied)}`;
@@ -525,8 +525,7 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     expect([offerB.product_id, offerB.unit_price_cents]).toEqual([productId, 1240]);
     await openGrid(ui, draft.versionId);
     const before: ArmyEstimate = await readConsistent(ui, draft.versionId);
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-editor-controls-button", { visible: true }).tap();
     const preselect = screen.getByTestId("estimate-editor-supplier-preselection-button");
     await expect(preselect).toBeEnabled({ timeout: 30_000 });
     await preselect.tap();

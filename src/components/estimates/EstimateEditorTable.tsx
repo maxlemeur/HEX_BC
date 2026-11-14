@@ -2,7 +2,9 @@
 
 import { EstimateOuvrageInsertionPicker } from "@/components/estimates/components/estimate-editor-table/EstimateOuvrageInsertionPicker";
 
-import { foProvisionsBySupplyType, automaticKfoRefreshPatches } from "@/lib/estimates/fo-provision";
+import { useEstimateTableTotals } from "@/components/estimates/hooks/useEstimateTableTotals";
+import { useEstimateAutomaticKfo } from "@/components/estimates/hooks/useEstimateAutomaticKfo";
+import { EstimateAutomaticKfoNotice } from "@/components/estimates/components/EstimateAutomaticKfoNotice";
 import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 
 import dynamic from "next/dynamic";
@@ -330,6 +332,8 @@ type EstimateEditorTableProps = {
   headerRight?: React.ReactNode;
   ribbonHeaderNode?: React.ReactNode;
   ribbonAlertsNode?: React.ReactNode;
+  /** Totals of the version, pinned under the table. */
+  totalsFooterNode?: React.ReactNode;
   isFinalizationPanelOpen?: boolean;
   onToggleFinalizationPanel?: () => void;
   onOpenSettings?: () => void;
@@ -897,6 +901,7 @@ export function EstimateEditorTable({
   headerRight,
   ribbonHeaderNode,
   ribbonAlertsNode,
+  totalsFooterNode,
   isFinalizationPanelOpen = false,
   onToggleFinalizationPanel,
   onOpenSettings,
@@ -1058,6 +1063,7 @@ export function EstimateEditorTable({
   // Lot 2, sous-lot 2.6 (revue) : une ligne v3 a son unité dans unit_code (copie, association d'article).
   const v3Grid = useEstimateV3Grid();
   const isV3Grid = v3Grid !== null;
+  const kfoRefresh = useEstimateAutomaticKfo({ enabled: isV3Grid, isReadOnly, items, supplyTypes, onPatchItem });
   const dynamicGridStyle = useMemo(
     () =>
       resolveEstimateEditorGridStyle(
@@ -2306,21 +2312,10 @@ export function EstimateEditorTable({
     ]
   );
 
-  const grandTotals = useMemo(() => {
-    const rootItems = itemsByParent.get("root") ?? [];
-    let foTotal = 0;
-    let moTotal = 0;
-    let htTotal = 0;
-    rootItems.forEach((item) => {
-      if (item.item_type !== "section") return;
-      const totals = getSectionTotals(item.id);
-      if (!totals) return;
-      foTotal += totals.foTotalCents;
-      moTotal += totals.moTotalCents;
-      htTotal += totals.totalHtCents;
-    });
-    return { foTotal, moTotal, htTotal };
-  }, [itemsByParent, getSectionTotals]);
+  const { grandTotals, versionSaleSplit } = useEstimateTableTotals({
+    items, itemsByParent, getSectionTotals, marginMultiplier, discountCents,
+    taxRateBp, laborRateById, isLaborSplitEnabled, sectionCalculation,
+  });
 
   const mobileListRows = useMemo<MobileEstimateListRow[]>(
     () =>
@@ -2422,16 +2417,18 @@ export function EstimateEditorTable({
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
-          {isV3Grid ? <button type="button" disabled={isReadOnly} className="mb-2 rounded-md border border-border px-3 py-2 text-sm" onClick={() => {
-            for (const { id, patch } of automaticKfoRefreshPatches(items, foProvisionsBySupplyType(supplyTypes))) {
-              onPatchItem(id, patch, { persist: true });
-            }
-          }}>Actualiser les K FO automatiques</button> : null}
           <EstimateEditorTableChrome
             tableCardRef={tableCardRef}
             headerRight={headerRight}
             ribbonHeaderNode={ribbonHeaderNode}
             ribbonAlertsNode={ribbonAlertsNode}
+            totalsFooterNode={totalsFooterNode}
+            versionSaleSplit={versionSaleSplit}
+            tableNoticeNode={
+              kfoRefresh && kfoRefresh.staleCount > 0 && !isReadOnly
+                ? <EstimateAutomaticKfoNotice refresh={kfoRefresh} isReadOnly={isReadOnly} />
+                : null
+            }
             mobileListNode={
               isMobileViewport ? (
                 <MobileEstimateList
@@ -2523,6 +2520,7 @@ export function EstimateEditorTable({
                 onToggleFinalizationPanel={onToggleFinalizationPanel}
                 isLaborSplitEnabled={isLaborSplitEnabled}
                 onOpenSettings={onOpenSettings}
+                kfoRefresh={kfoRefresh}
                 isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
                 onToggleQuickTemplatePicker={() => {
                   setIsQuickTemplatePickerOpen((prev) => !prev);

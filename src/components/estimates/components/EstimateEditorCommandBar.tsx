@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { EstimateColumnOrderControls } from "@/components/estimates/components/EstimateColumnOrderControls";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import {
   useEstimateEditorMeta,
 } from "@/components/estimates/context/EstimateEditorContext";
 import { usePopover } from "@/hooks/usePopover";
-import { ProductionRibbonTabs } from "@/components/dashboard/ProductionRibbonTabs";
 import type {
   EstimateEditorToolbarProps,
   EstimateQualityFilter,
@@ -35,31 +33,18 @@ import { cn } from "@/lib/utils";
 const ROOT_KEY = "root";
 const INSERT_PANEL_ID = "estimate-editor-insert-panel";
 const DISPLAY_PANEL_ID = "estimate-editor-display-panel";
-const EDITOR_RIBBON_TABS = [
-  {
-    id: "chiffrage",
-    label: "Chiffrage",
-    panelId: "estimate-ribbon-panel-chiffrage",
-  },
-  {
-    id: "insertion",
-    label: "Insérer",
-    panelId: "estimate-ribbon-panel-insertion",
-  },
-  {
-    id: "display",
-    label: "Affichage & contrôle",
-    panelId: "estimate-ribbon-panel-display",
-  },
-] as const;
+const CONTROLS_PANEL_ID = "estimate-editor-controls-panel";
+/** Menus opened from the right-hand end of the toolbar (the search field takes the free width): aligned to their button's right edge. */
+const RIGHT_PANEL_CLASS =
+  "absolute right-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-dropdown";
+const SECTION_STACK_CLASS =
+  "[&>section+section]:mt-4 [&>section+section]:border-t [&>section+section]:border-border [&>section+section]:pt-4";
 
 /** Full-width entries of the ribbon panels (long labels may wrap). */
 const PANEL_ITEM_CLASS =
   "min-h-11 w-full justify-start whitespace-normal py-2 text-left text-foreground-secondary";
 const PANEL_SECTION_TITLE_CLASS =
   "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground";
-
-type EditorRibbonTab = (typeof EDITOR_RIBBON_TABS)[number]["id"];
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
   if (value === "all_lines" || value === "with_anomalies") {
@@ -139,6 +124,7 @@ export function EstimateEditorCommandBar({
   isLaborSplitEnabled = false,
   onToggleQuickTemplatePicker,
   quickTemplatePickerNode,
+  kfoRefresh,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorContext().state;
   const actions = useEstimateEditorActions();
@@ -146,8 +132,6 @@ export function EstimateEditorCommandBar({
   const isSimplifiedMode = uiMode === "simplified";
   // P-11 : le coefficient résultant est montré avant « Appliquer » ; vide ou invalide n'applique rien.
   const bulkMajoration = readMajorationPercent(state.bulkMajorationPercent);
-  const [activeRibbonTab, setActiveRibbonTab] =
-    useState<EditorRibbonTab>("chiffrage");
   const availableColumnPresets = Object.keys(columnPresetLabels) as Array<keyof typeof columnPresetLabels>;
   const {
     isOpen: insertOpen,
@@ -161,13 +145,22 @@ export function EstimateEditorCommandBar({
     close: displayClose,
     setContainerRef: displayContainerRef,
   } = usePopover();
+  const {
+    isOpen: controlsOpen,
+    toggle: controlsToggle,
+    close: controlsClose,
+    setContainerRef: controlsContainerRef,
+  } = usePopover();
+  // « Contrôles » n'a de contenu qu'avec la finalisation ou le mode Expert (qualité, traitements groupés).
+  const hasControlsPanel =
+    Boolean(onToggleFinalizationPanel) || Boolean(kfoRefresh) || !isSimplifiedMode;
 
   const commandButton = (
     <Button
       type="button"
-      variant="outline"
+      variant="ghost"
       size="md"
-      className="min-h-10"
+      className="min-h-10 text-foreground-secondary"
       onClick={openCommandPalette}
       title="Rechercher une action sans parcourir les menus. Raccourci : Ctrl+K."
       aria-keyshortcuts="Control+K"
@@ -196,23 +189,10 @@ export function EstimateEditorCommandBar({
   if (isViewerMode) {
     return (
       <div data-testid="estimate-editor-table-toolbar">
-        <ProductionRibbonTabs
-          tabs={[
-            {
-              id: "consultation",
-              label: "Consultation",
-              panelId: "estimate-ribbon-panel-consultation",
-            },
-          ]}
-          activeTab="consultation"
-          onTabChange={() => undefined}
-          ariaLabel="Onglets du ruban de consultation"
-        />
         <div
-          id="estimate-ribbon-panel-consultation"
-          role="tabpanel"
-          aria-labelledby="estimate-ribbon-panel-consultation-tab"
           className="production-ribbon__commands"
+          role="toolbar"
+          aria-label="Outils de consultation du chiffrage"
         >
           {searchInput}
           {onOpenSettings ? (
@@ -235,68 +215,10 @@ export function EstimateEditorCommandBar({
 
   return (
     <div data-testid="estimate-editor-table-toolbar">
-      <ProductionRibbonTabs
-        tabs={EDITOR_RIBBON_TABS.map((tab) => ({
-          ...tab,
-          badge:
-            tab.id === "display" ? qualityCounts.totalFlagsCount : undefined,
-        }))}
-        activeTab={activeRibbonTab}
-        onTabChange={(tabId) => setActiveRibbonTab(tabId as EditorRibbonTab)}
-        ariaLabel="Onglets métier du ruban de chiffrage"
-      />
       <div
-        id="estimate-ribbon-panel-chiffrage"
-        role="tabpanel"
-        aria-labelledby="estimate-ribbon-panel-chiffrage-tab"
         className="production-ribbon__commands"
-        hidden={activeRibbonTab !== "chiffrage"}
-      >
-        <div
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle p-1"
-          role="group"
-          aria-label="Historique des modifications"
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            className="min-h-9 px-2.5"
-            onClick={() => void onUndo()}
-            disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
-            aria-label="Annuler la dernière action"
-            aria-keyshortcuts="Control+Z"
-            title="Annuler la dernière modification. Raccourci : Ctrl+Z."
-            data-testid="estimate-editor-undo-button"
-          >
-            Annuler
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            className="min-h-9 px-2.5"
-            onClick={() => void onRedo()}
-            disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
-            aria-label="Rétablir la dernière action"
-            aria-keyshortcuts="Control+Y"
-            title="Rétablir la modification annulée. Raccourci : Ctrl+Y."
-            data-testid="estimate-editor-redo-button"
-          >
-            Rétablir
-          </Button>
-        </div>
-
-        {searchInput}
-        {commandButton}
-      </div>
-
-      <div
-        id="estimate-ribbon-panel-insertion"
-        role="tabpanel"
-        aria-labelledby="estimate-ribbon-panel-insertion-tab"
-        className="production-ribbon__commands"
-        hidden={activeRibbonTab !== "insertion"}
+        role="toolbar"
+        aria-label="Outils du chiffrage"
       >
         <div className="relative shrink-0" ref={insertContainerRef}>
           <Button
@@ -306,6 +228,7 @@ export function EstimateEditorCommandBar({
             className="min-h-10"
             onClick={() => {
               displayClose();
+              controlsClose();
               insertToggle();
             }}
             aria-expanded={insertOpen}
@@ -415,15 +338,311 @@ export function EstimateEditorCommandBar({
           ) : null}
           {quickTemplatePickerNode}
         </div>
-      </div>
 
-      <div
-        id="estimate-ribbon-panel-display"
-        role="tabpanel"
-        aria-labelledby="estimate-ribbon-panel-display-tab"
-        className="production-ribbon__commands"
-        hidden={activeRibbonTab !== "display"}
-      >
+        <div
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle p-1"
+          role="group"
+          aria-label="Historique des modifications"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="min-h-9 px-2.5"
+            onClick={() => void onUndo()}
+            disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
+            aria-label="Annuler la dernière action"
+            aria-keyshortcuts="Control+Z"
+            title="Annuler la dernière modification. Raccourci : Ctrl+Z."
+            data-testid="estimate-editor-undo-button"
+          >
+            Annuler
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="min-h-9 px-2.5"
+            onClick={() => void onRedo()}
+            disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
+            aria-label="Rétablir la dernière action"
+            aria-keyshortcuts="Control+Y"
+            title="Rétablir la modification annulée. Raccourci : Ctrl+Y."
+            data-testid="estimate-editor-redo-button"
+          >
+            Rétablir
+          </Button>
+        </div>
+
+        {searchInput}
+
+        {hasControlsPanel ? (
+          <div className="relative shrink-0" ref={controlsContainerRef}>
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              className="min-h-10"
+              onClick={() => {
+                insertClose();
+                displayClose();
+                controlsToggle();
+              }}
+              aria-expanded={controlsOpen}
+              aria-haspopup="dialog"
+              aria-controls={CONTROLS_PANEL_ID}
+              title="Vérifier le chiffrage avant l’envoi : finalisation, anomalies et traitements groupés."
+              data-testid="estimate-editor-controls-button"
+            >
+              Contrôles
+              {qualityCounts.totalFlagsCount > 0 ? (
+                <Badge variant="warning" size="sm">
+                  {qualityCounts.totalFlagsCount}
+                  <span className="sr-only">
+                    {qualityCounts.totalFlagsCount > 1 ? " anomalies" : " anomalie"}
+                  </span>
+                </Badge>
+              ) : null}
+            </Button>
+            {controlsOpen ? (
+              <div
+                id={CONTROLS_PANEL_ID}
+                role="dialog"
+                aria-label="Contrôles du chiffrage"
+                className={cn(RIGHT_PANEL_CLASS, SECTION_STACK_CLASS)}
+              >
+                {onToggleFinalizationPanel ? (
+                  <section aria-labelledby="estimate-display-finalization-title">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3
+                          id="estimate-display-finalization-title"
+                          className={PANEL_SECTION_TITLE_CLASS}
+                        >
+                          Finalisation
+                        </h3>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          Critères, blocages et anomalies avant l’envoi.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant={isFinalizationPanelOpen ? "primary" : "outline"}
+                        size="md"
+                        className="min-h-10"
+                        onClick={() => {
+                          controlsClose();
+                          onToggleFinalizationPanel();
+                        }}
+                        aria-pressed={isFinalizationPanelOpen}
+                        data-testid="estimate-editor-toggle-finalization-button"
+                      >
+                        {isFinalizationPanelOpen ? "Masquer" : "Afficher"}
+                      </Button>
+                    </div>
+                  </section>
+                ) : null}
+                {kfoRefresh ? (
+                  <section aria-labelledby="estimate-controls-kfo-title">
+                    <h3
+                      id="estimate-controls-kfo-title"
+                      className={PANEL_SECTION_TITLE_CLASS}
+                    >
+                      Coefficients K FO
+                    </h3>
+                    <p
+                      className="mt-1 text-xs leading-relaxed text-muted-foreground"
+                      data-testid="estimate-editor-kfo-refresh-status"
+                    >
+                      {kfoRefresh.automaticCount === 0
+                        ? "Aucune ligne en K FO automatique : les coefficients saisis à la main sont conservés."
+                        : kfoRefresh.staleCount === 0
+                          ? "Tous les K FO automatiques suivent les coefficients enregistrés."
+                          : `${kfoRefresh.staleCount} ligne${kfoRefresh.staleCount > 1 ? "s" : ""} à mettre à jour avec les coefficients enregistrés.`}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="md"
+                      className="mt-2 h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
+                      onClick={() => {
+                        controlsClose();
+                        kfoRefresh.onRefresh();
+                      }}
+                      disabled={meta.isReadOnly}
+                      data-testid="estimate-editor-kfo-refresh-button"
+                    >
+                      Actualiser les K FO automatiques
+                    </Button>
+                  </section>
+                ) : null}
+                {!isSimplifiedMode && qualityCounts.totalFlagsCount > 0 ? (
+                  <section
+                    aria-labelledby="estimate-display-quality-title"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3
+                        id="estimate-display-quality-title"
+                        className="text-xs font-semibold uppercase tracking-[0.14em] text-warning"
+                      >
+                        Qualité
+                      </h3>
+                      <span className="text-xs text-warning">
+                        {qualityCounts.totalFlagsCount} anomalie
+                        {qualityCounts.totalFlagsCount > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <label
+                      className="mt-2 block text-xs font-medium text-foreground-secondary"
+                      htmlFor="estimate-display-quality-filter"
+                    >
+                      Lignes affichées
+                    </label>
+                    <NativeSelect
+                      id="estimate-display-quality-filter"
+                      size="sm"
+                      wrapperClassName="mt-1"
+                      value={qualityFilter}
+                      onChange={(event) =>
+                        onQualityFilterChange(
+                          parseEstimateQualityFilter(event.target.value),
+                        )
+                      }
+                    >
+                      <option value="all_lines">
+                        Toutes les lignes ({qualityCounts.linesCount})
+                      </option>
+                      <option value="with_anomalies">
+                        Lignes concernées ({qualityCounts.linesWithAnomaliesCount})
+                      </option>
+                      {ESTIMATE_QUALITY_FLAG_KEYS.filter(
+                        (flag) => qualityCounts.byFlag[flag] > 0,
+                      ).map((flag) => (
+                        <option key={flag} value={flag}>
+                          {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </section>
+                ) : null}
+                {!isSimplifiedMode ? (
+                  <section
+                    aria-labelledby="estimate-display-tools-title"
+                  >
+                    <h3
+                      id="estimate-display-tools-title"
+                      className={PANEL_SECTION_TITLE_CLASS}
+                    >
+                      Contrôles avancés
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Réglages de détection et traitements groupés du chiffrage.
+                    </p>
+                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+                      <div>
+                        <label
+                          className="text-xs font-medium text-foreground-secondary"
+                          htmlFor="estimate-outlier-method"
+                        >
+                          Détection des valeurs atypiques
+                        </label>
+                        <NativeSelect
+                          id="estimate-outlier-method"
+                          size="sm"
+                          wrapperClassName="mt-1"
+                          value={outlierDetectionMethod}
+                          disabled={meta.isReadOnly}
+                          onChange={(event) =>
+                            onOutlierDetectionMethodChange(
+                              parseOutlierMethod(event.target.value),
+                            )
+                          }
+                        >
+                          <option value="iqr">IQR</option>
+                          <option value="zscore">Z-score</option>
+                        </NativeSelect>
+                      </div>
+                      <div>
+                        <label
+                          className="text-xs font-medium text-foreground-secondary"
+                          htmlFor="estimate-outlier-threshold"
+                        >
+                          Seuil
+                        </label>
+                        <Input
+                          id="estimate-outlier-threshold"
+                          size="sm"
+                          className="mt-1"
+                          type="number"
+                          step="0.1"
+                          min={0.1}
+                          value={outlierThreshold}
+                          disabled={meta.isReadOnly}
+                          onChange={(event) => {
+                            const value = parseNumberInput(event.target.value);
+                            if (value !== null) onOutlierThresholdChange(value);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {bulkSuggestionEligibleCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="md"
+                          className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
+                          onClick={() => {
+                            controlsClose();
+                            onOpenBulkSuggestDialog();
+                          }}
+                          disabled={meta.isReadOnly}
+                          data-testid="estimate-editor-bulk-suggestions-button"
+                        >
+                          Examiner {bulkSuggestionEligibleCount} suggestion
+                          {bulkSuggestionEligibleCount > 1 ? "s" : ""}
+                        </Button>
+                      ) : null}
+                      {supplierPreselectionEligibleCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="md"
+                          className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
+                          onClick={() => {
+                            controlsClose();
+                            onOpenSupplierPreselectionDialog();
+                          }}
+                          disabled={meta.isReadOnly}
+                          data-testid="estimate-editor-supplier-preselection-button"
+                        >
+                          Présélectionner les fournisseurs ({supplierPreselectionEligibleCount})
+                        </Button>
+                      ) : null}
+                      {onOpenPriceReuseDialog ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="md"
+                          className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
+                          onClick={() => {
+                            controlsClose();
+                            onOpenPriceReuseDialog();
+                          }}
+                          disabled={meta.isReadOnly}
+                          data-testid="estimate-editor-price-reuse-button"
+                        >
+                          Reprendre les prix d’un devis
+                        </Button>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="relative shrink-0" ref={displayContainerRef}>
           <Button
             type="button"
@@ -432,66 +651,25 @@ export function EstimateEditorCommandBar({
             className="min-h-10"
             onClick={() => {
               insertClose();
+              controlsClose();
               displayToggle();
             }}
             aria-expanded={displayOpen}
             aria-haspopup="dialog"
             aria-controls={DISPLAY_PANEL_ID}
-            title="Choisir la structure visible, les colonnes et les contrôles qualité."
+            title="Choisir la structure visible et les colonnes, ouvrir le paramétrage."
             data-testid="estimate-editor-display-button"
           >
-            Afficher
-            {qualityCounts.totalFlagsCount > 0 ? (
-              <Badge variant="warning" size="sm">
-                {qualityCounts.totalFlagsCount}
-              </Badge>
-            ) : null}
+            Affichage
           </Button>
           {displayOpen ? (
             <div
               id={DISPLAY_PANEL_ID}
               role="dialog"
               aria-label="Options d’affichage du chiffrage"
-              className="absolute left-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-dropdown"
+              className={cn(RIGHT_PANEL_CLASS, SECTION_STACK_CLASS)}
             >
-              {onToggleFinalizationPanel ? (
-                <section aria-labelledby="estimate-display-finalization-title">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3
-                        id="estimate-display-finalization-title"
-                        className={PANEL_SECTION_TITLE_CLASS}
-                      >
-                        Finalisation
-                      </h3>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        Critères, blocages et anomalies avant l’envoi.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant={isFinalizationPanelOpen ? "primary" : "outline"}
-                      size="md"
-                      className="min-h-10"
-                      onClick={() => {
-                        displayClose();
-                        onToggleFinalizationPanel();
-                      }}
-                      aria-pressed={isFinalizationPanelOpen}
-                      data-testid="estimate-editor-toggle-finalization-button"
-                    >
-                      {isFinalizationPanelOpen ? "Masquer" : "Afficher"}
-                    </Button>
-                  </div>
-                </section>
-              ) : null}
-
               <section
-                className={
-                  onToggleFinalizationPanel
-                    ? "mt-4 border-t border-border pt-4"
-                    : undefined
-                }
                 aria-labelledby="estimate-display-structure-title"
               >
                 <h3
@@ -527,9 +705,7 @@ export function EstimateEditorCommandBar({
                   ) : null}
                 </div>
               </section>
-
               <section
-                className="mt-4 border-t border-border pt-4"
                 aria-labelledby="estimate-display-columns-title"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -615,173 +791,6 @@ export function EstimateEditorCommandBar({
                   Préférences personnelles enregistrées sur ce navigateur. Le document client reste indépendant.
                 </p>
               </section>
-
-              {!isSimplifiedMode && qualityCounts.totalFlagsCount > 0 ? (
-                <section
-                  className="mt-4 border-t border-border pt-4"
-                  aria-labelledby="estimate-display-quality-title"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3
-                      id="estimate-display-quality-title"
-                      className="text-xs font-semibold uppercase tracking-[0.14em] text-warning"
-                    >
-                      Qualité
-                    </h3>
-                    <span className="text-xs text-warning">
-                      {qualityCounts.totalFlagsCount} anomalie
-                      {qualityCounts.totalFlagsCount > 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <label
-                    className="mt-2 block text-xs font-medium text-foreground-secondary"
-                    htmlFor="estimate-display-quality-filter"
-                  >
-                    Lignes affichées
-                  </label>
-                  <NativeSelect
-                    id="estimate-display-quality-filter"
-                    size="sm"
-                    wrapperClassName="mt-1"
-                    value={qualityFilter}
-                    onChange={(event) =>
-                      onQualityFilterChange(
-                        parseEstimateQualityFilter(event.target.value),
-                      )
-                    }
-                  >
-                    <option value="all_lines">
-                      Toutes les lignes ({qualityCounts.linesCount})
-                    </option>
-                    <option value="with_anomalies">
-                      Lignes concernées ({qualityCounts.linesWithAnomaliesCount})
-                    </option>
-                    {ESTIMATE_QUALITY_FLAG_KEYS.filter(
-                      (flag) => qualityCounts.byFlag[flag] > 0,
-                    ).map((flag) => (
-                      <option key={flag} value={flag}>
-                        {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </section>
-              ) : null}
-
-              {!isSimplifiedMode ? (
-                <section
-                  className="mt-4 border-t border-border pt-4"
-                  aria-labelledby="estimate-display-tools-title"
-                >
-                  <h3
-                    id="estimate-display-tools-title"
-                    className={PANEL_SECTION_TITLE_CLASS}
-                  >
-                    Contrôles avancés
-                  </h3>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Réglages de détection et traitements groupés du chiffrage.
-                  </p>
-                  <div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
-                    <div>
-                      <label
-                        className="text-xs font-medium text-foreground-secondary"
-                        htmlFor="estimate-outlier-method"
-                      >
-                        Détection des valeurs atypiques
-                      </label>
-                      <NativeSelect
-                        id="estimate-outlier-method"
-                        size="sm"
-                        wrapperClassName="mt-1"
-                        value={outlierDetectionMethod}
-                        disabled={meta.isReadOnly}
-                        onChange={(event) =>
-                          onOutlierDetectionMethodChange(
-                            parseOutlierMethod(event.target.value),
-                          )
-                        }
-                      >
-                        <option value="iqr">IQR</option>
-                        <option value="zscore">Z-score</option>
-                      </NativeSelect>
-                    </div>
-                    <div>
-                      <label
-                        className="text-xs font-medium text-foreground-secondary"
-                        htmlFor="estimate-outlier-threshold"
-                      >
-                        Seuil
-                      </label>
-                      <Input
-                        id="estimate-outlier-threshold"
-                        size="sm"
-                        className="mt-1"
-                        type="number"
-                        step="0.1"
-                        min={0.1}
-                        value={outlierThreshold}
-                        disabled={meta.isReadOnly}
-                        onChange={(event) => {
-                          const value = parseNumberInput(event.target.value);
-                          if (value !== null) onOutlierThresholdChange(value);
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    {bulkSuggestionEligibleCount > 0 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
-                        onClick={() => {
-                          displayClose();
-                          onOpenBulkSuggestDialog();
-                        }}
-                        disabled={meta.isReadOnly}
-                        data-testid="estimate-editor-bulk-suggestions-button"
-                      >
-                        Examiner {bulkSuggestionEligibleCount} suggestion
-                        {bulkSuggestionEligibleCount > 1 ? "s" : ""}
-                      </Button>
-                    ) : null}
-                    {supplierPreselectionEligibleCount > 0 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
-                        onClick={() => {
-                          displayClose();
-                          onOpenSupplierPreselectionDialog();
-                        }}
-                        disabled={meta.isReadOnly}
-                        data-testid="estimate-editor-supplier-preselection-button"
-                      >
-                        Présélectionner les fournisseurs ({supplierPreselectionEligibleCount})
-                      </Button>
-                    ) : null}
-                    {onOpenPriceReuseDialog ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
-                        onClick={() => {
-                          displayClose();
-                          onOpenPriceReuseDialog();
-                        }}
-                        disabled={meta.isReadOnly}
-                        data-testid="estimate-editor-price-reuse-button"
-                      >
-                        Reprendre les prix d’un devis
-                      </Button>
-                    ) : null}
-                  </div>
-                </section>
-              ) : null}
-
               {onOpenSettings ? (
                 <Button
                   type="button"
@@ -801,6 +810,8 @@ export function EstimateEditorCommandBar({
             </div>
           ) : null}
         </div>
+
+        {commandButton}
       </div>
 
       {state.hasSelectedLines ? (

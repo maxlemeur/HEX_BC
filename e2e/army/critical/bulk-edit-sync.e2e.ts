@@ -13,8 +13,6 @@ type Ui = Parameters<typeof createEstimateViaWizard>[0];
 const LABOUR_AT_100: StoredTotals = [5000, 1000, 6000]; // 10,00 € + 1 h × 1 × 40,00 €
 const LABOUR_AT_150: StoredTotals = [7000, 1400, 8400]; // 10,00 € + 1 h × 1,5 × 40,00 €
 const NO_ROLE: StoredTotals = [1000, 200, 1200]; // without a role, the hour has no rate
-// The tab label carries the count of quality alerts, if any (an hour without a role is one).
-const DISPLAY_TAB = /^Affichage & contrôle(?: \d+)?$/;
 
 // Failure plan (D1–D3): docs/testing/bulk-edit-sync-baseline.md.
 async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour: "role" | "no-role" = "role") {
@@ -37,7 +35,6 @@ async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour
   const grid = screen.getByRole("grid", "Lignes de devis", { exact: true });
   await expect(grid).toBeVisible();
   // Hidden by every preset: enabled for this journey, reset by resetColumns().
-  await screen.getByRole("tab", DISPLAY_TAB).click();
   const display = screen.getByTestId("estimate-editor-display-button", { visible: true });
   await display.click();
   await screen.getByRole("button", "Personnalisé", { exact: true }).click();
@@ -45,7 +42,6 @@ async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour
   await display.click();
   const cell = screen.getByLabel(`Majoration de main-d’œuvre en pourcentage pour ${title}`, { exact: true });
   await expect(cell).toHaveValue("100");
-  await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
   const persistedLine = async () => (await readEstimate(browser, ids.versionId)).items.find((item) => item.id === line.id);
   const persisted = async () => (await persistedLine())?.h_mo_majoration;
   const persistedRole = async () => (await persistedLine())?.labor_role_id ?? null;
@@ -113,7 +109,6 @@ async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour
       expect(await persisted()).toBe(expected);
     },
     async resetColumns() {
-      await screen.getByRole("tab", DISPLAY_TAB).click();
       await display.click();
       await screen.getByRole("button", "Réinitialiser les colonnes et leurs largeurs", { exact: true }).click();
       await display.click();

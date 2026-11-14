@@ -110,10 +110,6 @@ export async function resumeDialog(ui: Ui, s: Scenario) {
   await expect(ui.screen.getByTestId("estimate-editor-production-ribbon")).toBeVisible();
   const opener = ui.screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
   if (!await opener.isVisible()) {
-    const tab = ui.screen.getByRole("tab", "Insérer", { exact: true });
-    await expect(tab).toBeVisible();
-    await tab.click();
-    await expect(tab).toBeSelected();
     const insert = ui.screen.getByRole("button", "Insérer", { exact: true });
     await expect(insert).toBeEnabled();
     await insert.click();

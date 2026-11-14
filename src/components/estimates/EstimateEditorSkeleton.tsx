@@ -47,12 +47,6 @@ export function EstimateEditorSkeleton() {
           breadcrumbs={[{ label: "Chiffrage" }]}
           title="Chargement du chiffrage"
           description="Préparation de l’espace de production"
-          metrics={
-            <div className="flex gap-2">
-              <Block width={86} height={28} className="rounded-full" />
-              <Block width={112} height={28} className="rounded-full" />
-            </div>
-          }
           actions={
             <div className="flex gap-2">
               <Block width={90} height={36} className="rounded-control" />
@@ -60,14 +54,11 @@ export function EstimateEditorSkeleton() {
             </div>
           }
         />
-        <div className="production-ribbon__tabs" aria-hidden="true">
-          <Block width={94} height={28} className="my-1 rounded-full" />
-          <Block width={82} height={28} className="my-1 rounded-full" />
-          <Block width={138} height={28} className="my-1 rounded-full" />
-        </div>
         <div className="production-ribbon__commands" aria-hidden="true">
-          <Block width={130} height={36} className="rounded-control" />
-          <Block width={280} height={36} className="rounded-control" />
+          <Block width={90} height={36} className="rounded-control" />
+          <Block width={150} height={36} className="rounded-control" />
+          <Block width={280} height={36} className="flex-1 rounded-control" />
+          <Block width={110} height={36} className="rounded-control" />
           <Block width={100} height={36} className="rounded-control" />
         </div>
       </ProductionRibbon>

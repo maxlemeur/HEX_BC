@@ -251,8 +251,9 @@ armyTest(
     ).toBeVisible();
     await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
+    await ui.screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
     await ui.screen
-      .getByRole("button", "Actualiser les K FO automatiques", { exact: true })
+      .getByTestId("estimate-editor-kfo-refresh-button", { visible: true })
       .click();
     await saveLineEditsWithShortcut(
       ui,
@@ -577,7 +578,6 @@ armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its 
   await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
   await waitForDraftLease(ui);
   await ui.browser.locator(`[data-estimate-item-id="${anchor.id}"] [data-testid="estimate-line-title-input"]`).click();
-  await ui.screen.getByRole("tab", "Insérer", { exact: true }).click();
   await ui.screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
   await ui.screen.getByTestId("estimate-editor-assemblies-button", { visible: true }).click();
   const picker = ui.screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true });

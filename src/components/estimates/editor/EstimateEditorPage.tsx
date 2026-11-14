@@ -230,14 +230,19 @@ export function EstimateEditorPage({
             autoSaveStatusClassName: "status-badge status-canceled",
           } : {})}
           projectId={projectId}
-          summaryNode={
-            <div data-testid="estimate-editor-summary-bar">
-              <EstimateSettingsSummaryBar {...summaryBarProps} />
-            </div>
-          }
         />
       ) : null,
     [historyFeedback, historyRecovery, projectId, summaryBarProps, toolbarProps]
+  );
+  // Les totaux de la version sont lus au pied du tableau, là où ses colonnes s'additionnent.
+  const totalsFooter = useMemo(
+    () =>
+      summaryBarProps ? (
+        <div data-testid="estimate-editor-summary-bar">
+          <EstimateSettingsSummaryBar {...summaryBarProps} />
+        </div>
+      ) : null,
+    [summaryBarProps]
   );
   // Lot 2, sous-lot 2.6 : une v3 fournit à la grille les lignes de son moteur (cellules v3).
   const tableRegion = useMemo(
@@ -254,11 +259,12 @@ export function EstimateEditorPage({
               onScrollToItemHandled={historyFocusItemId ? handleHistoryItemLocated : editorTableProps.onScrollToItemHandled}
               ribbonHeaderNode={ribbonHeader}
               ribbonAlertsNode={alertsRegion}
+              totalsFooterNode={totalsFooter}
             />
           </div>
         </EstimateV3GridProvider>
       ) : null,
-    [alertsRegion, editorTableProps, handleHistoryItemLocated, historyFocusItemId, redoHistory, ribbonHeader, undoHistory, v3Grid]
+    [alertsRegion, editorTableProps, handleHistoryItemLocated, historyFocusItemId, redoHistory, ribbonHeader, totalsFooter, undoHistory, v3Grid]
   );
   const drawerRegion = useMemo(
     () =>

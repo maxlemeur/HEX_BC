@@ -565,7 +565,6 @@ armyTest("V3C09 the AI structure opens on a v3 without a reason, by its button a
       await app.open(`/dashboard/estimates/${versionId}/edit`);
       await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
       await waitForDraftLease(ui);
-      await screen.getByRole("tab", /^Insérer(?: \d+)?$/).tap();
       await screen.getByTestId("estimate-editor-insert-button").tap();
       const structure = screen.getByTestId("estimate-editor-open-structure-draft-button");
       await expect(structure).toBeVisible({ timeout: 30_000 });

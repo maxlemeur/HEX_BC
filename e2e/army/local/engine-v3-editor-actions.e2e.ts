@@ -61,7 +61,7 @@ const options = (timeout: number) => ({ session: "army", tags: ["critical", "loc
 
 type Totals = [number, number, number];
 const chips = (totals: Totals, rate = "20", extra: string[] = []) => [
-  `Total HT : ${eur(totals[0])}`, `TVA : ${eur(totals[1])}`, `TVA ${rate} % : ${eur(totals[1])}`, `TTC à payer : ${eur(totals[2])}`, ...extra,
+  `Total HT : ${eur(totals[0])}`, `TVA ${rate} % : ${eur(totals[1])}`, `TTC à payer : ${eur(totals[2])}`, ...extra,
 ];
 const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 // Messages nommés retenus par la revue (doc 2.6 §11.2).
@@ -169,7 +169,6 @@ async function openGrid(ui: Ui, versionId: string) {
 }
 
 async function showPreset(ui: Ui, preset: "Standard" | "Complet") {
-  await ui.screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
   const display = ui.screen.getByTestId("estimate-editor-display-button", { visible: true });
   await display.tap();
   await ui.screen.getByRole("button", preset, { exact: true }).tap();
@@ -1029,8 +1028,7 @@ armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the 
     await waitForDraftLease(ui);
 
     // F26-32 : appliquer les suggestions en lot passe par l'écrivain v3 (saisies seulement), qui recalcule.
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-editor-controls-button", { visible: true }).tap();
     const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
     await expect(review).toHaveText("Examiner 1 suggestion", { timeout: 30_000 });
     await review.tap();
@@ -1160,8 +1158,7 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
     expect({ majoration: majorationOfA(afterMajoration), totals: totalsOf(afterMajoration) }).toEqual({ majoration: 1.5, totals: majorated });
     await select.uncheck();
     await expect(bulkBar).toBeHidden();
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-editor-controls-button", { visible: true }).tap();
     const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
     await expect(review).toHaveText("Examiner 1 suggestion", { timeout: 30_000 });
     await review.tap();
@@ -1171,7 +1168,6 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
     await expect(suggestions).toBeHidden({ timeout: 30_000 });
     const afterSuggestions = await waitState(ui, draft.versionId, (state) => kFoOfB(state) === 1.3 && sameTotals(state, acted));
     expect({ kFo: kFoOfB(afterSuggestions), totals: totalsOf(afterSuggestions) }).toEqual({ kFo: 1.3, totals: acted });
-    await screen.getByRole("tab", "Chiffrage", { exact: true }).tap();
     const undo = screen.getByTestId("estimate-editor-undo-button", { visible: true });
     const undoSuggestions = screen.getByTestId("estimate-editor-alert-undo-bulk-suggest-button");
     await expect(undo).toBeEnabled({ timeout: 30_000 });
@@ -1652,8 +1648,7 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
 
     // En lot : l'unité inconnue « boite » est refusée par son nom, sans rien écrire ; « ML » devient unit_code = ml. K n'y
     // propose que son K FO ; il est décoché pour être appliqué sur sa ligne.
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-editor-controls-button", { visible: true }).tap();
     const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
     await expect(review).toHaveText("Examiner 4 suggestions", { timeout: 30_000 });
     await review.tap();
@@ -1687,7 +1682,6 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
     // Sur une ligne : la suggestion « boite » sous T est refusée par son nom, sans rien écrire.
     if (await suggestions.isVisible()) await browser.keyboard.press("Escape");
     await expect(suggestions).toBeHidden({ timeout: 30_000 });
-    await screen.getByRole("tab", "Chiffrage", { exact: true }).tap();
     // The row suggestion of a rule names it (EstimateSuggestionRow « estimate-suggestion__rule »): it is marked, then applied.
     const markRowSuggestion = (rule: string) => browser.evaluate((entry) => {
       const [ruleName, target] = entry as [string, string];

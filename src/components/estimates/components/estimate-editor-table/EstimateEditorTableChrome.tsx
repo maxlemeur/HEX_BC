@@ -126,6 +126,11 @@ type EstimateEditorTableChromeProps = {
   toolbarNode: ReactNode;
   ribbonHeaderNode?: ReactNode;
   ribbonAlertsNode?: ReactNode;
+  /** Contextual notice about the lines, shown between the toolbar and the table. */
+  tableNoticeNode?: ReactNode;
+  /** Totals of the version, pinned to the bottom of the viewport while the table is on screen. */
+  totalsFooterNode?: ReactNode;
+  versionSaleSplit: { foTotal: number; moTotal: number };
   mobileListNode?: ReactNode;
   showFullTableOnMobile?: boolean;
   /** The « Chemin actif » line, rendered by the table so that it follows the active cell on its own. */
@@ -183,6 +188,9 @@ export function EstimateEditorTableChrome({
   toolbarNode,
   ribbonHeaderNode,
   ribbonAlertsNode,
+  tableNoticeNode,
+  totalsFooterNode,
+  versionSaleSplit,
   mobileListNode,
   showFullTableOnMobile = false,
   activeLineBreadcrumbNode,
@@ -251,9 +259,10 @@ export function EstimateEditorTableChrome({
         <div
           className={
             ribbonHeaderNode
-              ? "relative z-10"
-              : "dashboard-card relative z-10 p-3 sm:p-4"
+              ? "relative z-30"
+              : "dashboard-card relative z-30 p-3 sm:p-4"
           }
+          // Au-dessus du pied de totaux épinglé (z 20) : les menus de la barre d'outils s'ouvrent par-dessus lui.
           data-testid="estimate-editor-table-card"
         >
           {ribbonHeaderNode ? (
@@ -270,6 +279,10 @@ export function EstimateEditorTableChrome({
 
           {ribbonAlertsNode ? (
             <div className="mt-3">{ribbonAlertsNode}</div>
+          ) : null}
+
+          {tableNoticeNode ? (
+            <div className="mt-2">{tableNoticeNode}</div>
           ) : null}
 
           {activeLineBreadcrumbNode}
@@ -653,6 +666,30 @@ export function EstimateEditorTableChrome({
             ) : null}
           </div>
         </div>
+
+        {totalsFooterNode ? (
+          <div
+            className={
+              headerRight
+                ? "estimate-totals-footer xl:col-start-1"
+                : "estimate-totals-footer"
+            }
+            data-testid="estimate-editor-totals-footer"
+          >
+            {/* Répartition de la vente, toujours lisible quand la ligne « Total » du tableau sort de l'écran. */}
+            <dl className="estimate-totals-footer__split" aria-label="Répartition du total HT">
+              <div>
+                <dt>Fournitures</dt>
+                <dd>{formatCurrency(versionSaleSplit.foTotal, currency)}</dd>
+              </div>
+              <div>
+                <dt>Main d’œuvre</dt>
+                <dd>{formatCurrency(versionSaleSplit.moTotal, currency)}</dd>
+              </div>
+            </dl>
+            {totalsFooterNode}
+          </div>
+        ) : null}
       </div>
     </>
   );

@@ -78,7 +78,6 @@ async function openEditor(ui: Ui, versionId: string) {
 }
 
 async function openDisplayMenu({ screen }: Ui) {
-  await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).click();
   const display = screen.getByTestId("estimate-editor-display-button", { visible: true });
   await display.click();
   return display;
@@ -228,7 +227,7 @@ async function suggestionJourney(
   const persistedKFo = async () =>
     (await readEstimate(browser, ids.versionId)).items.find((item) => item.id === line.id)?.k_fo;
 
-  await openDisplayMenu(ui);
+  await ui.screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
   const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
   await expect(review).toHaveText("Examiner 1 suggestion");
   await review.click();
@@ -373,7 +372,7 @@ armyTest(
       await openEditor(ui, ids.versionId);
       const price = screen.getByLabel(`Prix d’achat unitaire HT pour ${designation}`, { exact: true });
       await expect(price).toHaveValue("10.00");
-      await openDisplayMenu(ui);
+      await screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
       await screen.getByTestId("estimate-editor-supplier-preselection-button").click();
       const dialog = screen.getByRole("dialog", /Présélection fournisseurs/);
       await expect(dialog).toBeVisible();
