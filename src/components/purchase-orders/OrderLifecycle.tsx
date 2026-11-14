@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useState, type ReactNode } from "react";
 
-import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
+import { OrderNextStep, OrderStatusShortcuts } from "@/components/purchase-orders/OrderNextStep";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,8 +20,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCentsInput, formatEUR, parseEuroToCents } from "@/lib/money";
 import { computeLineTotals } from "@/lib/order-calculations";
+import { orderNextStep } from "@/lib/purchase-orders/next-step";
 import {
-  affaireDirectStatuses,
   formatOrderDay,
   formatPriceLot,
   refusalMessage,
@@ -87,31 +87,28 @@ export function OrderLifecycle(props: OrderLifecycleProps) {
   const [receiving, setReceiving] = useState(false);
   // The proof once sent, kept while the page lives: a retry, even after closing the dialog, names it again.
   const [uploadedProof, setUploadedProof] = useState<UploadedProof | null>(null);
-  const direct = affaireDirectStatuses(status);
 
+  // TI-691: the step of the moment says what to do and holds its action; the status changes without proof (cancel,
+  // back to draft) are named actions below it, no longer a selector beside « Confirmer la commande… ».
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        {direct.length > 1 ? <PurchaseOrderStatusUpdater orderId={props.orderId} status={status} statuses={direct} /> : null}
-        {status === "draft" ? props.sendAction : null}
-        {status === "draft" || status === "sent" ? (
-          <Button variant="primary" size="lg" type="button" onClick={() => setConfirming(true)}>
-            Confirmer la commande…
-          </Button>
-        ) : null}
-        {status === "confirmed" ? (
-          <Button variant="primary" size="lg" type="button" onClick={() => setReceiving(true)}>
-            Enregistrer la réception…
-          </Button>
-        ) : null}
-      </div>
-      {status === "sent" ? (
-        <p className="text-sm text-muted-foreground">
-          {props.sentAsTest
-            ? "Envoi de test : le fournisseur n’a rien reçu. Pour lui envoyer réellement ce bon, remettez-le en brouillon ; s’il est commandé autrement, confirmez la commande."
-            : "Bon envoyé au fournisseur. À la réception de son accusé, confirmez la commande avec ses prix réels ; pour le corriger, remettez-le en brouillon."}
-        </p>
-      ) : null}
+    <OrderNextStep
+      model={orderNextStep(status, { sentAsTest: props.sentAsTest, remaining: Boolean(reception?.note) })}
+      actions={
+        <>
+          {status === "draft" ? props.sendAction : null}
+          {status === "draft" || status === "sent" ? (
+            <Button variant={status === "draft" ? "outline" : "primary"} size="lg" type="button" onClick={() => setConfirming(true)}>
+              Confirmer la commande…
+            </Button>
+          ) : null}
+          {status === "confirmed" ? (
+            <Button variant="primary" size="lg" type="button" onClick={() => setReceiving(true)}>
+              Enregistrer la réception…
+            </Button>
+          ) : null}
+        </>
+      }
+    >
       {props.sendHistory}
       {confirmation && (status === "confirmed" || status === "received") ? (
         <p className="text-sm text-muted-foreground">
@@ -133,7 +130,8 @@ export function OrderLifecycle(props: OrderLifecycleProps) {
           onClose={() => setConfirming(false)} />
       ) : null}
       {receiving ? <ReceptionDialog {...props} onClose={() => setReceiving(false)} /> : null}
-    </div>
+      <OrderStatusShortcuts orderId={props.orderId} reference={props.reference} status={status} />
+    </OrderNextStep>
   );
 }
 
