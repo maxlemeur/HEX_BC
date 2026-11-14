@@ -83,6 +83,12 @@ export type EstimateEditorToolbarProps = {
   onToggleQuickAssemblyPicker?: () => void;
   quickTemplatePickerNode?: React.ReactNode;
   quickAssemblyPickerNode?: React.ReactNode;
+  /** Moteur 3, brouillon modifiable : actualisation des K FO automatiques, toujours accessible dans « Contrôles ». */
+  kfoRefresh?: {
+    automaticCount: number;
+    staleCount: number;
+    onRefresh: () => void;
+  };
 };
 
 export function EstimateEditorToolbar(props: EstimateEditorToolbarProps) {

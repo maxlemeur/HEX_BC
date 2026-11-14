@@ -10,7 +10,7 @@ import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-num
  * portent que des saisies (D4, D12).
  */
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
-import type { EstimateV3Breakdown, EstimateV3LineResult } from "@/lib/estimates/engine-v3";
+import { computeEstimateV3NetMarginBp, type EstimateV3Breakdown, type EstimateV3LineResult } from "@/lib/estimates/engine-v3";
 import {
   buildEstimateItemInsertPayload,
   buildEstimateItemUpdatePayload,
@@ -457,7 +457,26 @@ export type EstimateV3SummaryView = {
   discountAppliedCents: number;
   commercialRoundingCents: number;
   taxByRate: ReadonlyArray<{ rateBp: number; baseCents: number; taxCents: number }>;
+  /** Déboursé sec du moteur ; inconnu (null) pour un pied relu sur les totaux stockés. */
+  costSubtotalCents: number | null;
 };
+
+/**
+ * Marge de la version lue au pied de l'éditeur : HT net − déboursé sec, et la marque nette des règles
+ * d'approbation (`computeEstimateV3NetMarginBp`, la même que « min_margin »). Nulle si le déboursé est inconnu.
+ */
+export function readEstimateV3SummaryMargin(
+  summary: EstimateV3SummaryView,
+): { marginCents: number; markupBp: number | null } | null {
+  if (summary.costSubtotalCents === null) return null;
+  return {
+    marginCents: summary.totalHtCents - summary.costSubtotalCents,
+    markupBp: computeEstimateV3NetMarginBp({
+      total_ht_cents: summary.totalHtCents,
+      cost_subtotal_cents: summary.costSubtotalCents,
+    }),
+  };
+}
 
 export function buildEstimateV3SummaryView(breakdown: EstimateV3Breakdown | null): EstimateV3SummaryView | null {
   if (!breakdown) return null;
@@ -470,6 +489,7 @@ export function buildEstimateV3SummaryView(breakdown: EstimateV3Breakdown | null
     discountAppliedCents: totals.discount_applied_cents,
     commercialRoundingCents: totals.commercial_rounding_cents,
     taxByRate: totals.tax_breakdown.map((row) => ({ rateBp: row.rate_bp, baseCents: row.base_cents, taxCents: row.tax_cents })),
+    costSubtotalCents: totals.cost_subtotal_cents,
   };
 }
 
@@ -499,5 +519,6 @@ export function readStoredEstimateV3DraftSummary(
     commercialRoundingCents: version.commercial_rounding_cents ?? 0,
     taxByRate: [...byRate.entries()].sort(([left], [right]) => right - left)
       .map(([rateBp, entry]) => ({ rateBp, ...entry })),
+    costSubtotalCents: null,
   };
 }
