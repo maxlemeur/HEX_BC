@@ -18,10 +18,10 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
   const listHref = `/dashboard/affaires/${projectId}/demandes-materiel`;
 
   return (
-    <>
+    <div className="material-request-page">
       <PageHeader
+        className="mb-2 sm:mb-2"
         title="Demande de matériel"
-        description="De la demande du technicien aux bons de commande, une étape à la fois. Rien n’est validé ni envoyé sans vous."
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: project.name, href: `/dashboard/affaires/${projectId}` },
@@ -37,6 +37,6 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
         affaireName={project.name}
         canEditCatalogue={project.canEditCatalogue}
       />
-    </>
+    </div>
   );
 }

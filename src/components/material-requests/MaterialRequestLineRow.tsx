@@ -47,8 +47,9 @@ const IMPUTATION_OPTIONS: ChoiceOption[] = MATERIAL_REQUEST_IMPUTATIONS.map((val
   label: MATERIAL_REQUEST_IMPUTATION_LABELS[value],
 }));
 
-type LineRowProps = Readonly<{
+export type LineRowProps = Readonly<{
   line: MaterialRequestLine;
+  showFieldLabels?: boolean;
   alerts: readonly MaterialRequestLineAlert[];
   request: RequestPresumptions;
   supplierOptions: readonly MaterialRequestSupplierOption[];
@@ -474,7 +475,7 @@ function EditableLineRow(props: LineRowProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-[5.5rem_5.5rem_minmax(0,1fr)] lg:grid-cols-[5.5rem_5.5rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)] xl:contents">
-        <Field name="Quantité" inTable alerts={alertsOf(alerts, "quantity")} className={AT.quantity}>
+        <Field name="Quantité" inTable={!props.showFieldLabels} alerts={alertsOf(alerts, "quantity")} className={AT.quantity}>
           <QuantityCell
             label={`Quantité, ligne ${n}`}
             value={line.quantity}
@@ -484,7 +485,7 @@ function EditableLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["quantity"])}
           />
         </Field>
-        <Field name="Unité" inTable alerts={alertsOf(alerts, "unit")} className={AT.unit}>
+        <Field name="Unité" inTable={!props.showFieldLabels} alerts={alertsOf(alerts, "unit")} className={AT.unit}>
           <TextCell
             label={`Unité, ligne ${n}`}
             value={line.unit}
@@ -496,7 +497,7 @@ function EditableLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["unit"])}
           />
         </Field>
-        <Field name="Type" inTable alerts={alertsOf(alerts, "product_type")} className={cn("col-span-2 sm:col-span-1", AT.type)}>
+        <Field name="Type" inTable={!props.showFieldLabels} alerts={alertsOf(alerts, "product_type")} className={cn("col-span-2 sm:col-span-1", AT.type)}>
           <TextCell
             label={`Type, ligne ${n}`}
             value={line.product_type}
@@ -507,7 +508,7 @@ function EditableLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["product_type"])}
           />
         </Field>
-        <Field name="DN / dimension" inTable alerts={alertsOf(alerts, "dimension")} className={cn("sm:col-span-2 lg:col-span-1", AT.dimension)}>
+        <Field name="DN / dimension" inTable={!props.showFieldLabels} alerts={alertsOf(alerts, "dimension")} className={cn("sm:col-span-2 lg:col-span-1", AT.dimension)}>
           <TextCell
             label={`DN / dimension, ligne ${n}`}
             value={line.dimension}
@@ -519,7 +520,7 @@ function EditableLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["dimension"])}
           />
         </Field>
-        <Field name="Matière" inTable alerts={alertsOf(alerts, "material")} className={AT.material}>
+        <Field name="Matière" inTable={!props.showFieldLabels} alerts={alertsOf(alerts, "material")} className={AT.material}>
           <TextCell
             label={`Matière, ligne ${n}`}
             value={line.material}

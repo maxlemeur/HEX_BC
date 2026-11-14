@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Trash2 } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Trash2 } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -84,7 +84,7 @@ function PhotoFrame({
   );
 }
 
-function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function Photos({ editor, compact = false }: Readonly<{ editor: MaterialRequestEditorApi; compact?: boolean }>) {
   const { data, canWrite } = editor;
   const files = data.files;
   const [index, setIndex] = useState(0);
@@ -128,7 +128,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
           onError={setError}
         />
       ) : (
-        <p className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className={compact ? "sr-only" : "rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground"}>
           Pas de photo de l’original.
         </p>
       )}
@@ -300,7 +300,7 @@ const SPLIT_RULE =
  * cut again in one gesture, in place of the lines, as long as they are all drafts no quote holds (TI-691): the office
  * no longer deletes them one by one, and never loses a validated or quoted line to a split.
  */
-function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+function SourceText({ editor, compact = false, photos }: Readonly<{ editor: MaterialRequestEditorApi; compact?: boolean; photos?: ReactNode }>) {
   const toast = useToast();
   const textId = useId();
   const ruleId = useId();
@@ -375,7 +375,7 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
   };
 
   return (
-    <div className="space-y-2">
+    <div className={compact && draft === null && sourceText ? "mr-source-text" : "space-y-2"}>
       <h3 className="text-sm font-semibold text-foreground">Message reçu</h3>
       {draft !== null ? (
         <>
@@ -417,7 +417,8 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
         <p className="text-sm text-muted-foreground">Pas de message collé.</p>
       )}
       {canWrite && draft === null ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="mr-original-actions flex flex-wrap gap-2">
+          {photos}
           {sourceText && lines.length === 0 ? (
             <Button type="button" size="sm" loading={busy} aria-describedby={ruleId} onClick={() => void split(false)}>
               <Scissors aria-hidden="true" />
@@ -515,17 +516,14 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
 export function MaterialRequestOriginal({
   editor,
   headingId,
-}: Readonly<{ editor: MaterialRequestEditorApi; headingId: string }>) {
+  compact = false,
+}: Readonly<{ editor: MaterialRequestEditorApi; headingId: string; compact?: boolean }>) {
   return (
-    <section aria-labelledby={headingId} className="space-y-4 rounded-lg border border-border bg-surface p-4">
-      <h2 id={headingId} className="typo-h3 text-foreground">
-        Original
-      </h2>
-      {/* Side by side where the width allows: the photo keeps a readable size, the message the rest. */}
-      <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-6">
-        <Photos editor={editor} />
-        <SourceText editor={editor} />
-      </div>
+    <section aria-labelledby={headingId} className={compact ? "mr-original-compact rounded-lg border border-border bg-surface/50" : "space-y-4 rounded-lg border border-border bg-surface p-4"}>
+      <details open>
+        <summary className="focus-visible:outline-2 focus-visible:outline-ring"><ChevronDown aria-hidden="true" className="inline size-4" /><h2 id={headingId} className="inline typo-h3 text-foreground">Original</h2></summary>
+        {compact && editor.data.files.length === 0 ? <SourceText editor={editor} compact photos={<Photos editor={editor} compact />} /> : <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-6"><Photos editor={editor} /><SourceText editor={editor} /></div>}
+      </details>
     </section>
   );
 }

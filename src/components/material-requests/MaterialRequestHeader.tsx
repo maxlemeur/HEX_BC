@@ -277,10 +277,12 @@ export function MaterialRequestHeader({
   editor,
   technicians,
   materialListId,
+  compact = false,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   technicians: readonly MaterialRequestTechnician[];
   materialListId: string;
+  compact?: boolean;
 }>) {
   const ids = useId();
   const [urgentError, setUrgentError] = useState<string | null>(null);
@@ -345,9 +347,9 @@ export function MaterialRequestHeader({
   const summary = entries.filter((entry): entry is SummaryEntry => entry !== null);
 
   return (
-    <section aria-labelledby={`${ids}-heading`} className="rounded-lg border border-border bg-surface p-4">
-      <div className="flex items-start justify-between gap-3">
-        <h2 id={`${ids}-heading`} className="typo-h3 text-foreground">
+    <section aria-labelledby={`${ids}-heading`} className={cn(compact ? "mb-0 border-b border-border py-5" : "rounded-lg border border-border bg-surface p-4")}>
+      <div className={cn("flex items-start justify-between gap-3", compact && "float-right ml-4")} >
+        <h2 id={`${ids}-heading`} className={compact ? "sr-only" : "typo-h3 text-foreground"}>
           Demande
         </h2>
         <Button
@@ -359,11 +361,11 @@ export function MaterialRequestHeader({
           onClick={() => setOpen((current) => !current)}
         >
           <ChevronDown aria-hidden="true" className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
-          {open ? "Replier" : canWrite ? "Modifier" : "Détails"}
+          {open ? "Replier" : compact ? canWrite ? "Modifier la demande" : "Détails de la demande" : canWrite ? "Modifier" : "Détails"}
         </Button>
       </div>
       {/* What the technician said at the top of the request, read at a glance; the fields are opened to change it. */}
-      <dl className="mt-2 space-y-1 text-sm">
+      <dl className={cn("text-sm", compact ? "flex min-h-9 flex-wrap items-center gap-x-6 gap-y-2" : "mt-2 space-y-1")}>
         {summary.map((entry) => (
           <div key={entry.name} className="flex min-w-0 flex-wrap gap-x-1.5">
             <dt className="text-muted-foreground">{entry.name} :</dt>
@@ -371,7 +373,7 @@ export function MaterialRequestHeader({
           </div>
         ))}
       </dl>
-      <div id={`${ids}-fields`} hidden={!open} className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4">
+      <div id={`${ids}-fields`} hidden={!open} className={cn("mt-4 clear-both grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4", compact && "rounded-lg bg-surface p-4 md:grid-cols-4")}>
         <div className="col-span-2">
           <label htmlFor={`${ids}-technician`} className={LABEL}>
             Technicien

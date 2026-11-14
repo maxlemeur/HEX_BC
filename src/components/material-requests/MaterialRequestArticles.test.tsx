@@ -602,7 +602,7 @@ describe("linking request lines to catalogue articles", () => {
   });
 
   it("offers no control that links, unlinks or creates to a reader (8)", async () => {
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({
           canWrite: false,
@@ -613,6 +613,7 @@ describe("linking request lines to catalogue articles", () => {
     });
 
     expect(screen.getByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
     expect(screen.getByText("par un nom usuel")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Rattacher|Délier|Autres propositions|Chercher ou créer/ })).not.toBeInTheDocument();
     expect(candidateReads()).toEqual([]);

@@ -239,7 +239,7 @@ async function pickSupplier(user: ReturnType<typeof userEvent.setup>, field: str
 /** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
 async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
   const heading = screen.getByRole("heading", { name: "Demande" });
-  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier|Détails|Replier)$/ });
+  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier la demande|Détails de la demande|Replier)$/ });
   if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
 }
 
@@ -440,13 +440,53 @@ describe("suppliers of request lines", () => {
       ),
     });
 
-    expect(await screen.findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
+    const details = screen.getByRole("complementary", { name: "Détails de la ligne 2" });
+    expect(within(details).getByText("Réf. fournisseur")).toBeVisible();
+    expect(await within(details).findByText("CB-90-50", { exact: true })).toBeVisible();
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
     expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Retenir/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Négoce Alpha ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
     expect(calls.some((call) => call.path.includes("/supplier-items"))).toBe(false);
+  });
+
+  // Review regression: a transport refusal is controlled here because it cannot be scheduled reliably against a real server.
+  it("keeps a refused supplier choice and its error across line selection and an added draft", async () => {
+    window.history.replaceState(null, "", "?etape=lignes");
+    const settled = { status: "validated" as const, validated_at: "2026-11-12T09:00:00.000Z", supplier_id: ALPHA };
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(settled), line({ ...settled, id: LINE_B, position: 2 })] }) },
+      [`GET ${PROPOSALS}`]: proposals({}),
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { status: 500, error: { code: "INTERNAL", message: "Choix refusé pour cet essai." } },
+      [`POST ${BASE}/lines`]: { data: { lines: [line({ id: LINE_C, position: 3 })] } },
+    });
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    await pickSupplier(user, "Fournisseur, ligne 1", "Comptoir Bêta");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 2" }));
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
+    expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
+    await user.click(screen.getByRole("button", { name: "Ajouter une ligne" }));
+    await screen.findByLabelText("Quantité, ligne 3");
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
+    expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
+    expect(writes().filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } }]);
+  });
+
+  it("does not replace an archived assigned supplier with the request's different presumed supplier", async () => {
+    window.history.replaceState(null, "", "?etape=lignes");
+    await openEditor({
+      [`GET ${BASE}`]: { data: { ...detail({ canWrite: false, request: { presumed_supplier_id: BETA, supplier_confirmed: true }, lines: [line({ supplier_id: ALPHA })] }), supplierOptions: SUPPLIERS.filter((item) => item.id !== ALPHA) } },
+      [`GET ${PROPOSALS}`]: proposals({}),
+    });
+    const row = within(screen.getByRole("list", { name: "Lignes de la demande" })).getByRole("listitem", { name: "Ligne 1" });
+    expect(within(row).getByText("Fournisseur retiré de la liste")).toBeVisible();
+    expect(within(row).queryByText("Comptoir Bêta (demande)")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Détails de la ligne 1" })).getByText("Fournisseur retiré de la liste")).toBeVisible();
   });
 
   it("keeps the line as it was and says so when the save is refused (5)", async () => {
