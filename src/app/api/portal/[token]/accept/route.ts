@@ -173,7 +173,8 @@ export async function POST(
           const resend = new Resend(apiKey);
           const emailSubject = `Confirmation – devis ${projectName} accepté`;
           // The log below keeps the client's address and the subject as written; only the provider call is rerouted.
-          const routed = routeOutgoingEmail(readOutgoingEmailRouting(), { to: portalToken.email, subject: emailSubject });
+          const routing = readOutgoingEmailRouting();
+          const routed = routeOutgoingEmail(routing, { to: portalToken.email, subject: emailSubject });
           const { data: emailResult, error: emailSendError } =
             await resend.emails.send({
               from: emailFrom,
@@ -190,7 +191,7 @@ export async function POST(
 
           // Log email with accurate status
           const emailStatus = emailSendError ? "failed" : "sent";
-          await supabase.from("estimate_emails").insert({
+          const { error: logError } = await supabase.from("estimate_emails").insert({
             tenant_id: portalToken.tenant_id,
             version_id: portalToken.version_id,
             recipient: portalToken.email,
@@ -199,7 +200,10 @@ export async function POST(
             status: emailStatus,
             provider_id: emailResult?.id ?? null,
             sent_at: emailStatus === "sent" ? acceptedAt : null,
+            // Logged as written, and as redirected when the test mailbox received it (TI-691).
+            redirected: routing.mode === "redirect",
           });
+          if (logError) console.error("Failed to log the acceptance confirmation email:", logError.code);
 
           if (emailSendError) {
             console.error(

@@ -758,7 +758,8 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "access": return accessFixtures(context, campaign);
     case "offers-zero-price":
     case "offers-purchase-unit": return offersFixtures(context, campaign);
-    case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
+    case "emission":
+    case "emission-redirect": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
     case "resend-portal": return { env: {}, secretEnv: {}, identities: { note: "Resend, portal and incident journeys create their own offers; no sent status or capability is preinserted." } };
     case "emission-v3": return emissionV3Fixtures(context, campaign);
     case "order-send":

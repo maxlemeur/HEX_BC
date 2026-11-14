@@ -59,6 +59,7 @@ import {
 } from "@/lib/estimates/server";
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { describeEstimateSend, type EstimateLastSend } from "@/lib/email/describe-estimate-send";
 import type { Database } from "@/types/database";
 
 type EstimateProject =
@@ -122,17 +123,21 @@ function parseHistoryPage(
 }
 
 type EstimateEmailDispatchProblem = { id: string; status: "unknown" | "failed"; lastErrorMessage: string | null };
+type EstimateEmailDispatchState = { problem: EstimateEmailDispatchProblem | null; lastSend: EstimateLastSend | null };
 
-/** Dernier envoi initial resté « unknown » ou « failed » : l'action d'envoi le signale (toutes versions). */
-async function loadEmailDispatchProblem(
+/**
+ * Dernier envoi initial : resté « unknown » ou « failed », l'action d'envoi le signale (toutes versions) ; accepté par le
+ * fournisseur, la page dit à qui et quand, ou qu'il est parti vers la boîte de test (TI-691).
+ */
+async function loadEmailDispatchState(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   versionId: string,
   tenantId: string
-): Promise<EstimateEmailDispatchProblem | null> {
+): Promise<EstimateEmailDispatchState> {
   return Promise.resolve(
     supabase
       .from("estimate_emails")
-      .select("id, status, last_error_message")
+      .select("id, status, last_error_message, recipient, sent_at, redirected")
       .eq("version_id", versionId)
       .eq("tenant_id", tenantId)
       .eq("type", "initial")
@@ -140,20 +145,34 @@ async function loadEmailDispatchProblem(
       .limit(1)
       .maybeSingle()
   )
-    .then((result) => {
+    .then((result): EstimateEmailDispatchState => {
       const row = result.data as
-        | { id: string; status: string; last_error_message: string | null }
+        | { id: string; status: string; last_error_message: string | null; recipient: string; sent_at: string | null;
+            redirected: boolean | null }
         | null;
       if (row?.status === "unknown" || row?.status === "failed") {
         return {
-          id: row.id,
-          status: row.status as "unknown" | "failed",
-          lastErrorMessage: row.last_error_message,
+          problem: { id: row.id, status: row.status, lastErrorMessage: row.last_error_message },
+          lastSend: null,
         };
       }
-      return null;
+      if (row && ["sent", "delivered", "bounced"].includes(row.status)) {
+        return { problem: null, lastSend: { recipient: row.recipient, sentAt: row.sent_at, redirected: row.redirected,
+          bounced: row.status === "bounced" } };
+      }
+      return { problem: null, lastSend: null };
     })
-    .catch(() => null);
+    .catch(() => ({ problem: null, lastSend: null }));
+}
+
+/** The last send under the status, for every reader of the page. */
+function EstimateLastSendLine({ send }: { send: EstimateLastSend | null }) {
+  if (!send) return null;
+  return (
+    <p className="mt-2 text-xs text-muted-foreground" data-testid="estimate-last-send">
+      {describeEstimateSend(send)}
+    </p>
+  );
 }
 
 /** Sceau d'une version émise, vérifié (toutes versions) ; un brouillon n'est pas scellé. */
@@ -200,7 +219,7 @@ async function renderEstimateV3Detail(input: {
 }) {
   const { version, versionId, items } = input;
   const project = resolveProject(version.estimate_projects);
-  const [versionTimeline, plansSummary, registerSummary, emailDispatchProblem] = await Promise.all([
+  const [versionTimeline, plansSummary, registerSummary, emailDispatch] = await Promise.all([
     listEstimateProjectVersions({
       projectId: version.project_id,
       page: input.timelinePage,
@@ -209,7 +228,7 @@ async function renderEstimateV3Detail(input: {
     }),
     fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
     fetchAffaireRegisterSummary({ projectId: version.project_id, versionId }).catch(() => null),
-    loadEmailDispatchProblem(input.supabase, versionId, version.tenant_id),
+    loadEmailDispatchState(input.supabase, versionId, version.tenant_id),
   ]);
   const seal = await resolveSealIntegrity(version, versionId);
   await assertEstimateVersionUnchanged({ supabase: input.supabase, version });
@@ -263,9 +282,10 @@ async function renderEstimateV3Detail(input: {
                   updatedAt={version.updated_at}
                   projectName={project?.name ?? undefined}
                   projectId={version.project_id}
-                  emailDispatchProblem={emailDispatchProblem}
+                  emailDispatchProblem={emailDispatch.problem}
                 />
               ) : null}
+              <EstimateLastSendLine send={emailDispatch.lastSend} />
             </dd>
           </div>
           <div className="min-w-0">
@@ -418,13 +438,13 @@ export default async function EstimateDetailPage({
           supabase,
         }),
   ]);
-  const [plansSummary, registerSummary, emailDispatchProblem] = await Promise.all([
+  const [plansSummary, registerSummary, emailDispatch] = await Promise.all([
     fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
     fetchAffaireRegisterSummary({
       projectId: version.project_id,
       versionId,
     }).catch(() => null),
-    loadEmailDispatchProblem(supabase, versionId, version.tenant_id),
+    loadEmailDispatchState(supabase, versionId, version.tenant_id),
   ]);
   const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
     new Set(
@@ -621,9 +641,10 @@ export default async function EstimateDetailPage({
                   updatedAt={version.updated_at}
                   projectName={project?.name ?? undefined}
                   projectId={version.project_id}
-                  emailDispatchProblem={emailDispatchProblem}
+                  emailDispatchProblem={emailDispatch.problem}
                 />
               ) : null}
+              <EstimateLastSendLine send={emailDispatch.lastSend} />
             </dd>
           </div>
           <div className="min-w-0">

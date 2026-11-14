@@ -19,6 +19,7 @@ import {
 import {
   affaireHref,
   deliveryModeOf,
+  orderRequestOrigin,
   storedLineDocumentFields,
   storedOrderAffaire,
   type StoredOrderLineFields,
@@ -287,6 +288,7 @@ export default async function OrderPage({
       })}
       attachmentFilename={purchaseOrderPdfFilename(order.reference)}
       routing={sendRouting()}
+      primary={fromRequest}
     />
   ) : null;
   const lifecycleLines: OrderLifecycleLine[] = items.map((item) => ({
@@ -302,24 +304,45 @@ export default async function OrderPage({
     fromRequest: Boolean(item.material_request_line_id),
   }));
 
+  // TI-691: an order of an affaire leads back to the request it comes from, through its affaire.
+  const origin = order.project_id ? orderRequestOrigin(order.project_id, items) : null;
+  const breadcrumbs = order.project_id && affaire
+    ? [
+        { label: "Affaires", href: "/dashboard/affaires" },
+        { label: affaire.name, href: affaireHref(order.project_id) },
+        // The request's own trail: Affaires › affaire › Achats › request.
+        ...(origin && origin.label !== "Achats"
+          ? [{ label: "Achats", href: `${affaireHref(order.project_id)}/demandes-materiel` }]
+          : []),
+        ...(origin ? [origin] : []),
+        { label: order.reference },
+      ]
+    : [
+        { label: "Bons de commande", href: "/dashboard/orders" },
+        { label: order.reference },
+      ];
+  // On an order of an affaire, the step's action leads; the page's own actions stay quiet.
+  const quietAction = buttonVariants({ variant: "outline", size: "lg" });
+
   return (
     <div className="mx-auto max-w-5xl animate-fade-in">
       <PageHeader
         className="no-print"
-        breadcrumbs={[
-          { label: "Bons de commande", href: "/dashboard/orders" },
-          { label: order.reference },
-        ]}
+        breadcrumbs={breadcrumbs}
         eyebrow="Bon de commande"
         title={<span className="font-mono">{order.reference}</span>}
         meta={
           <>
             <span className={statusClass(order.status)}>{statusLabel(order.status)}</span>
             {supplier ? <span className="font-medium text-foreground-secondary">{supplier.name}</span> : null}
-            <span aria-hidden="true" className="text-subtle-foreground">·</span>
-            <span className="text-muted-foreground">
-              Livraison : {formatOrderDate(order.expected_delivery_date)}
-            </span>
+            {order.expected_delivery_date ? (
+              <>
+                <span aria-hidden="true" className="text-subtle-foreground">·</span>
+                <span className="text-muted-foreground">
+                  Livraison : {formatOrderDate(order.expected_delivery_date)}
+                </span>
+              </>
+            ) : null}
             {order.project_id && affaire ? (
               <>
                 <span aria-hidden="true" className="text-subtle-foreground">·</span>
@@ -339,7 +362,7 @@ export default async function OrderPage({
             {fromRequest ? null : sendAction}
             {isDraft ? (
               <Link
-                className={buttonVariants({ variant: "accent", size: "lg" })}
+                className={fromRequest ? quietAction : buttonVariants({ variant: "accent", size: "lg" })}
                 href={`/dashboard/orders/${order.id}/edit`}
               >
                 <PencilIcon aria-hidden="true" />
@@ -347,7 +370,7 @@ export default async function OrderPage({
               </Link>
             ) : null}
             <Link
-              className={buttonVariants({ variant: "primary", size: "lg" })}
+              className={fromRequest ? quietAction : buttonVariants({ variant: "primary", size: "lg" })}
               href={`/dashboard/orders/${order.id}/print?print=1`}
             >
               <PrinterIcon aria-hidden="true" />
@@ -361,7 +384,7 @@ export default async function OrderPage({
       />
 
       {fromRequest ? (
-        <section aria-label="Commande" className="no-print mx-auto mb-4 w-full max-w-[210mm]">
+        <div className="no-print mx-auto mb-4 w-full max-w-[210mm]">
           <OrderLifecycle
             orderId={order.id}
             reference={order.reference}
@@ -382,7 +405,7 @@ export default async function OrderPage({
             sendHistory={sendHistory}
             sentAsTest={sends.find((send) => send.status === "sent")?.redirected === true}
           />
-        </section>
+        </div>
       ) : sends.length > 0 ? (
         <div className="no-print mx-auto mb-4 w-full max-w-[210mm]">{sendHistory}</div>
       ) : null}
@@ -416,6 +439,10 @@ export default async function OrderPage({
           orderId={order.id}
           initialItems={devisItems}
           canManage={canManageDevis}
+          // TI-691: the supplier's quote is joined on the request; here, what proves and follows the order.
+          hint={fromRequest
+            ? "Confirmation du fournisseur, bon de livraison… Le devis du fournisseur se joint sur la demande."
+            : undefined}
         />
       </div>
     </div>

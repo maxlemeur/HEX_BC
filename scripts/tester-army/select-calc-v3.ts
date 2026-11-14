@@ -24,9 +24,9 @@ const rules: { paths: string[]; phases: CalcV3Phase[] }[] = [
   { paths: ["src/**/generated-ouvrage*", "src/**/generated-ouvrage*/**", "src/**/GeneratedOuvrage*", "src/**/estimate-generation*"], phases: ["components", "numeric", "resume", "access", "generated-atomic", "generated-recovery", "assembly-totals", ...SOURCE_COVERAGE_PHASES] },
   { paths: ["src/**/source-coverage*", "src/**/source-review/**", "src/**/SourceCoverage*", "src/**/source-requirement*", "e2e/fixtures/source-coverage/**"], phases: [...SOURCE_COVERAGE_PHASES] },
   { paths: ["src/**/draft-lock*", "src/**/useEstimateDraftLock*", "src/**/useEstimateBatch*", "src/**/batch-operations*"], phases: ["journeys", "navigation-lease", "batch-client", "generated-atomic", "generated-recovery", "resume"] },
-  { paths: ["src/**/email*", "src/**/portal*", "src/**/resend*", "src/**/send-route*", "src/**/send/**", "src/**/pdf*", "src/**/pdf/**", "src/**/Portal*"], phases: ["emission", "emission-v3", "resend-portal"] },
+  { paths: ["src/**/email*", "src/**/portal*", "src/**/resend*", "src/**/send-route*", "src/**/send/**", "src/**/pdf*", "src/**/pdf/**", "src/**/Portal*"], phases: ["emission", "emission-v3", "resend-portal", "emission-redirect"] },
   { paths: ["src/**/supplier-offer*", "src/**/supplier-pric*", "src/**/SupplierOffer*"], phases: ["offers-zero-price", "offers-purchase-unit"] },
-  { paths: ["src/**/purchase-orders/**/send/**", "src/**/purchase-orders/send*", "src/**/OrderSend*", "src/**/templates/purchase-order*", "src/**/outgoing-routing*"], phases: ["order-send", "order-send-redirect"] },
+  { paths: ["src/**/purchase-orders/**/send/**", "src/**/purchase-orders/send*", "src/**/OrderSend*", "src/**/templates/purchase-order*", "src/**/outgoing-routing*"], phases: ["order-send", "order-send-redirect", "emission-redirect"] },
 ];
 
 /**

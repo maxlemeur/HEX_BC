@@ -56,7 +56,8 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput): Promise<
       requestUrl: input.requestUrl,
       configuredPortalBaseUrl: process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim(),
     });
-    return { message_id: completedReplay.provider_id, version_id: input.versionId, request_id: input.idempotencyKey };
+    return { message_id: completedReplay.provider_id, version_id: input.versionId, request_id: input.idempotencyKey,
+      redirected: completedReplay.redirected ?? null };
   }
   // A request already delivered answers with its receipt above and sends nothing. Anything else may send: refused
   // here, before any reread, freeze or reservation, when the routing cannot be read (delivery reads it again).
@@ -149,7 +150,8 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput): Promise<
   }
 
   if (isTerminalDelivery(dispatch.status)) {
-    return { message_id: dispatch.provider_id, version_id: input.versionId, request_id: input.idempotencyKey };
+    return { message_id: dispatch.provider_id, version_id: input.versionId, request_id: input.idempotencyKey,
+      redirected: dispatch.redirected ?? null };
   }
   if (dispatch.status === "unknown") {
     throw conflict(
@@ -229,6 +231,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput): Promise<
 
   return {
     message_id: result.providerId,
+    redirected: result.redirected,
     version_id: input.versionId,
     request_id: input.idempotencyKey,
   };

@@ -33,7 +33,7 @@ function props(updatedAt = OLD) {
 
 function receipt(url: RequestInfo | URL, init?: RequestInit) {
   return Response.json({ ok: true, data: { version_id: String(url).split("/").at(-2),
-    request_id: new Headers(init?.headers).get("Idempotency-Key"), message_id: "email-1" } });
+    request_id: new Headers(init?.headers).get("Idempotency-Key"), message_id: "email-1", redirected: false } });
 }
 
 describe("draft email recovery", () => {

@@ -37,6 +37,36 @@ type PurchaseOrderStatusUpdaterProps = {
   statuses?: readonly PurchaseOrderStatus[];
 };
 
+/**
+ * Writes an order's status as the order pages always have: a direct update the database guards (RLS, the lifecycle of
+ * an affaire's order), its refusal named. Shared by the status selector and the explicit actions of an affaire's order.
+ */
+export function usePurchaseOrderStatusUpdate(orderId: string, onSaved?: () => void) {
+  const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function update(next: PurchaseOrderStatus): Promise<boolean> {
+    setError(null);
+    setSaving(true);
+    const { error: updateError } = await supabase
+      .from("purchase_orders")
+      .update({ status: next })
+      .eq("id", orderId);
+    setSaving(false);
+    if (updateError) {
+      setError(purchaseOrderStatusErrorMessage(updateError.message));
+      return false;
+    }
+    router.refresh();
+    onSaved?.();
+    return true;
+  }
+
+  return { update, saving, error };
+}
+
 export function PurchaseOrderStatusUpdater({
   orderId,
   status,
@@ -45,30 +75,11 @@ export function PurchaseOrderStatusUpdater({
   className,
   statuses,
 }: PurchaseOrderStatusUpdaterProps) {
-  const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [value, setValue] = useState<PurchaseOrderStatus>(status);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { update, saving, error } = usePurchaseOrderStatusUpdate(orderId, onSaved);
 
   async function onSave() {
-    setError(null);
-    setSaving(true);
-
-    const { error: updateError } = await supabase
-      .from("purchase_orders")
-      .update({ status: value })
-      .eq("id", orderId);
-
-    setSaving(false);
-
-    if (updateError) {
-      setError(purchaseOrderStatusErrorMessage(updateError.message));
-      return;
-    }
-
-    router.refresh();
-    onSaved?.();
+    await update(value);
   }
 
   const hasChanged = value !== status;

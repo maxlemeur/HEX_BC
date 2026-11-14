@@ -39,7 +39,7 @@ sur le poste ; en CI, une seconde tentative
 | Commandes | `business-lifecycle` | Création UI avec quantité décimale puis états envoyé, confirmé, reçu et relecture |
 | Accès | `business-lifecycle` | Révocation d'une adhésion dédiée pendant session active et déconnexion |
 | Reprise d'ouvrages | `resume` | Neuf cas, y compris réponses perdues, état obsolète et erreurs ; aucune exclusion historique |
-| Émission | `emission`, `emission-v3`, `resend-portal` | PDF exact, outbox, idempotence, rejet, incident transitoire, résultat indéterminé/réconciliation, expiration et concurrence portail |
+| Émission | `emission`, `emission-v3`, `resend-portal`, `emission-redirect` | PDF exact, outbox, idempotence, rejet, incident transitoire, résultat indéterminé/réconciliation, expiration et concurrence portail |
 | Envoi d'un bon de commande | `order-send`, `order-send-redirect` | Brouillon d'affaire envoyé depuis sa page : destinataire, objet et message corrigés, PDF du bon relu chez le collecteur, statut « Envoyée », rejeu sans second message, fournisseur sans adresse refusé ; redirection vers la boîte de test, fournisseur dans l'objet |
 | CCTP | `source-coverage-decisions`, `source-coverage-edits`, `source-coverage-recovery` | Deux vrais PDF fictifs en Storage, hash relu, décisions et chiffrage produits dans le parcours |
 | Atomicité/reprise | `generated-atomic`, `generated-recovery`, `navigation-lease`, `batch-client`, `assembly-totals` | Prérequis autonomes ; aucun résultat final préinséré |

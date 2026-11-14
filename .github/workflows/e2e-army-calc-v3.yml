@@ -37,6 +37,7 @@ on:
           - resend-portal
           - order-send
           - order-send-redirect
+          - emission-redirect
           - source-coverage-decisions
           - source-coverage-edits
           - source-coverage-recovery

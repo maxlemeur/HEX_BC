@@ -58594,12 +58594,19 @@
                     "type": "null"
                   }
                 ]
+              },
+              "redirected": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               }
             },
             "required": [
               "version_id",
               "request_id",
-              "message_id"
+              "message_id",
+              "redirected"
             ],
             "additionalProperties": false
           }

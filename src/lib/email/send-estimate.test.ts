@@ -310,17 +310,18 @@ describe("sendEstimateEmail transactional workflow", () => {
     expect(outboxMocks.deliver).not.toHaveBeenCalled();
   });
 
-  it.each(["accepted", "archived"])(
-    "returns the stored provider id when the same request is replayed after the version became %s",
-    async (status) => {
+  // TI-691: the replay answers the stored routing too: a redirected send stays a test send.
+  it.each([["accepted", false], ["archived", true], ["accepted", null]] as const)(
+    "returns the stored provider id when the same request is replayed after the version became %s (redirected: %s)",
+    async (status, redirected) => {
     process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL = "not-an-absolute-url";
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext(status) as never
     );
-    outboxMocks.findByRequest.mockResolvedValue(createDispatch("sent"));
+    outboxMocks.findByRequest.mockResolvedValue({ ...createDispatch("sent"), redirected });
 
     await expect(sendEstimateEmail(request)).resolves.toEqual({
-      message_id: "email-existing", version_id: VERSION_ID, request_id: REQUEST_ID,
+      message_id: "email-existing", version_id: VERSION_ID, request_id: REQUEST_ID, redirected,
     });
     expect(outboxMocks.findActive).not.toHaveBeenCalled();
     expect(outboxMocks.reserve).not.toHaveBeenCalled();

@@ -37,6 +37,8 @@ const dispatchSchema = identitySchema.extend({
   last_error_code: z.string().nullable(),
   last_error_message: z.string().nullable(),
   next_attempt_at: z.string().nullable().optional(),
+  // TI-691: whether the provider received it for the test mailbox; absent from a database not yet migrated.
+  redirected: z.boolean().nullable().optional(),
 }).passthrough().refine((row) => row.request_id === null || (
   hash.safeParse(row.payload_hash).success &&
   typeof row.idempotency_key === "string" && row.idempotency_key.trim().length > 0 && row.idempotency_key.trim().length <= 256 &&
