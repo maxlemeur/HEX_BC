@@ -39,8 +39,22 @@ function OrderingProgress({ request }: Readonly<{ request: MaterialRequestListIt
   );
 }
 
+/**
+ * Where the request stands in the purchase, in a few words, from what the list knows. It numbers a step only when
+ * it is sure of it (the lines): past them, the list does not know whether a line is priced, so it says what is left
+ * rather than a step the request's own page could contradict. Nothing is said when the orders could not be read.
+ */
+function requestStage(request: MaterialRequestListItem): { label: string; variant: "neutral" | "warning" | "info" | "success" } | null {
+  if (request.line_count === 0) return { label: "Lignes à saisir", variant: "neutral" };
+  if (request.validated_line_count < request.line_count) return { label: "Étape 1 · Lignes", variant: "warning" };
+  if (request.to_order_line_count == null) return null;
+  if (request.to_order_line_count === 0) return { label: "Bons de commande faits", variant: "success" };
+  return { label: "À chiffrer ou à commander", variant: "info" };
+}
+
 function RequestRow({ projectId, request }: Readonly<{ projectId: string; request: MaterialRequestListItem }>) {
   const done = request.line_count > 0 && request.validated_line_count === request.line_count;
+  const stage = requestStage(request);
   return (
     <li>
       <Link
@@ -53,6 +67,7 @@ function RequestRow({ projectId, request }: Readonly<{ projectId: string; reques
             <span className="font-normal text-muted-foreground">·</span>
             <span>{request.technician_name ?? "Technicien non renseigné"}</span>
             {request.is_urgent ? <Badge variant="danger">Urgent</Badge> : null}
+            {stage ? <Badge variant={stage.variant}>{stage.label}</Badge> : null}
           </p>
           <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className={done ? "font-medium text-success" : undefined}>{validationProgress(request)}</span>
@@ -102,9 +117,19 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
 
   return (
     <section aria-labelledby={headingId} className="space-y-4">
-      <h2 id={headingId} className="typo-h3 text-foreground">
-        Demandes de matériel
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id={headingId} className="typo-h3 text-foreground">
+            Demandes de matériel
+          </h2>
+          {list.items.length > 0 ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {`${plural(list.items.length, "demande", "demandes")} · chacune avance en trois étapes : lignes, devis, bons de commande.`}
+            </p>
+          ) : null}
+        </div>
+        {list.items.length > 0 ? newRequest : null}
+      </div>
       {list.items.length === 0 ? (
         <EmptyState
           icon={<ClipboardList />}
@@ -119,10 +144,6 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
         />
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">{plural(list.items.length, "demande", "demandes")}</p>
-            {newRequest}
-          </div>
           <ul
             aria-label="Demandes de matériel"
             className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface"

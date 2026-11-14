@@ -294,8 +294,10 @@ async function openEditor(routes: Record<string, Route>) {
     ...routes,
   });
   const user = userEvent.setup();
+  // The page shows one step at a time: the address names the one these tests read.
+  window.history.replaceState(null, "", "?etape=devis");
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} affaireName={AFFAIRE} />);
-  await screen.findByRole("heading", { name: "Consultation" });
+  await screen.findByRole("heading", { name: "Devis" });
   return user;
 }
 
@@ -311,6 +313,11 @@ async function addCompetitor(user: ReturnType<typeof userEvent.setup>, supplier:
   await user.click(await screen.findByRole("option", { name: supplier }));
 }
 
+/** Opens a step of the page (1 lines, 2 quotes, 3 purchase orders), as the office does: one is shown at a time. */
+async function openStep(user: ReturnType<typeof userEvent.setup>, step: 1 | 2 | 3) {
+  await user.click(screen.getByRole("tab", { name: new RegExp(`^Étape ${step} :`) }));
+}
+
 describe("consultation of suppliers", () => {
   beforeEach(() => {
     uploadToSignedUrlMock.mockReset();
@@ -320,6 +327,7 @@ describe("consultation of suppliers", () => {
   });
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
     vi.unstubAllGlobals();
   });
 
@@ -358,7 +366,7 @@ describe("consultation of suppliers", () => {
     expect(message).toHaveValue(expected);
     expect(message).toHaveAttribute("readonly");
     // The line without supplier is said apart, with what to do, and is in no message.
-    expect(screen.getByText("Sans fournisseur : choisissez-en un dans la colonne Fournisseur.")).toBeVisible();
+    expect(screen.getByText("Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes.")).toBeVisible();
     expect(screen.getByText("Ligne 3 · Bride plate DN 50")).toBeVisible();
     expect(screen.getByText("Aucune consultation envoyée pour le moment.")).toBeVisible();
 
@@ -504,7 +512,7 @@ describe("consultation of suppliers", () => {
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\n- 4 u réf NA-4471 x4\nMerci !",
     );
     await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
-    expect(screen.getByText("Ligne 2 : donnez-lui un type dans le tableau avant de la mettre en concurrence.")).toBeVisible();
+    expect(screen.getByText("Ligne 2 : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.")).toBeVisible();
     await addCompetitor(user, "Comptoir Bêta");
 
     const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
@@ -775,11 +783,15 @@ describe("consultation of suppliers", () => {
       "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.",
     );
 
+    await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
+    await openStep(user, 2);
     await waitFor(() =>
       expect(retain).toHaveAccessibleDescription("La ligne 2 n’est pas validée : validez-la avant de retenir ce devis."),
     );
+    await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Valider la ligne 2" }));
+    await openStep(user, 2);
 
     await waitFor(() => expect(retain).toBeEnabled());
     expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
@@ -814,7 +826,9 @@ describe("consultation of suppliers", () => {
     const retain = await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
 
     // The reopen is on its way: the line still reads validated, and the retain is queued behind it.
+    await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
+    await openStep(user, 2);
     await user.click(retain);
     reopened();
 
@@ -1316,10 +1330,12 @@ describe("consultation of suppliers", () => {
     expect(within(quoteCard("Comptoir Bêta")).getByText(`${euros(380)} les 100`)).toBeVisible();
     expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_B}/retain`, body: null }]);
     // The lines are bought from the retained quote's supplier, at its prices, and that supplier no longer changes.
+    await openStep(user, 1);
     expect(screen.getByText(`Prix unitaire HT : ${euros(1100)} (devis retenu)`)).toBeVisible();
     expect(screen.getByText(`Prix unitaire HT : ${euros(380)} les 100 (devis retenu)`)).toBeVisible();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 2")).not.toBeInTheDocument();
+    await openStep(user, 2);
     expect(screen.getByText("Devis retenu : ses prix unitaires sont ceux des lignes.")).toBeVisible();
     // Bought lines are not asked again.
     expect(within(screen.getByRole("group", { name: "Comptoir Bêta" })).getByText("Toutes ses lignes ont leur prix retenu.")).toBeVisible();
@@ -1420,7 +1436,7 @@ describe("consultation of suppliers", () => {
       },
     });
 
-    const section = screen.getByRole("region", { name: "Consultation" });
+    const section = screen.getByRole("region", { name: "Devis" });
     const card = await within(section).findByRole("article", { name: "Devis Négoce Alpha" });
     const group = within(section).getByRole("group", { name: "Négoce Alpha" });
     expect(within(group).getByText("Ligne 1 · Coude 90° DN 50")).toBeVisible();
@@ -1474,6 +1490,8 @@ describe("consultation of suppliers", () => {
     expect(uploadToSignedUrlMock.mock.calls).toEqual([
       ["tenant/demande/devis/devis-alpha.pdf", "jeton-devis", pdf, { contentType: "application/pdf" }],
     ]);
+    // The original is read at the lines step: the quote's PDF is not among its photos.
+    await openStep(user, 1);
     expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
   });
 });

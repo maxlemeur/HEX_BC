@@ -47,7 +47,6 @@ import {
   QUOTE_PRICE_HELD,
   linesNotValidated,
   supplierAlreadyConsulted,
-  useMaterialRequestQuotes,
   type MaterialRequestQuotesApi,
   type QuotesStatus,
 } from "./useMaterialRequestQuotes";
@@ -356,7 +355,7 @@ function CompetitionPanel({
         {needType.length > 0 ? (
           <ul className="mt-2 space-y-0.5 text-sm font-medium text-warning">
             {needType.map((line) => (
-              <li key={line.id}>{`Ligne ${line.position} : donnez-lui un type dans le tableau avant de la mettre en concurrence.`}</li>
+              <li key={line.id}>{`Ligne ${line.position} : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.`}</li>
             ))}
           </ul>
         ) : null}
@@ -1171,15 +1170,23 @@ function QuoteCard({
 }
 
 /**
- * The « Consultation » section of a request: below the lines, the lines grouped by their supplier, the message to
- * copy for each, the competition, then the quotes. A reader sees the groups and the quotes, and nothing that writes.
+ * The « Devis » step of a request: the lines grouped by their supplier, the message to copy for each, the
+ * competition, then the quotes. A reader sees the groups and the quotes, and nothing that writes.
  */
 export function MaterialRequestConsultation({
   editor,
+  quotes,
   affaireName,
   headingId,
-}: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string; headingId: string }>) {
-  const quotes = useMaterialRequestQuotes(editor);
+  onGoToLines,
+}: Readonly<{
+  editor: MaterialRequestEditorApi;
+  /** Read by the page, which also says where the quotes stand in its head. */
+  quotes: MaterialRequestQuotesApi;
+  affaireName: string;
+  headingId: string;
+  onGoToLines?: () => void;
+}>) {
   const { data, canWrite } = editor;
   const { groups, without } = supplierGroups(data.lines, data.supplierOptions, quotes.items);
   // Oldest consultation first, whatever order a read or a write answered in: a card never jumps.
@@ -1191,36 +1198,39 @@ export function MaterialRequestConsultation({
     <section aria-labelledby={headingId} className="min-w-0 space-y-4">
       <div className="min-w-0">
         <h2 id={headingId} className="typo-h3 text-foreground">
-          Consultation
+          Devis
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {canWrite
-            ? "Copiez le message dans WhatsApp, puis appuyez sur « Consultation envoyée » : le devis attendu s’ajoute à la liste. MergeOne n’envoie rien."
+            ? "Pour chaque fournisseur : copiez le message dans WhatsApp, puis appuyez sur « Consultation envoyée ». Le devis attendu s’ajoute plus bas ; vous y saisissez ses prix à réception, puis vous le retenez. MergeOne n’envoie rien."
             : "Les fournisseurs consultés pour cette demande et leurs devis."}
         </p>
       </div>
 
       {data.lines.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucune ligne à consulter pour le moment.</p>
-      ) : null}
+        <p className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground">Aucune ligne à faire chiffrer : la demande n’a pas encore de ligne.</p>
+      ) : (
+        <h3 className="text-base font-semibold text-foreground">Fournisseurs à consulter</h3>
+      )}
       {groups.map((group) => (
         <SupplierGroupCard key={group.supplierId} editor={editor} quotes={quotes} group={group} affaireName={affaireName} />
       ))}
       {without.length > 0 ? (
         <div className="min-w-0 space-y-1 rounded-lg border border-dashed border-border p-3">
           <p className="text-sm font-medium text-foreground">
-            {canWrite ? "Sans fournisseur : choisissez-en un dans la colonne Fournisseur." : "Sans fournisseur :"}
+            {canWrite ? "Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes." : "Sans fournisseur :"}
           </p>
           <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
             {without.map((line) => (
               <li key={line.id} className="break-words">{`Ligne ${line.position} · ${lineTitle(line)}`}</li>
             ))}
           </ul>
+          {canWrite && onGoToLines ? <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onGoToLines}>Choisir les fournisseurs, à l’étape Lignes</Button> : null}
         </div>
       ) : null}
 
       <div className="min-w-0 space-y-3">
-        <h3 className="text-base font-semibold text-foreground">Devis</h3>
+        <h3 className="text-base font-semibold text-foreground">Devis demandés</h3>
         {quotes.status === "loading" ? (
           <p role="status" className="text-sm text-muted-foreground">
             Chargement des devis…

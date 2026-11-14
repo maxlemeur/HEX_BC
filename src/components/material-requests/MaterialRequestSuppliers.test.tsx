@@ -236,6 +236,13 @@ async function pickSupplier(user: ReturnType<typeof userEvent.setup>, field: str
   await user.click(await screen.findByRole("option", { name: option }));
 }
 
+/** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
+async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
+  const heading = screen.getByRole("heading", { name: "Demande" });
+  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier|Détails|Replier)$/ });
+  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+}
+
 describe("suppliers of request lines", () => {
   afterEach(() => {
     cleanup();
@@ -434,7 +441,7 @@ describe("suppliers of request lines", () => {
     });
 
     expect(await screen.findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
-    const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+    const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
     expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Retenir/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Négoce Alpha ·/)).not.toBeInTheDocument();
@@ -491,7 +498,7 @@ describe("suppliers of request lines", () => {
       }),
     });
 
-    const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+    const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
     expect(await within(rows[0]).findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     const sheet = within(rows[0]).getByRole("link", { name: "Fiche chez Comptoir Bêta" });
@@ -532,6 +539,7 @@ describe("suppliers of request lines", () => {
     await pickSupplier(user, "Fournisseur, ligne 2", "Comptoir Bêta");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(4));
 
+    await openRequestFields(user);
     await pickSupplier(user, "Fournisseur présumé", "Dépôt Gamma");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(5));
   });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ChoiceCell, TextCell, usePendingWrites } from "./cells";
+import { formatDateOnly } from "./format";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 
 const LABEL = "mb-1 block text-xs font-medium text-muted-foreground";
@@ -304,14 +306,73 @@ export function MaterialRequestHeader({
   const technicianOptions = technicians
     .filter((technician) => technician.is_active || technician.id === request.technician_id)
     .map((technician) => ({ value: technician.id, label: technician.name }));
+  // A material or a supplier read at the top of the sheet waits for its confirmation: the fields are then open from
+  // the start, the confirmation being the next thing to do there.
+  const materialPending = Boolean(request.presumed_material) && !request.material_confirmed;
+  const supplierPending = Boolean(request.presumed_supplier_id) && !request.supplier_confirmed;
+  const [open, setOpen] = useState(canWrite && (materialPending || supplierPending));
+  const technicianName =
+    technicians.find((technician) => technician.id === request.technician_id)?.name ?? data.technician?.name ?? null;
+  const supplierLabel = request.presumed_supplier_id
+    ? (data.supplierOptions.find((option) => option.id === request.presumed_supplier_id)?.label ?? "Fournisseur retiré de la liste")
+    : null;
+  type SummaryEntry = { name: string; value: string; pending?: boolean };
+  const entries: Array<SummaryEntry | null> = [
+    { name: "Technicien", value: request.technician_id ? (technicianName ?? "Technicien retiré de la liste") : "non renseigné" },
+    { name: "Demandée le", value: formatDateOnly(request.requested_on) },
+    request.needed_on ? { name: "Besoin le", value: `${formatDateOnly(request.needed_on)}${request.is_urgent ? " · urgent" : ""}` } : null,
+    !request.needed_on && request.is_urgent ? { name: "Délai", value: "urgent" } : null,
+    {
+      name: "Réception",
+      value: request.delivery_place ? MATERIAL_REQUEST_DELIVERY_PLACE_LABELS[request.delivery_place] : "lieu non précisé",
+    },
+    request.presumed_material
+      ? {
+          name: "Matière présumée",
+          value: `${request.presumed_material} (${request.material_confirmed ? "confirmée" : "à confirmer"})`,
+          pending: materialPending,
+        }
+      : null,
+    supplierLabel
+      ? {
+          name: "Fournisseur présumé",
+          value: `${supplierLabel} (${request.supplier_confirmed ? "confirmé" : "à confirmer"})`,
+          pending: supplierPending,
+        }
+      : null,
+    request.note ? { name: "Note", value: request.note } : null,
+  ];
+  const summary = entries.filter((entry): entry is SummaryEntry => entry !== null);
 
   return (
     <section aria-labelledby={`${ids}-heading`} className="rounded-lg border border-border bg-surface p-4">
-      <h2 id={`${ids}-heading`} className="typo-h3 text-foreground">
-        Demande
-      </h2>
-      <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2 2xl:grid-cols-4">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <h2 id={`${ids}-heading`} className="typo-h3 text-foreground">
+          Demande
+        </h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-expanded={open}
+          aria-controls={`${ids}-fields`}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <ChevronDown aria-hidden="true" className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
+          {open ? "Replier" : canWrite ? "Modifier" : "Détails"}
+        </Button>
+      </div>
+      {/* What the technician said at the top of the request, read at a glance; the fields are opened to change it. */}
+      <dl className="mt-2 space-y-1 text-sm">
+        {summary.map((entry) => (
+          <div key={entry.name} className="flex min-w-0 flex-wrap gap-x-1.5">
+            <dt className="text-muted-foreground">{entry.name} :</dt>
+            <dd className={cn("min-w-0 break-words text-foreground", entry.pending && "font-medium text-warning")}>{entry.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div id={`${ids}-fields`} hidden={!open} className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4">
+        <div className="col-span-2">
           <label htmlFor={`${ids}-technician`} className={LABEL}>
             Technicien
           </label>
@@ -348,7 +409,7 @@ export function MaterialRequestHeader({
             onCommit={(needed_on) => updateRequest({ needed_on })}
           />
         </div>
-        <div>
+        <div className="col-span-2">
           <label htmlFor={`${ids}-place`} className={LABEL}>
             Lieu de réception
           </label>
@@ -361,7 +422,7 @@ export function MaterialRequestHeader({
             onCommit={(place) => updateRequest({ delivery_place: place as MaterialRequestDeliveryPlace | null })}
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="col-span-2">
           <label htmlFor={`${ids}-material`} className={LABEL}>
             Matière présumée
           </label>
@@ -401,7 +462,7 @@ export function MaterialRequestHeader({
             }
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="col-span-2">
           <label htmlFor={`${ids}-supplier`} className={LABEL}>
             Fournisseur présumé
           </label>
@@ -438,7 +499,7 @@ export function MaterialRequestHeader({
             }
           />
         </div>
-        <div className="sm:col-span-2 2xl:col-span-3">
+        <div className="col-span-2">
           <label htmlFor={`${ids}-note`} className={LABEL}>
             Note
           </label>
@@ -449,7 +510,7 @@ export function MaterialRequestHeader({
             onCommit={(note) => updateRequest({ note })}
           />
         </div>
-        <div className="flex flex-col justify-end">
+        <div className="col-span-2">
           <label className="flex min-h-9 items-center gap-2 text-sm font-medium text-foreground">
             <input
               type="checkbox"

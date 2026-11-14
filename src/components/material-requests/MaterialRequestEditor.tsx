@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Tabs } from "@base-ui/react/tabs";
 import { History, MessageSquareText, Trash2 } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
@@ -20,11 +21,23 @@ import { materialRequestsHref } from "./format";
 import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
 import { MaterialRequestHeader } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
-import { MaterialRequestOrders, MaterialRequestToOrderReminder } from "./MaterialRequestOrders";
+import { MaterialRequestOrders } from "./MaterialRequestOrders";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
+import { MaterialRequestSteps, requestStepPanelId } from "./MaterialRequestSteps";
+import { REQUEST_STEP_KEYS, requestSteps, type RequestStepKey } from "./request-steps";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import { useMaterialRequestOrders } from "./useMaterialRequestOrders";
+import { useMaterialRequestQuotes } from "./useMaterialRequestQuotes";
+
+const STEP_PARAM = "etape";
+
+/** The step named in the address, when it names one: a reload or a shared link opens the same step. */
+function stepFromAddress(): RequestStepKey | null {
+  if (typeof window === "undefined") return null;
+  const named = new URLSearchParams(window.location.search).get(STEP_PARAM);
+  return REQUEST_STEP_KEYS.find((key) => key === named) ?? null;
+}
 
 function ReadyEditor({
   editor,
@@ -38,8 +51,54 @@ function ReadyEditor({
   const [messageOpen, setMessageOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const { data, canWrite, projectId, requestId } = editor;
+  const { data, canWrite, projectId, requestId, alertsByLine } = editor;
   const orders = useMaterialRequestOrders(editor);
+  const quotes = useMaterialRequestQuotes(editor);
+
+  const model = useMemo(
+    () =>
+      requestSteps({
+        hasSourceText: Boolean(data.request.source_text?.trim()),
+        lines: data.lines,
+        blockingLineIds: new Set(
+          data.lines
+            .filter((line) => line.status === "draft" && (alertsByLine.get(line.id) ?? []).some((alert) => alert.blocking))
+            .map((line) => line.id),
+        ),
+        quotes: quotes.status === "ready" ? quotes.items : null,
+        orders: orders.summary
+          ? {
+              ready: orders.summary.ready_line_ids.length,
+              ordered: new Set(orders.summary.ordered.map((entry) => entry.line_id)).size,
+              canCreate: canWrite && orders.summary.can_create,
+            }
+          : null,
+      }),
+    [alertsByLine, canWrite, data.lines, data.request.source_text, orders.summary, quotes.items, quotes.status],
+  );
+  // Opened once, on the step that has work when the request is read (or the one the address names). It then moves
+  // only when the office moves it: finishing a step never takes the screen away from under the hands.
+  const [step, setStep] = useState<RequestStepKey>(() => stepFromAddress() ?? model.next.step);
+  const [focusStep, setFocusStep] = useState<RequestStepKey | null>(null);
+
+  const openStep = (next: RequestStepKey) => {
+    setStep(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set(STEP_PARAM, next);
+    // The router's own state is kept: a foreign one would make Next restore the page.
+    window.history.replaceState(window.history.state, "", url);
+  };
+  const goToStep = (next: RequestStepKey) => {
+    openStep(next);
+    setFocusStep(next);
+  };
+  // After « Aller à l’étape … », the focus follows to the step's panel, which is only shown once rendered.
+  useEffect(() => {
+    if (!focusStep) return;
+    setFocusStep(null);
+    // The step opens under its tabs: the page stays where the office reads the head.
+    document.getElementById(requestStepPanelId(ids, focusStep))?.focus({ preventScroll: true });
+  }, [focusStep, ids]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -55,75 +114,107 @@ function ReadyEditor({
 
   const known = data.technician ? [data.technician, ...technicians.filter((item) => item.id !== data.technician?.id)] : technicians;
   const technician = known.find((item) => item.id === data.request.technician_id) ?? null;
+  const panel = (key: RequestStepKey) => ({
+    value: key,
+    id: requestStepPanelId(ids, key),
+    keepMounted: true,
+    // What a step holds (a price being typed, a creation under way) stays while another step is shown.
+    className: "min-w-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring",
+  });
 
   return (
-    <div className="grid items-start gap-6 xl:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-      <div className="min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto">
-        <MaterialRequestOriginal editor={editor} headingId={`${ids}-original`} />
+    <Tabs.Root
+      value={step}
+      onValueChange={(value) => openStep(value as RequestStepKey)}
+      className="space-y-6"
+    >
+      {canWrite ? null : (
+        <Alert variant="info">
+          <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
+        </Alert>
+      )}
+      <MaterialRequestSteps model={model} active={step} canWrite={canWrite} idBase={ids} onGoTo={goToStep} />
+      {/* Each step has the whole width of the page: the lines are a table, as in the estimate editor. */}
+      <div className="min-w-0">
+        <div className="min-w-0">
+          <datalist id={materialListId}>
+            {data.materialOptions.map((material) => (
+              <option key={material} value={material} />
+            ))}
+          </datalist>
+          <Tabs.Panel {...panel("lignes")}>
+            {/* What the technician sent, above the lines it is rewritten into. */}
+            <div className="mb-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+              <MaterialRequestOriginal editor={editor} headingId={`${ids}-original`} />
+              <MaterialRequestHeader editor={editor} technicians={known} materialListId={materialListId} />
+            </div>
+            <MaterialRequestLines
+              editor={editor}
+              materialListId={materialListId}
+              headingId={`${ids}-lines`}
+              orderedLine={orders.orderedLine}
+              canEditCatalogue={canEditCatalogue}
+              toolbar={
+                <>
+                  <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
+                    <MessageSquareText aria-hidden="true" />
+                    Message au technicien
+                  </Button>
+                  {technician ? (
+                    <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setHistoryOpen(true)}>
+                      <History aria-hidden="true" />
+                      Demandes précédentes de {technician.name}
+                    </Button>
+                  ) : null}
+                </>
+              }
+            />
+          </Tabs.Panel>
+          <Tabs.Panel {...panel("devis")}>
+            <MaterialRequestConsultation
+              editor={editor}
+              quotes={quotes}
+              affaireName={affaireName}
+              headingId={`${ids}-consultation`}
+              onGoToLines={() => goToStep("lignes")}
+            />
+          </Tabs.Panel>
+          <Tabs.Panel {...panel("commande")}>
+            <MaterialRequestOrders
+              editor={editor}
+              orders={orders}
+              headingId={`${ids}-orders`}
+              onGoToStep={goToStep}
+            />
+          </Tabs.Panel>
+        </div>
       </div>
-      <div className="min-w-0 space-y-6">
-        {canWrite ? null : (
-          <Alert variant="info">
-            <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
-          </Alert>
-        )}
-        <MaterialRequestHeader editor={editor} technicians={known} materialListId={materialListId} />
-        <MaterialRequestToOrderReminder editor={editor} orders={orders} />
-        <datalist id={materialListId}>
-          {data.materialOptions.map((material) => (
-            <option key={material} value={material} />
-          ))}
-        </datalist>
-        <MaterialRequestLines
-          editor={editor}
-          materialListId={materialListId}
-          headingId={`${ids}-lines`}
-          orderedLine={orders.orderedLine}
-          canEditCatalogue={canEditCatalogue}
-          toolbar={
-            <>
-              <Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setMessageOpen(true)}>
-                <MessageSquareText aria-hidden="true" />
-                Message au technicien
-              </Button>
-              {technician ? (
-                <Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setHistoryOpen(true)}>
-                  <History aria-hidden="true" />
-                  Demandes précédentes de {technician.name}
-                </Button>
-              ) : null}
-            </>
-          }
-        />
-        <MaterialRequestConsultation editor={editor} affaireName={affaireName} headingId={`${ids}-consultation`} />
-        <MaterialRequestOrders editor={editor} orders={orders} headingId={`${ids}-orders`} />
-        {canWrite ? (
-          <div className="border-t border-border pt-4">
-            <ConfirmButton
-              variant="outline"
-              label="Supprimer la demande"
-              confirmLabel="Confirmer la suppression de la demande"
-              confirmText="Supprimer la demande et ses lignes ?"
-              onConfirm={async () => {
-                try {
-                  await deleteMaterialRequest(projectId, requestId);
-                  router.push(materialRequestsHref(projectId));
-                } catch (error) {
-                  setDeleteError(materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée."));
-                }
-              }}
-            >
-              <Trash2 aria-hidden="true" />
-              Supprimer la demande
-            </ConfirmButton>
-            {deleteError ? (
-              <p role="alert" className="mt-2 text-sm font-medium text-danger">
-                {deleteError}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      {canWrite ? (
+        <div className="border-t border-border pt-4">
+          <ConfirmButton
+            variant="outline"
+            label="Supprimer la demande"
+            confirmLabel="Confirmer la suppression de la demande"
+            confirmText="Supprimer la demande et ses lignes ?"
+            onConfirm={async () => {
+              try {
+                await deleteMaterialRequest(projectId, requestId);
+                router.push(materialRequestsHref(projectId));
+              } catch (error) {
+                setDeleteError(materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée."));
+              }
+            }}
+          >
+            <Trash2 aria-hidden="true" />
+            Supprimer la demande
+          </ConfirmButton>
+          {deleteError ? (
+            <p role="alert" className="mt-2 text-sm font-medium text-danger">
+              {deleteError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <ClarificationMessageDialog
         open={messageOpen}
         onOpenChange={setMessageOpen}
@@ -140,13 +231,14 @@ function ReadyEditor({
           onCopy={(line) => editor.addLines([line])}
         />
       ) : null}
-    </div>
+    </Tabs.Root>
   );
 }
 
 /**
- * One material request (TI-690): the original on one side, its rewriting on the other. The operator
- * types; the screen keeps what is missing or doubtful in view and validates nothing by itself.
+ * One material request (TI-690, TI-691): what the technician sent on one side, and on the other the purchase one
+ * step at a time (lines, quotes, purchase orders), under a head that says what to do next. The operator types; the
+ * screen keeps what is missing or doubtful in view and validates nothing by itself.
  */
 export function MaterialRequestEditor({
   projectId,

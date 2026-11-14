@@ -54,12 +54,22 @@ export function CellMessages({
   id,
   alerts = NO_ALERTS,
   error,
-}: Readonly<{ id: string; alerts?: CellAlerts; error?: string | null }>) {
+  quietAlerts = false,
+}: Readonly<{
+  id: string;
+  alerts?: CellAlerts;
+  error?: string | null;
+  /**
+   * The alerts are already written once beside the field (a line's card lists them under its head): here they are
+   * kept for the field's description, read by a screen reader, and not printed a second time.
+   */
+  quietAlerts?: boolean;
+}>) {
   if (alerts.length === 0 && !error) return null;
   return (
-    <div id={id} className="mt-1 space-y-0.5 text-xs leading-snug">
+    <div id={id} className={cn("space-y-0.5 text-xs leading-snug", quietAlerts && !error ? "sr-only" : "mt-1")}>
       {alerts.map((alert) => (
-        <p key={alert.code} className="flex items-start gap-1 font-medium text-warning">
+        <p key={alert.code} className={cn("flex items-start gap-1 font-medium text-warning", quietAlerts && "sr-only")}>
           {alert.blocking ? (
             <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
           ) : (
@@ -127,7 +137,10 @@ export function TextCell({
   hintId,
   onUnsavedChange,
   onAbandon,
+  quietAlerts = false,
 }: Readonly<{
+  /** The alerts are written beside the field already: see `CellMessages`. */
+  quietAlerts?: boolean;
   /** Id of a text shown beside the field that the field should be described by. */
   hintId?: string;
   /** Told whenever the field starts or stops holding a value that is not the saved one. */
@@ -209,7 +222,7 @@ export function TextCell({
           }
         }}
       />
-      <CellMessages id={messagesId} alerts={alerts} error={error} />
+      <CellMessages id={messagesId} alerts={alerts} error={error} quietAlerts={quietAlerts} />
     </>
   );
 }
@@ -229,7 +242,10 @@ export function QuantityCell({
   onCommit,
   alerts = NO_ALERTS,
   onAbandon,
+  quietAlerts = false,
 }: Readonly<{
+  /** The alerts are written beside the field already: see `CellMessages`. */
+  quietAlerts?: boolean;
   label: string;
   value: number | null;
   onCommit: (next: number | null) => Promise<SaveResult>;
@@ -309,7 +325,7 @@ export function QuantityCell({
           }
         }}
       />
-      <CellMessages id={messagesId} alerts={alerts} error={error} />
+      <CellMessages id={messagesId} alerts={alerts} error={error} quietAlerts={quietAlerts} />
     </>
   );
 }

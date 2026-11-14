@@ -16,7 +16,7 @@ export default async function AffaireMaterialRequestsPage({ params }: Props) {
     <>
       <PageHeader
         title="Achats"
-        description="Les demandes de matériel des techniciens, de l’original jusqu’à la commande, et ce que les fournitures coûtent à l’affaire."
+        description="Ce que les fournitures coûtent à l’affaire, et les demandes de matériel des techniciens, de l’original jusqu’au bon de commande."
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: project.name, href: `/dashboard/affaires/${projectId}` },
@@ -25,8 +25,9 @@ export default async function AffaireMaterialRequestsPage({ params }: Props) {
       />
 
       <div className="space-y-8">
-        <MaterialRequestsList projectId={projectId} />
+        {/* The steering figures first: under the list, the owner did not find them. */}
         <AffaireSupplyCost projectId={projectId} />
+        <MaterialRequestsList projectId={projectId} />
       </div>
     </>
   );

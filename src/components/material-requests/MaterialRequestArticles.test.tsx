@@ -227,6 +227,12 @@ async function openEditor(routes: Record<string, Route>) {
 
 const BULK = /^Rattacher les références et noms connus \(\d+\)$/;
 
+/** Shows the fields a line keeps on demand (precision, reference, zone, imputation), as the office does. */
+async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position: number) {
+  const toggle = screen.getByRole("button", { name: `Précision, référence, repère, imputation : ligne ${position}` });
+  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+}
+
 describe("linking request lines to catalogue articles", () => {
   afterEach(() => {
     cleanup();
@@ -255,7 +261,7 @@ describe("linking request lines to catalogue articles", () => {
       path: `${BASE}/lines/${LINE_A}/article`,
       body: { product_id: ARTICLE_1, via: "reference", expected_line: seen(line()) },
     });
-    expect(await screen.findByText("Nom usuel retenu : « tige »")).toBeVisible();
+    expect(await screen.findByText("Nom usuel mémorisé : « tige »")).toBeVisible();
     expect(screen.getByLabelText("Type, ligne 1")).toHaveValue("Tige filetée");
     expect(screen.getByLabelText("Matière, ligne 1")).toHaveValue("Acier zingué");
     expect(screen.getByText("TF-M10-1M")).toBeVisible();
@@ -331,7 +337,7 @@ describe("linking request lines to catalogue articles", () => {
       { method: "PUT", path: `${BASE}/lines/${LINE_A}/article`, body: { product_id: ARTICLE_1, via: "alias", expected_line: seen(lines[0]) } },
       { method: "PUT", path: `${BASE}/lines/${LINE_C}/article`, body: { product_id: ARTICLE_3, via: "reference", expected_line: seen(lines[2]) } },
     ]);
-    expect(screen.getByText("Nom usuel retenu : « rondelle »")).toBeVisible();
+    expect(screen.getByText("Nom usuel mémorisé : « rondelle »")).toBeVisible();
     expect(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).toBeEnabled();
     expect(screen.getByRole("button", { name: BULK })).toBeDisabled();
   });
@@ -440,7 +446,7 @@ describe("linking request lines to catalogue articles", () => {
     expect(await screen.findByText("Unité changée pour celle de l’article : vérifiez la quantité.")).toBeVisible();
     expect(screen.getByLabelText("Unité, ligne 1")).toHaveValue("u");
     expect(screen.getByLabelText("Quantité à vérifier, ligne 1")).toBeChecked();
-    expect(screen.queryByText(/Nom usuel retenu/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nom usuel mémorisé/)).not.toBeInTheDocument();
   });
 
   describe("creating the article a line names", () => {
@@ -572,6 +578,7 @@ describe("linking request lines to catalogue articles", () => {
 
     await waitFor(() => expect(candidateReads()).toHaveLength(2));
     // A zone tells nothing about the article: changing it does not ask for proposals again.
+    await showMoreFields(user, 2);
     await user.type(screen.getByLabelText("Repère, ligne 2"), "R+1");
     await user.tab();
     await waitFor(() => expect(writes()).toHaveLength(2));
@@ -587,6 +594,7 @@ describe("linking request lines to catalogue articles", () => {
     await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
     expect(candidateReads()).toHaveLength(1);
 
+    await showMoreFields(user, 1);
     await user.selectOptions(screen.getByLabelText("Imputation, ligne 1"), "Frais généraux");
 
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -618,6 +626,7 @@ describe("linking request lines to catalogue articles", () => {
     });
     expect(await screen.findByRole("button", { name: "Rattacher les références et noms connus (1)" })).toBeEnabled();
 
+    await showMoreFields(user, 1);
     await user.type(screen.getByLabelText("Repère, ligne 1"), "Chaufferie");
     await user.tab();
     await screen.findByRole("alert");
@@ -654,7 +663,7 @@ describe("linking request lines to catalogue articles", () => {
     expect(writes()[0].body).toEqual({ product_id: ARTICLE_2, via: "manual", expected_line: seen(line()) });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Goujon d’ancrage M10")).toBeVisible();
-    expect(screen.getByText("Nom usuel retenu : « tige »")).toBeVisible();
+    expect(screen.getByText("Nom usuel mémorisé : « tige »")).toBeVisible();
   });
 
   it("says a validated line returns to draft before linking it, and shows it as a draft after (1)", async () => {

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AffaireSupplyCost as SupplyCost } from "@/lib/material-requests/supply-cost-contracts";
@@ -27,6 +27,21 @@ function mockCost(cost: SupplyCost) {
   vi.stubGlobal("fetch", vi.fn(async () => ({
     ok: true, status: 200, json: async () => ({ ok: true, data: cost }), blob: async () => new Blob([]),
   })));
+}
+
+/** The four figures that lead the section, as read: « Budget HT 1 200,00 € »… */
+function totals(): string[] {
+  const section = screen.getByRole("region", { name: "Coût des fournitures" });
+  return within(section).getAllByRole("term").map((term) => plain(`${term.textContent} ${term.nextElementSibling?.textContent}`));
+}
+
+/** The table per supply type opens under the totals, on demand. */
+async function openDetail() {
+  const toggle = await screen.findByRole("button", { name: "Détail par type de fourniture" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("table")).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
 }
 
 function cells(rowName: string): string[] {
@@ -65,6 +80,9 @@ describe("AffaireSupplyCost", () => {
     expect(await screen.findByText(
       "Budget de la version 3, variante A, acceptée par le client. 2 versions sont acceptées : la plus haute fait le budget.",
     )).toBeTruthy();
+    // The affaire's totals are read at once, before the detail is opened.
+    expect(totals()).toEqual(["Budget HT 1 200,00 €", "Commandé HT 875,50 €", "En cours HT 150,00 €", "Reste HT 174,50 €"]);
+    await openDetail();
     expect(cells("Tubes")).toEqual(["1 000,00 €", "600,00 €", "150,00 €", "250,00 €"]);
     expect(cells("Raccords")).toEqual(["200,00 €", "250,50 €", "0,00 €", "Dépassé de 50,50 €"]);
     expect(cells("Non classé")).toEqual(["0,00 €", "10,00 €", "0,00 €", "Dépassé de 10,00 €"]);
@@ -88,6 +106,8 @@ describe("AffaireSupplyCost", () => {
     expect(await screen.findByText(
       "Budget en attente du devis accepté : le commandé et l’en-cours sont affichés sans budget.",
     )).toBeTruthy();
+    expect(totals()).toEqual(["Budget HT —", "Commandé HT 0,00 €", "En cours HT 119,28 €", "Reste HT —"]);
+    await openDetail();
     expect(cells("Non classé")).toEqual(["—", "0,00 €", "119,28 €", "—"]);
     expect(cells("Total HT")).toEqual(["—", "0,00 €", "119,28 €", "—"]);
     expect(screen.queryByText(/créés? depuis le devis/)).toBeNull();

@@ -308,7 +308,7 @@ export function MaterialRequestArticleSheet({
   const [mode, setMode] = useState<{ lineId: string; view: "choose" | "create" } | null>(null);
   const [search, setSearch] = useState<{ lineId: string; query: string; result: Search } | null>(null);
   const [linkError, setLinkError] = useState<{ lineId: string; message: string } | null>(null);
-  /** « Retenir … comme nom usuel », checked for one line: unchecked again for the next. */
+  /** « Mémoriser … comme nom usuel », checked for one line: unchecked again for the next. */
   const [learnFor, setLearnFor] = useState<string | null>(null);
 
   const lineId = line?.id ?? null;
