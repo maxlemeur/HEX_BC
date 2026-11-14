@@ -255,7 +255,10 @@ armyTest("HUB13 the editor names the missing PDF among the send's blockers, and 
   await waitForHydration(browser);
   const alert = screen.getByTestId("estimate-editor-alert-send-blocked");
   await expect(alert).toBeVisible({ timeout: 30_000 });
+  // One line whatever the blockers (the grid under it never moves); the detail opens on demand.
   await expect(alert.getByText("Envoi bloqué : une anomalie à lever avant l’envoi.", { exact: true })).toBeVisible();
+  await alert.getByText("Voir le détail", { exact: true }).click();
+  await expect(alert.getByRole("list", "Anomalies bloquant l’envoi", { exact: true })).toBeVisible();
   expect(await namedBlockers(browser)).toEqual([MISSING_PDF]);
   // « PDF absent » may be forced by an administrator: the alert says so, and no more.
   await expect(alert.getByText("Un administrateur peut aussi forcer l’envoi.", { exact: true })).toBeVisible();

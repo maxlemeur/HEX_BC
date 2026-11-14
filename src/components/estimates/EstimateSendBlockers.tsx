@@ -20,6 +20,11 @@ type EstimateSendBlockersProps = {
   editHref?: string | null;
   /** Shown after the list: whether an administrator may force the send, and for which blockers not. */
   showForceNote?: boolean;
+  /**
+   * The list opens on demand: the editor's alert keeps one line whatever its blockers, so the grid under it never moves
+   * when a write adds or lifts one (V3E20, V3E21, bulk-edit undo).
+   */
+  collapsible?: boolean;
   onBeforeGeneratePdf?: () => Promise<boolean>;
   onPdfPrepared?: (data: EstimateEditorData) => void;
   /** The PDF is ready: the caller reads the send's preconditions again. */
@@ -55,16 +60,15 @@ export function EstimateSendBlockers({
   projectId = null,
   editHref = null,
   showForceNote = false,
+  collapsible = false,
   onBeforeGeneratePdf,
   onPdfPrepared,
   onPdfReady,
 }: Readonly<EstimateSendBlockersProps>) {
   const count = flags.length;
-  return (
-    <div className="space-y-2" data-testid="estimate-send-blockers">
-      <p className="font-medium">
-        {`Envoi bloqué : ${count === 1 ? "une anomalie" : `${count} anomalies`} à lever avant l’envoi.`}
-      </p>
+  const title = `Envoi bloqué : ${count === 1 ? "une anomalie" : `${count} anomalies`} à lever avant l’envoi.`;
+  const list = (
+    <>
       <ul className="space-y-2" aria-label="Anomalies bloquant l’envoi">
         {flags.map((flag) => {
           const category = flag.category ?? resolveEstimateReadinessCategoryFromGatingFlagKey(flag.key);
@@ -109,6 +113,24 @@ export function EstimateSendBlockers({
         })}
       </ul>
       {showForceNote ? <p className="text-xs">{forceNote(flags)}</p> : null}
+    </>
+  );
+  if (collapsible) {
+    return (
+      <details className="group" data-testid="estimate-send-blockers">
+        <summary className="cursor-pointer list-none">
+          <span className="font-medium">{title}</span>{" "}
+          <span className="text-xs font-medium underline underline-offset-2 group-open:hidden">Voir le détail</span>
+          <span className="hidden text-xs font-medium underline underline-offset-2 group-open:inline">Masquer le détail</span>
+        </summary>
+        <div className="mt-2 space-y-2">{list}</div>
+      </details>
+    );
+  }
+  return (
+    <div className="space-y-2" data-testid="estimate-send-blockers">
+      <p className="font-medium">{title}</p>
+      {list}
     </div>
   );
 }

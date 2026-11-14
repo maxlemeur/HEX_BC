@@ -114,6 +114,7 @@ export function EstimateEditorAlerts({
               versionStatus="draft"
               projectId={projectId}
               showForceNote
+              collapsible
               onBeforeGeneratePdf={onBeforeGeneratePdf}
               onPdfPrepared={onPdfPrepared}
               onPdfReady={onPdfReady}
