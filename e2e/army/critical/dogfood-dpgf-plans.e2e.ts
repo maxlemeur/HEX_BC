@@ -5,6 +5,7 @@ import path from "node:path";
 import { expect } from "e2e";
 
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
+import { waitForHydration } from "./hydration-support";
 import { readPlanFiles, readPlanSets } from "./plans-support";
 import { localClient } from "../takeoff/native-ui";
 import { buildAffaireIntakeStoragePath } from "../../../src/lib/affaires/intake";
@@ -314,7 +315,7 @@ armyTest("DOG04 intake plan copy is recoverable and removed through its source",
 armyTest("DOG05 study panel offers the import of a classified DPGF and marks it imported only afterwards", {
   session: "army", trace: "off", tags: ["critical", "dpgf", "local"], timeout: 240_000,
 }, async (ui) => {
-  const { army, app, screen } = ui;
+  const { army, app, screen, browser } = ui;
   const { client, userId } = await requireOwnedApplication(ui);
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DOG05`, title: "Dossier fictif" }, army);
   const project = await client.from("estimate_projects").select("id,tenant_id").eq("id", ids.projectId).single();
@@ -326,10 +327,17 @@ armyTest("DOG05 study panel offers the import of a classified DPGF and marks it 
   (army.ownedIntakeCopies ??= []).push({ projectId: ids.projectId, storagePath: copy.storagePath });
 
   const navigation = screen.getByRole("navigation", "Navigation de l'affaire", { exact: true });
+  // The server HTML shows the hub before React handles it, and its journey panel (a lazy chunk) hydrates after
+  // the rest: a press on the navigation, « Ouvrir les documents » or « Étude » is lost until then.
+  const openHub = async () => {
+    await app.open(`/dashboard/affaires/${ids.projectId}`);
+    await waitForHydration(browser);
+  };
   const openStudyTools = async () => {
     await navigation.getByRole("button", /^Vue d’ensemble/).click();
     const stage = screen.getByRole("button", /Étude/);
     if (await stage.getAttribute("aria-expanded") !== "true") await stage.click();
+    await expect(stage).toHaveAttribute("aria-expanded", "true");
     const tools = screen.getByText("Choisir la base du devis et les métrés", { exact: true });
     await tools.click();
     await expect(screen.getByText("Prochaine étape", { exact: true })).toBeVisible();
@@ -337,7 +345,7 @@ armyTest("DOG05 study panel offers the import of a classified DPGF and marks it 
   const dpgfCard = () => screen.getByRole("button", /^DPGF/);
 
   // The user classifies the piece as a DPGF from the documents of the dossier.
-  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await openHub();
   await navigation.getByRole("button", /^Vue d’ensemble/).click();
   await screen.getByRole("button", "Ouvrir les documents", { exact: true }).click();
   await screen.getByRole("button", `Détails de ${file.name}`, { exact: true }).click();
@@ -377,7 +385,7 @@ armyTest("DOG05 study panel offers the import of a classified DPGF and marks it 
   await expect(screen.getByRole("heading", "Devis créé", { exact: true })).toBeVisible({ timeout: 45_000 });
 
   // Once an import of the affaire is completed, the card says so and stops offering it.
-  await app.open(`/dashboard/affaires/${ids.projectId}`);
+  await openHub();
   await openStudyTools();
   await expect(dpgfCard().getByText("Importée", { exact: true })).toBeVisible();
   await expect(screen.getByRole("button", "Lancer l'import structuré", { exact: true })).toHaveCount(0);
