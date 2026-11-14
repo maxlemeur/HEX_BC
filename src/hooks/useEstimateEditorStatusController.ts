@@ -295,6 +295,19 @@ export function useEstimateEditorStatusController({
     []
   );
 
+  // A reload of the gating (a PDF generated from the send-blocked alert, TI-691) makes the snapshot a send dialog left
+  // behind stale: it is dropped once that dialog is closed and no send is running, so the fresh read is the one shown.
+  const previousGatingReloadTokenRef = useRef(gatingReloadToken);
+  useLayoutEffect(() => {
+    if (previousGatingReloadTokenRef.current === gatingReloadToken) return;
+    previousGatingReloadTokenRef.current = gatingReloadToken;
+    if (isOperationInProgressRef.current) return;
+    updateStateForScope(controllerScopeKey, (current) =>
+      current.isSendGatingDialogOpen || current.workflowSendGating === null
+        ? current
+        : { ...current, workflowSendGating: null });
+  }, [controllerScopeKey, gatingReloadToken, updateStateForScope]);
+
   useLayoutEffect(() => {
     if (previousControllerScopeKeyRef.current === controllerScopeKey) return;
 
