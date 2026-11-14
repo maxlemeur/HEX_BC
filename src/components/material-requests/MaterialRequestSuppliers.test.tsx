@@ -430,18 +430,24 @@ describe("suppliers of request lines", () => {
   });
 
   it("shows a reader each supplier with its reference, from the proposals' answer, and no control (4, 6)", async () => {
+    // The detail renders before its supplier-reference response arrives, especially on CI.
+    let releaseReferences!: (reply: Reply) => void;
+    const references = new Promise<Reply>((resolve) => { releaseReferences = resolve; });
     await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ canWrite: false, lines: [line(), line({ id: LINE_B, position: 2, supplier_id: BETA })] }),
       },
-      [`GET ${PROPOSALS}`]: proposals(
-        { [LINE_A]: proposal() },
-        { [LINE_B]: { supplier_sku: "CB-90-50", product_url: null } },
-      ),
+      [`GET ${PROPOSALS}`]: () => references,
     });
 
     const details = screen.getByRole("complementary", { name: "Détails de la ligne 2" });
-    expect(within(details).getByText("Réf. fournisseur")).toBeVisible();
+    expect(within(details).getByText("Comptoir Bêta", { exact: true })).toBeVisible();
+    expect(within(details).queryByText("Réf. fournisseur")).not.toBeInTheDocument();
+    releaseReferences(proposals(
+      { [LINE_A]: proposal() },
+      { [LINE_B]: { supplier_sku: "CB-90-50", product_url: null } },
+    ));
+    expect(await within(details).findByText("Réf. fournisseur")).toBeVisible();
     expect(await within(details).findByText("CB-90-50", { exact: true })).toBeVisible();
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
     expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
