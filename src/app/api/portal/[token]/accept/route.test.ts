@@ -186,6 +186,8 @@ describe("POST /api/portal/[token]/accept", () => {
     // No email env vars by default (skip email sending)
     delete process.env.RESEND_API_KEY;
     delete process.env.EMAIL_FROM;
+    delete process.env.EMAIL_DELIVERY_MODE;
+    delete process.env.EMAIL_REDIRECT_TO;
   });
 
   afterEach(() => {
@@ -370,9 +372,41 @@ describe("POST /api/portal/[token]/accept", () => {
     );
   });
 
+  it("sends the confirmation to the test mailbox and logs the client's address when delivery is redirected", async () => {
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.EMAIL_FROM = "noreply@example.com";
+    process.env.EMAIL_REDIRECT_TO = "recette@test.invalid";
+    mockTokenLookupSingle.mockResolvedValueOnce({ data: PENDING_TOKEN, error: null });
+
+    await POST(makeRequest({ accepted_terms: true }), makeParams());
+
+    expect(mockResendSend).toHaveBeenCalledTimes(1);
+    const sent = mockResendSend.mock.calls[0]![0];
+    expect(sent.to).toBe("recette@test.invalid");
+    expect(sent.subject.startsWith(`[TEST → ${PENDING_TOKEN.email}] Confirmation – devis `)).toBe(true);
+    expect(mockEmailInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "acceptance_confirmation", recipient: PENDING_TOKEN.email, status: "sent" })
+    );
+    expect(mockEmailInsert.mock.calls[0]![0].subject.startsWith("Confirmation – devis ")).toBe(true);
+  });
+
+  it("sends no confirmation when redirecting has no mailbox, and still accepts the offer", async () => {
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.EMAIL_FROM = "noreply@example.com";
+    mockTokenLookupSingle.mockResolvedValueOnce({ data: PENDING_TOKEN, error: null });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(makeRequest({ accepted_terms: true }), makeParams());
+
+    expect(response.status).toBe(200);
+    expect(mockResendSend).not.toHaveBeenCalled();
+    expect(mockEmailInsert).not.toHaveBeenCalled();
+  });
+
   it("does not claim a sent timestamp for a failed legacy confirmation", async () => {
     process.env.RESEND_API_KEY = "test-key";
     process.env.EMAIL_FROM = "noreply@example.com";
+    process.env.EMAIL_DELIVERY_MODE = "live";
     mockTokenLookupSingle.mockResolvedValueOnce({
       data: PENDING_TOKEN,
       error: null,

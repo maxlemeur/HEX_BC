@@ -67,7 +67,7 @@ export default {
       E2E_OFFER_RUN_DIRECTORY: runDirectory, E2E_OFFER_COLLECTOR_DIRECTORY: directory, E2E_OFFER_SECRET_POINTER: pointer, E2E_OFFER_SERVER_GUARD: "1", E2E_OFFER_NETWORK_LOG: path.join(runDirectory, "public", "server-network.jsonl"),
       NODE_OPTIONS: `--import=${pathToFileURL(path.resolve("scripts/tester-army/offer-network-guard.mjs")).href}`,
       NEXT_PUBLIC_SUPABASE_URL: backend.origin, NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "", SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-      RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: "ARMY Local <offer@army.invalid>",
+      RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: "ARMY Local <offer@army.invalid>", EMAIL_DELIVERY_MODE: "live",
       NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL: process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL ?? "",
       GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
     }, startupTimeout: 180_000, shutdownTimeout: 15_000, log: path.relative(process.cwd(), path.join(runDirectory, "public", "app.log")).replaceAll("\\", "/"), reuseExisting: false },

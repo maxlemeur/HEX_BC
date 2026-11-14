@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
+import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { AcceptanceConfirmationEmailTemplate } from "@/lib/email/templates/acceptance-confirmation";
 import { lookupPortalCapability, loadPortalOffer } from "@/lib/estimates/portal-offer";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
@@ -171,11 +172,13 @@ export async function POST(
 
           const resend = new Resend(apiKey);
           const emailSubject = `Confirmation – devis ${projectName} accepté`;
+          // The log below keeps the client's address and the subject as written; only the provider call is rerouted.
+          const routed = routeOutgoingEmail(readOutgoingEmailRouting(), { to: portalToken.email, subject: emailSubject });
           const { data: emailResult, error: emailSendError } =
             await resend.emails.send({
               from: emailFrom,
-              to: portalToken.email,
-              subject: emailSubject,
+              to: routed.to,
+              subject: routed.subject,
               react: AcceptanceConfirmationEmailTemplate({
                 projectName,
                 versionNumber: captured?.version.number ?? offer.version.version_number,

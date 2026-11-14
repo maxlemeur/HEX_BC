@@ -12,6 +12,7 @@ import {
   markEstimateEmailDispatchUnknown,
 } from "@/lib/email/estimate-email-dispatch-repository";
 import { sha256 } from "@/lib/email/estimate-email-hash";
+import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { conflict, internalError } from "@/lib/estimates/errors";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -87,6 +88,8 @@ export async function deliverEstimateEmailDispatch(input: {
   retryDelaysMs?: readonly number[];
 }) {
   assertFrozenProviderPayload(input.dispatch);
+  // Read before the dispatch is claimed: a routing that cannot be read refuses the send and leaves it untouched.
+  const routing = readOutgoingEmailRouting();
   const leaseToken = randomUUID();
   const claimed = await claimEstimateEmailDispatch({
     dispatchId: input.dispatch.id,
@@ -146,6 +149,8 @@ export async function deliverEstimateEmailDispatch(input: {
 
   const retryDelays = input.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   const resend = new Resend(input.apiKey);
+  // The frozen recipient, copies and subject stay stored as written: only what the provider receives is rerouted.
+  const routed = routeOutgoingEmail(routing, { to: claimed.recipient, cc: claimed.cc, subject: claimed.subject });
   let lastFailure: ErrorResponse | Error | null = null;
 
   for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
@@ -153,9 +158,9 @@ export async function deliverEstimateEmailDispatch(input: {
       const { data, error } = await resend.emails.send(
         {
           from: claimed.from_address,
-          to: claimed.recipient,
-          cc: claimed.cc ?? undefined,
-          subject: claimed.subject,
+          to: routed.to,
+          cc: routed.cc,
+          subject: routed.subject,
           html: claimed.html_body!,
           text: claimed.text_body!,
           attachments: [

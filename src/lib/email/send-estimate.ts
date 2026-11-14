@@ -5,6 +5,7 @@ import {
 } from "@/lib/email/estimate-email-dispatch-repository";
 import { deliverEstimateEmailDispatch } from "@/lib/email/estimate-email-delivery";
 import type { EstimateEmailReceipt } from "@/lib/email/send-estimate-contract";
+import { readOutgoingEmailRouting } from "@/lib/email/outgoing-routing";
 import { getRequiredEnvVar, loadVersionForEmail } from "@/lib/email/send-estimate-context-server";
 import { loadPdfBuffer, preparePdfForDispatch, renderEstimateDispatchDocument } from "@/lib/email/send-estimate-document";
 import { assertDispatchMatchesSubmission, canRearmUnfrozenEmailRequest, hashSubmission, isTerminalDelivery, resolvePortalOrigin } from "@/lib/email/send-estimate-plan";
@@ -57,6 +58,9 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput): Promise<
     });
     return { message_id: completedReplay.provider_id, version_id: input.versionId, request_id: input.idempotencyKey };
   }
+  // A request already delivered answers with its receipt above and sends nothing. Anything else may send: refused
+  // here, before any reread, freeze or reservation, when the routing cannot be read (delivery reads it again).
+  readOutgoingEmailRouting();
   let dispatch = await findActiveEstimateEmailDispatch({
     versionId: input.versionId,
     tenantId: context.tenantId,

@@ -179,6 +179,8 @@ describe("sendEstimateEmail transactional workflow", () => {
     vi.clearAllMocks();
     process.env.RESEND_API_KEY = "test-key";
     process.env.EMAIL_FROM = "noreply@example.com";
+    process.env.EMAIL_DELIVERY_MODE = "live";
+    delete process.env.EMAIL_REDIRECT_TO;
     delete process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL;
     serverMocks.getGating.mockResolvedValue({
       gating: { blockingFlags: [] },
@@ -227,6 +229,21 @@ describe("sendEstimateEmail transactional workflow", () => {
     outboxMocks.prepare.mockResolvedValue(createDispatch("queued"));
     outboxMocks.deliver.mockResolvedValue({ providerId: "email-1" });
     outboxMocks.fail.mockResolvedValue(createDispatch("failed"));
+  });
+
+  it("refuses before any gating, reservation or PDF when redirecting has no mailbox", async () => {
+    delete process.env.EMAIL_DELIVERY_MODE;
+    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+      createContext("draft", { calc_engine_version: 2 }) as never
+    );
+
+    await expect(sendEstimateEmail(request)).rejects.toMatchObject({
+      code: "EMAIL_REDIRECT_NOT_CONFIGURED",
+    });
+    expect(serverMocks.getGating).not.toHaveBeenCalled();
+    expect(outboxMocks.reserve).not.toHaveBeenCalled();
+    expect(generateEstimatePdfNow).not.toHaveBeenCalled();
+    expect(outboxMocks.deliver).not.toHaveBeenCalled();
   });
 
   it("does not reserve, generate, or send when draft gating rejects", async () => {
