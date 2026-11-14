@@ -93,6 +93,8 @@ export function materialRequestLineAlerts(
   }
   if (!text(line.unit)) block("unit_missing", "unit", "Unité à renseigner.");
   if (!text(line.product_type)) block("type_missing", "product_type", "Type à renseigner.");
+  // A link to an article without size writes « sans dimension » itself (articles-server.ts): a size cleared later is
+  // asked again, linked or not.
   if (!text(line.dimension) && !line.no_dimension) {
     block("dimension_missing", "dimension", "Dimension à renseigner, ou indiquer « sans dimension ».");
   }

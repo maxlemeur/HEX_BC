@@ -57,9 +57,9 @@ const BASE = `/api/affaires/${PROJECT_ID}/material-requests/${REQUEST_ID}`;
 const PROPOSALS = `${BASE}/supplier-proposals`;
 const RETAIN = `${BASE}/lines/retain-suppliers`;
 const SUPPLIERS = [
-  { id: ALPHA, name: "Négoce Alpha" },
-  { id: BETA, name: "Comptoir Bêta" },
-  { id: GAMMA, name: "Dépôt Gamma" },
+  { id: ALPHA, name: "Négoce Alpha", label: "Négoce Alpha" },
+  { id: BETA, name: "Comptoir Bêta", label: "Comptoir Bêta" },
+  { id: GAMMA, name: "Dépôt Gamma", label: "Dépôt Gamma" },
 ];
 
 function line(partial: Partial<MaterialRequestLine> = {}): MaterialRequestLine {
@@ -227,6 +227,15 @@ async function openEditor(routes: Record<string, Route>) {
 
 const unsavedNotice = "Une modification de cette ligne n’est pas enregistrée : elle ne peut pas être validée en l’état.";
 
+/** A supplier picked in the searchable field (TI-691): its list opened, then the entry chosen. */
+async function pickSupplier(user: ReturnType<typeof userEvent.setup>, field: string, option: string) {
+  const input = screen.getByLabelText(field);
+  const group = input.closest<HTMLElement>('[data-slot="combobox"]');
+  if (!group) throw new Error(`${field} is not a searchable field.`);
+  await user.click(within(group).getByRole("button", { name: "Afficher les suggestions" }));
+  await user.click(await screen.findByRole("option", { name: option }));
+}
+
 describe("suppliers of request lines", () => {
   afterEach(() => {
     cleanup();
@@ -255,7 +264,7 @@ describe("suppliers of request lines", () => {
 
     await user.click(retain);
 
-    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA));
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha"));
     expect(writes()).toEqual([
       { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_A, supplier_id: ALPHA }] } },
     ]);
@@ -339,10 +348,10 @@ describe("suppliers of request lines", () => {
         },
       },
     ]);
-    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA);
-    expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue(BETA);
-    expect(screen.getByLabelText("Fournisseur, ligne 3")).toHaveValue(ALPHA);
-    expect(screen.getByLabelText("Fournisseur, ligne 4")).toHaveValue(GAMMA);
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha");
+    expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue("Comptoir Bêta");
+    expect(screen.getByLabelText("Fournisseur, ligne 3")).toHaveValue("Négoce Alpha");
+    expect(screen.getByLabelText("Fournisseur, ligne 4")).toHaveValue("Dépôt Gamma");
     expect(screen.getByLabelText("Fournisseur, ligne 5")).toHaveValue("");
     expect(screen.getByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).toBeDisabled();
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
@@ -369,8 +378,8 @@ describe("suppliers of request lines", () => {
 
     expect(await screen.findByText("1 fournisseur retenu.")).toBeVisible();
     expect(screen.getByText("1 ligne avait déjà un fournisseur : non modifiée.")).toBeVisible();
-    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue(GAMMA));
-    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA);
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 2")).toHaveValue("Dépôt Gamma"));
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha");
   });
 
   it("says so when a single retain finds the line already has a supplier (3)", async () => {
@@ -387,7 +396,7 @@ describe("suppliers of request lines", () => {
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
 
     expect(await screen.findByText("La ligne avait déjà un fournisseur : non modifiée.")).toBeVisible();
-    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(GAMMA));
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Dépôt Gamma"));
   });
 
   it("leaves out of the bulk gesture a line whose supplier choice is still on its way (3)", async () => {
@@ -400,7 +409,7 @@ describe("suppliers of request lines", () => {
     });
 
     await screen.findByRole("button", { name: "Retenir les fournisseurs proposés (2)" });
-    await user.selectOptions(screen.getByLabelText("Fournisseur, ligne 1"), GAMMA);
+    await pickSupplier(user, "Fournisseur, ligne 1", "Dépôt Gamma");
     await user.click(screen.getByRole("button", { name: "Retenir les fournisseurs proposés (2)" }));
     answerChoice({ data: { line: line({ supplier_id: GAMMA }) } });
 
@@ -409,7 +418,7 @@ describe("suppliers of request lines", () => {
       { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: GAMMA } },
       { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_B, supplier_id: ALPHA }] } },
     ]);
-    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(GAMMA));
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Dépôt Gamma"));
     expect(screen.getByText(/La ligne 1 n’a pas été modifiée/)).toBeVisible();
   });
 
@@ -484,7 +493,7 @@ describe("suppliers of request lines", () => {
 
     const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
     expect(await within(rows[0]).findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
-    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(BETA);
+    expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     const sheet = within(rows[0]).getByRole("link", { name: "Fiche chez Comptoir Bêta" });
     expect(sheet).toHaveAttribute("href", "https://fournisseur.example/coude-50");
     expect(sheet).toHaveAttribute("rel", expect.stringContaining("noopener"));
@@ -516,14 +525,14 @@ describe("suppliers of request lines", () => {
     await user.click(screen.getByRole("button", { name: "Délier l’article de la ligne 1" }));
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
 
-    await user.selectOptions(screen.getByLabelText("Fournisseur, ligne 2"), "");
+    await pickSupplier(user, "Fournisseur, ligne 2", "—");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(3));
 
     // Another supplier chosen: its reference is read again with the proposals.
-    await user.selectOptions(screen.getByLabelText("Fournisseur, ligne 2"), BETA);
+    await pickSupplier(user, "Fournisseur, ligne 2", "Comptoir Bêta");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(4));
 
-    await user.selectOptions(screen.getByLabelText("Fournisseur présumé"), GAMMA);
+    await pickSupplier(user, "Fournisseur présumé", "Dépôt Gamma");
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(5));
   });
 
@@ -537,7 +546,7 @@ describe("suppliers of request lines", () => {
 
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
 
-    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue(ALPHA));
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha"));
     expect(writes()).toEqual([
       { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_A, supplier_id: ALPHA }] } },
     ]);

@@ -76,7 +76,7 @@ function SupplyTypeRow({
           {unknown && stored ? <option value={stored}>{type.preferred_supplier_name ?? "Fournisseur retiré de la liste"}</option> : null}
           {suppliers.map((supplier) => (
             <option key={supplier.id} value={supplier.id}>
-              {supplier.name}
+              {supplier.label}
             </option>
           ))}
         </NativeSelect>

@@ -21,7 +21,9 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  *     do not open the purchase order;
  *  6. an ordered line does not say so in the lines table, or still offers to be reopened;
  *  7. a reader is offered the creation;
- *  8. a line priced after the page was read is not counted until the page is reloaded.
+ *  8. a line priced after the page was read is not counted until the page is reloaded;
+ *  9. (TI-691, the owner's walk of 2026-11-14) a line in a draft order reads « Commandé » although nothing was
+ *     ordered: the mark must follow the order's state, as the supply cost does (« commandé » once confirmed).
  */
 
 vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: vi.fn() }));
@@ -160,8 +162,8 @@ function detail(lines: Line[], canWrite = true) {
     canWrite,
     materialOptions: [],
     supplierOptions: [
-      { id: ALPHA, name: "Négoce Alpha" },
-      { id: BETA, name: "Comptoir Bêta" },
+      { id: ALPHA, name: "Négoce Alpha", label: "Négoce Alpha" },
+      { id: BETA, name: "Comptoir Bêta", label: "Comptoir Bêta" },
     ],
   };
 }
@@ -278,10 +280,10 @@ describe("purchase orders from a request", () => {
     expect(within(section()).queryByRole("alert")).not.toBeInTheDocument();
     expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
     const table = screen.getByRole("region", { name: "Tableau des lignes" });
-    const marks = within(table).getAllByRole("link", { name: "Commandé : C-2026-0041" });
+    const marks = within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" });
     expect(marks).toHaveLength(2);
     expect(marks[0]).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
-    expect(within(table).getByRole("link", { name: "Commandé : C-2026-0042" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_B}`);
+    expect(within(table).getByRole("link", { name: "Brouillon de bon : C-2026-0042" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_B}`);
     // An ordered line is not reopened from the request; a validated line not ordered still is.
     expect(within(table).queryByRole("button", { name: "Rouvrir la ligne 1" })).not.toBeInTheDocument();
     expect(within(table).queryByRole("button", { name: "Rouvrir la ligne 3" })).not.toBeInTheDocument();
@@ -322,9 +324,9 @@ describe("purchase orders from a request", () => {
 
     const reasons = await within(section()).findByRole("list", { name: "Lignes pas encore à commander" });
     expect(within(reasons).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Ligne 4 · Té égal DN 50 : pas validée",
-      "Ligne 5 · Bride plate DN 50 : sans devis retenu",
-      "Ligne 6 · Manchon DN 50 : sans fournisseur",
+      "Ligne 4 · Té égal DN 50 : pas validée : réglez ses alertes, puis validez-la",
+      "Ligne 5 · Bride plate DN 50 : sans devis retenu : consultez un fournisseur et retenez son devis",
+      "Ligne 6 · Manchon DN 50 : sans fournisseur : choisissez-le dans la colonne Fournisseur",
     ]);
     expect(within(section()).getByText("Aucune ligne prête à commander.")).toBeVisible();
     expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
@@ -343,7 +345,7 @@ describe("purchase orders from a request", () => {
     expect(within(section()).getByRole("list", { name: "Lignes pas encore à commander" })).toBeVisible();
     expect(within(section()).queryByRole("button", { name: /Créer les brouillons de commande/ })).not.toBeInTheDocument();
     const table = screen.getByRole("region", { name: "Tableau des lignes" });
-    expect(within(table).getAllByRole("link", { name: "Commandé : C-2026-0041" })).toHaveLength(2);
+    expect(within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" })).toHaveLength(2);
     expect(creations()).toEqual([]);
   });
 
@@ -377,9 +379,9 @@ describe("purchase orders from a request", () => {
     expect(within(list).queryByRole("link", { name: "C-2026-0042" })).not.toBeInTheDocument();
     expect(within(list).getByText("C-2026-0042")).toBeVisible();
     const table = screen.getByRole("region", { name: "Tableau des lignes" });
-    expect(within(table).getAllByRole("link", { name: "Commandé : C-2026-0041" })).toHaveLength(2);
-    expect(within(table).queryByRole("link", { name: "Commandé : C-2026-0042" })).not.toBeInTheDocument();
-    expect(within(table).getByText("Commandé : C-2026-0042")).toBeVisible();
+    expect(within(table).getAllByRole("link", { name: "Brouillon de bon : C-2026-0041" })).toHaveLength(2);
+    expect(within(table).queryByRole("link", { name: "Brouillon de bon : C-2026-0042" })).not.toBeInTheDocument();
+    expect(within(table).getByText("Brouillon de bon : C-2026-0042")).toBeVisible();
   });
 
   it("reads the summary again when a line gets its price, and counts it at once (8)", async () => {

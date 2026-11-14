@@ -9,6 +9,7 @@ import * as completeRoute from "@/app/api/affaires/[projectId]/material-requests
 import * as filesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/files/route";
 import * as lineRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/[lineId]/route";
 import * as reopenRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/reopen/route";
+import * as replaceRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/replace/route";
 import * as linesRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/route";
 import * as validateRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/lines/validate/route";
 import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/[requestId]/route";
@@ -61,6 +62,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 19. Two appends read 299 lines side by side and both pass: the database refuses the one that would cross
  *     the cap, and the caller gets a bare 400, or the append is tried again and again, instead of the
  *     same refusal as when the application sees it first.
+ * 20. (TI-691, the owner's walk of 2026-11-14) splitting a corrected message again: the draft lines are not
+ *     replaced in one gesture, so the office deletes them one by one; or the replacement removes a validated
+ *     line, a line priced by a retained quote or a line asked in a quote; or it replaces lines the screen
+ *     did not show (another session added or removed one in between); or the new lines do not start at
+ *     position 1; or a refusal removes anything (review: a supplier of another tenant among the new lines was
+ *     refused only after the drafts were deleted); or two replacements side by side both insert their lines.
+ * 21. (TI-691, the owner's walk of 2026-11-14) two suppliers of the same name read the same in the request's
+ *     pickers (« Best Supplier » three times), or their city and e-mail reach the browser to tell them apart.
+ * 22. (TI-691, the owner's walk of 2026-11-14) a request whose orders are made still holds a line no order carries,
+ *     and the list of requests does not say so: the technician waits for material nobody ordered. Or the list asks
+ *     the database for the orders of every request, priced or not.
  * 11. A photo is listed, counted or served before its bytes are stored (found by the end-to-end journey:
  *     the request listed the photo while GET of its bytes answered 500), stays listed after an upload that
  *     failed or was interrupted, or keeps its bytes when its request is deleted; a storage error reaches
@@ -148,6 +160,8 @@ function seed(
     refuseInsert?: (table: string, values: unknown) => string | false;
     stallStreamCancel?: boolean;
     beforeUpdate?: (table: string, values: FakeRow, tables: Record<string, FakeRow[]>) => void;
+    beforeDelete?: (table: string, tables: Record<string, FakeRow[]>) => void;
+    rpc?: Record<string, unknown>;
   } = {},
 ) {
   const fake = createFakeSupabase({
@@ -161,6 +175,7 @@ function seed(
         for (const row of rows) row.removed_at ??= new Date().toISOString();
         return { data: rows.map((row) => String(row.storage_path)) };
       }) satisfies FakeRpcHandler,
+      ...overrides.rpc,
     },
     objects: overrides.objects ?? { [FILE_PATH]: JPEG, [OTHER_FILE_PATH]: JPEG, [PENDING_FILE_PATH]: JPEG },
     failSign: overrides.failSign,
@@ -168,6 +183,7 @@ function seed(
     refuseInsert: overrides.refuseInsert,
     stallStreamCancel: overrides.stallStreamCancel,
     beforeUpdate: overrides.beforeUpdate,
+    beforeDelete: overrides.beforeDelete,
     tables: {
       tenant_memberships: [fakeMembership(actor, actor === OUTSIDER ? OTHER_TENANT : TENANT, role)],
       estimate_projects: [
@@ -245,6 +261,7 @@ const WRITES: Array<[string, () => Promise<{ status: number }>]> = [
   ["delete a line", () => call(lineRoute.DELETE, "DELETE", { ...inRequest, lineId: LINE_READY })],
   ["validate lines", () => call(validateRoute.POST, "POST", inRequest, { ids: [LINE_READY] })],
   ["reopen lines", () => call(reopenRoute.POST, "POST", inRequest, { ids: [LINE_VALIDATED] })],
+  ["replace the draft lines", () => call(replaceRoute.POST, "POST", inRequest, { replaced_ids: [LINE_READY], lines: [{ product_type: "Coude" }] })],
   ["prepare the upload of an original", () => call(filesRoute.POST, "POST", inRequest, { files: [declared()] })],
   ["complete the upload of an original", () => call(completeRoute.POST, "POST", inRequest, { ids: [PENDING_FILE] })],
   ["turn an original", () => call(fileRoute.PATCH, "PATCH", { ...inRequest, fileId: FILE }, { rotation: 90 })],
@@ -379,6 +396,74 @@ describe("material requests of an affaire: scope", () => {
     expect(list.canWrite).toBe(true);
   });
 
+  it("counts, per request, the lines no standing order holds, asking the orders only of requests with priced lines", async () => {
+    const fake = seed(OWNER, "engineer", {
+      rpc: {
+        material_request_order_summary: {
+          ready_line_ids: [LINE_NO_QUANTITY], not_ready: [{ line_id: LINE_READY, reason: "not_validated" }],
+          ordered: [{ line_id: LINE_VALIDATED, purchase_order_id: "b0000000-0000-4000-8000-000000000001", purchase_order_reference: "C-2611-001", status: "draft", can_open: true }],
+          orders: [], can_create: true,
+        },
+      },
+      tables: {
+        material_request_lines: [
+          line(LINE_READY, REQUEST, 1),
+          line(LINE_NO_QUANTITY, REQUEST, 2, { status: "validated", price_quote_id: "a0000000-0000-4000-8000-000000000001" }),
+          line(LINE_VALIDATED, REQUEST, 3, { status: "validated", price_quote_id: "a0000000-0000-4000-8000-000000000001" }),
+          line("70000000-0000-4000-8000-000000000004", OLDER_REQUEST, 1),
+        ],
+      },
+    });
+    const { status, data } = await call(requestsRoute.GET, "GET", inProject);
+    expect(status).toBe(200);
+    const items = (data as { items: FakeRow[] }).items;
+    expect(items.map((item) => [item.id, item.line_count, item.to_order_line_count])).toEqual([
+      [REQUEST, 3, 2], [OLDER_REQUEST, 1, 1],
+    ]);
+    expect(fake.rpcArgs.filter((call) => call.name === "material_request_order_summary").map((call) => call.args.p_request_id)).toEqual([REQUEST]);
+  });
+
+  it("still lists the requests when the orders of one cannot be read, without a count for that one", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    seed(OWNER, "engineer", {
+      rpc: {
+        material_request_order_summary: (() => ({
+          data: null, error: { code: "P0001", message: "MATERIAL_REQUEST_ORDER_NOT_FOUND" },
+        })) satisfies FakeRpcHandler,
+      },
+      tables: {
+        material_request_lines: [
+          line(LINE_READY, REQUEST, 1, { status: "validated", price_quote_id: "a0000000-0000-4000-8000-000000000001" }),
+          line("70000000-0000-4000-8000-000000000004", OLDER_REQUEST, 1),
+        ],
+      },
+    });
+    const { status, data } = await call(requestsRoute.GET, "GET", inProject);
+    expect(status).toBe(200);
+    expect((data as { items: FakeRow[] }).items.map((item) => [item.id, item.to_order_line_count, item.has_orders])).toEqual([
+      [REQUEST, null, false], [OLDER_REQUEST, 1, false],
+    ]);
+    expect(logged).toHaveBeenCalled();
+  });
+
+  it("tells two active suppliers of the same name apart in the request's options, without sending their details", async () => {
+    const twin = "40000000-0000-4000-8000-000000000003";
+    seed(OWNER, "engineer", {
+      tables: {
+        suppliers: [
+          { id: SUPPLIER, tenant_id: TENANT, name: "Négoce fictif", city: "Grenoble", is_active: true },
+          { id: twin, tenant_id: TENANT, name: "Négoce Fictif", city: "Lyon", email: "agence@negoce.example", is_active: true },
+          { id: INACTIVE_SUPPLIER, tenant_id: TENANT, name: "Négoce fictif", city: "Valence", is_active: false },
+        ],
+      },
+    });
+    const { data } = await call(requestRoute.GET, "GET", inRequest);
+    expect((data as { supplierOptions: FakeRow[] }).supplierOptions).toEqual([
+      { id: SUPPLIER, name: "Négoce fictif", label: "Négoce fictif · Grenoble" },
+      { id: twin, name: "Négoce Fictif", label: "Négoce Fictif · Lyon" },
+    ]);
+  });
+
   it("opens a request with its technician, originals, lines in order and the tenant's own options", async () => {
     const fake = seed(OWNER, "engineer");
     const { status, data } = await call(requestRoute.GET, "GET", inRequest);
@@ -398,7 +483,7 @@ describe("material requests of an affaire: scope", () => {
     expect(detail.lines[2]).not.toHaveProperty("validated_by");
     expect(detail.lines[2]).not.toHaveProperty("tenant_id");
     expect(detail.materialOptions).toEqual(["Cuivre", "Inox 304L"]);
-    expect(detail.supplierOptions).toEqual([{ id: SUPPLIER, name: "Négoce fictif" }]);
+    expect(detail.supplierOptions).toEqual([{ id: SUPPLIER, name: "Négoce fictif", label: "Négoce fictif" }]);
     expect(detail.canWrite).toBe(true);
     expect(fake.rpcCalls).toEqual(["material_request_material_options"]);
   });
@@ -819,6 +904,125 @@ describe("material requests of an affaire: lines", () => {
     const removed = await call(lineRoute.DELETE, "DELETE", { ...inRequest, lineId: LINE_NO_QUANTITY });
     expect([removed.status, removed.data]).toEqual([200, { deleted: true }]);
     expect(fake.tables.material_request_lines.map((row) => row.id)).toEqual([LINE_READY, LINE_VALIDATED, OTHER_LINE]);
+  });
+});
+
+describe("material requests of an affaire: splitting the message again", () => {
+  const drafts = () => [line(LINE_READY, REQUEST, 1), line(LINE_NO_QUANTITY, REQUEST, 2, { quantity: null, product_type: "Té égal" }), line(OTHER_LINE, OTHER_REQUEST, 1)];
+  const corrected = [
+    { original_text: "50 coudes DN50", quantity: 50, unit: "u", dimension: "DN 50", product_type: "coudes" },
+    { original_text: "10 manchons DN15", quantity: 10, unit: "u", dimension: "DN 15", product_type: "manchons" },
+  ];
+
+  it("replaces every draft line of the request with the lines read again, from position 1", async () => {
+    const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
+    const { status, data } = await call(replaceRoute.POST, "POST", inRequest, { replaced_ids: [LINE_NO_QUANTITY, LINE_READY], lines: corrected });
+    expect(status).toBe(200);
+    const lines = (data as { lines: FakeRow[] }).lines;
+    expect(lines.map((entry) => [entry.position, entry.status, entry.original_text, entry.quantity])).toEqual([
+      [1, "draft", "50 coudes DN50", 50], [2, "draft", "10 manchons DN15", 10],
+    ]);
+    expect(lines.map((entry) => entry.id)).not.toContain(LINE_READY);
+    const stored = fake.tables.material_request_lines;
+    expect(stored.filter((row) => row.request_id === REQUEST).map((row) => row.original_text)).toEqual(["50 coudes DN50", "10 manchons DN15"]);
+    // The line of another request is not touched.
+    expect(stored.find((row) => row.id === OTHER_LINE)).toMatchObject({ request_id: OTHER_REQUEST, position: 1 });
+    // One deletion of the drafts, then one insert.
+    expect(fake.writes.map((write) => [write.table, write.operation, write.ids.length])).toEqual([
+      ["material_request_lines", "delete", 2], ["material_request_lines", "insert", 2],
+    ]);
+  });
+
+  it("replaces nothing while a line is validated, and says which", async () => {
+    const fake = seed(OWNER, "engineer");
+    const { status, error } = await call(replaceRoute.POST, "POST", inRequest, {
+      replaced_ids: [LINE_READY, LINE_NO_QUANTITY, LINE_VALIDATED], lines: corrected,
+    });
+    expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_KEPT"]);
+    expect(error?.message).toBe("Le message n’est pas redécoupé : la ligne 3 est validée. Corrigez les lignes dans le tableau.");
+    expect(fake.writes).toEqual([]);
+  });
+
+  it.each<[string, Record<string, FakeRow[]>, string]>([
+    [
+      "priced by a retained quote",
+      { material_request_lines: [line(LINE_READY, REQUEST, 1, { price_quote_id: "a0000000-0000-4000-8000-000000000001" }), line(LINE_NO_QUANTITY, REQUEST, 2)] },
+      "Le message n’est pas redécoupé : la ligne 1 est dans un devis. Corrigez les lignes dans le tableau.",
+    ],
+    [
+      "asked in a quote",
+      {
+        material_request_lines: [line(LINE_READY, REQUEST, 1), line(LINE_NO_QUANTITY, REQUEST, 2)],
+        material_request_quote_lines: [
+          { tenant_id: TENANT, project_id: PROJECT, quote_id: "a0000000-0000-4000-8000-000000000002", line_id: LINE_READY },
+          { tenant_id: TENANT, project_id: PROJECT, quote_id: "a0000000-0000-4000-8000-000000000003", line_id: LINE_NO_QUANTITY },
+        ],
+      },
+      "Le message n’est pas redécoupé : les lignes 1 et 2 sont dans un devis. Corrigez les lignes dans le tableau.",
+    ],
+  ])("replaces nothing while a draft line is %s", async (_label, tables, message) => {
+    const fake = seed(OWNER, "engineer", { tables });
+    const { status, error } = await call(replaceRoute.POST, "POST", inRequest, { replaced_ids: [LINE_READY, LINE_NO_QUANTITY], lines: corrected });
+    expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_LINES_KEPT", message]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it.each<[string, string[]]>([
+    ["a line was added since the screen read them", [LINE_READY]],
+    ["a line was removed since", [LINE_READY, LINE_NO_QUANTITY, "70000000-0000-4000-8000-000000000008"]],
+    ["a line of another request is named", [LINE_READY, LINE_NO_QUANTITY, OTHER_LINE]],
+  ])("replaces nothing when %s", async (_label, replaced) => {
+    const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
+    const { status, error } = await call(replaceRoute.POST, "POST", inRequest, { replaced_ids: replaced, lines: corrected });
+    expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_CHANGED"]);
+    expect(error?.message).toBe("Les lignes de la demande ont changé entre-temps : rechargez-la, puis redécoupez le message.");
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("refuses a supplier of another tenant among the new lines before removing any draft", async () => {
+    const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
+    const { status } = await call(replaceRoute.POST, "POST", inRequest, {
+      replaced_ids: [LINE_READY, LINE_NO_QUANTITY], lines: [{ product_type: "Coude", supplier_id: FOREIGN_SUPPLIER }],
+    });
+    expect(status).toBe(400);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("inserts nothing when another session replaced the drafts between the read and the deletion", async () => {
+    const fake = seed(OWNER, "engineer", {
+      tables: { material_request_lines: drafts() },
+      beforeDelete: (table, tables) => {
+        if (table !== "material_request_lines") return;
+        // The other session's replacement: the drafts named here are gone, its own lines stand.
+        tables.material_request_lines = tables.material_request_lines
+          .filter((row) => row.request_id !== REQUEST)
+          .concat([line("70000000-0000-4000-8000-000000000007", REQUEST, 1, { original_text: "ligne de l'autre session" })]);
+      },
+    });
+    const { status, error } = await call(replaceRoute.POST, "POST", inRequest, { replaced_ids: [LINE_READY, LINE_NO_QUANTITY], lines: corrected });
+    expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_CHANGED"]);
+    expect(fake.writes.filter((write) => write.operation === "insert")).toEqual([]);
+    expect(fake.tables.material_request_lines.filter((row) => row.request_id === REQUEST).map((row) => row.original_text)).toEqual(["ligne de l'autre session"]);
+  });
+
+  it("refuses a body without lines to replace or to write, or naming a line twice", async () => {
+    const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
+    for (const body of [
+      { replaced_ids: [], lines: corrected },
+      { replaced_ids: [LINE_READY, LINE_NO_QUANTITY], lines: [] },
+      { replaced_ids: [LINE_READY, LINE_READY], lines: corrected },
+      { replaced_ids: [LINE_READY, LINE_NO_QUANTITY], lines: [{ status: "validated" }] },
+    ]) {
+      expect((await call(replaceRoute.POST, "POST", inRequest, body)).status).toBe(400);
+    }
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("does not reach the lines of another affaire's request through this affaire's URL", async () => {
+    const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
+    const { status } = await call(replaceRoute.POST, "POST", { projectId: PROJECT, requestId: OTHER_REQUEST }, { replaced_ids: [OTHER_LINE], lines: corrected });
+    expect(status).toBe(404);
+    expect(fake.writes).toEqual([]);
   });
 });
 

@@ -5,9 +5,14 @@ import type { MaterialRequestLineInput } from "./contracts";
  * technician's words kept beside what could be read. It saves typing and decides nothing: no material,
  * no supplier, no validation, and a line it cannot read comes back with its words only.
  *
+ * Articles are cut at each line end, at a dash between spaces, and at a comma or a semicolon followed by a
+ * quantity (« 50 coudes DN50, 10 manchons DN15 », as an SMS writes them). A line that still seems to hold a
+ * second article (« 10 coudes et 5 manchons ») is not cut: its quantity is flagged for a look at the original.
+ *
  * It runs in the browser on up to 20,000 pasted characters, so every step is linear in the length of
- * the text: segments and trimming are scanned by hand, and no pattern here lets two unbounded
- * quantifiers share the same characters (the cause of the 27 s freeze this replaced).
+ * the text: segments and trimming are scanned by hand, a pattern tried at a separator reads a bounded
+ * window after it, and no pattern here lets two unbounded quantifiers share the same characters (the
+ * cause of the 27 s freeze this replaced).
  */
 
 const ORIGINAL_TEXT_MAX = 500;
@@ -16,6 +21,8 @@ const REFERENCE_MAX = 120;
 const QUANTITY_MAX = 1_000_000;
 /** A quantity alone after a dash ("- 25 pièces") is short; a longer segment is an article. */
 const QUANTITY_SEGMENT_MAX = 40;
+/** What a separator looks at after it: a quantity, its unit and the first letter of a word fit in it. */
+const ARTICLE_START_WINDOW = 40;
 
 /** "1.000" or "1 000": a thousand written with a separator. Read whole, and flagged for a human look. */
 const DOTTED_THOUSANDS = String.raw`\d{1,3}(?:\.\d{3})+(?!\d)`;
@@ -35,6 +42,11 @@ const QUANTITY_ONLY = new RegExp(String.raw`^(${NUMBER})\s?(${UNIT})?$`, "i");
 const TRAILING_MULTIPLIER = new RegExp(String.raw`(?:^|\s)[x×]\s?(${NUMBER})\s?(${UNIT})?$`, "i");
 const TRAILING_WITH_UNIT = new RegExp(String.raw`(?:^|\s)(${NUMBER_WITHOUT_SPACE})\s?(${UNIT})$`, "i");
 const LEADING = new RegExp(String.raw`^(${NUMBER})(?:\s?[x×](?=\s)|\s?(${UNIT})(?=\s)|(?=\s))\s(?!(?:mm|cm)\b)`, "i");
+/** A quantity read as LEADING reads it, then a word: what an article written after a separator starts with. */
+/** « 6 x 40 » after a comma is a size in two figures (a screw, an anchor), not 6 pieces of « x 40 ». */
+const ARTICLE_START = new RegExp(String.raw`^(?:${NUMBER})(?:\s?[x×](?=\s)|\s?(?:${UNIT})(?=\s)|(?=\s))\s(?!(?:mm|cm)\b)(?![x×]\s?\d)[\p{L}Øø]`, "iu");
+/** Words that join a second article to the first without cutting it: « 10 coudes et 5 manchons ». */
+const JOINERS = [" et ", " + ", " & "];
 const REFERENCE =
   /(?<![\p{L}\d])r[ée]f(?:[ée]rence)?\.?(?:\s{0,2}n°)?[\s:=]{0,6}([A-Za-z0-9][A-Za-z0-9._/-]{0,199})/iu;
 /** Sold by length as often as by piece: without a written unit, none is proposed. */
@@ -58,14 +70,53 @@ function isSpace(character: string | undefined): boolean {
   return character !== undefined && /\s/.test(character);
 }
 
+function isDigit(character: string | undefined): boolean {
+  return character !== undefined && character >= "0" && character <= "9";
+}
+
+/** Whether an article starts at `from` (spaces skipped), read in a window of bounded length. */
+function startsArticle(text: string, from: number): boolean {
+  let start = from;
+  while (start < text.length && isSpace(text[start])) start += 1;
+  return ARTICLE_START.test(text.slice(start, start + ARTICLE_START_WINDOW));
+}
+
+/**
+ * A comma or a semicolon that stands between two articles: followed by a quantity and a word. A comma between
+ * two figures is a decimal (« 2,5 ml ») or a typo too close to call (« DN50,10 manchons »): it never separates.
+ */
+function separatesArticles(line: string, index: number): boolean {
+  const character = line[index];
+  if (character !== "," && character !== ";") return false;
+  if (character === "," && isDigit(line[index - 1]) && isDigit(line[index + 1])) return false;
+  return startsArticle(line, index + 1);
+}
+
+/**
+ * Whether the words left once an article is read still hold a second one: a quantity and a word after a comma, a
+ * semicolon, « et », « + » or « & ». `words` is at most PRODUCT_TYPE_MAX characters long.
+ */
+function holdsSecondArticle(words: string): boolean {
+  for (let index = 0; index < words.length; index += 1) {
+    if ((words[index] === "," || words[index] === ";") && startsArticle(words, index + 1)) return true;
+    for (const joiner of JOINERS) {
+      if (words.startsWith(joiner, index) && startsArticle(words, index + joiner.length)) return true;
+    }
+  }
+  return false;
+}
+
 function cut(text: string, match: RegExpMatchArray): string {
   const start = match.index ?? 0;
   return `${text.slice(0, start)} ${text.slice(start + match[0].length)}`;
 }
 
-/** One space between words, and no separator left hanging at either end. One pass each way. */
+/**
+ * One space between words, none before a comma or a semicolon (what a size cut out of « té DN 32, 90° » leaves),
+ * and no separator left hanging at either end. One pass each way.
+ */
 function tidy(text: string): string {
-  const collapsed = text.replace(/\s+/g, " ");
+  const collapsed = text.replace(/\s+/g, " ").replace(/ (?=[,;])/g, "");
   let start = 0;
   let end = collapsed.length;
   while (start < end && (collapsed[start] === " " || TRIMMED.has(collapsed[start]))) start += 1;
@@ -127,13 +178,19 @@ function readQuantity(text: string): QuantityReading | null {
 
 type Chunk = { original: string; body: string; suffix: RegExpMatchArray | null };
 
-/** The parts of a line around each dash that stands between spaces, with the separator before each. */
+/** A dash between spaces separates; a comma or a semicolon separates when an article follows it. */
+function isSeparator(line: string, index: number): boolean {
+  if (DASHES.has(line[index])) return index > 0 && isSpace(line[index - 1]) && isSpace(line[index + 1]);
+  return separatesArticles(line, index);
+}
+
+/** The parts of a line around each separator, with the separator (and the spaces around it) before each. */
 function segmentsOf(line: string): Array<{ text: string; separator: string }> {
   const segments: Array<{ text: string; separator: string }> = [];
   let start = 0;
   let separator = "";
-  for (let index = 1; index < line.length - 1; index += 1) {
-    if (!DASHES.has(line[index]) || !isSpace(line[index - 1]) || !isSpace(line[index + 1])) continue;
+  for (let index = 0; index < line.length; index += 1) {
+    if (!isSeparator(line, index)) continue;
     let left = index;
     while (left > start && isSpace(line[left - 1])) left -= 1;
     let right = index + 1;
@@ -149,15 +206,19 @@ function segmentsOf(line: string): Array<{ text: string; separator: string }> {
 }
 
 /**
- * " - " separates the articles of a line, except when what follows is only a quantity ("- 25 pièces"):
- * that belongs to the article before it.
+ * A separator cuts the articles of a line, except when what follows is only a quantity ("- 25 pièces",
+ * ", 25 pièces"): that belongs to the article before it.
  */
 function chunksOf(line: string): Chunk[] {
   const chunks: Chunk[] = [];
   for (const { text, separator } of segmentsOf(line)) {
     const segment = text.trim();
     if (!segment) continue;
-    const suffix = segment.length <= QUANTITY_SEGMENT_MAX ? segment.match(QUANTITY_ONLY) : null;
+    // A separator left at the end (« 25 pièces, ») does not make the quantity an article of its own.
+    let end = segment.length;
+    while (end > 0 && TRIMMED.has(segment[end - 1])) end -= 1;
+    const bare = segment.slice(0, end).trimEnd();
+    const suffix = bare.length <= QUANTITY_SEGMENT_MAX ? bare.match(QUANTITY_ONLY) : null;
     const previous = chunks[chunks.length - 1];
     if (suffix && previous && !previous.suffix && parseQuantity(suffix[1]) !== null) {
       previous.original = `${previous.original}${separator}${segment}`;
@@ -188,7 +249,8 @@ function readChunk(chunk: Chunk): MaterialRequestLineInput {
   const type = tidy(rest).slice(0, PRODUCT_TYPE_MAX).trim();
   if (quantity) {
     draft.quantity = quantity.quantity;
-    if (quantity.doubtful) draft.quantity_doubtful = true;
+    // A thousand written with a separator, or a second article the cuts above left in the words.
+    if (quantity.doubtful || holdsSecondArticle(type)) draft.quantity_doubtful = true;
     // Pieces unless the text says otherwise, except for what is sold by length as often as by piece:
     // there the unit is left empty, so that the missing-unit alert asks the operator.
     const unit = quantity.unit ?? (SOLD_BY_LENGTH.test(type) ? null : "u");

@@ -5,6 +5,7 @@ import { Check, CheckCheck, Copy, FileText, Paperclip, Send, Users, X } from "lu
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { materialRequestFileUrl, type MaterialRequestSupplierOption } from "@/lib/material-requests/client";
@@ -304,7 +305,7 @@ function supplierGroups(
     byId.set(line.supplier_id, [...(byId.get(line.supplier_id) ?? []), line]);
   }
   const nameOf = (id: string) =>
-    options.find((option) => option.id === id)?.name
+    options.find((option) => option.id === id)?.label
     ?? quotes.find((quote) => quote.supplier_id === id)?.supplier_name
     ?? "Fournisseur retiré de la liste";
   return {
@@ -335,7 +336,15 @@ function CompetitionPanel({
   onSend: (supplierId: string, supplierName: string, message: string) => Promise<SaveResult>;
 }>) {
   const [chosen, setChosen] = useState<string[]>([]);
+  const pickerId = useId();
+  /** Bumped by each addition: the search field starts empty again, with the focus, for the next supplier. */
+  const [added, setAdded] = useState(0);
+  useEffect(() => {
+    if (added > 0) document.getElementById(pickerId)?.focus();
+  }, [added, pickerId]);
   const others = options.filter((option) => option.id !== group.supplierId);
+  // The whole list, searched as the office types (TI-691: twenty suppliers in a grid cut short by its height).
+  const addable = others.filter((option) => !chosen.includes(option.id));
 
   return (
     <div id={id} className="min-w-0 space-y-3 rounded-md border border-dashed border-border p-3">
@@ -354,31 +363,53 @@ function CompetitionPanel({
         {others.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Aucun autre fournisseur dans la liste.</p>
         ) : (
-          <div className="mt-2 grid max-h-56 gap-x-3 overflow-y-auto sm:grid-cols-2">
-            {others.map((option) => (
-              <label key={option.id} className="flex min-h-9 min-w-0 items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  className="size-4 shrink-0 accent-primary"
-                  checked={chosen.includes(option.id)}
-                  onChange={(event) => {
-                    const checked = event.currentTarget.checked;
-                    setChosen((current) =>
-                      checked ? [...current, option.id] : current.filter((entry) => entry !== option.id),
-                    );
-                  }}
-                />
-                <span className="min-w-0 break-words">{option.name}</span>
-              </label>
-            ))}
+          <div className="mt-2 min-w-0 space-y-1">
+            <label htmlFor={pickerId} className="text-xs text-muted-foreground">
+              Ajouter un fournisseur
+            </label>
+            <Combobox
+              key={added}
+              id={pickerId}
+              aria-describedby={`${pickerId}-count`}
+              size="sm"
+              placeholder="Chercher un fournisseur…"
+              emptyMessage={addable.length === 0 ? "Tous les fournisseurs sont ajoutés." : "Aucun fournisseur trouvé."}
+              options={addable.map((option) => ({ value: option.id, label: option.label }))}
+              // Always empty: a pick adds the supplier below and leaves the field ready for the next one.
+              value=""
+              onValueChange={(supplierId) => {
+                if (!supplierId) return;
+                setChosen((current) => (current.includes(supplierId) ? current : [...current, supplierId]));
+                setAdded((current) => current + 1);
+              }}
+            />
+            <p id={`${pickerId}-count`} className="text-xs text-muted-foreground">
+              {`${plural(others.length, "fournisseur", "fournisseurs")} dans la liste, à chercher par leur nom.`}
+            </p>
           </div>
         )}
       </fieldset>
       {chosen.map((supplierId) => {
-        const name = others.find((option) => option.id === supplierId)?.name ?? "Fournisseur";
+        const name = others.find((option) => option.id === supplierId)?.label ?? "Fournisseur";
         return (
           <div key={supplierId} className="min-w-0 space-y-1.5 border-t border-border pt-3">
-            <h4 className="text-sm font-semibold text-foreground">{name}</h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="min-w-0 break-words text-sm font-semibold text-foreground">{name}</h4>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                aria-label={`Retirer ${name} de la mise en concurrence`}
+                onClick={() => {
+                  setChosen((current) => current.filter((entry) => entry !== supplierId));
+                  // The button leaves with its supplier: the focus goes back to the search field.
+                  setAdded((current) => current + 1);
+                }}
+              >
+                <X aria-hidden="true" />
+                Retirer
+              </Button>
+            </div>
             <MessageBlock
               supplierName={name}
               message={message}
@@ -891,6 +922,9 @@ function QuoteCard({
   const blockerId = `${ids}-blocker`;
   const [busy, setBusy] = useState<"received" | "retain" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The office asked to retain a quote whose amount differs from its lines: it confirms the gap first. */
+  const [confirmingGap, setConfirmingGap] = useState(false);
+  const retainButton = useRef<HTMLButtonElement>(null);
   const editable = editor.canWrite && (quote.status === "requested" || quote.status === "received");
   const linesById = new Map(editor.data.lines.map((line) => [line.id, line]));
   const unreadable = new Set(quotes.unreadablePrices(quote.id));
@@ -913,6 +947,33 @@ function QuoteCard({
     ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
     : null;
   const supplier = quote.supplier_name;
+  // TI-691: the amount the supplier wrote is free; the order is made from the line prices. A gap is said, and accounted
+  // for at the retain (shipping or a discount is carried to the purchase order by hand).
+  const gap = quote.amount_ht_cents !== null && total !== null ? quote.amount_ht_cents - total : null;
+  const gapText =
+    gap !== null && gap !== 0 && total !== null && quote.amount_ht_cents !== null
+      ? `Écart de ${formatEUR(Math.abs(gap))} entre le montant du devis (${formatEUR(quote.amount_ht_cents)} HT) et le total des lignes (${formatEUR(total)} HT).`
+      : null;
+  // A gap that disappears (a price corrected) takes its pending confirmation with it.
+  useEffect(() => {
+    if (!gapText) setConfirmingGap(false);
+  }, [gapText]);
+  const closeGap = () => {
+    setConfirmingGap(false);
+    retainButton.current?.focus();
+  };
+  const retain = async () => {
+    setBusy("retain");
+    setError(null);
+    const result = await quotes.retainQuote(quote.id, quote.lines.map((entry) => entry.line_id));
+    setBusy(null);
+    if (result.ok) {
+      setConfirmingGap(false);
+      return;
+    }
+    // Refused: the confirmation stays, with the reason below, and keeps the focus where it was.
+    setError(result.message);
+  };
 
   const act = async (kind: "received" | "retain", action: () => Promise<SaveResult>) => {
     setBusy(kind);
@@ -1005,6 +1066,12 @@ function QuoteCard({
           {quote.notes ? <p className="break-words">Remarques : {quote.notes}</p> : null}
         </div>
       ) : null}
+      {gapText ? <p className="text-sm font-medium text-warning">{gapText}</p> : null}
+      {quote.amount_ht_cents !== null ? (
+        <p className="text-xs text-muted-foreground">
+          Le bon de commande est fait au prix des lignes : un port ou une remise se reporte sur le bon de commande.
+        </p>
+      ) : null}
 
       <QuoteFiles editor={editor} quotes={quotes} quote={quote} editable={editable} />
 
@@ -1032,9 +1099,8 @@ function QuoteCard({
               disabled={blocker !== null || busy !== null}
               aria-label={`Retenir ce devis (${supplier})`}
               aria-describedby={blocker ? blockerId : undefined}
-              onClick={() =>
-                void act("retain", () => quotes.retainQuote(quote.id, quote.lines.map((entry) => entry.line_id)))
-              }
+              ref={retainButton}
+              onClick={() => (gapText ? setConfirmingGap(true) : void retain())}
             >
               <Check aria-hidden="true" />
               Retenir ce devis
@@ -1058,6 +1124,29 @@ function QuoteCard({
             <p id={blockerId} className="text-xs text-muted-foreground">
               {blocker}
             </p>
+          ) : null}
+          {confirmingGap && gapText && blocker === null ? (
+            <div role="alert" className="space-y-2 rounded-md border border-warning-border bg-warning-subtle p-2 text-sm text-foreground">
+              <p>
+                {`Le devis annonce ${formatEUR(quote.amount_ht_cents ?? 0)} HT, ses lignes font ${formatEUR(total ?? 0)} HT. Le bon de commande sera fait au prix des lignes ; ajoutez-y le port ou la remise s’il le faut.`}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={busy === "retain"}
+                  disabled={busy !== null}
+                  aria-label={`Retenir avec cet écart (${supplier})`}
+                  autoFocus
+                  onClick={() => void retain()}
+                >
+                  Retenir avec cet écart
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={busy !== null} onClick={closeGap}>
+                  Annuler
+                </Button>
+              </div>
+            </div>
           ) : null}
         </div>
       ) : quote.status === "retained" ? (

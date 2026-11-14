@@ -400,7 +400,7 @@ export function ProductSuppliers({
                   </option>
                   {addable.map((entry) => (
                     <option key={entry.id} value={entry.id}>
-                      {entry.name}
+                      {entry.label}
                     </option>
                   ))}
                 </NativeSelect>

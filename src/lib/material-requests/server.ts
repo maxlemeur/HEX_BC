@@ -7,10 +7,15 @@ import {
   notFound,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { readAllRows } from "@/lib/supabase/read-all";
+
+import { supplierPickerLabels } from "@/lib/catalogue/supplier-labels";
 
 import { blockingAlertCodes, type AlertContext, type MaterialRequestLineAlertCode } from "./alerts";
 import {
+  MATERIAL_REQUEST_LINES_CHANGED,
+  MATERIAL_REQUEST_LINES_KEPT,
   MATERIAL_REQUEST_MAX_LINES,
   MATERIAL_REQUEST_PRESUMPTION_CHANGED,
   type BulkUpdateMaterialRequestLinesData,
@@ -19,13 +24,14 @@ import {
   type MaterialRequestDetail,
   type MaterialRequestLine,
   type MaterialRequestLineData,
-  type MaterialRequestSummary,
+  type MaterialRequestListItem,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
+  type ReplaceMaterialRequestLinesData,
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
-import { orderedAmong, orderedLineDatabaseRefusal, orderedLinesRefusal, requestOrderedRefusal } from "./orders-server";
+import { orderedAmong, orderedLineDatabaseRefusal, orderedLineIds, orderedLinesRefusal, requestOrderedRefusal } from "./orders-server";
 import { readArticleSummaries } from "./articles-server";
 import {
   DUPLICATE_KEYS,
@@ -33,6 +39,7 @@ import {
   REQUEST_COLUMNS,
   assertSuppliersInTenant,
   assertTechnicianInTenant,
+  linePositionsLabel,
   listTenantTechnicians,
   pricedLineChanges,
   pricedLineDatabaseRefusal,
@@ -44,6 +51,7 @@ import {
   requireRequest,
   summarizeRequests,
   type MaterialRequestAccess,
+  type MaterialRequestContext,
 } from "./server-shared";
 
 /**
@@ -55,7 +63,8 @@ import {
 export const MATERIAL_REQUEST_LINES_BLOCKED = "MATERIAL_REQUEST_LINES_BLOCKED";
 export const MATERIAL_REQUEST_LINE_LIMIT = "MATERIAL_REQUEST_LINE_LIMIT";
 
-export type MaterialRequestSupplierOption = { id: string; name: string };
+/** `label` is what a picker shows: the name, with what tells it apart when another supplier bears the same one. */
+export type MaterialRequestSupplierOption = { id: string; name: string; label: string };
 
 /** The keys a client actually sent: an omitted key leaves its column alone. */
 function sent<T extends object>(input: T): Partial<T> {
@@ -70,8 +79,48 @@ function mostRecentFirst(left: MaterialRequest, right: MaterialRequest): number 
   return Date.parse(right.created_at) - Date.parse(left.created_at) || left.id.localeCompare(right.id);
 }
 
+/** Order summaries read at once by the list: each is a security-definer call over its request's orders. */
+const ORDER_SUMMARY_CONCURRENCY = 4;
+
+/**
+ * The lines of each request that no standing purchase order holds yet. Only a line priced by a retained quote can be
+ * ordered (TI-691), so the orders are asked of the requests that have one, a few calls at a time; every other line is
+ * still to order. A summary that cannot be read (the request deleted meanwhile, a busy database) leaves that request
+ * without a count (null) rather than failing the list.
+ */
+async function toOrderCounts(
+  access: MaterialRequestAccess,
+  lines: ReadonlyArray<Pick<MaterialRequestLine, "id" | "request_id" | "price_quote_id">>,
+): Promise<Map<string, { toOrder: number | null; ordered: number }>> {
+  const byRequest = new Map<string, Array<Pick<MaterialRequestLine, "id" | "price_quote_id">>>();
+  for (const line of lines) {
+    const requestLines = byRequest.get(line.request_id);
+    if (requestLines) requestLines.push(line);
+    else byRequest.set(line.request_id, [line]);
+  }
+  const counts = new Map<string, { toOrder: number | null; ordered: number }>();
+  const priced: Array<[string, Array<Pick<MaterialRequestLine, "id" | "price_quote_id">>]> = [];
+  for (const [requestId, requestLines] of byRequest) {
+    if (requestLines.some((line) => line.price_quote_id !== null)) priced.push([requestId, requestLines]);
+    else counts.set(requestId, { toOrder: requestLines.length, ordered: 0 });
+  }
+  for (let start = 0; start < priced.length; start += ORDER_SUMMARY_CONCURRENCY) {
+    await Promise.all(priced.slice(start, start + ORDER_SUMMARY_CONCURRENCY).map(async ([requestId, requestLines]) => {
+      try {
+        const ordered = await orderedLineIds(access, requestId);
+        const held = requestLines.filter((line) => ordered.has(line.id)).length;
+        counts.set(requestId, { toOrder: requestLines.length - held, ordered: held });
+      } catch (error) {
+        console.error("The orders of a material request could not be read for the list", { requestId, error });
+        counts.set(requestId, { toOrder: null, ordered: 0 });
+      }
+    }));
+  }
+  return counts;
+}
+
 export async function listMaterialRequests(projectId: string): Promise<{
-  items: MaterialRequestSummary[];
+  items: MaterialRequestListItem[];
   technicians: MaterialRequestTechnician[];
   canWrite: boolean;
 }> {
@@ -81,7 +130,7 @@ export async function listMaterialRequests(projectId: string): Promise<{
   const [requests, lines, files, technicians] = await Promise.all([
     readAllRows(() => supabase.from("material_requests").select(REQUEST_COLUMNS, { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id)),
-    readAllRows(() => supabase.from("material_request_lines").select("id, request_id, status", { count: "exact" })
+    readAllRows(() => supabase.from("material_request_lines").select("id, request_id, status, price_quote_id", { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id)),
     readAllRows(() => supabase.from("material_request_files").select("id, request_id", { count: "exact" })
       .eq("tenant_id", tenantId).eq("project_id", access.project.id).is("quote_id", null)
@@ -92,12 +141,17 @@ export async function listMaterialRequests(projectId: string): Promise<{
   if (lines.error) throw mapSupabaseError(lines.error, "Impossible de charger les lignes des demandes.");
   if (files.error) throw mapSupabaseError(files.error, "Impossible de charger les originaux des demandes.");
 
+  const toOrder = await toOrderCounts(access, lines.data ?? []);
   return {
     items: summarizeRequests([...(requests.data ?? [])].sort(mostRecentFirst), {
       lines: lines.data ?? [],
       files: files.data ?? [],
       technicians,
-    }),
+    }).map((summary) => ({
+      ...summary,
+      to_order_line_count: toOrder.has(summary.id) ? (toOrder.get(summary.id)?.toOrder ?? null) : 0,
+      has_orders: (toOrder.get(summary.id)?.ordered ?? 0) > 0,
+    })),
     technicians,
     canWrite: access.canWrite,
   };
@@ -155,13 +209,17 @@ async function readSupplierOptions(access: MaterialRequestAccess): Promise<Mater
   const { context } = access;
   const { data, error } = await readAllRows(() => context.supabase
     .from("suppliers")
-    .select("id, name", { count: "exact" })
+    .select("id, name, city, email, siret, created_at", { count: "exact" })
     .eq("tenant_id", context.tenantId)
     .eq("is_active", true));
   if (error) throw mapSupabaseError(error, "Impossible de charger les fournisseurs.");
-  return (data ?? [])
-    .map((supplier) => ({ id: supplier.id, name: supplier.name }))
-    .sort((left, right) => left.name.localeCompare(right.name, "fr") || left.id.localeCompare(right.id));
+  const suppliers = data ?? [];
+  // Two suppliers of the same name are told apart here: only the mark that separates homonyms (their city, e-mail,
+  // SIRET or creation) is sent, read under the caller's own rights on suppliers; the other columns stay here.
+  const labels = supplierPickerLabels(suppliers);
+  return suppliers
+    .map((supplier) => ({ id: supplier.id, name: supplier.name, label: labels.get(supplier.id) ?? supplier.name }))
+    .sort((left, right) => left.label.localeCompare(right.label, "fr") || left.id.localeCompare(right.id));
 }
 
 export async function getMaterialRequestDetail(projectId: string, requestId: string): Promise<
@@ -358,9 +416,17 @@ export async function createMaterialRequestLines(
   lines: readonly MaterialRequestLineData[],
 ): Promise<{ lines: MaterialRequestLine[] }> {
   const access = await requireProjectAccess(projectId, "write");
-  const { context } = access;
   const request = await requireRequest(access, requestId);
+  return { lines: await appendLines(access, request, lines) };
+}
 
+/** New drafts after the last line of the request, in the order given, within the cap. */
+async function appendLines(
+  access: MaterialRequestAccess,
+  request: MaterialRequest,
+  lines: readonly MaterialRequestLineData[],
+): Promise<MaterialRequestLine[]> {
+  const { context } = access;
   // The friendly, early refusal. The cap itself is held by the database, which counts under a lock on
   // the request: two appends that both saw room here cannot both pass there.
   const count = await countLines(access, request.id);
@@ -391,12 +457,105 @@ export async function createMaterialRequestLines(
         // writes for a key another line of the batch sends (an overhead line among project lines).
       })), { defaultToNull: false })
       .select(LINE_COLUMNS);
-    if (!error) return { lines: [...(data ?? [])].sort(byPosition) };
+    if (!error) return [...(data ?? [])].sort(byPosition);
     // The database refused the whole batch for the cap: another session appended since the count above.
     if (error.message === MATERIAL_REQUEST_LINE_LIMIT) throw lineLimitReached(await countLines(access, request.id));
     if (error.code !== "23505") throw mapSupabaseError(error, "Impossible d'ajouter les lignes.");
   }
   throw conflict("Des lignes viennent d’être ajoutées à cette demande. Rechargez-la, puis réessayez.");
+}
+
+const LINES_CHANGED = "Les lignes de la demande ont changé entre-temps : rechargez-la, puis redécoupez le message.";
+
+/**
+ * The lines among these that a quote asks for, priced or not. A quote line has no id of its own, so it is read in
+ * chunks of the URL's size rather than page by page: a chunk cut at the Data API's 1,000 rows still names at least
+ * one line, and one is enough to refuse the split.
+ */
+async function quotedLineIds(context: MaterialRequestContext, projectId: string, lineIds: readonly string[]): Promise<Set<string>> {
+  const { data, error } = await selectInChunks(lineIds, (chunk) => context.supabase
+    .from("material_request_quote_lines")
+    .select("line_id")
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", projectId)
+    .in("line_id", chunk));
+  if (error) throw mapSupabaseError(error, "Impossible de charger les lignes des devis.");
+  return new Set(data.map((row) => row.line_id));
+}
+
+/** 409 naming the lines a split would throw away: validated ones, and those a quote asks for or prices. */
+function linesKeptRefusal(validated: readonly MaterialRequestLine[], quoted: readonly MaterialRequestLine[]): ApiError {
+  const said = (lines: readonly MaterialRequestLine[], one: string, several: string) => {
+    const positions = linePositionsLabel(lines.map((line) => line.position));
+    return lines.length === 1 ? `la ligne ${positions} ${one}` : `les lignes ${positions} ${several}`;
+  };
+  const reasons = [
+    validated.length > 0 ? said(validated, "est validée", "sont validées") : null,
+    quoted.length > 0 ? said(quoted, "est dans un devis", "sont dans un devis") : null,
+  ].filter((reason): reason is string => reason !== null);
+  return conflict(
+    `Le message n’est pas redécoupé : ${reasons.join(", ")}. Corrigez les lignes dans le tableau.`,
+    { validated_ids: validated.map((line) => line.id), quoted_ids: quoted.map((line) => line.id) },
+    MATERIAL_REQUEST_LINES_KEPT,
+  );
+}
+
+/**
+ * Splits the message again (TI-691): the request's lines, which must be exactly those the screen named and all drafts,
+ * give way to the lines read again, from position 1. Refused, with nothing written, when another session added or
+ * removed a line (MATERIAL_REQUEST_LINES_CHANGED), or when a line is validated, priced by a retained quote or asked in
+ * a quote (MATERIAL_REQUEST_LINES_KEPT): a split never throws away what the office decided or asked a supplier.
+ *
+ * Two statements: the drafts go in one deletion, then the new lines come in one insert. The deletion reaches only
+ * drafts that no retained quote prices, and an order that holds a line makes the database refuse it whole. When it
+ * reaches fewer lines than named (another session replaced, validated or removed one in between), nothing is added:
+ * 409, and the screen reads the request again. Should the insert fail, the request has no line and its message is
+ * still there: splitting it again starts over, and what went is what the office agreed to replace. A quote asked in
+ * the instant between the check and the deletion loses those lines (their quote lines cascade): the window is that
+ * of two statements, accepted with them.
+ */
+export async function replaceMaterialRequestLines(
+  projectId: string,
+  requestId: string,
+  input: ReplaceMaterialRequestLinesData,
+): Promise<{ lines: MaterialRequestLine[] }> {
+  const access = await requireProjectAccess(projectId, "write");
+  const { context } = access;
+  const request = await requireRequest(access, requestId);
+  const current = await readRequestLines(access, request.id);
+  const named = new Set(input.replaced_ids);
+  if (current.length !== named.size || current.some((line) => !named.has(line.id))) {
+    throw conflict(LINES_CHANGED, undefined, MATERIAL_REQUEST_LINES_CHANGED);
+  }
+  const asked = await quotedLineIds(context, access.project.id, current.map((line) => line.id));
+  const validated = current.filter((line) => line.status === "validated");
+  const quoted = current.filter((line) => line.price_quote_id !== null || asked.has(line.id));
+  if (validated.length > 0 || quoted.length > 0) throw linesKeptRefusal(validated, quoted);
+  // Every refusal the new lines can meet is met before a draft goes (the cap is held: the drafts make room).
+  await assertSuppliersInTenant(context, input.lines.map((line) => line.supplier_id));
+
+  const { data: removed, error } = await context.supabase
+    .from("material_request_lines")
+    .delete()
+    .in("id", current.map((line) => line.id))
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", access.project.id)
+    .eq("request_id", request.id)
+    .eq("status", "draft")
+    .is("price_quote_id", null)
+    .select("id");
+  if (error) {
+    // An order holds a line (its foreign key restricts the deletion), or a quote was retained in between.
+    if (error.code === "23503" || error.message === "MATERIAL_REQUEST_LINE_PRICED") {
+      throw conflict("Le message n’est pas redécoupé : une ligne est dans un devis ou un bon de commande. Rechargez la demande.",
+        undefined, MATERIAL_REQUEST_LINES_KEPT);
+    }
+    throw mapSupabaseError(error, "Impossible de remplacer les lignes.");
+  }
+  // Another session replaced, validated or removed a line since the read: nothing is added on top of its work.
+  if ((removed ?? []).length !== current.length) throw conflict(LINES_CHANGED, undefined, MATERIAL_REQUEST_LINES_CHANGED);
+  await appendLines(access, request, input.lines);
+  return { lines: await readRequestLines(access, request.id) };
 }
 
 /** The requested lines, all of this request, or 404: an id from another request is not found here. */

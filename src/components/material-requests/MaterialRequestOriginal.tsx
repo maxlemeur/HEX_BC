@@ -291,36 +291,73 @@ function Photo({
   );
 }
 
-/** The pasted message, shown as it was received; cutting it into lines only proposes drafts. */
+/** Where the splitting cuts the message, said where the office reads or corrects it. */
+const SPLIT_RULE =
+  "Le découpage propose une ligne par article : il coupe à chaque retour à la ligne, à un tiret entre deux espaces, et à une virgule ou un point-virgule suivi d’une quantité (« 50 coudes DN50, 10 manchons DN15 »).";
+
+/**
+ * The pasted message, shown as it was received; cutting it into lines only proposes drafts. Once corrected, it is
+ * cut again in one gesture, in place of the lines, as long as they are all drafts no quote holds (TI-691): the office
+ * no longer deletes them one by one, and never loses a validated or quoted line to a split.
+ */
 function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   const toast = useToast();
   const textId = useId();
+  const ruleId = useId();
   const { data, canWrite } = editor;
   const sourceText = data.request.source_text;
+  const lines = data.lines;
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Set when the message held more lines than a request accepts: what was read, what was created. */
   const [overflow, setOverflow] = useState<{ read: number; created: number } | null>(null);
+  /** The office asked to cut the message again: the replacement waits for its confirmation. */
+  const [confirming, setConfirming] = useState(false);
+  /** The message was saved while the request had lines: they do not follow it by themselves. */
+  const [savedOverLines, setSavedOverLines] = useState(false);
+  /** The confirmation that held the focus is gone: the focus goes back to « Redécouper le message ». */
+  const [refocus, setRefocus] = useState(false);
+  const resplitButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!refocus) return;
+    setRefocus(false);
+    resplitButton.current?.focus();
+  }, [refocus]);
+  // A validated line, or one a retained quote prices, is never replaced (the server also refuses a line asked in a
+  // quote, which this screen does not know).
+  const kept = lines.filter((line) => line.status !== "draft" || line.price_quote_id !== null).length;
+  const replaceable = lines.length > 0 && kept === 0;
 
-  const split = async () => {
+  const split = async (replace: boolean) => {
     if (!sourceText) return;
     const read = splitSourceText(sourceText);
     const drafts = read.slice(0, MATERIAL_REQUEST_MAX_LINES);
     if (drafts.length === 0) {
+      setConfirming(false);
       setError("Aucune ligne lisible dans ce message : ajoutez les lignes à la main.");
       return;
     }
+    const replaced = lines.length;
     setBusy(true);
-    const result = await editor.addLines(drafts);
+    const result = replace ? await editor.replaceLines(drafts) : await editor.addLines(drafts);
     setBusy(false);
+    setConfirming(false);
+    if (replace) setRefocus(true);
     setError(result.ok ? null : result.message);
     if (result.ok) {
+      setSavedOverLines(false);
       // The button disappears with the first line: what was left out must be said and must stay on screen.
       setOverflow(read.length > drafts.length ? { read: read.length, created: drafts.length } : null);
+      const doubtful = drafts.filter((line) => line.quantity_doubtful).length;
       toast.success({
-        title: `${plural(drafts.length, "ligne créée", "lignes créées")} en brouillon`,
-        description: "Relisez chaque ligne avant de valider.",
+        title: replace
+          ? `${plural(drafts.length, "ligne", "lignes")} en brouillon, à la place ${replaced > 1 ? `des ${replaced} précédentes` : "de la précédente"}`
+          : `${plural(drafts.length, "ligne créée", "lignes créées")} en brouillon`,
+        description:
+          doubtful > 0
+            ? `Relisez chaque ligne avant de valider : ${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`
+            : "Relisez chaque ligne avant de valider.",
       });
     }
   };
@@ -331,7 +368,10 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
     const result = await editor.updateRequest({ source_text: draft.trim() ? draft : null });
     setBusy(false);
     setError(result.ok ? null : result.message);
-    if (result.ok) setDraft(null);
+    if (result.ok) {
+      setDraft(null);
+      setSavedOverLines(lines.length > 0 && Boolean(draft.trim()));
+    }
   };
 
   return (
@@ -348,8 +388,12 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
             value={draft}
             maxLength={MATERIAL_REQUEST_SOURCE_TEXT_MAX}
             placeholder="Collez ici le SMS ou le message du technicien, sans le corriger."
+            aria-describedby={ruleId}
             onChange={(event) => setDraft(event.currentTarget.value)}
           />
+          <p id={ruleId} className="text-xs text-muted-foreground">
+            {SPLIT_RULE}
+          </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" loading={busy} onClick={() => void save()}>
               Enregistrer le message
@@ -368,16 +412,72 @@ function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) 
       )}
       {canWrite && draft === null ? (
         <div className="flex flex-wrap gap-2">
-          {sourceText && data.lines.length === 0 ? (
-            <Button type="button" size="sm" loading={busy} onClick={() => void split()}>
+          {sourceText && lines.length === 0 ? (
+            <Button type="button" size="sm" loading={busy} aria-describedby={ruleId} onClick={() => void split(false)}>
               <Scissors aria-hidden="true" />
               Découper le texte en lignes
             </Button>
           ) : null}
-          <Button type="button" variant="outline" size="sm" onClick={() => setDraft(sourceText ?? "")}>
+          {sourceText && replaceable && !confirming ? (
+            <Button ref={resplitButton} type="button" variant="outline" size="sm" disabled={busy} onClick={() => setConfirming(true)}>
+              <Scissors aria-hidden="true" />
+              Redécouper le message
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setConfirming(false);
+              setSavedOverLines(false);
+              setDraft(sourceText ?? "");
+            }}
+          >
             {sourceText ? "Modifier le message" : "Coller un message"}
           </Button>
         </div>
+      ) : null}
+      {canWrite && draft === null && sourceText && lines.length === 0 ? (
+        <p id={ruleId} className="text-xs text-muted-foreground">
+          {SPLIT_RULE}
+        </p>
+      ) : null}
+      {canWrite && draft === null && savedOverLines && !confirming ? (
+        <p role="status" className="text-sm text-foreground">
+          {replaceable
+            ? "Message enregistré. Les lignes ne suivent pas d’elles-mêmes : redécoupez le message pour les remplacer."
+            : `Message enregistré. Les lignes ne sont pas redécoupées : ${plural(kept, "ligne est validée ou chiffrée par un devis", "lignes sont validées ou chiffrées par un devis")}. Corrigez les lignes dans le tableau.`}
+        </p>
+      ) : null}
+      {confirming ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            <p>
+              {lines.length > 1
+                ? `Les ${lines.length} lignes en brouillon seront remplacées par celles lues dans le message, avec ce qui y a été saisi : articles, fournisseurs, corrections.`
+                : "La ligne en brouillon sera remplacée par celles lues dans le message, avec ce qui y a été saisi : article, fournisseur, corrections."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {/* The trigger leaves with the click: the choice takes the focus, so a keyboard user lands on it. */}
+              <Button type="button" variant="danger" size="sm" loading={busy} autoFocus onClick={() => void split(true)}>
+                {lines.length > 1 ? `Remplacer les ${lines.length} lignes` : "Remplacer la ligne"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(false);
+                  setRefocus(true);
+                }}
+              >
+                Annuler
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
       ) : null}
       {overflow ? (
         <Alert variant="warning">

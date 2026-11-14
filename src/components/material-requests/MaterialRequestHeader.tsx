@@ -408,9 +408,11 @@ export function MaterialRequestHeader({
           <ChoiceCell
             id={`${ids}-supplier`}
             value={request.presumed_supplier_id}
-            options={data.supplierOptions.map((option) => ({ value: option.id, label: option.name }))}
+            options={data.supplierOptions.map((option) => ({ value: option.id, label: option.label }))}
             emptyLabel="Aucun"
             unknownLabel="Fournisseur retiré de la liste"
+            searchable
+            placeholder="Chercher un fournisseur…"
             disabled={readOnly}
             onUnsavedChange={setSupplierUnsaved}
             onCommit={(presumed_supplier_id) => updateRequest({ presumed_supplier_id, supplier_confirmed: false })}

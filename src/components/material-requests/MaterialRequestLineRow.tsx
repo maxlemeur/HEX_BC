@@ -32,7 +32,7 @@ import {
   type CellAlerts,
   type ChoiceOption,
 } from "./cells";
-import { formatQuantity, purchaseOrderHref } from "./format";
+import { formatQuantity, orderedLineMark, purchaseOrderHref } from "./format";
 import { MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
 import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
 import type {
@@ -92,7 +92,8 @@ type LineRowProps = Readonly<{
   proposals: LineProposals;
   articleNotice: ArticleNotice | undefined;
   articleConflict: string | undefined;
-  onLinkArticle: (candidate: MaterialRequestArticleCandidate) => Promise<SaveResult>;
+  /** `learnAlias`: the office checked « Retenir … comme nom usuel » (TI-691); never by default. */
+  onLinkArticle: (candidate: MaterialRequestArticleCandidate, learnAlias: boolean) => Promise<SaveResult>;
   onUnlinkArticle: () => Promise<SaveResult>;
   onOpenArticles: () => void;
   onRetryProposals: () => void;
@@ -100,6 +101,12 @@ type LineRowProps = Readonly<{
   supplierProposal: LineSupplierProposal | null;
   /** The article's reference at the line's own supplier, when the catalogue knows it. */
   supplierReference: LineSupplierReference | null;
+  /** The supplier proposals were read for the line as it is now. */
+  supplierProposalRead: boolean;
+  /** Opens the preferred suppliers of the supply types; null for who may not change them. */
+  onChooseTypeSupplier: (() => void) | null;
+  /** May complete a linked article's sheet (admins and engineers). */
+  canEditCatalogue: boolean;
   onRetainSupplier: (supplierId: string) => Promise<RetainResult>;
   /** The purchase order the line went into (TI-691, delivery 3a); null while it is not ordered. */
   ordered?: MaterialRequestOrderLink | null;
@@ -111,7 +118,7 @@ function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRe
 
 function supplierName(options: readonly MaterialRequestSupplierOption[], id: string | null): string | null {
   if (!id) return null;
-  return options.find((option) => option.id === id)?.name ?? "Fournisseur retiré de la liste";
+  return options.find((option) => option.id === id)?.label ?? "Fournisseur retiré de la liste";
 }
 
 type RequestPresumptions = Pick<
@@ -181,6 +188,7 @@ function ArticleColumn(props: LineRowProps) {
         line={props.line}
         article={props.article}
         canWrite={props.canWrite}
+        canEditCatalogue={props.canEditCatalogue}
         proposals={props.proposals}
         change={props.change}
         notice={props.articleNotice}
@@ -213,6 +221,9 @@ function SupplierColumn(props: LineRowProps) {
         proposal={line.supplier_id ? null : props.supplierProposal}
         reference={props.supplierReference}
         supplyTypeName={props.article?.supply_type_name ?? null}
+        article={props.article}
+        proposalRead={props.supplierProposalRead}
+        onChooseTypeSupplier={props.onChooseTypeSupplier}
         onSave={props.onSave}
         onRetain={props.onRetainSupplier}
       />
@@ -222,6 +233,7 @@ function SupplierColumn(props: LineRowProps) {
 
 function SettledLineRow(props: LineRowProps) {
   const { line, alerts, request, canWrite, onReopen, ordered } = props;
+  const orderMark = ordered ? orderedLineMark(ordered.status, ordered.purchase_order_reference) : null;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const validated = line.status === "validated";
@@ -286,18 +298,18 @@ function SettledLineRow(props: LineRowProps) {
               </Button>
             ) : null}
           </div>
-          {ordered?.can_open ? (
+          {ordered && orderMark && ordered.can_open ? (
             <Link
               href={purchaseOrderHref(ordered.purchase_order_id)}
               className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
             >
               <ShoppingCart aria-hidden="true" className="size-3.5 shrink-0" />
-              {`Commandé : ${ordered.purchase_order_reference}`}
+              {orderMark}
             </Link>
-          ) : ordered ? (
+          ) : ordered && orderMark ? (
             <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
               <ShoppingCart aria-hidden="true" className="size-3.5 shrink-0" />
-              {`Commandé : ${ordered.purchase_order_reference}`}
+              {orderMark}
             </span>
           ) : null}
         </td>

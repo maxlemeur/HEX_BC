@@ -198,7 +198,7 @@ function detail(options: {
     articles: {},
     canWrite: options.canWrite ?? true,
     materialOptions: ["Laiton brut", "PVC pression"],
-    supplierOptions: [{ id: "99999999-9999-4999-8999-999999999999", name: "Négoce Exemple" }],
+    supplierOptions: [{ id: "99999999-9999-4999-8999-999999999999", name: "Négoce Exemple", label: "Négoce Exemple" }],
   };
 }
 
@@ -1223,9 +1223,10 @@ describe("MaterialRequestEditor", () => {
 
       const rows = screen.getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
       expect(within(rows[0]).getByText("Laiton brut (demande)")).toBeVisible();
-      // TI-691: the office chooses the supplier of a validated line in place (it stays validated), so the
-      // supplier is a select there; what it shows is what the line is bought from.
-      expect(within(rows[0]).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("Négoce Exemple (demande)");
+      // TI-691: the office chooses the supplier of a validated line in place (it stays validated), in a search
+      // field; a line without its own supplier says, as text, the one it is bought from.
+      expect(within(rows[0]).getByLabelText("Fournisseur, ligne 1")).toHaveDisplayValue("");
+      expect(within(rows[0]).getByText("Acheté chez : Négoce Exemple (demande)")).toBeVisible();
       expect(within(rows[1]).getByText("PVC pression")).toBeVisible();
       expect(within(rows[1]).getByLabelText("Fournisseur, ligne 2")).toHaveDisplayValue("Négoce Exemple");
       expect(within(rows[1]).queryByText("Laiton brut (demande)")).not.toBeInTheDocument();
@@ -1300,8 +1301,8 @@ describe("MaterialRequestEditor", () => {
       let reads = 0;
       const sentence = "Le fournisseur présumé a été modifié entre-temps : relisez-le avant de le confirmer.";
       const suppliers = [
-        { id: SUPPLIER_ID, name: "Négoce Exemple" },
-        { id: OTHER_SUPPLIER_ID, name: "Comptoir Fictif" },
+        { id: SUPPLIER_ID, name: "Négoce Exemple", label: "Négoce Exemple" },
+        { id: OTHER_SUPPLIER_ID, name: "Comptoir Fictif", label: "Comptoir Fictif" },
       ];
       const user = await openEditor({
         [`GET ${BASE}`]: () => {

@@ -220,7 +220,11 @@ armyTest(
 
     // The competitor's message names no reference at all: neither Alpha's, nor ours, nor the technician's.
     await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
-    await screen.getByRole("checkbox", betaName, { exact: true }).check();
+    // The whole supplier list, searched by name (TI-691).
+    const competitor = screen.getByLabel("Ajouter un fournisseur", { exact: true });
+    await competitor.fill(betaName);
+    await screen.getByRole("option", betaName, { exact: true }).tap();
+    await expect(screen.getByRole("button", `Retirer ${betaName} de la mise en concurrence`, { exact: true })).toBeVisible();
     const competition = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
       "- 10 u Coude 90°, DN 50, Inox 316L",

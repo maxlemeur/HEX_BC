@@ -198,6 +198,17 @@ export type MaterialRequestSummary = MaterialRequest & {
 };
 
 /**
+ * A request in the list of its affaire (TI-691): with the lines no standing purchase order holds yet, so that a line
+ * left behind once the orders are made is seen from the list.
+ */
+export type MaterialRequestListItem = MaterialRequestSummary & {
+  /** Null when the orders of the request could not be read for the list: nothing is said rather than a guess. */
+  to_order_line_count: number | null;
+  /** At least one line is in a purchase order that stands. */
+  has_orders: boolean;
+};
+
+/**
  * Answer of a change to a request's header. Changing, clearing or un-confirming the presumed material
  * returns to draft every validated line that relied on it (no material of its own, not overhead):
  * their ids are listed, an empty array when there are none.
@@ -331,6 +342,27 @@ export const createMaterialRequestLinesSchema = z
   .object({ lines: z.array(materialRequestLineInputSchema).min(1).max(MATERIAL_REQUEST_MAX_LINES) })
   .strict();
 
+/**
+ * Splits the message again (TI-691): every line of the request, as the screen shows them, gives way to the lines
+ * read again. Only drafts that no quote holds are replaced; the server refuses otherwise and writes nothing.
+ */
+export const replaceMaterialRequestLinesSchema = z
+  .object({
+    replaced_ids: z
+      .array(uuid)
+      .min(1)
+      .max(MATERIAL_REQUEST_MAX_LINES)
+      .refine((ids) => new Set(ids).size === ids.length, { message: "Une ligne n’est nommée qu’une fois." }),
+    lines: z.array(materialRequestLineInputSchema).min(1).max(MATERIAL_REQUEST_MAX_LINES),
+  })
+  .strict();
+export type ReplaceMaterialRequestLinesInput = z.input<typeof replaceMaterialRequestLinesSchema>;
+export type ReplaceMaterialRequestLinesData = z.output<typeof replaceMaterialRequestLinesSchema>;
+/** 409: the request's lines are no longer those the screen named. */
+export const MATERIAL_REQUEST_LINES_CHANGED = "MATERIAL_REQUEST_LINES_CHANGED";
+/** 409: a line to replace is validated, priced by a retained quote or asked in a quote. */
+export const MATERIAL_REQUEST_LINES_KEPT = "MATERIAL_REQUEST_LINES_KEPT";
+
 export const updateMaterialRequestLineSchema = materialRequestLineInputSchema.refine(
   (payload) => Object.values(payload).some((value) => value !== undefined),
   { message: "Aucun champ à mettre à jour." },
@@ -385,11 +417,18 @@ export const materialRequestLineSeenSchema = z
   .strict();
 export type MaterialRequestLineSeen = z.output<typeof materialRequestLineSeenSchema>;
 
+/**
+ * Whether the link teaches the line's type words to the article as a usual name, for the whole tenant (TI-691):
+ * only when the office checks it at the link. Absent means no, as for the bulk link.
+ */
+const learnAlias = z.boolean().optional();
+
 export const linkMaterialRequestLineArticleSchema = z
   .object({
     product_id: uuid,
     via: z.enum(["reference", "alias", "ranked", "manual"]),
     expected_line: materialRequestLineSeenSchema.optional(),
+    learn_alias: learnAlias,
   })
   .strict();
 export type LinkMaterialRequestLineArticleInput = z.input<typeof linkMaterialRequestLineArticleSchema>;
@@ -412,6 +451,7 @@ export const createMaterialRequestLineArticleSchema = z
     unit: requiredText(20, "L’unité est requise."),
     supply_type_id: uuid,
     reference: optionalText(255),
+    learn_alias: learnAlias,
   })
   .strict();
 export type CreateMaterialRequestLineArticleInput = z.input<typeof createMaterialRequestLineArticleSchema>;

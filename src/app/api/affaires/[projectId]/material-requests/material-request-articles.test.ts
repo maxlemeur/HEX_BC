@@ -54,6 +54,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     tab changed DN 20 to DN 25 before the link) overwrites the corrected line with the old proposal.
  * 15. (Codex review of #263) unlinking gives the line back its unit but keeps a quantity the office corrected
  *     in the article's unit (« 18 ml » becomes « 18 barres »), without asking to check it.
+ * 17. (TI-691, the owner's walk of 2026-11-14) a line linked to an article that has no size still asks for one, as if
+ *     the link had settled nothing; or the link marks « sans dimension » a line whose technician gave a size.
+ * 16. (TI-691, the owner's walk of 2026-11-14) a link teaches the technician's words to the whole tenant
+ *     without the office choosing it: a name is learned when the link does not ask for it (`learn_alias`
+ *     absent or false, as the bulk link sends it), or the choice is refused by the contract.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -287,9 +292,9 @@ describe("articles of material request lines: rights and scope", () => {
 });
 
 describe("linking a line to an article", () => {
-  it("writes the catalogue's wording, keeps the technician's words and reference, returns a validated line to draft and learns the usual name", async () => {
+  it("writes the catalogue's wording, keeps the technician's words and reference, returns a validated line to draft and learns the usual name asked for", async () => {
     const fake = seed(OWNER, "engineer");
-    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked" });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", learn_alias: true });
     expect(linked.status).toBe(200);
     const result = linked.data as MaterialRequestLineArticleResult;
     expect(result.line).toMatchObject({
@@ -319,11 +324,29 @@ describe("linking a line to an article", () => {
     ]);
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ["the link does not ask for it", {}],
+    ["the office leaves it unchecked", { learn_alias: false }],
+  ])("learns no usual name when %s, and links all the same", async (_label, choice) => {
+    const fake = seed(OWNER, "engineer");
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "reference", ...choice });
+    expect(linked.status).toBe(200);
+    expect((linked.data as MaterialRequestLineArticleResult).line).toMatchObject({ product_id: ELBOW, product_match: "reference", product_type: "Coude 90°" });
+    expect((linked.data as MaterialRequestLineArticleResult).alias_learned).toBeNull();
+    expect(fake.writes.filter((write) => write.table === "product_aliases")).toEqual([]);
+  });
+
+  it("refuses a choice that is not a yes or a no", async () => {
+    const fake = seed(OWNER, "engineer");
+    expect((await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", learn_alias: "oui" })).status).toBe(400);
+    expect(fake.writes).toEqual([]);
+  });
+
   it("learns nothing when the line's words are already the article's type", async () => {
     const fake = seed(OWNER, "engineer", {
       tables: { material_request_lines: [line(LINE_ELBOW, REQUEST, 1, { product_type: "Coudes 90°" })] },
     });
-    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked" });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", learn_alias: true });
     expect(linked.status).toBe(200);
     expect((linked.data as MaterialRequestLineArticleResult).alias_learned).toBeNull();
     expect(fake.writes.filter((write) => write.table === "product_aliases")).toEqual([]);
@@ -331,7 +354,7 @@ describe("linking a line to an article", () => {
 
   it("relinking teaches the new article the technician's words, not the former article's", async () => {
     const fake = seed(OWNER, "engineer");
-    const relinked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_LINKED), { product_id: ELBOW, via: "manual" });
+    const relinked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_LINKED), { product_id: ELBOW, via: "manual", learn_alias: true });
     expect(relinked.status).toBe(200);
     const result = relinked.data as MaterialRequestLineArticleResult;
     expect(result.line).toMatchObject({ product_id: ELBOW, product_match: "manual", product_type: "Coude 90°", status: "draft" });
@@ -354,7 +377,7 @@ describe("linking a line to an article", () => {
       dimension: "DN 50", unit: "pcs",
     });
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)?.pre_link_wording).toBeNull();
-    const relinked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: GALVANIZED_ELBOW, via: "manual" });
+    const relinked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: GALVANIZED_ELBOW, via: "manual", learn_alias: true });
     expect((relinked.data as MaterialRequestLineArticleResult).alias_learned).toBe("coude 90");
     expect(fake.tables.product_aliases.filter((alias) => alias.product_id === GALVANIZED_ELBOW).map((alias) => alias.alias)).toEqual(["coude 90"]);
   });
@@ -400,7 +423,7 @@ describe("linking a line to an article", () => {
         Object.assign(row, { zone: "R+3", updated_at: "2026-11-12T09:30:00.000Z" });
       },
     });
-    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked" });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", learn_alias: true });
     expect(linked.status).toBe(409);
     expect(linked.error).toMatchObject({
       code: "MATERIAL_REQUEST_LINE_CHANGED",
@@ -445,9 +468,28 @@ describe("linking a line to an article", () => {
     expect((linked.data as MaterialRequestLineArticleResult).line).toMatchObject({ dimension: "DN 50", no_dimension: false });
   });
 
+  it("checks « sans dimension » when neither the article nor the line gives a size, and keeps the line's own size", async () => {
+    seed(OWNER, "engineer", {
+      tables: {
+        products: [article(ELBOW, { designation: "Triple chat fictif", product_type: "Triple chat", material: "Laiton" })],
+        material_request_lines: [
+          line(LINE_ELBOW, REQUEST, 1, { product_type: "triple chat", dimension: null, no_dimension: false }),
+          line(LINE_TEE, REQUEST, 2, { product_type: "triple chat", dimension: "20/27", no_dimension: false }),
+        ],
+      },
+    });
+    const sizeless = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "manual" });
+    expect((sizeless.data as MaterialRequestLineArticleResult).line).toMatchObject({ dimension: null, no_dimension: true });
+    const sized = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_TEE), { product_id: ELBOW, via: "manual" });
+    expect((sized.data as MaterialRequestLineArticleResult).line).toMatchObject({ dimension: "20/27", no_dimension: false });
+    // Unlinked, the line asks for its size again: « sans dimension » was the article's word, not the technician's.
+    const unlinked = await call(lineArticleRoute.DELETE, "DELETE", onLine(LINE_ELBOW));
+    expect((unlinked.data as { line: MaterialRequestLine }).line).toMatchObject({ dimension: null, no_dimension: false });
+  });
+
   it("a usual name already taught does not fail the link", async () => {
     seed(OWNER, "engineer");
-    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_TEE), { product_id: TEE, via: "alias" });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_TEE), { product_id: TEE, via: "alias", learn_alias: true });
     expect(linked.status).toBe(200);
     expect((linked.data as MaterialRequestLineArticleResult).line).toMatchObject({ product_id: TEE, product_match: "alias", product_type: "Té égal" });
     expect((linked.data as MaterialRequestLineArticleResult).alias_learned).toBeNull();
@@ -456,7 +498,7 @@ describe("linking a line to an article", () => {
   it("the link stands when the usual name cannot be recorded, and the failure is logged", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const fake = seed(OWNER, "engineer", { refuseInsert: (table) => (table === "product_aliases" ? "SOMETHING_ELSE" : false) });
-    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked" });
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_ELBOW), { product_id: ELBOW, via: "ranked", learn_alias: true });
     expect(linked.status).toBe(200);
     expect((linked.data as MaterialRequestLineArticleResult).alias_learned).toBeNull();
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)).toMatchObject({ product_id: ELBOW, product_match: "ranked" });
@@ -535,7 +577,7 @@ describe("creating an article from a line", () => {
     ["an admin", ADMIN, "admin"],
   ])("%s creates a draft marked as created from a request, then links it", async (_label, actor, role) => {
     const fake = seed(actor, role);
-    const created = await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), NEW_TEE);
+    const created = await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), { ...NEW_TEE, learn_alias: true });
     expect(created.status).toBe(201);
     const result = created.data as MaterialRequestLineArticleResult;
     expect(result.article).toMatchObject({
@@ -549,6 +591,14 @@ describe("creating an article from a line", () => {
       product_id: result.article.id, product_match: "created", product_type: "Té réduit", dimension: "DN 50 × 40", original_text: "2 piquages DN50",
     });
     expect(result.alias_learned).toBe("piquage");
+  });
+
+  it("teaches no usual name to the article it creates unless the office asks for it", async () => {
+    const fake = seed(OWNER, "engineer");
+    const created = await call(lineArticleRoute.POST, "POST", onLine(LINE_TEE), NEW_TEE);
+    expect(created.status).toBe(201);
+    expect((created.data as MaterialRequestLineArticleResult).alias_learned).toBeNull();
+    expect(fake.writes.filter((write) => write.table === "product_aliases")).toEqual([]);
   });
 
   it("keeps the designation the office wrote", async () => {

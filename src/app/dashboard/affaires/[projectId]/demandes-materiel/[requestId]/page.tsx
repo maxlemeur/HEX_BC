@@ -25,13 +25,18 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
         breadcrumbs={[
           { label: "Affaires", href: "/dashboard/affaires" },
           { label: project.name, href: `/dashboard/affaires/${projectId}` },
-          { label: "Demandes de matériel", href: listHref },
+          { label: "Achats", href: listHref },
           { label: "Demande" },
         ]}
-        back={{ href: listHref, label: "Retour aux demandes de matériel" }}
+        back={{ href: listHref, label: "Retour aux achats" }}
       />
 
-      <MaterialRequestEditor projectId={projectId} requestId={requestId} affaireName={project.name} />
+      <MaterialRequestEditor
+        projectId={projectId}
+        requestId={requestId}
+        affaireName={project.name}
+        canEditCatalogue={project.canEditCatalogue}
+      />
     </>
   );
 }

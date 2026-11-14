@@ -46,8 +46,9 @@ import {
  *    reference they wrote stays in reference. A column the article leaves blank keeps the line's own value.
  *    The line's own wording before its first link is remembered (pre_link_wording, never sent to the
  *    browser): an unlink gives it back, and a relink keeps it.
- *  - Each link teaches the article a usual name: the technician's type words (remembered, or the line's
- *    when nothing is), when they are not already the article's type or designation.
+ *  - A link teaches the article a usual name only when the office asks for it (`learn_alias`, TI-691): the
+ *    technician's type words (remembered, or the line's when nothing is), when they are not already the
+ *    article's type or designation. The bulk link never asks.
  *  - A unit replaced by another asks the office to check the quantity (quantity_doubtful).
  *  - A link or an unlink is written only over the line as it was read: an edit made in between answers 409.
  *  - A validated line that is linked, relinked or unlinked returns to draft (the line trigger holds it too).
@@ -350,8 +351,8 @@ function filled(value: string | null | undefined, max: number): string | null {
 /**
  * The catalogue's wording, in the line's columns and within their lengths. A column the article leaves
  * blank keeps what the line says: an article whose size is in its designation does not erase the size the
- * technician gave. The precision is the article's grade and standard. A size given by the article unchecks
- * « sans dimension ».
+ * technician gave. The precision is the article's grade and standard. « Sans dimension » follows the size the line
+ * ends with: unchecked with one, checked without (neither the article nor the technician gave one).
  */
 function wordingOf(line: MaterialRequestLine, article: ArticleRow) {
   const precision = [...new Set([article.grade, article.standard].map((value) => value?.trim()).filter(Boolean))].join(" ");
@@ -361,7 +362,9 @@ function wordingOf(line: MaterialRequestLine, article: ArticleRow) {
     material: filled(article.material, 120) ?? line.material,
     material_precision: filled(precision, 120) ?? line.material_precision,
     dimension,
-    no_dimension: dimension?.trim() ? false : line.no_dimension,
+    // TI-691: an article without size settles the line's (the owner's « triple chat »): the link says « sans dimension »
+    // instead of leaving the line to ask for one. The line's own size wins over that, and an unlink gives back its own.
+    no_dimension: dimension?.trim() ? false : true,
     unit: filled(article.unit, 20) ?? line.unit,
   };
 }
@@ -441,7 +444,8 @@ async function writeLine(access: MaterialRequestAccess, stored: StoredLine, next
 }
 
 /**
- * Links the line, then teaches the usual name. One logical operation for the office, two statements here:
+ * Links the line, then teaches the usual name when the office asked for it. One logical operation for the office,
+ * two statements here:
  * the link is what the office asked for, so it stands even when the name cannot be learned (the failure is
  * logged, and the next link of the same words teaches it again). A name already taught is not an error, and
  * nothing is learned when the link itself is refused.
@@ -456,6 +460,7 @@ async function linkLine(
   article: ArticleRow,
   supplyTypeName: string | null,
   match: MaterialRequestProductMatch,
+  learn: boolean,
 ): Promise<MaterialRequestLineArticleResult> {
   const { line } = stored;
   const own = stored.preLinkWording ?? wordingFromLine(line);
@@ -469,7 +474,7 @@ async function linkLine(
   }
   if (!line.quantity_doubtful && unitsDiffer(line.unit, wording.unit)) next.quantity_doubtful = true;
 
-  const learned = aliasToLearn(own.product_type, article);
+  const learned = learn ? aliasToLearn(own.product_type, article) : null;
   const written = await writeLine(access, stored, next);
   const aliasLearned = learned ? await learnAlias(access.context, article, learned) : null;
   return { line: written, article: summaryOf(article, supplyTypeName), alias_learned: aliasLearned };
@@ -504,7 +509,8 @@ export async function linkMaterialRequestLineArticle(
   }
   const article = await readActiveArticle(access.context, input.product_id);
   const names = await readSupplyTypeNames(access.context, [article.supply_type_id]);
-  return linkLine(access, line, article, article.supply_type_id ? (names.get(article.supply_type_id) ?? null) : null, input.via);
+  const supplyTypeName = article.supply_type_id ? (names.get(article.supply_type_id) ?? null) : null;
+  return linkLine(access, line, article, supplyTypeName, input.via, input.learn_alias === true);
 }
 
 /**
@@ -591,7 +597,7 @@ export async function createMaterialRequestLineArticle(
   const article = data as ArticleRow;
 
   try {
-    return await linkLine(access, line, article, supplyType.name, "created");
+    return await linkLine(access, line, article, supplyType.name, "created", input.learn_alias === true);
   } catch (linkError) {
     const { error: undoError } = await context.supabase
       .from("products")

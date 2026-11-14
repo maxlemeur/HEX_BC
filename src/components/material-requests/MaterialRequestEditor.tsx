@@ -20,13 +20,17 @@ import { materialRequestsHref } from "./format";
 import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
 import { MaterialRequestHeader } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
-import { MaterialRequestOrders } from "./MaterialRequestOrders";
+import { MaterialRequestOrders, MaterialRequestToOrderReminder } from "./MaterialRequestOrders";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
 import { useMaterialRequestEditor, type MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import { useMaterialRequestOrders } from "./useMaterialRequestOrders";
 
-function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string }>) {
+function ReadyEditor({
+  editor,
+  affaireName,
+  canEditCatalogue,
+}: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string; canEditCatalogue: boolean }>) {
   const router = useRouter();
   const ids = useId();
   const materialListId = `${ids}-materials`;
@@ -64,6 +68,7 @@ function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequest
           </Alert>
         )}
         <MaterialRequestHeader editor={editor} technicians={known} materialListId={materialListId} />
+        <MaterialRequestToOrderReminder editor={editor} orders={orders} />
         <datalist id={materialListId}>
           {data.materialOptions.map((material) => (
             <option key={material} value={material} />
@@ -74,6 +79,7 @@ function ReadyEditor({ editor, affaireName }: Readonly<{ editor: MaterialRequest
           materialListId={materialListId}
           headingId={`${ids}-lines`}
           orderedLine={orders.orderedLine}
+          canEditCatalogue={canEditCatalogue}
           toolbar={
             <>
               <Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" onClick={() => setMessageOpen(true)}>
@@ -146,11 +152,14 @@ export function MaterialRequestEditor({
   projectId,
   requestId,
   affaireName = "",
+  canEditCatalogue = false,
 }: Readonly<{
   projectId: string;
   requestId: string;
   /** Named in the message that asks a supplier for a price. */
   affaireName?: string;
+  /** May set a supply type's preferred supplier from the request (admins and engineers). */
+  canEditCatalogue?: boolean;
 }>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
@@ -168,5 +177,5 @@ export function MaterialRequestEditor({
       </Alert>
     );
   }
-  return <ReadyEditor editor={state.editor} affaireName={affaireName} />;
+  return <ReadyEditor editor={state.editor} affaireName={affaireName} canEditCatalogue={canEditCatalogue} />;
 }

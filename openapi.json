@@ -3318,7 +3318,7 @@
           "Demandes de matériel"
         ],
         "summary": "Créer l'article d'une ligne et l'y rattacher",
-        "description": "Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created ». Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
+        "description": "Crée l'article en brouillon du catalogue, marqué comme créé depuis une demande (le catalogue l'affiche « Nouveau » jusqu'à sa validation), avec un type de fourniture obligatoire ; la désignation vaut par défaut type, matière et dimension. Réservé à qui peut ajouter des articles (TI-689 : administrateurs et ingénieurs). Puis rattache la ligne comme PUT, voie « created », et n'apprend un nom usuel qu'avec learn_alias à true. Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
         "parameters": [
           {
             "name": "projectId",
@@ -3437,7 +3437,7 @@
           "Demandes de matériel"
         ],
         "summary": "Rattacher une ligne à un article",
-        "description": "Le libellé du catalogue devient celui de la ligne : type, matière, précision (nuance et norme), dimension et unité viennent de l'article ; une colonne vide de l'article garde la valeur de la ligne. Une dimension donnée par l'article décoche « sans dimension ». Une autre unité que celle de la ligne marque la quantité à vérifier (quantity_doubtful). Les mots du technicien (original_text, rempli à partir d'eux s'il était vide) et sa référence restent. Le libellé de la ligne avant son premier rattachement est conservé côté serveur ; ses mots de type deviennent un nom usuel de l'article, sauf s'ils disent déjà son type ou sa désignation, y compris lors d'un nouveau rattachement ; le rattachement tient même si ce nom ne peut être enregistré. Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
+        "description": "Le libellé du catalogue devient celui de la ligne : type, matière, précision (nuance et norme), dimension et unité viennent de l'article ; une colonne vide de l'article garde la valeur de la ligne. Une dimension donnée par l'article décoche « sans dimension ». Une autre unité que celle de la ligne marque la quantité à vérifier (quantity_doubtful). Les mots du technicien (original_text, rempli à partir d'eux s'il était vide) et sa référence restent. Le libellé de la ligne avant son premier rattachement est conservé côté serveur. Avec learn_alias à true seulement (choix du bureau au rattachement ; absent vaut non), ses mots de type deviennent un nom usuel de l'article pour tout le tenant, sauf s'ils disent déjà son type ou sa désignation, y compris lors d'un nouveau rattachement ; le rattachement tient même si ce nom ne peut être enregistré. Rattacher, changer ou retirer l'article d'une ligne validée la ramène en brouillon.",
         "parameters": [
           {
             "name": "projectId",
@@ -3870,6 +3870,128 @@
           },
           "409": {
             "description": "MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/material-requests/{requestId}/lines/replace": {
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Redécouper le message : remplacer les lignes en brouillon",
+        "description": "Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes lues à nouveau dans le message, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec son message, qui se redécoupe. 300 lignes au plus de part et d'autre.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Lignes remplacées et lignes nouvelles.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialRequestLinesReplace"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Toutes les lignes de la demande, dans l'ordre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestLinesReplaced"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MATERIAL_REQUEST_LINES_CHANGED : les lignes ont changé entre-temps ; recharger la demande. MATERIAL_REQUEST_LINES_KEPT : une ligne est validée, ou dans un devis ou un bon de commande ; rien n'est remplacé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MATERIAL_REQUEST_LINE_LIMIT : la demande dépasserait 300 lignes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30848,6 +30970,21 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 9007199254740991
+                    },
+                    "to_order_line_count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "has_orders": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -30869,7 +31006,9 @@
                     "technician_name",
                     "line_count",
                     "validated_line_count",
-                    "file_count"
+                    "file_count",
+                    "to_order_line_count",
+                    "has_orders"
                   ],
                   "additionalProperties": false
                 }
@@ -32228,11 +32367,15 @@
                     },
                     "name": {
                       "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "id",
-                    "name"
+                    "name",
+                    "label"
                   ],
                   "additionalProperties": false
                 }
@@ -34405,6 +34548,9 @@
                 "type": "null"
               }
             ]
+          },
+          "learn_alias": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -34849,6 +34995,9 @@
               "imputation"
             ],
             "additionalProperties": false
+          },
+          "learn_alias": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -35599,6 +35748,429 @@
         "additionalProperties": false
       },
       "ApiMaterialRequestLinesReopened": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "position": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "original_text": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "quantity_doubtful": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dimension": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "no_dimension": {
+                      "type": "boolean"
+                    },
+                    "product_type": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "material": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "material_precision": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "supplier_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "zone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "imputation": {
+                      "type": "string",
+                      "enum": [
+                        "project",
+                        "overhead"
+                      ]
+                    },
+                    "overhead_category": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "duplicate_acknowledged": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "validated"
+                      ]
+                    },
+                    "validated_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "product_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "product_match": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "reference",
+                            "alias",
+                            "ranked",
+                            "manual",
+                            "created"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit_price_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "price_per": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": 10
+                        },
+                        {
+                          "type": "number",
+                          "const": 100
+                        },
+                        {
+                          "type": "number",
+                          "const": 1000
+                        }
+                      ]
+                    },
+                    "price_quote_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "request_id",
+                    "position",
+                    "original_text",
+                    "quantity",
+                    "quantity_doubtful",
+                    "unit",
+                    "dimension",
+                    "no_dimension",
+                    "product_type",
+                    "material",
+                    "material_precision",
+                    "reference",
+                    "supplier_id",
+                    "zone",
+                    "imputation",
+                    "overhead_category",
+                    "duplicate_acknowledged",
+                    "status",
+                    "validated_at",
+                    "product_id",
+                    "product_match",
+                    "unit_price_ht_cents",
+                    "price_per",
+                    "price_quote_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "lines"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "MaterialRequestLinesReplace": {
+        "type": "object",
+        "properties": {
+          "replaced_ids": {
+            "minItems": 1,
+            "maxItems": 300,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 300,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "original_text": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quantity": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "quantity_doubtful": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 20
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "dimension": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "no_dimension": {
+                  "type": "boolean"
+                },
+                "product_type": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "material": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "material_precision": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reference": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "supplier_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "zone": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "imputation": {
+                  "type": "string",
+                  "enum": [
+                    "project",
+                    "overhead"
+                  ]
+                },
+                "overhead_category": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "duplicate_acknowledged": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "replaced_ids",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestLinesReplaced": {
         "type": "object",
         "properties": {
           "ok": {

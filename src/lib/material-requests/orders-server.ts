@@ -82,7 +82,7 @@ function orderFunctionRefusal(error: SupabaseErrorLike): ApiError | null {
       );
     case MATERIAL_REQUEST_LINE_ALREADY_ORDERED:
       return conflict(
-        "Une ligne de cette demande vient d’être commandée par ailleurs : rechargez la demande, puis réessayez.",
+        "Une ligne de cette demande vient d’être mise dans un bon de commande par ailleurs : rechargez la demande, puis réessayez.",
         undefined,
         MATERIAL_REQUEST_LINE_ALREADY_ORDERED,
       );
@@ -119,6 +119,11 @@ async function readSummary(access: MaterialRequestAccess, requestId: string): Pr
   const parsed = summarySchema.safeParse(data);
   if (!parsed.success) throw internalError("La situation des commandes de la demande est incomplète.");
   return parsed.data;
+}
+
+/** The lines of a request that a standing purchase order holds (its summary's `ordered`), by id. */
+export async function orderedLineIds(access: MaterialRequestAccess, requestId: string): Promise<Set<string>> {
+  return new Set((await readSummary(access, requestId)).ordered.map((entry) => entry.line_id));
 }
 
 /** Where each line of the request stands for ordering, and the orders made from it. Readers of the request. */

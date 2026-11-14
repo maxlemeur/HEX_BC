@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, ClipboardList, Plus } from "lucide-react";
 
@@ -9,7 +9,7 @@ import { LoadingState } from "@/components/layout/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fetchMaterialRequests } from "@/lib/material-requests/client";
-import type { MaterialRequestSummary } from "@/lib/material-requests/contracts";
+import type { MaterialRequestListItem, MaterialRequestSummary } from "@/lib/material-requests/contracts";
 
 import { formatDateOnly, materialRequestHref, plural } from "./format";
 import { LoadFailure } from "./LoadFailure";
@@ -21,7 +21,25 @@ function validationProgress(request: MaterialRequestSummary): string {
   return `${plural(request.validated_line_count, "ligne validée", "lignes validées")} sur ${request.line_count}`;
 }
 
-function RequestRow({ projectId, request }: Readonly<{ projectId: string; request: MaterialRequestSummary }>) {
+/**
+ * What is left to order (TI-691): said plainly once some lines are in an order, so that a request whose last line
+ * stayed behind does not read as done.
+ */
+function OrderingProgress({ request }: Readonly<{ request: MaterialRequestListItem }>) {
+  if (request.line_count === 0 || request.to_order_line_count === null) return null;
+  // « Commandé » is said of a confirmed order only (the supply cost's word): here, a line is in a purchase order or not.
+  if (request.to_order_line_count === 0) {
+    return <span className="font-medium text-success">Toutes les lignes ont leur bon de commande</span>;
+  }
+  const lines = plural(request.to_order_line_count, "ligne", "lignes");
+  return request.has_orders ? (
+    <Badge variant="warning">{`${lines} sans bon de commande`}</Badge>
+  ) : (
+    <span>{`${lines} à commander`}</span>
+  );
+}
+
+function RequestRow({ projectId, request }: Readonly<{ projectId: string; request: MaterialRequestListItem }>) {
   const done = request.line_count > 0 && request.validated_line_count === request.line_count;
   return (
     <li>
@@ -38,6 +56,7 @@ function RequestRow({ projectId, request }: Readonly<{ projectId: string; reques
           </p>
           <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className={done ? "font-medium text-success" : undefined}>{validationProgress(request)}</span>
+            <OrderingProgress request={request} />
             {request.needed_on ? <span>Pour le {formatDateOnly(request.needed_on)}</span> : null}
             {request.file_count > 0 ? <span>{plural(request.file_count, "photo", "photos")}</span> : null}
           </p>
@@ -61,6 +80,7 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
    * since the dialog refuses to close while it is.
    */
   const [opening, setOpening] = useState(0);
+  const headingId = useId();
 
   if (error && !list) {
     return <LoadFailure title="Les demandes de matériel n’ont pas pu être affichées." message={error} onRetry={reload} />;
@@ -81,12 +101,15 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
   ) : null;
 
   return (
-    <div className="space-y-4">
+    <section aria-labelledby={headingId} className="space-y-4">
+      <h2 id={headingId} className="typo-h3 text-foreground">
+        Demandes de matériel
+      </h2>
       {list.items.length === 0 ? (
         <EmptyState
           icon={<ClipboardList />}
           title="Aucune demande de matériel"
-          headingLevel={2}
+          headingLevel={3}
           description={
             list.canWrite
               ? "Recopiez ici le papier, le SMS ou l’appel d’un technicien : l’original reste à côté des lignes."
@@ -125,6 +148,6 @@ export function MaterialRequestsList({ projectId }: Readonly<{ projectId: string
           }
         />
       ) : null}
-    </div>
+    </section>
   );
 }

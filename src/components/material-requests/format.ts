@@ -98,6 +98,23 @@ export function purchaseOrderStatusLabel(status: string): string {
   return PURCHASE_ORDER_STATUS_LABELS[status] ?? status;
 }
 
+/**
+ * What a request line in a purchase order says of it (TI-691), in the words of the supply cost: a draft or a sent order
+ * is not ordered yet, a confirmed one is; a canceled order holds no line (null).
+ */
+const ORDERED_LINE_MARKS: Record<string, string | null> = {
+  draft: "Brouillon de bon",
+  sent: "Bon envoyé",
+  confirmed: "Commandé",
+  received: "Reçu",
+  canceled: null,
+};
+
+export function orderedLineMark(status: string, reference: string): string | null {
+  const mark = Object.hasOwn(ORDERED_LINE_MARKS, status) ? ORDERED_LINE_MARKS[status] : "Bon de commande";
+  return mark ? `${mark} : ${reference}` : null;
+}
+
 export function purchaseOrderHref(orderId: string): string {
   return `/dashboard/orders/${encodeURIComponent(orderId)}`;
 }

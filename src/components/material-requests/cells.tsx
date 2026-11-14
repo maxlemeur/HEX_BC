@@ -5,6 +5,7 @@ import { Info, TriangleAlert } from "lucide-react";
 
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
 import { parseQuantity } from "@/lib/numeric-input/parsers";
@@ -315,7 +316,14 @@ export function QuantityCell({
 
 export type ChoiceOption = { value: string; label: string };
 
-/** A choice saved as soon as it is made. A refused choice stays shown, with the reason under it. */
+/** The « nothing chosen » entry of a searchable choice: the combobox's own empty value means « no selection yet ». */
+const NO_CHOICE = "__aucun__";
+
+/**
+ * A choice saved as soon as it is made. A refused choice stays shown, with the reason under it. `searchable` lists the
+ * options in a combobox that filters as the office types (TI-691: a supplier among twenty, in a list cut short by its
+ * height, was not found).
+ */
 export function ChoiceCell({
   id,
   label,
@@ -326,7 +334,15 @@ export function ChoiceCell({
   onCommit,
   disabled = false,
   onUnsavedChange,
+  searchable = false,
+  placeholder,
 }: Readonly<{
+  searchable?: boolean;
+  /**
+   * Shown in the search field of a searchable choice while nothing is chosen: the field itself stays empty, so typing
+   * searches instead of adding to a « — ».
+   */
+  placeholder?: string;
   /** Told whenever the select starts or stops showing a choice that is not the saved one. */
   onUnsavedChange?: (unsaved: boolean) => void;
   id?: string;
@@ -352,6 +368,48 @@ export function ChoiceCell({
     onUnsavedChange?.(unsaved);
   }, [onUnsavedChange, unsaved]);
 
+  const choose = async (next: string) => {
+    setPending(next);
+    setFailed(null);
+    const result = await writes.send(next, () => onCommit(next === "" ? null : next));
+    // An earlier choice answered after a later one was made: the later answer settles the cell.
+    if (result === null) return;
+    setPending(null);
+    if (!result.ok) setFailed({ value: next, message: result.message });
+  };
+
+  if (searchable) {
+    const entries = [
+      ...(emptyLabel !== undefined ? [{ value: NO_CHOICE, label: emptyLabel }] : []),
+      ...(known ? [] : [{ value: shown, label: unknownLabel ?? shown }]),
+      ...options,
+    ];
+    return (
+      <>
+        <Combobox
+          id={id}
+          size="sm"
+          aria-label={id ? undefined : label}
+          aria-invalid={failed ? true : undefined}
+          aria-describedby={failed ? messagesId : undefined}
+          placeholder={placeholder}
+          emptyMessage="Aucun résultat"
+          options={entries}
+          value={shown}
+          disabled={disabled}
+          onValueChange={(next) => {
+            // Clearing the search text is not a choice: only a picked entry is.
+            if (next === "") return;
+            const chosen = next === NO_CHOICE ? "" : next;
+            if (chosen === shown) return;
+            void choose(chosen);
+          }}
+        />
+        <CellMessages id={messagesId} error={failed?.message} />
+      </>
+    );
+  }
+
   return (
     <>
       <NativeSelect
@@ -363,16 +421,7 @@ export function ChoiceCell({
         aria-describedby={failed ? messagesId : undefined}
         value={shown}
         disabled={disabled}
-        onChange={async (event) => {
-          const next = event.currentTarget.value;
-          setPending(next);
-          setFailed(null);
-          const result = await writes.send(next, () => onCommit(next === "" ? null : next));
-          // An earlier choice answered after a later one was made: the later answer settles the cell.
-          if (result === null) return;
-          setPending(null);
-          if (!result.ok) setFailed({ value: next, message: result.message });
-        }}
+        onChange={(event) => void choose(event.currentTarget.value)}
       >
         {emptyLabel !== undefined ? <option value="">{emptyLabel}</option> : null}
         {known ? null : <option value={shown}>{unknownLabel ?? shown}</option>}
