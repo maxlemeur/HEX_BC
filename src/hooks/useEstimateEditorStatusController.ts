@@ -13,6 +13,7 @@ import type { AutoSaveResult } from "@/hooks/useAutoSave";
 import {
   fetchEstimateSendGating,
   updateEstimateStatus,
+  type EstimateSendGatingFlag,
   type EstimateSendGatingResponse,
   type EstimateStatus,
   type ReleaseEstimateDraftLockOptions,
@@ -59,7 +60,8 @@ export type EstimateEditorStatusControllerInput = {
     EstimateVersionRow,
     "id" | "status" | "updated_at"
   > | null;
-  gatingReloadToken?: number;
+  /** Changes when the gating must be read again (a reload, a PDF generated from the send-blocked alert). */
+  gatingReloadToken?: number | string;
   getVersionSnapshot: () => EstimateVersionRow | null;
   applyUpdatedVersion: (updatedVersion: EstimateVersionRow) => void;
   isAdmin: boolean;
@@ -116,11 +118,15 @@ export type EstimateEditorStatusController = {
     canArchive: boolean;
     isStatusActionsDisabled: boolean;
     isSendBlockedForCurrentUser: boolean;
+    /** The blockers of the displayed gating, named by the send-blocked alert. */
+    sendBlockingFlags: EstimateSendGatingFlag[];
     /** The draft's gating is read again after a write: the send-blocked alert may still change. */
     isSendGatingRefreshing: boolean;
     sendWorkflowPhaseLabel: string | null;
   };
 };
+
+const NO_SEND_BLOCKING_FLAGS: EstimateSendGatingFlag[] = [];
 
 const STATUS_TRANSITIONS: Readonly<
   Record<EstimateStatus, readonly EstimateStatus[]>
@@ -288,6 +294,19 @@ export function useEstimateEditorStatusController({
     },
     []
   );
+
+  // A reload of the gating (a PDF generated from the send-blocked alert, TI-691) makes the snapshot a send dialog left
+  // behind stale: it is dropped once that dialog is closed and no send is running, so the fresh read is the one shown.
+  const previousGatingReloadTokenRef = useRef(gatingReloadToken);
+  useLayoutEffect(() => {
+    if (previousGatingReloadTokenRef.current === gatingReloadToken) return;
+    previousGatingReloadTokenRef.current = gatingReloadToken;
+    if (isOperationInProgressRef.current) return;
+    updateStateForScope(controllerScopeKey, (current) =>
+      current.isSendGatingDialogOpen || current.workflowSendGating === null
+        ? current
+        : { ...current, workflowSendGating: null });
+  }, [controllerScopeKey, gatingReloadToken, updateStateForScope]);
 
   useLayoutEffect(() => {
     if (previousControllerScopeKeyRef.current === controllerScopeKey) return;
@@ -963,6 +982,7 @@ export function useEstimateEditorStatusController({
         !displayedSendGating.canSend &&
         hasKnownBlockingSendFlags &&
         !isAdmin,
+      sendBlockingFlags: displayedSendGating?.blockingFlags ?? NO_SEND_BLOCKING_FLAGS,
       isSendGatingRefreshing,
       sendWorkflowPhaseLabel: resolveWorkflowPhaseLabel(sendWorkflowPhase),
     }),

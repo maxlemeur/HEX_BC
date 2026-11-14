@@ -548,6 +548,29 @@ describe("useEstimateEditorStatusController gating preload", () => {
     expect(harness.result.current.state.sendGating).toEqual(secondGating);
   });
 
+  // Codex review of #346: a PDF generated from the send-blocked alert bumps the reload token; the snapshot of a send
+  // dialog opened then closed before must not keep naming « PDF absent ».
+  it("reads the gating again after a reload, even when a send dialog left its snapshot", async () => {
+    const blocked = createGating(false);
+    const refreshed = createGating(true);
+    clientMocks.fetchEstimateSendGating
+      .mockResolvedValueOnce(blocked)
+      .mockResolvedValueOnce(blocked)
+      .mockResolvedValueOnce(refreshed);
+    const harness = renderController(defaultProps({ preloadGating: true }));
+    await waitFor(() => expect(harness.result.current.state.sendGating).toEqual(blocked));
+
+    await act(async () => {
+      await harness.result.current.actions.requestSend();
+    });
+    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(true);
+    act(() => harness.result.current.actions.closeSendGatingDialog());
+
+    harness.rerender(defaultProps({ preloadGating: true, gatingReloadToken: 1 }));
+    await waitFor(() => expect(harness.result.current.state.sendGating).toEqual(refreshed));
+    expect(harness.result.current.meta.sendBlockingFlags).toEqual([]);
+  });
+
   it("masks stale gating while a new version token is being checked", async () => {
     const initialGating = createGating(false);
     const refreshedGating = createGating(true);

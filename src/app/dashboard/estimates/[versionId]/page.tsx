@@ -281,6 +281,7 @@ async function renderEstimateV3Detail(input: {
                   currentStatus={version.status}
                   updatedAt={version.updated_at}
                   projectName={project?.name ?? undefined}
+                  projectId={version.project_id}
                   emailDispatchProblem={emailDispatch.problem}
                 />
               ) : null}
@@ -639,6 +640,7 @@ export default async function EstimateDetailPage({
                   currentStatus={version.status}
                   updatedAt={version.updated_at}
                   projectName={project?.name ?? undefined}
+                  projectId={version.project_id}
                   emailDispatchProblem={emailDispatch.problem}
                 />
               ) : null}

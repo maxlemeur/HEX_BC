@@ -347,6 +347,18 @@ export function AffaireFinishLineActions({
                     : "Préparer l'envoi"}
                 </button>
               </div>
+              {/* Sent another way, or accepted: both are marked on the estimate page (TI-691). */}
+              {currentVersion.status === "draft" || currentVersion.status === "sent" ? (
+                <Link
+                  href={`/dashboard/estimates/${currentVersion.id}`}
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
+                >
+                  {currentVersion.status === "draft"
+                    ? "Marquer envoyé sur la page du devis"
+                    : "Marquer accepté sur la page du devis"}
+                  <ArrowRightIcon aria-hidden="true" size={14} />
+                </Link>
+              ) : null}
             </article>
 
             <article className="rounded-xl border border-border bg-surface p-4">

@@ -16,12 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import { OFFER_PROVISIONAL_QUANTITY_WARNING, OFFER_RESERVE_WARNING } from "@/lib/estimates/offer-choice";
 import { provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";
+import { buildSendBlockerRegisterHref, formatSendBlockerRegisterAction } from "@/lib/estimates/send-blocker-remedies";
 import {
   ESTIMATE_STATUS_REASON_CODE_VALUES,
   ESTIMATE_STATUS_REASON_CODES,
@@ -68,86 +68,6 @@ type EstimateSendGatingDialogProps = {
 
 function formatFlagCount(count: number) {
   return `${count} point${count > 1 ? "s" : ""} à traiter`;
-}
-
-function formatRegisterAction(flag: EstimateSendGatingFlag) {
-  switch (flag.key) {
-    case "critical_missing_pieces":
-      return "Récupérez ou requalifiez ces pièces critiques avant de reprendre l'envoi.";
-    case "critical_open_questions":
-      return "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
-    case "client_missing_documents_required":
-      return "Revenez sur les demandes de pièces client pour solder ou requalifier ces attentes documentaires.";
-    case "client_clarification_required":
-      return "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
-    case "missing_pieces_pending":
-      return "Passez par le registre affaire pour solder ou assumer explicitement ces pièces manquantes.";
-    case "open_questions_pending":
-      return "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
-    default:
-      return null;
-  }
-}
-
-function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
-  switch (flag.key) {
-    case "critical_missing_pieces":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "open",
-        severity: "critical",
-        kind: "missing_piece",
-        cursor: null,
-      });
-    case "critical_open_questions":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "open",
-        severity: "critical",
-        kind: "assumption",
-        cursor: null,
-      });
-    case "client_missing_documents_required":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "clarify_with_client",
-        severity: null,
-        kind: "missing_piece",
-        cursor: null,
-      });
-    case "client_clarification_required":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "clarify_with_client",
-        severity: null,
-        kind: "assumption",
-        cursor: null,
-      });
-    case "missing_pieces_pending":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "open",
-        severity: null,
-        kind: "missing_piece",
-        cursor: null,
-      });
-    case "open_questions_pending":
-      return buildAffaireRegisterSearchHref({
-        pathname: `/dashboard/affaires/${projectId}`,
-        searchParams: new URLSearchParams(),
-        status: "open",
-        severity: null,
-        kind: "assumption",
-        cursor: null,
-      });
-    default:
-      return `/dashboard/affaires/${projectId}`;
-  }
 }
 
 function parseRegisterEntries(flag: EstimateSendGatingFlag) {
@@ -544,11 +464,11 @@ function renderFlags(
     <ul className="space-y-2 text-sm">
       {flags.map((flag, index) => (
         (() => {
-          const registerAction = formatRegisterAction(flag);
+          const registerAction = formatSendBlockerRegisterAction(flag);
           const hasFocusedRegisterLinks = parseRegisterEntries(flag).some(
             (entry) => entry.href
           );
-          const registerHref = projectId ? buildRegisterHref(projectId, flag) : null;
+          const registerHref = projectId ? buildSendBlockerRegisterHref(projectId, flag) : null;
           const category =
             flag.category ?? resolveEstimateReadinessCategoryFromGatingFlagKey(flag.key);
 

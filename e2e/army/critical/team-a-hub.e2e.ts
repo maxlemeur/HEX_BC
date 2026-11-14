@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 
 import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave } from "./fixtures";
+import { waitForHydration } from "./hydration-support";
 import { nativeTest, loginWithUi, localClient } from "../takeoff/native-ui";
 
 armyTest("HUB02 a fresh affaire keeps its manual path without requiring a DPGF", {
@@ -144,6 +145,131 @@ armyTest("HUB11 the affaire hub hydrates its streamed panel once when the reveal
   await expect(screen.getByText(UPLOAD_CARD_TEXT, { exact: true })).toBeVisible();
   await expect(screen.getByRole("link", "Continuer en manuel", { exact: true })).toHaveAttribute("href", editorPath);
   await expect(screen.getByRole("menubar", "Espaces de travail", { exact: true })).toBeVisible();
+});
+
+// TI-691, the owner's walkthrough of 14/11/2026. Failure modes, written before the change:
+// - while V1 is a draft, nothing in the affaire's « Chiffrage » view leads to the estimate page, where the version is
+//   marked sent then accepted (the supply budget waits for the acceptance);
+// - the estimate page names no anomaly blocking the send (« Marquer envoyé » was only refused with a bare message), so
+//   « PDF absent », which is not a line, cannot be found;
+// - the action offered to lift it does not lift it, or the page still names it once the PDF exists.
+// The critical campaign forbids status changes (fixtures.ts): the blockers are named as the draft's page opens, and
+// « Marquer envoyé » itself stays covered by the emission journeys (OF04).
+type HubUi = Parameters<Parameters<typeof armyTest>[2]>[0];
+
+/**
+ * The owner's case, arranged through the API: an affaire whose V1 is a priced draft (one line), its lease released, and
+ * whose only send blocker is its missing PDF. `blockingKeys` reads the gating again.
+ */
+async function pricedDraftWithoutPdf({ app, browser, army }: HubUi, label: string) {
+  await app.open("/dashboard/affaires");
+  const projectName = `${army.runPrefix}-${label}`;
+  // The run day in Paris: the send refuses an offer whose validity has passed.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  const created = await apiRequest<{ ok: boolean; data: { project: { id: string }; version: { id: string } } }>(browser, "POST", "/api/estimates", {
+    project: { name: projectName }, version: { title: "ARMY page du devis", date_devis: today, validite_jours: 30 },
+  });
+  expect([created.status, created.body.ok]).toEqual([201, true]);
+  const estimate = { projectId: created.body.data.project.id, versionId: created.body.data.version.id };
+  ownEstimate(army, estimate);
+  await createLineViaApi(browser, estimate.versionId, "ARMY ligne chiffrée");
+  expect((await apiRequest(browser, "DELETE", `/api/estimates/${estimate.versionId}/lock`)).status).toBe(200);
+  const blockingKeys = async () => {
+    const gating = await apiRequest<{ ok: boolean; data: { gating: { blockingFlags: { key: string }[] } } }>(
+      browser, "GET", `/api/estimates/${estimate.versionId}/gating`);
+    expect(gating.status).toBe(200);
+    return gating.body.data.gating.blockingFlags.map((flag) => flag.key);
+  };
+  expect(await blockingKeys()).toEqual(["no_pdf_generated"]);
+  return { estimate, projectName, blockingKeys };
+}
+
+/** The blockers a send-blocked list names: title, then description, for each. */
+const namedBlockers = (browser: HubUi["browser"]) => browser.evaluate(() => Array.from(
+  document.querySelectorAll("[aria-label='Anomalies bloquant l’envoi'] > li"),
+  (item) => Array.from(item.querySelectorAll("p"), (line) => line.textContent?.trim() ?? ""),
+));
+const MISSING_PDF = ["PDF absent", "Aucun document PDF n'est généré pour cette version. Lancez une génération avant l'envoi."];
+
+/** Confirms the PDF layout dialog the blocker's « Générer le PDF » opens. */
+async function generatePdfFromDialog(screen: HubUi["screen"]) {
+  await expect(screen.getByRole("heading", "Préparer le devis PDF", { exact: true })).toBeVisible();
+  const confirm = screen.getByRole("button", "Générer et télécharger", { exact: true });
+  await expect(confirm).toBeEnabled({ timeout: 30_000 });
+  await confirm.click();
+}
+
+armyTest("HUB14 the affaire leads to its draft's estimate page, which names the missing PDF and lifts it", {
+  session: "army", trace: "off", tags: ["critical", "hub-estimate-page"], timeout: 240_000,
+}, async (ui) => {
+  const { app, browser, screen, army } = ui;
+  const { estimate, projectName, blockingKeys } = await pricedDraftWithoutPdf(ui, "HUB14");
+
+  const estimatePage = `/dashboard/estimates/${estimate.versionId}`;
+  await app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
+  await waitForHydration(browser);
+  await expect(screen.getByRole("link", "Éditer V1", { exact: true })).toHaveAttribute("href", `${estimatePage}/edit`);
+  const pageLink = screen.getByRole("link", "Page du devis", { exact: true });
+  await expect(pageLink).toHaveAttribute("href", estimatePage);
+  // The version card leads to the same page, draft or not.
+  await expect(screen.getByRole("link", /^Version 1\b/)).toHaveAttribute("href", estimatePage);
+  await app.screenshot("HUB14-affaire-estimate-page-link");
+  await pageLink.click();
+  await expect(browser).toHaveURL(estimatePage);
+  await expect(screen.getByRole("heading", "Chiffrage V1", { exact: true })).toBeVisible();
+  await waitForHydration(browser);
+
+  // Named as the page opens, beside « Marquer envoyé », before any status request.
+  await expect(screen.getByRole("button", "Marquer envoyé", { exact: true })).toBeVisible();
+  const blockers = screen.getByRole("list", "Anomalies bloquant l’envoi", { exact: true });
+  await expect(blockers).toBeVisible({ timeout: 30_000 });
+  expect(await namedBlockers(browser)).toEqual([MISSING_PDF]);
+  await expect(screen.getByText("Envoi bloqué : une anomalie à lever avant l’envoi.", { exact: true })).toBeVisible();
+  await app.screenshot("HUB14-send-blocked-named");
+  expect((await readEstimate(browser, estimate.versionId)).version.status).toBe("draft");
+
+  await blockers.getByRole("button", "Générer le PDF", { exact: true }).click();
+  await generatePdfFromDialog(screen);
+  await expect(screen.getByText("PDF généré : le devis peut être marqué envoyé.", { exact: true })).toBeVisible({ timeout: 120_000 });
+  await expect(blockers).toHaveCount(0);
+  expect(await blockingKeys()).toEqual([]);
+  await app.screenshot("HUB14-pdf-generated");
+  // Read again, the page names nothing: the send is free.
+  await browser.reload();
+  await waitForHydration(browser);
+  await expect(screen.getByRole("button", "Marquer envoyé", { exact: true })).toBeEnabled();
+  await expect(screen.getByTestId("estimate-send-blockers-alert")).toHaveCount(0);
+  expect((await readEstimate(browser, estimate.versionId)).version.status).toBe("draft");
+  await recordEvidence(army, "HUB14-estimate-page-from-affaire", {
+    estimate, projectName, estimatePage, blockersNamed: ["no_pdf_generated"], liftedByPdf: true, finalStatus: "draft",
+  });
+});
+
+armyTest("HUB13 the editor names the missing PDF among the send's blockers, and its button lifts the alert", {
+  session: "army", trace: "off", tags: ["critical", "hub-estimate-page"], timeout: 240_000,
+}, async (ui) => {
+  const { app, browser, screen, army } = ui;
+  const { estimate, blockingKeys } = await pricedDraftWithoutPdf(ui, "HUB13");
+  await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
+  await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await waitForHydration(browser);
+  const alert = screen.getByTestId("estimate-editor-alert-send-blocked");
+  await expect(alert).toBeVisible({ timeout: 30_000 });
+  // One line whatever the blockers (the grid under it never moves); the detail opens on demand.
+  await expect(alert.getByText("Envoi bloqué : une anomalie à lever avant l’envoi.", { exact: true })).toBeVisible();
+  await alert.getByText("Voir le détail", { exact: true }).click();
+  await expect(alert.getByRole("list", "Anomalies bloquant l’envoi", { exact: true })).toBeVisible();
+  expect(await namedBlockers(browser)).toEqual([MISSING_PDF]);
+  // « PDF absent » may be forced by an administrator: the alert says so, and no more.
+  await expect(alert.getByText("Un administrateur peut aussi forcer l’envoi.", { exact: true })).toBeVisible();
+  await app.screenshot("HUB13-editor-send-blocked-named");
+  await alert.getByRole("button", "Générer le PDF", { exact: true }).click();
+  await generatePdfFromDialog(screen);
+  // The gating is read again once the PDF is ready: nothing blocks the send any more.
+  await expect(alert).toHaveCount(0, { timeout: 120_000 });
+  expect(await blockingKeys()).toEqual([]);
+  await app.screenshot("HUB13-editor-pdf-generated");
+  await recordEvidence(army, "HUB13-editor-blockers-named", { estimate, blockersNamed: ["no_pdf_generated"], liftedByPdf: true });
 });
 
 // Blank and sparse dossiers must both allow manual work; document absence alone

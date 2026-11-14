@@ -429,7 +429,8 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   // Lecture à l'écran (2.5) : la liste des versions de l'affaire affiche le HT stocké de la v3
   // (/dashboard/estimates redirige vers /dashboard/affaires depuis next.config.ts, §10.2).
   await app.open(`/dashboard/affaires/${projectId}`);
-  await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}/edit` }) ?? ""), { timeout: 30_000 })
+  // TI-691: a version card opens its estimate page, draft or not (the editor is one click further).
+  await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}` }) ?? ""), { timeout: 30_000 })
     .toContain("69 473,54 €");
   // V3P-14 : la marge du résumé financier d'une v3 n'est jamais la marge v2 (multiplicateur 1 → « 0.0 % ») ; celle du
   // brouillon, sans gel, est sa marque nette en direct (lot 3.2, entrée 4).

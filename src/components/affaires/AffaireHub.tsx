@@ -1396,7 +1396,6 @@ export function AffaireHub({
                   projectId={summary.project.id}
                   currentVersionId={currentVersionId}
                   acceptedVersionId={acceptedVersionId}
-                  isReadOnlyReview={isReadOnlyReview}
                   errorMessage={sectionErrors?.timeline}
                 />
               ) : null}

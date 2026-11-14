@@ -7,6 +7,7 @@ import {
   CopyIcon,
   DownloadIcon,
   EllipsisIcon,
+  FileTextIcon,
   PanelsTopLeftIcon,
   PencilIcon,
   PlusIcon,
@@ -67,6 +68,9 @@ export function AffaireHubActionBar({
   const hasPlans = (plansSummary?.planSetCount ?? 0) > 0;
   const takeoffHref = `/dashboard/affaires/${summary.project.id}/takeoff`;
   const exportHref = `/dashboard/estimates/${currentVersion.id}/print`;
+  // The estimate page holds the status, the send and the acceptance, which the supply budget waits for (TI-691).
+  const estimatePageHref = `/dashboard/estimates/${currentVersion.id}`;
+  const estimatePageTitle = "Statut, envoi et acceptation du devis";
   const showTakeoffInBar = takeoffEnabled && (!freshStart || hasPlans);
   const showVersionZero =
     currentVersion.status === "draft" &&
@@ -75,7 +79,7 @@ export function AffaireHubActionBar({
 
   // The journey panel below holds the page's single primary action: the bar stays secondary.
   return (
-    <div className={cn("action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:gap-2 lg:flex-nowrap lg:justify-end", freshStart ? "max-sm:grid-cols-2" : "max-sm:grid-cols-3")}>
+    <div className="action-bar animate-fade-in stagger-1 max-sm:!grid max-sm:grid-cols-2 max-sm:gap-2 lg:flex-nowrap lg:justify-end">
       {showTakeoffInBar ? (
         <Link
           href={takeoffHref}
@@ -96,6 +100,17 @@ export function AffaireHubActionBar({
         <PencilIcon aria-hidden="true" />
         Éditer V{currentVersion.versionNumber}
       </Link>
+
+      {freshStart ? null : (
+        <Link
+          href={estimatePageHref}
+          title={estimatePageTitle}
+          className={cn(buttonVariants({ variant: "outline", size: "md", className: cn("min-h-11 sm:min-h-9", ACTION_CLASS) }))}
+        >
+          <FileTextIcon aria-hidden="true" />
+          Page du devis
+        </Link>
+      )}
 
       {showVersionZero ? (
         <Link
@@ -137,10 +152,16 @@ export function AffaireHubActionBar({
             </DropdownMenuItem>
           ) : null}
           {freshStart ? (
-            <DropdownMenuItem className="min-h-10 px-2" render={<Link href={exportHref} />}>
-              <DownloadIcon aria-hidden="true" />
-              Exporter
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem className="min-h-10 px-2" render={<Link href={estimatePageHref} title={estimatePageTitle} />}>
+                <FileTextIcon aria-hidden="true" />
+                Page du devis
+              </DropdownMenuItem>
+              <DropdownMenuItem className="min-h-10 px-2" render={<Link href={exportHref} />}>
+                <DownloadIcon aria-hidden="true" />
+                Exporter
+              </DropdownMenuItem>
+            </>
           ) : null}
           <DropdownMenuItem
             className="min-h-10 px-2"

@@ -1,8 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { EstimateSendBlockers } from "@/components/estimates/EstimateSendBlockers";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import type { EstimateEditorData, EstimateSendGatingFlag } from "@/lib/estimates/client";
 import type { EstimateMutationRecovery } from "./EstimateMutationRecoveryAlert";
 
 const EstimateMutationRecoveryAlert = dynamic(() =>
@@ -14,6 +16,14 @@ type EstimateEditorAlertsProps = {
   isViewerReadOnly: boolean;
   canSend: boolean;
   isSendBlockedForCurrentUser: boolean;
+  /** The blockers the send gating names, listed with what lifts each (TI-691). */
+  sendBlockingFlags?: readonly EstimateSendGatingFlag[];
+  versionId?: string | null;
+  projectId?: string | null;
+  onBeforeGeneratePdf?: () => Promise<boolean>;
+  onPdfPrepared?: (data: EstimateEditorData) => void;
+  /** The PDF is ready: the gating is read again. */
+  onPdfReady?: () => void;
   isDraftLockedByOther: boolean;
   lockHolderLabel: string;
   isAdmin: boolean;
@@ -49,6 +59,12 @@ export function EstimateEditorAlerts({
   isViewerReadOnly,
   canSend,
   isSendBlockedForCurrentUser,
+  sendBlockingFlags = [],
+  versionId = null,
+  projectId = null,
+  onBeforeGeneratePdf,
+  onPdfPrepared,
+  onPdfReady,
   isDraftLockedByOther,
   lockHolderLabel,
   isAdmin,
@@ -91,7 +107,21 @@ export function EstimateEditorAlerts({
 
       {canSend && isSendBlockedForCurrentUser ? (
         <Alert variant="warning" className="mb-6" data-testid="estimate-editor-alert-send-blocked">
-          Des anomalies bloquantes sont détectées. Corrigez-les avant l’envoi ou demandez à un administrateur de forcer l’envoi ; les lignes « Non chiffrée », elles, se classent, et une ligne exclue après « Non chiffrée » dit son motif interne : aucun forçage ne les laisse partir.
+          {versionId && sendBlockingFlags.length > 0 ? (
+            <EstimateSendBlockers
+              flags={sendBlockingFlags}
+              versionId={versionId}
+              versionStatus="draft"
+              projectId={projectId}
+              showForceNote
+              collapsible
+              onBeforeGeneratePdf={onBeforeGeneratePdf}
+              onPdfPrepared={onPdfPrepared}
+              onPdfReady={onPdfReady}
+            />
+          ) : (
+            "Des anomalies bloquantes sont détectées. Corrigez-les avant l’envoi ou demandez à un administrateur de forcer l’envoi ; les lignes « Non chiffrée », elles, se classent, et une ligne exclue après « Non chiffrée » dit son motif interne : aucun forçage ne les laisse partir."
+          )}
         </Alert>
       ) : null}
 
