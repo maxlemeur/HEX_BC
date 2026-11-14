@@ -84,8 +84,7 @@ armyTest("V1PT01 a supplier preselection on a legacy V1 draft stores the version
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
     const price = screen.getByLabel(`Prix d’achat unitaire HT pour ${designation}`, { exact: true });
     await expect(price).toHaveValue("10.00");
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).click();
-    await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
+    await screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
     const preselect = screen.getByTestId("estimate-editor-supplier-preselection-button");
     await expect(preselect).toBeEnabled({ timeout: 30_000 });
     await preselect.click();

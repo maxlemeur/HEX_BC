@@ -27,8 +27,6 @@ const MAJORATION_AT_MARGIN_1_2: StoredTotals = [9600, 1920, 11520];
 // K FO 1,3 from the suggestion rule: 26,00 € + 40,00 € = 66,00 € HT; then × 1,2 = 79,20 € HT.
 const K_FO_1_3: StoredTotals = [6600, 1320, 7920];
 const K_FO_1_3_AT_MARGIN_1_2: StoredTotals = [7920, 1584, 9504];
-// The tab label carries the count of quality alerts, if any.
-const DISPLAY_TAB = /^Affichage & contrôle(?: \d+)?$/;
 
 // The dedicated tenant only has the default labour roles, at 0 €/h: its 40 €/h basis is created
 // through the API under the anchor's draft lease, which is then handed back.
@@ -131,10 +129,9 @@ async function history({ screen }: Ui, action: "Annuler" | "Rétablir", persiste
   await expect.poll(persisted, { timeout: 30_000, interval: 500 }).toBe(expected);
 }
 
-// The suggestions of the display menu, as in bulk-edit-sync-sources (S1).
+// The suggestions of the controls menu, as in bulk-edit-sync-sources (S1).
 async function applySuggestions({ screen }: Ui, persisted: () => Promise<unknown>) {
-  await screen.getByRole("tab", DISPLAY_TAB).click();
-  await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
+  await screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
   const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
   await expect(review).toHaveText("Examiner 1 suggestion");
   await review.click();
@@ -143,7 +140,6 @@ async function applySuggestions({ screen }: Ui, persisted: () => Promise<unknown
   await dialog.getByRole("button", "Appliquer", { exact: true }).click();
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect.poll(persisted, { timeout: 30_000, interval: 500 }).toBe(1.3);
-  await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
 }
 
 // The margin x1,2 through the settings dialog of the mounted editor, opened from the summary bar
@@ -164,7 +160,6 @@ async function saveMargin1_2({ screen, browser }: Ui, versionId: string) {
   await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
   await screen.getByTestId("estimate-editor-drawer-close-button").click();
   await expect(dialog).toBeHidden();
-  await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
 }
 
 armyTest("V1BT01 a bulk majoration on a legacy V1 draft stores the version totals with its lines", options,
@@ -200,7 +195,6 @@ armyTest("V1BT02 a margin save on a legacy V1 draft closes the undo of a bulk ma
     const majoration = async () => lineOf((await readEstimate(browser, draft.versionId)).items)?.h_mo_majoration;
 
     await openEditor(ui, draft.versionId);
-    await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
     await bulkMajoration(ui, title, majoration);
     await expectStoredTotals(browser, army, { estimate, step: "v1-history-majoration", expected: EXPECTED });
     // BT8: on a V1 draft the server stores the totals the editor sends; the undo and the redo

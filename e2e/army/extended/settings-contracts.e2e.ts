@@ -5,11 +5,14 @@ import {
   readEstimate, recordEvidence, setLineCoreValues, waitForAutoSave,
 } from "../critical/fixtures";
 
+import {
+  eur, normalized, prepareV3Draft, seedLines, switchToExpertMode, waitForDraftLease,
+} from "../local/engine-v3-editor-support";
+
 const options = { session: "army", tags: ["critical", "extended", "settings-contracts"], trace: "off" as const, timeout: 180_000 };
 type Ui = Parameters<typeof createEstimateViaWizard>[0];
 
 async function openSettings(ui: Ui) {
-  await ui.screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
   await ui.screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
   await ui.screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Paramétrage du devis", { exact: true });
@@ -84,4 +87,87 @@ armyTest("SET02 a frozen read uses its captured coefficient without changing the
     actual: { persistedHtCents: persisted.version.total_ht_cents, persistedStatus: persisted.version.status },
     scope: "synthetic browser GET only; no sent-status or SQL proof",
   });
+});
+
+
+async function summaryDraft(ui: Parameters<typeof prepareV3Draft>[0] & { army: Parameters<typeof prepareV3Draft>[1] }, label: string) {
+  const draft = await prepareV3Draft(ui, ui.army, label);
+  await seedLines(ui, ui.army, draft, label, [
+    { title: `${ui.army.runPrefix} tube`, quantity: 2, unit_price_ht_cents: 1000,
+      k_fo: 1, k_fo_manual: true, h_mo_per_unit: 1, k_mo: 1, h_mo_majoration: 1,
+      labor_role_id: draft.tuyauteurId, unit_code: "u", pricing_status: "priced" },
+    { title: `${ui.army.runPrefix} raccord`, quantity: 1, unit_price_ht_cents: 500,
+      k_fo: 1, k_fo_manual: true, h_mo_per_unit: 0, k_mo: 1, h_mo_majoration: 1,
+      labor_role_id: draft.tuyauteurId, unit_code: "u", pricing_status: "priced" },
+  ]);
+  await switchToExpertMode(ui);
+  await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
+  await waitForDraftLease(ui);
+  return draft;
+}
+
+// PR 337: the footer describes the whole version, even when its table has no matching rows.
+armyTest("SET03 version FO and MO totals remain unchanged by a search with no matches", options, async (ui) => {
+  const draft = await summaryDraft(ui, "SET03");
+  const amounts = ui.browser.locator('[aria-label="Répartition du total HT"] dd');
+  const readSplit = async () => Promise.all([0, 1].map(async (index) => normalized(await amounts.nth(index).textContent())));
+  // FO: (2 × 10 + 5) × 1.30 = 32.50; MO: 2 × 40 × 1.20 = 96.00.
+  const expected = [eur(3250), eur(9600)];
+  await expect.poll(readSplit).toEqual(expected);
+  await expect(ui.screen.getByRole("button", /^Total HT :/)).toHaveText(/128[,.]50/);
+  await ui.screen.getByTestId("estimate-editor-search-input").fill("SET03-no-designation-matches");
+  await expect(ui.screen.getByTestId("estimate-editor-table").getByTestId("estimate-line-title-input")).toHaveCount(0);
+  await expect.poll(readSplit).toEqual(expected);
+  await expect(ui.screen.getByRole("button", /^Total HT :/)).toHaveText(/128[,.]50/);
+  const persisted = await readEstimate(ui.browser, draft.versionId);
+  expect(persisted.version.total_ht_cents).toBe(12850);
+  await recordEvidence(ui.army, "settings-version-split-search", {
+    versionId: draft.versionId, expected, actual: await readSplit(), persistedHtCents: persisted.version.total_ht_cents,
+  });
+});
+
+armyTest("SET04 the mobile editor keeps its financial summary visible without pinning it", options, async (ui) => {
+  const draft = await summaryDraft(ui, "SET04");
+  const footer = ui.screen.getByTestId("estimate-editor-totals-footer");
+  for (const width of [375, 767, 768, 1440]) {
+    await ui.browser.setViewport({ width, height: 900 });
+    await expect(footer).toBeVisible();
+    await expect(footer.getByRole("button", /^Total HT :/)).toHaveText(/128[,.]50/);
+    await expect(footer.getByRole("button", /^TVA 20 % :/)).toHaveText(/25[,.]70/);
+    await expect(footer.getByRole("button", /^TTC à payer :/)).toHaveText(/154[,.]20/);
+    const geometry = await ui.browser.evaluate(() => {
+      const node = document.querySelector('[data-testid="estimate-editor-totals-footer"]')!;
+      node.scrollIntoView({ block: "center" });
+      const rect = node.getBoundingClientRect();
+      return { position: getComputedStyle(node).position, left: rect.left, right: rect.right, width: innerWidth };
+    });
+    expect(geometry.position).toBe(width < 768 ? "static" : "sticky");
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(width + 1);
+    await recordEvidence(ui.army, `settings-mobile-summary-${width}`, {
+      versionId: draft.versionId, geometry, screenshot: await ui.app.screenshot(`settings-summary-${width}`),
+    });
+  }
+});
+
+
+armyTest("SET05 editor menus stay inside the viewport when the toolbar wraps", options, async (ui) => {
+  const draft = await summaryDraft(ui, "SET05");
+  for (const width of [768, 900, 1024, 1280, 1440]) {
+    await ui.browser.setViewport({ width, height: 900 });
+    for (const menu of ["display", "controls"] as const) {
+      await ui.screen.getByTestId(`estimate-editor-${menu}-button`, { visible: true }).click();
+      const geometry = await ui.browser.evaluate((id) => {
+        const node = document.getElementById(id)!;
+        const rect = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 20));
+        return { left: rect.left, right: rect.right, width: innerWidth, reachable: Boolean(hit && node.contains(hit)) };
+      }, `estimate-editor-${menu}-panel`);
+      await recordEvidence(ui.army, `settings-menu-${menu}-${width}`, { versionId: draft.versionId, geometry });
+      expect(geometry.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.right).toBeLessThanOrEqual(width + 1);
+      expect(geometry.reachable).toBe(true);
+      await ui.browser.keyboard.press("Escape");
+    }
+  }
 });

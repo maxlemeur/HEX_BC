@@ -144,8 +144,7 @@ export async function prepareEstimate(c: Case) {
   }
   const opener = screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
   if (!await opener.isVisible()) {
-    const tab = screen.getByRole("tab", "Insérer", { exact: true });
-    if (await tab.isVisible()) await tab.tap();
+
     await screen.getByRole("button", "Insérer", { exact: true }).tap();
   }
   await opener.tap();

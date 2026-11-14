@@ -240,7 +240,25 @@
 
 @media (max-width: 767px) {
   .estimate-totals-footer {
-    display: none;
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    padding: 12px;
+    box-shadow: none;
+  }
+
+  .estimate-totals-footer .estimate-summary-bar {
+    flex-wrap: wrap;
+    padding: 0;
+  }
+
+  .estimate-totals-footer .estimate-summary-bar__items {
+    justify-content: flex-start;
+  }
+
+  .estimate-totals-footer__split {
+    flex-wrap: wrap;
   }
 }
 

@@ -114,7 +114,7 @@ for (const specification of [
       caseId: specification.caseId, phase, source: p.s, target, assemblyId: assembly.id, libraryItem: library, expected: specification, actual });
     await observe("baseline", { api: before, ordinary: ordinaryBefore, requests: [...requests] });
     const opener = ui.screen.getByTestId("estimate-editor-assemblies-button");
-    if (!await opener.isVisible()) { const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click(); await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
+    if (!await opener.isVisible()) { await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
     await opener.click(); const dialog = ui.screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true });
     await dialog.getByLabel("Rechercher", { exact: true }).fill(assembly.name as string); await dialog.getByRole("button", assembly.name as string, { exact: false }).click();
     const cta = dialog.getByRole("button", `Ajouter « ${assembly.name} »`, { exact: false }); await expect(cta).toBeEnabled();

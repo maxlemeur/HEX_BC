@@ -139,9 +139,7 @@ armyTest("OZ01 an unmarked 0 € offer never prices a line: best price, preselec
     // Preselection applied from the editor, reread from the database.
     await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
-    // The tab name carries a count badge when the editor has controls to show.
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button").tap();
+    await screen.getByTestId("estimate-editor-controls-button").tap();
     const preselect = screen.getByTestId("estimate-editor-supplier-preselection-button");
     await expect(preselect).toBeEnabled({ timeout: 30_000 });
     await preselect.tap();
@@ -356,8 +354,7 @@ armyTest("OZ04 a supplier preselection on a legacy V1 draft stores the version t
 
     await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
-    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
-    await screen.getByTestId("estimate-editor-display-button").tap();
+    await screen.getByTestId("estimate-editor-controls-button").tap();
     const preselect = screen.getByTestId("estimate-editor-supplier-preselection-button");
     await expect(preselect).toBeEnabled({ timeout: 30_000 });
     await preselect.tap();

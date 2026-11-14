@@ -2,8 +2,9 @@
 
 import { EstimateOuvrageInsertionPicker } from "@/components/estimates/components/estimate-editor-table/EstimateOuvrageInsertionPicker";
 
-import { foProvisionsBySupplyType, staleAutomaticKfoPatches } from "@/lib/estimates/fo-provision";
-import { Button } from "@/components/ui/button";
+import { useEstimateTableTotals } from "@/components/estimates/hooks/useEstimateTableTotals";
+import { useEstimateAutomaticKfo } from "@/components/estimates/hooks/useEstimateAutomaticKfo";
+import { EstimateAutomaticKfoNotice } from "@/components/estimates/components/EstimateAutomaticKfoNotice";
 import { selectedFoPriceOrigin } from "@/lib/estimates/fo-price-origin";
 
 import dynamic from "next/dynamic";
@@ -1062,22 +1063,7 @@ export function EstimateEditorTable({
   // Lot 2, sous-lot 2.6 (revue) : une ligne v3 a son unité dans unit_code (copie, association d'article).
   const v3Grid = useEstimateV3Grid();
   const isV3Grid = v3Grid !== null;
-  // Le rafraîchissement ne concerne que les K FO automatiques qui ne suivent plus les coefficients enregistrés :
-  // le bandeau n'apparaît que s'il en reste, et les nomme par leur nombre.
-  const staleKfoPatches = useMemo(
-    () => (isV3Grid ? staleAutomaticKfoPatches(items, foProvisionsBySupplyType(supplyTypes)) : []),
-    [isV3Grid, items, supplyTypes],
-  );
-  const automaticKfoCount = useMemo(
-    () => (isV3Grid ? items.filter((item) => item.item_type === "line" && item.k_fo_manual === false).length : 0),
-    [isV3Grid, items],
-  );
-  // Réécrit la base courante sur les lignes automatiques qui s'en écartent ; les autres sont déjà à jour.
-  const refreshStaleKfo = useCallback(() => {
-    for (const { id, patch } of staleKfoPatches) {
-      onPatchItem(id, patch, { persist: true });
-    }
-  }, [onPatchItem, staleKfoPatches]);
+  const kfoRefresh = useEstimateAutomaticKfo({ enabled: isV3Grid, isReadOnly, items, supplyTypes, onPatchItem });
   const dynamicGridStyle = useMemo(
     () =>
       resolveEstimateEditorGridStyle(
@@ -2326,21 +2312,10 @@ export function EstimateEditorTable({
     ]
   );
 
-  const grandTotals = useMemo(() => {
-    const rootItems = itemsByParent.get("root") ?? [];
-    let foTotal = 0;
-    let moTotal = 0;
-    let htTotal = 0;
-    rootItems.forEach((item) => {
-      if (item.item_type !== "section") return;
-      const totals = getSectionTotals(item.id);
-      if (!totals) return;
-      foTotal += totals.foTotalCents;
-      moTotal += totals.moTotalCents;
-      htTotal += totals.totalHtCents;
-    });
-    return { foTotal, moTotal, htTotal };
-  }, [itemsByParent, getSectionTotals]);
+  const { grandTotals, versionSaleSplit } = useEstimateTableTotals({
+    items, itemsByParent, getSectionTotals, marginMultiplier, discountCents,
+    taxRateBp, laborRateById, isLaborSplitEnabled, sectionCalculation,
+  });
 
   const mobileListRows = useMemo<MobileEstimateListRow[]>(
     () =>
@@ -2448,29 +2423,11 @@ export function EstimateEditorTable({
             ribbonHeaderNode={ribbonHeaderNode}
             ribbonAlertsNode={ribbonAlertsNode}
             totalsFooterNode={totalsFooterNode}
+            versionSaleSplit={versionSaleSplit}
             tableNoticeNode={
-              staleKfoPatches.length > 0 && !isReadOnly ? (
-                <div
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-sm text-foreground"
-                  role="status"
-                  data-testid="estimate-editor-stale-kfo-notice"
-                >
-                  <span className="min-w-0 flex-1">
-                    {staleKfoPatches.length > 1
-                      ? `${staleKfoPatches.length} K FO automatiques ne suivent plus les coefficients enregistrés.`
-                      : "1 K FO automatique ne suit plus le coefficient enregistré."}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="md"
-                    aria-label="Actualiser les K FO automatiques"
-                    onClick={refreshStaleKfo}
-                  >
-                    Actualiser
-                  </Button>
-                </div>
-              ) : null
+              kfoRefresh && kfoRefresh.staleCount > 0 && !isReadOnly
+                ? <EstimateAutomaticKfoNotice refresh={kfoRefresh} isReadOnly={isReadOnly} />
+                : null
             }
             mobileListNode={
               isMobileViewport ? (
@@ -2563,15 +2520,7 @@ export function EstimateEditorTable({
                 onToggleFinalizationPanel={onToggleFinalizationPanel}
                 isLaborSplitEnabled={isLaborSplitEnabled}
                 onOpenSettings={onOpenSettings}
-                kfoRefresh={
-                  isV3Grid
-                    ? {
-                        automaticCount: automaticKfoCount,
-                        staleCount: staleKfoPatches.length,
-                        onRefresh: refreshStaleKfo,
-                      }
-                    : undefined
-                }
+                kfoRefresh={kfoRefresh}
                 isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
                 onToggleQuickTemplatePicker={() => {
                   setIsQuickTemplatePickerOpen((prev) => !prev);

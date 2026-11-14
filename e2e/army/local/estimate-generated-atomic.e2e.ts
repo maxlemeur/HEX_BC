@@ -124,8 +124,7 @@ for (const label of ["existing", "fallback"]) {
       await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
       const opener = screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
       if (!await opener.isVisible()) {
-        const tab = screen.getByRole("tab", "Insérer", { exact: true });
-        if (await tab.isVisible()) await tab.click();
+
         await screen.getByRole("button", "Insérer", { exact: true }).click();
       }
       await opener.click();

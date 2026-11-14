@@ -105,7 +105,6 @@ export type PreparedComponents = Awaited<ReturnType<typeof prepareComponents>>;
 export async function openComponents(ui: Ui, p: PreparedComponents) {
   const opener = ui.screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
   if (!await opener.isVisible()) {
-    const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click();
     await ui.screen.getByRole("button", "Insérer", { exact: true }).click();
   }
   await opener.click(); await expect(ui.screen.getByRole("dialog", "Générer des ouvrages", { exact: true })).toBeVisible();

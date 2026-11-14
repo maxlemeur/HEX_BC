@@ -130,6 +130,7 @@ type EstimateEditorTableChromeProps = {
   tableNoticeNode?: ReactNode;
   /** Totals of the version, pinned to the bottom of the viewport while the table is on screen. */
   totalsFooterNode?: ReactNode;
+  versionSaleSplit: { foTotal: number; moTotal: number };
   mobileListNode?: ReactNode;
   showFullTableOnMobile?: boolean;
   /** The « Chemin actif » line, rendered by the table so that it follows the active cell on its own. */
@@ -189,6 +190,7 @@ export function EstimateEditorTableChrome({
   ribbonAlertsNode,
   tableNoticeNode,
   totalsFooterNode,
+  versionSaleSplit,
   mobileListNode,
   showFullTableOnMobile = false,
   activeLineBreadcrumbNode,
@@ -678,11 +680,11 @@ export function EstimateEditorTableChrome({
             <dl className="estimate-totals-footer__split" aria-label="Répartition du total HT">
               <div>
                 <dt>Fournitures</dt>
-                <dd>{formatCurrency(grandTotals.foTotal, currency)}</dd>
+                <dd>{formatCurrency(versionSaleSplit.foTotal, currency)}</dd>
               </div>
               <div>
                 <dt>Main d’œuvre</dt>
-                <dd>{formatCurrency(grandTotals.moTotal, currency)}</dd>
+                <dd>{formatCurrency(versionSaleSplit.moTotal, currency)}</dd>
               </div>
             </dl>
             {totalsFooterNode}

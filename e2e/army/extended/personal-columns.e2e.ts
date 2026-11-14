@@ -36,7 +36,6 @@ armyTest("COL01 personal column order and width survive reload and another estim
   if (!initialTotal) throw new Error("The priced estimate must expose its Total HT before changing columns.");
   const display = ui.screen.getByTestId("estimate-editor-display-button", { visible: true });
   const openDisplay = async () => {
-    await ui.screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await display.click();
   };
   await openDisplay();

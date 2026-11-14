@@ -138,7 +138,7 @@ async function reuse(ui: Ui, p: PreparedComponents, versionId: string, projectId
   const assembly = objects.assemblies[0]; expect(typeof assembly.name).toBe("string"); expect(objects.snapshots[0].assembly_id).toBe(assembly.id);
   const libraryName = assembly.name as string; expect(libraryName.trim().length > 0).toBe(true);
   const opener = ui.screen.getByTestId("estimate-editor-assemblies-button");
-  if (!await opener.isVisible()) { const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click(); await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
+  if (!await opener.isVisible()) { await ui.screen.getByRole("button", "Insérer", { exact: true }).click(); }
   await opener.click(); const dialog = ui.screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true }); await expect(dialog).toBeVisible();
   await dialog.getByLabel("Rechercher", { exact: true }).fill(libraryName);
   await dialog.getByRole("button", libraryName, { exact: false }).click();

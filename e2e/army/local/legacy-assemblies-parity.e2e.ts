@@ -91,7 +91,6 @@ armyTest("LEGASM01 a real library creation survives search and inserts its exact
     await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
     await waitForDraftLease(ui);
-    await screen.getByRole("tab", "Insérer", { exact: true }).click();
     await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
     await screen.getByTestId("estimate-editor-assemblies-button", { visible: true }).click();
     const picker = screen.getByRole("dialog", "Ajouter un ouvrage", { exact: true });

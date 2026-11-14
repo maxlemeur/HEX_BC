@@ -1110,11 +1110,10 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       }
       expect(await readMode()).toBe("expert");
       await recordEvidence(page.army, "us44-mode-expert", { userId, initialMode, persistedMode: "expert" });
-      const displayTab = page.getByRole("tab", { name: /^Affichage & contrôle(?: \d+)?$/ });
-      await expect(displayTab).toBeVisible();
-      await displayTab.click();
-      await expect(displayTab).toBeSelected();
-      await page.getByTestId("estimate-editor-display-button").click();
+      const controls = page.getByTestId("estimate-editor-controls-button");
+      await expect(controls).toBeVisible();
+      await controls.click();
+      await expect(controls).toHaveAttribute("aria-expanded", "true");
 
       const preselectionButton = page.getByRole("button", {
         name: /^Présélectionner les fournisseurs \(\d+\)$/,

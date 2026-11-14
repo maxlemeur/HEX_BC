@@ -45,7 +45,6 @@ armyTest(
     expect((await lineOf())?.unit_price_ht_cents).toBe(1000);
 
     // 2. Settings panel: the same refusal for "1.250"; "1 000" is 1 000 € after reload (C-11).
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
     // Precondition, as in numeric-entry.e2e.ts: the shared account keeps its default Simplifié mode,
     // without which the Expert-only « Contrôles avancés » push the settings button out of the viewport.
@@ -128,7 +127,6 @@ armyTest(
     // (pre-existing defect outside 2.3, recorded in docs/testing/estimate-input-import-2.3.md).
     await screen.getByLabel(`Sélectionner la ligne ${title}`, { exact: true }).uncheck();
     await expect(bulkBar).toBeHidden();
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     const display = screen.getByTestId("estimate-editor-display-button", { visible: true });
     await display.click();
     await screen.getByRole("button", "Personnalisé", { exact: true }).click();
@@ -157,7 +155,6 @@ armyTest(
     await expect(grid).toBeVisible();
     await expect(gridMajoration).toHaveValue("100");
     const persisted = await readEstimate(browser, ids.versionId);
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await display.click();
     await screen.getByRole("button", "Réinitialiser les colonnes et leurs largeurs", { exact: true }).click();
     await display.click();
@@ -213,7 +210,6 @@ armyTest(
 
     // 9. Settings « TVA unique » (2.3 review): the rate reads as at the import, « 5,5 % » → 550 pb;
     // « 12,555 » is refused instead of being stored as 1 256 pb.
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
     await screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
     await expect(screen.getByRole("dialog", "Paramétrage du devis", { exact: true })).toBeVisible();
@@ -283,9 +279,9 @@ armyTest("NUMNAV01 invalid estimate numbers release focus without saving and rec
       await expect(price).toHaveAttribute("aria-invalid", "true");
       await expect.poll(activeLabel).not.toBe(priceLabel);
       if (token === "") await recordEvidence(army, "numeric-empty-draft-navigation", { screenshot: await app.screenshot("numeric-empty-draft-navigation") });
-      await screen.getByRole("tab", "Insérer", { exact: true }).click();
-      await expect(screen.getByRole("tab", "Insérer", { exact: true })).toHaveAttribute("aria-selected", "true");
-      await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
+      await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
+      await expect(screen.getByTestId("estimate-editor-insert-button", { visible: true })).toHaveAttribute("aria-expanded", "true");
+      await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
       await unchanged();
       await price.fill("100,00");
       await price.press("Tab");
@@ -295,8 +291,8 @@ armyTest("NUMNAV01 invalid estimate numbers release focus without saving and rec
     await coefficient.press("Tab");
     await expect(coefficient).toHaveAttribute("aria-invalid", "true");
     await expect.poll(activeLabel).not.toBe(coefficientLabel);
-    await screen.getByRole("tab", "Insérer", { exact: true }).click();
-    await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
+    await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
+    await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
     await unchanged();
     await coefficient.fill("1,5");
     await coefficient.press("Tab");

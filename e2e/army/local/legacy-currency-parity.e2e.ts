@@ -110,7 +110,6 @@ armyTest("LEGCUR02 USD settings and grouped decimal entry persist into the real 
     const ids = await createEstimateViaWizard(ui, { projectName, title: `${army.runPrefix} prix USD` }, army);
     expect((await readEstimate(browser, ids.versionId)).version.calc_engine_version).toBe(2);
     await waitForDraftLease(ui);
-    await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
     await screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
     const settings = screen.getByRole("dialog", "Paramétrage du devis", { exact: true });

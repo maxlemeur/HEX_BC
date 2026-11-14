@@ -402,7 +402,6 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
   const open = async () => {
     const opener = ui.screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
     if (!await opener.isVisible()) {
-      const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click();
       await ui.screen.getByRole("button", "Insérer", { exact: true }).click();
     }
     await opener.click(); await expect(ui.screen.getByRole("dialog", "Générer des ouvrages", { exact: true })).toBeVisible();
