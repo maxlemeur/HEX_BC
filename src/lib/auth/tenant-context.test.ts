@@ -9,6 +9,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import {
   getAuthenticatedTenantContext,
+  getTenantMembershipOrThrow,
+  getTenantSettingsActorContext,
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "./tenant-context";
@@ -163,6 +165,93 @@ describe("authenticated tenant context", () => {
       status: 400,
       code: "BAD_REQUEST",
       message: "Impossible de charger le tenant courant.",
+    } satisfies Partial<ApiError>);
+    consoleError.mockRestore();
+  });
+});
+
+describe("tenant settings actor context", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the user and their active tenant", async () => {
+    const { supabase } = createSupabaseMock({ membership: { tenant_id: TENANT_ID, user_id: USER_ID, role: "member" } });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const context = await getTenantSettingsActorContext();
+
+    expect(context).toEqual({ supabase, userId: USER_ID, defaultTenantId: TENANT_ID });
+  });
+
+  it("rejects an unauthenticated user without reading memberships", async () => {
+    const { supabase } = createSupabaseMock({ user: null });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getTenantSettingsActorContext()).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    } satisfies Partial<ApiError>);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 when the membership read fails and 401 when there is no active tenant", async () => {
+    const failing = createSupabaseMock({
+      membershipError: { code: "XX000", message: "database unavailable", details: null, hint: null },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(failing.supabase as never);
+    await expect(getTenantSettingsActorContext()).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Impossible de charger le tenant courant.",
+    } satisfies Partial<ApiError>);
+
+    const withoutTenant = createSupabaseMock({ membership: null });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(withoutTenant.supabase as never);
+    await expect(getTenantSettingsActorContext()).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    } satisfies Partial<ApiError>);
+  });
+});
+
+describe("getTenantMembershipOrThrow", () => {
+  function createMembershipLookup(result: { data: unknown; error: unknown }) {
+    const builder = { eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue(result) };
+    builder.eq.mockReturnValue(builder);
+    const select = vi.fn(() => builder);
+    const supabase = { from: vi.fn(() => ({ select })) };
+    return { supabase, select, builder };
+  }
+
+  it("reads the membership of the given tenant and user", async () => {
+    const row = { tenant_id: TENANT_ID, user_id: USER_ID, role: "member" };
+    const { supabase, select, builder } = createMembershipLookup({ data: row, error: null });
+
+    await expect(getTenantMembershipOrThrow(supabase as never, TENANT_ID, USER_ID)).resolves.toEqual(row);
+    expect(supabase.from).toHaveBeenCalledWith("tenant_memberships");
+    expect(select).toHaveBeenCalledWith("tenant_id, user_id, role");
+    expect(builder.eq).toHaveBeenNthCalledWith(1, "tenant_id", TENANT_ID);
+    expect(builder.eq).toHaveBeenNthCalledWith(2, "user_id", USER_ID);
+  });
+
+  it("answers 403 without a membership and maps read errors", async () => {
+    const missing = createMembershipLookup({ data: null, error: null });
+    await expect(getTenantMembershipOrThrow(missing.supabase as never, TENANT_ID, USER_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      message: "Aucun accès à ce tenant.",
+    } satisfies Partial<ApiError>);
+
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failing = createMembershipLookup({
+      data: null,
+      error: { code: "42501", message: "permission denied", details: null, hint: null },
+    });
+    await expect(getTenantMembershipOrThrow(failing.supabase as never, TENANT_ID, USER_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      message: "Accès refusé.",
     } satisfies Partial<ApiError>);
     consoleError.mockRestore();
   });
