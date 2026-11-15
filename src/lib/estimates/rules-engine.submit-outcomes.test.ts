@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createInMemoryRestApi, type InMemoryRestRequest } from "@/test/in-memory-rest-api";
 
@@ -199,7 +199,11 @@ type Harness = {
   requests: InMemoryRestRequest[];
   /** Every write in call order: REST writes and RPCs, the atomic submission seam and the email. */
   writes: () => string[];
+  /** Every request in call order, reads included: `GET table`, `PATCH table`, `POST rpc/name`, `CALL seam`. */
+  trace: () => string[];
   rpcBodies: (name: string) => unknown[];
+  /** The bodies of the summary projection: the version update, then its audit events. */
+  projectionBodies: () => unknown[];
 };
 
 function setup(input: {
@@ -297,9 +301,105 @@ function setup(input: {
           const eventType = (request.body as { p_event_type?: string } | null)?.p_event_type;
           return `${request.method} ${request.table}${eventType ? ` ${eventType}` : ""}`;
         }),
+    trace: () => api.requests.map((request) => `${request.method} ${request.table}`),
     rpcBodies: (name) =>
       api.requests.filter((request) => request.table === `rpc/${name}`).map((request) => request.body),
+    projectionBodies: () =>
+      api.requests
+        .filter(
+          (request) =>
+            (request.method === "PATCH" && request.table === "estimate_versions") ||
+            request.table === "rpc/log_estimate_version_event"
+        )
+        .map((request) => request.body),
   };
+}
+
+/** The authenticated tenant membership, then the authorised version. */
+const ACCESS_READS = ["GET tenant_memberships", "GET estimate_versions"];
+/** Items, then the summary, readiness and validator reads, started together before any refusal they feed. */
+const SUBMISSION_EVALUATION_READS = [
+  "GET rpc/read_estimate_version_items",
+  "GET estimate_rules",
+  "GET estimate_rules",
+  "GET tenant_memberships",
+  "GET profiles",
+  "GET estimate_approvals",
+  "GET estimate_approvals",
+  "GET tenant_memberships",
+  "GET estimate_versions",
+  "GET affaire_briefs",
+  "GET estimate_version_zero_drafts",
+  "HEAD estimate_items",
+];
+const EVALUATED_AT = "2026-03-07T08:00:00.000Z";
+const THRESHOLD_MESSAGE =
+  "Montant HT 2\u202f500\u00a0€ au-dessus du seuil de validation 1\u202f000\u00a0€. Demande d'approbation en attente.";
+
+/** The exact projection of a version over the amount threshold with one pending approval. */
+function pendingThresholdProjection(input: {
+  trigger: "approval_request" | "approval_decision";
+  previousStatus: string;
+  approvalId: string;
+  approvalCreatedAt: string;
+}) {
+  const summary = {
+    requiresApproval: true,
+    reasons: [
+      {
+        ruleId: RULE_ID,
+        label: "Seuil montant HT",
+        signalKey: "total_ht_cents",
+        thresholdValue: 100000,
+        actualValue: 250000,
+        sourceState: "ready",
+        message: THRESHOLD_MESSAGE,
+        action: "require_approval",
+        approvalStatus: "pending",
+        approvalId: input.approvalId,
+        approvalCreatedAt: input.approvalCreatedAt,
+        approvalDecidedAt: null,
+      },
+    ],
+    latestDecision: {
+      approvalId: input.approvalId,
+      status: "pending",
+      decidedAt: null,
+      createdAt: input.approvalCreatedAt,
+      decision: null,
+      cycleId: null,
+      cycleNumber: null,
+      commentCount: 0,
+    },
+    unavailableSignals: [],
+  };
+  return [
+    { approval_status: "in_review", approval_summary: summary, approval_evaluated_at: EVALUATED_AT },
+    {
+      p_estimate_version_id: VERSION_ID,
+      p_event_type: "approval_rules_evaluated",
+      p_created_by: USER_ID,
+      p_metadata: {
+        trigger: input.trigger,
+        previousStatus: input.previousStatus,
+        approvalStatus: "in_review",
+        evaluatedAt: EVALUATED_AT,
+        summary,
+      },
+      p_occurred_at: EVALUATED_AT,
+    },
+    {
+      p_estimate_version_id: VERSION_ID,
+      p_event_type: "approval_status_changed",
+      p_created_by: USER_ID,
+      p_metadata: {
+        previousStatus: input.previousStatus,
+        nextStatus: "in_review",
+        reasons: [{ ruleId: RULE_ID, approvalStatus: "pending", message: THRESHOLD_MESSAGE }],
+      },
+      p_occurred_at: EVALUATED_AT,
+    },
+  ];
 }
 
 const SUMMARY_PROJECTION = [
@@ -310,6 +410,8 @@ const SUMMARY_PROJECTION = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(EVALUATED_AT));
   vi.mocked(freezeApprovalV2DraftIfRequired).mockReset();
   vi.mocked(freezeApprovalV2DraftIfRequired).mockResolvedValue(false);
   vi.mocked(fetchAffaireRegisterGateSummary).mockReset();
@@ -323,6 +425,10 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("submitEstimateApproval access boundary", () => {
   it("hides a version of another tenant before any write", async () => {
     const harness = setup({
@@ -333,7 +439,7 @@ describe("submitEstimateApproval access boundary", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "submit_for_review", ruleIds: [] })
     ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND", message: "Version de chiffrage introuvable." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
     expect(freezeApprovalV2DraftIfRequired).not.toHaveBeenCalled();
   });
 
@@ -347,7 +453,7 @@ describe("submitEstimateApproval access boundary", () => {
       await expect(
         submitEstimateApproval({ versionId: VERSION_ID, action, ruleId: RULE_ID })
       ).rejects.toMatchObject({ status: 404, message: "Version de chiffrage introuvable." });
-      expect(harness.writes()).toEqual([]);
+      expect(harness.trace()).toEqual(ACCESS_READS);
     }
   });
 });
@@ -364,7 +470,7 @@ describe("submitEstimateApproval submit_for_review", () => {
       message: "Action réservée aux demandeurs d'approbation.",
     });
     expect(freezeApprovalV2DraftIfRequired).not.toHaveBeenCalled();
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
   });
 
   it("refuses a submission while a blocker remains", async () => {
@@ -382,7 +488,7 @@ describe("submitEstimateApproval submit_for_review", () => {
       message: "Des blocants restent à lever avant la soumission.",
     });
     expect(freezeApprovalV2DraftIfRequired).toHaveBeenCalledOnce();
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, ...SUBMISSION_EVALUATION_READS]);
   });
 
   it("refuses a reviewer outside the tenant's validators", async () => {
@@ -399,7 +505,11 @@ describe("submitEstimateApproval submit_for_review", () => {
       status: 400,
       message: "Le validateur assigné n'est pas autorisé dans cette organisation.",
     });
-    expect(harness.writes()).toEqual([]);
+    // The summary and readiness reads started with the validator lookup go on after its refusal:
+    // wait for them, so the trace does not depend on how many async steps the refusal crosses.
+    await vi.waitFor(() =>
+      expect(harness.trace()).toEqual([...ACCESS_READS, ...SUBMISSION_EVALUATION_READS])
+    );
   });
 
   it("refuses a submission when no rule can be requested", async () => {
@@ -415,7 +525,7 @@ describe("submitEstimateApproval submit_for_review", () => {
       status: 400,
       message: "Aucune règle de validation ne peut être soumise.",
     });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, ...SUBMISSION_EVALUATION_READS, "GET estimate_review_cycles"]);
   });
 
   it("refuses a resubmission while a correction item is still pending", async () => {
@@ -454,7 +564,7 @@ describe("submitEstimateApproval submit_for_review", () => {
       status: 400,
       message: "Tous les items de correction doivent être traités avant la resoumission.",
     });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, ...SUBMISSION_EVALUATION_READS, "GET estimate_review_cycles", "GET estimate_review_correction_items"]);
   });
 
   it("opens the cycle, emails the reviewer, then projects the summary", async () => {
@@ -473,7 +583,15 @@ describe("submitEstimateApproval submit_for_review", () => {
       "CALL sendApprovalReviewRequestNotification",
       ...SUMMARY_PROJECTION,
     ]);
-    // The access read and the fixed-discount evidence read; no re-read without a freeze.
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_request",
+        previousStatus: "not_required",
+        approvalId: "88888881-8888-4888-8888-888888888888",
+        approvalCreatedAt: NOW,
+      })
+    );
+    // The access read and a readiness read; no re-read without a freeze.
     const seamIndex = harness.requests.findIndex((request) => request.table === "openEstimateReviewCycle");
     expect(
       harness.requests
@@ -538,8 +656,8 @@ describe("submitEstimateApproval submit_for_review", () => {
       assignedReviewerUserId: REVIEWER_ID,
     });
 
-    // The access read and the fixed-discount evidence read the version (2 reads unfrozen); a freeze
-    // adds a re-read of the access before the evaluation.
+    // The access read and a readiness read load the version (2 reads unfrozen); a freeze adds a
+    // re-read of the access before the evaluation.
     const seamIndex = harness.requests.findIndex((request) => request.table === "openEstimateReviewCycle");
     const versionReadsBeforeSeam = harness.requests
       .slice(0, seamIndex)
@@ -669,7 +787,7 @@ describe("submitEstimateApproval request", () => {
       status: 400,
       message: "rule_id est obligatoire pour une demande d'approbation.",
     });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
   });
 
   it("refuses an unknown rule", async () => {
@@ -678,7 +796,7 @@ describe("submitEstimateApproval request", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "request", ruleId: RULE_ID })
     ).rejects.toMatchObject({ status: 404, message: "Règle introuvable." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_rules"]);
   });
 
   it("refuses an inactive rule before freezing the draft", async () => {
@@ -688,7 +806,7 @@ describe("submitEstimateApproval request", () => {
       submitEstimateApproval({ versionId: VERSION_ID, action: "request", ruleId: RULE_ID })
     ).rejects.toMatchObject({ status: 400, message: "La règle ciblee est inactive." });
     expect(freezeApprovalV2DraftIfRequired).not.toHaveBeenCalled();
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_rules"]);
   });
 
   it("opens a cycle for one rule with the default validator, without email", async () => {
@@ -717,6 +835,14 @@ describe("submitEstimateApproval request", () => {
     });
     expect(sendApprovalReviewRequestNotification).not.toHaveBeenCalled();
     expect(harness.writes()).toEqual(["CALL openEstimateReviewCycle", ...SUMMARY_PROJECTION]);
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_request",
+        previousStatus: "not_required",
+        approvalId: "88888881-8888-4888-8888-888888888888",
+        approvalCreatedAt: NOW,
+      })
+    );
     expect(result).toEqual({
       approval: expect.objectContaining({ id: "88888881-8888-4888-8888-888888888888", rule_id: RULE_ID }),
     });
@@ -752,7 +878,7 @@ describe("submitEstimateApproval decide", () => {
       submitEstimateApproval({ versionId: VERSION_ID, action: "decide", decision: "approved", comments: [] })
     ).rejects.toMatchObject({ status: 403, message: "Action réservée aux rôles de validation." });
     expect(harness.requests.some((request) => request.table === "estimate_review_cycles")).toBe(false);
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
   });
 
   it("refuses a decision without an open cycle", async () => {
@@ -764,7 +890,7 @@ describe("submitEstimateApproval decide", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "decide", decision: "approved", comments: [] })
     ).rejects.toMatchObject({ status: 400, message: "Aucun cycle de revue actif n'est disponible." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_review_cycles"]);
   });
 
   it("refuses a decision without a pending approval", async () => {
@@ -776,7 +902,7 @@ describe("submitEstimateApproval decide", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "decide", decision: "approved", comments: [] })
     ).rejects.toMatchObject({ status: 400, message: "Aucune approbation en attente n'est disponible." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_review_cycles", "GET estimate_approvals"]);
   });
 
   it("refuses a comment on a target the version no longer has", async () => {
@@ -793,7 +919,16 @@ describe("submitEstimateApproval decide", () => {
       status: 400,
       message: "Une cible de commentaire n'est plus valide pour cette version.",
     });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([
+      ...ACCESS_READS,
+      "GET estimate_review_cycles",
+      "GET estimate_approvals",
+      "GET rpc/read_estimate_version_items",
+      "GET estimate_rules",
+      "GET estimate_approvals",
+      "GET estimate_risk_alerts",
+      "GET affaire_register_entries",
+    ]);
   });
 
   it("decides the open cycle atomically with normalized comments, then projects the summary", async () => {
@@ -824,6 +959,15 @@ describe("submitEstimateApproval decide", () => {
       ]);
       expect(harness.writes()[0]).toBe("POST rpc/decide_estimate_review_cycle");
       expect(harness.writes().slice(1).every((write) => !write.includes("decide_"))).toBe(true);
+      expect(harness.writes()).toEqual(["POST rpc/decide_estimate_review_cycle", ...SUMMARY_PROJECTION]);
+      expect(harness.projectionBodies()).toEqual(
+        pendingThresholdProjection({
+          trigger: "approval_decision",
+          previousStatus: "not_required",
+          approvalId: APPROVAL_ID,
+          approvalCreatedAt: "2026-03-01T10:05:00.000Z",
+        })
+      );
       expect(result).toEqual({
         approval: {
           ...approvalRow(),
@@ -865,7 +1009,17 @@ describe("submitEstimateApproval decide", () => {
       code: "ESTIMATE_REVIEW_SNAPSHOT_STALE",
       message: "Le devis a été modifié depuis sa soumission. Une nouvelle revue est requise.",
     });
-    expect(harness.writes()).toEqual(["POST rpc/decide_estimate_review_cycle"]);
+    expect(harness.trace()).toEqual([
+      ...ACCESS_READS,
+      "GET estimate_review_cycles",
+      "GET estimate_approvals",
+      "GET rpc/read_estimate_version_items",
+      "GET estimate_rules",
+      "GET estimate_approvals",
+      "GET estimate_risk_alerts",
+      "GET affaire_register_entries",
+      "POST rpc/decide_estimate_review_cycle",
+    ]);
   });
 });
 
@@ -894,7 +1048,7 @@ describe("submitEstimateApproval approve and reject", () => {
       submitEstimateApproval({ versionId: VERSION_ID, action: "approve", approvalId: APPROVAL_ID })
     ).rejects.toMatchObject({ status: 403, message: "Action réservée aux rôles de validation." });
     expect(harness.requests.some((request) => request.table === "estimate_approvals")).toBe(false);
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
   });
 
   it("requires a rule id or an approval id", async () => {
@@ -906,7 +1060,7 @@ describe("submitEstimateApproval approve and reject", () => {
       status: 400,
       message: "rule_id ou approval_id est requis pour une décision.",
     });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual(ACCESS_READS);
   });
 
   it("refuses an unknown approval id", async () => {
@@ -919,7 +1073,7 @@ describe("submitEstimateApproval approve and reject", () => {
         approvalId: "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0",
       })
     ).rejects.toMatchObject({ status: 404, message: "Demande d'approbation introuvable." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_approvals"]);
   });
 
   it("refuses a rule without a pending approval", async () => {
@@ -931,7 +1085,7 @@ describe("submitEstimateApproval approve and reject", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "approve", ruleId: RULE_ID })
     ).rejects.toMatchObject({ status: 404, message: "Aucune demande d'approbation en attente." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_approvals"]);
   });
 
   it("refuses an approval that is no longer pending", async () => {
@@ -943,7 +1097,7 @@ describe("submitEstimateApproval approve and reject", () => {
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "reject", approvalId: APPROVAL_ID })
     ).rejects.toMatchObject({ status: 400, message: "La demande d'approbation n'est plus en attente." });
-    expect(harness.writes()).toEqual([]);
+    expect(harness.trace()).toEqual([...ACCESS_READS, "GET estimate_approvals"]);
   });
 
   it("approves by approval id atomically, then projects the summary", async () => {
@@ -960,6 +1114,15 @@ describe("submitEstimateApproval approve and reject", () => {
       { p_approval_id: APPROVAL_ID, p_status: "approved" },
     ]);
     expect(harness.writes()[0]).toBe("POST rpc/decide_estimate_approval");
+    expect(harness.writes()).toEqual(["POST rpc/decide_estimate_approval", ...SUMMARY_PROJECTION]);
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_decision",
+        previousStatus: "not_required",
+        approvalId: APPROVAL_ID,
+        approvalCreatedAt: "2026-03-01T10:05:00.000Z",
+      })
+    );
     expect(result).toEqual({ approval: decided });
   });
 
@@ -978,6 +1141,15 @@ describe("submitEstimateApproval approve and reject", () => {
     expect(harness.rpcBodies("decide_estimate_approval")).toEqual([
       { p_approval_id: APPROVAL_ID, p_status: "rejected" },
     ]);
+    expect(harness.writes()).toEqual(["POST rpc/decide_estimate_approval", ...SUMMARY_PROJECTION]);
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_decision",
+        previousStatus: "not_required",
+        approvalId: APPROVAL_ID,
+        approvalCreatedAt: "2026-03-01T10:05:00.000Z",
+      })
+    );
   });
 
   it("reports a stale review snapshot as a conflict, without projecting the summary", async () => {
@@ -989,7 +1161,81 @@ describe("submitEstimateApproval approve and reject", () => {
 
     await expect(
       submitEstimateApproval({ versionId: VERSION_ID, action: "approve", approvalId: APPROVAL_ID })
-    ).rejects.toMatchObject({ status: 409, code: "ESTIMATE_REVIEW_SNAPSHOT_STALE" });
-    expect(harness.writes()).toEqual(["POST rpc/decide_estimate_approval"]);
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "ESTIMATE_REVIEW_SNAPSHOT_STALE",
+      message: "Le devis a été modifié depuis sa soumission. Une nouvelle revue est requise.",
+    });
+    expect(harness.trace()).toEqual([
+      ...ACCESS_READS,
+      "GET estimate_approvals",
+      "POST rpc/decide_estimate_approval",
+    ]);
+  });
+});
+
+describe("submitEstimateApproval after a draft snapshot freeze", () => {
+  // The freeze rewrites the stored version: frozen totals and revision, and the stored approval
+  // status. Before it, the version sits below the amount threshold.
+  function freezeRewritesVersion(harness: Harness) {
+    harness.tables.estimate_versions = [versionRow({ totalHtCents: 50000 })];
+    vi.mocked(freezeApprovalV2DraftIfRequired).mockImplementationOnce(async () => {
+      harness.tables.estimate_versions = [
+        {
+          ...versionRow({ totalHtCents: 250000 }),
+          content_revision: 2,
+          calc_snapshot_content_revision: 2,
+          approval_status: "required",
+        },
+      ];
+      return true;
+    });
+  }
+
+  it("evaluates and projects a review submission from the frozen version", async () => {
+    const harness = setup({ role: "admin", tables: { estimate_rules: [ruleRow()] } });
+    freezeRewritesVersion(harness);
+
+    await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: [],
+      assignedReviewerUserId: REVIEWER_ID,
+    });
+
+    expect(vi.mocked(freezeApprovalV2DraftIfRequired).mock.calls[0]![1]).toMatchObject({
+      total_ht_cents: 50000,
+      content_revision: 1,
+    });
+    // The rule evaluation read the frozen total: below the threshold, no rule could be requested.
+    expect(vi.mocked(openEstimateReviewCycle).mock.calls[0]![0].ruleIds).toEqual([RULE_ID]);
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_request",
+        previousStatus: "required",
+        approvalId: "88888881-8888-4888-8888-888888888888",
+        approvalCreatedAt: NOW,
+      })
+    );
+  });
+
+  it("projects a single-rule request from the frozen version", async () => {
+    const harness = setup({ role: "admin", tables: { estimate_rules: [ruleRow()] } });
+    freezeRewritesVersion(harness);
+
+    await submitEstimateApproval({ versionId: VERSION_ID, action: "request", ruleId: RULE_ID });
+
+    expect(vi.mocked(freezeApprovalV2DraftIfRequired).mock.calls[0]![1]).toMatchObject({
+      total_ht_cents: 50000,
+      content_revision: 1,
+    });
+    expect(harness.projectionBodies()).toEqual(
+      pendingThresholdProjection({
+        trigger: "approval_request",
+        previousStatus: "required",
+        approvalId: "88888881-8888-4888-8888-888888888888",
+        approvalCreatedAt: NOW,
+      })
+    );
   });
 });
