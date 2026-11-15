@@ -221,3 +221,41 @@ export function toErrorResponse<TError extends HttpApiErrorLike>(
     { status: apiError.status }
   );
 }
+
+type ErrorFactory<TError> = (message: string, details: unknown, code: string) => TError;
+
+export type PostgrestErrorFactories<TError> = {
+  forbidden: ErrorFactory<TError>;
+  notFound: ErrorFactory<TError>;
+  conflict: ErrorFactory<TError>;
+  badRequest: ErrorFactory<TError>;
+};
+
+/**
+ * Maps a PostgREST error to the caller's domain error, with the raw error as
+ * details; the domain's `toErrorResponse` decides what reaches the client.
+ */
+export function mapPostgrestError<TError>(
+  error: { code: string; message: string },
+  fallbackMessage: string,
+  factories: PostgrestErrorFactories<TError>
+): TError {
+  const normalizedMessage = (error.message ?? "").toLowerCase();
+
+  if (
+    error.code === "42501" ||
+    normalizedMessage.includes("row-level security")
+  ) {
+    return factories.forbidden("Accès refusé.", error, "FORBIDDEN");
+  }
+
+  if (error.code === "PGRST116") {
+    return factories.notFound("Ressource introuvable.", error, "NOT_FOUND");
+  }
+
+  if (error.code === "23505") {
+    return factories.conflict("Conflit de données.", error, "CONFLICT");
+  }
+
+  return factories.badRequest(fallbackMessage, error, "BAD_REQUEST");
+}
