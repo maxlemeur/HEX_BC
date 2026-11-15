@@ -84,13 +84,31 @@ function readRows(rows: Row[], calls: QueryCall[]) {
 /**
  * Supabase stand-in over in-memory tables: it answers `eq`/`neq`/`gt`/`in` filters,
  * `order` and `limit`, records every query with its chained calls, and lets a test
- * fail one read with a PostgREST error.
+ * fail one read with a PostgREST error. With `holdResults`, every result stays pending
+ * until `releaseHeld()`, so a test can see which reads are issued together.
  */
 function createSupabaseFake(input: {
   tables: Record<string, Row[]>;
   failRead?: (query: RecordedQuery) => QueryError | null;
+  holdResults?: boolean;
 }) {
   const queries: RecordedQuery[] = [];
+  // Every query or held call, tagged with the number of releases that preceded it.
+  const issued: Array<{ release: number; label: string; query?: RecordedQuery }> = [];
+  const held: Array<() => void> = [];
+  let releases = 0;
+  const settle = <T,>(compute: () => T): Promise<T> =>
+    input.holdResults
+      ? new Promise((done) => held.push(() => done(compute())))
+      : Promise.resolve(compute());
+  const hold = <T,>(label: string, value: T) => {
+    issued.push({ release: releases, label });
+    return settle(() => value);
+  };
+  const releaseHeld = () => {
+    releases += 1;
+    held.splice(0).forEach((complete) => complete());
+  };
   const draftInserts: Row[] = [];
   const draftNodeInserts: Row[][] = [];
 
@@ -127,6 +145,7 @@ function createSupabaseFake(input: {
   const from = vi.fn((table: string) => {
     const query: RecordedQuery = { table, calls: [] };
     queries.push(query);
+    issued.push({ release: releases, label: table, query });
     const builder: Record<string, unknown> = {};
     for (const method of CHAIN_METHODS) {
       builder[method] = (...args: unknown[]) => {
@@ -136,16 +155,16 @@ function createSupabaseFake(input: {
     }
     builder.single = () => {
       query.calls.push({ method: "single", args: [] });
-      return Promise.resolve(resolve(query, "single"));
+      return settle(() => resolve(query, "single"));
     };
     builder.maybeSingle = () => {
       query.calls.push({ method: "maybeSingle", args: [] });
-      return Promise.resolve(resolve(query, "maybeSingle"));
+      return settle(() => resolve(query, "maybeSingle"));
     };
     builder.then = (
       onFulfilled: (value: unknown) => unknown,
       onRejected: (reason: unknown) => unknown
-    ) => Promise.resolve(resolve(query, "many")).then(onFulfilled, onRejected);
+    ) => settle(() => resolve(query, "many")).then(onFulfilled, onRejected);
     return builder;
   });
 
@@ -167,7 +186,41 @@ function createSupabaseFake(input: {
     rpc,
   };
 
-  return { supabase, queries, draftInserts, draftNodeInserts };
+  return { supabase, queries, issued, hold, releaseHeld, draftInserts, draftNodeInserts };
+}
+
+/**
+ * Runs a generation with every read held, releasing them one round at a time, and
+ * returns the reads issued in each round: reads in the same round ran concurrently.
+ */
+async function readRounds(
+  fake: ReturnType<typeof createSupabaseFake>,
+  run: () => Promise<unknown>
+) {
+  let finished = false;
+  const outcome = run().then(
+    () => {
+      finished = true;
+    },
+    (error: unknown) => {
+      finished = true;
+      return error;
+    }
+  );
+  for (let round = 0; round < 50 && !finished; round += 1) {
+    await new Promise((done) => setTimeout(done, 0));
+    fake.releaseHeld();
+  }
+  const error = await outcome;
+  const rounds: string[][] = [];
+  fake.issued
+    .filter(({ query }) =>
+      !query?.calls.some((call) => ["insert", "update", "delete"].includes(call.method))
+    )
+    .forEach(({ release, label }) => {
+      (rounds[release] ??= []).push(label);
+    });
+  return { rounds: rounds.filter(Boolean), error };
 }
 
 function describeQuery(query: RecordedQuery) {
@@ -549,6 +602,72 @@ function allSourcesTables(): Record<string, Row[]> {
 
   return tables;
 }
+
+/** Mapped rows past the 40-line DPGF cap, listed in reverse row order. */
+function overCapMappedRows() {
+  return Array.from({ length: 45 }, (_, index) =>
+    mappedRow(`row-${String(index).padStart(2, "0")}`, 45 - index, `Lot ${index} > Ouvrage ${index}`)
+  ) as never;
+}
+
+/** Every source, with enough template sections to push the bundle past its 80-entry cap. */
+function overCapTables() {
+  const tables = allSourcesTables();
+  tables.estimate_assemblies = [
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: `a6000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
+      tenant_id: TENANT_ID,
+      name: "Ouvrage repete",
+      description: "Meme description",
+      updated_at: `2026-02-${String(20 - index).padStart(2, "0")}T09:00:00.000Z`,
+    })),
+    {
+      id: "a6000000-0000-4000-8000-000000000099",
+      tenant_id: TENANT_ID,
+      name: "Ouvrage unique",
+      description: null,
+      updated_at: "2026-01-01T09:00:00.000Z",
+    },
+  ];
+  tables.estimate_templates.push(
+    ...Array.from({ length: 8 }, (_, index) => ({
+      id: `b7000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
+      tenant_id: TENANT_ID,
+      name: `Modele ${index}`,
+      description: null,
+      updated_at: `2026-03-${String(10 + index).padStart(2, "0")}T09:00:00.000Z`,
+    }))
+  );
+  tables.estimate_template_items.push(
+    ...Array.from({ length: 24 }, (_, index) =>
+      templateSection({
+        id: `f7000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
+        templateId: `b7000000-0000-4000-8000-0000000000${String(index % 8).padStart(2, "0")}`,
+        position: index,
+        title: `Chapitre modele ${index}`,
+      })
+    )
+  );
+  return tables;
+}
+
+/** The prompt lines listing one source's entries. */
+function promptEntriesFor(prompt: string, sourceLabel: string) {
+  const lines = promptBlock(prompt, "Sources:");
+  const start = lines.findIndex((line) => line.startsWith(`- ${sourceLabel} [`));
+  const next = lines.findIndex((line, index) => index > start && line.startsWith("- "));
+  return lines.slice(start + 1, next === -1 ? undefined : next);
+}
+
+function historyVersion(id: string, versionNumber: number, title: string | null) {
+  return { id, tenant_id: TENANT_ID, project_id: PROJECT_ID, version_number: versionNumber, title };
+}
+
+function template(id: string, name: string, description: string | null, updatedAt: string) {
+  return { id, tenant_id: TENANT_ID, name, description, updated_at: updatedAt };
+}
+
+const READ_REFUSED: QueryError = { code: "XX000", message: "lecture refusee", details: null, hint: null };
 
 function providerFailure() {
   return Object.assign(new Error("Analyse IA indisponible."), { code: "AI_LOCAL_DISABLED" });
@@ -1413,47 +1532,8 @@ describe("generateEstimateStructureDraft sources", () => {
   });
 
   it("keeps the first 40 DPGF lines, dedupes identical entries and caps the bundle at 80 entries", async () => {
-    vi.mocked(fetchMappedRowsForImport).mockResolvedValue(
-      Array.from({ length: 45 }, (_, index) =>
-        mappedRow(`row-${String(index).padStart(2, "0")}`, 45 - index, `Lot ${index} > Ouvrage ${index}`)
-      ) as never
-    );
-    const tables = allSourcesTables();
-    tables.estimate_assemblies = [
-      ...Array.from({ length: 10 }, (_, index) => ({
-        id: `a6000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
-        tenant_id: TENANT_ID,
-        name: "Ouvrage repete",
-        description: "Meme description",
-        updated_at: `2026-02-${String(20 - index).padStart(2, "0")}T09:00:00.000Z`,
-      })),
-      {
-        id: "a6000000-0000-4000-8000-000000000099",
-        tenant_id: TENANT_ID,
-        name: "Ouvrage unique",
-        description: null,
-        updated_at: "2026-01-01T09:00:00.000Z",
-      },
-    ];
-    tables.estimate_templates.push(
-      ...Array.from({ length: 8 }, (_, index) => ({
-        id: `b7000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
-        tenant_id: TENANT_ID,
-        name: `Modele ${index}`,
-        description: null,
-        updated_at: `2026-03-${String(10 + index).padStart(2, "0")}T09:00:00.000Z`,
-      }))
-    );
-    tables.estimate_template_items.push(
-      ...Array.from({ length: 24 }, (_, index) =>
-        templateSection({
-          id: `f7000000-0000-4000-8000-0000000000${String(index).padStart(2, "0")}`,
-          templateId: `b7000000-0000-4000-8000-0000000000${String(index % 8).padStart(2, "0")}`,
-          position: index,
-          title: `Chapitre modele ${index}`,
-        })
-      )
-    );
+    vi.mocked(fetchMappedRowsForImport).mockResolvedValue(overCapMappedRows());
+    const tables = overCapTables();
     const fake = createSupabaseFake({ tables });
 
     const result = await generate(fake);
@@ -1693,5 +1773,141 @@ describe("generateEstimateStructureDraft sources", () => {
       status: 403,
       code: "FORBIDDEN",
     });
+  });
+
+  it("issues each source batch concurrently and waits for it before the next one", async () => {
+    const fake = createSupabaseFake({ tables: allSourcesTables(), holdResults: true });
+    vi.mocked(fetchMappedRowsForImport).mockImplementation(() =>
+      fake.hold("fetchMappedRowsForImport", [mappedRow("row-a", 2, "Plomberie / Sanitaires")] as never)
+    );
+
+    const { rounds, error } = await readRounds(fake, () => generate(fake));
+
+    expect(error).toBeUndefined();
+    expect(rounds).toEqual([
+      ["tenant_memberships"],
+      ["estimate_versions"],
+      ["draft_locks"],
+      ["estimate_items"],
+      ["dpgf_imports", "estimate_versions", "estimate_templates", "estimate_assemblies"],
+      ["estimate_items", "estimate_template_items", "fetchMappedRowsForImport"],
+      ["affaire_briefs", "affaire_intake_documents"],
+      ["affaire_brief_source_links"],
+    ]);
+  });
+
+  it("dedupes entries on kind, label, normalized path and excerpt before counting them", async () => {
+    const tables = allSourcesTables();
+    tables.estimate_templates.push(
+      template("b3000000-0000-4000-8000-000000000003", "Modele logement", "Logement collectif", "2026-02-09T09:00:00.000Z"),
+      template("b4000000-0000-4000-8000-000000000004", "Modele logement", "Autre description", "2026-02-08T09:00:00.000Z"),
+      template("b5000000-0000-4000-8000-000000000005", "Modele bis", "Logement collectif", "2026-02-07T09:00:00.000Z")
+    );
+    tables.estimate_template_items.push(
+      // Same template name, description and normalized paths as "Modele logement": two duplicates.
+      templateSection({ id: "f3000000-0000-4000-8000-000000000001", templateId: "b3000000-0000-4000-8000-000000000003", position: 1, title: "GROS OEUVRE" }),
+      templateSection({
+        id: "f3000000-0000-4000-8000-000000000002",
+        templateId: "b3000000-0000-4000-8000-000000000003",
+        parentId: "f3000000-0000-4000-8000-000000000001",
+        position: 1,
+        title: "Maconnerie",
+      }),
+      // Differs only by excerpt, then only by label: both are kept.
+      templateSection({ id: "f4000000-0000-4000-8000-000000000001", templateId: "b4000000-0000-4000-8000-000000000004", position: 1, title: "Gros oeuvre" }),
+      templateSection({ id: "f5000000-0000-4000-8000-000000000001", templateId: "b5000000-0000-4000-8000-000000000005", position: 1, title: "Gros oeuvre" })
+    );
+    const fake = createSupabaseFake({ tables });
+
+    const result = await generate(fake);
+
+    expect(result.sources[2].detail).toBe("5 template(s) pris en compte");
+    // 19 entries for allSourcesTables without DPGF rows, plus 4 template entries of which 2
+    // are duplicates.
+    expect(fake.draftInserts[0].generation_metadata).toMatchObject({ source_entry_count: 21 });
+    expect(promptEntriesFor(promptSent(), "Bibliotheque templates")).toEqual([
+      "  - GROS OEUVRE :: Logement collectif",
+      "  - GROS OEUVRE > Maconnerie :: Logement collectif",
+      "  - Gros oeuvre :: Autre description",
+      "  - Gros oeuvre :: Logement collectif",
+    ]);
+  });
+
+  it("applies the 80-entry cap after dedupe", async () => {
+    vi.mocked(fetchMappedRowsForImport).mockResolvedValue(overCapMappedRows());
+    const tables = overCapTables();
+    // Two more copies of V2 (same number, title and sections): four duplicates of the
+    // heaviest entries, which a cap applied first would keep and then remove.
+    tables.estimate_versions.push(
+      historyVersion("a3000000-0000-4000-8000-000000000003", 2, "Variante"),
+      historyVersion("a4000000-0000-4000-8000-000000000004", 2, "Variante")
+    );
+    ["a3000000-0000-4000-8000-000000000003", "a4000000-0000-4000-8000-000000000004"].forEach((versionId, index) => {
+      tables.estimate_items.push(
+        section({ id: `e${index + 3}000000-0000-4000-8000-000000000001`, versionId, position: 1, title: "Gros oeuvre" }),
+        section({
+          id: `e${index + 3}000000-0000-4000-8000-000000000002`,
+          versionId,
+          parentId: `e${index + 3}000000-0000-4000-8000-000000000001`,
+          position: 1,
+          title: "Fondations",
+        })
+      );
+    });
+    const fake = createSupabaseFake({ tables });
+
+    const result = await generate(fake);
+
+    expect(result.sources[1].detail).toBe("4 version(s) analysee(s)");
+    expect(fake.draftInserts[0].generation_metadata).toMatchObject({ source_entry_count: 80 });
+    expect(promptEntriesFor(promptSent(), "Versions historiques")).toEqual([
+      "  - Gros oeuvre :: Variante",
+      "  - Gros oeuvre > Fondations :: Variante",
+      "  - Electricite",
+    ]);
+  });
+
+  it("reports the confirmed brief before the CCTP documents when both fail", async () => {
+    const fake = createSupabaseFake({
+      tables: allSourcesTables(),
+      failRead: (query) =>
+        ["affaire_briefs", "affaire_intake_documents"].includes(query.table) ? READ_REFUSED : null,
+    });
+
+    await expect(generate(fake)).rejects.toMatchObject({
+      message: "Impossible de charger le brief affaire confirme.",
+    });
+  });
+
+  it("uses a confirmed brief that has a summary but no source links", async () => {
+    const tables = allSourcesTables();
+    tables.affaire_brief_source_links = [];
+    const fake = createSupabaseFake({ tables });
+
+    const result = await generate(fake);
+
+    expect(result.sources[5]).toEqual({
+      kind: "confirmed_brief",
+      label: "Brief confirme",
+      available: true,
+      used: true,
+      detail: "Brief confirme sans liens de source exploites",
+    });
+  });
+
+  it("stops before the brief and CCTP reads when the linked DPGF rows cannot be normalized", async () => {
+    vi.mocked(fetchMappedRowsForImport).mockResolvedValue([null] as never);
+    const fake = createSupabaseFake({ tables: allSourcesTables() });
+
+    await expect(generate(fake)).rejects.toBeInstanceOf(TypeError);
+    expect(sourceQueries(fake.queries).map((query) => query.split(".")[0])).toEqual([
+      "dpgf_imports",
+      "estimate_versions",
+      "estimate_templates",
+      "estimate_assemblies",
+      "estimate_items",
+      "estimate_template_items",
+    ]);
+    expect(fake.draftInserts).toEqual([]);
   });
 });
