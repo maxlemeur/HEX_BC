@@ -1,7 +1,8 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, PDFName, StandardFonts, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState, rgb } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
@@ -41,7 +42,7 @@ let labOutputDir: string;
 // 13.2 s in the green run 42822852964), the whole default assertion budget. The outcome asserted stays the same.
 const DEV_SERVER_WORK = { timeout: 60_000 };
 const localClient = () => localChatGptClient(fixtureEmail);
-const setDecisionsControl = (input: { hold?: boolean; timeoutWriting?: boolean }) => writeDecisionsControl(decisionsControl, input);
+const setDecisionsControl = (input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean }) => writeDecisionsControl(decisionsControl, input);
 /** Writes the owner's temporary ChatGPT profile unless a test of this file already left one. */
 async function preparePlanFixture(unsetPreferences = false) {
   if (fixtureStore) return false;
@@ -816,6 +817,112 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
   }
 });
 
+
+// An image and the scanned page of a PDF are read when they arrive, with Terra at a high effort on the ChatGPT plan of
+// the member who added them, and the text is shown under the piece as an unverified reading. The fixture's account
+// lists Terra for this journey only; the text page of the PDF is never sent.
+test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and shown as unverified text", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("INTOCR01 uses only the fictional provider transport fixture.");
+  if (!await preparePlanFixture()) throw new Error("INTOCR01 requires its own temporary ChatGPT profile.");
+  await setDecisionsControl({ transcriptionModel: true });
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-transcription-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Transcription à l’arrivée" }, army);
+    const { client } = await localClient();
+
+    // Fictional pieces: a 1×1 PNG « photo », and a two-page PDF whose first page has its text and whose second is a scan.
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const imagePath = path.join(directory, "bon-livraison-ARMY.png");
+    await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAW9JTswAAAABJRU5ErkJggg==", "base64"));
+    const scanned = await PDFDocument.create();
+    const font = await scanned.embedFont(StandardFonts.Helvetica);
+    scanned.addPage([595, 842]).drawText("CCTP ARMY fictif - page texte : article 6, essais de pression a 10 bar.", { x: 40, y: 760, size: 11, font });
+    const raster = scanned.context.register(scanned.context.flateStream(new Uint8Array((400 / 8) * 400).fill(0x55), {
+      Type: "XObject", Subtype: "Image", Width: 400, Height: 400, ColorSpace: "DeviceGray", BitsPerComponent: 1,
+    }));
+    const scanPage = scanned.addPage([595, 842]);
+    scanPage.node.setXObject(PDFName.of("Im0"), raster);
+    scanPage.pushOperators(pushGraphicsState(), concatTransformationMatrix(500, 0, 0, 500, 47, 171), drawObject("Im0"), popGraphicsState());
+    const pdfPath = path.join(directory, "CCTP-scan-ARMY.pdf");
+    await writeFile(pdfPath, await scanned.save());
+
+    const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map((entry) => JSON.parse(entry) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
+    const before = (await readTransport()).length;
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles([imagePath, pdfPath]);
+
+    const documents = async () => {
+      const result = await client.from("affaire_intake_documents").select("id,file_name").eq("project_id", ids.projectId);
+      if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
+      return result.data;
+    };
+    // The readings of this affaire's pieces only: the account's other journeys leave theirs (a scanned sample plan that
+    // the fixture's account cannot read with Terra outside this journey).
+    const transcriptions = async () => {
+      const result = await client.from("affaire_intake_document_transcriptions")
+        .select("document_id,status,pages,pages_needed,pages_skipped,model,reasoning_effort,prompt_version,error_code,source_sha256")
+        .in("document_id", (await documents()).map((piece) => piece.id));
+      if (result.error) throw new Error(`Owned transcription read failed: ${result.error.code}`);
+      return result.data;
+    };
+    await expect.poll(async () => (await transcriptions()).length, { timeout: 120_000 }).toBe(2);
+    const pieces = await documents();
+    const image = pieces.find((piece) => piece.file_name === "bon-livraison-ARMY.png")!;
+    const pdf = pieces.find((piece) => piece.file_name === "CCTP-scan-ARMY.pdf")!;
+    const rows = await transcriptions();
+    const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    expect(rows.find((row) => row.document_id === image.id)).toEqual({ document_id: image.id, status: "completed",
+      pages: [{ page: 1, text: "BON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]", illegible: 1 }],
+      pages_needed: 1, pages_skipped: 0, model: "gpt-6.1-terra", reasoning_effort: "high", prompt_version: "intake-transcription-v1",
+      error_code: null, source_sha256: sha(await readFile(imagePath)) });
+    expect(rows.find((row) => row.document_id === pdf.id)).toEqual({ document_id: pdf.id, status: "completed",
+      pages: [{ page: 2, text: "Article 7 (page scannée) : vanne d'isolement DN20 | 4 u", illegible: 0 }],
+      pages_needed: 1, pages_skipped: 0, model: "gpt-6.1-terra", reasoning_effort: "high", prompt_version: "intake-transcription-v1",
+      error_code: null, source_sha256: sha(await readFile(pdfPath)) });
+
+    // Two readings reached the plan: the image whole at a high detail, and the scanned page 2 alone; never page 1.
+    const sent = (await readTransport()).slice(before).filter((entry) => entry.task === "transcription");
+    expect(sent.map(({ inputKind, detail, page, model, reasoningEffort }) => ({ inputKind, detail, page, model, reasoningEffort }))
+      .sort((left, right) => String(left.inputKind).localeCompare(String(right.inputKind)))).toEqual([
+      { inputKind: "image", detail: "high", page: null, model: "gpt-6.1-terra", reasoningEffort: "high" },
+      { inputKind: "pdf", detail: undefined, page: "2", model: "gpt-6.1-terra", reasoningEffort: "high" },
+    ]);
+    expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+
+    // Under the piece, the reading is labelled as unverified, with the passage it could not read marked.
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${image.id}#intake`);
+    const preview = screen.getByRole("complementary", "Aperçu de la pièce sélectionnée", { exact: true });
+    const panel = preview.getByTestId("document-transcription");
+    await expect(panel).toHaveAttribute("data-status", "completed", DEV_SERVER_WORK);
+    await expect(panel.getByText("Non vérifiée", { exact: true })).toBeVisible();
+    await panel.getByText("Transcription automatique", { exact: true }).click();
+    await expect(panel.getByText(/Tube cuivre DN20 \| 12 m/)).toBeVisible();
+    await expect(panel.getByText(/1 passage non lu avec certitude/)).toBeVisible();
+    await expect(panel.getByText("[illisible]", { exact: true })).toBeVisible();
+    const screenshot = await app.screenshot("intake-transcription-image");
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${pdf.id}#intake`);
+    const pdfPanel = preview.getByTestId("document-transcription");
+    await expect(pdfPanel).toHaveAttribute("data-status", "completed", DEV_SERVER_WORK);
+    await pdfPanel.getByText("Transcription automatique", { exact: true }).click();
+    await expect(pdfPanel.getByRole("region", "Page 2", { exact: true })).toContainText("vanne d'isolement DN20 | 4 u");
+    await expect(pdfPanel.getByText(/page texte/)).toHaveCount(0);
+
+    await recordEvidence(army, "intake-transcription", { ids, imageId: image.id, pdfId: pdf.id, transcribedPages: { image: [1], pdf: [2] },
+      model: "gpt-6.1-terra", reasoningEffort: "high", providerRequests: sent.length, provider: "chatgpt-fixture", screenshot,
+      boundary: "Owned ephemeral backend, fictional PNG and PDF, simulated ChatGPT transport; no client document or live inference." });
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
 
 test("INTWORD01 Word analysis reports per-file failures and preserves manual choice until a proposal is applied", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", trace: "off", timeout: 240_000,

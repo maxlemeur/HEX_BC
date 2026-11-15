@@ -33,6 +33,7 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { classifyAutonomousAffaireDocument, getIntakeDecisionsCapability, getIntakeAnalysisAvailability, isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
+import { canTranscribeIntakeDocument, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
@@ -2571,6 +2572,20 @@ async function processClaimedAffaireIntakeUpload(input: {
     .map(normalizeDocumentRow)
     .filter((row): row is AffaireIntakeDocumentRow => row !== null);
 
+  // A Drive piece is a link: its content is read from Drive for this analysis only.
+  const readDocumentBytes = async (document: AffaireIntakeDocumentRow) => {
+    const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
+    if (linked) return { linked, bytes: new Uint8Array(linked.bytes).buffer as ArrayBuffer };
+    const { data: blob, error: downloadError } = await supabase.storage
+      .from(AFFAIRE_INTAKE_BUCKET)
+      .download(document.storage_path!);
+
+    if (downloadError || !blob) {
+      throw downloadError ?? new Error("Missing blob from storage.");
+    }
+
+    return { linked, bytes: await blob.arrayBuffer() };
+  };
   for (const document of documents) {
     if (document.upload_status !== "uploaded") {
       continue;
@@ -2648,22 +2663,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     try {
-      // A Drive piece is a link: its content is read from Drive for this analysis only.
-      const linked = document.storage_path ? null : await readLinkedDriveDocument(document);
-      let bytes: ArrayBuffer;
-      if (linked) {
-        bytes = new Uint8Array(linked.bytes).buffer;
-      } else {
-        const { data: blob, error: downloadError } = await supabase.storage
-          .from(AFFAIRE_INTAKE_BUCKET)
-          .download(document.storage_path!);
-
-        if (downloadError || !blob) {
-          throw downloadError ?? new Error("Missing blob from storage.");
-        }
-
-        bytes = await blob.arrayBuffer();
-      }
+      const { linked, bytes } = await readDocumentBytes(document);
       const mimeType =
         document.mime_type ??
         inferAffaireIntakeMimeType(document.file_name) ??
@@ -2767,6 +2767,29 @@ async function processClaimedAffaireIntakeUpload(input: {
         eventType: "document.classification_failed",
         reason: "Impossible d'analyser le document dans le workspace intake.",
       });
+    }
+  }
+
+  // The text of an image or of a scanned PDF, read on the plan of the member who added the piece, once every piece of
+  // the lot is classified (a reading takes up to minutes). Every active piece of the lot is listed, whatever its
+  // classification: an attempt recovered after a stop during the readings finds the pieces already classified, and
+  // the content-based deduplication skips what was read. A failure is recorded on its own row and leaves the
+  // classification as it is; only the lease's loss stops the lot.
+  const toTranscribe = aiOwner && isLocalChatGptEnabled() ? documents.flatMap((document) => {
+    const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
+    return document.upload_status === "uploaded" && !document.deletion_token && (document.storage_path || document.drive_file_id)
+      && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
+  }) : [];
+  for (const { document, mimeType } of toTranscribe) {
+    try {
+      await renewLease();
+      const { bytes } = await readDocumentBytes(document);
+      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease,
+        sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
+        document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
+    } catch (transcriptionError) {
+      if (transcriptionError instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw transcriptionError;
+      console.error("Affaire intake transcription could not be recorded", { documentId: document.id });
     }
   }
 

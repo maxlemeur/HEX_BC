@@ -23,6 +23,7 @@ import {
   dossierPreviewFormat,
   type DossierDocument,
 } from "@/lib/affaires/document-triage";
+import { IntakeDocumentTranscription } from "./IntakeDocumentTranscription";
 import { IntakePdfPreview } from "./IntakePdfPreview";
 
 // The drawing reader comes with the first CAD original opened, so that the
@@ -204,6 +205,15 @@ export function IntakeDocumentPreview({
           canvas()
         )}
       </div>
+      {(format === "image" || format === "pdf") &&
+        document.uploadStatus === "uploaded" &&
+        !document.isBeingDeleted && (
+          <IntakeDocumentTranscription
+            projectId={projectId}
+            documentId={document.documentId}
+            refreshKey={`${document.classificationStatus ?? ""}:${document.classificationUpdatedAt ?? ""}`}
+          />
+        )}
       <div className="document-preview-footer">
         <p>
           {document.driveSource
