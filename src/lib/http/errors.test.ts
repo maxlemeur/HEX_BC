@@ -10,6 +10,7 @@ import {
 import {
   buildErrorResponseBody,
   isPostgrestErrorLike,
+  mapPostgrestError,
   shouldExposeErrorDetails,
   toErrorResponse,
 } from "@/lib/http/errors";
@@ -256,5 +257,41 @@ describe("memberships toErrorResponse", () => {
 
     expect(zodBody.error.code).toBe("VALIDATION_ERROR");
     expect(zodBody.error.details?.issues?.[0]).toMatchObject({ path: "tenant_id" });
+  });
+});
+
+describe("mapPostgrestError", () => {
+  const factories = {
+    forbidden: (message: string, details: unknown, code: string) => ({ status: 403, message, details, code }),
+    notFound: (message: string, details: unknown, code: string) => ({ status: 404, message, details, code }),
+    conflict: (message: string, details: unknown, code: string) => ({ status: 409, message, details, code }),
+    badRequest: (message: string, details: unknown, code: string) => ({ status: 400, message, details, code }),
+  };
+
+  it.each([
+    [{ code: "42501", message: "permission denied" }, 403, "FORBIDDEN", "Accès refusé."],
+    [{ code: "P0001", message: "new row violates Row-Level Security policy" }, 403, "FORBIDDEN", "Accès refusé."],
+    [{ code: "PGRST116", message: "no rows" }, 404, "NOT_FOUND", "Ressource introuvable."],
+    [{ code: "23505", message: "duplicate key" }, 409, "CONFLICT", "Conflit de données."],
+    [{ code: "23503", message: "foreign key" }, 400, "BAD_REQUEST", "fallback"],
+    [{ code: "22P02", message: "invalid input syntax" }, 400, "BAD_REQUEST", "fallback"],
+    [{ code: "XX000", message: "anything else" }, 400, "BAD_REQUEST", "fallback"],
+  ])("maps %o to %i %s", (error, status, code, message) => {
+    expect(mapPostgrestError(error, "fallback", factories)).toEqual({ status, code, message, details: error });
+  });
+
+  it("keeps the memberships domain error and the raw details", () => {
+    const mapped = mapMembershipsSupabaseError({ code: "23505", message: "duplicate key" } as never, "fallback");
+
+    expect(mapped).toBeInstanceOf(MembershipsApiError);
+    expect(mapped).toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Conflit de données.",
+      details: { code: "23505", message: "duplicate key" },
+    });
+    expect(
+      mapMembershipsSupabaseError({ code: "22P02", message: "bad uuid" } as never, "Identifiant invalide.")
+    ).toMatchObject({ status: 400, code: "BAD_REQUEST", message: "Identifiant invalide." });
   });
 });
