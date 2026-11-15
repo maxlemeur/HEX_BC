@@ -22,7 +22,7 @@ function recordingClient(result: { data: unknown; error: unknown }) {
   for (const method of ["eq", "is"]) query[method] = (column: string, value: unknown) => { filters.push([method, column, value]); return query; };
   query.maybeSingle = async () => result;
   query.then = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
-  const from = vi.fn((_table: string) => query);
+  const from = vi.fn((table: string) => { void table; return query; });
   return { client: { from }, from, filters };
 }
 

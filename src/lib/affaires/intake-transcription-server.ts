@@ -1,5 +1,6 @@
 import "server-only";
 
+import { after } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 
@@ -8,7 +9,7 @@ import {
   INTAKE_TRANSCRIPTION_PROMPT_VERSION, INTAKE_TRANSCRIPTION_REASONING_EFFORT, buildIntakeTranscriptionPrompt,
   intakeTranscriptionAnswerSchema, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
+import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import {
   assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptOverrideUnavailableError,
 } from "@/lib/ai/chatgpt-local-inference";
@@ -16,7 +17,7 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { renderPdfPages, type PdfRenderedPage } from "@/lib/pdf/page-render-server";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
-import type { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 /** A page shorter than this once trimmed has no text layer worth the name: a scan. */
@@ -186,4 +187,56 @@ export async function transcribeIntakeDocument(input: {
   }, { onConflict: "document_id" });
   if (error) throw error;
   return { transcribed: true as const, status: outcome.status };
+}
+
+/** Readings a retry scheduled on this instance and that still run: a second click does not start the same one. */
+const retryReadings = new Set<string>();
+
+/**
+ * « Relancer l’analyse » reads the piece's text again when it needs it: no
+ * reading was recorded, the recorded one stopped on a failure (quota, access,
+ * model) or read another content. The reading runs after the response, on the
+ * ChatGPT plan of the member who asked for the analysis, as the analysis does;
+ * its outcome is recorded on its own row and never changes the classification.
+ * Returns whether a reading was scheduled.
+ */
+export async function scheduleIntakeTranscriptionAfterRetry(input: {
+  /** The member's own client (their rights read the stored reading) and identity (their plan reads the piece). */
+  context: { supabase: ServiceClient; userId: string; tenantId: string };
+  document: { id: string; fileName: string }; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
+}) {
+  const { context, document } = input;
+  if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(input.mimeType)) return false;
+  const key = `${document.id}:${input.sourceSha256}`;
+  if (retryReadings.has(key)) return false;
+  // Read with the member's rights: the piece's own policies decide, as for its preview.
+  const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
+    .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
+  if (error) {
+    console.error("Affaire intake transcription state could not be read", { documentId: document.id });
+    return false;
+  }
+  if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
+  retryReadings.add(key);
+  const owner = { userId: context.userId, tenantId: context.tenantId };
+  after(async () => {
+    const supabase = createServiceRoleClient();
+    // No lease covers a manual retry: the reading stops once the piece leaves the dossier.
+    const stillActive = async () => {
+      const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
+        .eq("tenant_id", owner.tenantId).eq("id", document.id).eq("upload_status", "uploaded")
+        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+      if (readError || !data) throw new Error("The piece left the dossier during its reading.");
+    };
+    try {
+      await stillActive();
+      await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
+        renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.fileName } });
+    } catch {
+      console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+    } finally {
+      retryReadings.delete(key);
+    }
+  });
+  return true;
 }
