@@ -59,9 +59,9 @@ export function IntakeDocumentTranscription({
         const payload = (await response.json()) as { data?: { transcription?: IntakeTranscription | null; pending?: boolean } };
         if (abort.signal.aborted) return;
         setTranscription(payload.data?.transcription ?? null);
-        const waiting = !payload.data?.transcription && payload.data?.pending === true && polls < POLLS;
+        const waiting = payload.data?.pending === true && polls < POLLS;
         setPending(waiting);
-        // The reading follows the piece's analysis: asked again while its lot is analysed.
+        // The reading follows the piece's analysis (its lot, or a retry): asked again until it ends.
         if (waiting) {
           polls += 1;
           timer = setTimeout(read, POLL_MS);

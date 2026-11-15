@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
+import { IntakeRetryReadings, planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
 
 const SPAWN = { timeout: 60_000 } as const;
 
@@ -133,5 +133,33 @@ describe("when a piece is read again", () => {
     });
   it("keeps a reading of the same content whose page was too heavy: the same bytes stay too heavy", () => {
     expect(needsIntakeTranscription({ source_sha256: sha, error_code: "PAGE_TOO_LARGE" }, sha)).toBe(false);
+  });
+});
+
+// The readings a retry runs after its response, per piece: one per content at a time, and a newer content's reading
+// supersedes an older one, which then neither goes on nor writes its row.
+describe("the readings retries run", () => {
+  const sha = (letter: string) => letter.repeat(64);
+  it("runs one reading per piece and content: a second click on the same content starts none", () => {
+    const readings = new IntakeRetryReadings();
+    const first = readings.claim("doc-1", sha("a"));
+    expect(first).not.toBeNull();
+    expect(readings.claim("doc-1", sha("a"))).toBeNull();
+    expect(readings.isRunning("doc-1")).toBe(true);
+    expect(readings.isRunning("doc-2")).toBe(false);
+  });
+
+  it("lets a newer content supersede an older reading, whose write is then refused", () => {
+    const readings = new IntakeRetryReadings();
+    const older = readings.claim("doc-1", sha("a"))!;
+    const newer = readings.claim("doc-1", sha("b"))!;
+    expect(readings.isCurrent("doc-1", older)).toBe(false);
+    expect(readings.isCurrent("doc-1", newer)).toBe(true);
+    // The older reading ends first: it does not release the newer one.
+    readings.release("doc-1", older);
+    expect(readings.isRunning("doc-1")).toBe(true);
+    readings.release("doc-1", newer);
+    expect(readings.isRunning("doc-1")).toBe(false);
+    expect(readings.claim("doc-1", sha("a"))).not.toBeNull();
   });
 });

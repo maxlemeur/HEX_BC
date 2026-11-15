@@ -189,8 +189,40 @@ export async function transcribeIntakeDocument(input: {
   return { transcribed: true as const, status: outcome.status };
 }
 
-/** Readings a retry scheduled on this instance and that still run: a second click does not start the same one. */
-const retryReadings = new Set<string>();
+/**
+ * The readings retries scheduled on this instance and that still run, one per
+ * piece: a second click on the same content starts none, and a newer content's
+ * reading supersedes an older one, which stops before its next page and before
+ * its write (a Drive piece read at revision A, then B, keeps B's text).
+ */
+export class IntakeRetryReadings {
+  private readonly running = new Map<string, { sourceSha256: string; token: symbol }>();
+
+  /** The reading's token, or null when the same content is already being read. */
+  claim(documentId: string, sourceSha256: string) {
+    if (this.running.get(documentId)?.sourceSha256 === sourceSha256) return null;
+    const token = Symbol(documentId);
+    this.running.set(documentId, { sourceSha256, token });
+    return token;
+  }
+
+  isCurrent(documentId: string, token: symbol) {
+    return this.running.get(documentId)?.token === token;
+  }
+
+  isRunning(documentId: string) {
+    return this.running.has(documentId);
+  }
+
+  release(documentId: string, token: symbol) {
+    if (this.isCurrent(documentId, token)) this.running.delete(documentId);
+  }
+}
+
+const retryReadings = new IntakeRetryReadings();
+
+/** Whether a retry's reading of the piece still runs on this instance: its preview waits for it. */
+export const isIntakeRetryReadingRunning = (documentId: string) => retryReadings.isRunning(documentId);
 
 /**
  * « Relancer l’analyse » reads the piece's text again when it needs it: no
@@ -207,8 +239,6 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
 }) {
   const { context, document } = input;
   if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(input.mimeType)) return false;
-  const key = `${document.id}:${input.sourceSha256}`;
-  if (retryReadings.has(key)) return false;
   // Read with the member's rights: the piece's own policies decide, as for its preview.
   const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
     .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
@@ -217,12 +247,15 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
     return false;
   }
   if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
-  retryReadings.add(key);
+  const token = retryReadings.claim(document.id, input.sourceSha256);
+  if (!token) return false;
   const owner = { userId: context.userId, tenantId: context.tenantId };
   after(async () => {
     const supabase = createServiceRoleClient();
-    // No lease covers a manual retry: the reading stops once the piece leaves the dossier.
+    // No lease covers a manual retry: the reading stops once the piece leaves the dossier or a newer retry supersedes
+    // it. It is checked before each page and before the write.
     const stillActive = async () => {
+      if (!retryReadings.isCurrent(document.id, token)) throw new Error("A newer retry supersedes this reading.");
       const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
         .eq("tenant_id", owner.tenantId).eq("id", document.id).eq("upload_status", "uploaded")
         .is("deleted_at", null).is("deletion_token", null).maybeSingle();
@@ -235,7 +268,7 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
     } catch {
       console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
     } finally {
-      retryReadings.delete(key);
+      retryReadings.release(document.id, token);
     }
   });
   return true;

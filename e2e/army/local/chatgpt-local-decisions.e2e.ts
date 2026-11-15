@@ -989,8 +989,15 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
     await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(readings, DEV_SERVER_WORK).toBe(readingsAtArrival + 1);
     expect(await transcription()).toMatchObject({ status: "failed", error_code: "MODEL_UNAVAILABLE" });
+    // The open preview says a reading runs, then shows its text when it ends, without reopening the piece.
+    const preview = screen.getByRole("complementary", "Aperçu de la pièce sélectionnée", { exact: true });
+    await expect(preview.getByTestId("document-transcription-pending")).toBeVisible(DEV_SERVER_WORK);
     await setDecisionsControl({ transcriptionModel: true });
     await expect.poll(async () => (await transcription())?.status ?? null, DEV_SERVER_WORK).toBe("completed");
+    const shown = preview.getByTestId("document-transcription");
+    await expect(shown).toHaveAttribute("data-status", "completed", DEV_SERVER_WORK);
+    await shown.getByText("Transcription automatique", { exact: true }).click();
+    await expect(shown.getByText(/Tube cuivre DN20 \| 12 m/)).toBeVisible();
     const read = await transcription();
     expect(read).toMatchObject({ status: "completed", error_code: null, model: "gpt-6.1-terra", source_sha256: sha, pages_needed: 1,
       pages: [{ page: 1, text: "BON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]", illegible: 1 }] });
