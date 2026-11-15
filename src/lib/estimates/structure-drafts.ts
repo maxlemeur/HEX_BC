@@ -1491,7 +1491,7 @@ function unavailableSource(
   };
 }
 
-async function loadLinkedImportAndLibraries(input: {
+async function loadLinkedImportHistoryVersionsAndLibraries(input: {
   supabase: Supabase;
   tenantId: string;
   projectId: string;
@@ -1558,7 +1558,7 @@ async function loadLinkedImportAndLibraries(input: {
   };
 }
 
-async function loadLibrarySectionsAndImportRows(input: {
+async function loadHistoryAndTemplateSectionsWithImportRows(input: {
   supabase: Supabase;
   tenantId: string;
   latestLinkedImport: LinkedDpgfImport | null;
@@ -1821,7 +1821,7 @@ function buildAssemblyLibrarySource(assemblyRows: LibraryRow[]): StructureDraftS
   };
 }
 
-async function loadConfirmedBriefAndPrimaryCctpDocuments(input: {
+async function loadConfirmedBriefAndClassifiedCctpDocuments(input: {
   supabase: Supabase;
   tenantId: string;
   projectId: string;
@@ -2092,14 +2092,14 @@ async function loadStructureDraftSourceBundle(input: {
   const { supabase, tenantId, project, version } = input;
 
   const { latestLinkedImport, historyVersions, templateRows, assemblyRows } =
-    await loadLinkedImportAndLibraries({
+    await loadLinkedImportHistoryVersionsAndLibraries({
       supabase,
       tenantId,
       projectId: project.id,
       versionId: version.id,
     });
   const { historyItems, templateItems, linkedImportRows } =
-    await loadLibrarySectionsAndImportRows({
+    await loadHistoryAndTemplateSectionsWithImportRows({
       supabase,
       tenantId,
       latestLinkedImport,
@@ -2107,6 +2107,7 @@ async function loadStructureDraftSourceBundle(input: {
       templateIds: templateRows.map((row) => row.id),
     });
 
+  // Built before the brief and CCTP reads: if DPGF normalization throws, those reads never run.
   const sources = [
     buildLinkedDpgfSource({ latestLinkedImport, linkedImportRows, version }),
     buildHistoricalVersionsSource({ historyVersions, historyItems }),
@@ -2114,7 +2115,7 @@ async function loadStructureDraftSourceBundle(input: {
     buildAssemblyLibrarySource(assemblyRows),
   ];
 
-  const { confirmedBrief, cctpDocuments } = await loadConfirmedBriefAndPrimaryCctpDocuments({
+  const { confirmedBrief, cctpDocuments } = await loadConfirmedBriefAndClassifiedCctpDocuments({
     supabase,
     tenantId,
     projectId: project.id,
