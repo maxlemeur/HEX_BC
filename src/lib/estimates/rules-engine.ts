@@ -22,6 +22,7 @@ import type { Database, Json } from "@/types/database";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "./errors";
 import { readAllEstimateItems } from "./read-all-items-server";
+import { canAccessOwnerResource } from "./server-context";
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const context = await getAuthenticatedTenantContext();
@@ -167,16 +168,6 @@ function isTenantDirector(tenantRole: TenantRole) {
 
 function isTenantApprover(tenantRole: TenantRole) {
   return isTenantAdmin(tenantRole) || isTenantDirector(tenantRole);
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
-  );
 }
 
 function canAccessApprovalResource(input: {

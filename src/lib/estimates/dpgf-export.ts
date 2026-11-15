@@ -3,7 +3,7 @@ import { PassThrough, Readable } from "node:stream";
 import { type EstimateItemRecord } from "@/lib/estimate-calculations";
 import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, type EstimateExportStreamResult, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
+import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, setCurrencyColumns, styleHeaderRow, type EstimateExportStreamResult, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 import { loadEstimateV3ExportDocument, writeEstimateV3DpgfWorkbook, type EstimateV3ExportDocument } from "@/lib/estimates/v3-export";
@@ -101,36 +101,11 @@ function buildFilename(input: {
   return `devis-${projectToken}-v${input.versionNumber}-dpgf.xlsx`;
 }
 
-function styleHeaderRow(row: WorksheetRowLike) {
-  row.eachCell?.((cell) => {
-    cell.font = {
-      bold: true,
-      color: { argb: "FFFFFFFF" },
-    };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF1E3A8A" },
-    };
-    cell.alignment = {
-      horizontal: "left",
-    };
-  });
-}
-
 function styleWorksheetHeader(worksheet: WorksheetLike) {
   const headerRow = worksheet.getRow?.(1);
   if (!headerRow) return;
   styleHeaderRow(headerRow);
   headerRow.commit();
-}
-
-function setCurrencyColumns(row: WorksheetRowLike, columns: number[]) {
-  columns.forEach((columnIndex) => {
-    const cell = row.getCell?.(columnIndex);
-    if (!cell) return;
-    cell.numFmt = "#,##0.00 \"€\"";
-  });
 }
 
 function setDecimalColumns(row: WorksheetRowLike, columns: number[]) {

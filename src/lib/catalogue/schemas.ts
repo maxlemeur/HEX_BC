@@ -4,6 +4,7 @@ import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-o
 import { isValidDateOnly } from "@/lib/date-only";
 import { resolvePriceValidity } from "@/lib/catalogue/price-validity";
 import { PRODUCT_CATALOGUE_STATUSES } from "@/lib/catalogue/product-validation";
+import { rejectEmptyUpdatePayload } from "@/lib/http/request";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
@@ -167,16 +168,9 @@ const createCatalogueItemBodySchema = catalogueCreateFieldsSchema.superRefine(
   }
 );
 
-const updateCatalogueItemBodySchema = catalogueUpdateFieldsSchema.partial().superRefine(
-  (payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: [],
-      message: "Aucun champ de mise à jour fourni.",
-    });
-  }
-);
+const updateCatalogueItemBodySchema = catalogueUpdateFieldsSchema
+  .partial()
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const createCatalogueItemSchema = z.object({
   action: z.literal("create"),

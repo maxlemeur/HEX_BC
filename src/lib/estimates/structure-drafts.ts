@@ -7,7 +7,7 @@ import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimate
 
 import {
   normalizeMappedRowsForEstimateCreation,
-  type ValidImportFlowLine,
+  sortValidImportFlowLines,
 } from "@/lib/affaires/import-flow";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
@@ -18,7 +18,10 @@ import {
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import {
+  assertDraftLockOwnedByCurrentUser,
+  canAccessOwnerResource,
+} from "@/lib/estimates/server-context";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -330,7 +333,6 @@ type EstimateStructureDraftPlannedUpdate = {
   source_page: number | null;
 };
 
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const ROOT_PARENT_KEY = "__root__";
 const ESTIMATE_STRUCTURE_PROVIDER = "ai_structure";
 const ESTIMATE_STRUCTURE_SOURCE_FILE_NAME = "Structure IA";
@@ -471,20 +473,6 @@ function normalizeSectionTitleKey(value: string | null | undefined) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-}
-
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
-  );
 }
 
 export function assertDraftStatus(status: EstimateStatus) {
@@ -1420,16 +1408,6 @@ async function loadLatestLinkedDpgfImportForProject(input: {
         row_count: number | null;
       }
     | null;
-}
-
-function sortValidImportFlowLines(lines: ValidImportFlowLine[]) {
-  return [...lines].sort((left, right) => {
-    if (left.rowIndex !== right.rowIndex) {
-      return left.rowIndex - right.rowIndex;
-    }
-
-    return left.mappedRowId.localeCompare(right.mappedRowId);
-  });
 }
 
 type StructureDraftSource = {

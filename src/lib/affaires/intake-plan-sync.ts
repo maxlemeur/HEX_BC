@@ -18,7 +18,9 @@ import {
 } from "@/lib/takeoff/default-import-plan-set";
 import {
   PLAN_FILE_ORIGINAL_NAME_KEY,
+  buildPlanFileStoragePath,
   normalizePlanFileOriginalName,
+  sanitizePlanPdfFilename,
 } from "@/lib/takeoff/plan-file-display-name";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
@@ -83,35 +85,6 @@ type IntakePlanFileMetadata = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function sanitizeFilename(filename: string) {
-  const normalized = filename
-    .replace(/[\\/]+/g, "-")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-
-  return normalized.length > 0 ? normalized : "plan";
-}
-
-function sanitizePdfFilename(filename: string) {
-  const sanitized = sanitizeFilename(filename);
-
-  if (sanitized.toLowerCase().endsWith(".pdf")) {
-    return sanitized;
-  }
-
-  return `${sanitized}.pdf`;
-}
-
-function buildPlanFileStoragePath(input: {
-  tenantId: string;
-  setId: string;
-  fileId: string;
-  fileName: string;
-}) {
-  return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
 }
 
 function isDrivePlanSource(document: SyncDocument) {
@@ -367,7 +340,7 @@ async function createSyncedPlanFile(input: {
   const fileId = input.existing?.id ?? stableIntakePlanFileId(
     input.project.tenant_id, input.planSetId, input.document.id, sourceKey, input.document.plan_copy_generation ?? null
   );
-  const fileName = input.existing?.file_path.split("/").at(-1) ?? sanitizePdfFilename(input.document.file_name);
+  const fileName = input.existing?.file_path.split("/").at(-1) ?? sanitizePlanPdfFilename(input.document.file_name);
   const filePath = input.existing?.file_path ?? buildPlanFileStoragePath({
     tenantId: input.project.tenant_id, setId: input.planSetId, fileId, fileName,
   });

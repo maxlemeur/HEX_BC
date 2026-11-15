@@ -27,6 +27,7 @@ import {
   type EstimateV3ExportDocument,
 } from "@/lib/estimates/v3-export";
 import { bankersRound } from "@/lib/money";
+import { sanitizeFilenameSegment } from "@/lib/estimates/legacy-export-projection";
 
 const moduleRequire = createRequire(import.meta.url);
 
@@ -127,23 +128,6 @@ export type EstimateExportStreamResult = {
   progress: string;
   stream: ReadableStream<Uint8Array>;
 };
-
-function toSafeString(value: string | null | undefined, fallback: string) {
-  const normalized = value?.trim();
-  if (!normalized) return fallback;
-  return normalized;
-}
-
-function sanitizeFilenameSegment(value: string | null | undefined, fallback: string) {
-  const safe = toSafeString(value, fallback);
-  const normalized = safe
-    .normalize("NFD")
-    .replaceAll(/[\u0300-\u036f]/g, "")
-    .replaceAll(/[^a-zA-Z0-9._-]+/g, "_")
-    .replaceAll(/_{2,}/g, "_")
-    .replaceAll(/^_+|_+$/g, "");
-  return normalized.length > 0 ? normalized : fallback;
-}
 
 function buildFilename(input: {
   projectReference: string | null;
@@ -271,7 +255,7 @@ export function createWorkbookWriterFactory(): WorkbookWriterFactory {
   };
 }
 
-function styleHeaderRow(row: WorksheetRowLike) {
+export function styleHeaderRow(row: WorksheetRowLike) {
   row.eachCell?.((cell) => {
     cell.font = {
       bold: true,
@@ -288,7 +272,7 @@ function styleHeaderRow(row: WorksheetRowLike) {
   });
 }
 
-function setCurrencyColumns(row: WorksheetRowLike, columns: number[]) {
+export function setCurrencyColumns(row: WorksheetRowLike, columns: number[]) {
   columns.forEach((columnIndex) => {
     const cell = row.getCell?.(columnIndex);
     if (!cell) return;

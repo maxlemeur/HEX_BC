@@ -12,6 +12,7 @@ import {
   v3SaleCoefficientFields,
   v3VersionSettingsFields,
 } from "@/lib/estimates/v3-schemas";
+import { rejectEmptyUpdatePayload } from "@/lib/http/request";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
@@ -480,14 +481,7 @@ const updateEstimateItemFields = {
 
 const updateEstimateItemDataSchema = z
   .object({ ...updateEstimateItemFields, assembly_quantity: z.number().finite().min(0).max(999999999.999).optional() })
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const updateEstimateItemSchema = z
   .object({
@@ -888,14 +882,7 @@ export const updateLaborRoleSchema = z
     is_active: z.boolean().optional(),
     position: nonNegativeIntegerSchema.optional(),
   })
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 const marginTierMultiplierSchema = z
   .number()
@@ -915,14 +902,7 @@ export const updateMarginTierSchema = z
     multiplier: marginTierMultiplierSchema.optional(),
     position: nonNegativeIntegerSchema.optional(),
   })
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const createSuggestionRuleSchema = z.object({
   name: requiredTextSchema,
@@ -950,14 +930,7 @@ export const updateSuggestionRuleSchema = z
     position: nonNegativeIntegerSchema.optional(),
     is_active: z.boolean().optional(),
   })
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const suggestionRuleFeedbackValueSchema = z.enum(["accept", "reject"]);
 
@@ -1030,14 +1003,7 @@ export const updateEstimateTemplateSchema = z
     name: templateNameSchema.optional(),
     description: optionalNullableTextSchema.optional(),
   })
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const listEstimateTemplatesQuerySchema = z.object({
   search: optionalNullableTextSchema.optional(),
@@ -1636,14 +1602,7 @@ export const updateEstimateAssemblySchema = z
       members: estimateAssemblyMembersSchema.optional(),
     })
   )
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const listEstimateAssembliesQuerySchema = z.object({
   search: optionalNullableTextSchema.optional(),

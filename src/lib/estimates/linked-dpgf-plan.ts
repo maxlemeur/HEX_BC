@@ -2,6 +2,7 @@ import {
   IMPORT_PREVIEW_REQUIRED_MESSAGE,
   importRequiresPreview,
   normalizeMappedRowsForEstimateCreation,
+  sortValidImportFlowLines,
   type ImportFlowMappedRowInput,
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
@@ -45,16 +46,6 @@ export function prepareLinkedDpgfLines(input: {
   }
 
   return { validLines, totalRows: normalized.totalRows };
-}
-
-function sortValidImportFlowLines(lines: ValidImportFlowLine[]) {
-  return [...lines].sort((left, right) => {
-    if (left.rowIndex !== right.rowIndex) {
-      return left.rowIndex - right.rowIndex;
-    }
-
-    return left.mappedRowId.localeCompare(right.mappedRowId);
-  });
 }
 
 /** Build the exact legacy-copy columns from normalized lines and caller-owned identities. */

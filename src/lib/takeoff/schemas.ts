@@ -15,6 +15,21 @@ import type { ForcedItem } from "@/lib/takeoff/force-reasons";
 import { ACCEPTANCE_NOTE, JUSTIFICATION_MESSAGE, noteText, validNote } from "@/lib/takeoff/rules/acceptance-note";
 import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 import { takeoffPageDecisionsSchema } from "@/lib/takeoff/page-replacement-contracts";
+import { rejectEmptyUpdatePayload } from "@/lib/http/request";
+
+/**
+ * Search-param preprocessor: absent or blank means undefined, numeric text
+ * becomes a number, anything else passes through for the schema to reject.
+ */
+export function coerceNumericSearchParam(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : value;
+}
 
 const requiredTextSchema = z
   .string()
@@ -414,15 +429,7 @@ const updateTakeoffMappingRuleWithoutActionSchema = z
     ...takeoffMappingRuleUpdateCommonShape,
   })
   .strict()
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ de mise à jour fourni.",
-      path: [],
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const updateTakeoffMappingRuleSchema = z
   .union([
@@ -833,15 +840,7 @@ const optionalPeriodSearchParamSchema = z.preprocess(
 );
 
 const optionalLimitSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .int("limit doit être un entier.")
@@ -854,15 +853,7 @@ const optionalLimitSearchParamSchema = z.preprocess(
 );
 
 const optionalItemsLimitSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .int("items_limit doit être un entier.")
@@ -884,15 +875,7 @@ const requiredUuidSearchParamSchema = z.preprocess(
 );
 
 const optionalCompareThresholdSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .min(
@@ -907,15 +890,7 @@ const optionalCompareThresholdSearchParamSchema = z.preprocess(
 );
 
 const optionalOffsetSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .int("offset doit être un entier.")
@@ -938,15 +913,7 @@ const optionalCursorSearchParamSchema = z.preprocess(
 );
 
 const optionalDpgfComparePageSizeSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .int("page_size doit être un entier.")

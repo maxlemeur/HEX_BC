@@ -15,7 +15,11 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { withPlanFileOriginalName } from "@/lib/takeoff/plan-file-display-name";
+import {
+  buildPlanFileStoragePath,
+  sanitizePlanPdfFilename,
+  withPlanFileOriginalName,
+} from "@/lib/takeoff/plan-file-display-name";
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { DEFAULT_IMPORT_PLAN_SET_NAME, hasDefaultImportPlanSetMarker, selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { stableImportPlanSetId } from "@/lib/takeoff/default-import-plan-set-id";
@@ -23,6 +27,8 @@ import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
+import { coerceNumericSearchParam } from "@/lib/takeoff/schemas";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
@@ -188,15 +194,7 @@ const optionalProjectUuidSearchParamSchema = z.preprocess(
 );
 
 const optionalLimitSearchParamSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "number") return value;
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return undefined;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : value;
-  },
+  coerceNumericSearchParam,
   z
     .number()
     .int("limit doit être un entier.")
@@ -379,61 +377,8 @@ type CompensationSuccess = {
   ok: true;
 };
 
-function toValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    code: issue.code,
-    message: issue.message,
-  }));
-}
-
-function parseWithSchema<T>(schema: z.ZodType<T>, payload: unknown, message: string): T {
-  const parsed = schema.safeParse(payload);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      message,
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
-}
-
-function sanitizeFilename(filename: string) {
-  const normalized = filename
-    .replace(/[\\/]+/g, "-")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-
-  return normalized.length > 0 ? normalized : "plan";
-}
-
-function sanitizePdfFilename(filename: string) {
-  const sanitized = sanitizeFilename(filename);
-
-  if (sanitized.toLowerCase().endsWith(PLAN_FILE_ALLOWED_EXTENSION)) {
-    return sanitized;
-  }
-
-  return `${sanitized}${PLAN_FILE_ALLOWED_EXTENSION}`;
-}
-
-function buildPlanFileStoragePath(input: {
-  tenantId: string;
-  setId: string;
-  fileId: string;
-  fileName: string;
-}) {
-  return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
-}
-
 function assertCanonicalPlanFileStoragePath(planFile: PlanFile) {
-  const canonicalFileName = sanitizePdfFilename(planFile.file_name);
+  const canonicalFileName = sanitizePlanPdfFilename(planFile.file_name);
   const canonicalPath = buildPlanFileStoragePath({
     tenantId: planFile.tenant_id,
     setId: planFile.plan_set_id,
@@ -1278,7 +1223,7 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
   }
 
   const fileId = randomUUID();
-  const normalizedFileName = sanitizePdfFilename(input.file_name);
+  const normalizedFileName = sanitizePlanPdfFilename(input.file_name);
   const storagePath = buildPlanFileStoragePath({
     tenantId,
     setId,

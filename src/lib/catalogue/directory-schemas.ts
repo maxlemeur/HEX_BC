@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PRODUCT_CATALOGUE_STATUSES } from "./product-validation";
+import { rejectEmptyUpdatePayload } from "@/lib/http/request";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
@@ -69,14 +70,7 @@ const productUpdateFieldsSchema = z
     catalogue_status: catalogueStatusSchema,
   })
   .partial()
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: [],
-      message: "Aucun champ de mise à jour fourni.",
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const createProductSchema = z.object({
   action: z.literal("create"),
@@ -125,14 +119,7 @@ const supplierUpdateFieldsSchema = z
     is_active: z.boolean().optional(),
   })
   .partial()
-  .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: [],
-      message: "Aucun champ de mise à jour fourni.",
-    });
-  });
+  .superRefine(rejectEmptyUpdatePayload);
 
 export const createSupplierSchema = z.object({
   action: z.literal("create"),

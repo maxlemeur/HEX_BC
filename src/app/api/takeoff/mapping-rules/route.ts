@@ -1,10 +1,7 @@
-import { z } from "zod";
-
 import {
   badRequest,
   ok,
   toErrorResponse,
-  unprocessableEntity,
 } from "@/lib/estimates/errors";
 import { createTakeoffMappingRuleSchema } from "@/lib/takeoff/schemas";
 import {
@@ -13,31 +10,12 @@ import {
 } from "@/lib/takeoff/server";
 import type { CreateTakeoffMappingRuleInput } from "@/lib/takeoff/types";
 import { parseJsonBody } from "@/lib/http/request";
-
-function toValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    code: issue.code,
-    message: issue.message,
-  }));
-}
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 
 function parseCreateTakeoffMappingRulePayload(
   payload: unknown
 ): CreateTakeoffMappingRuleInput {
-  const parsed = createTakeoffMappingRuleSchema.safeParse(payload);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      "Payload invalide.",
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
+  return parseWithSchema(createTakeoffMappingRuleSchema, payload, "Payload invalide.");
 }
 
 export async function GET(_request: Request) {

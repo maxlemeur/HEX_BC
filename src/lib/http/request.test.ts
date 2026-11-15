@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   parseJsonBody,
   parseJsonBodyOrEmptyObject,
   parsePositiveIntParam,
+  rejectEmptyUpdatePayload,
   resolveConcurrencyToken,
 } from "@/lib/http/request";
 
@@ -73,5 +75,21 @@ describe("resolveConcurrencyToken", () => {
     expect(resolveConcurrencyToken(jsonRequest("{}", { "If-Match": "   " }), " body-token ")).toBe("body-token");
     expect(resolveConcurrencyToken(jsonRequest("{}"), "   ")).toBeUndefined();
     expect(resolveConcurrencyToken(jsonRequest("{}"))).toBeUndefined();
+  });
+});
+
+describe("rejectEmptyUpdatePayload", () => {
+  const schema = z.object({ name: z.string().optional() }).superRefine(rejectEmptyUpdatePayload);
+
+  it("accepts a payload with at least one field", () => {
+    expect(schema.parse({ name: "Lot 1" })).toEqual({ name: "Lot 1" });
+  });
+
+  it("rejects an empty payload with a root-level custom issue", () => {
+    const result = schema.safeParse({});
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: "custom", message: "Aucun champ de mise à jour fourni.", path: [] }),
+    ]);
   });
 });
