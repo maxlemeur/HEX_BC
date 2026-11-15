@@ -1,6 +1,7 @@
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { computeTakeoffSimilarityRatio, normalizeTakeoffCompareText } from "@/lib/takeoff/diff";
+import { computeTakeoffSimilarityRatio } from "@/lib/takeoff/diff";
+import { normalizeCompareText } from "@/lib/text/fuzzy-compare";
 import {
   type TakeoffPriceSuggestionAction,
   type TakeoffPriceSuggestionSnapshot,
@@ -163,12 +164,12 @@ export function prepareTakeoffPriceSuggestionSources(input: {
   candidateVersionById: ReadonlyMap<string, { project_id: string; version_number: number | null }>;
   now: number;
 }): TakeoffPriceSuggestionCandidate[] {
-  const normalizedCurrentText = normalizeTakeoffCompareText(
+  const normalizedCurrentText = normalizeCompareText(
     `${input.line.title} ${input.line.description ?? ""}`
   );
   const normalizedUnit =
     typeof input.line.unit === "string" && input.line.unit.trim().length > 0
-      ? normalizeTakeoffCompareText(input.line.unit)
+      ? normalizeCompareText(input.line.unit)
       : null;
 
   const pricebookSources: TakeoffPriceSuggestionCandidate[] =
@@ -178,7 +179,7 @@ export function prepareTakeoffPriceSuggestionSources(input: {
       const unitMatch =
         normalizedUnit !== null &&
         typeof linePrice.unit === "string" &&
-        normalizeTakeoffCompareText(linePrice.unit) === normalizedUnit;
+        normalizeCompareText(linePrice.unit) === normalizedUnit;
       const freshnessLabel = formatPriceSuggestionFreshnessLabel({
         updatedAt: suggestion.updated_at,
         now: input.now,
@@ -228,7 +229,7 @@ export function prepareTakeoffPriceSuggestionSources(input: {
     .filter((row) => row.version_id !== input.versionId || row.id !== input.line.id)
     .filter((row) => typeof row.unit_price_ht_cents === "number" && row.unit_price_ht_cents > 0)
     .map((row) => {
-      const normalizedCandidateText = normalizeTakeoffCompareText(
+      const normalizedCandidateText = normalizeCompareText(
         `${row.title} ${row.description ?? ""}`
       );
       const similarity =
@@ -244,7 +245,7 @@ export function prepareTakeoffPriceSuggestionSources(input: {
       const unitMatch =
         normalizedUnit !== null &&
         typeof row.unit === "string" &&
-        normalizeTakeoffCompareText(row.unit) === normalizedUnit;
+        normalizeCompareText(row.unit) === normalizedUnit;
       const freshnessLabel = formatPriceSuggestionFreshnessLabel({
         updatedAt: row.updated_at,
         now: input.now,

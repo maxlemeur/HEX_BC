@@ -14,6 +14,7 @@ import type {
   TakeoffRiskSeverity,
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
+import { dedupeLabels } from "@/lib/text/dedupe-labels";
 
 const RISK_WEIGHT_BY_CAUSE: Record<TakeoffRiskCauseCode, number> = {
   missing_proof: 40,
@@ -181,28 +182,6 @@ function buildLotContextByLineId(items: RiskEstimateItem[]) {
   return lotByLineId;
 }
 
-function dedupeStrings(values: string[]) {
-  const seen = new Set<string>();
-  const nextValues: string[] = [];
-
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const key = trimmed.toLocaleLowerCase("fr-FR");
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    nextValues.push(trimmed);
-  }
-
-  return nextValues;
-}
-
 function mapProofToProvenance(proof: TakeoffDpgfComparisonProof): TakeoffRiskProvenanceEntry {
   return {
     kind: proof.kind,
@@ -347,7 +326,7 @@ function summarizeLineAlerts(alerts: TakeoffRiskAlert[]): TakeoffDpgfLineRiskSum
   return {
     score,
     severity: deriveSeverity(score),
-    causes: dedupeStrings(
+    causes: dedupeLabels(
       orderedAlerts.flatMap((alert) => alert.reason_labels.length > 0
         ? alert.reason_labels
         : [alert.cause_label])
@@ -382,7 +361,7 @@ function rankCauseLabel(alert: TakeoffRiskAlert) {
 }
 
 function buildTopCauseLabels(alerts: TakeoffRiskAlert[]) {
-  return dedupeStrings(
+  return dedupeLabels(
     [...alerts]
       .sort((left, right) => {
         const severityDiff = severityRank(right.severity) - severityRank(left.severity);
@@ -658,7 +637,7 @@ export function buildTakeoffRiskCandidates(
           lot_id: lotContext.lotId,
           cause_code: "atypical_price",
           margin_bucket: marginBucket,
-          reason_labels: dedupeStrings(
+          reason_labels: dedupeLabels(
             pricingFlags.map((flag) => {
               const meta = ESTIMATE_QUALITY_FLAG_META[flag as keyof typeof ESTIMATE_QUALITY_FLAG_META];
               return meta?.label ?? flag;
@@ -671,7 +650,7 @@ export function buildTakeoffRiskCandidates(
             buildInferenceEntry(
               "Contrôle qualité prix",
               "Signaux devis / pricing",
-              dedupeStrings(
+              dedupeLabels(
                 pricingFlags.map((flag) => {
                   const meta =
                     ESTIMATE_QUALITY_FLAG_META[flag as keyof typeof ESTIMATE_QUALITY_FLAG_META];
@@ -777,7 +756,7 @@ export function buildTakeoffRiskCandidates(
         lot_id: null,
         cause_code: "missing_piece",
         margin_bucket: marginBucket,
-        reason_labels: dedupeStrings(input.missingPieces.map((piece) => piece.label)),
+        reason_labels: dedupeLabels(input.missingPieces.map((piece) => piece.label)),
         provenance: mergeProvenanceEntries(
           input.missingPieces.map((piece) =>
             buildInferenceEntry(

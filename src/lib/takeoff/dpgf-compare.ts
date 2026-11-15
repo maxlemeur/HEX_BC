@@ -9,7 +9,6 @@ import {
   TAKEOFF_COMPARE_MAX_THRESHOLD,
   TAKEOFF_COMPARE_MIN_THRESHOLD,
   computeTakeoffSimilarityRatio,
-  normalizeTakeoffCompareText,
 } from "@/lib/takeoff/diff";
 import type {
   TakeoffDpgfComparisonDpgfLine,
@@ -26,6 +25,7 @@ import type {
   TakeoffDpgfReviewDecisionRecord,
   TakeoffDpgfReviewStatus,
 } from "@/lib/takeoff/types";
+import { normalizeCompareText } from "@/lib/text/fuzzy-compare";
 
 export const TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE = 50;
 import { TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE } from "@/lib/takeoff/limits";
@@ -179,13 +179,13 @@ function areUnitsCompatible(left: string | null, right: string | null) {
 }
 
 function buildDpgfSearchText(line: TakeoffDpgfComparisonDpgfLine) {
-  return normalizeTakeoffCompareText(
+  return normalizeCompareText(
     [line.title, line.description].filter(Boolean).join(" ")
   );
 }
 
 function buildTakeoffSearchText(line: TakeoffDpgfComparisonTakeoffLine) {
-  return normalizeTakeoffCompareText(line.designation);
+  return normalizeCompareText(line.designation);
 }
 
 export function buildTakeoffDpgfReviewReference(input: {
@@ -196,12 +196,12 @@ export function buildTakeoffDpgfReviewReference(input: {
   unit: string | null;
 }) {
   if (input.sourceFileName && input.sourcePage !== null) {
-    return normalizeTakeoffCompareText(
+    return normalizeCompareText(
       `${input.sourceFileName} row ${input.sourcePage}`
     );
   }
 
-  return normalizeTakeoffCompareText(
+  return normalizeCompareText(
     `${input.position} ${input.title} ${input.sourcePage === null ? "" : input.unit ?? ""}`
   );
 }
@@ -882,7 +882,7 @@ export function computeTakeoffDpgfRows(input: BuildTakeoffDpgfComparisonInput) {
   for (const candidate of normalizedTakeoffLines) {
     if (automaticallyUsed.has(candidate.item_id) || manuallyUsedTakeoffIds.has(candidate.item_id)) continue;
     const eligible = normalizedDpgfLines.filter(dpgf => autoMatchByDpgfId.has(dpgf.estimate_item_id)
-      && normalizeTakeoffCompareText(dpgf.title) === candidate.searchText && computeMatchScore({ dpgf, takeoff: candidate }) !== null);
+      && normalizeCompareText(dpgf.title) === candidate.searchText && computeMatchScore({ dpgf, takeoff: candidate }) !== null);
     if (eligible.length !== 1) continue;
     const id = eligible[0].estimate_item_id;
     additionalMatches.set(id, [...(additionalMatches.get(id) ?? []), candidate]);

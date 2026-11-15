@@ -1,3 +1,5 @@
+import { levenshteinDistance, normalizeCompareText } from "@/lib/text/fuzzy-compare";
+
 type SuggestionRuleForScoring = {
   id: string;
   name?: string;
@@ -27,16 +29,6 @@ const FUZZY_BASE_SCORE = 46;
 const MIN_FUZZY_SIMILARITY = 0.65;
 const MAX_FREQUENCY_BONUS = 15;
 
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function singularizeWord(value: string) {
   if (value.length <= 3) return value;
   if (value.endsWith("ies") && value.length > 4) {
@@ -52,7 +44,7 @@ function singularizeWord(value: string) {
 }
 
 function normalizeWord(value: string) {
-  const normalized = normalizeText(value);
+  const normalized = normalizeCompareText(value);
   if (!normalized) return "";
   return normalized
     .split(" ")
@@ -66,32 +58,6 @@ function splitKeywords(matchValue: string) {
     .split(",")
     .map((part) => normalizeWord(part))
     .filter((part) => part.length > 0);
-}
-
-function levenshteinDistance(left: string, right: string) {
-  if (left === right) return 0;
-  if (left.length === 0) return right.length;
-  if (right.length === 0) return left.length;
-
-  const distances = Array.from({ length: right.length + 1 }, (_, index) => index);
-
-  for (let i = 1; i <= left.length; i += 1) {
-    let previous = i - 1;
-    distances[0] = i;
-
-    for (let j = 1; j <= right.length; j += 1) {
-      const temp = distances[j];
-      const substitutionCost = left[i - 1] === right[j - 1] ? 0 : 1;
-      distances[j] = Math.min(
-        distances[j] + 1,
-        distances[j - 1] + 1,
-        previous + substitutionCost
-      );
-      previous = temp;
-    }
-  }
-
-  return distances[right.length];
 }
 
 function similarityRatio(left: string, right: string, minimum = 0) {

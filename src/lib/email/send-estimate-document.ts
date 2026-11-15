@@ -7,7 +7,7 @@ import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
 import { conflict, internalError } from "@/lib/estimates/errors";
 import { generateEstimatePdfNow } from "@/lib/estimates/pdf-generator";
 import { loadVerifiedOfferDocument, type VerifiedOfferDocument } from "@/lib/estimates/offer-document";
-import { sanitizeEstimateFilename } from "@/lib/estimates/reference";
+import { sanitizeDownloadFilename } from "@/lib/download-filename";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 
@@ -93,7 +93,7 @@ export async function renderEstimateDispatchDocument(dispatch: EstimateEmailDisp
     historicalCopy: captured === null,
   });
   // Client1 stores the complete reference, including Vn exactly once.
-  const attachmentFilename = `${sanitizeEstimateFilename(captured?.project.estimateReference ?? projectName) || "devis"}.pdf`;
+  const attachmentFilename = `${sanitizeDownloadFilename(captured?.project.estimateReference ?? projectName) || "devis"}.pdf`;
   const providerPayloadHash = canonicalJsonHash({
     contract: "resend-estimate-email-v1",
     from: dispatch.from_address,

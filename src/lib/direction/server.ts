@@ -261,7 +261,7 @@ function assertDirectionAccess(role: TenantRole) {
   );
 }
 
-function dedupeStrings(values: string[]) {
+function dedupeLabels(values: string[]) {
   const seen = new Set<string>();
   const nextValues: string[] = [];
 
@@ -1144,7 +1144,7 @@ export async function fetchDirectionDashboardPageData(
         latestJobId,
         alerts: actionableAlerts,
       });
-      const lotLabels = dedupeStrings(
+      const lotLabels = dedupeLabels(
         alerts.flatMap((alert) => alert.lotLabels)
       );
 
@@ -1242,7 +1242,7 @@ export async function fetchDirectionDashboardPageData(
     ).length,
   };
 
-  const lotOptions = dedupeStrings(
+  const lotOptions = dedupeLabels(
     filteredCards.flatMap((card) => card.lotLabels)
   ).sort((left, right) => left.localeCompare(right, "fr-FR"));
   const pagination: DirectionDashboardPagination = {

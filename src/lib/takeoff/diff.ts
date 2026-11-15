@@ -8,6 +8,7 @@ import type {
   TakeoffJobCompareSummary,
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
+import { levenshteinDistance, normalizeCompareText } from "@/lib/text/fuzzy-compare";
 
 export const TAKEOFF_COMPARE_DEFAULT_THRESHOLD = 0.8;
 import {
@@ -87,16 +88,6 @@ const TAKEOFF_DIFF_FIELDS: readonly TakeoffFieldConfig[] = [
   },
 ] as const;
 
-export function normalizeTakeoffCompareText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function normalizeDiffThreshold(value: number | undefined) {
   if (!Number.isFinite(value)) return TAKEOFF_COMPARE_DEFAULT_THRESHOLD;
   if ((value ?? 0) < TAKEOFF_COMPARE_MIN_THRESHOLD) return TAKEOFF_COMPARE_MIN_THRESHOLD;
@@ -129,7 +120,7 @@ function getPageDistance(left: TakeoffJobItem, right: TakeoffJobItem) {
 }
 
 function getNormalizedDesignation(item: TakeoffJobItem): string {
-  return normalizeTakeoffCompareText(item.designation);
+  return normalizeCompareText(item.designation);
 }
 
 function getNormalizedDesignationWithPage(item: TakeoffJobItem): string | null {
@@ -141,32 +132,6 @@ function getNormalizedDesignationWithPage(item: TakeoffJobItem): string | null {
   }
 
   return `${normalizedDesignation} p${sourcePage}`;
-}
-
-function levenshteinDistance(left: string, right: string) {
-  if (left === right) return 0;
-  if (left.length === 0) return right.length;
-  if (right.length === 0) return left.length;
-
-  const distances = Array.from({ length: right.length + 1 }, (_, index) => index);
-
-  for (let i = 1; i <= left.length; i += 1) {
-    let previous = i - 1;
-    distances[0] = i;
-
-    for (let j = 1; j <= right.length; j += 1) {
-      const temp = distances[j];
-      const substitutionCost = left[i - 1] === right[j - 1] ? 0 : 1;
-      distances[j] = Math.min(
-        distances[j] + 1,
-        distances[j - 1] + 1,
-        previous + substitutionCost
-      );
-      previous = temp;
-    }
-  }
-
-  return distances[right.length];
 }
 
 export function computeTakeoffSimilarityRatio(left: string, right: string) {
@@ -299,9 +264,9 @@ function buildFieldDelta(baseItem: TakeoffJobItem, otherItem: TakeoffJobItem) {
       }
     } else {
       const normalizedBefore =
-        typeof beforeValue === "string" ? normalizeTakeoffCompareText(beforeValue) : "";
+        typeof beforeValue === "string" ? normalizeCompareText(beforeValue) : "";
       const normalizedAfter =
-        typeof afterValue === "string" ? normalizeTakeoffCompareText(afterValue) : "";
+        typeof afterValue === "string" ? normalizeCompareText(afterValue) : "";
 
       if (normalizedBefore === normalizedAfter) {
         continue;

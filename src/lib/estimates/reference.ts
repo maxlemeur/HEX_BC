@@ -1,3 +1,5 @@
+import { sanitizeDownloadFilename } from "@/lib/download-filename";
+
 const DEFAULT_ESTIMATE_FILENAME = "devis";
 
 export function formatEstimateReference(
@@ -15,16 +17,6 @@ export function formatEstimateReference(
     : normalizedReference;
 }
 
-export function sanitizeEstimateFilename(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
-
 export function buildEstimatePdfFilename(input: {
   baseReference?: string | null;
   versionNumber: number;
@@ -34,8 +26,8 @@ export function buildEstimatePdfFilename(input: {
     input.baseReference,
     input.versionNumber
   );
-  const safeReference = sanitizeEstimateFilename(reference ?? "");
-  const fallback = sanitizeEstimateFilename(input.fallback ?? "");
+  const safeReference = sanitizeDownloadFilename(reference ?? "");
+  const fallback = sanitizeDownloadFilename(input.fallback ?? "");
   const basename = safeReference || fallback || DEFAULT_ESTIMATE_FILENAME;
 
   return `${basename}.pdf`;
