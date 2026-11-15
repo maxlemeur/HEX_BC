@@ -219,7 +219,10 @@ export class IntakeRetryReadings {
   }
 }
 
-const retryReadings = new IntakeRetryReadings();
+// One registry per process: Next bundles each route apart, and the retry's server action and the preview's route each
+// load their own copy of this module, which must see the same readings.
+const REGISTRY = Symbol.for("mergeone.intakeRetryReadings");
+const retryReadings: IntakeRetryReadings = ((globalThis as { [REGISTRY]?: IntakeRetryReadings })[REGISTRY] ??= new IntakeRetryReadings());
 
 /** Whether a retry's reading of the piece still runs on this instance: its preview waits for it. */
 export const isIntakeRetryReadingRunning = (documentId: string) => retryReadings.isRunning(documentId);
