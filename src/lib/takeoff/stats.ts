@@ -333,13 +333,13 @@ type ScopedTakeoffMetricsRows = {
   overrideConsumptions: TakeoffMetricsOverrideConsumptionRow[];
 };
 
-type JobKpiSummary = {
-  kpis: TakeoffMetricsKpis;
-  /** Successful jobs with a measured duration. */
-  durationCount: number;
-  /** Jobs with a measured cost. */
-  costCount: number;
+/** What the go/no-go measures: the jobs with a cost, and the successful jobs with a duration. */
+type PilotMeasurements = {
+  totalJobs: number;
+  hasMeasuredCost: boolean;
   avgMeasuredCostCentsPerJob: number;
+  hasMeasuredDuration: boolean;
+  avgDurationMs: number;
 };
 
 type CorrectionAuditSummary = {
@@ -360,7 +360,8 @@ type LevelCorrectionAccumulator = CorrectionOutcomeCounts & {
   successfulJobs: number;
 };
 
-function percentRate(count: number, total: number): number {
+/** A rate in percent with one decimal, and 0 without any total (stats-forcing.ts's `rate` gives null). */
+function percentRateOrZero(count: number, total: number): number {
   return total > 0 ? Number(((count / total) * 100).toFixed(1)) : 0;
 }
 
@@ -405,7 +406,7 @@ function buildJobKpis(
   jobs: TakeoffMetricsJobRow[],
   itemCountByJob: Map<string, number>,
   confidenceByJobId: Map<string, number>
-): JobKpiSummary {
+): TakeoffMetricsKpis {
   let completedJobs = 0;
   let failedJobs = 0;
   let canceledJobs = 0;
@@ -413,7 +414,6 @@ function buildJobKpis(
   let totalDurationMs = 0;
   let durationCount = 0;
   let totalCostCents = 0;
-  let costCount = 0;
 
   for (const job of jobs) {
     if (job.status === "completed" || job.status === "applied") {
@@ -433,7 +433,6 @@ function buildJobKpis(
 
     if (job.cost_cents != null) {
       totalCostCents += job.cost_cents;
-      costCount += 1;
     }
   }
 
@@ -446,30 +445,25 @@ function buildJobKpis(
   const confidenceValues = Array.from(confidenceByJobId.values());
 
   return {
-    kpis: {
-      totalJobs,
-      completedJobs,
-      failedJobs,
-      canceledJobs,
-      appliedJobs,
-      successRate: percentRate(completedJobs, terminalJobs),
-      avgDurationMs: durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0,
-      totalCostCents,
-      avgCostCentsPerJob: totalJobs > 0 ? Math.round(totalCostCents / totalJobs) : 0,
-      avgConfidence:
-        confidenceValues.length > 0
-          ? Number(
-              (
-                confidenceValues.reduce((sum, confidence) => sum + confidence, 0) /
-                confidenceValues.length
-              ).toFixed(3)
-            )
-          : 0,
-      avgItemsPerJob: totalJobs > 0 ? Number((totalItems / totalJobs).toFixed(2)) : 0,
-    },
-    durationCount,
-    costCount,
-    avgMeasuredCostCentsPerJob: costCount > 0 ? Math.round(totalCostCents / costCount) : 0,
+    totalJobs,
+    completedJobs,
+    failedJobs,
+    canceledJobs,
+    appliedJobs,
+    successRate: percentRateOrZero(completedJobs, terminalJobs),
+    avgDurationMs: durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0,
+    totalCostCents,
+    avgCostCentsPerJob: totalJobs > 0 ? Math.round(totalCostCents / totalJobs) : 0,
+    avgConfidence:
+      confidenceValues.length > 0
+        ? Number(
+            (
+              confidenceValues.reduce((sum, confidence) => sum + confidence, 0) /
+              confidenceValues.length
+            ).toFixed(3)
+          )
+        : 0,
+    avgItemsPerJob: totalJobs > 0 ? Number((totalItems / totalJobs).toFixed(2)) : 0,
   };
 }
 
@@ -577,8 +571,8 @@ function buildCorrectionMetrics(
     correctedJobs: totals.correctedJobs,
     quicklyValidatedJobs: totals.quicklyValidatedJobs,
     untouchedSuccessfulJobs: totals.untouchedSuccessfulJobs,
-    correctionRate: percentRate(totals.correctedJobs, successfulJobsCount),
-    quickValidationRate: percentRate(totals.quicklyValidatedJobs, successfulJobsCount),
+    correctionRate: percentRateOrZero(totals.correctedJobs, successfulJobsCount),
+    quickValidationRate: percentRateOrZero(totals.quicklyValidatedJobs, successfulJobsCount),
   };
   const byLevel: TakeoffCorrectionMetricsByLevel[] = Array.from(correctionByLevel.entries())
     .map(([level, data]) => ({
@@ -586,8 +580,8 @@ function buildCorrectionMetrics(
       correctedJobs: data.correctedJobs,
       quicklyValidatedJobs: data.quicklyValidatedJobs,
       untouchedSuccessfulJobs: data.untouchedSuccessfulJobs,
-      correctionRate: percentRate(data.correctedJobs, data.successfulJobs),
-      quickValidationRate: percentRate(data.quicklyValidatedJobs, data.successfulJobs),
+      correctionRate: percentRateOrZero(data.correctedJobs, data.successfulJobs),
+      quickValidationRate: percentRateOrZero(data.quicklyValidatedJobs, data.successfulJobs),
     }))
     .sort((a, b) => a.level.localeCompare(b.level));
 
@@ -635,13 +629,13 @@ function buildAppliedScoreCalibration(input: {
     appliedHighScoreItems: appliedHighScoreItems.length,
     appliedHighScoreMateriallyCorrectedItems:
       appliedHighScoreMateriallyCorrectedItems.length,
-    appliedHighScoreMaterialCorrectionRate: percentRate(
+    appliedHighScoreMaterialCorrectionRate: percentRateOrZero(
       appliedHighScoreMateriallyCorrectedItems.length,
       appliedHighScoreItems.length
     ),
     levelCIncludedItems: levelCIncludedItems.length,
     levelCLocalizedProofItems: levelCLocalizedProofItems.length,
-    levelCLocalizedProofCoverage: percentRate(
+    levelCLocalizedProofCoverage: percentRateOrZero(
       levelCLocalizedProofItems.length,
       levelCIncludedItems.length
     ),
@@ -663,8 +657,8 @@ function toPilotWeeklySnapshot(bucket: WeeklyPilotAccumulator): TakeoffPilotWeek
       bucket.durationCount > 0
         ? Math.round(bucket.durationTotalMs / bucket.durationCount)
         : 0,
-    correctionRate: percentRate(bucket.correctedJobs, bucket.successfulJobs),
-    satisfactionRate: percentRate(satisfactionNumerator, bucket.successfulJobs),
+    correctionRate: percentRateOrZero(bucket.correctedJobs, bucket.successfulJobs),
+    satisfactionRate: percentRateOrZero(satisfactionNumerator, bucket.successfulJobs),
   };
 }
 
@@ -714,9 +708,28 @@ function buildPilotWeeklySnapshots(input: {
   return weeklyPilotBuckets.map(toPilotWeeklySnapshot);
 }
 
+function measurePilotJobs(
+  jobs: TakeoffMetricsJobRow[],
+  kpis: TakeoffMetricsKpis
+): PilotMeasurements {
+  const costCount = jobs.filter((job) => job.cost_cents != null).length;
+  const durationCount = jobs.filter(
+    (job) =>
+      (job.status === "completed" || job.status === "applied") && job.duration_ms != null
+  ).length;
+
+  return {
+    totalJobs: kpis.totalJobs,
+    hasMeasuredCost: costCount > 0,
+    avgMeasuredCostCentsPerJob: costCount > 0 ? Math.round(kpis.totalCostCents / costCount) : 0,
+    hasMeasuredDuration: durationCount > 0,
+    avgDurationMs: kpis.avgDurationMs,
+  };
+}
+
 function buildGoNoGoCriteria(input: {
   pilotMinVolumeJobs: number;
-  jobKpis: JobKpiSummary;
+  measurements: PilotMeasurements;
   hasSuccessfulJobs: boolean;
   correctionRate: number;
   satisfactionRate: number;
@@ -724,16 +737,15 @@ function buildGoNoGoCriteria(input: {
 }): TakeoffPilotGoNoGoCriterion[] {
   const {
     pilotMinVolumeJobs,
-    jobKpis,
+    measurements,
     hasSuccessfulJobs,
     correctionRate,
     satisfactionRate,
     calibration,
   } = input;
-  const { totalJobs, avgDurationMs } = jobKpis.kpis;
-  const { avgMeasuredCostCentsPerJob } = jobKpis;
-  const hasMeasuredPilotCost = jobKpis.costCount > 0;
-  const hasMeasuredPilotDuration = jobKpis.durationCount > 0;
+  const { totalJobs, avgMeasuredCostCentsPerJob, avgDurationMs } = measurements;
+  const hasMeasuredPilotCost = measurements.hasMeasuredCost;
+  const hasMeasuredPilotDuration = measurements.hasMeasuredDuration;
 
   return [
     buildGoNoGoCriterion({
@@ -877,22 +889,34 @@ function buildPilotMetrics(input: {
   tenantId: string;
   killSwitchEnabled: boolean;
   period: TakeoffMetricsPeriod;
-  jobKpis: JobKpiSummary;
-  successfulJobsCount: number;
+  days: number;
+  now: Date;
+  jobs: TakeoffMetricsJobRow[];
+  kpis: TakeoffMetricsKpis;
+  successfulJobIds: Set<string>;
+  eventTypesByJob: CorrectionAuditSummary["eventTypesByJob"];
   corrections: TakeoffCorrectionMetrics;
   calibration: TakeoffAppliedScoreCalibration;
-  weeklySnapshots: TakeoffPilotWeeklySnapshot[];
 }): TakeoffPilotMetrics {
-  const { jobKpis, successfulJobsCount, corrections } = input;
-  const pilotMinVolumeJobs = getPilotMinVolumeJobs(input.period);
+  const { period, jobs, kpis, successfulJobIds, corrections } = input;
+  const weeklySnapshots = buildPilotWeeklySnapshots({
+    jobs,
+    period,
+    days: input.days,
+    now: input.now,
+    successfulJobIds,
+    eventTypesByJob: input.eventTypesByJob,
+  });
+  const successfulJobsCount = successfulJobIds.size;
+  const pilotMinVolumeJobs = getPilotMinVolumeJobs(period);
   const hasSuccessfulJobs = successfulJobsCount > 0;
-  const satisfactionRate = percentRate(
+  const satisfactionRate = percentRateOrZero(
     corrections.kpis.quicklyValidatedJobs + corrections.kpis.untouchedSuccessfulJobs,
     successfulJobsCount
   );
   const criteria = buildGoNoGoCriteria({
     pilotMinVolumeJobs,
-    jobKpis,
+    measurements: measurePilotJobs(jobs, kpis),
     hasSuccessfulJobs,
     correctionRate: corrections.kpis.correctionRate,
     satisfactionRate,
@@ -906,10 +930,10 @@ function buildPilotMetrics(input: {
     killSwitchLabel: input.killSwitchEnabled ? "Pilote actif" : "Pilote coupé",
     satisfactionLabel: formatPilotPercent(satisfactionRate),
     satisfactionDefinition: PILOT_SATISFACTION_DEFINITION,
-    weeklySnapshots: input.weeklySnapshots,
+    weeklySnapshots,
     goNoGo: decidePilotGoNoGo({
       criteria,
-      totalJobs: jobKpis.kpis.totalJobs,
+      totalJobs: kpis.totalJobs,
       hasSuccessfulJobs,
       pilotMinVolumeJobs,
     }),
@@ -1002,7 +1026,7 @@ function buildCostByLevel(
         data.durationCount > 0
           ? Math.round(data.durationTotalMs / data.durationCount)
           : 0,
-      failureRate: percentRate(data.failedCount, data.jobCount),
+      failureRate: percentRateOrZero(data.failedCount, data.jobCount),
       avgItemsPerJob:
         data.jobCount > 0
           ? Number((data.itemCount / data.jobCount).toFixed(2))
@@ -1088,7 +1112,7 @@ function buildReliability(
     totalRunMetrics: runMetrics.length,
     retriedJobs,
     retriedThenCompleted,
-    retrySuccessRate: percentRate(retriedThenCompleted, retriedJobs),
+    retrySuccessRate: percentRateOrZero(retriedThenCompleted, retriedJobs),
   };
 }
 
@@ -1125,7 +1149,7 @@ export function buildTakeoffMetricsStatsPayload(
   const scoped = scopeRowsToJobs(input);
   const itemCountByJob = countItemsByJob(scoped.items);
   const confidenceByJobId = readConfidenceByJobId(scoped.results);
-  const jobKpis = buildJobKpis(jobs, itemCountByJob, confidenceByJobId);
+  const kpis = buildJobKpis(jobs, itemCountByJob, confidenceByJobId);
 
   const successfulJobIds = new Set(
     jobs
@@ -1157,24 +1181,20 @@ export function buildTakeoffMetricsStatsPayload(
     tenantId: input.tenantId,
     killSwitchEnabled: input.killSwitchEnabled,
     period,
-    jobKpis,
-    successfulJobsCount: successfulJobIds.size,
+    days,
+    now,
+    jobs,
+    kpis,
+    successfulJobIds,
+    eventTypesByJob: correctionAudits.eventTypesByJob,
     corrections,
     calibration,
-    weeklySnapshots: buildPilotWeeklySnapshots({
-      jobs,
-      period,
-      days,
-      now,
-      successfulJobIds,
-      eventTypesByJob: correctionAudits.eventTypesByJob,
-    }),
   });
 
   return {
     generatedAt: now.toISOString(),
     period,
-    kpis: jobKpis.kpis,
+    kpis,
     corrections,
     calibration,
     ruleForcing,
