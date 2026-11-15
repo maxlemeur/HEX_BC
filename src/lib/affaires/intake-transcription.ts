@@ -92,6 +92,7 @@ export function intakeTranscriptionFailureMessage(code: string | null) {
     case "AI_RATE_LIMIT": return "ChatGPT a limité les demandes pendant la lecture.";
     case "AI_AUTH_REQUIRED": case "AI_NOT_CONFIGURED": return "La connexion ChatGPT de la personne qui a déposé la pièce doit être reconnectée.";
     case "PAGE_TOO_LARGE": return "Une page est trop lourde pour être lue.";
+    case "PDF_INSPECTION_INCOMPLETE": return "Toutes les pages du PDF n’ont pas pu être examinées : des pages scannées peuvent manquer.";
     case "INVALID_ANSWER": return "La réponse de ChatGPT n’a pas pu être lue.";
     case null: return null;
     default: return "ChatGPT n’a pas terminé la lecture.";

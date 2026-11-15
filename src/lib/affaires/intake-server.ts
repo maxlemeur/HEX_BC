@@ -2586,9 +2586,6 @@ async function processClaimedAffaireIntakeUpload(input: {
 
     return { linked, bytes: await blob.arrayBuffer() };
   };
-  // The pieces whose text is read once every piece of the lot is classified (a reading takes up to minutes).
-  const toTranscribe: { document: AffaireIntakeDocumentRow; mimeType: string }[] = [];
-
   for (const document of documents) {
     if (document.upload_status !== "uploaded") {
       continue;
@@ -2728,7 +2725,6 @@ async function processClaimedAffaireIntakeUpload(input: {
           confidence: classification.result.confidence,
         },
       });
-      if (aiOwner && isLocalChatGptEnabled() && canTranscribeIntakeDocument(mimeType)) toTranscribe.push({ document, mimeType });
     } catch (error) {
       if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) {
         throw error;
@@ -2774,9 +2770,17 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
   }
 
-  // The text of an image or of a scanned PDF, read on the plan of the member who added the piece. A failure is recorded
-  // on its own row and leaves the classification as it is; only the lease's loss stops the lot.
-  for (const { document, mimeType } of aiOwner ? toTranscribe : []) {
+  // The text of an image or of a scanned PDF, read on the plan of the member who added the piece, once every piece of
+  // the lot is classified (a reading takes up to minutes). Every active piece of the lot is listed, whatever its
+  // classification: an attempt recovered after a stop during the readings finds the pieces already classified, and
+  // the content-based deduplication skips what was read. A failure is recorded on its own row and leaves the
+  // classification as it is; only the lease's loss stops the lot.
+  const toTranscribe = aiOwner && isLocalChatGptEnabled() ? documents.flatMap((document) => {
+    const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
+    return document.upload_status === "uploaded" && !document.deletion_token && (document.storage_path || document.drive_file_id)
+      && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
+  }) : [];
+  for (const { document, mimeType } of toTranscribe) {
     try {
       await renewLease();
       const { bytes } = await readDocumentBytes(document);

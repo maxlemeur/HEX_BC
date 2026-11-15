@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { planIntakeTranscription } from "@/lib/affaires/intake-transcription-server";
+import { planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
 
 const SPAWN = { timeout: 60_000 } as const;
 
@@ -69,6 +69,25 @@ describe("pages an automatic transcription reads", () => {
     expect(await planIntakeTranscription({ mimeType: "text/plain", bytes: bytesOf("Tube cuivre") })).toBeNull();
     expect(await planIntakeTranscription({ mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes: bytesOf("PK") })).toBeNull();
     expect(await planIntakeTranscription({ mimeType: "application/pdf", bytes: bytesOf("%PDF-1.7 broken") })).toBeNull();
+  });
+});
+
+describe("a PDF whose pages could not all be checked", () => {
+  const page = (number: number, text: string, failed = false) => ({ page: number, text, failed });
+
+  it("counts the pages a stopped text pass never reached, so the reading cannot be complete", () => {
+    expect(scannedPdfPages({ pageCount: 5, pages: [page(1, "")] })).toEqual({ scanned: [1], uninspected: 4 });
+  });
+
+  it("counts a page that failed as not checked, never as a text page", () => {
+    expect(scannedPdfPages({ pageCount: 3, pages: [page(1, ""), page(2, "", true), page(3, "Article 3 : tube cuivre DN20, essais")] }))
+      .toEqual({ scanned: [1], uninspected: 1 });
+  });
+
+  it("leaves out nothing when every checked page was read, even past the checked range", () => {
+    expect(scannedPdfPages({ pageCount: 2, pages: [page(1, ""), page(2, "Article 2 : vanne d'isolement DN20")] })).toEqual({ scanned: [1], uninspected: 0 });
+    expect(scannedPdfPages({ pageCount: 300, pages: Array.from({ length: 200 }, (_, i) => page(i + 1, i ? "Article : tube cuivre DN20, essais" : "")) }))
+      .toEqual({ scanned: [1], uninspected: 0 });
   });
 });
 

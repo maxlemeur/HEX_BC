@@ -14,7 +14,7 @@ import {
 } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
-import { renderPdfPages } from "@/lib/pdf/page-render-server";
+import { renderPdfPages, type PdfRenderedPage } from "@/lib/pdf/page-render-server";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
 import type { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -39,6 +39,11 @@ export type IntakeTranscriptionPlan = {
   pagesNeeded: number;
   /** Of these, left out by the bound per piece. */
   pagesSkipped: number;
+  /**
+   * Pages whose text layer could not be checked (the reading stopped at its deadline, or a page failed): they are
+   * counted as needed, so that the reading is partial and read again later, never complete.
+   */
+  pagesUninspected: number;
   pageCount: number | null;
   /** The pages to read, in order; each is built when it is sent (`file`), so that one page at a time is held. */
   pages: { page: number; file: () => Promise<GeminiStructuredFile | null> }[];
@@ -65,7 +70,7 @@ export async function planIntakeTranscription(input: { mimeType: string; bytes: 
   const mimeType = normalizedType(input.mimeType);
   if (IMAGE_TYPES.has(mimeType)) {
     const fits = input.bytes.byteLength <= MAX_PAGE_BYTES;
-    return { pagesNeeded: 1, pagesSkipped: 0, pageCount: 1,
+    return { pagesNeeded: 1, pagesSkipped: 0, pagesUninspected: 0, pageCount: 1,
       pages: [{ page: 1, file: async () => fits ? { mimeType, data: base64(input.bytes), detail: "high" } : null }] };
   }
   if (mimeType !== "application/pdf") return null;
@@ -74,7 +79,7 @@ export async function planIntakeTranscription(input: { mimeType: string; bytes: 
     maxTextCharsPerPage: 200, textItemOverflow: "truncate", image: null, limits: { timeoutMs: 30_000 },
   });
   if (!read.pages.length || read.pageCount === null) return null;
-  const scanned = read.pages.filter((page) => !page.failed && page.text.trim().length < SCANNED_PAGE_TEXT_CHARS).map((page) => page.page);
+  const { scanned, uninspected } = scannedPdfPages(read);
   if (!scanned.length) return null;
   let source: PDFDocument;
   try {
@@ -85,7 +90,16 @@ export async function planIntakeTranscription(input: { mimeType: string; bytes: 
   const pages = scanned.slice(0, INTAKE_TRANSCRIPTION_MAX_PAGES).map((page) => ({
     page, file: () => onePagePdf(source, page).catch(() => null),
   }));
-  return { pagesNeeded: scanned.length, pagesSkipped: scanned.length - pages.length, pageCount: read.pageCount, pages };
+  return { pagesNeeded: scanned.length + uninspected, pagesSkipped: scanned.length - pages.length, pagesUninspected: uninspected,
+    pageCount: read.pageCount, pages };
+}
+
+/** The scanned pages among those the text pass checked, and how many of the pages it should have checked it could not. */
+export function scannedPdfPages(read: { pageCount: number | null; pages: Pick<PdfRenderedPage, "page" | "text" | "failed">[] }) {
+  const inspected = read.pages.filter((page) => !page.failed);
+  const scanned = inspected.filter((page) => page.text.trim().length < SCANNED_PAGE_TEXT_CHARS).map((page) => page.page);
+  const expected = Math.min(read.pageCount ?? inspected.length, CHECKED_PAGES);
+  return { scanned, uninspected: Math.max(0, expected - inspected.length) };
 }
 
 function failureCode(error: unknown) {
@@ -129,7 +143,7 @@ export async function transcribeIntakeDocument(input: {
   }
 
   const read: { page: number; text: string }[] = [];
-  let errorCode: string | null = null;
+  let errorCode: string | null = plan.pagesUninspected ? "PDF_INSPECTION_INCOMPLETE" : null;
   let override: Awaited<ReturnType<typeof assertLocalChatGptOverride>> | null = null;
   try {
     const credential = await getLocalChatGptCredential(input.owner);
