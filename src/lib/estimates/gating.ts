@@ -258,6 +258,8 @@ type ItemIdsByFlag = ReturnType<typeof buildItemIdsByFlag>;
 type QualityFlagsByItemId = ReturnType<typeof computeEstimateQualityFlagsByItemId>;
 type SendGatingSources = Awaited<ReturnType<typeof loadSendGatingSources>>;
 type ProvisionalMention = { itemId: string; mention: string | null };
+/** The ids a step flags, for the gating flags that step raises. */
+type FlaggedItemIds<Key extends EstimateGatingFlagKey> = Record<Key, Set<string>>;
 type GatingFlagBuckets = { blockingFlags: EstimateGatingFlag[]; warningFlags: EstimateGatingFlag[] };
 
 /** Everything the send control reads at once: the lines, the version's documents and register, the tenant settings. */
@@ -390,7 +392,7 @@ async function findStaleSupplierPriceItemIds(input: {
   return staleSupplierPriceItemIds;
 }
 
-/** The quality flags of each line, and the flagged ids by gating flag that the next steps add to. */
+/** The quality flags of each line, and the flagged ids by gating flag, every key present, that they start. */
 function collectLineQualityFlags(items: GatingItem[], staleSupplierPriceItemIds: Set<string>) {
   const hasAtLeastOneSplitLine = items.some(
     (item) => item.item_type === "line" && hasStoredLaborSplit(item)
@@ -415,18 +417,23 @@ function isEngine3Version(version: EstimateGatingVersion) {
 }
 
 /**
- * Flags each line by its pricing status and its declared offer choice. Returns the priced lines declared with a
- * provisional quantity (TI-682, lot C, PR 5), and their sentence as the line is now.
+ * Flags the lines whose declared offer choice cannot be read, the « Non chiffrée » lines (reserved in writing or still
+ * to classify), and the lines excluded after « Non chiffrée » without a reason.
  */
-function flagLinePricingStatuses(input: {
+function flagLineStatusesAndOfferChoices(input: {
   items: GatingItem[];
   isEngine3: boolean;
   unreadableOfferChoiceIds: Set<string>;
-  qualityFlagsByItemId: QualityFlagsByItemId;
-  itemIdsByFlag: ItemIdsByFlag;
 }) {
-  const { items, isEngine3, unreadableOfferChoiceIds, qualityFlagsByItemId, itemIdsByFlag } = input;
-  const provisionalMentions: ProvisionalMention[] = [];
+  const { items, isEngine3, unreadableOfferChoiceIds } = input;
+  const itemIdsByFlag: FlaggedItemIds<
+    "offer_choice_unreadable" | "offer_reserve_declared" | "not_priced_unclassified" | "excluded_without_reason"
+  > = {
+    offer_choice_unreadable: new Set(),
+    offer_reserve_declared: new Set(),
+    not_priced_unclassified: new Set(),
+    excluded_without_reason: new Set(),
+  };
   for (const item of items) {
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";
@@ -445,13 +452,37 @@ function flagLinePricingStatuses(input: {
     }
     // TI-682, lot C (D11): a necessary service left unpriced, then excluded, says why before it leaves (internally).
     if (isEngine3 && requiresStatusReason(item)) itemIdsByFlag.excluded_without_reason.add(item.id);
+  }
+  return itemIdsByFlag;
+}
+
+/**
+ * Engine 3 « Chiffrée » lines: collects the provisional quantities declared on them (TI-682, lot C, PR 5) with their
+ * sentence as the line is now, and flags the takeoff hypotheses nobody declared and the lines that would leave at 0 €.
+ */
+function flagEngine3PricedLines(input: {
+  items: GatingItem[];
+  isEngine3: boolean;
+  /** The lines flagged offer_choice_unreadable: their choice is neither a declaration nor its absence. */
+  unreadableChoiceItemIds: Set<string>;
+  qualityFlagsByItemId: QualityFlagsByItemId;
+}) {
+  const { items, isEngine3, unreadableChoiceItemIds, qualityFlagsByItemId } = input;
+  const itemIdsByFlag: FlaggedItemIds<"takeoff_hypothesis_without_mention" | "priced_line_without_amount"> = {
+    takeoff_hypothesis_without_mention: new Set(),
+    priced_line_without_amount: new Set(),
+  };
+  const provisionalMentions: ProvisionalMention[] = [];
+  for (const item of items) {
+    if (item.item_type !== "line") continue;
+    const pricingStatus = item.pricing_status ?? "priced";
     if (!isEngine3 || pricingStatus !== "priced") continue;
     // TI-682, lot C, PR 5: a priced line whose quantity rests on a takeoff hypothesis leaves as an ordinary priced line.
     // Declared provisional, the offer must carry its sentence; undeclared, the issuer sees it (a warning, never a block:
     // the estimates sent before this lot did not say it either).
     const provisional = readOfferProvisionalQuantity(item);
     if (provisional) provisionalMentions.push({ itemId: item.id, mention: composeProvisionalQuantityMention(item, provisional) });
-    else if (!unreadableChoice && readTakeoffProvision(item.source_metadata)?.kind === "hypothesis") {
+    else if (!unreadableChoiceItemIds.has(item.id) && readTakeoffProvision(item.source_metadata)?.kind === "hypothesis") {
       itemIdsByFlag.takeoff_hypothesis_without_mention.add(item.id);
     }
     const flags = qualityFlagsByItemId[item.id] ?? [];
@@ -459,24 +490,32 @@ function flagLinePricingStatuses(input: {
     if (flags.includes("missing_price") || flags.includes("missing_quantity")) continue;
     if (!hasLineAmountInput(item)) itemIdsByFlag.priced_line_without_amount.add(item.id);
   }
-  return provisionalMentions;
+  return { itemIdsByFlag, provisionalMentions };
 }
 
 /**
  * Checks the « Précisions et limites de prestation » text against the reserves and provisional quantities the lines
- * declare. Returns how many characters the missing sentences lack to fit in that text (0 when they fit).
+ * declare. Also returns how many characters the missing sentences lack to fit in that text (0 when they fit).
  */
 function flagOfferLimitsText(input: {
   version: EstimateGatingVersion;
   isEngine3: boolean;
+  /** The lines flagged offer_reserve_declared. */
+  reservedItemIds: Set<string>;
   provisionalMentions: ProvisionalMention[];
-  itemIdsByFlag: ItemIdsByFlag;
 }) {
-  const { version, isEngine3, provisionalMentions, itemIdsByFlag } = input;
+  const { version, isEngine3, reservedItemIds, provisionalMentions } = input;
+  const itemIdsByFlag: FlaggedItemIds<
+    "offer_limits_required" | "provisional_quantity_mention_missing" | "provisional_quantity_mention_stale"
+  > = {
+    offer_limits_required: new Set(),
+    provisional_quantity_mention_missing: new Set(),
+    provisional_quantity_mention_stale: new Set(),
+  };
   // A reserve is written in the offer: its limits text says something. A version read without that text is treated as
   // empty (refused rather than sent).
   if (!hasOfferLimitsText(version.exclusions)) {
-    itemIdsByFlag.offer_reserve_declared.forEach((itemId) => itemIdsByFlag.offer_limits_required.add(itemId));
+    reservedItemIds.forEach((itemId) => itemIdsByFlag.offer_limits_required.add(itemId));
     provisionalMentions.forEach(({ itemId }) => itemIdsByFlag.offer_limits_required.add(itemId));
   }
   // The sentence written from the line as it is now is in the limits text, whatever its blanks and line breaks: a new
@@ -495,19 +534,26 @@ function flagOfferLimitsText(input: {
   if (isEngine3 && countStaleProvisionalQuantityMentions(version.exclusions, currentMentions) > 0) {
     itemIdsByFlag.provisional_quantity_mention_stale.add(version.id);
   }
-  return mentionsOverflow;
+  return { itemIdsByFlag, mentionsOverflow };
 }
 
 /** The version-wide conditions: tiered margin configured, budget ceiling kept, a PDF generated, no V0 left to review. */
-function flagVersionReadiness(input: {
+function flagVersionWideConditions(input: {
   version: EstimateGatingVersion;
   marginTiers: MarginTierRow[];
   budgetCeilingHtCents: number | null;
   documents: Pick<EstimateDocumentRow, "id">[];
   versionZeroSummary: SendGatingSources["versionZeroSummary"];
-  itemIdsByFlag: ItemIdsByFlag;
 }) {
-  const { version, marginTiers, budgetCeilingHtCents, documents, versionZeroSummary, itemIdsByFlag } = input;
+  const { version, marginTiers, budgetCeilingHtCents, documents, versionZeroSummary } = input;
+  const itemIdsByFlag: FlaggedItemIds<
+    "margin_not_configured" | "total_exceeds_budget" | "no_pdf_generated" | "version_zero_review_pending"
+  > = {
+    margin_not_configured: new Set(),
+    total_exceeds_budget: new Set(),
+    no_pdf_generated: new Set(),
+    version_zero_review_pending: new Set(),
+  };
   if (version.margin_mode === "tiered" && marginTiers.length === 0) {
     itemIdsByFlag.margin_not_configured.add(version.id);
   }
@@ -527,6 +573,20 @@ function flagVersionReadiness(input: {
   if (versionZeroSummary?.activeDraft) {
     itemIdsByFlag.version_zero_review_pending.add(version.id);
   }
+  return itemIdsByFlag;
+}
+
+/** Adds to the quality flags' ids, every key present, the ids the later steps flagged. */
+function mergeFlaggedItemIds(
+  itemIdsByFlag: ItemIdsByFlag,
+  flaggedBySteps: Partial<FlaggedItemIds<EstimateGatingFlagKey>>[]
+) {
+  for (const flagged of flaggedBySteps) {
+    for (const [key, itemIds] of Object.entries(flagged) as [EstimateGatingFlagKey, Set<string>][]) {
+      itemIds.forEach((itemId) => itemIdsByFlag[key].add(itemId));
+    }
+  }
+  return itemIdsByFlag;
 }
 
 /** The tenant's business rules on the version, with the fixed discount evidence when the version carries one. */
@@ -576,7 +636,7 @@ async function evaluateSendRules(input: EvaluateEstimateSendGatingInput & { item
 }
 
 /** The figures that explain a line or version flag beyond its items. */
-type ItemGatingFlagContext = {
+type GatingFlagDetailsContext = {
   version: EstimateGatingVersion;
   stalePriceDays: number;
   marginTiers: MarginTierRow[];
@@ -585,7 +645,7 @@ type ItemGatingFlagContext = {
   versionZeroSummary: SendGatingSources["versionZeroSummary"];
 };
 
-function describeItemGatingFlag(key: EstimateGatingFlagKey, context: ItemGatingFlagContext) {
+function buildGatingFlagDetails(key: EstimateGatingFlagKey, context: GatingFlagDetailsContext) {
   const { version, stalePriceDays, marginTiers, budgetCeilingHtCents, mentionsOverflow, versionZeroSummary } = context;
   const details: Record<string, unknown> = {};
 
@@ -612,10 +672,10 @@ function describeItemGatingFlag(key: EstimateGatingFlagKey, context: ItemGatingF
 }
 
 /** One flag per line or version condition met, in the policy's order, at the severity the tenant settings give it. */
-function pushItemGatingFlags(input: GatingFlagBuckets & {
+function pushLineAndVersionGatingFlags(input: GatingFlagBuckets & {
   itemIdsByFlag: ItemIdsByFlag;
   severityByFlag: SendGatingSources["severityByFlag"];
-  context: ItemGatingFlagContext;
+  context: GatingFlagDetailsContext;
 }) {
   const { blockingFlags, warningFlags, itemIdsByFlag, severityByFlag, context } = input;
   ESTIMATE_GATING_FLAG_KEYS.forEach((key) => {
@@ -629,7 +689,7 @@ function pushItemGatingFlags(input: GatingFlagBuckets & {
     if (itemIds.length === 0) return;
 
     const severity = severityByFlag[key];
-    const details = describeItemGatingFlag(key, context);
+    const details = buildGatingFlagDetails(key, context);
 
     const flag: EstimateGatingFlag = {
       key,
@@ -856,32 +916,43 @@ export async function evaluateEstimateSendGating(
 
   // Line quality.
   const staleSupplierPriceItemIds = await findStaleSupplierPriceItemIds({ supabase, tenantId, items, stalePriceDays });
-  const { qualityFlagsByItemId, itemIdsByFlag } = collectLineQualityFlags(items, staleSupplierPriceItemIds);
+  const lineQuality = collectLineQualityFlags(items, staleSupplierPriceItemIds);
 
-  // Engine 3 pricing statuses and offer choices, and the offer's limits text that must state them.
+  // Line statuses and offer choices, engine 3 priced lines, and the offer's limits text that must state them.
   const isEngine3 = isEngine3Version(version);
-  const provisionalMentions = flagLinePricingStatuses({
-    items, isEngine3, unreadableOfferChoiceIds: sources.unreadableOfferChoiceIds, qualityFlagsByItemId, itemIdsByFlag,
+  const lineStatuses = flagLineStatusesAndOfferChoices({
+    items, isEngine3, unreadableOfferChoiceIds: sources.unreadableOfferChoiceIds,
   });
-  const mentionsOverflow = flagOfferLimitsText({ version, isEngine3, provisionalMentions, itemIdsByFlag });
+  const pricedLines = flagEngine3PricedLines({
+    items,
+    isEngine3,
+    unreadableChoiceItemIds: lineStatuses.offer_choice_unreadable,
+    qualityFlagsByItemId: lineQuality.qualityFlagsByItemId,
+  });
+  const offerLimits = flagOfferLimitsText({
+    version, isEngine3, reservedItemIds: lineStatuses.offer_reserve_declared, provisionalMentions: pricedLines.provisionalMentions,
+  });
 
   // The version as a whole.
   const budgetCeilingHtCents = parseProjectBudgetCeilingHtCents(project.notes);
-  flagVersionReadiness({
+  const versionConditions = flagVersionWideConditions({
     version,
     marginTiers: sources.marginTiers,
     budgetCeilingHtCents,
     documents: sources.documents,
     versionZeroSummary: sources.versionZeroSummary,
-    itemIdsByFlag,
   });
+
+  const itemIdsByFlag = mergeFlaggedItemIds(lineQuality.itemIdsByFlag, [
+    lineStatuses, pricedLines.itemIdsByFlag, offerLimits.itemIdsByFlag, versionConditions,
+  ]);
 
   // Business rules.
   const rulesEvaluation = await evaluateSendRules({ ...input, items });
 
   const blockingFlags: EstimateGatingFlag[] = [];
   const warningFlags: EstimateGatingFlag[] = [];
-  pushItemGatingFlags({
+  pushLineAndVersionGatingFlags({
     blockingFlags,
     warningFlags,
     itemIdsByFlag,
@@ -891,7 +962,7 @@ export async function evaluateEstimateSendGating(
       stalePriceDays,
       marginTiers: sources.marginTiers,
       budgetCeilingHtCents,
-      mentionsOverflow,
+      mentionsOverflow: offerLimits.mentionsOverflow,
       versionZeroSummary: sources.versionZeroSummary,
     },
   });
