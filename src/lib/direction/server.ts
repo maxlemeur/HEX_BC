@@ -12,7 +12,7 @@ import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/esti
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
-import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
+import { normalizeRiskAlertRow, resolveAlertJobId } from "@/lib/takeoff/risk-radar";
 import type {
   TakeoffRiskAlert,
   TakeoffRiskStatus,
@@ -25,6 +25,7 @@ import {
 } from "./alerts";
 import { writeDirectionDebugLog } from "./debug";
 import type { DirectionDashboardQuery } from "./schemas";
+import { dedupeLabels } from "@/lib/text/dedupe-labels";
 
 type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
@@ -261,28 +262,6 @@ function assertDirectionAccess(role: TenantRole) {
   );
 }
 
-function dedupeLabels(values: string[]) {
-  const seen = new Set<string>();
-  const nextValues: string[] = [];
-
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const key = trimmed.toLocaleLowerCase("fr-FR");
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    nextValues.push(trimmed);
-  }
-
-  return nextValues;
-}
-
 function deriveSendTargetAt(
   deadlineAt: string | null,
   updatedAt: string
@@ -405,26 +384,6 @@ function matchesLot(item: DirectionPortfolioCard, lot: string | null) {
 
   return item.lotLabels.some(
     (label) => label.toLocaleLowerCase("fr-FR") === lot.toLocaleLowerCase("fr-FR")
-  );
-}
-
-function resolveAlertJobId(alert: TakeoffRiskAlert) {
-  if (typeof alert.takeoff_job_id === "string") {
-    return alert.takeoff_job_id;
-  }
-
-  const metadata =
-    typeof alert.metadata === "object" && alert.metadata !== null
-      ? (alert.metadata as Record<string, unknown>)
-      : {};
-
-  return (
-    (typeof metadata.takeoff_job_id === "string"
-      ? metadata.takeoff_job_id
-      : null) ??
-    (typeof metadata.takeoffJobId === "string"
-      ? metadata.takeoffJobId
-      : null)
   );
 }
 

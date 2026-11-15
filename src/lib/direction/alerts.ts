@@ -5,6 +5,7 @@ import type {
 } from "@/lib/takeoff/types";
 import { fixedDiscountBasisPoints, meetsDiscountThreshold, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
+import { resolveAlertJobId } from "@/lib/takeoff/risk-radar";
 
 export type DirectionAlertLevel = TakeoffRiskSeverity;
 
@@ -99,26 +100,6 @@ function collectLotLabels(alerts: TakeoffRiskAlert[]) {
         alert.scope_type === "lot" ? alert.scope_label : null
       )
       .filter((value): value is string => Boolean(value))
-  );
-}
-
-export function resolveAlertJobId(alert: TakeoffRiskAlert) {
-  if (typeof alert.takeoff_job_id === "string") {
-    return alert.takeoff_job_id;
-  }
-
-  const metadata =
-    typeof alert.metadata === "object" && alert.metadata !== null
-      ? (alert.metadata as Record<string, unknown>)
-      : {};
-
-  return (
-    (typeof metadata.takeoff_job_id === "string"
-      ? metadata.takeoff_job_id
-      : null) ??
-    (typeof metadata.takeoffJobId === "string"
-      ? metadata.takeoffJobId
-      : null)
   );
 }
 
