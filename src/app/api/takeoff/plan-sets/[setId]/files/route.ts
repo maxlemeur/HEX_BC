@@ -8,6 +8,7 @@ import {
   parseListPlanFilesQuery,
   planSetIdSchema,
 } from "@/lib/takeoff/plans";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z
   .object({
@@ -18,14 +19,6 @@ const paramsSchema = z
 async function getSetId(paramsPromise: Promise<{ setId: string }>) {
   const params = await paramsPromise;
   return paramsSchema.parse(params).setId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 function toQueryObject(request: Request) {
@@ -55,7 +48,7 @@ export async function POST(
 ) {
   try {
     const setId = await getSetId(params);
-    const payload = parseCreatePlanFileInput(await parseJsonBody(request));
+    const payload = parseCreatePlanFileInput(await parseJsonBody(request, badRequest));
     const data = await createPlanFile(setId, payload);
     return ok(data, 201);
   } catch (error) {

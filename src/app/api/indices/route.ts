@@ -9,24 +9,7 @@ import {
   updateMaterialIndex,
 } from "@/lib/catalogue/server";
 import { indicesActionSchema, indicesListQuerySchema } from "@/lib/catalogue/schemas";
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Paramètre limit invalide.");
-  }
-
-  return parsed;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
@@ -34,7 +17,7 @@ export async function GET(request: Request) {
 
     const query = indicesListQuerySchema.parse({
       search: searchParams.get("search"),
-      limit: parsePositiveInt(searchParams.get("limit")) ?? 200,
+      limit: parsePositiveIntParam(searchParams.get("limit"), badRequest) ?? 200,
     });
 
     const data = await listMaterialIndices(query);
@@ -46,7 +29,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await parseJsonBody(request);
+    const body = await parseJsonBody(request, badRequest);
     const payload = indicesActionSchema.parse(body);
 
     switch (payload.action) {

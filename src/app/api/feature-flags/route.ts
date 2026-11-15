@@ -10,6 +10,7 @@ import {
   normalizeFeatureFlagKey,
   toggleFeatureFlagForTenant,
 } from "@/lib/feature-flags";
+import { parseJsonBody } from "@/lib/http/request";
 
 const tenantQuerySchema = z.object({
   tenant_id: z.string().uuid("tenant_id invalide.").optional(),
@@ -22,14 +23,6 @@ const patchFeatureFlagSchema = z.object({
   enabled: z.boolean(),
   value: z.union([z.string(), z.null()]).optional(),
 });
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
 
 async function getActorContext() {
   const { supabase, user, error } = await readAuthenticatedUser();
@@ -105,7 +98,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const payload = patchFeatureFlagSchema.parse(await parseJsonBody(request));
+    const payload = patchFeatureFlagSchema.parse(await parseJsonBody(request, badRequest));
     const { supabase, userId, defaultTenantId } = await getActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
     const flag = await toggleFeatureFlagForTenant({

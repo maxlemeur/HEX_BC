@@ -3,6 +3,7 @@ import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { applyEstimateStructureDraftSchema } from "@/lib/estimates/schemas";
 import { applyEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -15,14 +16,6 @@ async function getParams(
   return paramsSchema.parse(await paramsPromise);
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string; draftId: string }> }
@@ -30,7 +23,7 @@ export async function POST(
   try {
     const { versionId, draftId } = await getParams(params);
     const body = applyEstimateStructureDraftSchema.parse(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await applyEstimateStructureDraft(versionId, draftId, body);
     return ok(data, 201);

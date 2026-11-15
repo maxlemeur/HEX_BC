@@ -3,6 +3,7 @@ import { z } from "zod";
 import { executeEstimateBatch } from "@/lib/estimates/batch";
 import { ApiError, badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { batchOperationsSchema } from "@/lib/estimates/schemas";
+import { resolveConcurrencyToken } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -39,20 +40,6 @@ async function parseJsonBody(request: Request): Promise<unknown> {
     void reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
-}
-
-function resolveConcurrencyToken(request: Request, fallback?: string) {
-  const ifMatch = request.headers.get("if-match")?.trim();
-  if (ifMatch && ifMatch.length > 0) {
-    return ifMatch;
-  }
-
-  const normalizedFallback = fallback?.trim();
-  if (normalizedFallback && normalizedFallback.length > 0) {
-    return normalizedFallback;
-  }
-
-  return undefined;
 }
 
 function parseDryRunFlag(rawValue: string | null) {

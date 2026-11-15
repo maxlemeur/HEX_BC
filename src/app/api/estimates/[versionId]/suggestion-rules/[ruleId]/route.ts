@@ -3,6 +3,7 @@ import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { updateSuggestionRuleSchema } from "@/lib/estimates/schemas";
 import { updateSuggestionRule } from "@/lib/estimates/server";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -16,21 +17,13 @@ async function getParams(
   return paramsSchema.parse(params);
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ versionId: string; ruleId: string }> }
 ) {
   try {
     const { versionId, ruleId } = await getParams(params);
-    const body = updateSuggestionRuleSchema.parse(await parseJsonBody(request));
+    const body = updateSuggestionRuleSchema.parse(await parseJsonBody(request, badRequest));
     const data = await updateSuggestionRule(versionId, ruleId, body);
     return ok(data);
   } catch (error) {

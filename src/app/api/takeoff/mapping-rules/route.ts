@@ -12,6 +12,7 @@ import {
   listTakeoffMappingRules,
 } from "@/lib/takeoff/server";
 import type { CreateTakeoffMappingRuleInput } from "@/lib/takeoff/types";
+import { parseJsonBody } from "@/lib/http/request";
 
 function toValidationIssues(error: z.ZodError) {
   return error.issues.map((issue) => ({
@@ -39,14 +40,6 @@ function parseCreateTakeoffMappingRulePayload(
   return parsed.data;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function GET(_request: Request) {
   void _request;
 
@@ -61,7 +54,7 @@ export async function GET(_request: Request) {
 export async function POST(request: Request) {
   try {
     const payload = parseCreateTakeoffMappingRulePayload(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await createTakeoffMappingRule(payload);
     return ok(data, 201);

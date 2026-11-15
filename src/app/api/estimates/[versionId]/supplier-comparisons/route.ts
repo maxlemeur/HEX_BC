@@ -3,6 +3,7 @@ import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { estimateSupplierComparisonsRequestSchema } from "@/lib/estimates/schemas";
 import { getEstimateSupplierComparisons } from "@/lib/estimates/server";
+import { parseJsonBody } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -13,14 +14,6 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   return versionIdParamSchema.parse(params).versionId;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }
@@ -28,7 +21,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const body = estimateSupplierComparisonsRequestSchema.parse(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await getEstimateSupplierComparisons(versionId, body.item_ids);
     return ok(data);

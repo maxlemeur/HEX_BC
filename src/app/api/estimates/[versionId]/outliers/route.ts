@@ -12,6 +12,7 @@ import {
   ok,
   toErrorResponse,
 } from "@/lib/estimates/errors";
+import { parseJsonBody } from "@/lib/http/request";
 
 type OutlierDismissalRow = {
   id: string;
@@ -42,14 +43,6 @@ const toggleDismissSchema = z.object({
   flag_key: z.enum(["price_outlier", "quantity_outlier"]),
   dismissed: z.boolean(),
 });
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
 
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
@@ -139,7 +132,7 @@ export async function POST(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = toggleDismissSchema.parse(await parseJsonBody(request));
+    const body = toggleDismissSchema.parse(await parseJsonBody(request, badRequest));
     const context = await getAuthenticatedContext();
 
     const { version } = await getOwnedEstimateVersion(context, versionId);

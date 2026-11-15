@@ -7,6 +7,7 @@ import {
   getEstimatePurchaseOrderDraftPreparation,
   getEstimatePurchaseOrderReceipt,
 } from "@/lib/estimates/purchase-order-drafts";
+import { parseJsonBody } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -15,14 +16,6 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(
@@ -48,7 +41,7 @@ export async function POST(
   try {
     const versionId = await getVersionId(params);
     const body = estimatePurchaseOrderDraftsCreateSchema.parse(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await createEstimatePurchaseOrderDrafts(versionId, body);
     return ok(data, data.replayed ? 200 : 201);

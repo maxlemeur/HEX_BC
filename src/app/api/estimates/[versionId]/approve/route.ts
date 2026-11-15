@@ -6,6 +6,7 @@ import {
   submitEstimateApproval,
   type SubmitEstimateApprovalInput,
 } from "@/lib/estimates/rules-engine";
+import { parseJsonBody } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -14,14 +15,6 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 function toSubmitInput(input: {
@@ -73,7 +66,7 @@ export async function POST(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = estimateApprovalActionSchema.parse(await parseJsonBody(request));
+    const body = estimateApprovalActionSchema.parse(await parseJsonBody(request, badRequest));
     const payload = toSubmitInput({
       versionId,
       body,

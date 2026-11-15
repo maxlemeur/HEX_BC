@@ -7,6 +7,7 @@ import {
   getEstimateTemplate,
   updateEstimateTemplate,
 } from "@/lib/estimates/templates-server";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   templateId: z.string().uuid("templateId invalide."),
@@ -15,14 +16,6 @@ const paramsSchema = z.object({
 async function getTemplateId(paramsPromise: Promise<{ templateId: string }>) {
   const params = await paramsPromise;
   return paramsSchema.parse(params).templateId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(
@@ -44,7 +37,7 @@ export async function PATCH(
 ) {
   try {
     const templateId = await getTemplateId(params);
-    const body = updateEstimateTemplateSchema.parse(await parseJsonBody(request));
+    const body = updateEstimateTemplateSchema.parse(await parseJsonBody(request, badRequest));
     const data = await updateEstimateTemplate(templateId, body);
     return ok(data);
   } catch (error) {

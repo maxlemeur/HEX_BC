@@ -3,14 +3,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { createEstimateSchema } from "@/lib/estimates/schemas";
 import { createEstimate, listLatestEstimates } from "@/lib/estimates/server";
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody } from "@/lib/http/request";
 
 export async function GET() {
   try {
@@ -23,7 +16,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = createEstimateSchema.parse(await parseJsonBody(request));
+    const body = createEstimateSchema.parse(await parseJsonBody(request, badRequest));
     const data = await createEstimate(body);
     return ok(validateEstimateResponse(() => parseCreateEstimateResponse(data, body.project_id)), 201);
   } catch (error) {
