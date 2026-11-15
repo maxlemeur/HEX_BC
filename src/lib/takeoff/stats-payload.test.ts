@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   buildTakeoffMetricsStatsPayload,
@@ -9,9 +9,9 @@ import {
 
 // Characterises the whole stats payload through the public builder, so that splitting it
 // into named steps keeps every key, its order, rounding, zero guards and bucketing.
-// Every timestamp sits at noon UTC: the trend and weekly buckets are built in local time,
-// and noon keeps their keys and labels on the same calendar day in any time zone within
-// eleven hours of UTC.
+// The trend and weekly buckets are built in local time, so the recorded keys and labels
+// hold in UTC only: these tests pin the process time zone to UTC while they run, and every
+// timestamp sits at noon UTC.
 
 const NOW = new Date("2026-03-10T12:00:00.000Z");
 
@@ -51,6 +51,18 @@ function expectSamePayload(actual: unknown, expected: unknown) {
 }
 
 describe("buildTakeoffMetricsStatsPayload characterisation", () => {
+  const machineTimeZone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "UTC";
+  });
+  afterAll(() => {
+    if (machineTimeZone === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = machineTimeZone;
+    }
+  });
+
   it("builds the empty payload", () => {
     const payload = build({ period: "30d", jobs: [], killSwitchEnabled: false });
 
@@ -195,6 +207,9 @@ describe("buildTakeoffMetricsStatsPayload characterisation", () => {
       ],
       overrideConsumptions: [
         { audit_log_id: "audit-override", job_id: "job-applied-a" },
+        // The same override read again for a job the read did not return: it must not replace the
+        // consumption of job-applied-a, whose declared forcing would then be lost.
+        { audit_log_id: "audit-override", job_id: "job-elsewhere" },
         { audit_log_id: "audit-elsewhere", job_id: "job-elsewhere" },
       ],
     });
@@ -233,6 +248,102 @@ describe("buildTakeoffMetricsStatsPayload characterisation", () => {
     });
 
     expectSamePayload(payload, EXPECTED_LISTS);
+  });
+
+  it("rounds every percentage of a third to one decimal", () => {
+    const payload = build({
+      period: "7d",
+      jobs: [
+        job({ id: "job-c-corrected", status: "applied", level: "C", created_at: "2026-03-08T12:00:00.000Z" }),
+        job({ id: "job-c-checked", status: "completed", level: "C", created_at: "2026-03-09T12:00:00.000Z" }),
+        job({ id: "job-c-untouched", status: "completed", level: "C", created_at: "2026-03-10T12:00:00.000Z" }),
+      ],
+      items: [
+        { id: "item-proof", job_id: "job-c-checked", evidence: "Plan R+1, cote 2", source_page: 2 },
+        { id: "item-no-page", job_id: "job-c-checked", evidence: "Coupe BB", source_page: null },
+        { id: "item-no-evidence", job_id: "job-c-checked", evidence: null, source_page: 1 },
+      ],
+      auditLogs: [
+        { record_id: "job-c-corrected", action: "takeoff.item.modified", created_at: "2026-03-08T13:00:00.000Z",
+          after_data: { metadata: { field: "unit", item_id: "item-elsewhere" } } },
+        { record_id: "job-c-checked", action: "takeoff.item.modified", created_at: "2026-03-09T13:00:00.000Z",
+          after_data: { metadata: { field: "is_verified", next_value: true, item_id: "item-proof" } } },
+      ],
+    });
+
+    expectSamePayload(payload.corrections, {
+      kpis: {
+        totalEvents: 2,
+        correctedJobs: 1,
+        quicklyValidatedJobs: 1,
+        untouchedSuccessfulJobs: 1,
+        correctionRate: 33.3,
+        quickValidationRate: 33.3,
+      },
+      eventCounts: [
+        { type: "unit_changed", label: "Unités corrigées", count: 1 },
+        { type: "manual_verification", label: "Vérifications manuelles", count: 1 },
+      ],
+      byLevel: [
+        {
+          level: "C",
+          correctedJobs: 1,
+          quicklyValidatedJobs: 1,
+          untouchedSuccessfulJobs: 1,
+          correctionRate: 33.3,
+          quickValidationRate: 33.3,
+        },
+      ],
+    });
+    expect(payload.calibration.levelCLocalizedProofCoverage).toBe(33.3);
+    expectSamePayload(payload.pilot.weeklySnapshots, [
+      {
+        key: "2026-03-04",
+        label: "04 mars",
+        totalJobs: 3,
+        successfulJobs: 3,
+        avgCostCentsPerJob: 100,
+        avgDurationMs: 1_000,
+        correctionRate: 33.3,
+        satisfactionRate: 66.7,
+      },
+    ]);
+    expect(payload.pilot.satisfactionLabel).toBe("66,7 %");
+    expect(
+      Object.fromEntries(
+        payload.pilot.goNoGo.criteria.map((criterion) => [criterion.key, criterion.actualLabel])
+      )
+    ).toMatchObject({
+      correction_rate: "33,3 %",
+      level_c_proof_coverage: "33,3 % (1/3)",
+      satisfaction: "66,7 %",
+    });
+  });
+
+  it("compares the satisfaction rate with its target once rounded to one decimal", () => {
+    // 241 satisfying jobs out of 402 make 59.95 %, which rounds to the 60 % target.
+    const jobs = Array.from({ length: 402 }, (_, index) =>
+      job({ id: `job-${String(index).padStart(3, "0")}`, status: "applied" })
+    );
+    const payload = build({
+      period: "7d",
+      jobs,
+      auditLogs: jobs.slice(241).map((correctedJob) => ({
+        record_id: correctedJob.id,
+        action: "takeoff.item.excluded",
+        created_at: "2026-03-09T13:00:00.000Z",
+        after_data: { metadata: {} },
+      })),
+    });
+
+    expect(payload.pilot.goNoGo.criteria.find((criterion) => criterion.key === "satisfaction")).toStrictEqual({
+      key: "satisfaction",
+      label: "Satisfaction",
+      targetLabel: "≥ 60 %",
+      actualLabel: "60 %",
+      passed: true,
+      status: "pass",
+    });
   });
 
   describe("go/no-go decision", () => {
