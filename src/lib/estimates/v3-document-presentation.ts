@@ -96,7 +96,7 @@ export function describeEstimateV3Rates(footer: Pick<EstimateV3DocumentFooter, "
 }
 
 /** Pied imprimé d'une copie commerciale v3 (contrat client 2), sans recalcul. */
-export function footerFromClientContract2(totals: {
+export function footerFromClientContractV2(totals: {
   grossHtCents: number;
   commercialDiscountCents: number;
   discountIntent: { kind: "none" | "amount" } | { kind: "rate"; rateBp: number };

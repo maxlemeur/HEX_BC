@@ -89,7 +89,7 @@ import {
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { captureOfferClientContract } from "@/lib/estimates/offer-contract-capture";
 import { parseOfferPresentation, type ClientContract1 } from "@/lib/estimates/offer-contract";
-import { buildClientContract2, type ClientContract2 } from "@/lib/estimates/offer-contract-v2";
+import { buildClientContractV2, type ClientContractV2 } from "@/lib/estimates/offer-contract-v2";
 import { buildCommercialEstimatePdfDocument } from "@/components/estimate-document/CommercialEstimateDocument";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
@@ -1629,7 +1629,7 @@ export async function generateEstimatePdfNow(
       ? (storedTermsSnapshot ??
         (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
       : storedTermsSnapshot;
-    const publish = (clientContract: ClientContract1 | ClientContract2) => renderAndPublishOfferPdf({
+    const publish = (clientContract: ClientContract1 | ClientContractV2) => renderAndPublishOfferPdf({
       context, access, versionId, claim, publicationClient, logoDataUri, allowDevelopmentTerms,
       clientContract, layout: effectiveLayout, termsSnapshot });
     const identity = () => resolveOfferIdentity({ context, access, versionId, claim, issuer, publicationClient });
@@ -1644,7 +1644,7 @@ export async function generateEstimatePdfNow(
       effectiveLayout = prepared.layout;
       const captured = await identity();
       await assertEstimateVersionUnchanged({ supabase: context.supabase, version: access.version });
-      return await publish(buildClientContract2({
+      return await publish(buildClientContractV2({
         version: { ...offerContractVersion({ access, versionId, claim, tenantId: context.tenantId }), calcEngineVersion: 3 },
         ...captured, sourceRows: items, prepared, exclusions: access.version.exclusions,
       }));
@@ -1920,7 +1920,7 @@ async function renderAndPublishOfferPdf(input: {
   publicationClient: Supabase;
   logoDataUri: string | null;
   allowDevelopmentTerms: boolean;
-  clientContract: ClientContract1 | ClientContract2;
+  clientContract: ClientContract1 | ClientContractV2;
   layout: EstimatePdfLayoutOptions;
   termsSnapshot: EstimateTermsSnapshot | null;
 }): Promise<PdfReadyPayload> {

@@ -11,7 +11,7 @@ import {
   parseOfferPresentation, type ClientContract1, type CommercialRow1,
   type OfferPresentation, type OfferTermsSnapshot,
 } from "@/lib/estimates/offer-contract";
-import type { ClientContract2, CommercialRow2 } from "@/lib/estimates/offer-contract-v2";
+import type { ClientContractV2, CommercialRow2 } from "@/lib/estimates/offer-contract-v2";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { ESTIMATE_DRAFT_TERMS_NOTICE, parseEstimateTermsClauses } from "@/lib/estimates/pdf-terms";
 import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
@@ -20,7 +20,7 @@ import {
   buildEstimateV3FooterRows,
   describeEstimateV3Rates,
   ESTIMATE_V3_STATUS_DOCUMENT_LABELS,
-  footerFromClientContract2,
+  footerFromClientContractV2,
   formatEstimateV3FooterAmount,
   type EstimateV3FooterRow,
 } from "@/lib/estimates/v3-document-presentation";
@@ -30,7 +30,7 @@ type CommercialRow = CommercialRow1 | CommercialRow2;
 
 export type CommercialEstimateDocumentProps = {
   /** Contrat client 1 (moteurs 1 et 2) ou contrat client 2 (moteur 3, sous-lot 2.7). */
-  contract: ClientContract1 | ClientContract2;
+  contract: ClientContract1 | ClientContractV2;
   layout: EstimatePdfLayoutOptions;
   terms: OfferTermsSnapshot | null;
   /** Only a trusted local DEVELOPMENT caller can enable draft terms. */
@@ -115,10 +115,10 @@ function headings(layout: EstimatePdfLayoutOptions): string[] {
 type FooterRow = { label: string; amount: string; emphasis?: EstimateV3FooterRow["emphasis"] };
 
 /** Pied HTML : contrat 2 (pied v3 du gel, avec l'emphase de chaque ligne) ou contrat 1 (inchangé). */
-function footerRows(contract: ClientContract1 | ClientContract2): FooterRow[] {
+function footerRows(contract: ClientContract1 | ClientContractV2): FooterRow[] {
   if (contract.schemaVersion === 2) {
     const currency = contract.version.currency;
-    return buildEstimateV3FooterRows(footerFromClientContract2(contract.totals), currency)
+    return buildEstimateV3FooterRows(footerFromClientContractV2(contract.totals), currency)
       .map((row) => ({ label: row.label, amount: formatEstimateV3FooterAmount(row, currency), emphasis: row.emphasis }));
   }
   return totalRows(contract).map((entry) => ({ label: entry.label, amount: formatCurrency(entry.cents, contract.version.currency) }));
@@ -136,7 +136,7 @@ function footerRowStyle(entry: FooterRow, index: number): string {
 }
 
 /** Taux d'en-tête : celui de la version (contrat 1) ou ceux du récapitulatif figé (contrat 2). */
-function validityTax(contract: ClientContract1 | ClientContract2): string {
+function validityTax(contract: ClientContract1 | ClientContractV2): string {
   // Sans ligne chiffrée, le récapitulatif est vide : le taux par défaut de la version reste affiché.
   if (contract.schemaVersion === 2 && contract.totals.taxByRate.length > 0) return `TVA : ${describeEstimateV3Rates(contract.totals)}`;
   return `TVA : ${contract.version.taxRateBp / 100} %`;
@@ -261,7 +261,7 @@ const pdfStyles = StyleSheet.create({
   notice: { marginBottom: 8, fontSize: 8, color: colors.muted },
 });
 
-function PdfChrome({ contract: c }: { contract: ClientContract1 | ClientContract2 }) {
+function PdfChrome({ contract: c }: { contract: ClientContract1 | ClientContractV2 }) {
   return <>
     <View style={pdfStyles.blue} fixed /><View style={pdfStyles.orange} fixed />
     <View style={pdfStyles.footer} fixed>
@@ -275,7 +275,7 @@ function hyphenatePdfIdentity(word: string): string[] {
   return word.length > 24 ? (word.match(/[\s\S]{1,20}/gu) ?? [word]) : [word];
 }
 
-function PdfBrand({ contract: c, logoDataUri }: { contract: ClientContract1 | ClientContract2; logoDataUri: string | null }) {
+function PdfBrand({ contract: c, logoDataUri }: { contract: ClientContract1 | ClientContractV2; logoDataUri: string | null }) {
   return <View style={pdfStyles.brand} wrap={false}>
     {logoDataUri ? <PdfImage src={logoDataUri} style={pdfStyles.logo} /> : <Text style={pdfStyles.company}>{c.company.name}</Text>}
     <View style={pdfStyles.establishment}>
@@ -336,7 +336,7 @@ export function buildCommercialEstimatePdfDocument(input: CommercialEstimateDocu
       </View>
       <PdfTable model={model} />
       {c.schemaVersion === 2
-        ? <PdfEstimateTotalsV3 footer={footerFromClientContract2(c.totals)} currency={c.version.currency} />
+        ? <PdfEstimateTotalsV3 footer={footerFromClientContractV2(c.totals)} currency={c.version.currency} />
         : <PdfEstimateTotalsCard totalHtCents={c.totals.saleHtCents} totalTaxCents={c.totals.taxCents}
           amountDueCents={c.totals.payableTtcCents} roundingAdjustmentCents={c.totals.roundingAdjustmentCents}
           currency={c.version.currency} taxRateBp={c.version.taxRateBp} vatReverseCharge={reversed} />}
