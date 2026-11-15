@@ -3226,7 +3226,7 @@ function assertCanRequestApproval(input: {
 }
 
 /** Avant soumission d'une v2/v3, le moteur fige son snapshot ; la version est alors relue. */
-async function freezeDraftAndReloadAccess(input: {
+async function freezeDraftSnapshotIfRequired(input: {
   context: AuthenticatedContext;
   versionId: string;
   access: VersionApprovalAccess;
@@ -3297,8 +3297,11 @@ function buildApprovalEvaluationInput(input: {
   };
 }
 
-/** Le dernier cycle renvoyé en correction : ses items doivent être traités, ses règles sont reconduites. */
-async function loadResubmissionSource(input: {
+/**
+ * Le dernier cycle renvoyé en correction : refuse la resoumission tant qu'un de ses items reste à
+ * traiter, sinon rend ses règles, reconduites dans la nouvelle revue.
+ */
+async function loadResubmissionSourceOrThrow(input: {
   context: AuthenticatedContext;
   versionId: string;
 }) {
@@ -3339,13 +3342,13 @@ async function loadResubmissionSource(input: {
 
 /**
  * Les règles soumises à la revue : celles que le résumé rend demandables (manquantes ou rejetées)
- * et celles du cycle renvoyé en correction, limitées aux règles demandées quand il y en a.
+ * et celles reconduites du cycle renvoyé en correction, limitées aux règles demandées quand il y en a.
  */
 async function resolveRequestedReviewRules(input: {
   context: AuthenticatedContext;
-  versionId: string;
   ruleIds: string[];
   reasons: EstimateApprovalSummaryCore["reasons"];
+  carriedOverRuleIds: string[];
 }) {
   const requestedRuleIdSet = new Set(
     input.ruleIds
@@ -3357,15 +3360,11 @@ async function resolveRequestedReviewRules(input: {
       (reason.approvalStatus === "missing" || reason.approvalStatus === "rejected") &&
       (requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(reason.ruleId))
   );
-  const { rejectedSourceCycle, carriedOverRuleIds } = await loadResubmissionSource({
-    context: input.context,
-    versionId: input.versionId,
-  });
 
   const requestedRuleIds = [
     ...new Set([
       ...currentRequestableReasons.map((reason) => reason.ruleId),
-      ...carriedOverRuleIds,
+      ...input.carriedOverRuleIds,
     ]),
   ].filter((ruleId) => requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(ruleId));
 
@@ -3404,29 +3403,26 @@ async function resolveRequestedReviewRules(input: {
     };
   });
 
-  return { rejectedSourceCycle, requestedRules };
+  return requestedRules;
 }
 
 /** L'e-mail au validateur assigné ; son échec est journalisé sans annuler la soumission. */
-async function notifyAssignedReviewer(input: {
+async function emailAssignedReviewer(input: {
   context: AuthenticatedContext;
   access: VersionApprovalAccess;
   assignedReviewer: EstimateApprovalReviewer;
+  recipientEmail: string;
   submissionMessage: string | null | undefined;
   requestedRules: RequestedReviewRule[];
 }) {
   const { context, access, assignedReviewer } = input;
-  if (!assignedReviewer.workEmail) {
-    return;
-  }
-
   try {
     const requesterProfile = await loadProfileIdentity({
       context,
       userId: context.userId,
     });
     await sendApprovalReviewRequestNotification({
-      recipientEmail: assignedReviewer.workEmail,
+      recipientEmail: input.recipientEmail,
       reviewerName: assignedReviewer.fullName,
       requesterName:
         requesterProfile.full_name?.trim() ||
@@ -3448,19 +3444,19 @@ async function notifyAssignedReviewer(input: {
 async function submitEstimateForReview(input: {
   context: AuthenticatedContext;
   access: VersionApprovalAccess;
-  request: SubmitForReviewInput;
+  approvalInput: SubmitForReviewInput;
 }): Promise<SubmitEstimateApprovalResult> {
-  const { context, request } = input;
+  const { context, approvalInput } = input;
   assertCanRequestApproval({ context, access: input.access });
 
-  const access = await freezeDraftAndReloadAccess({
+  const access = await freezeDraftSnapshotIfRequired({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     access: input.access,
   });
   const sources = await loadApprovalEvaluationSources({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     access,
   });
   const [summary, submissionReadiness, assignedReviewer] = await Promise.all([
@@ -3468,7 +3464,7 @@ async function submitEstimateForReview(input: {
     evaluateSubmissionReadiness(buildApprovalEvaluationInput({ context, access, sources })),
     resolveAssignedReviewerOrThrow({
       context,
-      reviewerUserId: normalizeOptionalUuid(request.assignedReviewerUserId ?? undefined),
+      reviewerUserId: normalizeOptionalUuid(approvalInput.assignedReviewerUserId ?? undefined),
     }),
   ]);
 
@@ -3476,20 +3472,24 @@ async function submitEstimateForReview(input: {
     throw badRequest("Des blocants restent à lever avant la soumission.");
   }
 
-  const { rejectedSourceCycle, requestedRules } = await resolveRequestedReviewRules({
+  const { rejectedSourceCycle, carriedOverRuleIds } = await loadResubmissionSourceOrThrow({
     context,
-    versionId: request.versionId,
-    ruleIds: request.ruleIds,
+    versionId: approvalInput.versionId,
+  });
+  const requestedRules = await resolveRequestedReviewRules({
+    context,
+    ruleIds: approvalInput.ruleIds,
     reasons: summary.reasons,
+    carriedOverRuleIds,
   });
 
   const submission = await openEstimateReviewCycle({
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     tenantId: context.tenantId,
     actorUserId: context.userId,
     assignedReviewerId: assignedReviewer.userId,
     ruleIds: requestedRules.map((reason) => reason.ruleId),
-    submissionMessage: request.submissionMessage ?? null,
+    submissionMessage: approvalInput.submissionMessage ?? null,
     eventMetadata: {
       requestedRuleLabels: requestedRules.map((reason) => reason.label),
       assignedReviewerName: assignedReviewer.fullName,
@@ -3505,12 +3505,13 @@ async function submitEstimateForReview(input: {
   });
   const latestApproval = submission.approvals.at(-1)!;
 
-  if (submission.created) {
-    await notifyAssignedReviewer({
+  if (submission.created && assignedReviewer.workEmail) {
+    await emailAssignedReviewer({
       context,
       access,
       assignedReviewer,
-      submissionMessage: request.submissionMessage,
+      recipientEmail: assignedReviewer.workEmail,
+      submissionMessage: approvalInput.submissionMessage,
       requestedRules,
     });
   }
@@ -3539,12 +3540,12 @@ async function submitEstimateForReview(input: {
 async function requestRuleApproval(input: {
   context: AuthenticatedContext;
   access: VersionApprovalAccess;
-  request: RequestRuleApprovalInput;
+  approvalInput: RequestRuleApprovalInput;
 }): Promise<SubmitEstimateApprovalResult> {
-  const { context, request } = input;
+  const { context, approvalInput } = input;
   assertCanRequestApproval({ context, access: input.access });
 
-  const ruleId = normalizeOptionalUuid(request.ruleId);
+  const ruleId = normalizeOptionalUuid(approvalInput.ruleId);
   if (!ruleId) {
     throw badRequest("rule_id est obligatoire pour une demande d'approbation.");
   }
@@ -3558,9 +3559,9 @@ async function requestRuleApproval(input: {
     throw badRequest("La règle ciblee est inactive.");
   }
 
-  const access = await freezeDraftAndReloadAccess({
+  const access = await freezeDraftSnapshotIfRequired({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     access: input.access,
   });
   const assignedReviewer = await resolveAssignedReviewerOrThrow({
@@ -3568,7 +3569,7 @@ async function requestRuleApproval(input: {
     reviewerUserId: null,
   });
   const submission = await openEstimateReviewCycle({
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     tenantId: context.tenantId,
     actorUserId: context.userId,
     assignedReviewerId: assignedReviewer.userId,
@@ -3600,14 +3601,14 @@ async function requestRuleApproval(input: {
 async function decideOpenReviewCycle(input: {
   context: AuthenticatedContext;
   access: VersionApprovalAccess;
-  request: DecideReviewCycleInput;
+  approvalInput: DecideReviewCycleInput;
 }): Promise<SubmitEstimateApprovalResult> {
-  const { context, access, request } = input;
+  const { context, access, approvalInput } = input;
   assertApproverRole(context);
 
   const activeCycle = await findOpenReviewCycle({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
   });
 
   if (!activeCycle) {
@@ -3616,7 +3617,7 @@ async function decideOpenReviewCycle(input: {
 
   const pendingApprovals = await listPendingApprovalsForVersion({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
   });
 
   if (pendingApprovals.length === 0) {
@@ -3625,7 +3626,7 @@ async function decideOpenReviewCycle(input: {
 
   const sources = await loadApprovalEvaluationSources({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     access,
   });
   const summary = await evaluateApprovalSummary(
@@ -3633,7 +3634,7 @@ async function decideOpenReviewCycle(input: {
   );
   const targetContext = await loadApprovalCommentTargetContext({
     context,
-    versionId: request.versionId,
+    versionId: approvalInput.versionId,
     projectId: access.project.id,
   });
   const commentTargets = buildEstimateReviewCommentTargets({
@@ -3644,14 +3645,14 @@ async function decideOpenReviewCycle(input: {
     reasons: summary.reasons,
   });
   const normalizedComments = normalizeDecisionComments({
-    decision: request.decision,
-    comments: request.comments,
+    decision: approvalInput.decision,
+    comments: approvalInput.comments,
     targets: commentTargets,
   });
   const decidedAt = new Date().toISOString();
   const updatedApprovals = pendingApprovals.map((approval) => ({
     ...approval,
-    status: resolveApprovalStatusFromReviewDecision(request.decision),
+    status: resolveApprovalStatusFromReviewDecision(approvalInput.decision),
     approved_by: context.userId,
     decided_at: decidedAt,
     updated_at: decidedAt,
@@ -3659,7 +3660,7 @@ async function decideOpenReviewCycle(input: {
   await decideReviewCycleAtomically({
     context,
     cycleId: activeCycle.id,
-    decision: request.decision,
+    decision: approvalInput.decision,
     comments: normalizedComments,
   });
 
@@ -3729,20 +3730,20 @@ async function findPendingApprovalToDecide(input: {
 async function decidePendingApproval(input: {
   context: AuthenticatedContext;
   access: VersionApprovalAccess;
-  request: DecideApprovalInput;
+  approvalInput: DecideApprovalInput;
 }): Promise<SubmitEstimateApprovalResult> {
-  const { context, access, request } = input;
+  const { context, access, approvalInput } = input;
   assertApproverRole(context);
 
   const targetApproval = await findPendingApprovalToDecide({
     context,
-    versionId: request.versionId,
-    ruleId: normalizeOptionalUuid(request.ruleId),
-    approvalId: normalizeOptionalUuid(request.approvalId),
+    versionId: approvalInput.versionId,
+    ruleId: normalizeOptionalUuid(approvalInput.ruleId),
+    approvalId: normalizeOptionalUuid(approvalInput.approvalId),
   });
 
   const nextStatus: EstimateApprovalStatus =
-    request.action === "approve" ? "approved" : "rejected";
+    approvalInput.action === "approve" ? "approved" : "rejected";
 
   const data = await decideApprovalAtomically({
     context,
@@ -3769,18 +3770,18 @@ export async function submitEstimateApproval(
   const access = await getVersionAccessOrThrow(context, input.versionId);
 
   if (input.action === "submit_for_review") {
-    return submitEstimateForReview({ context, access, request: input });
+    return submitEstimateForReview({ context, access, approvalInput: input });
   }
 
   if (input.action === "request") {
-    return requestRuleApproval({ context, access, request: input });
+    return requestRuleApproval({ context, access, approvalInput: input });
   }
 
   if (input.action === "decide") {
-    return decideOpenReviewCycle({ context, access, request: input });
+    return decideOpenReviewCycle({ context, access, approvalInput: input });
   }
 
-  return decidePendingApproval({ context, access, request: input });
+  return decidePendingApproval({ context, access, approvalInput: input });
 }
 
 export async function listEstimateRulesForCurrentTenant() {
