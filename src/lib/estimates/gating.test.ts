@@ -1150,12 +1150,22 @@ describe("estimate send gating", () => {
         offer_choice: provisional() })], { exclusions: "Limites." });
       expect(keys(unpriced)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
     });
+
+    it("never warns of a provisional sentence on engines 1 and 2, where no line declares one", async () => {
+      for (const engine of [1, 2]) {
+        const result = await evaluate([pricedLine("line-provisional", { offer_choice: provisional() })],
+          { engine, exclusions: sentence });
+        expect(keys(result), String(engine)).toEqual({ blocking: [], warning: [] });
+      }
+    });
   });
   // The whole outcome of the send control, its loads and their order, as observed before the function was split into
   // named steps (refactor wave of 2026-11-16): every flag, its place in the result, its details, and every query.
   describe("send control outcome, loads and their order", () => {
     type GatingInput = Parameters<typeof evaluateEstimateSendGating>[0];
     const PROJECT_ID = "55555555-5555-4555-8555-555555555555";
+    // A version whose project id differs from the project's tells apart which of the two each read and flag uses.
+    const VERSION_PROJECT_ID = "66666666-6666-4666-8666-666666666666";
     const EMPTY_REGISTER = {
       openQuestionsCount: 0, criticalOpenEntries: [], nonCriticalOpenEntries: [], clarifyWithClientEntries: [],
       openAssumptionEntries: [], openMissingPieceEntries: [],
@@ -1295,7 +1305,7 @@ describe("estimate send gating", () => {
         supplierPrices: [],
       }), log);
       const version = {
-        id: VERSION_ID, project_id: PROJECT_ID, margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2000,
+        id: VERSION_ID, project_id: VERSION_PROJECT_ID, margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2000,
         discount_bp: 150, discount_amount_cents: 500, tenant_id: TENANT_ID, status: "draft",
         updated_at: "2026-11-16T08:00:00.000Z", calc_engine_version: 2, content_revision: 4,
         calc_snapshot_content_revision: 4, calc_snapshot_context: { effective_margin_multiplier: 1.25 },
@@ -1331,7 +1341,7 @@ describe("estimate send gating", () => {
         tenantId: TENANT_ID,
         fixedDiscountEvidence: evidence,
         version: {
-          id: VERSION_ID, project_id: PROJECT_ID, margin_bp: 2000, margin_multiplier: 1.25, margin_mode: "fixed",
+          id: VERSION_ID, project_id: VERSION_PROJECT_ID, margin_bp: 2000, margin_multiplier: 1.25, margin_mode: "fixed",
           discount_bp: 150, discount_amount_cents: 500, tenant_id: TENANT_ID, status: "draft",
           updated_at: "2026-11-16T08:00:00.000Z", calc_engine_version: 2, content_revision: 4,
           calc_snapshot_content_revision: 4, calc_snapshot_context: { effective_margin_multiplier: 1.25 }, total_ht_cents: 10000,
@@ -1425,7 +1435,9 @@ describe("estimate send gating", () => {
         marginTiers: [],
         documents: [],
         supplierPrices: [{ id: "sp-old", updated_at: "2025-01-01T00:00:00.000Z", created_at: "2025-01-01T00:00:00.000Z" }],
-        version: { margin_mode: "tiered", total_ht_cents: 10000, calc_engine_version: 3, exclusions: null },
+        version: {
+          margin_mode: "tiered", total_ht_cents: 10000, calc_engine_version: 3, exclusions: null, project_id: VERSION_PROJECT_ID,
+        },
         project: { notes: "{\"budget_ht_cents\": 8000}" },
       });
 
@@ -1573,6 +1585,25 @@ describe("estimate send gating", () => {
       expect(result.blockingFlags[0]).toMatchObject({
         severity: "blocking", item_ids: ["line-stale"], details: { stale_price_days: 30 },
       });
+    });
+
+    it("judges a selected supplier price by the tenant's stale-price delay", async () => {
+      vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(30);
+      const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const result = await evaluate({
+        items: [cleanLine("line-60-days", { selected_supplier_price_id: "sp-60-days" }),
+          cleanLine("line-29-days", { selected_supplier_price_id: "sp-29-days" })],
+        supplierPrices: [
+          // Older than the tenant's 30 days, younger than the default 90: stale.
+          { id: "sp-60-days", updated_at: daysAgo(60), created_at: daysAgo(400) },
+          // Just inside the tenant's 30 days: fresh.
+          { id: "sp-29-days", updated_at: daysAgo(29), created_at: daysAgo(400) },
+        ],
+      });
+      expect(result.canSend).toBe(true);
+      expect(result.warningFlags).toEqual([expect.objectContaining({
+        key: "supplier_price_outdated", count: 1, item_ids: ["line-60-days"], details: { stale_price_days: 30 },
+      })]);
     });
 
     it.each([
