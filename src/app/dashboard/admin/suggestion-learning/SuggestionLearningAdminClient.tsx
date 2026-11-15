@@ -14,6 +14,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 type SuggestionLearningFieldName =
   | "description"
@@ -98,15 +99,6 @@ const FIELD_LABELS: Record<SuggestionLearningFieldName, string> = {
   labor_role_id: "Rôle MO",
   supply_type_id: "Type fourniture",
 };
-
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
-}
 
 function normalizeFeatureFlagKey(value: string) {
   return value.trim().toUpperCase();
@@ -243,7 +235,7 @@ async function fetchSuggestionLearnings(route: string): Promise<SuggestionLearni
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger l'apprentissage des suggestions."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de charger l'apprentissage des suggestions."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -252,7 +244,7 @@ async function fetchSuggestionLearnings(route: string): Promise<SuggestionLearni
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;
@@ -273,7 +265,7 @@ async function fetchFeatureFlags([
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger les fonctionnalités."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de charger les fonctionnalités."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -282,7 +274,7 @@ async function fetchFeatureFlags([
 
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.flags)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse des fonctionnalités invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse des fonctionnalités invalide."));
   }
 
   return envelope.data;
@@ -309,7 +301,7 @@ async function patchReview(input: {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour la revue."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de mettre à jour la revue."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -318,7 +310,7 @@ async function patchReview(input: {
 
   const envelope = payload as ApiEnvelope<SuggestionLearningState>;
   if (!envelope.ok || !envelope.data || !Array.isArray(envelope.data.proposals)) {
-    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;
@@ -355,7 +347,7 @@ async function patchFeatureFlag(input: {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de mettre à jour la fonctionnalité."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de mettre à jour la fonctionnalité."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -364,7 +356,7 @@ async function patchFeatureFlag(input: {
 
   const envelope = payload as ApiEnvelope<{ flag: FeatureFlagRecord }>;
   if (!envelope.ok || !envelope.data?.flag) {
-    throw new Error(resolveErrorMessage(payload, "Réponse des fonctionnalités invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse des fonctionnalités invalide."));
   }
 
   return envelope.data.flag;
@@ -384,7 +376,7 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     throw new Error(
-      resolveErrorMessage(payload, "Impossible de purger les corrections apprises.")
+      resolveEnvelopeErrorMessage(payload, "Impossible de purger les corrections apprises.")
     );
   }
 
@@ -399,7 +391,7 @@ async function purgeSuggestionLearning(input: { retentionMonths: number }) {
     typeof envelope.data.deleted_count !== "number" ||
     !Array.isArray(envelope.data.proposals)
   ) {
-    throw new Error(resolveErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse de l'apprentissage des suggestions invalide."));
   }
 
   return envelope.data;

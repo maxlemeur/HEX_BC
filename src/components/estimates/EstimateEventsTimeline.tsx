@@ -5,6 +5,7 @@ import type {
   EstimateVersionEvent,
   EstimateVersionEventType,
 } from "@/lib/estimates/client";
+import { formatEstimateEditorAuditTimestamp } from "@/hooks/useEstimateEditorActivityController";
 
 type EstimateEventsTimelineProps = {
   events: EstimateVersionEvent[];
@@ -31,20 +32,6 @@ function toEventLabel(value: string) {
   }
 
   return value;
-}
-
-function formatTimestamp(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return parsed.toLocaleString("fr-FR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function normalizeMetadataKey(key: string) {
@@ -149,7 +136,7 @@ export function EstimateEventsTimeline({
             ) : (
               events.map((event) => (
                 <tr key={event.id}>
-                  <td>{formatTimestamp(event.occurredAt)}</td>
+                  <td>{formatEstimateEditorAuditTimestamp(event.occurredAt)}</td>
                   <td className="font-medium">{toEventLabel(event.eventType)}</td>
                   <td>{event.actorName ?? event.createdBy ?? "-"}</td>
                   <td className="text-xs text-muted-foreground">

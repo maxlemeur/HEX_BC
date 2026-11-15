@@ -10,6 +10,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import {
   MAX_FILE_SIZE_LABEL,
+  formatFileSize,
   validateFileForUpload,
 } from "@/lib/file-validation";
 import { cn } from "@/lib/utils";
@@ -30,15 +31,6 @@ export type DevisUploaderProps = {
   canManage: boolean;
   onUploadComplete?: () => void;
 };
-
-function formatFileSize(bytes: number) {
-  if (!Number.isFinite(bytes)) return "-";
-  if (bytes < 1024) return `${bytes} o`;
-  const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} Ko`;
-  const megabytes = kilobytes / 1024;
-  return `${megabytes.toFixed(1)} Mo`;
-}
 
 export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUploaderProps) {
   const apiUrl = `/api/purchase-orders/${orderId}/devis`;

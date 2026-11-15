@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 type CurrencyRateRecord = {
   id: string;
@@ -82,15 +83,6 @@ function toBooleanValue(value: unknown): boolean | null {
 function normalizeCurrencyCode(value: string | null | undefined): string {
   const normalized = value?.trim().toUpperCase();
   return normalized && normalized.length > 0 ? normalized : DEFAULT_CURRENCY;
-}
-
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
 }
 
 function extractRowsFromPayload(payload: unknown): unknown[] {
@@ -283,7 +275,7 @@ async function fetchCurrencyRates([
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger les taux de change."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de charger les taux de change."));
   }
 
   const rows = extractRowsFromPayload(payload);
@@ -322,7 +314,7 @@ async function createCurrencyRate(payload: {
 
   const body = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(body, "Impossible de créer le taux de change."));
+    throw new Error(resolveEnvelopeErrorMessage(body, "Impossible de créer le taux de change."));
   }
 }
 
@@ -348,7 +340,7 @@ async function updateCurrencyRate(input: {
 
   const body = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(body, "Impossible de mettre à jour le taux de change."));
+    throw new Error(resolveEnvelopeErrorMessage(body, "Impossible de mettre à jour le taux de change."));
   }
 }
 
@@ -359,7 +351,7 @@ async function deleteCurrencyRate(id: string) {
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de supprimer le taux de change."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de supprimer le taux de change."));
   }
 }
 

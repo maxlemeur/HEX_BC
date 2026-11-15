@@ -3,19 +3,7 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 
 import type { Database } from "@/types/database";
-
-function getSupabasePublicEnv() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-  }
-
-  return { supabaseUrl, supabaseAnonKey };
-}
+import { getSupabasePublicEnv } from "@/lib/supabase/public-env";
 
 export const createSupabaseServerClient = cache(async (cookieMode?: "route") => {
   const cookieStore = await cookies();

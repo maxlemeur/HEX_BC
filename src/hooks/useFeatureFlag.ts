@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import useSWR from "swr";
 
 import { useUserContext } from "@/components/UserContext";
+import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 type FeatureFlagListItem = {
   flag_key: string;
@@ -24,15 +25,6 @@ type ApiEnvelope<T> = {
   };
 };
 
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
-}
-
 function normalizeFeatureFlagKey(value: string) {
   return value.trim().toUpperCase();
 }
@@ -48,7 +40,7 @@ async function fetchFeatureFlags([
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Impossible de charger les feature flags."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Impossible de charger les feature flags."));
   }
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -57,7 +49,7 @@ async function fetchFeatureFlags([
 
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data) {
-    throw new Error(resolveErrorMessage(payload, "Réponse feature flags invalide."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Réponse feature flags invalide."));
   }
 
   return envelope.data;

@@ -26,6 +26,7 @@ import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-con
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
+import { formatCompactDate } from "@/components/estimates/components/estimate-editor-row/shared";
 
 /**
  * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
@@ -86,17 +87,6 @@ type SupplierComparisonPanelProps = {
   onClose: () => void;
   onSelectAlternative: (alternative: SupplierComparisonAlternative) => void;
 };
-
-function formatCompactDate(value: string | null | undefined) {
-  if (!value) return "-";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value.slice(0, 10);
-  }
-
-  return date.toLocaleDateString("fr-FR");
-}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -144,7 +144,7 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "submit",
 ]);
 
-function isTextEditingTarget(target: EventTarget | null): boolean {
+export function isTextEditingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   if (
     target instanceof HTMLTextAreaElement ||

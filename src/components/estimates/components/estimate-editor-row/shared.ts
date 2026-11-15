@@ -398,7 +398,7 @@ export function readSourceMetadataText(item: EstimateItem, keys: string[]) {
  */
 export { readLaborSplitFields } from "@/lib/estimates/editor-items";
 
-function resolveApiErrorMessage(payload: unknown, fallback: string) {
+export function resolveApiErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return fallback;
   }

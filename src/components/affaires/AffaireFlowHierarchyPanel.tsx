@@ -17,6 +17,7 @@ import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
 
 import {
   buildAffaireFlowPanelModel,
+  ensureDocumentPriorities,
   isDpgfSourceImported,
   type AffaireFlowHierarchyPanelProps,
   type AffaireFlowPanelAction as PanelAction,
@@ -276,52 +277,6 @@ function buildMissingOverflowIllustrationItem(count: number): IllustrationItem {
     isMissing: true,
     representedCount: count,
   };
-}
-
-function ensureDocumentPriorities(
-  documents: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"],
-) {
-  const hasExplicitPrimary = new Set<string>();
-
-  for (const document of documents) {
-    if (
-      isAffaireIntakePrimaryEligibleKind(document.detectedCategory) &&
-      document.documentPriority === "primary"
-    ) {
-      hasExplicitPrimary.add(document.detectedCategory);
-    }
-  }
-
-  const inferredPrimaryByCategory = new Set<string>();
-
-  return documents.map((document) => {
-    if (!isAffaireIntakePrimaryEligibleKind(document.detectedCategory)) {
-      return {
-        ...document,
-        documentPriority: document.documentPriority ?? "secondary",
-      };
-    }
-
-    if (document.documentPriority) {
-      return document;
-    }
-
-    if (
-      !hasExplicitPrimary.has(document.detectedCategory) &&
-      !inferredPrimaryByCategory.has(document.detectedCategory)
-    ) {
-      inferredPrimaryByCategory.add(document.detectedCategory);
-      return {
-        ...document,
-        documentPriority: "primary" as const,
-      };
-    }
-
-    return {
-      ...document,
-      documentPriority: "secondary" as const,
-    };
-  });
 }
 
 

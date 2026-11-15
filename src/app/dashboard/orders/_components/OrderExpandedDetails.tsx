@@ -12,11 +12,11 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { formatLotPrice, lineKindOf, signedLineAmount } from "@/components/purchase-orders/order-lines";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { formatFileSize } from "@/lib/file-validation";
 import { formatEUR } from "@/lib/money";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 
 import {
-  formatFileSize,
   type DevisItemRow,
   type LazyRows,
   type OrderItemRow,

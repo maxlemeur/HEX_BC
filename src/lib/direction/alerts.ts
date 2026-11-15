@@ -102,7 +102,7 @@ function collectLotLabels(alerts: TakeoffRiskAlert[]) {
   );
 }
 
-function resolveAlertJobId(alert: TakeoffRiskAlert) {
+export function resolveAlertJobId(alert: TakeoffRiskAlert) {
   if (typeof alert.takeoff_job_id === "string") {
     return alert.takeoff_job_id;
   }

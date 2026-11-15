@@ -156,23 +156,8 @@ import {
   type SuggestionLearningState as SuggestionLearningClientState,
 } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
+import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 
-function deferEffectStateUpdate(
-  update: () => void | (() => void)
-): () => void {
-  let isActive = true;
-  let cleanup: void | (() => void);
-
-  queueMicrotask(() => {
-    if (!isActive) return;
-    cleanup = update();
-  });
-
-  return () => {
-    isActive = false;
-    if (cleanup) cleanup();
-  };
-}
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type SupplyType = EstimateEditorData["supplyTypes"][number];
 type SuggestionRule =
