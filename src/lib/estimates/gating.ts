@@ -253,16 +253,16 @@ function buildItemIdsByFlag(
   return result;
 }
 
-export async function evaluateEstimateSendGating(
-  input: EvaluateEstimateSendGatingInput
-): Promise<EstimateSendGatingResult> {
-  const {
-    supabase,
-    tenantId,
-    version,
-    project,
-  } = input;
+type GatingItem = Awaited<ReturnType<typeof readAllEstimateItems>>[number];
+type ItemIdsByFlag = ReturnType<typeof buildItemIdsByFlag>;
+type QualityFlagsByItemId = ReturnType<typeof computeEstimateQualityFlagsByItemId>;
+type SendGatingSources = Awaited<ReturnType<typeof loadSendGatingSources>>;
+type ProvisionalMention = { itemId: string; mention: string | null };
+type GatingFlagBuckets = { blockingFlags: EstimateGatingFlag[]; warningFlags: EstimateGatingFlag[] };
 
+/** Everything the send control reads at once: the lines, the version's documents and register, the tenant settings. */
+async function loadSendGatingSources(input: EvaluateEstimateSendGatingInput) {
+  const { supabase, tenantId, version, project } = input;
   // TI-682, lot C: the lines whose stored offer choice the reader could not read (it hands them a null choice).
   const unreadableOfferChoiceIds = new Set<string>();
   const [
@@ -316,13 +316,29 @@ export async function evaluateEstimateSendGating(
     );
   }
 
-  const marginTiers = (marginTiersResult.data ?? []) as MarginTierRow[];
-  const documents = (documentsResult.data ?? []) as Pick<EstimateDocumentRow, "id">[];
-  const severityByFlag = resolveSeverityByFlag({
-    blockingOverride,
-    warningOverride,
-  });
+  return {
+    items,
+    unreadableOfferChoiceIds,
+    marginTiers: (marginTiersResult.data ?? []) as MarginTierRow[],
+    documents: (documentsResult.data ?? []) as Pick<EstimateDocumentRow, "id">[],
+    registerSummary,
+    versionZeroSummary,
+    stalePriceDays,
+    severityByFlag: resolveSeverityByFlag({
+      blockingOverride,
+      warningOverride,
+    }),
+  };
+}
 
+/** The lines whose selected supplier price is older than the tenant's stale-price delay. */
+async function findStaleSupplierPriceItemIds(input: {
+  supabase: Supabase;
+  tenantId: string;
+  items: GatingItem[];
+  stalePriceDays: number;
+}) {
+  const { supabase, tenantId, items, stalePriceDays } = input;
   const selectedSupplierPriceIds = Array.from(
     new Set(
       items
@@ -371,7 +387,11 @@ export async function evaluateEstimateSendGating(
       staleSupplierPriceItemIds.add(item.id);
     }
   });
+  return staleSupplierPriceItemIds;
+}
 
+/** The quality flags of each line, and the flagged ids by gating flag that the next steps add to. */
+function collectLineQualityFlags(items: GatingItem[], staleSupplierPriceItemIds: Set<string>) {
   const hasAtLeastOneSplitLine = items.some(
     (item) => item.item_type === "line" && hasStoredLaborSplit(item)
   );
@@ -381,15 +401,32 @@ export async function evaluateEstimateSendGating(
     isLaborSplitEnabled: hasAtLeastOneSplitLine,
   });
 
-  const itemIdsByFlag = buildItemIdsByFlag(qualityFlagsByItemId);
+  return { qualityFlagsByItemId, itemIdsByFlag: buildItemIdsByFlag(qualityFlagsByItemId) };
+}
 
-  // TI-682 (D25). Engine 3 only: a status other than « priced » exists on no other engine, and only engine 3 can say
-  // « Inclus » or « Pour mémoire » instead of sending a line at 0 €.
-  // A version read without its engine column is never treated as engine 3: no new flag rather than a wrong one.
+/**
+ * TI-682 (D25). Engine 3 only: a status other than « priced » exists on no other engine, and only engine 3 can say
+ * « Inclus » or « Pour mémoire » instead of sending a line at 0 €.
+ * A version read without its engine column is never treated as engine 3: no new flag rather than a wrong one.
+ */
+function isEngine3Version(version: EstimateGatingVersion) {
   const engine = resolveEstimateEngineVersionForDisplay(version);
-  const isEngine3 = engine !== null && usesPerUnitLabor(engine);
-  // TI-682, lot C, PR 5: the priced lines declared with a provisional quantity, and their sentence as the line is now.
-  const provisionalMentions: Array<{ itemId: string; mention: string | null }> = [];
+  return engine !== null && usesPerUnitLabor(engine);
+}
+
+/**
+ * Flags each line by its pricing status and its declared offer choice. Returns the priced lines declared with a
+ * provisional quantity (TI-682, lot C, PR 5), and their sentence as the line is now.
+ */
+function flagLinePricingStatuses(input: {
+  items: GatingItem[];
+  isEngine3: boolean;
+  unreadableOfferChoiceIds: Set<string>;
+  qualityFlagsByItemId: QualityFlagsByItemId;
+  itemIdsByFlag: ItemIdsByFlag;
+}) {
+  const { items, isEngine3, unreadableOfferChoiceIds, qualityFlagsByItemId, itemIdsByFlag } = input;
+  const provisionalMentions: ProvisionalMention[] = [];
   for (const item of items) {
     if (item.item_type !== "line") continue;
     const pricingStatus = item.pricing_status ?? "priced";
@@ -422,7 +459,20 @@ export async function evaluateEstimateSendGating(
     if (flags.includes("missing_price") || flags.includes("missing_quantity")) continue;
     if (!hasLineAmountInput(item)) itemIdsByFlag.priced_line_without_amount.add(item.id);
   }
+  return provisionalMentions;
+}
 
+/**
+ * Checks the « Précisions et limites de prestation » text against the reserves and provisional quantities the lines
+ * declare. Returns how many characters the missing sentences lack to fit in that text (0 when they fit).
+ */
+function flagOfferLimitsText(input: {
+  version: EstimateGatingVersion;
+  isEngine3: boolean;
+  provisionalMentions: ProvisionalMention[];
+  itemIdsByFlag: ItemIdsByFlag;
+}) {
+  const { version, isEngine3, provisionalMentions, itemIdsByFlag } = input;
   // A reserve is written in the offer: its limits text says something. A version read without that text is treated as
   // empty (refused rather than sent).
   if (!hasOfferLimitsText(version.exclusions)) {
@@ -445,12 +495,23 @@ export async function evaluateEstimateSendGating(
   if (isEngine3 && countStaleProvisionalQuantityMentions(version.exclusions, currentMentions) > 0) {
     itemIdsByFlag.provisional_quantity_mention_stale.add(version.id);
   }
+  return mentionsOverflow;
+}
 
+/** The version-wide conditions: tiered margin configured, budget ceiling kept, a PDF generated, no V0 left to review. */
+function flagVersionReadiness(input: {
+  version: EstimateGatingVersion;
+  marginTiers: MarginTierRow[];
+  budgetCeilingHtCents: number | null;
+  documents: Pick<EstimateDocumentRow, "id">[];
+  versionZeroSummary: SendGatingSources["versionZeroSummary"];
+  itemIdsByFlag: ItemIdsByFlag;
+}) {
+  const { version, marginTiers, budgetCeilingHtCents, documents, versionZeroSummary, itemIdsByFlag } = input;
   if (version.margin_mode === "tiered" && marginTiers.length === 0) {
     itemIdsByFlag.margin_not_configured.add(version.id);
   }
 
-  const budgetCeilingHtCents = parseProjectBudgetCeilingHtCents(project.notes);
   if (
     budgetCeilingHtCents !== null &&
     Number.isFinite(version.total_ht_cents) &&
@@ -466,7 +527,11 @@ export async function evaluateEstimateSendGating(
   if (versionZeroSummary?.activeDraft) {
     itemIdsByFlag.version_zero_review_pending.add(version.id);
   }
+}
 
+/** The tenant's business rules on the version, with the fixed discount evidence when the version carries one. */
+async function evaluateSendRules(input: EvaluateEstimateSendGatingInput & { items: GatingItem[] }) {
+  const { supabase, tenantId, version, project, items } = input;
   const fixedDiscountEvidence = version.discount_amount_cents != null && project.user_id &&
     version.tenant_id === tenantId && typeof version.status === "string" && typeof version.updated_at === "string" &&
     typeof version.content_revision === "number"
@@ -475,7 +540,7 @@ export async function evaluateEstimateSendGating(
         authorizedVersion: { ...version, status: version.status, updated_at: version.updated_at, content_revision: version.content_revision },
       })
     : null;
-  const rulesEvaluation = await evaluateRules({
+  return evaluateRules({
     supabase,
     tenantId,
     fixedDiscountEvidence,
@@ -508,10 +573,51 @@ export async function evaluateEstimateSendGating(
         item_type: item.item_type,
       })),
   });
+}
 
-  const blockingFlags: EstimateGatingFlag[] = [];
-  const warningFlags: EstimateGatingFlag[] = [];
+/** The figures that explain a line or version flag beyond its items. */
+type ItemGatingFlagContext = {
+  version: EstimateGatingVersion;
+  stalePriceDays: number;
+  marginTiers: MarginTierRow[];
+  budgetCeilingHtCents: number | null;
+  mentionsOverflow: number;
+  versionZeroSummary: SendGatingSources["versionZeroSummary"];
+};
 
+function describeItemGatingFlag(key: EstimateGatingFlagKey, context: ItemGatingFlagContext) {
+  const { version, stalePriceDays, marginTiers, budgetCeilingHtCents, mentionsOverflow, versionZeroSummary } = context;
+  const details: Record<string, unknown> = {};
+
+  if (key === "supplier_price_outdated") {
+    details.stale_price_days = stalePriceDays;
+  }
+  if (key === "margin_not_configured") {
+    details.margin_mode = version.margin_mode;
+    details.margin_tiers_count = marginTiers.length;
+  }
+  if (key === "total_exceeds_budget") {
+    details.total_ht_cents = version.total_ht_cents;
+    details.budget_ceiling_ht_cents = budgetCeilingHtCents;
+  }
+  if (key === "provisional_quantity_mention_missing" && mentionsOverflow > 0) {
+    details.limits_overflow = { missing_characters: mentionsOverflow, limit: OFFER_LIMITS_MAX_LENGTH };
+  }
+  if (key === "version_zero_review_pending" && versionZeroSummary?.activeDraft) {
+    details.draft_id = versionZeroSummary.activeDraft.id;
+    details.pending_count = versionZeroSummary.activeDraft.counts.pending;
+    details.selected_lots = versionZeroSummary.activeDraft.selectedLots;
+  }
+  return details;
+}
+
+/** One flag per line or version condition met, in the policy's order, at the severity the tenant settings give it. */
+function pushItemGatingFlags(input: GatingFlagBuckets & {
+  itemIdsByFlag: ItemIdsByFlag;
+  severityByFlag: SendGatingSources["severityByFlag"];
+  context: ItemGatingFlagContext;
+}) {
+  const { blockingFlags, warningFlags, itemIdsByFlag, severityByFlag, context } = input;
   ESTIMATE_GATING_FLAG_KEYS.forEach((key) => {
     if (key === "rule_violation") {
       return;
@@ -523,27 +629,7 @@ export async function evaluateEstimateSendGating(
     if (itemIds.length === 0) return;
 
     const severity = severityByFlag[key];
-    const details: Record<string, unknown> = {};
-
-    if (key === "supplier_price_outdated") {
-      details.stale_price_days = stalePriceDays;
-    }
-    if (key === "margin_not_configured") {
-      details.margin_mode = version.margin_mode;
-      details.margin_tiers_count = marginTiers.length;
-    }
-    if (key === "total_exceeds_budget") {
-      details.total_ht_cents = version.total_ht_cents;
-      details.budget_ceiling_ht_cents = budgetCeilingHtCents;
-    }
-    if (key === "provisional_quantity_mention_missing" && mentionsOverflow > 0) {
-      details.limits_overflow = { missing_characters: mentionsOverflow, limit: OFFER_LIMITS_MAX_LENGTH };
-    }
-    if (key === "version_zero_review_pending" && versionZeroSummary?.activeDraft) {
-      details.draft_id = versionZeroSummary.activeDraft.id;
-      details.pending_count = versionZeroSummary.activeDraft.counts.pending;
-      details.selected_lots = versionZeroSummary.activeDraft.selectedLots;
-    }
+    const details = describeItemGatingFlag(key, context);
 
     const flag: EstimateGatingFlag = {
       key,
@@ -562,70 +648,89 @@ export async function evaluateEstimateSendGating(
     }
     warningFlags.push(flag);
   });
+}
 
-  function toRuleViolationDetails(violations: EstimateRuleViolation[]) {
-    return {
-      violations: violations.map((violation) => ({
-        rule_id: violation.rule_id,
-        rule_type: violation.rule_type,
-        scope_type: violation.scope_type,
-        scope_id: violation.scope_id,
-        threshold_value: violation.threshold_value,
-        action: violation.action,
-        metric_key: violation.metric_key,
-        actual_value: violation.actual_value,
-        comparator: violation.comparator,
-        approval_status: violation.approval_status,
-        approval_id: violation.approval_id,
-        approval_created_at: violation.approval_created_at,
-        approval_decided_at: violation.approval_decided_at,
-        source_state: violation.source_state,
-        message: violation.message,
-      })),
-    } satisfies Record<string, unknown>;
-  }
+function toRuleViolationDetails(violations: EstimateRuleViolation[]) {
+  return {
+    violations: violations.map((violation) => ({
+      rule_id: violation.rule_id,
+      rule_type: violation.rule_type,
+      scope_type: violation.scope_type,
+      scope_id: violation.scope_id,
+      threshold_value: violation.threshold_value,
+      action: violation.action,
+      metric_key: violation.metric_key,
+      actual_value: violation.actual_value,
+      comparator: violation.comparator,
+      approval_status: violation.approval_status,
+      approval_id: violation.approval_id,
+      approval_created_at: violation.approval_created_at,
+      approval_decided_at: violation.approval_decided_at,
+      source_state: violation.source_state,
+      message: violation.message,
+    })),
+  } satisfies Record<string, unknown>;
+}
 
-  function toUnavailableRuleDetails(signals: EstimateRuleUnavailableSignal[]) {
-    return {
-      unavailable_signals: signals.map((signal) => ({
-        rule_id: signal.rule_id,
-        rule_type: signal.rule_type,
-        scope_type: signal.scope_type,
-        scope_id: signal.scope_id,
-        threshold_value: signal.threshold_value,
-        action: signal.action,
-        metric_key: signal.metric_key,
-        comparator: signal.comparator,
-        source_state: signal.source_state,
-        message: signal.message,
-      })),
-    } satisfies Record<string, unknown>;
-  }
+function toUnavailableRuleDetails(signals: EstimateRuleUnavailableSignal[]) {
+  return {
+    unavailable_signals: signals.map((signal) => ({
+      rule_id: signal.rule_id,
+      rule_type: signal.rule_type,
+      scope_type: signal.scope_type,
+      scope_id: signal.scope_id,
+      threshold_value: signal.threshold_value,
+      action: signal.action,
+      metric_key: signal.metric_key,
+      comparator: signal.comparator,
+      source_state: signal.source_state,
+      message: signal.message,
+    })),
+  } satisfies Record<string, unknown>;
+}
 
+function buildRuleViolationFlag(input: {
+  severity: EstimateGatingSeverity;
+  count: number;
+  description: string;
+  details: Record<string, unknown>;
+}): EstimateGatingFlag {
+  return {
+    key: "rule_violation",
+    category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+    severity: input.severity,
+    count: input.count,
+    item_ids: [],
+    label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
+    description: input.description,
+    details: input.details,
+  };
+}
+
+/**
+ * The business rules not met, then those the available evidence cannot evaluate: blocking unless the rule only warns.
+ * The tenant settings change neither.
+ */
+function pushRuleGatingFlags(input: GatingFlagBuckets & {
+  rulesEvaluation: Awaited<ReturnType<typeof evaluateRules>>;
+}) {
+  const { blockingFlags, warningFlags, rulesEvaluation } = input;
   if (rulesEvaluation.blockingViolations.length > 0) {
-    blockingFlags.push({
-      key: "rule_violation",
-      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+    blockingFlags.push(buildRuleViolationFlag({
       severity: "blocking",
       count: rulesEvaluation.blockingViolations.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
       details: toRuleViolationDetails(rulesEvaluation.blockingViolations),
-    });
+    }));
   }
 
   if (rulesEvaluation.warningViolations.length > 0) {
-    warningFlags.push({
-      key: "rule_violation",
-      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+    warningFlags.push(buildRuleViolationFlag({
       severity: "warning",
       count: rulesEvaluation.warningViolations.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
       details: toRuleViolationDetails(rulesEvaluation.warningViolations),
-    });
+    }));
   }
 
   const blockingUnavailableSignals = rulesEvaluation.unavailableSignals.filter(
@@ -636,60 +741,43 @@ export async function evaluateEstimateSendGating(
   );
 
   if (blockingUnavailableSignals.length > 0) {
-    blockingFlags.push({
-      key: "rule_violation",
-      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+    blockingFlags.push(buildRuleViolationFlag({
       severity: "blocking",
       count: blockingUnavailableSignals.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description:
         "Des règles bloquantes ne peuvent pas être evaluees avec les preuves disponibles.",
       details: toUnavailableRuleDetails(blockingUnavailableSignals),
-    });
+    }));
   }
 
   if (warningUnavailableSignals.length > 0) {
-    warningFlags.push({
-      key: "rule_violation",
-      category: resolveEstimateReadinessCategoryFromGatingFlagKey("rule_violation"),
+    warningFlags.push(buildRuleViolationFlag({
       severity: "warning",
       count: warningUnavailableSignals.length,
-      item_ids: [],
-      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description:
         "Certaines règles d'avertissement ne peuvent pas être evaluees avec les preuves disponibles.",
       details: toUnavailableRuleDetails(warningUnavailableSignals),
-    });
+    }));
   }
+}
 
-  const criticalMissingPieceEntries = registerSummary.criticalOpenEntries.filter(
-    (entry) => entry.kind === "missing_piece"
-  );
-  const criticalAssumptionEntries = registerSummary.criticalOpenEntries.filter(
-    (entry) => entry.kind === "assumption"
-  );
-  const clarifyMissingPieceEntries = registerSummary.clarifyWithClientEntries.filter(
-    (entry) => entry.kind === "missing_piece"
-  );
-  const clarifyAssumptionEntries = registerSummary.clarifyWithClientEntries.filter(
-    (entry) => entry.kind === "assumption"
-  );
-  const openMissingPieceEntries = registerSummary.nonCriticalOpenEntries.filter(
-    (entry) => entry.kind === "missing_piece"
-  );
-  const openAssumptionEntries = registerSummary.nonCriticalOpenEntries.filter(
-    (entry) => entry.kind === "assumption"
-  );
-
+/**
+ * The questions of the affaire register: critical open entries and those to clarify with the client block, the other
+ * open entries warn. The tenant settings change neither.
+ */
+function pushRegisterGatingFlags(input: GatingFlagBuckets & {
+  registerSummary: SendGatingSources["registerSummary"];
+  projectId: string;
+}) {
+  const { blockingFlags, warningFlags, registerSummary, projectId } = input;
   pushRegisterGatingFlag({
     bucket: blockingFlags,
     key: "critical_missing_pieces",
     severity: "blocking",
-    projectId: input.project.id,
+    projectId,
     status: "open",
     registerSeverity: "critical",
-    entries: criticalMissingPieceEntries,
+    entries: registerSummary.criticalOpenEntries.filter((entry) => entry.kind === "missing_piece"),
     kind: "missing_piece",
     label: "Documents critiques manquants",
     description:
@@ -699,10 +787,10 @@ export async function evaluateEstimateSendGating(
     bucket: blockingFlags,
     key: "critical_open_questions",
     severity: "blocking",
-    projectId: input.project.id,
+    projectId,
     status: "open",
     registerSeverity: "critical",
-    entries: criticalAssumptionEntries,
+    entries: registerSummary.criticalOpenEntries.filter((entry) => entry.kind === "assumption"),
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
     description: ESTIMATE_GATING_FLAG_META.critical_open_questions.description,
@@ -711,10 +799,10 @@ export async function evaluateEstimateSendGating(
     bucket: blockingFlags,
     key: "client_missing_documents_required",
     severity: "blocking",
-    projectId: input.project.id,
+    projectId,
     status: "clarify_with_client",
     registerSeverity: null,
-    entries: clarifyMissingPieceEntries,
+    entries: registerSummary.clarifyWithClientEntries.filter((entry) => entry.kind === "missing_piece"),
     kind: "missing_piece",
     label: "Documents attendus du client",
     description:
@@ -724,10 +812,10 @@ export async function evaluateEstimateSendGating(
     bucket: blockingFlags,
     key: "client_clarification_required",
     severity: "blocking",
-    projectId: input.project.id,
+    projectId,
     status: "clarify_with_client",
     registerSeverity: null,
-    entries: clarifyAssumptionEntries,
+    entries: registerSummary.clarifyWithClientEntries.filter((entry) => entry.kind === "assumption"),
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
     description: ESTIMATE_GATING_FLAG_META.client_clarification_required.description,
@@ -736,10 +824,10 @@ export async function evaluateEstimateSendGating(
     bucket: warningFlags,
     key: "missing_pieces_pending",
     severity: "warning",
-    projectId: input.project.id,
+    projectId,
     status: "open",
     registerSeverity: null,
-    entries: openMissingPieceEntries,
+    entries: registerSummary.nonCriticalOpenEntries.filter((entry) => entry.kind === "missing_piece"),
     kind: "missing_piece",
     label: "Documents manquants à traiter",
     description:
@@ -749,14 +837,66 @@ export async function evaluateEstimateSendGating(
     bucket: warningFlags,
     key: "open_questions_pending",
     severity: "warning",
-    projectId: input.project.id,
+    projectId,
     status: "open",
     registerSeverity: null,
-    entries: openAssumptionEntries,
+    entries: registerSummary.nonCriticalOpenEntries.filter((entry) => entry.kind === "assumption"),
     kind: "assumption",
     label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,
     description: ESTIMATE_GATING_FLAG_META.open_questions_pending.description,
   });
+}
+
+export async function evaluateEstimateSendGating(
+  input: EvaluateEstimateSendGatingInput
+): Promise<EstimateSendGatingResult> {
+  const { supabase, tenantId, version, project } = input;
+  const sources = await loadSendGatingSources(input);
+  const { items, stalePriceDays } = sources;
+
+  // Line quality.
+  const staleSupplierPriceItemIds = await findStaleSupplierPriceItemIds({ supabase, tenantId, items, stalePriceDays });
+  const { qualityFlagsByItemId, itemIdsByFlag } = collectLineQualityFlags(items, staleSupplierPriceItemIds);
+
+  // Engine 3 pricing statuses and offer choices, and the offer's limits text that must state them.
+  const isEngine3 = isEngine3Version(version);
+  const provisionalMentions = flagLinePricingStatuses({
+    items, isEngine3, unreadableOfferChoiceIds: sources.unreadableOfferChoiceIds, qualityFlagsByItemId, itemIdsByFlag,
+  });
+  const mentionsOverflow = flagOfferLimitsText({ version, isEngine3, provisionalMentions, itemIdsByFlag });
+
+  // The version as a whole.
+  const budgetCeilingHtCents = parseProjectBudgetCeilingHtCents(project.notes);
+  flagVersionReadiness({
+    version,
+    marginTiers: sources.marginTiers,
+    budgetCeilingHtCents,
+    documents: sources.documents,
+    versionZeroSummary: sources.versionZeroSummary,
+    itemIdsByFlag,
+  });
+
+  // Business rules.
+  const rulesEvaluation = await evaluateSendRules({ ...input, items });
+
+  const blockingFlags: EstimateGatingFlag[] = [];
+  const warningFlags: EstimateGatingFlag[] = [];
+  pushItemGatingFlags({
+    blockingFlags,
+    warningFlags,
+    itemIdsByFlag,
+    severityByFlag: sources.severityByFlag,
+    context: {
+      version,
+      stalePriceDays,
+      marginTiers: sources.marginTiers,
+      budgetCeilingHtCents,
+      mentionsOverflow,
+      versionZeroSummary: sources.versionZeroSummary,
+    },
+  });
+  pushRuleGatingFlags({ blockingFlags, warningFlags, rulesEvaluation });
+  pushRegisterGatingFlags({ blockingFlags, warningFlags, registerSummary: sources.registerSummary, projectId: project.id });
 
   return {
     canSend: blockingFlags.length === 0,
