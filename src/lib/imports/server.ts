@@ -8,7 +8,10 @@ import {
   readAuthenticatedUser,
   type ActiveTenantMembership,
 } from "@/lib/auth/tenant-context";
-import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
+import {
+  mapPostgrestError,
+  toErrorResponse as toSharedErrorResponse,
+} from "@/lib/http/errors";
 import type { Database } from "@/types/database";
 
 import {
@@ -203,25 +206,12 @@ function internalError(
 }
 
 function mapSupabaseError(error: PostgrestError, fallbackMessage: string): ImportsApiError {
-  const normalizedMessage = (error.message ?? "").toLowerCase();
-
-  if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
-    return forbidden("Accès refusé.", error, "FORBIDDEN");
-  }
-
-  if (error.code === "PGRST116") {
-    return notFound("Ressource introuvable.", error, "NOT_FOUND");
-  }
-
-  if (error.code === "23505") {
-    return conflict("Conflit de données.", error, "CONFLICT");
-  }
-
-  if (error.code === "23503" || error.code === "23514" || error.code === "22P02") {
-    return badRequest(fallbackMessage, error, "BAD_REQUEST");
-  }
-
-  return badRequest(fallbackMessage, error, "BAD_REQUEST");
+  return mapPostgrestError(error, fallbackMessage, {
+    forbidden,
+    notFound,
+    conflict,
+    badRequest,
+  });
 }
 
 export function toErrorResponse(error: unknown) {

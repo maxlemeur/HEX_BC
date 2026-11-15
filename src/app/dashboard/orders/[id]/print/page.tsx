@@ -22,6 +22,7 @@ import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
+import { formatFilenameDate, sanitizeDownloadFilename } from "@/lib/download-filename";
 
 type Supplier = {
   name: string;
@@ -89,24 +90,6 @@ type PurchaseOrderItem = StoredOrderLineFields & {
   line_total_ht_cents: number;
   position: number;
 };
-
-function formatPrintDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toISOString().split("T")[0];
-}
-
-function sanitizeFilename(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
 
 export default async function OrderPrintPage({
   params,
@@ -197,11 +180,11 @@ export default async function OrderPrintPage({
   const supplierName = supplier?.name ?? "fournisseur";
   const orderNumberLabel = order.reference || String(order.order_number);
   const projectCode = deliverySite?.project_code ?? "";
-  const orderDate = formatPrintDate(order.order_date);
+  const orderDate = formatFilenameDate(order.order_date);
   const rawTitle = [supplierName, orderNumberLabel, projectCode, orderDate]
     .filter(Boolean)
     .join("_");
-  const printTitle = sanitizeFilename(rawTitle);
+  const printTitle = sanitizeDownloadFilename(rawTitle);
 
   return (
     <div className="mx-auto max-w-5xl print:max-w-none">

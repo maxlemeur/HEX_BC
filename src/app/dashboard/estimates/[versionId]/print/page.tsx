@@ -42,6 +42,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
 import { EstimateV3PrintPage } from "./EstimateV3PrintPage";
+import { formatFilenameDate, sanitizeDownloadFilename } from "@/lib/download-filename";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -65,24 +66,6 @@ const PRINT_VERSION_SELECT =
   "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 const LEGACY_PRINT_VERSION_SELECT =
   "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
-
-function formatPrintDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toISOString().split("T")[0];
-}
-
-function sanitizeFilename(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
 
 function resolveEstimatePortalUrl(versionId: string) {
   const portalBaseUrl = process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim();
@@ -357,11 +340,11 @@ export default async function PrintEstimatePage({
     [
       project?.name ?? "devis",
       `V${version.version_number}`,
-      formatPrintDate(version.date_devis),
+      formatFilenameDate(version.date_devis),
     ]
       .filter(Boolean)
       .join("_");
-  const printTitle = sanitizeFilename(rawTitle);
+  const printTitle = sanitizeDownloadFilename(rawTitle);
   const estimatePortalUrl = resolveEstimatePortalUrl(versionId);
 
   return (

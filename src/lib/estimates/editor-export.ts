@@ -33,6 +33,7 @@ import {
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import { sanitizeDownloadFilename } from "@/lib/download-filename";
 
 export const DEFAULT_ESTIMATE_CURRENCY: SupportedEstimateCurrency = "EUR";
 
@@ -107,16 +108,6 @@ export type SupplierComparisonsByItemId = Map<
   SupplierComparisonAlternative[]
 >;
 
-function sanitizeFilename(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/-+/g, "-")
-    .replace(/^[_-]+|[_-]+$/g, "");
-}
-
 function resolveItemTitle(
   value: string | null | undefined,
   fallback: string
@@ -143,7 +134,7 @@ export function buildEstimateExportFilename(input: {
       ? ""
       : `V${input.versionNumber}`;
   const raw = [namePart, versionLabel, dateLabel].filter(Boolean).join("_");
-  const sanitized = sanitizeFilename(raw);
+  const sanitized = sanitizeDownloadFilename(raw);
   return sanitized || `chiffrage_${dateLabel}`;
 }
 

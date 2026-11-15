@@ -1,4 +1,4 @@
-import { normalizeTakeoffCompareText } from "@/lib/takeoff/diff";
+import { normalizeCompareText } from "@/lib/text/fuzzy-compare";
 import type {
   TakeoffDpgfComparisonEvidenceKind,
   TakeoffPriceSuggestionConfidenceLabel,
@@ -219,11 +219,11 @@ function buildUnitFactor(
 ): TakeoffPriceSuggestionFactor | null {
   if (!currentUnit) return null;
 
-  const normalizedCurrentUnit = normalizeTakeoffCompareText(currentUnit);
+  const normalizedCurrentUnit = normalizeCompareText(currentUnit);
   const unitMatchCount = sources.filter((source) => {
     const sourceUnit =
       typeof source.metadata.unit === "string"
-        ? normalizeTakeoffCompareText(source.metadata.unit)
+        ? normalizeCompareText(source.metadata.unit)
         : null;
     return sourceUnit !== null && sourceUnit === normalizedCurrentUnit;
   }).length;

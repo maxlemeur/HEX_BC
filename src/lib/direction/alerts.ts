@@ -4,6 +4,7 @@ import type {
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
 import { fixedDiscountBasisPoints, meetsDiscountThreshold, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
+import { dedupeLabels } from "@/lib/text/dedupe-labels";
 
 export type DirectionAlertLevel = TakeoffRiskSeverity;
 
@@ -60,28 +61,6 @@ function severityRank(value: TakeoffRiskSeverity) {
   }
 }
 
-function dedupeStrings(values: string[]) {
-  const seen = new Set<string>();
-  const nextValues: string[] = [];
-
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const key = trimmed.toLocaleLowerCase("fr-FR");
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    nextValues.push(trimmed);
-  }
-
-  return nextValues;
-}
-
 function formatPercent(valueBp: number | null) {
   if (valueBp === null || !Number.isFinite(valueBp)) {
     return "n/a";
@@ -114,7 +93,7 @@ function deriveGroupLevel(
 }
 
 function collectLotLabels(alerts: TakeoffRiskAlert[]) {
-  return dedupeStrings(
+  return dedupeLabels(
     alerts
       .map((alert) =>
         alert.scope_type === "lot" ? alert.scope_label : null
@@ -144,7 +123,7 @@ function resolveAlertJobId(alert: TakeoffRiskAlert) {
 }
 
 function resolveSharedAlertJobId(alerts: TakeoffRiskAlert[]) {
-  const jobIds = dedupeStrings(
+  const jobIds = dedupeLabels(
     alerts
       .map((alert) => resolveAlertJobId(alert))
       .filter((jobId): jobId is string => Boolean(jobId))
@@ -174,7 +153,7 @@ function buildAlertGroup(
     latestJobId: input.latestJobId,
     level: deriveGroupLevel(alerts, fallbackSeverity),
     label,
-    reasons: dedupeStrings(reasons).slice(0, 3),
+    reasons: dedupeLabels(reasons).slice(0, 3),
     status: deriveGroupStatus(alerts),
     alertIds: alerts.map((alert) => alert.alert_id),
     lotLabels: collectLotLabels(alerts),
