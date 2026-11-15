@@ -18,7 +18,7 @@ import {
   type ClientContract1,
   type DocumentProof1,
 } from "@/lib/estimates/offer-contract";
-import { computeOfferSealHashV2, type ClientContract2 } from "@/lib/estimates/offer-contract-v2";
+import { computeOfferSealHashV2, type ClientContractV2 } from "@/lib/estimates/offer-contract-v2";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
 
@@ -66,7 +66,7 @@ type FrozenTaxRow = { rate_bp?: unknown; base_cents?: unknown; tax_cents?: unkno
  * nul), le récapitulatif par taux est celui du contexte figé et l'intention de remise celle de la
  * version (jamais dérivée). La correspondance ligne à ligne est prouvée en SQL à la publication.
  */
-function contract2MatchesVersion(captured: ClientContract2, version: Version): boolean {
+function contract2MatchesVersion(captured: ClientContractV2, version: Version): boolean {
   const totals = captured.totals;
   const context = version.calc_snapshot_context as { tax_breakdown?: unknown } | null;
   const frozenRates = Array.isArray(context?.tax_breakdown) ? (context.tax_breakdown as FrozenTaxRow[]) : null;

@@ -187,7 +187,7 @@ export function parseTerms(value: unknown, options: OfferProofParseOptions): Off
   return { ...fields, legalReviewedAt: calendarOrInstant(source.legalReviewedAt, "termsSnapshot.legalReviewedAt") };
 }
 
-export function run<T>(code: OfferContractErrorCode, parse: () => T): T {
+export function parseWithOfferContractError<T>(code: OfferContractErrorCode, parse: () => T): T {
   try {
     return parse();
   } catch (error) {

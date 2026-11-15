@@ -12,11 +12,11 @@ import {
   type OfferProofParseOptions,
   type OfferTermsSnapshot,
 } from "@/lib/estimates/offer-contract";
-import { canonicalJson, hash, invalid, object, run } from "@/lib/estimates/offer-contract-core";
+import { canonicalJson, hash, invalid, object, parseWithOfferContractError } from "@/lib/estimates/offer-contract-core";
 import {
-  parseClientContract2Snapshot,
-  parseContract2,
-  type ClientContract2,
+  parseClientContractV2Snapshot,
+  parseClientContractV2,
+  type ClientContractV2,
   type CommercialRow2,
 } from "@/lib/estimates/offer-contract-v2-parser";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
@@ -30,10 +30,10 @@ import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
  */
 
 export {
-  parseClientContract2Snapshot,
-  type ClientContract2,
-  type ClientContract2DiscountIntent,
-  type ClientContract2TaxRate,
+  parseClientContractV2Snapshot,
+  type ClientContractV2,
+  type ClientContractV2DiscountIntent,
+  type ClientContractV2TaxRate,
   type CommercialRow2,
 } from "@/lib/estimates/offer-contract-v2-parser";
 
@@ -48,7 +48,7 @@ export type Seal5V3 = {
     calcEngineVersion: 3;
   };
   calculation: { payloadVersion: 6; sha256: string };
-  clientContract: ClientContract2;
+  clientContract: ClientContractV2;
   document: {
     sha256Hash: string;
     layoutOptions: EstimatePdfLayoutOptions;
@@ -56,11 +56,11 @@ export type Seal5V3 = {
   };
 };
 
-export type ClientContract2BuildInput = {
-  version: ClientContract2["version"];
-  project: ClientContract2["project"];
-  issuer: ClientContract2["issuer"];
-  company: ClientContract2["company"];
+export type ClientContractV2BuildInput = {
+  version: ClientContractV2["version"];
+  project: ClientContractV2["project"];
+  issuer: ClientContractV2["issuer"];
+  company: ClientContractV2["company"];
   sourceRows: readonly Pick<EstimateItem, "id" | "parent_id" | "position" | "item_type" | "title" | "quantity" | "line_nature">[] & readonly { source_metadata?: unknown }[];
   prepared: Pick<EstimateDocumentV3PreparedData, "layout" | "numberingById" | "sectionTotalsById" | "v3">;
   exclusions: string | null;
@@ -75,10 +75,10 @@ function incomplete(): never {
  * document (lignes brutes, pied du contexte figé) : aucun moteur n'est rejoué ici. La copie est
  * rendue par l'analyseur strict, qui refuse toute incohérence au lieu de la réparer.
  */
-export function buildClientContract2(input: ClientContract2BuildInput): ClientContract2 {
+export function buildClientContractV2(input: ClientContractV2BuildInput): ClientContractV2 {
   const byId = new Map(input.sourceRows.map((entry) => [entry.id, entry]));
   if (byId.size !== input.sourceRows.length) incomplete();
-  const children = new Map<string | null, ClientContract2BuildInput["sourceRows"][number][]>();
+  const children = new Map<string | null, ClientContractV2BuildInput["sourceRows"][number][]>();
   for (const entry of input.sourceRows) {
     if (entry.parent_id !== null && byId.get(entry.parent_id)?.item_type !== "section") incomplete();
     if (entry.item_type === "line" && !Object.hasOwn(input.prepared.v3.linesById, entry.id)) incomplete();
@@ -118,7 +118,7 @@ export function buildClientContract2(input: ClientContract2BuildInput): ClientCo
   walk(null, 0);
   if (visited.size !== input.sourceRows.length) incomplete();
   const totals = input.prepared.v3.totals;
-  return parseClientContract2Snapshot({
+  return parseClientContractV2Snapshot({
     schemaVersion: 2, version: { ...input.version },
     project: input.project, issuer: input.issuer, company: input.company, rows,
     totals: {
@@ -144,10 +144,10 @@ export function computeOfferSealHashV2(input: {
   snapshot: unknown;
   documentProof: unknown;
 }, options: OfferProofParseOptions = {}): string {
-  return run("OFFER_SEAL_INPUT_INVALID", () => {
+  return parseWithOfferContractError("OFFER_SEAL_INPUT_INVALID", () => {
     const source = object(input, ["calculationHash", "snapshot", "documentProof"], "seal input");
     const calculationHash = hash(source.calculationHash, "seal calculationHash");
-    const captured = parseContract2(source.snapshot);
+    const captured = parseClientContractV2(source.snapshot);
     const proof = parseOfferDocumentProof(source.documentProof, options);
     if (proof.clientContractVersion !== 2 || canonicalJson(captured) !== canonicalJson(proof.clientContractSnapshot)) invalid("seal document copy");
     const payload: Seal5V3 = {
