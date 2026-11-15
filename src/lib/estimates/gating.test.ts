@@ -18,6 +18,16 @@ vi.mock("@/lib/affaires/register-server", () => ({
   fetchAffaireRegisterGateSummary: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/version-zero-drafts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/estimates/version-zero-drafts")>()),
+  fetchVersionZeroDraftSummary: vi.fn(),
+}));
+
+vi.mock("@/lib/estimates/fixed-discount-evidence-server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/estimates/fixed-discount-evidence-server")>()),
+  loadCanonicalFixedDiscountEvidence: vi.fn(),
+}));
+
 import {
   evaluateEstimateSendGating,
 } from "@/lib/estimates/gating";
@@ -27,6 +37,8 @@ import {
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
+import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";
 import { appendProvisionalQuantityMentions, composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
 
@@ -63,6 +75,7 @@ function createSupabaseGatingMock(input: {
   marginTiers: unknown[];
   documents: unknown[];
   supplierPrices?: unknown[];
+  errors?: Partial<Record<"marginTiers" | "documents" | "supplierPrices", QueryResult["error"]>>;
 }) {
   const estimateItemsBuilder = createOrderBuilder(
     {
@@ -72,15 +85,15 @@ function createSupabaseGatingMock(input: {
   );
   const marginTiersBuilder = createOrderBuilder(
     {
-      data: input.marginTiers,
-      error: null,
+      data: input.errors?.marginTiers ? null : input.marginTiers,
+      error: input.errors?.marginTiers ?? null,
     }
   );
   const estimateDocumentsBuilder = {
     eq: vi.fn(),
     limit: vi.fn().mockResolvedValue({
-      data: input.documents,
-      error: null,
+      data: input.errors?.documents ? null : input.documents,
+      error: input.errors?.documents ?? null,
     }),
   };
   estimateDocumentsBuilder.eq.mockReturnValue(estimateDocumentsBuilder);
@@ -88,8 +101,8 @@ function createSupabaseGatingMock(input: {
   const supplierPricesBuilder = {
     eq: vi.fn(),
     in: vi.fn().mockResolvedValue({
-      data: input.supplierPrices ?? [],
-      error: null,
+      data: input.errors?.supplierPrices ? null : input.supplierPrices ?? [],
+      error: input.errors?.supplierPrices ?? null,
     }),
   };
   supplierPricesBuilder.eq.mockReturnValue(supplierPricesBuilder);
@@ -166,6 +179,8 @@ describe("estimate send gating", () => {
       warningViolations: [],
       unavailableSignals: [],
     });
+    vi.mocked(fetchVersionZeroDraftSummary).mockResolvedValue(null as never);
+    vi.mocked(loadCanonicalFixedDiscountEvidence).mockResolvedValue(null);
   });
 
   it("returns blocking flags for tiered margin without tiers and missing pdf", async () => {
@@ -1134,6 +1149,491 @@ describe("estimate send gating", () => {
       const unpriced = await evaluate([pricedLine("line-unpriced", { pricing_status: "not_priced", was_not_priced: true,
         offer_choice: provisional() })], { exclusions: "Limites." });
       expect(keys(unpriced)).toEqual({ blocking: ["not_priced_unclassified"], warning: [] });
+    });
+  });
+  // The whole outcome of the send control, its loads and their order, as observed before the function was split into
+  // named steps (refactor wave of 2026-11-16): every flag, its place in the result, its details, and every query.
+  describe("send control outcome, loads and their order", () => {
+    type GatingInput = Parameters<typeof evaluateEstimateSendGating>[0];
+    const PROJECT_ID = "55555555-5555-4555-8555-555555555555";
+    const EMPTY_REGISTER = {
+      openQuestionsCount: 0, criticalOpenEntries: [], nonCriticalOpenEntries: [], clarifyWithClientEntries: [],
+      openAssumptionEntries: [], openMissingPieceEntries: [],
+    };
+    const cleanLine = (id = "line-clean", extra: Record<string, unknown> = {}) => ({
+      ...createLineItem({ id, quantity: 1, unitPriceHtCents: 5000 }), ...extra,
+    });
+    const evaluate = (options: {
+      items?: unknown[];
+      marginTiers?: unknown[];
+      documents?: unknown[];
+      supplierPrices?: unknown[];
+      errors?: Parameters<typeof createSupabaseGatingMock>[0]["errors"];
+      version?: Record<string, unknown>;
+      project?: Record<string, unknown>;
+      supabase?: unknown;
+    } = {}) => evaluateEstimateSendGating({
+      supabase: (options.supabase ?? createSupabaseGatingMock({
+        items: options.items ?? [cleanLine()],
+        marginTiers: options.marginTiers ?? [],
+        documents: options.documents ?? [{ id: "doc-1" }],
+        supplierPrices: options.supplierPrices,
+        errors: options.errors,
+      })) as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID, margin_mode: "fixed", margin_multiplier: 1, total_ht_cents: 10000, project_id: PROJECT_ID,
+        ...options.version,
+      } as GatingInput["version"],
+      project: { id: PROJECT_ID, client_name: "Client A", notes: null, ...options.project } as GatingInput["project"],
+    });
+    const keys = (result: Awaited<ReturnType<typeof evaluate>>) => ({
+      blocking: result.blockingFlags.map((flag) => flag.key), warning: result.warningFlags.map((flag) => flag.key),
+    });
+    const format = (args: unknown[]) => args.map((arg) => JSON.stringify(arg)).join(", ");
+    /** The existing fake, with each query it receives written down as one line, in the order the queries start. */
+    function recordQueries(supabase: ReturnType<typeof createSupabaseGatingMock>, log: string[]) {
+      const wrap = (target: object, index: number): object => new Proxy(target, {
+        get(object, property, receiver) {
+          const value = Reflect.get(object, property, receiver);
+          if (typeof value !== "function" || property === "then") return value;
+          return (...args: unknown[]) => {
+            log[index] += `.${String(property)}(${format(args)})`;
+            const result = value.apply(object, args);
+            return result && typeof result === "object" && !(result instanceof Promise) ? wrap(result, index) : result;
+          };
+        },
+      });
+      return {
+        rpc: (...args: unknown[]) =>
+          wrap((supabase.rpc as (...rpcArgs: unknown[]) => object)(...args), log.push(`rpc(${format(args)})`) - 1),
+        from: (table: string) => wrap(supabase.from(table), log.push(`from(${format([table])})`) - 1),
+      };
+    }
+    const violation = (ruleId: string, action: "block" | "warn") => ({
+      rule_id: ruleId, rule_type: "min_margin" as const, scope_type: "global" as const, scope_id: null, threshold_value: 1200,
+      action, severity: action === "block" ? "blocking" as const : "warning" as const, metric_key: "margin_bp" as const,
+      actual_value: 900, comparator: ">=" as const, approval_status: null, approval_id: null, approval_created_at: null,
+      approval_decided_at: null, source_state: "ready" as const, message: `Violation ${ruleId}.`,
+    });
+    const violationDetails = (ruleId: string, action: "block" | "warn") => ({
+      rule_id: ruleId, rule_type: "min_margin", scope_type: "global", scope_id: null, threshold_value: 1200, action,
+      metric_key: "margin_bp", actual_value: 900, comparator: ">=", approval_status: null, approval_id: null,
+      approval_created_at: null, approval_decided_at: null, source_state: "ready", message: `Violation ${ruleId}.`,
+    });
+    const unavailable = (ruleId: string, action: "block" | "warn" | "require_approval") => ({
+      rule_id: ruleId, rule_type: "critical_exceptions_max" as const, scope_type: "global" as const, scope_id: null,
+      threshold_value: 0, action, metric_key: "critical_exceptions_count" as const, comparator: "<=" as const,
+      source_state: "unavailable" as const, message: `Signal ${ruleId} indisponible.`,
+    });
+    const unavailableDetails = (ruleId: string, action: string) => ({
+      rule_id: ruleId, rule_type: "critical_exceptions_max", scope_type: "global", scope_id: null, threshold_value: 0,
+      action, metric_key: "critical_exceptions_count", comparator: "<=", source_state: "unavailable",
+      message: `Signal ${ruleId} indisponible.`,
+    });
+    const registerEntry = (id: string, kind: "missing_piece" | "assumption", status: "open" | "clarify_with_client",
+      severity: "critical" | "warning") => ({ id, kind, severity, status, text: `Entrée ${id}`, scopeLabel: "Affaire test" });
+    const href = (query: string) => `/dashboard/affaires/${PROJECT_ID}?${query}`;
+
+    it("lets a clean estimate leave with no flag, the tenant's stale-price delay and the time of the check", async () => {
+      vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(45);
+      const before = Date.now();
+      const result = await evaluate();
+      expect(result).toEqual({
+        canSend: true, blockingFlags: [], warningFlags: [], stalePriceDays: 45, checkedAt: expect.any(String),
+      });
+      expect(new Date(result.checkedAt).toISOString()).toBe(result.checkedAt);
+      expect(Date.parse(result.checkedAt)).toBeGreaterThanOrEqual(before);
+    });
+
+    it("lets an estimate with warnings only leave", async () => {
+      const result = await evaluate({
+        items: [cleanLine("line-stale", { selected_supplier_price_id: "sp-old" })],
+        supplierPrices: [{ id: "sp-old", updated_at: "2025-01-01T00:00:00.000Z", created_at: "2025-01-01T00:00:00.000Z" }],
+      });
+      expect(result.canSend).toBe(true);
+      expect(keys(result)).toEqual({ blocking: [], warning: ["supplier_price_outdated"] });
+    });
+
+    it("starts its queries and reads in a fixed order, and reads the selected supplier prices once each", async () => {
+      const log: string[] = [];
+      vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async (input) => {
+        log.push(`fetchAffaireRegisterGateSummary(${format([input.projectId, input.versionId])})`);
+        return EMPTY_REGISTER;
+      });
+      vi.mocked(fetchVersionZeroDraftSummary).mockImplementation(async (input) => {
+        log.push(`fetchVersionZeroDraftSummary(${format([input.versionId])})`);
+        return null as never;
+      });
+      vi.mocked(getStalePriceDaysForTenant).mockImplementation(async (tenantId) => {
+        log.push(`getStalePriceDaysForTenant(${format([tenantId])})`);
+        return 90;
+      });
+      vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (tenantId, key) => {
+        log.push(`getFeatureFlagValueForTenant(${format([tenantId, key])})`);
+        return null;
+      });
+      const evidence = { source: "draft_calculation" } as never;
+      vi.mocked(loadCanonicalFixedDiscountEvidence).mockImplementation(async () => {
+        log.push("loadCanonicalFixedDiscountEvidence");
+        return evidence;
+      });
+      vi.mocked(evaluateRules).mockImplementation(async () => {
+        log.push("evaluateRules");
+        return { violations: [], blockingViolations: [], warningViolations: [], unavailableSignals: [] };
+      });
+      const supabase = recordQueries(createSupabaseGatingMock({
+        items: [
+          cleanLine("line-b", { selected_supplier_price_id: "sp-1", category_id: "cat-1" }),
+          cleanLine("line-a", { selected_supplier_price_id: "sp-1", category_id: null }),
+          cleanLine("line-c", { selected_supplier_price_id: "sp-2", category_id: "cat-2" }),
+          cleanLine("line-d", { selected_supplier_price_id: "", category_id: "cat-2" }),
+          { id: "section-1", item_type: "section", selected_supplier_price_id: "sp-3", category_id: "cat-3" },
+        ],
+        marginTiers: [],
+        documents: [{ id: "doc-1" }],
+        supplierPrices: [],
+      }), log);
+      const version = {
+        id: VERSION_ID, project_id: PROJECT_ID, margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2000,
+        discount_bp: 150, discount_amount_cents: 500, tenant_id: TENANT_ID, status: "draft",
+        updated_at: "2026-11-16T08:00:00.000Z", calc_engine_version: 2, content_revision: 4,
+        calc_snapshot_content_revision: 4, calc_snapshot_context: { effective_margin_multiplier: 1.25 },
+        total_ht_cents: 10000, exclusions: null,
+      };
+
+      await evaluate({ supabase, version, project: { user_id: "owner-1" } });
+
+      expect(log).toEqual([
+        `rpc("read_estimate_version_items", {"p_tenant_id":"${TENANT_ID}","p_version_id":"${VERSION_ID}"}, {"count":"exact","get":true})`
+          + `.order("position", {"ascending":true}).order("id", {"ascending":true}).range(0, 499)`,
+        `from("margin_tiers").select("id", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}")`
+          + `.order("threshold_cents", {"ascending":true}).order("position", {"ascending":true})`,
+        `from("estimate_documents").select("id").eq("tenant_id", "${TENANT_ID}").eq("version_id", "${VERSION_ID}").limit(1)`,
+        `fetchAffaireRegisterGateSummary("${PROJECT_ID}", "${VERSION_ID}")`,
+        `fetchVersionZeroDraftSummary("${VERSION_ID}")`,
+        `getStalePriceDaysForTenant("${TENANT_ID}")`,
+        `getFeatureFlagValueForTenant("${TENANT_ID}", "ESTIMATE_GATING_BLOCKING_FLAGS")`,
+        `getFeatureFlagValueForTenant("${TENANT_ID}", "ESTIMATE_GATING_WARNING_FLAGS")`,
+        `from("supplier_pricebook").select("id, updated_at, created_at", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}")`
+          + `.in("id", ["sp-1","sp-2"])`,
+        "loadCanonicalFixedDiscountEvidence",
+        "evaluateRules",
+      ]);
+      expect(vi.mocked(fetchAffaireRegisterGateSummary).mock.calls[0]?.[0].supabase).toBe(supabase);
+      expect(vi.mocked(getFeatureFlagValueForTenant).mock.calls.map((call) => call[2]?.supabase)).toEqual([supabase, supabase]);
+      expect(vi.mocked(getStalePriceDaysForTenant).mock.calls[0]?.[1]?.supabase).toBe(supabase);
+      expect(vi.mocked(loadCanonicalFixedDiscountEvidence).mock.calls[0]?.[0]).toStrictEqual({
+        supabase, tenantId: TENANT_ID, projectUserId: "owner-1", authorizedVersion: version,
+      });
+      expect(vi.mocked(evaluateRules).mock.calls[0]?.[0]).toStrictEqual({
+        supabase,
+        tenantId: TENANT_ID,
+        fixedDiscountEvidence: evidence,
+        version: {
+          id: VERSION_ID, project_id: PROJECT_ID, margin_bp: 2000, margin_multiplier: 1.25, margin_mode: "fixed",
+          discount_bp: 150, discount_amount_cents: 500, tenant_id: TENANT_ID, status: "draft",
+          updated_at: "2026-11-16T08:00:00.000Z", calc_engine_version: 2, content_revision: 4,
+          calc_snapshot_content_revision: 4, calc_snapshot_context: { effective_margin_multiplier: 1.25 }, total_ht_cents: 10000,
+        },
+        project: { id: PROJECT_ID, client_name: "Client A" },
+        items: [
+          { id: "line-b", category_id: "cat-1", item_type: "line" },
+          { id: "line-a", category_id: null, item_type: "line" },
+          { id: "line-c", category_id: "cat-2", item_type: "line" },
+          { id: "line-d", category_id: "cat-2", item_type: "line" },
+        ],
+      });
+    });
+
+    it("reads no supplier price when no line selected one", async () => {
+      const log: string[] = [];
+      const supabase = recordQueries(createSupabaseGatingMock({
+        items: [cleanLine(), { id: "section-1", item_type: "section", selected_supplier_price_id: "sp-3" }],
+        marginTiers: [], documents: [{ id: "doc-1" }],
+      }), log);
+      await evaluate({ supabase });
+      expect(log.map((entry) => entry.slice(0, entry.indexOf(")") + 1))).toEqual([
+        `rpc("read_estimate_version_items", {"p_tenant_id":"${TENANT_ID}","p_version_id":"${VERSION_ID}"}, {"count":"exact","get":true})`,
+        `from("margin_tiers")`,
+        `from("estimate_documents")`,
+      ]);
+    });
+
+    const fixedDiscountVersion = {
+      discount_amount_cents: 500, tenant_id: TENANT_ID, status: "draft", updated_at: "2026-11-16T08:00:00.000Z",
+      content_revision: 4,
+    };
+    it.each([
+      ["no fixed discount", { discount_amount_cents: null }, {}],
+      ["a version read without its fixed discount", { discount_amount_cents: undefined }, {}],
+      ["a project read without its owner", {}, { user_id: undefined }],
+      ["a project without an owner", {}, { user_id: null }],
+      ["a version of another tenant", { tenant_id: "33333333-3333-4333-8333-333333333333" }, {}],
+      ["a version read without its status", { status: undefined }, {}],
+      ["a version read without its update time", { updated_at: undefined }, {}],
+      ["a version read without its content revision", { content_revision: undefined }, {}],
+    ])("hands the rules no fixed discount evidence, and reads none, for %s", async (_label, version, project) => {
+      await evaluate({ version: { ...fixedDiscountVersion, ...version }, project: { user_id: "owner-1", ...project } });
+      expect(loadCanonicalFixedDiscountEvidence).not.toHaveBeenCalled();
+      expect(vi.mocked(evaluateRules).mock.calls[0]?.[0].fixedDiscountEvidence).toBeNull();
+    });
+
+    it("reads the fixed discount evidence for a discount of 0 too, and hands the rules what it read", async () => {
+      vi.mocked(loadCanonicalFixedDiscountEvidence).mockResolvedValue(null);
+      await evaluate({ version: { ...fixedDiscountVersion, discount_amount_cents: 0 }, project: { user_id: "owner-1" } });
+      expect(loadCanonicalFixedDiscountEvidence).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(evaluateRules).mock.calls[0]?.[0].fixedDiscountEvidence).toBeNull();
+    });
+
+    it("assembles every family of flags in a fixed order, with their categories, labels and details", async () => {
+      vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(30);
+      vi.mocked(fetchVersionZeroDraftSummary).mockResolvedValue({
+        activeDraft: { id: "draft-1", counts: { pending: 3 }, selectedLots: ["CVC", "PLB"] },
+      } as never);
+      vi.mocked(evaluateRules).mockResolvedValue({
+        violations: [violation("rule-block", "block"), violation("rule-warn", "warn")],
+        blockingViolations: [violation("rule-block", "block")],
+        warningViolations: [violation("rule-warn", "warn")],
+        unavailableSignals: [unavailable("signal-warn", "warn"), unavailable("signal-block", "block"),
+          unavailable("signal-approval", "require_approval")],
+      });
+      vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+        ...EMPTY_REGISTER,
+        criticalOpenEntries: [
+          registerEntry("reg-critical-question", "assumption", "open", "critical"),
+          registerEntry("reg-critical-piece", "missing_piece", "open", "critical"),
+        ],
+        clarifyWithClientEntries: [
+          registerEntry("reg-clarify-question", "assumption", "clarify_with_client", "warning"),
+          registerEntry("reg-clarify-piece-b", "missing_piece", "clarify_with_client", "warning"),
+          registerEntry("reg-clarify-piece-a", "missing_piece", "clarify_with_client", "warning"),
+        ],
+        nonCriticalOpenEntries: [
+          registerEntry("reg-open-piece", "missing_piece", "open", "warning"),
+          registerEntry("reg-open-question", "assumption", "open", "warning"),
+        ],
+      } as never);
+
+      const result = await evaluate({
+        items: [
+          { ...createLineItem({ id: "line-missing-price", quantity: 1, unitPriceHtCents: 0 }), pricing_status: "priced" },
+          cleanLine("line-stale", { selected_supplier_price_id: "sp-old", pricing_status: "priced" }),
+          { ...createLineItem({ id: "line-not-priced", quantity: 1, unitPriceHtCents: 0, laborHours: 0, laborRoleId: null }),
+            pricing_status: "not_priced", offer_choice: null },
+        ],
+        marginTiers: [],
+        documents: [],
+        supplierPrices: [{ id: "sp-old", updated_at: "2025-01-01T00:00:00.000Z", created_at: "2025-01-01T00:00:00.000Z" }],
+        version: { margin_mode: "tiered", total_ht_cents: 10000, calc_engine_version: 3, exclusions: null },
+        project: { notes: "{\"budget_ht_cents\": 8000}" },
+      });
+
+      const meta = (key: string, severity: "blocking" | "warning", category: string, itemIds: string[],
+        label: string, description: string, details?: Record<string, unknown>) =>
+        ({ key, category, severity, count: itemIds.length, item_ids: itemIds, label, description, details });
+      expect(result.canSend).toBe(false);
+      expect(result.stalePriceDays).toBe(30);
+      expect(result.blockingFlags).toStrictEqual([
+        meta("missing_price", "blocking", "estimate_quality", ["line-missing-price"], "Prix manquant",
+          expect.any(String)),
+        meta("margin_not_configured", "blocking", "estimate_quality", [VERSION_ID], "Marge par tranches non configurée",
+          "Le mode de marge par tranches est actif mais aucune tranche n'est configurée pour cette organisation.",
+          { margin_mode: "tiered", margin_tiers_count: 0 }),
+        meta("total_exceeds_budget", "blocking", "estimate_quality", [VERSION_ID], "Budget dépassé",
+          "Le total HT du devis dépasse le plafond budgétaire configuré pour le projet.",
+          { total_ht_cents: 10000, budget_ceiling_ht_cents: 8000 }),
+        meta("no_pdf_generated", "blocking", "pdf", [VERSION_ID], "PDF absent",
+          "Aucun document PDF n'est généré pour cette version. Lancez une génération avant l'envoi."),
+        meta("version_zero_review_pending", "blocking", "estimate_quality", [VERSION_ID], "V0 IA à revoir",
+          "Une V0 assistée est encore active sur cette version. La revue humaine explicite doit être finalisée avant envoi.",
+          { draft_id: "draft-1", pending_count: 3, selected_lots: ["CVC", "PLB"] }),
+        meta("not_priced_unclassified", "blocking", "estimate_quality", ["line-not-priced"],
+          "Lignes non chiffrées à classer", expect.any(String)),
+        {
+          key: "rule_violation", category: "approvals", severity: "blocking", count: 1, item_ids: [],
+          label: "Règles métier non respectées",
+          description: "Des règles métier (marge, remise, approbation) ne sont pas satisfaites.",
+          details: { violations: [violationDetails("rule-block", "block")] },
+        },
+        {
+          key: "rule_violation", category: "approvals", severity: "blocking", count: 2, item_ids: [],
+          label: "Règles métier non respectées",
+          description: "Des règles bloquantes ne peuvent pas être evaluees avec les preuves disponibles.",
+          details: { unavailable_signals: [unavailableDetails("signal-block", "block"),
+            unavailableDetails("signal-approval", "require_approval")] },
+        },
+        {
+          key: "critical_missing_pieces", category: "documents", severity: "blocking", count: 1, item_ids: [],
+          label: "Documents critiques manquants",
+          description: "Des pièces critiques restent manquantes ou inexploitees dans le registre affaire.",
+          details: { register_entries: [{ ...registerEntry("reg-critical-piece", "missing_piece", "open", "critical"),
+            href: href("registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=reg-critical-piece") }] },
+        },
+        {
+          key: "critical_open_questions", category: "register", severity: "blocking", count: 1, item_ids: [],
+          label: "Questions critiques ouvertes",
+          description: "Le registre affaire contient des hypothèses ou pièces manquantes critiques encore ouvertes.",
+          details: { register_entries: [{ ...registerEntry("reg-critical-question", "assumption", "open", "critical"),
+            href: href("registerStatus=open&registerSeverity=critical&registerKind=assumption&registerFocus=reg-critical-question") }] },
+        },
+        {
+          key: "client_missing_documents_required", category: "documents", severity: "blocking", count: 2, item_ids: [],
+          label: "Documents attendus du client",
+          description: "Des pièces attendues du client restent nécessaires avant l'envoi.",
+          details: { register_entries: [
+            { ...registerEntry("reg-clarify-piece-b", "missing_piece", "clarify_with_client", "warning"),
+              href: href("registerStatus=clarify_with_client&registerKind=missing_piece&registerFocus=reg-clarify-piece-b") },
+            { ...registerEntry("reg-clarify-piece-a", "missing_piece", "clarify_with_client", "warning"),
+              href: href("registerStatus=clarify_with_client&registerKind=missing_piece&registerFocus=reg-clarify-piece-a") },
+          ] },
+        },
+        {
+          key: "client_clarification_required", category: "register", severity: "blocking", count: 1, item_ids: [],
+          label: "Clarification client requise",
+          description: "Le registre affaire contient des points à clarifier avec le client avant l'envoi.",
+          details: { register_entries: [{ ...registerEntry("reg-clarify-question", "assumption", "clarify_with_client", "warning"),
+            href: href("registerStatus=clarify_with_client&registerKind=assumption&registerFocus=reg-clarify-question") }] },
+        },
+      ]);
+      expect(result.warningFlags).toStrictEqual([
+        meta("supplier_price_outdated", "warning", "estimate_quality", ["line-stale"], expect.any(String),
+          expect.any(String), { stale_price_days: 30 }),
+        {
+          key: "rule_violation", category: "approvals", severity: "warning", count: 1, item_ids: [],
+          label: "Règles métier non respectées",
+          description: "Des règles métier (marge, remise, approbation) ne sont pas satisfaites.",
+          details: { violations: [violationDetails("rule-warn", "warn")] },
+        },
+        {
+          key: "rule_violation", category: "approvals", severity: "warning", count: 1, item_ids: [],
+          label: "Règles métier non respectées",
+          description: "Certaines règles d'avertissement ne peuvent pas être evaluees avec les preuves disponibles.",
+          details: { unavailable_signals: [unavailableDetails("signal-warn", "warn")] },
+        },
+        {
+          key: "missing_pieces_pending", category: "documents", severity: "warning", count: 1, item_ids: [],
+          label: "Documents manquants à traiter",
+          description: "Des pièces manquantes non critiques restent ouvertes dans le registre affaire.",
+          details: { register_entries: [{ ...registerEntry("reg-open-piece", "missing_piece", "open", "warning"),
+            href: href("registerStatus=open&registerKind=missing_piece&registerFocus=reg-open-piece") }] },
+        },
+        {
+          key: "open_questions_pending", category: "register", severity: "warning", count: 1, item_ids: [],
+          label: "Questions ouvertes à traiter",
+          description: "Des hypothèses ou pièces manquantes non critiques restent ouvertes dans le registre affaire.",
+          details: { register_entries: [{ ...registerEntry("reg-open-question", "assumption", "open", "warning"),
+            href: href("registerStatus=open&registerKind=assumption&registerFocus=reg-open-question") }] },
+        },
+      ]);
+    });
+
+    it("keeps the register and rule flags at their own severity, whatever the tenant flags", async () => {
+      vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => key === "ESTIMATE_GATING_BLOCKING_FLAGS"
+        ? "missing_pieces_pending,open_questions_pending"
+        : "rule_violation,critical_missing_pieces,critical_open_questions,client_missing_documents_required,client_clarification_required");
+      vi.mocked(evaluateRules).mockResolvedValue({
+        violations: [violation("rule-block", "block")], blockingViolations: [violation("rule-block", "block")],
+        warningViolations: [], unavailableSignals: [unavailable("signal-block", "block")],
+      });
+      vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+        ...EMPTY_REGISTER,
+        criticalOpenEntries: [registerEntry("reg-1", "missing_piece", "open", "critical"),
+          registerEntry("reg-2", "assumption", "open", "critical")],
+        clarifyWithClientEntries: [registerEntry("reg-3", "missing_piece", "clarify_with_client", "warning"),
+          registerEntry("reg-4", "assumption", "clarify_with_client", "warning")],
+        nonCriticalOpenEntries: [registerEntry("reg-5", "missing_piece", "open", "warning"),
+          registerEntry("reg-6", "assumption", "open", "warning")],
+      } as never);
+      const result = await evaluate();
+      expect(result.blockingFlags.map((flag) => [flag.key, flag.severity])).toEqual([
+        ["rule_violation", "blocking"], ["rule_violation", "blocking"], ["critical_missing_pieces", "blocking"],
+        ["critical_open_questions", "blocking"], ["client_missing_documents_required", "blocking"],
+        ["client_clarification_required", "blocking"],
+      ]);
+      expect(result.warningFlags.map((flag) => [flag.key, flag.severity])).toEqual([
+        ["missing_pieces_pending", "warning"], ["open_questions_pending", "warning"],
+      ]);
+    });
+
+    it("moves a line flag the tenant made blocking to the blocking flags, with its details", async () => {
+      vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(30);
+      vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) =>
+        key === "ESTIMATE_GATING_BLOCKING_FLAGS" ? "supplier_price_outdated" : null);
+      const result = await evaluate({
+        items: [cleanLine("line-stale", { selected_supplier_price_id: "sp-old" }),
+          cleanLine("line-fresh", { selected_supplier_price_id: "sp-new" })],
+        supplierPrices: [
+          { id: "sp-old", updated_at: "2025-01-01T00:00:00.000Z", created_at: "2025-01-01T00:00:00.000Z" },
+          { id: "sp-new", updated_at: new Date().toISOString(), created_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      });
+      expect(result.canSend).toBe(false);
+      expect(keys(result)).toEqual({ blocking: ["supplier_price_outdated"], warning: [] });
+      expect(result.blockingFlags[0]).toMatchObject({
+        severity: "blocking", item_ids: ["line-stale"], details: { stale_price_days: 30 },
+      });
+    });
+
+    it.each([
+      ["no notes", null, null],
+      ["blank notes", "  \n ", null],
+      ["free text without a budget", "Client pressé, relancer lundi.", null],
+      ["a JSON budget, rounded", "{\"budget_ht_cents\": 5000.4}", 5000],
+      ["a JSON budget written as text", "{\"budget_ht_cents\": \" 6000 \"}", 6000],
+      ["a JSON budget ceiling", "{\"budget_ceiling_ht_cents\": 7000}", 7000],
+      ["a JSON total budget", "{\"total_budget_ht_cents\": 8000}", 8000],
+      ["the first JSON budget field before the others", "{\"budget_ht_cents\": 4000, \"budget_ceiling_ht_cents\": 9000}", 4000],
+      ["a negative JSON budget, which stops the reading", "{\"budget_ht_cents\": -1, \"budget_ceiling_ht_cents\": 5000}", null],
+      ["an unreadable JSON budget, skipped for the next field", "{\"budget_ht_cents\": \"abc\", \"budget_ceiling_ht_cents\": 5000}", 5000],
+      ["a JSON array", "[5000]", null],
+      ["a JSON object without a budget", "{\"other\": 1}", null],
+      ["a budget written in free text", "Budget client : budget_ht_cents = 9000 (oral)", 9000],
+      ["a budget ceiling written in free text, whatever its case", "BUDGET_CEILING_HT_CENTS:9500", 9500],
+      ["a budget equal to the total", "{\"budget_ht_cents\": 10000}", null],
+      ["a budget above the total", "{\"budget_ht_cents\": 20000}", null],
+    ])("reads the project budget from %s", async (_label, notes, ceiling) => {
+      const result = await evaluate({ project: { notes }, version: { total_ht_cents: 10000 } });
+      const flag = result.blockingFlags.find((candidate) => candidate.key === "total_exceeds_budget");
+      if (ceiling === null) {
+        expect(flag).toBeUndefined();
+        expect(result.canSend).toBe(true);
+        return;
+      }
+      expect(flag).toMatchObject({ item_ids: [VERSION_ID], details: { total_ht_cents: 10000, budget_ceiling_ht_cents: ceiling } });
+    });
+
+    it("leaves the margin alone when tiers exist or the margin is not tiered", async () => {
+      expect(keys(await evaluate({ version: { margin_mode: "tiered" }, marginTiers: [{ id: "tier-1" }] })).blocking).toEqual([]);
+      expect(keys(await evaluate({ version: { margin_mode: "fixed" }, marginTiers: [] })).blocking).toEqual([]);
+    });
+
+    it("waits for no V0 review once the draft is closed, and goes on when the V0 summary cannot be read", async () => {
+      vi.mocked(fetchVersionZeroDraftSummary).mockResolvedValueOnce({ activeDraft: null } as never);
+      expect(keys(await evaluate())).toEqual({ blocking: [], warning: [] });
+      vi.mocked(fetchVersionZeroDraftSummary).mockRejectedValueOnce(new Error("no request scope"));
+      const unreadable = await evaluate();
+      expect(unreadable.canSend).toBe(true);
+      expect(keys(unreadable)).toEqual({ blocking: [], warning: [] });
+    });
+
+    it.each([
+      ["margin tiers", { marginTiers: { code: "XX000", message: "boom" } }, "Impossible de charger les tranches de marge."],
+      ["documents", { documents: { code: "XX000", message: "boom" } }, "Impossible de charger les documents de la version."],
+      ["margin tiers before documents", { marginTiers: { code: "XX000", message: "a" }, documents: { code: "XX000", message: "b" } },
+        "Impossible de charger les tranches de marge."],
+      ["supplier prices", { supplierPrices: { code: "XX000", message: "boom" } },
+        "Impossible de charger les prix fournisseurs sélectionnés."],
+    ])("refuses to judge when the %s cannot be read, before any rule", async (_label, errors, message) => {
+      await expect(evaluate({
+        items: [cleanLine("line-1", { selected_supplier_price_id: "sp-1" })], errors,
+      })).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST", message });
+      expect(evaluateRules).not.toHaveBeenCalled();
+    });
+
+    it("maps a refused read the way every estimate read does", async () => {
+      await expect(evaluate({ errors: { marginTiers: { code: "42501", message: "permission denied" } } }))
+        .rejects.toMatchObject({ status: 403, code: "FORBIDDEN", message: "Accès refusé." });
     });
   });
 });
