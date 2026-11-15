@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
@@ -220,5 +220,62 @@ describe("reading a document for the assistant", () => {
     expect(text.text).toBe("é".repeat(5));
     nextRequest(ledger);
     await expect(read(new TextEncoder().encode("a"), { ledger, fileName: "b.txt", mimeType: "text/plain" })).rejects.toThrow("Limite de pages");
+  });
+});
+
+// The automatic transcription a piece got at arrival (an image, the scanned pages of a PDF) goes with the read of the
+// same content only, labelled as unverified, for the pages the read sends, within what the read may weigh.
+describe("reading a piece with its automatic transcription", () => {
+  const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]);
+  const transcribed = (bytes: Uint8Array, pages: { page: number; text: string }[]) => ({ sourceSha256: sha(bytes), pages });
+  const textOf = (parts: Record<string, unknown>[]) => parts.filter((part) => part.type === "input_text").map((part) => String(part.text));
+
+  it("sends an image's transcription after the image, labelled as unverified", async () => {
+    const result = await read(png, { fileName: "bon.png", mimeType: "image/png",
+      transcription: transcribed(png, [{ page: 1, text: "Tube cuivre DN20 | 12 m\nRéf. [illisible]" }]) });
+    expect(result.parts.map((part) => part.type)).toEqual(["input_image", "input_text"]);
+    const [text] = textOf(result.parts);
+    expect(text).toContain("Transcription automatique non vérifiée");
+    expect(text).toContain("Page 1 :\nTube cuivre DN20 | 12 m\nRéf. [illisible]");
+    expect(result.transcription).toEqual({ pages: [1], cut: false });
+    // What the read weighs counts the text as well as the image.
+    expect(result.bytes).toBe(png.byteLength + new TextEncoder().encode(text).byteLength);
+  });
+
+  it("leaves out the transcription of another content: the piece changed since it was read", async () => {
+    const result = await read(png, { fileName: "bon.png", mimeType: "image/png",
+      transcription: { sourceSha256: sha(new Uint8Array([1])), pages: [{ page: 1, text: "Ancien texte" }] } });
+    expect(result.parts.map((part) => part.type)).toEqual(["input_image"]);
+    expect(result.transcription).toBeNull();
+  });
+
+  it("sends only the transcribed pages within the range the read sends", async () => {
+    const bytes = await pdfOf(6);
+    const result = await read(bytes, { pageStart: 2, pageEnd: 4,
+      transcription: transcribed(bytes, [{ page: 1, text: "hors plage" }, { page: 3, text: "Article 7 : vanne DN20 | 4 u" }, { page: 5, text: "après" }]) });
+    expect(result.parts.map((part) => part.type)).toEqual(["input_file", "input_text"]);
+    const [text] = textOf(result.parts);
+    expect(text).toContain("Page 3 :\nArticle 7 : vanne DN20 | 4 u");
+    expect(text).not.toContain("hors plage");
+    expect(text).not.toContain("après");
+    expect(result.transcription).toEqual({ pages: [3], cut: false });
+  });
+
+  it("sends nothing more when no transcribed page falls in the range", async () => {
+    const bytes = await pdfOf(4);
+    const result = await read(bytes, { pageStart: 1, pageEnd: 2, transcription: transcribed(bytes, [{ page: 4, text: "page 4" }]) });
+    expect(result.parts.map((part) => part.type)).toEqual(["input_file"]);
+    expect(result.transcription).toBeNull();
+  });
+
+  it("cuts the transcription to what is left of the read's bytes, and says so", async () => {
+    const long = "Tube cuivre DN20 | 12 m\n".repeat(400);
+    const limit = png.byteLength + 2_000;
+    const result = await read(png, { fileName: "bon.png", mimeType: "image/png", limits: { ...DOCUMENT_READ_LIMITS, bytesPerRead: limit },
+      transcription: transcribed(png, [{ page: 1, text: long }]) });
+    expect(result.transcription).toEqual({ pages: [1], cut: true });
+    expect(result.bytes).toBeLessThanOrEqual(limit);
+    expect(textOf(result.parts)[0]).toContain("coupée");
   });
 });

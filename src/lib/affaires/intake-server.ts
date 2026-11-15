@@ -11,6 +11,7 @@ import {
 } from "@/lib/affaires/intake-classification-prompt";
 import { buildAffaireIntakeReanalysisUpdate, withAffaireAiCategoryProposal } from "@/lib/affaires/intake-reanalysis";
 import { createHash, randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { cache } from "react";
 
 import { z } from "zod";
@@ -34,6 +35,7 @@ import { classifyAutonomousAffaireDocument, getIntakeDecisionsCapability, getInt
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
 import { canTranscribeIntakeDocument, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
+import { needsIntakeTranscription } from "@/lib/affaires/intake-transcription";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
@@ -2901,6 +2903,56 @@ export async function processAffaireIntakeUpload(uploadId: string) {
 
 class IntakeDocumentReadError extends Error {}
 
+/** Readings a retry scheduled on this instance and that still run: a second click does not start the same one. */
+const retryReadings = new Set<string>();
+
+/**
+ * « Relancer l’analyse » reads the piece's text again when it needs it: no
+ * reading was recorded, the recorded one stopped on a failure (quota, access,
+ * model) or read another content. The reading runs after the response, on the
+ * ChatGPT plan of the member who asked for the analysis, as the analysis does;
+ * its outcome is recorded on its own row and never changes the classification.
+ * Returns whether a reading was scheduled.
+ */
+async function scheduleRetryTranscription(input: {
+  context: AuthenticatedContext; document: AffaireIntakeDocumentRow; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
+}) {
+  const { context, document } = input;
+  if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(input.mimeType)) return false;
+  const key = `${document.id}:${input.sourceSha256}`;
+  if (retryReadings.has(key)) return false;
+  // Read with the member's rights: the piece's own policies decide, as for its preview.
+  const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
+    .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
+  if (error) {
+    console.error("Affaire intake transcription state could not be read", { documentId: document.id });
+    return false;
+  }
+  if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
+  retryReadings.add(key);
+  const owner = { userId: context.userId, tenantId: context.tenantId };
+  after(async () => {
+    const supabase = createServiceRoleClient();
+    // No lease covers a manual retry: the reading stops once the piece leaves the dossier.
+    const stillActive = async () => {
+      const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
+        .eq("tenant_id", owner.tenantId).eq("id", document.id).eq("upload_status", "uploaded")
+        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+      if (readError || !data) throw new Error("The piece left the dossier during its reading.");
+    };
+    try {
+      await stillActive();
+      await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
+        renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.file_name } });
+    } catch {
+      console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+    } finally {
+      retryReadings.delete(key);
+    }
+  });
+  return true;
+}
+
 /** A manual retry owns one document, never rearms its shared import lot.
  * updated_at fences every outcome; an interrupted reservation can only be
  * reclaimed explicitly after ten minutes, using the new caller's own account.
@@ -2959,8 +3011,12 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     } catch (cause) {
       throw cause instanceof IntakeDocumentReadError ? cause : new IntakeDocumentReadError("Le fichier ne peut pas être lu depuis sa source. Vérifiez sa disponibilité et, pour Drive, sa connexion.");
     }
+    const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream";
+    const sourceSha256 = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    // The text is read after the response: a reading takes up to minutes per page.
+    await scheduleRetryTranscription({ context, document, mimeType, bytes, sourceSha256 });
     const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
-      mimeType: document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream", bytes,
+      mimeType, bytes,
       aiOwner: context,
       existingMetadata: document.extracted_metadata,
       beforeProviderCall: async () => {
@@ -2969,8 +3025,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
           .eq("classification_status", document.classification_status).is("deleted_at", null).is("deletion_token", null).maybeSingle();
         if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
       },
-      decisionsContext: { owner: context, projectId: project.id, documentId: document.id,
-        sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") },
+      decisionsContext: { owner: context, projectId: project.id, documentId: document.id, sourceVersion: sourceSha256 },
     });
     // A reanalysis updates a proposal. Confirmation and derived dossier/brief
     // updates stay in the existing explicit manual validation action.

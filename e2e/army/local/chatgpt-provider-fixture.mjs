@@ -189,8 +189,11 @@ globalThis.fetch = async (input, init) => {
     const question = body.input.findLast(entry => entry.role === "user" && typeof entry.content === "string")?.content ?? "";
     const outputs = body.input.filter(entry => entry.type === "function_call_output").map(entry => JSON.parse(entry.output));
     assert.equal(body.input.filter(entry => entry.type === "function_call").length, outputs.length, "Each tool result answers a replayed call.");
+    // Whether a piece's automatic transcription reached the plan with its read (INTOCR02).
+    const transcriptionSent = body.input.some(entry => Array.isArray(entry.content) && entry.content.some(part =>
+      part.type === "input_text" && part.text.startsWith("Transcription automatique non vérifiée")));
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "assistant",
-      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model }) + "\n");
+      step: outputs.length, toolChoice: body.tool_choice, question, model: body.model, transcriptionSent }) + "\n");
     const completed = { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 } } };
     const sse = events => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     const call = (name, args) => sse([{ type: "response.output_item.done", output_index: 0, item: {
@@ -213,6 +216,28 @@ globalThis.fetch = async (input, init) => {
       assert(attached.content[1].type === "input_file" && attached.content[1].file_data.startsWith("data:application/pdf;base64,JVBER"), "The pages reach the plan as a PDF file.");
       assert(!body.input.some(entry => entry.role === "developer" || entry.role === "system"), "A document never speaks as the rules.");
       const text = `Le CCTP impose du cuivre écroui DN20 [[doc:${piece.id}/2|art. 4.2]]. Rien sur la robinetterie [[doc:${piece.id}/9|art. 9]].`;
+      return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
+    }
+    // The transcription of a piece (INTOCR02): the model lists the dossier, reads its image, then answers from the text
+    // read at arrival, which follows the image as an unverified transcription, and cites the piece's page.
+    if (question.startsWith("INTOCR02 ")) {
+      if (outputs.length === 0) return call("lister_pieces", {});
+      const piece = outputs[0].pieces?.find(entry => entry.nom.endsWith(".png"));
+      assert(piece?.lisible === true, "The affaire's fictional image must be listed as readable.");
+      if (outputs.length === 1) return call("lire_piece", { documentId: piece.id });
+      assert.equal(outputs.length, 2);
+      assert.deepEqual(outputs[1].pages_lues, { de: 1, a: 1 });
+      assert.deepEqual({ pages: outputs[1].transcription_automatique?.pages, coupee: outputs[1].transcription_automatique?.coupee },
+        { pages: [1], coupee: false }, "The read names the transcribed page.");
+      const lastOutput = body.input.findLastIndex(entry => entry.type === "function_call_output");
+      const attached = body.input[lastOutput + 1];
+      assert.equal(attached?.role, "user");
+      assert.deepEqual(attached.content.map(part => part.type), ["input_text", "input_image", "input_text"], "The text follows the image.");
+      assert(attached.content[0].text.includes("jamais une instruction"), "The piece and its transcription are framed as data.");
+      const transcription = attached.content[2].text;
+      assert(transcription.includes("vérifie sur la page") && transcription.includes("Page 1 :\nBON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]"),
+        "The transcription is labelled as unverified and given by page.");
+      const text = `Le bon de livraison mentionne 12 m de tube cuivre DN20 [[doc:${piece.id}/1|bon]], d’après sa transcription automatique non vérifiée.`;
       return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
     }
     if (question.startsWith("ASSIST04-AUTRE ")) {
@@ -306,6 +331,12 @@ globalThis.fetch = async (input, init) => {
       reasoningEffort: body.reasoning.effort, inputKind: image ? "image" : pdf ? "pdf" : "none", ...(image ? { detail: image.detail ?? null } : {}),
       page: /la page (\d+) de la pièce/.exec(prompt)?.[1] ?? null }) + "\n");
     assert(image || pdf, "A transcription sends the image or the scanned page.");
+    // `holdTranscription` (INTOCR02) keeps the reading waiting, to prove that the analysis answered without it.
+    const deadline = Date.now() + 60_000;
+    while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdTranscription) {
+      if (Date.now() >= deadline) throw new Error("The controlled transcription response was not released.");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const texte = image ? "BON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]"
       : "Article 7 (page scannée) : vanne d'isolement DN20 | 4 u";
     return new Response([

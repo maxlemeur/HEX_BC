@@ -6,7 +6,7 @@ import { z } from "zod";
 import {
   INTAKE_TRANSCRIPTION_MAX_PAGES, INTAKE_TRANSCRIPTION_MODEL, INTAKE_TRANSCRIPTION_PAGE_TIMEOUT_MS,
   INTAKE_TRANSCRIPTION_PROMPT_VERSION, INTAKE_TRANSCRIPTION_REASONING_EFFORT, buildIntakeTranscriptionPrompt,
-  intakeTranscriptionAnswerSchema, summarizeIntakeTranscription,
+  intakeTranscriptionAnswerSchema, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import {
@@ -131,7 +131,7 @@ export async function transcribeIntakeDocument(input: {
     .eq("document_id", input.document.id).eq("tenant_id", input.document.tenantId).maybeSingle();
   if (existingError) throw existingError;
   // A reading of the same content is kept, unless a failure stopped it (quota, access): that one is read again.
-  if (existing && existing.source_sha256 === input.sourceSha256 && existing.error_code === null) return { transcribed: false as const, reason: "already_read" };
+  if (!needsIntakeTranscription(existing, input.sourceSha256)) return { transcribed: false as const, reason: "already_read" };
   const plan = await planIntakeTranscription({ mimeType: input.mimeType, bytes: input.bytes });
   if (!plan) {
     // A new content that needs no reading takes the previous reading away.

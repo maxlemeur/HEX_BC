@@ -49,6 +49,16 @@ export function buildIntakeTranscriptionPrompt(input: { fileName: string; page: 
   ].join("\n");
 }
 
+/**
+ * Whether a piece needs a reading for this content: none was recorded, the
+ * recorded one read another content, or a failure stopped it (quota, access,
+ * model, a page too heavy). A reading that ended without an error, the per-piece
+ * bound included, is kept.
+ */
+export function needsIntakeTranscription(existing: { source_sha256: string; error_code: string | null } | null, sourceSha256: string) {
+  return !existing || existing.source_sha256 !== sourceSha256 || existing.error_code !== null;
+}
+
 export function countIllegiblePassages(text: string) {
   return text.match(/\[illisible\]/gi)?.length ?? 0;
 }
