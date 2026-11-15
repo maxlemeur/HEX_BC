@@ -1432,14 +1432,72 @@ function sortValidImportFlowLines(lines: ValidImportFlowLine[]) {
   });
 }
 
-async function loadStructureDraftSourceBundle(input: {
+type StructureDraftSource = {
+  summary: EstimateStructureDraftSourceSummary;
+  entries: EstimateStructureSourceEntry[];
+};
+
+type LinkedDpgfImport = NonNullable<
+  Awaited<ReturnType<typeof loadLatestLinkedDpgfImportForProject>>
+>;
+
+type HistoryVersionRow = {
+  id: string;
+  version_number: number;
+  title: string | null;
+};
+
+type LibraryRow = {
+  id: string;
+  name: string;
+  description: string | null;
+};
+
+type HistorySectionRow = {
+  id: string;
+  version_id: string;
+  parent_id: string | null;
+  item_type: string;
+  title: string;
+  position: number;
+};
+
+type TemplateSectionRow = {
+  id: string;
+  template_id: string;
+  parent_id: string | null;
+  item_type: string;
+  title: string;
+  position: number;
+};
+
+const CONFIRMED_BRIEF_LIST_BLOCKS = [
+  { blockKey: "scope", limit: 8 },
+  { blockKey: "lots", limit: 12 },
+  { blockKey: "received_pieces", limit: 12 },
+  { blockKey: "assumptions", limit: 8 },
+  { blockKey: "vigilance_points", limit: 8 },
+  { blockKey: "missing_elements", limit: 8 },
+] as const satisfies ReadonlyArray<{ blockKey: keyof AffaireBriefRow; limit: number }>;
+
+function unavailableSource(
+  kind: EstimateStructureDraftSourceSummary["kind"],
+  label: string,
+  detail: string
+): StructureDraftSource {
+  return {
+    summary: { kind, label, available: false, used: false, detail },
+    entries: [],
+  };
+}
+
+async function loadLinkedImportAndLibraries(input: {
   supabase: Supabase;
   tenantId: string;
-  project: EmbeddedProjectAccess;
-  version: VersionAccessRow;
-}): Promise<EstimateStructureDraftSourceBundle> {
-  const { supabase, tenantId, project, version } = input;
-
+  projectId: string;
+  versionId: string;
+}) {
+  const { supabase, tenantId, projectId, versionId } = input;
   const [
     latestLinkedImport,
     historyVersionsResult,
@@ -1449,14 +1507,14 @@ async function loadStructureDraftSourceBundle(input: {
     loadLatestLinkedDpgfImportForProject({
       supabase,
       tenantId,
-      projectId: project.id,
+      projectId,
     }),
     supabase
       .from("estimate_versions")
       .select("id, version_number, title")
       .eq("tenant_id", tenantId)
-      .eq("project_id", project.id)
-      .neq("id", version.id)
+      .eq("project_id", projectId)
+      .neq("id", versionId)
       .order("version_number", { ascending: false })
       .limit(5),
     supabase
@@ -1492,29 +1550,26 @@ async function loadStructureDraftSourceBundle(input: {
     );
   }
 
-  const historyVersions = (historyVersionsResult.data ?? []) as Array<{
-    id: string;
-    version_number: number;
-    title: string | null;
-  }>;
-  const templateRows = (templatesResult.data ?? []) as Array<{
-    id: string;
-    name: string;
-    description: string | null;
-  }>;
-  const assemblyRows = (assembliesResult.data ?? []) as Array<{
-    id: string;
-    name: string;
-    description: string | null;
-  }>;
+  return {
+    latestLinkedImport,
+    historyVersions: (historyVersionsResult.data ?? []) as HistoryVersionRow[],
+    templateRows: (templatesResult.data ?? []) as LibraryRow[],
+    assemblyRows: (assembliesResult.data ?? []) as LibraryRow[],
+  };
+}
 
-  const historyVersionIds = historyVersions.map((row) => row.id);
-  const templateIds = templateRows.map((row) => row.id);
-
+async function loadLibrarySectionsAndImportRows(input: {
+  supabase: Supabase;
+  tenantId: string;
+  latestLinkedImport: LinkedDpgfImport | null;
+  historyVersionIds: string[];
+  templateIds: string[];
+}) {
+  const { supabase, tenantId, latestLinkedImport, historyVersionIds, templateIds } = input;
   const [
     historyItemsResult,
     templateItemsResult,
-    linkedImportSource,
+    linkedImportRows,
   ] = await Promise.all([
     historyVersionIds.length > 0
       ? readAllRowsInChunks(historyVersionIds, (pageIds) => supabase
@@ -1554,206 +1609,224 @@ async function loadStructureDraftSourceBundle(input: {
     );
   }
 
-  const sourceEntries: EstimateStructureSourceEntry[] = [];
-  const sourceSummaries: EstimateStructureDraftSourceSummary[] = [];
+  return {
+    historyItems: (historyItemsResult.data ?? []) as HistorySectionRow[],
+    templateItems: (templateItemsResult.data ?? []) as TemplateSectionRow[],
+    linkedImportRows,
+  };
+}
 
-  if (latestLinkedImport) {
-    const normalized = normalizeMappedRowsForEstimateCreation(linkedImportSource, {
-      marginMultiplier:
-        typeof version.margin_multiplier === "number"
-          ? version.margin_multiplier
-          : 1,
-      defaultTaxRateBp:
-        typeof version.tax_rate_bp === "number" ? version.tax_rate_bp : DEFAULT_TAX_RATE_BP,
+function groupSectionsByOwner<T extends { id: string }>(
+  items: T[],
+  ownerId: (item: T) => string
+) {
+  const itemsByOwner = new Map<string, EstimateItemRow[]>();
+  items.forEach((item) => {
+    const current = itemsByOwner.get(ownerId(item));
+    if (current) {
+      current.push(item as unknown as EstimateItemRow);
+      return;
+    }
+
+    itemsByOwner.set(ownerId(item), [item as unknown as EstimateItemRow]);
+  });
+  return itemsByOwner;
+}
+
+function buildLinkedDpgfSource(input: {
+  latestLinkedImport: LinkedDpgfImport | null;
+  linkedImportRows: Awaited<ReturnType<typeof fetchMappedRowsForImport>>;
+  version: VersionAccessRow;
+}): StructureDraftSource {
+  const { latestLinkedImport, linkedImportRows, version } = input;
+  if (!latestLinkedImport) {
+    return unavailableSource("linked_dpgf", "DPGF lie", "Aucun DPGF lie disponible.");
+  }
+
+  const normalized = normalizeMappedRowsForEstimateCreation(linkedImportRows, {
+    marginMultiplier:
+      typeof version.margin_multiplier === "number"
+        ? version.margin_multiplier
+        : 1,
+    defaultTaxRateBp:
+      typeof version.tax_rate_bp === "number" ? version.tax_rate_bp : DEFAULT_TAX_RATE_BP,
+  });
+  const validLines = sortValidImportFlowLines(normalized.validLines).slice(0, 40);
+  const entries: EstimateStructureSourceEntry[] = [];
+
+  validLines.forEach((line, index) => {
+    const path = inferDpgfPath(line.title);
+    if (path.length === 0) return;
+    entries.push({
+      id: `dpgf-${index}-${line.mappedRowId}`,
+      kind: "linked_dpgf",
+      type: "dpgf",
+      label: latestLinkedImport.filename,
+      path,
+      excerpt: line.title,
+      fact: `Ligne DPGF détectée: ${line.title}`,
+      hypothesis:
+        path.length > 1
+          ? "Chapitrage propose à partir du libelle DPGF."
+          : null,
+      inference:
+        path.length > 1
+          ? `Sous-structure deduite depuis "${line.title}".`
+          : null,
+      weight: 1.1,
     });
-    const validLines = sortValidImportFlowLines(normalized.validLines).slice(0, 40);
+  });
 
-    validLines.forEach((line, index) => {
-      const path = inferDpgfPath(line.title);
-      if (path.length === 0) return;
-      sourceEntries.push({
-        id: `dpgf-${index}-${line.mappedRowId}`,
-        kind: "linked_dpgf",
-        type: "dpgf",
-        label: latestLinkedImport.filename,
-        path,
-        excerpt: line.title,
-        fact: `Ligne DPGF détectée: ${line.title}`,
-        hypothesis:
-          path.length > 1
-            ? "Chapitrage propose à partir du libelle DPGF."
-            : null,
-        inference:
-          path.length > 1
-            ? `Sous-structure deduite depuis "${line.title}".`
-            : null,
-        weight: 1.1,
-      });
-    });
-
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "linked_dpgf",
       label: "DPGF lie",
       available: true,
       used: validLines.length > 0,
       detail: `${latestLinkedImport.filename} · ${validLines.length} ligne(s) retenue(s)`,
-    });
-  } else {
-    sourceSummaries.push({
-      kind: "linked_dpgf",
-      label: "DPGF lie",
-      available: false,
-      used: false,
-      detail: "Aucun DPGF lie disponible.",
-    });
+    },
+    entries,
+  };
+}
+
+function buildHistoricalVersionsSource(input: {
+  historyVersions: HistoryVersionRow[];
+  historyItems: HistorySectionRow[];
+}): StructureDraftSource {
+  const { historyVersions, historyItems } = input;
+  if (historyVersions.length === 0) {
+    return unavailableSource(
+      "historical_versions",
+      "Versions historiques",
+      "Aucun historique exploitable."
+    );
   }
 
-  if (historyVersions.length > 0) {
-    const historyItems = (historyItemsResult.data ?? []) as Array<{
-      id: string;
-      version_id: string;
-      parent_id: string | null;
-      item_type: string;
-      title: string;
-      position: number;
-    }>;
-    const itemsByVersion = new Map<string, EstimateItemRow[]>();
-    historyItems.forEach((item) => {
-      const current = itemsByVersion.get(item.version_id);
-      if (current) {
-        current.push(item as unknown as EstimateItemRow);
-        return;
-      }
+  const itemsByVersion = groupSectionsByOwner(historyItems, (item) => item.version_id);
+  const entries: EstimateStructureSourceEntry[] = [];
 
-      itemsByVersion.set(item.version_id, [item as unknown as EstimateItemRow]);
-    });
-
-    historyVersions.forEach((historyVersion) => {
-      const versionItems = itemsByVersion.get(historyVersion.id) ?? [];
-      const existingSections = buildExistingSections(versionItems);
-      existingSections.forEach((section) => {
-        sourceEntries.push({
-          id: `history-${historyVersion.id}-${section.id}`,
-          kind: "historical_versions",
-          type: "history",
-          label: `V${historyVersion.version_number}`,
-          path: section.path.split(" > "),
-          excerpt: historyVersion.title ?? null,
-          fact: `Observe dans V${historyVersion.version_number}: ${section.path}`,
-          hypothesis: null,
-          inference: "Structure historisee sur une version précédente.",
-          weight: 1.6,
-        });
+  historyVersions.forEach((historyVersion) => {
+    const versionItems = itemsByVersion.get(historyVersion.id) ?? [];
+    const existingSections = buildExistingSections(versionItems);
+    existingSections.forEach((section) => {
+      entries.push({
+        id: `history-${historyVersion.id}-${section.id}`,
+        kind: "historical_versions",
+        type: "history",
+        label: `V${historyVersion.version_number}`,
+        path: section.path.split(" > "),
+        excerpt: historyVersion.title ?? null,
+        fact: `Observe dans V${historyVersion.version_number}: ${section.path}`,
+        hypothesis: null,
+        inference: "Structure historisee sur une version précédente.",
+        weight: 1.6,
       });
     });
+  });
 
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "historical_versions",
       label: "Versions historiques",
       available: true,
       used: historyItems.length > 0,
       detail: `${historyVersions.length} version(s) analysee(s)`,
-    });
-  } else {
-    sourceSummaries.push({
-      kind: "historical_versions",
-      label: "Versions historiques",
-      available: false,
-      used: false,
-      detail: "Aucun historique exploitable.",
-    });
+    },
+    entries,
+  };
+}
+
+function buildTemplateLibrarySource(input: {
+  templateRows: LibraryRow[];
+  templateItems: TemplateSectionRow[];
+}): StructureDraftSource {
+  const { templateRows, templateItems } = input;
+  if (templateRows.length === 0) {
+    return unavailableSource(
+      "template_library",
+      "Bibliotheque templates",
+      "Aucun template disponible."
+    );
   }
 
-  if (templateRows.length > 0) {
-    const templateItems = (templateItemsResult.data ?? []) as Array<{
-      id: string;
-      template_id: string;
-      parent_id: string | null;
-      item_type: string;
-      title: string;
-      position: number;
-    }>;
-    const itemsByTemplate = new Map<string, EstimateItemRow[]>();
-    templateItems.forEach((item) => {
-      const current = itemsByTemplate.get(item.template_id);
-      if (current) {
-        current.push(item as unknown as EstimateItemRow);
-        return;
-      }
+  const itemsByTemplate = groupSectionsByOwner(templateItems, (item) => item.template_id);
+  const entries: EstimateStructureSourceEntry[] = [];
 
-      itemsByTemplate.set(item.template_id, [item as unknown as EstimateItemRow]);
-    });
-
-    templateRows.forEach((template) => {
-      const templateItemsForId = itemsByTemplate.get(template.id) ?? [];
-      buildExistingSections(templateItemsForId).forEach((section) => {
-        sourceEntries.push({
-          id: `template-${template.id}-${section.id}`,
-          kind: "template_library",
-          type: "template",
-          label: template.name,
-          path: section.path.split(" > "),
-          excerpt: template.description,
-          fact: `Template "${template.name}" contient ${section.path}`,
-          hypothesis: null,
-          inference: "Structure standardisee issue de la bibliotheque.",
-          weight: 1.35,
-        });
+  templateRows.forEach((template) => {
+    const templateItemsForId = itemsByTemplate.get(template.id) ?? [];
+    buildExistingSections(templateItemsForId).forEach((section) => {
+      entries.push({
+        id: `template-${template.id}-${section.id}`,
+        kind: "template_library",
+        type: "template",
+        label: template.name,
+        path: section.path.split(" > "),
+        excerpt: template.description,
+        fact: `Template "${template.name}" contient ${section.path}`,
+        hypothesis: null,
+        inference: "Structure standardisee issue de la bibliotheque.",
+        weight: 1.35,
       });
     });
+  });
 
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "template_library",
       label: "Bibliotheque templates",
       available: true,
       used: templateItems.length > 0,
       detail: `${templateRows.length} template(s) pris en compte`,
-    });
-  } else {
-    sourceSummaries.push({
-      kind: "template_library",
-      label: "Bibliotheque templates",
-      available: false,
-      used: false,
-      detail: "Aucun template disponible.",
-    });
+    },
+    entries,
+  };
+}
+
+function buildAssemblyLibrarySource(assemblyRows: LibraryRow[]): StructureDraftSource {
+  if (assemblyRows.length === 0) {
+    return unavailableSource(
+      "assembly_library",
+      "Bibliotheque ouvrages",
+      "Aucun ouvrage disponible."
+    );
   }
 
-  if (assemblyRows.length > 0) {
-    assemblyRows.forEach((assembly, index) => {
-      const label = toNullableText(assembly.name);
-      if (!label) return;
-      sourceEntries.push({
-        id: `assembly-${assembly.id}-${index}`,
-        kind: "assembly_library",
-        type: "assembly",
-        label,
-        path: truncatePath([label]),
-        excerpt: assembly.description,
-        fact: `Ouvrage disponible: ${label}`,
-        hypothesis: "L'ouvrage peut constituer un lot autonome ou un sous-chapitre.",
-        inference: "Regroupement propose à partir du catalogue d'ouvrages.",
-        weight: 0.85,
-      });
+  const entries: EstimateStructureSourceEntry[] = [];
+  assemblyRows.forEach((assembly, index) => {
+    const label = toNullableText(assembly.name);
+    if (!label) return;
+    entries.push({
+      id: `assembly-${assembly.id}-${index}`,
+      kind: "assembly_library",
+      type: "assembly",
+      label,
+      path: truncatePath([label]),
+      excerpt: assembly.description,
+      fact: `Ouvrage disponible: ${label}`,
+      hypothesis: "L'ouvrage peut constituer un lot autonome ou un sous-chapitre.",
+      inference: "Regroupement propose à partir du catalogue d'ouvrages.",
+      weight: 0.85,
     });
+  });
 
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "assembly_library",
       label: "Bibliotheque ouvrages",
       available: true,
       used: assemblyRows.length > 0,
       detail: `${assemblyRows.length} ouvrage(s) explores`,
-    });
-  } else {
-    sourceSummaries.push({
-      kind: "assembly_library",
-      label: "Bibliotheque ouvrages",
-      available: false,
-      used: false,
-      detail: "Aucun ouvrage disponible.",
-    });
-  }
+    },
+    entries,
+  };
+}
 
+async function loadConfirmedBriefAndPrimaryCctpDocuments(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+}) {
+  const { supabase, tenantId, projectId } = input;
   const [
     confirmedBriefResult,
     primaryCctpDocumentsResult,
@@ -1763,7 +1836,7 @@ async function loadStructureDraftSourceBundle(input: {
       .select(
         "id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements" as never
       )
-      .eq("project_id", project.id)
+      .eq("project_id", projectId)
       .eq("status", "confirme")
       .maybeSingle(),
     readAllRows(() => supabase
@@ -1773,7 +1846,7 @@ async function loadStructureDraftSourceBundle(input: {
         { count: "exact" }
       )
       .eq("tenant_id", tenantId)
-      .eq("project_id", project.id)
+      .eq("project_id", projectId)
       .eq("document_kind", "cctp")
       .eq("upload_status", "uploaded")
       .eq("classification_status", "classified")
@@ -1794,10 +1867,19 @@ async function loadStructureDraftSourceBundle(input: {
     );
   }
 
-  const confirmedBrief =
-    (confirmedBriefResult.data as AffaireBriefRow | null) && confirmedBriefResult.data
+  return {
+    confirmedBrief: confirmedBriefResult.data
       ? (confirmedBriefResult.data as AffaireBriefRow)
-      : null;
+      : null,
+    cctpDocuments: (primaryCctpDocumentsResult.data ?? []) as AffaireIntakeDocumentRow[],
+  };
+}
+
+function buildPrimaryCctpSource(input: {
+  confirmedBrief: AffaireBriefRow | null;
+  cctpDocuments: AffaireIntakeDocumentRow[];
+}): StructureDraftSource {
+  const { confirmedBrief, cctpDocuments } = input;
   const primaryCctpCapability = resolveAffairePreliminaryStructureCapability({
     briefDraft: confirmedBrief
       ? {
@@ -1805,136 +1887,134 @@ async function loadStructureDraftSourceBundle(input: {
           lots: pickAffaireBriefTextArray(confirmedBrief.lots, 20),
         }
       : null,
-    documents: ((primaryCctpDocumentsResult.data ?? []) as AffaireIntakeDocumentRow[]).map(
-      (document) => ({
-        documentId: document.id,
-        fileName: document.file_name,
-        detectedCategory: document.document_kind === "cctp" ? "cctp" : "a_classer",
-        uploadStatus: document.upload_status === "uploaded" ? "uploaded" : null,
-        classificationStatus:
-          document.classification_status === "classified" ? "classified" : null,
-        documentPriority:
-          document.document_priority === "primary" ||
-          document.document_priority === "secondary"
-            ? document.document_priority
-            : null,
-        extractedMetadata: normalizeAffaireIntakeExtractedMetadata(
-          document.extracted_metadata
-        ),
-      })
-    ),
+    documents: cctpDocuments.map((document) => ({
+      documentId: document.id,
+      fileName: document.file_name,
+      detectedCategory: document.document_kind === "cctp" ? "cctp" : "a_classer",
+      uploadStatus: document.upload_status === "uploaded" ? "uploaded" : null,
+      classificationStatus:
+        document.classification_status === "classified" ? "classified" : null,
+      documentPriority:
+        document.document_priority === "primary" ||
+        document.document_priority === "secondary"
+          ? document.document_priority
+          : null,
+      extractedMetadata: normalizeAffaireIntakeExtractedMetadata(
+        document.extracted_metadata
+      ),
+    })),
   });
   const primaryCctpSource =
     primaryCctpCapability.sources.find((source) => source.kind === "primary_cctp") ??
     null;
 
-  if (primaryCctpSource) {
-    primaryCctpSource.availableLots.forEach((lot, index) => {
-      sourceEntries.push({
-        id: `primary-cctp-${index}`,
-        kind: "primary_cctp",
-        type: "cctp",
-        label: "CCTP principal",
-        path: truncatePath([lot]),
-        excerpt: primaryCctpSource.fileName,
-        fact: `Lot detecte dans le CCTP principal: ${lot}`,
-        hypothesis: null,
-        inference: "Signal structurel issu du CCTP principal retenu par l'intake.",
-        weight: 1.3,
-      });
-    });
+  if (!primaryCctpSource) {
+    return unavailableSource(
+      "primary_cctp",
+      "CCTP principal",
+      "Aucun CCTP principal exploitable dans l'intake."
+    );
+  }
 
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "primary_cctp",
       label: "CCTP principal",
       available: true,
       used: primaryCctpSource.availability === "ready",
       detail: primaryCctpSource.detail,
-    });
-  } else {
-    sourceSummaries.push({
+    },
+    entries: primaryCctpSource.availableLots.map((lot, index) => ({
+      id: `primary-cctp-${index}`,
       kind: "primary_cctp",
+      type: "cctp",
       label: "CCTP principal",
-      available: false,
-      used: false,
-      detail: "Aucun CCTP principal exploitable dans l'intake.",
-    });
+      path: truncatePath([lot]),
+      excerpt: primaryCctpSource.fileName,
+      fact: `Lot detecte dans le CCTP principal: ${lot}`,
+      hypothesis: null,
+      inference: "Signal structurel issu du CCTP principal retenu par l'intake.",
+      weight: 1.3,
+    })),
+  };
+}
+
+function buildConfirmedBriefEntries(
+  confirmedBrief: AffaireBriefRow,
+  sourceLinks: AffaireBriefSourceLinkRow[]
+) {
+  const sourceFileNamesByEntry = new Map<string, string[]>();
+
+  for (const sourceLink of sourceLinks) {
+    const key = `${sourceLink.block_key}:${sourceLink.entry_index}`;
+    const current = sourceFileNamesByEntry.get(key) ?? [];
+    current.push(sourceLink.source_file_name);
+    sourceFileNamesByEntry.set(key, current);
   }
 
-  if (confirmedBrief?.id) {
-    const { data: confirmedBriefSourceData, error: confirmedBriefSourceError } =
-      await supabase
-        .from("affaire_brief_source_links" as never)
-        .select(
-          "source_document_id, block_key, entry_index, source_file_name" as never
-        )
-        .eq("brief_id", confirmedBrief.id);
+  const entries: EstimateStructureSourceEntry[] = [];
+  const pushBriefEntry = (blockKey: string, entryIndex: number, label: string) => {
+    const text = toNullableText(label);
+    if (!text) return;
 
-    if (confirmedBriefSourceError) {
-      throw mapSupabaseError(
-        confirmedBriefSourceError,
-        "Impossible de charger les sources du brief affaire confirme."
-      );
-    }
+    const sourceFileNames = sourceFileNamesByEntry.get(`${blockKey}:${entryIndex}`) ?? [];
+    entries.push({
+      id: `brief-${blockKey}-${entryIndex}`,
+      kind: "confirmed_brief",
+      type: "brief",
+      label: "Brief confirme",
+      path: truncatePath(["Brief confirme", text]),
+      excerpt: sourceFileNames.length > 0 ? sourceFileNames.join(" · ") : null,
+      fact: `Brief confirme: ${text}`,
+      hypothesis: null,
+      inference: null,
+      weight: 1.55,
+    });
+  };
 
-    const sourceLinks = (confirmedBriefSourceData ?? []) as AffaireBriefSourceLinkRow[];
-    const sourceFileNamesByEntry = new Map<string, string[]>();
-
-    for (const sourceLink of sourceLinks) {
-      const key = `${sourceLink.block_key}:${sourceLink.entry_index}`;
-      const current = sourceFileNamesByEntry.get(key) ?? [];
-      current.push(sourceLink.source_file_name);
-      sourceFileNamesByEntry.set(key, current);
-    }
-
-    const pushBriefEntry = (
-      blockKey: string,
-      entryIndex: number,
-      label: string,
-      excerpt: string | null
-    ) => {
-      const text = toNullableText(label);
-      if (!text) return;
-
-      const path = truncatePath(["Brief confirme", text]);
-      const sourceFileNames = sourceFileNamesByEntry.get(`${blockKey}:${entryIndex}`) ?? [];
-      sourceEntries.push({
-        id: `brief-${blockKey}-${entryIndex}`,
-        kind: "confirmed_brief",
-        type: "brief",
-        label: "Brief confirme",
-        path,
-        excerpt:
-          excerpt ?? (sourceFileNames.length > 0 ? sourceFileNames.join(" · ") : null),
-        fact: `Brief confirme: ${text}`,
-        hypothesis: null,
-        inference: null,
-        weight: 1.55,
-      });
-    };
-
-    pushBriefEntry("summary", 0, confirmedBrief.summary, null);
-    pushBriefEntry("project_object", 0, confirmedBrief.project_object, null);
-    pickAffaireBriefTextArray(confirmedBrief.scope, 8).forEach((entry, index) =>
-      pushBriefEntry("scope", index, entry, null)
+  pushBriefEntry("summary", 0, confirmedBrief.summary);
+  pushBriefEntry("project_object", 0, confirmedBrief.project_object);
+  CONFIRMED_BRIEF_LIST_BLOCKS.forEach(({ blockKey, limit }) => {
+    pickAffaireBriefTextArray(confirmedBrief[blockKey], limit).forEach((entry, index) =>
+      pushBriefEntry(blockKey, index, entry)
     );
-    pickAffaireBriefTextArray(confirmedBrief.lots, 12).forEach((entry, index) =>
-      pushBriefEntry("lots", index, entry, null)
-    );
-    pickAffaireBriefTextArray(confirmedBrief.received_pieces, 12).forEach(
-      (entry, index) => pushBriefEntry("received_pieces", index, entry, null)
-    );
-    pickAffaireBriefTextArray(confirmedBrief.assumptions, 8).forEach((entry, index) =>
-      pushBriefEntry("assumptions", index, entry, null)
-    );
-    pickAffaireBriefTextArray(confirmedBrief.vigilance_points, 8).forEach(
-      (entry, index) => pushBriefEntry("vigilance_points", index, entry, null)
-    );
-    pickAffaireBriefTextArray(confirmedBrief.missing_elements, 8).forEach(
-      (entry, index) => pushBriefEntry("missing_elements", index, entry, null)
-    );
+  });
 
-    sourceSummaries.push({
+  return entries;
+}
+
+async function loadConfirmedBriefSource(input: {
+  supabase: Supabase;
+  confirmedBrief: AffaireBriefRow | null;
+}): Promise<StructureDraftSource> {
+  const { supabase, confirmedBrief } = input;
+  if (!confirmedBrief?.id) {
+    return unavailableSource(
+      "confirmed_brief",
+      "Brief confirme",
+      "Aucun brief confirme disponible."
+    );
+  }
+
+  const { data: confirmedBriefSourceData, error: confirmedBriefSourceError } =
+    await supabase
+      .from("affaire_brief_source_links" as never)
+      .select(
+        "source_document_id, block_key, entry_index, source_file_name" as never
+      )
+      .eq("brief_id", confirmedBrief.id);
+
+  if (confirmedBriefSourceError) {
+    throw mapSupabaseError(
+      confirmedBriefSourceError,
+      "Impossible de charger les sources du brief affaire confirme."
+    );
+  }
+
+  const sourceLinks = (confirmedBriefSourceData ?? []) as AffaireBriefSourceLinkRow[];
+
+  return {
+    summary: {
       kind: "confirmed_brief",
       label: "Brief confirme",
       available: true,
@@ -1942,51 +2022,49 @@ async function loadStructureDraftSourceBundle(input: {
       detail: sourceLinks.length > 0
         ? `${sourceLinks.length} lien(s) de source relies au brief`
         : "Brief confirme sans liens de source exploites",
-    });
-  } else {
-    sourceSummaries.push({
-      kind: "confirmed_brief",
-      label: "Brief confirme",
-      available: false,
-      used: false,
-      detail: "Aucun brief confirme disponible.",
-    });
+    },
+    entries: buildConfirmedBriefEntries(confirmedBrief, sourceLinks),
+  };
+}
+
+function buildProjectNotesSource(notes: string | null | undefined): StructureDraftSource {
+  const projectNotes = toNullableText(notes);
+  if (!projectNotes) {
+    return unavailableSource(
+      "project_notes",
+      "Notes affaire",
+      "Aucune note affaire exploitable."
+    );
   }
 
-  const projectNotes = toNullableText(project.notes);
-  if (projectNotes) {
-    parseProjectNotesPaths(projectNotes).forEach((path, index) => {
-      sourceEntries.push({
-        id: `project-notes-${index}`,
-        kind: "project_notes",
-        type: "brief",
-        label: "Notes affaire",
-        path,
-        excerpt: path.join(" > "),
-        fact: `Notes affaire: ${path.join(" > ")}`,
-        hypothesis: null,
-        inference: "Élément issu du contexte affaire local, à confirmer humainement.",
-        weight: 0.95,
-      });
-    });
-
-    sourceSummaries.push({
+  return {
+    summary: {
       kind: "project_notes",
       label: "Notes affaire",
       available: true,
       used: true,
       detail: "Contexte projet local utilise en fallback du brief E21.",
-    });
-  } else {
-    sourceSummaries.push({
+    },
+    entries: parseProjectNotesPaths(projectNotes).map((path, index) => ({
+      id: `project-notes-${index}`,
       kind: "project_notes",
+      type: "brief",
       label: "Notes affaire",
-      available: false,
-      used: false,
-      detail: "Aucune note affaire exploitable.",
-    });
-  }
+      path,
+      excerpt: path.join(" > "),
+      fact: `Notes affaire: ${path.join(" > ")}`,
+      hypothesis: null,
+      inference: "Élément issu du contexte affaire local, à confirmer humainement.",
+      weight: 0.95,
+    })),
+  };
+}
 
+function buildStructureDraftSourceBundle(
+  sources: StructureDraftSource[]
+): EstimateStructureDraftSourceBundle {
+  const sourceSummaries = sources.map((source) => source.summary);
+  const sourceEntries = sources.flatMap((source) => source.entries);
   const dedupedEntries = Array.from(
     new Map(
       sourceEntries.map((entry) => [
@@ -2003,6 +2081,49 @@ async function loadStructureDraftSourceBundle(input: {
     prompt_sources: buildPromptSources(sourceSummaries, dedupedEntries),
     source_entries: dedupedEntries,
   };
+}
+
+async function loadStructureDraftSourceBundle(input: {
+  supabase: Supabase;
+  tenantId: string;
+  project: EmbeddedProjectAccess;
+  version: VersionAccessRow;
+}): Promise<EstimateStructureDraftSourceBundle> {
+  const { supabase, tenantId, project, version } = input;
+
+  const { latestLinkedImport, historyVersions, templateRows, assemblyRows } =
+    await loadLinkedImportAndLibraries({
+      supabase,
+      tenantId,
+      projectId: project.id,
+      versionId: version.id,
+    });
+  const { historyItems, templateItems, linkedImportRows } =
+    await loadLibrarySectionsAndImportRows({
+      supabase,
+      tenantId,
+      latestLinkedImport,
+      historyVersionIds: historyVersions.map((row) => row.id),
+      templateIds: templateRows.map((row) => row.id),
+    });
+
+  const sources = [
+    buildLinkedDpgfSource({ latestLinkedImport, linkedImportRows, version }),
+    buildHistoricalVersionsSource({ historyVersions, historyItems }),
+    buildTemplateLibrarySource({ templateRows, templateItems }),
+    buildAssemblyLibrarySource(assemblyRows),
+  ];
+
+  const { confirmedBrief, cctpDocuments } = await loadConfirmedBriefAndPrimaryCctpDocuments({
+    supabase,
+    tenantId,
+    projectId: project.id,
+  });
+  sources.push(buildPrimaryCctpSource({ confirmedBrief, cctpDocuments }));
+  sources.push(await loadConfirmedBriefSource({ supabase, confirmedBrief }));
+  sources.push(buildProjectNotesSource(project.notes));
+
+  return buildStructureDraftSourceBundle(sources);
 }
 
 function buildGeminiPrompt(input: {
