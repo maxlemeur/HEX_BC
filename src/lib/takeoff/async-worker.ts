@@ -636,7 +636,7 @@ async function gateFailedJobRetry(
   return null;
 }
 
-async function reportCompletedJob(attempt: TakeoffJobAttempt) {
+async function completedJobOutcome(attempt: TakeoffJobAttempt) {
   const refreshed = await attempt.repository.getJobById(attempt.job.id);
   const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? attempt.retryCount);
 
@@ -758,7 +758,7 @@ async function settleBatchReconcileResult(
     });
   }
 
-  return reportCompletedJob(attempt);
+  return completedJobOutcome(attempt);
 }
 
 async function retryBatchReconcileLater(
@@ -931,7 +931,7 @@ function settleLevelProcessorResult(
     });
   }
 
-  return reportCompletedJob(attempt);
+  return completedJobOutcome(attempt);
 }
 
 async function scheduleJobRetry(
