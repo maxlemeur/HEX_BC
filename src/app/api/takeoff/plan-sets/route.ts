@@ -5,17 +5,10 @@ import {
   parseListPlanSetsQuery,
   listPlanSets,
 } from "@/lib/takeoff/plans";
+import { parseJsonBody } from "@/lib/http/request";
 
 function toQueryObject(request: Request) {
   return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(request: Request) {
@@ -30,7 +23,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = parseCreatePlanSetInput(await parseJsonBody(request));
+    const payload = parseCreatePlanSetInput(await parseJsonBody(request, badRequest));
     const data = await createPlanSet(payload);
     return ok(data, 201);
   } catch (error) {

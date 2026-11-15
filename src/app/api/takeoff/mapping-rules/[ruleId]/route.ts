@@ -15,6 +15,7 @@ import {
   updateTakeoffMappingRule,
 } from "@/lib/takeoff/server";
 import type { UpdateTakeoffMappingRuleInput } from "@/lib/takeoff/types";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   ruleId: takeoffMappingRuleIdSchema,
@@ -51,14 +52,6 @@ async function getRuleId(paramsPromise: Promise<{ ruleId: string }>) {
   return paramsSchema.parse(params).ruleId;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ ruleId: string }> }
@@ -66,7 +59,7 @@ export async function PATCH(
   try {
     const ruleId = await getRuleId(params);
     const payload = parseUpdateTakeoffMappingRulePayload(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await updateTakeoffMappingRule(ruleId, payload);
     return ok(data);

@@ -6,6 +6,7 @@ import {
   fetchVersionZeroDraftSummary,
   generateVersionZeroDraft,
 } from "@/lib/estimates/version-zero-drafts";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -13,14 +14,6 @@ const paramsSchema = z.object({
 
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   return paramsSchema.parse(await paramsPromise).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(
@@ -42,7 +35,7 @@ export async function POST(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = generateVersionZeroDraftSchema.parse(await parseJsonBody(request));
+    const body = generateVersionZeroDraftSchema.parse(await parseJsonBody(request, badRequest));
     const data = await generateVersionZeroDraft({
       versionId,
       briefId: body.brief_id ?? null,

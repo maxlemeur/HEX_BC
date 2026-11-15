@@ -4,14 +4,7 @@ import {
   membershipsListQuerySchema,
 } from "@/lib/memberships/schemas";
 import { createMembership, listTenantMemberships } from "@/lib/memberships/server";
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
@@ -29,7 +22,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = createMembershipSchema.parse(await parseJsonBody(request));
+    const body = createMembershipSchema.parse(await parseJsonBody(request, badRequest));
     const data = await createMembership(body);
     return ok(data, 201);
   } catch (error) {

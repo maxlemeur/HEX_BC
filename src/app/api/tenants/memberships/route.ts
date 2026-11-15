@@ -16,6 +16,7 @@ import {
 } from "@/lib/memberships/errors";
 import { tenantRoleSchema } from "@/lib/memberships/schemas";
 import type { Database } from "@/types/database";
+import { parseJsonBody } from "@/lib/http/request";
 
 type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -51,14 +52,6 @@ const membershipActionSchema = z.discriminatedUnion("action", [
     membership_id: z.string().uuid("membership_id invalide."),
   }),
 ]);
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
 
 function assertActorIsTenantAdmin(actorMembership: TenantMembershipRow) {
   if (actorMembership.role !== "admin") {
@@ -326,7 +319,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const payload = membershipActionSchema.parse(await parseJsonBody(request));
+    const payload = membershipActionSchema.parse(await parseJsonBody(request, badRequest));
     const { supabase, userId, actorMembership } = await getActorContext();
     assertActorIsTenantAdmin(actorMembership);
 

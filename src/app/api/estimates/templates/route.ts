@@ -7,25 +7,7 @@ import {
   createEstimateTemplateFromVersion,
   listEstimateTemplates,
 } from "@/lib/estimates/templates-server";
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Paramètre limit invalide.");
-  }
-
-  return parsed;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
@@ -33,7 +15,7 @@ export async function GET(request: Request) {
 
     const query = listEstimateTemplatesQuerySchema.parse({
       search: searchParams.get("search"),
-      limit: parsePositiveInt(searchParams.get("limit")) ?? 10,
+      limit: parsePositiveIntParam(searchParams.get("limit"), badRequest) ?? 10,
       order: searchParams.get("order") ?? undefined,
     });
 
@@ -47,7 +29,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = createEstimateTemplateFromVersionSchema.parse(
-      await parseJsonBody(request)
+      await parseJsonBody(request, badRequest)
     );
     const data = await createEstimateTemplateFromVersion(body);
     return ok(data, 201);

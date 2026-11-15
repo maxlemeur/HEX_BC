@@ -8,6 +8,7 @@ import {
   getEstimateVersionDetails,
   patchEstimateVersion,
 } from "@/lib/estimates/server";
+import { parseJsonBody, resolveConcurrencyToken } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -16,28 +17,6 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
-function resolveConcurrencyToken(request: Request, fallback?: string) {
-  const ifMatch = request.headers.get("if-match")?.trim();
-  if (ifMatch && ifMatch.length > 0) {
-    return ifMatch;
-  }
-
-  const normalizedFallback = fallback?.trim();
-  if (normalizedFallback && normalizedFallback.length > 0) {
-    return normalizedFallback;
-  }
-
-  return undefined;
 }
 
 export async function GET(
@@ -59,7 +38,7 @@ export async function PATCH(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = patchEstimateVersionSchema.parse(await parseJsonBody(request));
+    const body = patchEstimateVersionSchema.parse(await parseJsonBody(request, badRequest));
     const token = resolveConcurrencyToken(request, body.updated_at);
     const data = await patchEstimateVersion(versionId, body, token);
     return ok(validateEstimateResponse(() => parseSaveEstimateVersionResponse(data, versionId)));

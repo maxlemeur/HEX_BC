@@ -14,16 +14,7 @@ import {
   catalogueListQuerySchema,
   cataloguePageQuerySchema,
 } from "@/lib/catalogue/schemas";
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Paramètre limit invalide.");
-  }
-
-  return parsed;
-}
+import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 function parseBoolean(value: string | null): boolean | null {
   if (!value) return null;
@@ -33,14 +24,6 @@ function parseBoolean(value: string | null): boolean | null {
   if (normalized === "false" || normalized === "0") return false;
 
   throw badRequest("Paramètre booleen invalide.");
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(request: Request) {
@@ -58,8 +41,8 @@ export async function GET(request: Request) {
         catalogue_status: searchParams.getAll("catalogue_status"),
         sort: searchParams.get("sort") ?? "designation",
         dir: searchParams.get("dir") ?? "asc",
-        page: parsePositiveInt(searchParams.get("page")) ?? 1,
-        size: parsePositiveInt(searchParams.get("size")) ?? 25,
+        page: parsePositiveIntParam(searchParams.get("page"), badRequest) ?? 1,
+        size: parsePositiveIntParam(searchParams.get("size"), badRequest) ?? 25,
       });
 
       return ok(await listCataloguePage(pageQuery));
@@ -68,7 +51,7 @@ export async function GET(request: Request) {
     const query = catalogueListQuerySchema.parse({
       id: searchParams.get("id"),
       search: searchParams.get("search"),
-      limit: parsePositiveInt(searchParams.get("limit")) ?? 100,
+      limit: parsePositiveIntParam(searchParams.get("limit"), badRequest) ?? 100,
       include_inactive: parseBoolean(searchParams.get("include_inactive")) ?? false,
       validated_only: parseBoolean(searchParams.get("validated_only")) ?? false,
     });
@@ -82,7 +65,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await parseJsonBody(request);
+    const body = await parseJsonBody(request, badRequest);
     const payload = catalogueActionSchema.parse(body);
 
     switch (payload.action) {

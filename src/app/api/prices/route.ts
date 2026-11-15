@@ -19,24 +19,7 @@ import {
   pricesPageQuerySchema,
   supplierCatalogItemLookupQuerySchema,
 } from "@/lib/catalogue/schemas";
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Paramètre limit invalide.");
-  }
-
-  return parsed;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
@@ -61,8 +44,8 @@ export async function GET(request: Request) {
         product_id: productIdParam,
         sort: searchParams.get("sort") ?? "updated_at",
         dir: searchParams.get("dir") ?? "desc",
-        page: parsePositiveInt(searchParams.get("page")) ?? 1,
-        size: parsePositiveInt(searchParams.get("size")) ?? 25,
+        page: parsePositiveIntParam(searchParams.get("page"), badRequest) ?? 1,
+        size: parsePositiveIntParam(searchParams.get("size"), badRequest) ?? 25,
       });
 
       return ok(await listSupplierPricesPage(pageQuery));
@@ -72,7 +55,7 @@ export async function GET(request: Request) {
       supplier_id: searchParams.get("supplier_id"),
       product_id: productIdParam,
       catalogue_item_id: searchParams.get("catalogue_item_id"),
-      limit: parsePositiveInt(searchParams.get("limit")) ?? 200,
+      limit: parsePositiveIntParam(searchParams.get("limit"), badRequest) ?? 200,
     });
 
     const data = await listSupplierPrices(query);
@@ -84,7 +67,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await parseJsonBody(request);
+    const body = await parseJsonBody(request, badRequest);
     const payload = pricesActionSchema.parse(body);
 
     switch (payload.action) {

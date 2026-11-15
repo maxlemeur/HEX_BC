@@ -5,6 +5,7 @@ import { sendEstimateEmail } from "@/lib/email/send-estimate";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { sendEstimateSchema } from "@/lib/estimates/schemas";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER, normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
+import { parseJsonBody } from "@/lib/http/request";
 
 export const runtime = "nodejs";
 
@@ -18,21 +19,13 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   return versionIdParamSchema.parse(params).versionId;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
     const versionId = await getVersionId(params);
-    const payload = sendEstimateSchema.parse(await parseJsonBody(request));
+    const payload = sendEstimateSchema.parse(await parseJsonBody(request, badRequest));
     const rawIdempotencyKey = request.headers.get("idempotency-key")?.trim();
     if (!rawIdempotencyKey) {
       throw badRequest(

@@ -15,6 +15,7 @@ import {
   listEstimateItems,
   updateEstimateItem,
 } from "@/lib/estimates/server";
+import { parseJsonBody } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -23,14 +24,6 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(
@@ -52,7 +45,7 @@ export async function POST(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = createEstimateItemSchema.parse(await parseJsonBody(request));
+    const body = createEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await createEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId)), 201);
   } catch (error) {
@@ -66,7 +59,7 @@ export async function PATCH(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = updateEstimateItemSchema.parse(await parseJsonBody(request));
+    const body = updateEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await updateEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId, body.id)));
   } catch (error) {
@@ -80,7 +73,7 @@ export async function DELETE(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = deleteEstimateItemSchema.parse(await parseJsonBody(request));
+    const body = deleteEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await deleteEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemDeleteResponse(data, versionId, body.id)));
   } catch (error) {

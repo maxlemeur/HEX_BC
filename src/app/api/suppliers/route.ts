@@ -10,14 +10,7 @@ import {
   updateSupplier,
 } from "@/lib/catalogue/suppliers";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
@@ -42,7 +35,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = supplierActionSchema.parse(await parseJsonBody(request));
+    const payload = supplierActionSchema.parse(await parseJsonBody(request, badRequest));
 
     switch (payload.action) {
       case "create":

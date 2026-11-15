@@ -6,6 +6,7 @@ import {
   updateCurrencyRateForTenant,
 } from "@/lib/currency-rates";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   rateId: z.string().uuid("rateId invalide."),
@@ -44,14 +45,6 @@ async function getRateId(paramsPromise: Promise<{ rateId: string }>) {
   return paramsSchema.parse(params).rateId;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 function parseDeleteQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
 
@@ -66,7 +59,7 @@ export async function PATCH(
 ) {
   try {
     const rateId = await getRateId(params);
-    const payload = patchCurrencyRateSchema.parse(await parseJsonBody(request));
+    const payload = patchCurrencyRateSchema.parse(await parseJsonBody(request, badRequest));
     const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
 

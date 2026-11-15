@@ -6,6 +6,7 @@ import {
   listCurrencyRatesForTenant,
 } from "@/lib/currency-rates";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { parseJsonBody } from "@/lib/http/request";
 
 const listCurrencyRatesQuerySchema = z.object({
   tenant_id: z.string().uuid("tenant_id invalide.").optional(),
@@ -24,14 +25,6 @@ const createCurrencyRateSchema = z.object({
   source: z.string().trim().min(1, "source invalide.").optional(),
   is_active: z.boolean().optional(),
 });
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
 
 function parseQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
@@ -71,7 +64,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = createCurrencyRateSchema.parse(await parseJsonBody(request));
+    const payload = createCurrencyRateSchema.parse(await parseJsonBody(request, badRequest));
     const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
     const rate = await createCurrencyRateForTenant({

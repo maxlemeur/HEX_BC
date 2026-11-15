@@ -7,6 +7,7 @@ import {
   getEstimateAssembly,
   updateEstimateAssembly,
 } from "@/lib/estimates/server";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({
   assemblyId: z.string().uuid("assemblyId invalide."),
@@ -15,14 +16,6 @@ const paramsSchema = z.object({
 async function getAssemblyId(paramsPromise: Promise<{ assemblyId: string }>) {
   const params = await paramsPromise;
   return paramsSchema.parse(params).assemblyId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 export async function GET(
@@ -44,7 +37,7 @@ export async function PATCH(
 ) {
   try {
     const assemblyId = await getAssemblyId(params);
-    const body = updateEstimateAssemblySchema.parse(await parseJsonBody(request));
+    const body = updateEstimateAssemblySchema.parse(await parseJsonBody(request, badRequest));
     const data = await updateEstimateAssembly(assemblyId, body);
     return ok(data);
   } catch (error) {

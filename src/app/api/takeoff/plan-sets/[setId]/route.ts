@@ -11,6 +11,7 @@ import {
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { deletePlanSet, getPlanSet, planSetIdSchema } from "@/lib/takeoff/plans";
+import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z
   .object({
@@ -82,14 +83,6 @@ function parseUpdatePlanSetPayload(payload: unknown): UpdatePlanSetInput {
   return parsed.data;
 }
 
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 async function updatePlanSetById(setId: string, input: UpdatePlanSetInput) {
   const { supabase, tenantId } = await getAuthenticatedContext();
   await assertTakeoffEnabled(tenantId, {
@@ -137,7 +130,7 @@ async function handleUpdate(
   paramsPromise: Promise<{ setId: string }>
 ) {
   const setId = await getSetId(paramsPromise);
-  const payload = parseUpdatePlanSetPayload(await parseJsonBody(request));
+  const payload = parseUpdatePlanSetPayload(await parseJsonBody(request, badRequest));
   return updatePlanSetById(setId, payload);
 }
 

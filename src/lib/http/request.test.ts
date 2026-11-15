@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseJsonBody,
   parseJsonBodyOrEmptyObject,
-  parseLimitParam,
+  parsePositiveIntParam,
   resolveConcurrencyToken,
 } from "@/lib/http/request";
 
@@ -22,7 +22,7 @@ describe("parseJsonBody", () => {
 
   it("throws the caller's domain error for malformed or empty JSON", async () => {
     for (const body of ["{", ""]) {
-      const error = await parseJsonBody(jsonRequest(body), badRequest).catch((caught) => caught);
+      const error = (await parseJsonBody(jsonRequest(body), badRequest).catch((caught: unknown) => caught)) as Error;
       expect(error).toBeInstanceOf(DomainBadRequest);
       expect(error.message).toBe("Payload JSON invalide.");
     }
@@ -37,28 +37,28 @@ describe("parseJsonBodyOrEmptyObject", () => {
 
   it("parses a non-empty body and rejects malformed JSON with the domain error", async () => {
     await expect(parseJsonBodyOrEmptyObject(jsonRequest('{"a":1}'), badRequest)).resolves.toEqual({ a: 1 });
-    const error = await parseJsonBodyOrEmptyObject(jsonRequest("{"), badRequest).catch((caught) => caught);
+    const error = (await parseJsonBodyOrEmptyObject(jsonRequest("{"), badRequest).catch((caught: unknown) => caught)) as Error;
     expect(error).toBeInstanceOf(DomainBadRequest);
     expect(error.message).toBe("Payload JSON invalide.");
   });
 });
 
-describe("parseLimitParam", () => {
+describe("parsePositiveIntParam", () => {
   it("returns null when the parameter is absent or empty", () => {
-    expect(parseLimitParam(null, badRequest)).toBeNull();
-    expect(parseLimitParam("", badRequest)).toBeNull();
+    expect(parsePositiveIntParam(null, badRequest)).toBeNull();
+    expect(parsePositiveIntParam("", badRequest)).toBeNull();
   });
 
   it("keeps parseInt semantics for positive values", () => {
-    expect(parseLimitParam("25", badRequest)).toBe(25);
-    expect(parseLimitParam("12abc", badRequest)).toBe(12);
-    expect(parseLimitParam("3.9", badRequest)).toBe(3);
+    expect(parsePositiveIntParam("25", badRequest)).toBe(25);
+    expect(parsePositiveIntParam("12abc", badRequest)).toBe(12);
+    expect(parsePositiveIntParam("3.9", badRequest)).toBe(3);
   });
 
   it("rejects zero, negative and non-numeric values with the domain error", () => {
     for (const value of ["0", "-4", "abc", " "]) {
-      expect(() => parseLimitParam(value, badRequest)).toThrow(DomainBadRequest);
-      expect(() => parseLimitParam(value, badRequest)).toThrow("Paramètre limit invalide.");
+      expect(() => parsePositiveIntParam(value, badRequest)).toThrow(DomainBadRequest);
+      expect(() => parsePositiveIntParam(value, badRequest)).toThrow("Paramètre limit invalide.");
     }
   });
 });

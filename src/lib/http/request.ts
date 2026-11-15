@@ -33,8 +33,11 @@ export async function parseJsonBodyOrEmptyObject(
   }
 }
 
-/** Reads the `limit` query parameter: absent means `null`, otherwise a positive integer. */
-export function parseLimitParam(
+/**
+ * Reads a positive-integer query parameter (`limit`, `page`, `size`); absent
+ * means `null`. The error message names `limit` whatever the parameter.
+ */
+export function parsePositiveIntParam(
   value: string | null,
   badRequest: BadRequestFactory
 ): number | null {

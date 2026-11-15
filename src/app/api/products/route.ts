@@ -4,18 +4,11 @@ import {
   updateProduct,
 } from "@/lib/catalogue/product-writes";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody } from "@/lib/http/request";
 
 export async function POST(request: Request) {
   try {
-    const payload = productActionSchema.parse(await parseJsonBody(request));
+    const payload = productActionSchema.parse(await parseJsonBody(request, badRequest));
 
     if (payload.action === "create") {
       return ok(await createProduct(payload.item), 201);

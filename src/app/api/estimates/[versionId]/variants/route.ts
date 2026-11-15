@@ -11,6 +11,7 @@ import {
   createEstimateVariant,
   promoteEstimateVariant,
 } from "@/lib/estimates/server";
+import { parseJsonBodyOrEmptyObject } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -21,27 +22,13 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   return versionIdParamSchema.parse(params).versionId;
 }
 
-async function parseJsonBodyOrDefault(request: Request): Promise<unknown> {
-  const rawBody = await request.text();
-
-  if (rawBody.trim().length === 0) {
-    return {};
-  }
-
-  try {
-    return JSON.parse(rawBody);
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
     const versionId = await getVersionId(params);
-    createEstimateVariantSchema.parse(await parseJsonBodyOrDefault(request));
+    createEstimateVariantSchema.parse(await parseJsonBodyOrEmptyObject(request, badRequest));
     const data = await createEstimateVariant(versionId);
     return ok(validateEstimateResponse(() => parseEstimateVersionIdResponse(data, versionId)), 201);
   } catch (error) {
@@ -55,7 +42,7 @@ export async function PATCH(
 ) {
   try {
     const versionId = await getVersionId(params);
-    promoteEstimateVariantSchema.parse(await parseJsonBodyOrDefault(request));
+    promoteEstimateVariantSchema.parse(await parseJsonBodyOrEmptyObject(request, badRequest));
     const data = await promoteEstimateVariant(versionId);
     return ok(validateEstimateResponse(() => parsePromoteEstimateVariantResponse(data, versionId)));
   } catch (error) {

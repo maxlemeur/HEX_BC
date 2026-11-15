@@ -15,31 +15,14 @@ import {
   listMappingsQuerySchema,
   mappingsActionSchema,
 } from "@/lib/mappings/schemas";
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw badRequest("Paramètre limit invalide.");
-  }
-
-  return parsed;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
 
     const importIdRaw = searchParams.get("import_id");
-    const limitRaw = parsePositiveInt(searchParams.get("limit"));
+    const limitRaw = parsePositiveIntParam(searchParams.get("limit"), badRequest);
 
     const query = listMappingsQuerySchema.parse({
       import_id: importIdRaw,
@@ -59,7 +42,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await parseJsonBody(request);
+    const body = await parseJsonBody(request, badRequest);
     const payload = mappingsActionSchema.parse(body);
 
     switch (payload.action) {

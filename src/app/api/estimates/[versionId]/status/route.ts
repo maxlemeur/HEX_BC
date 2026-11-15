@@ -9,6 +9,7 @@ import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
+import { parseJsonBody } from "@/lib/http/request";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -17,14 +18,6 @@ const versionIdParamSchema = z.object({
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   const params = await paramsPromise;
   return versionIdParamSchema.parse(params).versionId;
-}
-
-async function parseJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
 }
 
 function resolveConcurrencyToken(request: Request) {
@@ -42,7 +35,7 @@ export async function PATCH(
 ) {
   try {
     const versionId = await getVersionId(params);
-    const body = patchEstimateStatusSchema.parse(await parseJsonBody(request));
+    const body = patchEstimateStatusSchema.parse(await parseJsonBody(request, badRequest));
     const token = resolveConcurrencyToken(request);
     if (!token) {
       throw badRequest("Jeton de concurrence manquant.");
