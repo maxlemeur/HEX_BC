@@ -1,8 +1,8 @@
 import { z } from "zod";
 
+import { getTenantSettingsActorContext } from "@/lib/auth/tenant-context";
 import {
   deleteCurrencyRateForTenant,
-  getCurrencyRatesActorContext,
   updateCurrencyRateForTenant,
 } from "@/lib/currency-rates";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -60,7 +60,7 @@ export async function PATCH(
   try {
     const rateId = await getRateId(params);
     const payload = patchCurrencyRateSchema.parse(await parseJsonBody(request, badRequest));
-    const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
 
     const rate = await updateCurrencyRateForTenant({
@@ -90,7 +90,7 @@ export async function DELETE(
   try {
     const rateId = await getRateId(params);
     const query = parseDeleteQuery(request);
-    const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = query.tenant_id ?? defaultTenantId;
     const rate = await deleteCurrencyRateForTenant({
       tenantId,

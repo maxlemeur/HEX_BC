@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { getTenantMembershipOrThrow } from "@/lib/auth/tenant-context";
 import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
@@ -11,13 +12,8 @@ import {
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
-import type { Database } from "@/types/database";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
-type TenantMembershipRow = Pick<
-  Database["public"]["Tables"]["tenant_memberships"]["Row"],
-  "tenant_id" | "user_id" | "role"
->;
 
 export type FeatureFlagRecord = {
   tenant_id: string;
@@ -138,29 +134,6 @@ function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
 async function getSupabase(inputSupabase?: Supabase) {
   if (inputSupabase) return inputSupabase;
   return createSupabaseServerClient();
-}
-
-async function getTenantMembershipOrThrow(
-  supabase: Supabase,
-  tenantId: string,
-  userId: string
-) {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, user_id, role")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le tenant courant.");
-  }
-
-  if (!data) {
-    throw forbidden("Aucun accès à ce tenant.");
-  }
-
-  return data as TenantMembershipRow;
 }
 
 export async function listFeatureFlagsForTenant(

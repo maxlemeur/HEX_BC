@@ -1,15 +1,11 @@
 import { z } from "zod";
 
-import {
-  readActiveTenantMembership,
-  readAuthenticatedUser,
-} from "@/lib/auth/tenant-context";
+import { getTenantMembershipOrThrow } from "@/lib/auth/tenant-context";
 import {
   badRequest,
   forbidden,
   mapSupabaseError,
   notFound,
-  unauthorized,
 } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -226,59 +222,9 @@ async function getSupabase(inputSupabase?: Supabase) {
   return createSupabaseServerClient();
 }
 
-async function getTenantMembershipOrThrow(
-  supabase: Supabase,
-  tenantId: string,
-  userId: string
-): Promise<TenantMembershipRow> {
-  const { data, error } = await supabase
-    .from("tenant_memberships")
-    .select("tenant_id, user_id, role")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le tenant courant.");
-  }
-
-  if (!data) {
-    throw forbidden("Aucun accès à ce tenant.");
-  }
-
-  return data as TenantMembershipRow;
-}
-
 function assertTenantAdmin(membership: TenantMembershipRow) {
   if (membership.role === "admin") return;
   throw forbidden("Accès reserve aux administrateurs du tenant.");
-}
-
-export async function getCurrencyRatesActorContext() {
-  const { supabase, user, error } = await readAuthenticatedUser();
-
-  if (error || !user) {
-    throw unauthorized();
-  }
-
-  const { membership, error: membershipError } =
-    await readActiveTenantMembership(supabase, user.id);
-
-  if (membershipError) {
-    throw badRequest("Impossible de charger le tenant courant.");
-  }
-
-  const defaultTenantId = membership?.tenant_id ?? null;
-
-  if (!defaultTenantId) {
-    throw unauthorized();
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    defaultTenantId,
-  };
 }
 
 export async function listCurrencyRatesForTenant(

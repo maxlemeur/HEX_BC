@@ -19,7 +19,7 @@ export function formatFileSize(bytes: number) {
   return `${mb.toFixed(1)} Mo`;
 }
 
-function formatRelativeTime(isoDate: string) {
+export function formatRelativeTime(isoDate: string) {
   const diff = Date.now() - new Date(isoDate).getTime();
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "À l'instant";

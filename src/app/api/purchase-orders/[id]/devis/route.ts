@@ -8,6 +8,7 @@ import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
+import { toDevisResponseItem } from "@/lib/purchase-orders/devis-response";
 
 function jsonApiError(error: unknown) {
   if (error instanceof ApiError) {
@@ -17,28 +18,6 @@ function jsonApiError(error: unknown) {
 }
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
-
-type DevisRecord = {
-  id: string;
-  created_at: string;
-  name: string;
-  original_filename: string;
-  storage_path: string;
-  file_size_bytes: number;
-  mime_type: string;
-  position: number;
-};
-
-type DevisResponseItem = {
-  id: string;
-  name: string;
-  originalFilename: string;
-  fileSizeBytes: number;
-  mimeType: string;
-  createdAt: string;
-  position: number;
-  downloadUrl: string | null;
-};
 
 function normalizeDisplayName(value: FormDataEntryValue | null, fallback: string) {
   if (typeof value !== "string") return fallback;
@@ -65,19 +44,6 @@ function getUploadContentType(file: File) {
   }
 
   return trimmedType;
-}
-
-function toResponseItem(record: DevisRecord, downloadUrl: string | null): DevisResponseItem {
-  return {
-    id: record.id,
-    name: record.name,
-    originalFilename: record.original_filename,
-    fileSizeBytes: record.file_size_bytes,
-    mimeType: record.mime_type,
-    createdAt: record.created_at,
-    position: record.position,
-    downloadUrl,
-  };
 }
 
 export async function GET(
@@ -141,7 +107,7 @@ export async function GET(
 
   const items = devis.map((item, index) => {
     const signedUrl = signedResults[index]?.data?.signedUrl ?? null;
-    return toResponseItem(item, signedUrl);
+    return toDevisResponseItem(item, signedUrl);
   });
 
   return NextResponse.json({ items });
@@ -270,7 +236,7 @@ export async function POST(
     .from("devis")
     .createSignedUrl(inserted.storage_path, SIGNED_URL_TTL_SECONDS);
 
-  const item = toResponseItem(inserted, signedData?.signedUrl ?? null);
+  const item = toDevisResponseItem(inserted, signedData?.signedUrl ?? null);
 
   return NextResponse.json({ item }, { status: 201 });
 }

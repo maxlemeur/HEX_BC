@@ -29,6 +29,7 @@ import {
 import {
   buildApprovedTabularPdfRows,
   buildTabularPdfImportReview,
+  parseInteger,
 } from "./tabular-pdf";
 import { extractTabularPdfTablesFromFile } from "./tabular-pdf-extraction";
 import { normalizeHeaderRowNumber } from "./header-row";
@@ -380,21 +381,6 @@ function resolveSourceKindInput(input: JsonRecord, rows: unknown[]): ImportSourc
   }
 
   return "tabular";
-}
-
-function parseInteger(value: unknown): number | null {
-  if (typeof value === "number" && Number.isInteger(value)) {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed)) {
-      return parsed;
-    }
-  }
-
-  return null;
 }
 
 function parsePositiveInteger(

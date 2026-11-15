@@ -7,6 +7,7 @@ import type {
 import { cache } from "react";
 
 import {
+  badRequest,
   forbidden,
   mapSupabaseError,
   unauthorized,
@@ -19,6 +20,11 @@ export type TenantRole = Database["public"]["Enums"]["tenant_role"];
 export type ActiveTenantMembership = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
   "id" | "tenant_id" | "user_id" | "role" | "is_default" | "created_at" | "updated_at"
+>;
+
+type TenantMembershipRow = Pick<
+  Database["public"]["Tables"]["tenant_memberships"]["Row"],
+  "tenant_id" | "user_id" | "role"
 >;
 
 export type AuthenticatedTenantContext = {
@@ -125,3 +131,59 @@ export const getAuthenticatedTenantContext = cache(async (): Promise<Authenticat
 });
 
 export { getAuthenticatedTenantContext as getAuthenticatedContext };
+
+/**
+ * Authenticated user and active tenant for the tenant settings routes (feature
+ * flags, currency rates). Unlike getAuthenticatedTenantContext, a failed
+ * membership read is a 400 and a user without tenant a 401.
+ */
+export async function getTenantSettingsActorContext() {
+  const { supabase, user, error } = await readAuthenticatedUser();
+
+  if (error || !user) {
+    throw unauthorized();
+  }
+
+  const { membership, error: membershipError } =
+    await readActiveTenantMembership(supabase, user.id);
+
+  if (membershipError) {
+    throw badRequest("Impossible de charger le tenant courant.");
+  }
+
+  const defaultTenantId = membership?.tenant_id ?? null;
+
+  if (!defaultTenantId) {
+    throw unauthorized();
+  }
+
+  return {
+    supabase,
+    userId: user.id,
+    defaultTenantId,
+  };
+}
+
+/** The user's membership of a given tenant (any role); 403 when there is none. */
+export async function getTenantMembershipOrThrow(
+  supabase: ServerSupabaseClient,
+  tenantId: string,
+  userId: string
+): Promise<TenantMembershipRow> {
+  const { data, error } = await supabase
+    .from("tenant_memberships")
+    .select("tenant_id, user_id, role")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de vérifier le tenant courant.");
+  }
+
+  if (!data) {
+    throw forbidden("Aucun accès à ce tenant.");
+  }
+
+  return data as TenantMembershipRow;
+}

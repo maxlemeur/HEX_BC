@@ -91,7 +91,7 @@ function toNullableString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function parseInteger(value: unknown): number | null {
+export function parseInteger(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value)) {
     return value;
   }
