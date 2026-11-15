@@ -255,7 +255,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       if (file.data.length > 2 * 1024 * 1024) throw new Error("Le texte du document dépasse la taille autorisée.");
       content.push({ type: "input_text", text: `Contenu du document (${file.mimeType}) :\n${Buffer.from(file.data, "base64").toString("utf8")}` });
     } else if (["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mimeType)) {
-      content.push({ type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}` });
+      content.push({ type: "input_image", image_url: `data:${file.mimeType};base64,${file.data}`, ...(file.detail ? { detail: file.detail } : {}) });
     } else if (file.mimeType === "application/pdf") {
       content.push({ type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${file.data}` });
     } else {

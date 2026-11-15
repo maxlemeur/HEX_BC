@@ -485,6 +485,23 @@ const administrationContracts: RouteContract[] = [
     success: [{ status: "200", description: "Dessin au format DXF, avec Content-Disposition attachment, Cache-Control private/no-store et X-Content-Type-Options nosniff.", contents: [{ contentType: "text/plain" }] }],
   },
   {
+    id: "read-affaire-intake-document-transcription", method: "get", path: "/api/affaires/{projectId}/intake/files/{documentId}/transcription",
+    summary: "Lire la transcription automatique d’une pièce du dossier", tags: ["Affaires"],
+    description: "Lecture privée sans cache, avec la même autorisation que l’aperçu de la pièce. Le texte qu’un modèle de vision (Terra, effort élevé, sur le forfait ChatGPT de la personne qui a déposé la pièce) a lu à l’arrivée dans une image ou dans les pages scannées d’un PDF, page par page, jamais vérifié : « [illisible] » marque ce qu’il n’a pas lu avec certitude. transcription est null pour une pièce sans lecture (PDF texte, tableur, format non lu, connexion ChatGPT locale désactivée) ; pending est vrai tant que l’analyse de son lot est en cours sur une instance qui lit avec le forfait ChatGPT, pour une image ou un PDF. Une lecture partielle ou échouée donne son code d’erreur ; une pièce supprimée, en suppression ou non déposée est refusée (404).",
+    pathParameters: [projectIdParameter, { name: "documentId", schema: uuidSchema, description: "Identifiant UUID de la pièce du dossier." }],
+    success: [{ status: "200", description: "Transcription de la pièce, ou null.", schema: {
+      schemaName: "AffaireIntakeDocumentTranscriptionResponse", io: "output", schema: z.object({ ok: z.literal(true), data: z.object({
+        transcription: z.object({
+          status: z.enum(["completed", "partial", "failed"]),
+          pages: z.array(z.object({ page: z.number().int().positive(), text: z.string(), illegible: z.number().int().nonnegative() })),
+          pagesNeeded: z.number().int().positive(), pagesSkipped: z.number().int().nonnegative(),
+          model: z.string().nullable(), reasoningEffort: z.string().nullable(), errorCode: z.string().nullable(), readAt: z.string(),
+        }).nullable(),
+        pending: z.boolean(),
+      }) }),
+    } }],
+  },
+  {
     id: "read-affaire-google-drive", method: "get", path: "/api/affaires/{projectId}/intake/google-drive",
     summary: "Lire les comptes Google Drive et les liens Drive de cette affaire",
     description: "Disponibilité OAuth, comptes Google enregistrés du membre (sans jeton), dossier Drive lié et fichiers Drive liés à cette affaire accessible.", tags: ["Affaires"],

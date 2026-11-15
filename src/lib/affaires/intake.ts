@@ -62,7 +62,7 @@ export const AFFAIRE_INTAKE_IFC_NOTICE = "Maquette IFC conservée. Ouvrez-la pou
 export const AFFAIRE_INTAKE_DWG_NOTICE = "Original DWG conservé. Ouvrez-le pour visualiser le plan et relever ses quantités (formats AutoCAD R13 à 2018) ; ajoutez son tracé PDF au dossier pour le métré.";
 
 /** Where the browser asks for a piece of the dossier: the piece itself (`preview`), or the DXF the server converts a DWG into (`drawing`). */
-export function affaireIntakeFileUrl(projectId: string, documentId: string, part: "preview" | "drawing"): string {
+export function affaireIntakeFileUrl(projectId: string, documentId: string, part: "preview" | "drawing" | "transcription"): string {
   return `/api/affaires/${encodeURIComponent(projectId)}/intake/files/${encodeURIComponent(documentId)}/${part}`;
 }
 

@@ -193,6 +193,8 @@ export type GeminiThinkingLevel = "low" | "medium" | "high";
 export type GeminiStructuredFile = {
   data: string;
   mimeType: string;
+  /** How finely the ChatGPT plan reads an image (the transcription reads it at `high`); the provider's default without it. */
+  detail?: "low" | "high" | "auto";
 };
 
 export type GeminiBatchLifecycleEvent = {

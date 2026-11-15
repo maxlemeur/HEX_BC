@@ -288,9 +288,31 @@ globalThis.fetch = async (input, init) => {
   }
   assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
   // Two efforts let the takeoff lab (TI-661) compare one model at low and high.
+  // The transcription at arrival (INTOCR01) asks for Terra at a high effort: the account lists it only for that journey,
+  // so that every other journey keeps one listed model.
+  const transcriptionModel = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).transcriptionModel === true;
   if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list",
-    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }] });
+    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] },
+  ...(transcriptionModel ? [{ slug: "gpt-6.1-terra", display_name: "Terra", visibility: "list", supported_reasoning_levels: [{ effort: "high" }] }] : [])] });
   assert.equal(url.pathname, "/v1/responses");
+  if (body.model === "gpt-6.1-terra") {
+    assert(transcriptionModel, "Terra is listed for the transcription journey only.");
+    assert.deepEqual(body.reasoning, { effort: "high" }, "The transcription reads at a high effort.");
+    assert(String(body.input.find(entry => entry.role === "developer")?.content).includes('"texte"'), "The transcription answers its own schema.");
+    const parts = body.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : []);
+    const image = parts.find(part => part.type === "input_image");
+    const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "transcription", model: body.model,
+      reasoningEffort: body.reasoning.effort, inputKind: image ? "image" : pdf ? "pdf" : "none", ...(image ? { detail: image.detail ?? null } : {}),
+      page: /la page (\d+) de la pièce/.exec(prompt)?.[1] ?? null }) + "\n");
+    assert(image || pdf, "A transcription sends the image or the scanned page.");
+    const texte = image ? "BON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]"
+      : "Article 7 (page scannée) : vanne d'isolement DN20 | 4 u";
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ texte }) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 30, output_tokens: 12, total_tokens: 42 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».
   const priceReuseSchema = body.input.find(entry => entry.role === "developer")?.content;
@@ -310,12 +332,14 @@ globalThis.fetch = async (input, init) => {
     const sourceText = body.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
       .filter(part => part.type === "input_text").map(part => part.text).join("\n");
     const word = sourceText.includes("ARMY Dossier fictif de plomberie");
-    assert(pdf || (word && sourceText.includes("Tube cuivre DN20") && sourceText.includes("12 mètres")), "Uploaded PDF or extracted Word body/table must reach the classifier.");
-    const output = { documentKind: word ? "cctp" : "plans", confidence: 0.97, issues: [], extractedMetadata: {
+    // An image (INTOCR01) is classified as an annex.
+    const image = body.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : []).some(part => part.type === "input_image");
+    assert(pdf || image || (word && sourceText.includes("Tube cuivre DN20") && sourceText.includes("12 mètres")), "Uploaded PDF, image or extracted Word body/table must reach the classifier.");
+    const output = { documentKind: word ? "cctp" : image ? "annexes" : "plans", confidence: 0.97, issues: [], extractedMetadata: {
       projectName: "ARMY réanalyse", clientName: "Client réanalyse fictif", deadlineAt: null,
       detectedLots: ["Plomberie"], detectedVariants: [], documentNature: word ? "Notice technique" : "Vue isométrique",
     } };
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : "pdf" }) + "\n");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },
