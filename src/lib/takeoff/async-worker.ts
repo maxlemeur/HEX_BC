@@ -8,9 +8,11 @@ import {
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   normalizeTakeoffWorkerJobRow,
+  type TakeoffLeaseRenewal,
   type TakeoffWorkerJobRow,
 } from "@/lib/takeoff/job-lifecycle";
 import {
+  type ProcessLevelAOptions,
   processLevelA,
   processLevelB,
   processLevelC,
@@ -423,22 +425,86 @@ function buildOutcome(input: {
   };
 }
 
-export async function processTakeoffJobAttempt(
-  jobId: string,
-  options: ProcessTakeoffJobAttemptOptions
-): Promise<TakeoffJobAttemptOutcome> {
-  const now = options.now ?? (() => new Date());
-  const startedAt = now();
-  const logger = options.logger ?? console;
-  const serviceRoleClient =
-    createServiceRoleClient() as unknown as SupabaseClientLike;
-  const repository =
-    options.repository ??
-    createSupabaseTakeoffWorkerRepository(serviceRoleClient);
-  const processLevelAFn = options.processLevelAFn ?? processLevelA;
-  const processLevelBFn = options.processLevelBFn ?? processLevelB;
-  const processLevelCFn = options.processLevelCFn ?? processLevelC;
+type TakeoffLevelProcessor =
+  | typeof processLevelA
+  | typeof processLevelB
+  | typeof processLevelC;
 
+type TakeoffLevelProcessorResult = Awaited<ReturnType<TakeoffLevelProcessor>>;
+
+type TakeoffBatchReconcileResult = Awaited<ReturnType<typeof reconcileTakeoffBatchJob>>;
+
+// What one attempt knows once its job is loaded. Every step reads the clock
+// through `now`, so the order of the steps is the order of the clock reads.
+type TakeoffJobAttempt = {
+  job: TakeoffWorkerJobRow;
+  retryCount: number;
+  // Measured right after the job is loaded; untouchedJobOutcome reports it.
+  durationAfterLoadMs: number;
+  startedAt: Date;
+  now: () => Date;
+  trigger: TakeoffJobAttemptTrigger;
+  correlationId: string;
+  logger: Pick<typeof console, "info" | "warn" | "error">;
+  repository: TakeoffWorkerRepository;
+  serviceRoleClient: SupabaseClientLike;
+  assertTenantActive: (tenantId: string) => Promise<void>;
+};
+
+type BatchReconcileLeaseClaim = {
+  leaseToken: string;
+  nowIso: string;
+  claimed: boolean;
+  attemptCount: number | null;
+};
+
+type TakeoffJobAttemptOutcomeFields = Omit<
+  Parameters<typeof buildOutcome>[0],
+  "jobId" | "tenantId" | "level" | "trigger" | "correlationId"
+>;
+
+function attemptOutcome(
+  attempt: TakeoffJobAttempt,
+  job: TakeoffWorkerJobRow,
+  fields: TakeoffJobAttemptOutcomeFields
+): TakeoffJobAttemptOutcome {
+  return buildOutcome({
+    jobId: job.id,
+    tenantId: job.tenant_id,
+    level: job.level,
+    trigger: attempt.trigger,
+    correlationId: attempt.correlationId,
+    ...fields,
+  });
+}
+
+// Outcome of an attempt that leaves the job as it found it. It reports the
+// duration measured when the job was loaded.
+function untouchedJobOutcome(
+  attempt: TakeoffJobAttempt,
+  status: TakeoffJobAttemptOutcome["status"]
+) {
+  const { job } = attempt;
+  return attemptOutcome(attempt, job, {
+    status,
+    retryCount: attempt.retryCount,
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: attempt.durationAfterLoadMs,
+    errorCode: job.error_code,
+    errorMessage: job.error_message,
+  });
+}
+
+function elapsedMs(attempt: TakeoffJobAttempt) {
+  return Math.max(0, attempt.now().getTime() - attempt.startedAt.getTime());
+}
+
+function toTakeoffLevel(level: string) {
+  return level === "A" || level === "B" || level === "C" ? level : undefined;
+}
+
+function assertTakeoffJobId(jobId: string) {
   if (!isUuidLike(jobId)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.BAD_REQUEST,
@@ -447,7 +513,9 @@ export async function processTakeoffJobAttempt(
       jobId,
     });
   }
+}
 
+async function loadTakeoffWorkerJob(repository: TakeoffWorkerRepository, jobId: string) {
   const job = await repository.getJobById(jobId);
   if (!job) {
     throw new TakeoffError({
@@ -458,615 +526,636 @@ export async function processTakeoffJobAttempt(
     });
   }
 
-  const retryCount = sanitizeRetryCount(job.retry_count);
-  const durationMs = Math.max(0, now().getTime() - startedAt.getTime());
-  const reconcileTakeoffBatchJobFn =
-    options.reconcileTakeoffBatchJobFn ?? reconcileTakeoffBatchJob;
+  return job;
+}
 
-  if (TAKEOFF_TERMINAL_JOB_STATUSES.has(job.status)) {
-    return buildOutcome({
+async function assertTenantStillActive(
+  repository: TakeoffWorkerRepository,
+  job: TakeoffWorkerJobRow,
+  tenantId: string
+) {
+  if (!(await repository.isTenantActive(tenantId))) {
+    throw new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
+      message: "Le tenant a été suspendu avant l'appel fournisseur.",
+      retryable: true,
       jobId: job.id,
-      tenantId: job.tenant_id,
-      level: job.level,
-      status: job.status === "canceled" ? "canceled" : "noop_terminal",
-      trigger: options.trigger,
-      retryCount,
-      retryable: false,
-      shouldRequeue: false,
-      durationMs,
-      errorCode: job.error_code,
-      errorMessage: job.error_message,
-      correlationId: options.correlationId,
+      level: toTakeoffLevel(job.level),
     });
   }
+}
 
-  if (!(await repository.isTenantActive(job.tenant_id))) {
-    return buildOutcome({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      level: job.level,
-      status: "noop_terminal",
-      trigger: options.trigger,
-      retryCount,
-      retryable: false,
-      shouldRequeue: false,
-      durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-      errorCode: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
-      errorMessage: "Le tenant est suspendu; le worker n'a execute aucun effet externe.",
-      correlationId: options.correlationId,
-    });
-  }
-
-  const assertTenantActive = async (tenantId: string) => {
-    if (!(await repository.isTenantActive(tenantId))) {
-      throw new TakeoffError({
-        code: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
-        message: "Le tenant a été suspendu avant l'appel fournisseur.",
-        retryable: true,
-        jobId: job.id,
-        level:
-          job.level === "A" || job.level === "B" || job.level === "C"
-            ? job.level
-            : undefined,
-      });
-    }
-  };
-
-  if (job.status === "failed") {
-    const nextRetryAtMs = job.next_retry_at
-      ? Date.parse(job.next_retry_at)
-      : Number.NaN;
-    const retryIsScheduled =
-      options.trigger === "retry" && Number.isFinite(nextRetryAtMs);
-
-    if (retryCount >= TAKEOFF_RETRY_MAX || !retryIsScheduled) {
-      await repository.clearRetrySchedule({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        lastErrorAtIso: job.last_error_at ?? now().toISOString(),
-      });
-      logger.error("Takeoff async worker rejected an unscheduled or exhausted retry", {
-        job_id: job.id,
-        tenant_id: job.tenant_id,
-        retry_count: retryCount,
-        trigger: options.trigger,
-        correlation_id: options.correlationId,
-      });
-
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "failed_terminal",
-        trigger: options.trigger,
-        retryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: job.error_code,
-        errorMessage: job.error_message,
-        correlationId: options.correlationId,
-      });
-    }
-
-    if (nextRetryAtMs > now().getTime()) {
-      const nextRunInSeconds = Math.max(
-        1,
-        Math.ceil((nextRetryAtMs - now().getTime()) / 1000)
-      );
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "failed_retryable",
-        trigger: options.trigger,
-        retryCount,
-        retryable: true,
-        shouldRequeue: true,
-        requeueReason: "retry",
-        nextRunInSeconds,
-        nextRunAt: job.next_retry_at,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: job.error_code,
-        errorMessage: job.error_message,
-        correlationId: options.correlationId,
-      });
-    }
-  }
-
-  if (isBatchReconcileCandidate(job)) {
-    const leaseToken = crypto.randomUUID();
-    const nowIso = now().toISOString();
-    const leaseExpiresAtIso = new Date(
-      now().getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000
-    ).toISOString();
-    const lease = await repository.acquireBatchReconcileLease({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      nowIso,
+function takeoffLeaseRenewal(
+  attempt: TakeoffJobAttempt,
+  kind: "processing" | "reconcile",
+  leaseTtlSeconds: number
+): TakeoffLeaseRenewal {
+  return ({ jobId, tenantId, leaseToken }) => {
+    const leaseNow = attempt.now();
+    return attempt.repository.renewLease({
+      kind,
+      jobId,
+      tenantId,
       leaseToken,
-      leaseExpiresAtIso,
+      nowIso: leaseNow.toISOString(),
+      leaseExpiresAtIso: new Date(leaseNow.getTime() + leaseTtlSeconds * 1000).toISOString(),
     });
+  };
+}
 
-    if (!lease.claimed) {
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "in_progress",
-        trigger: options.trigger,
-        retryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs,
-        errorCode: job.error_code,
-        errorMessage: job.error_message,
-        correlationId: options.correlationId,
-      });
-    }
+function takeoffProcessorOptions(
+  attempt: TakeoffJobAttempt,
+  renewLease: TakeoffLeaseRenewal
+): ProcessLevelAOptions {
+  return {
+    tenantId: attempt.job.tenant_id,
+    userId: attempt.job.created_by ?? undefined,
+    supabase: attempt.serviceRoleClient as never,
+    now: attempt.now,
+    assertTenantActive: attempt.assertTenantActive,
+    renewLease,
+  };
+}
 
-    if (
-      (lease.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS &&
-      !hasTerminalProviderBatchState(job)
-    ) {
-      await repository.markBatchReconcileTimeoutAsFailed({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        nowIso,
-        leaseToken,
-      });
+// A failed job runs again only as a scheduled retry within its budget, once
+// the retry is due. Returns null when the retry may run now.
+async function gateFailedJobRetry(
+  attempt: TakeoffJobAttempt
+): Promise<TakeoffJobAttemptOutcome | null> {
+  const { job, now, retryCount } = attempt;
+  const nextRetryAtMs = job.next_retry_at
+    ? Date.parse(job.next_retry_at)
+    : Number.NaN;
+  const retryIsScheduled =
+    attempt.trigger === "retry" && Number.isFinite(nextRetryAtMs);
 
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "failed_terminal",
-        trigger: options.trigger,
-        retryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: TakeoffErrorCode.AI_TIMEOUT,
-        errorMessage:
-          "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
-        correlationId: options.correlationId,
-      });
-    }
-
-    try {
-      const reconcileResult = await reconcileTakeoffBatchJobFn(job.id, {
-        tenantId: job.tenant_id,
-        userId: job.created_by ?? undefined,
-        supabase: serviceRoleClient as never,
-        now,
-        assertTenantActive,
-        renewLease: ({ jobId: claimedJobId, tenantId, leaseToken: token }) => {
-          const leaseNow = now();
-          return repository.renewLease({ kind: "reconcile", jobId: claimedJobId, tenantId, leaseToken: token, nowIso: leaseNow.toISOString(), leaseExpiresAtIso: new Date(leaseNow.getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000).toISOString() });
-        },
-      });
-
-      if (reconcileResult.status === "awaiting_provider_result") {
-        const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(
-          lease.attemptCount ?? 1
-        );
-        const nextRunAtIso = new Date(now().getTime() + backoffSeconds * 1000).toISOString();
-
-        await repository.scheduleReconcile({
-          jobId: job.id,
-          tenantId: job.tenant_id,
-          dueAtIso: nextRunAtIso,
-          leaseToken,
-        });
-
-        return buildOutcome({
-          jobId: job.id,
-          tenantId: job.tenant_id,
-          level: job.level,
-          status: "awaiting_provider_result",
-          trigger: options.trigger,
-          retryCount,
-          retryable: false,
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: backoffSeconds,
-          nextRunAt: nextRunAtIso,
-          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-          errorCode: null,
-          errorMessage: null,
-          correlationId: options.correlationId,
-        });
-      }
-
-      const refreshed = await repository.getJobById(job.id);
-      const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? retryCount);
-
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "completed",
-        trigger: options.trigger,
-        retryCount: refreshedRetryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: refreshed?.error_code,
-        errorMessage: refreshed?.error_message,
-        correlationId: options.correlationId,
-      });
-    } catch (error) {
-      const mappedError = toTakeoffError(error, {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        fallbackMessage: "La reconciliation batch du job takeoff a echoue.",
-        jobId: job.id,
-        level: job.level === "A" || job.level === "B" || job.level === "C" ? job.level : undefined,
-      });
-      const refreshed = await repository.getJobById(job.id);
-      const current = refreshed ?? job;
-
-      if (current.status === "processing" && isBatchReconcileCandidate(current) && mappedError.retryable) {
-        const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(
-          lease.attemptCount ?? current.provider_reconcile_attempt_count ?? 1
-        );
-        const nextRunAtIso = new Date(now().getTime() + backoffSeconds * 1000).toISOString();
-
-        await repository.scheduleReconcile({
-          jobId: current.id,
-          tenantId: current.tenant_id,
-          dueAtIso: nextRunAtIso,
-          leaseToken,
-        });
-
-        logger.warn("Takeoff async worker scheduled reconcile retry", {
-          job_id: current.id,
-          tenant_id: current.tenant_id,
-          level: current.level,
-          attempt: lease.attemptCount ?? 1,
-          duration_ms: Math.max(0, now().getTime() - startedAt.getTime()),
-          status: "awaiting_provider_result",
-          correlation_id: options.correlationId,
-          error_code: mappedError.code,
-        });
-
-        return buildOutcome({
-          jobId: current.id,
-          tenantId: current.tenant_id,
-          level: current.level,
-          status: "awaiting_provider_result",
-          trigger: options.trigger,
-          retryCount: sanitizeRetryCount(current.retry_count),
-          retryable: true,
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: backoffSeconds,
-          nextRunAt: nextRunAtIso,
-          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-          errorCode: mappedError.code,
-          errorMessage: mappedError.message,
-          correlationId: options.correlationId,
-        });
-      }
-
-      if (current.status === "canceled") {
-        await repository.clearRetrySchedule({
-          jobId: current.id,
-          tenantId: current.tenant_id,
-        });
-
-        return buildOutcome({
-          jobId: current.id,
-          tenantId: current.tenant_id,
-          level: current.level,
-          status: "canceled",
-          trigger: options.trigger,
-          retryCount: sanitizeRetryCount(current.retry_count),
-          retryable: false,
-          shouldRequeue: false,
-          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-          errorCode: current.error_code,
-          errorMessage: current.error_message,
-          correlationId: options.correlationId,
-        });
-      }
-
-      if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
-        return buildOutcome({
-          jobId: current.id,
-          tenantId: current.tenant_id,
-          level: current.level,
-          status: "failed_terminal",
-          trigger: options.trigger,
-          retryCount: sanitizeRetryCount(current.retry_count),
-          retryable: false,
-          shouldRequeue: false,
-          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-          errorCode: current.error_code ?? mappedError.code,
-          errorMessage: current.error_message ?? mappedError.message,
-          correlationId: options.correlationId,
-        });
-      }
-
-      return buildOutcome({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        level: current.level,
-        status: "in_progress",
-        trigger: options.trigger,
-        retryCount: sanitizeRetryCount(current.retry_count),
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: current.error_code ?? mappedError.code,
-        errorMessage: current.error_message ?? mappedError.message,
-        correlationId: options.correlationId,
-      });
-    }
-  }
-
-  if (job.status === "processing") {
-    return buildOutcome({
+  if (retryCount >= TAKEOFF_RETRY_MAX || !retryIsScheduled) {
+    await attempt.repository.clearRetrySchedule({
       jobId: job.id,
       tenantId: job.tenant_id,
-      level: job.level,
-      status: "in_progress",
-      trigger: options.trigger,
+      lastErrorAtIso: job.last_error_at ?? now().toISOString(),
+    });
+    attempt.logger.error("Takeoff async worker rejected an unscheduled or exhausted retry", {
+      job_id: job.id,
+      tenant_id: job.tenant_id,
+      retry_count: retryCount,
+      trigger: attempt.trigger,
+      correlation_id: attempt.correlationId,
+    });
+
+    return attemptOutcome(attempt, job, {
+      status: "failed_terminal",
       retryCount,
       retryable: false,
       shouldRequeue: false,
-      durationMs,
+      durationMs: elapsedMs(attempt),
       errorCode: job.error_code,
       errorMessage: job.error_message,
-      correlationId: options.correlationId,
     });
   }
 
-  let processLevelFn:
-    | typeof processLevelA
-    | typeof processLevelB
-    | typeof processLevelC
-    | null = null;
-
-  if (job.level === "A") {
-    processLevelFn = processLevelAFn;
-  } else if (job.level === "B") {
-    processLevelFn = processLevelBFn;
-  } else if (job.level === "C") {
-    processLevelFn = processLevelCFn;
-  }
-
-  if (!processLevelFn) {
-    const nowIso = now().toISOString();
-    await repository.markUnsupportedLevelAsFailed({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      nowIso,
-    });
-
-    return buildOutcome({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      level: job.level,
-      status: "failed_terminal",
-      trigger: options.trigger,
+  if (nextRetryAtMs > now().getTime()) {
+    const nextRunInSeconds = Math.max(
+      1,
+      Math.ceil((nextRetryAtMs - now().getTime()) / 1000)
+    );
+    return attemptOutcome(attempt, job, {
+      status: "failed_retryable",
       retryCount,
+      retryable: true,
+      shouldRequeue: true,
+      requeueReason: "retry",
+      nextRunInSeconds,
+      nextRunAt: job.next_retry_at,
+      durationMs: elapsedMs(attempt),
+      errorCode: job.error_code,
+      errorMessage: job.error_message,
+    });
+  }
+
+  return null;
+}
+
+async function reportCompletedJob(attempt: TakeoffJobAttempt) {
+  const refreshed = await attempt.repository.getJobById(attempt.job.id);
+  const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? attempt.retryCount);
+
+  return attemptOutcome(attempt, attempt.job, {
+    status: "completed",
+    retryCount: refreshedRetryCount,
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: refreshed?.error_code,
+    errorMessage: refreshed?.error_message,
+  });
+}
+
+async function settleCanceledJob(attempt: TakeoffJobAttempt, current: TakeoffWorkerJobRow) {
+  await attempt.repository.clearRetrySchedule({
+    jobId: current.id,
+    tenantId: current.tenant_id,
+  });
+
+  return attemptOutcome(attempt, current, {
+    status: "canceled",
+    retryCount: sanitizeRetryCount(current.retry_count),
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: current.error_code,
+    errorMessage: current.error_message,
+  });
+}
+
+async function claimBatchReconcileLease(
+  attempt: TakeoffJobAttempt
+): Promise<BatchReconcileLeaseClaim> {
+  const { job, now } = attempt;
+  const leaseToken = crypto.randomUUID();
+  const nowIso = now().toISOString();
+  const leaseExpiresAtIso = new Date(
+    now().getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000
+  ).toISOString();
+  const lease = await attempt.repository.acquireBatchReconcileLease({
+    jobId: job.id,
+    tenantId: job.tenant_id,
+    nowIso,
+    leaseToken,
+    leaseExpiresAtIso,
+  });
+
+  return { leaseToken, nowIso, claimed: lease.claimed, attemptCount: lease.attemptCount };
+}
+
+async function failExhaustedBatchReconcile(
+  attempt: TakeoffJobAttempt,
+  claim: BatchReconcileLeaseClaim
+) {
+  const { job } = attempt;
+  await attempt.repository.markBatchReconcileTimeoutAsFailed({
+    jobId: job.id,
+    tenantId: job.tenant_id,
+    nowIso: claim.nowIso,
+    leaseToken: claim.leaseToken,
+  });
+
+  return attemptOutcome(attempt, job, {
+    status: "failed_terminal",
+    retryCount: attempt.retryCount,
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: TakeoffErrorCode.AI_TIMEOUT,
+    errorMessage:
+      "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
+  });
+}
+
+async function scheduleNextBatchReconcile(
+  attempt: TakeoffJobAttempt,
+  job: TakeoffWorkerJobRow,
+  leaseToken: string,
+  reconcileAttemptCount: number
+) {
+  const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(reconcileAttemptCount);
+  const nextRunAtIso = new Date(attempt.now().getTime() + backoffSeconds * 1000).toISOString();
+
+  await attempt.repository.scheduleReconcile({
+    jobId: job.id,
+    tenantId: job.tenant_id,
+    dueAtIso: nextRunAtIso,
+    leaseToken,
+  });
+
+  return { backoffSeconds, nextRunAtIso };
+}
+
+async function settleBatchReconcileResult(
+  attempt: TakeoffJobAttempt,
+  claim: BatchReconcileLeaseClaim,
+  reconcileResult: TakeoffBatchReconcileResult
+) {
+  if (reconcileResult.status === "awaiting_provider_result") {
+    const { backoffSeconds, nextRunAtIso } = await scheduleNextBatchReconcile(
+      attempt,
+      attempt.job,
+      claim.leaseToken,
+      claim.attemptCount ?? 1
+    );
+
+    return attemptOutcome(attempt, attempt.job, {
+      status: "awaiting_provider_result",
+      retryCount: attempt.retryCount,
+      retryable: false,
+      shouldRequeue: true,
+      requeueReason: "reconcile",
+      nextRunInSeconds: backoffSeconds,
+      nextRunAt: nextRunAtIso,
+      durationMs: elapsedMs(attempt),
+      errorCode: null,
+      errorMessage: null,
+    });
+  }
+
+  return reportCompletedJob(attempt);
+}
+
+async function retryBatchReconcileLater(
+  attempt: TakeoffJobAttempt,
+  claim: BatchReconcileLeaseClaim,
+  current: TakeoffWorkerJobRow,
+  mappedError: TakeoffError
+) {
+  const { backoffSeconds, nextRunAtIso } = await scheduleNextBatchReconcile(
+    attempt,
+    current,
+    claim.leaseToken,
+    claim.attemptCount ?? current.provider_reconcile_attempt_count ?? 1
+  );
+
+  attempt.logger.warn("Takeoff async worker scheduled reconcile retry", {
+    job_id: current.id,
+    tenant_id: current.tenant_id,
+    level: current.level,
+    attempt: claim.attemptCount ?? 1,
+    duration_ms: elapsedMs(attempt),
+    status: "awaiting_provider_result",
+    correlation_id: attempt.correlationId,
+    error_code: mappedError.code,
+  });
+
+  return attemptOutcome(attempt, current, {
+    status: "awaiting_provider_result",
+    retryCount: sanitizeRetryCount(current.retry_count),
+    retryable: true,
+    shouldRequeue: true,
+    requeueReason: "reconcile",
+    nextRunInSeconds: backoffSeconds,
+    nextRunAt: nextRunAtIso,
+    durationMs: elapsedMs(attempt),
+    errorCode: mappedError.code,
+    errorMessage: mappedError.message,
+  });
+}
+
+async function settleBatchReconcileFailure(
+  attempt: TakeoffJobAttempt,
+  claim: BatchReconcileLeaseClaim,
+  error: unknown
+) {
+  const { job } = attempt;
+  const mappedError = toTakeoffError(error, {
+    fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+    fallbackMessage: "La reconciliation batch du job takeoff a echoue.",
+    jobId: job.id,
+    level: toTakeoffLevel(job.level),
+  });
+  const refreshed = await attempt.repository.getJobById(job.id);
+  const current = refreshed ?? job;
+
+  if (current.status === "processing" && isBatchReconcileCandidate(current) && mappedError.retryable) {
+    return retryBatchReconcileLater(attempt, claim, current, mappedError);
+  }
+
+  if (current.status === "canceled") {
+    return settleCanceledJob(attempt, current);
+  }
+
+  if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
+    return attemptOutcome(attempt, current, {
+      status: "failed_terminal",
+      retryCount: sanitizeRetryCount(current.retry_count),
       retryable: false,
       shouldRequeue: false,
-      durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-      errorCode: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      errorMessage: "Le niveau takeoff n'est pas encore supporte par le worker async.",
-      correlationId: options.correlationId,
+      durationMs: elapsedMs(attempt),
+      errorCode: current.error_code ?? mappedError.code,
+      errorMessage: current.error_message ?? mappedError.message,
     });
+  }
+
+  return attemptOutcome(attempt, current, {
+    status: "in_progress",
+    retryCount: sanitizeRetryCount(current.retry_count),
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: current.error_code ?? mappedError.code,
+    errorMessage: current.error_message ?? mappedError.message,
+  });
+}
+
+// Reconciles a job whose provider batch is running, under a fenced reconcile lease.
+async function reconcileProviderBatch(
+  attempt: TakeoffJobAttempt,
+  reconcileTakeoffBatchJobFn: typeof reconcileTakeoffBatchJob
+) {
+  const { job } = attempt;
+  const claim = await claimBatchReconcileLease(attempt);
+
+  if (!claim.claimed) {
+    return untouchedJobOutcome(attempt, "in_progress");
+  }
+
+  if (
+    (claim.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS &&
+    !hasTerminalProviderBatchState(job)
+  ) {
+    return failExhaustedBatchReconcile(attempt, claim);
   }
 
   try {
-    const result = await processLevelFn(job.id, {
-      tenantId: job.tenant_id,
-      userId: job.created_by ?? undefined,
-      supabase: serviceRoleClient as never,
-      now,
-      assertTenantActive,
-      renewLease: ({ jobId: claimedJobId, tenantId, leaseToken }) => {
-        const leaseNow = now();
-        return repository.renewLease({ kind: "processing", jobId: claimedJobId, tenantId, leaseToken, nowIso: leaseNow.toISOString(), leaseExpiresAtIso: new Date(leaseNow.getTime() + TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000).toISOString() });
-      },
-    });
-
-    if (result.status === "submitted_to_provider") {
-      const nextRunAtIso = now().toISOString();
-
-      return buildOutcome({
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: job.level,
-        status: "submitted_to_provider",
-        trigger: options.trigger,
-        retryCount,
-        retryable: false,
-        shouldRequeue: true,
-        requeueReason: "reconcile",
-        nextRunInSeconds: 0,
-        nextRunAt: nextRunAtIso,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: null,
-        errorMessage: null,
-        correlationId: options.correlationId,
-      });
-    }
-
-    const refreshed = await repository.getJobById(job.id);
-    const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? retryCount);
-
-    return buildOutcome({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      level: job.level,
-      status: "completed",
-      trigger: options.trigger,
-      retryCount: refreshedRetryCount,
-      retryable: false,
-      shouldRequeue: false,
-      durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-      errorCode: refreshed?.error_code,
-      errorMessage: refreshed?.error_message,
-      correlationId: options.correlationId,
-    });
+    const reconcileResult = await reconcileTakeoffBatchJobFn(
+      job.id,
+      takeoffProcessorOptions(
+        attempt,
+        takeoffLeaseRenewal(attempt, "reconcile", TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS)
+      )
+    );
+    // Awaited here so that a failure to schedule the next reconcile or to
+    // refresh the job is handled as a reconcile failure.
+    return await settleBatchReconcileResult(attempt, claim, reconcileResult);
   } catch (error) {
-    const mappedError = toTakeoffError(error, {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      fallbackMessage: "Le traitement async du job takeoff a echoue.",
-      jobId: job.id,
-      level:
-        job.level === "A" || job.level === "B" || job.level === "C"
-          ? job.level
-          : undefined,
+    return settleBatchReconcileFailure(attempt, claim, error);
+  }
+}
+
+function selectLevelProcessor(
+  level: string,
+  options: ProcessTakeoffJobAttemptOptions
+): TakeoffLevelProcessor | null {
+  if (level === "A") return options.processLevelAFn ?? processLevelA;
+  if (level === "B") return options.processLevelBFn ?? processLevelB;
+  if (level === "C") return options.processLevelCFn ?? processLevelC;
+  return null;
+}
+
+async function failUnsupportedLevel(attempt: TakeoffJobAttempt) {
+  const { job } = attempt;
+  const nowIso = attempt.now().toISOString();
+  await attempt.repository.markUnsupportedLevelAsFailed({
+    jobId: job.id,
+    tenantId: job.tenant_id,
+    nowIso,
+  });
+
+  return attemptOutcome(attempt, job, {
+    status: "failed_terminal",
+    retryCount: attempt.retryCount,
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
+    errorMessage: "Le niveau takeoff n'est pas encore supporte par le worker async.",
+  });
+}
+
+function settleLevelProcessorResult(
+  attempt: TakeoffJobAttempt,
+  result: TakeoffLevelProcessorResult
+) {
+  if (result.status === "submitted_to_provider") {
+    const nextRunAtIso = attempt.now().toISOString();
+
+    return attemptOutcome(attempt, attempt.job, {
+      status: "submitted_to_provider",
+      retryCount: attempt.retryCount,
+      retryable: false,
+      shouldRequeue: true,
+      requeueReason: "reconcile",
+      nextRunInSeconds: 0,
+      nextRunAt: nextRunAtIso,
+      durationMs: elapsedMs(attempt),
+      errorCode: null,
+      errorMessage: null,
     });
+  }
 
-    const refreshed = await repository.getJobById(job.id);
-    const current = refreshed ?? job;
-    const currentRetryCount = sanitizeRetryCount(current.retry_count);
+  return reportCompletedJob(attempt);
+}
 
-    if (current.status === "processing") {
-      return buildOutcome({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        level: current.level,
-        status: "in_progress",
-        trigger: options.trigger,
-        retryCount: currentRetryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: current.error_code,
-        errorMessage: current.error_message,
-        correlationId: options.correlationId,
-      });
-    }
+async function scheduleJobRetry(
+  attempt: TakeoffJobAttempt,
+  current: TakeoffWorkerJobRow,
+  currentRetryCount: number,
+  mappedError: TakeoffError
+) {
+  const backoffSeconds = getRetryBackoffSeconds(currentRetryCount);
+  const nextRetryAtIso = new Date(attempt.now().getTime() + backoffSeconds * 1000).toISOString();
+  const lastErrorAtIso = attempt.now().toISOString();
 
-    if (current.status === "canceled") {
-      await repository.clearRetrySchedule({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-      });
+  await attempt.repository.scheduleRetry({
+    jobId: current.id,
+    tenantId: current.tenant_id,
+    nextRetryAtIso,
+    lastErrorAtIso,
+  });
 
-      return buildOutcome({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        level: current.level,
-        status: "canceled",
-        trigger: options.trigger,
-        retryCount: currentRetryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: current.error_code,
-        errorMessage: current.error_message,
-        correlationId: options.correlationId,
-      });
-    }
+  attempt.logger.warn("Takeoff async worker scheduled retry", {
+    job_id: current.id,
+    tenant_id: current.tenant_id,
+    level: current.level,
+    attempt: currentRetryCount + 1,
+    duration_ms: elapsedMs(attempt),
+    status: "failed_retryable",
+    correlation_id: attempt.correlationId,
+  });
 
-    if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
-      return buildOutcome({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        level: current.level,
-        status: "noop_terminal",
-        trigger: options.trigger,
-        retryCount: currentRetryCount,
-        retryable: false,
-        shouldRequeue: false,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: current.error_code,
-        errorMessage: current.error_message,
-        correlationId: options.correlationId,
-      });
-    }
+  return attemptOutcome(attempt, current, {
+    status: "failed_retryable",
+    retryCount: currentRetryCount,
+    retryable: true,
+    shouldRequeue: true,
+    requeueReason: "retry",
+    nextRunInSeconds: backoffSeconds,
+    nextRunAt: nextRetryAtIso,
+    durationMs: elapsedMs(attempt),
+    errorCode: current.error_code ?? mappedError.code,
+    errorMessage: current.error_message ?? mappedError.message,
+  });
+}
 
-    const retryable = mappedError.retryable;
-    const shouldRetry = current.status === "failed" && retryable && currentRetryCount < TAKEOFF_RETRY_MAX;
+async function failJobTerminally(
+  attempt: TakeoffJobAttempt,
+  current: TakeoffWorkerJobRow,
+  currentRetryCount: number,
+  mappedError: TakeoffError
+) {
+  await attempt.repository.clearRetrySchedule({
+    jobId: current.id,
+    tenantId: current.tenant_id,
+    lastErrorAtIso: attempt.now().toISOString(),
+  });
 
-    if (shouldRetry) {
-      const backoffSeconds = getRetryBackoffSeconds(currentRetryCount);
-      const nextRetryAtIso = new Date(now().getTime() + backoffSeconds * 1000).toISOString();
-      const lastErrorAtIso = now().toISOString();
-
-      await repository.scheduleRetry({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        nextRetryAtIso,
-        lastErrorAtIso,
-      });
-
-      logger.warn("Takeoff async worker scheduled retry", {
-        job_id: current.id,
-        tenant_id: current.tenant_id,
-        level: current.level,
-        attempt: currentRetryCount + 1,
-        duration_ms: Math.max(0, now().getTime() - startedAt.getTime()),
-        status: "failed_retryable",
-        correlation_id: options.correlationId,
-      });
-
-      return buildOutcome({
-        jobId: current.id,
-        tenantId: current.tenant_id,
-        level: current.level,
-        status: "failed_retryable",
-        trigger: options.trigger,
-        retryCount: currentRetryCount,
-        retryable: true,
-        shouldRequeue: true,
-        requeueReason: "retry",
-        nextRunInSeconds: backoffSeconds,
-        nextRunAt: nextRetryAtIso,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-        errorCode: current.error_code ?? mappedError.code,
-        errorMessage: current.error_message ?? mappedError.message,
-        correlationId: options.correlationId,
-      });
-    }
-
-    await repository.clearRetrySchedule({
-      jobId: current.id,
-      tenantId: current.tenant_id,
-      lastErrorAtIso: now().toISOString(),
-    });
-
-    logger.error("Takeoff async worker reached terminal failure", {
+  attempt.logger.error("Takeoff async worker reached terminal failure", {
+    job_id: current.id,
+    tenant_id: current.tenant_id,
+    level: current.level,
+    attempt: currentRetryCount + 1,
+    duration_ms: elapsedMs(attempt),
+    status: "failed_terminal",
+    correlation_id: attempt.correlationId,
+    error_code: current.error_code ?? mappedError.code,
+  });
+  reportError({
+    error: new Error(current.error_message ?? mappedError.message),
+    source: "takeoff.async-worker",
+    context: {
       job_id: current.id,
       tenant_id: current.tenant_id,
-      level: current.level,
-      attempt: currentRetryCount + 1,
-      duration_ms: Math.max(0, now().getTime() - startedAt.getTime()),
       status: "failed_terminal",
-      correlation_id: options.correlationId,
+      correlation_id: attempt.correlationId,
       error_code: current.error_code ?? mappedError.code,
-    });
-    reportError({
-      error: new Error(current.error_message ?? mappedError.message),
-      source: "takeoff.async-worker",
-      context: {
-        job_id: current.id,
-        tenant_id: current.tenant_id,
-        status: "failed_terminal",
-        correlation_id: options.correlationId,
-        error_code: current.error_code ?? mappedError.code,
-      },
-    });
+    },
+  });
 
-    return buildOutcome({
-      jobId: current.id,
-      tenantId: current.tenant_id,
-      level: current.level,
-      status: "failed_terminal",
-      trigger: options.trigger,
+  return attemptOutcome(attempt, current, {
+    status: "failed_terminal",
+    retryCount: currentRetryCount,
+    retryable: false,
+    shouldRequeue: false,
+    durationMs: elapsedMs(attempt),
+    errorCode: current.error_code ?? mappedError.code,
+    errorMessage: current.error_message ?? mappedError.message,
+  });
+}
+
+async function settleLevelProcessingFailure(attempt: TakeoffJobAttempt, error: unknown) {
+  const { job } = attempt;
+  const mappedError = toTakeoffError(error, {
+    fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+    fallbackMessage: "Le traitement async du job takeoff a echoue.",
+    jobId: job.id,
+    level: toTakeoffLevel(job.level),
+  });
+
+  const refreshed = await attempt.repository.getJobById(job.id);
+  const current = refreshed ?? job;
+  const currentRetryCount = sanitizeRetryCount(current.retry_count);
+
+  if (current.status === "processing") {
+    return attemptOutcome(attempt, current, {
+      status: "in_progress",
       retryCount: currentRetryCount,
       retryable: false,
       shouldRequeue: false,
-      durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
-      errorCode: current.error_code ?? mappedError.code,
-      errorMessage: current.error_message ?? mappedError.message,
-      correlationId: options.correlationId,
+      durationMs: elapsedMs(attempt),
+      errorCode: current.error_code,
+      errorMessage: current.error_message,
     });
   }
+
+  if (current.status === "canceled") {
+    return settleCanceledJob(attempt, current);
+  }
+
+  if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
+    return attemptOutcome(attempt, current, {
+      status: "noop_terminal",
+      retryCount: currentRetryCount,
+      retryable: false,
+      shouldRequeue: false,
+      durationMs: elapsedMs(attempt),
+      errorCode: current.error_code,
+      errorMessage: current.error_message,
+    });
+  }
+
+  const shouldRetry =
+    current.status === "failed" && mappedError.retryable && currentRetryCount < TAKEOFF_RETRY_MAX;
+
+  if (shouldRetry) {
+    return scheduleJobRetry(attempt, current, currentRetryCount, mappedError);
+  }
+
+  return failJobTerminally(attempt, current, currentRetryCount, mappedError);
+}
+
+// Runs the level processor under the processing lease the job's claim holds.
+async function runLevelProcessor(
+  attempt: TakeoffJobAttempt,
+  processLevelFn: TakeoffLevelProcessor
+) {
+  try {
+    const result = await processLevelFn(
+      attempt.job.id,
+      takeoffProcessorOptions(
+        attempt,
+        takeoffLeaseRenewal(attempt, "processing", TAKEOFF_PROCESSING_LEASE_TTL_SECONDS)
+      )
+    );
+    // Awaited here so that a failure to refresh the job is handled as a
+    // processing failure.
+    return await settleLevelProcessorResult(attempt, result);
+  } catch (error) {
+    return settleLevelProcessingFailure(attempt, error);
+  }
+}
+
+export async function processTakeoffJobAttempt(
+  jobId: string,
+  options: ProcessTakeoffJobAttemptOptions
+): Promise<TakeoffJobAttemptOutcome> {
+  const now = options.now ?? (() => new Date());
+  const startedAt = now();
+  const serviceRoleClient =
+    createServiceRoleClient() as unknown as SupabaseClientLike;
+  const repository =
+    options.repository ??
+    createSupabaseTakeoffWorkerRepository(serviceRoleClient);
+
+  assertTakeoffJobId(jobId);
+  const job = await loadTakeoffWorkerJob(repository, jobId);
+  const attempt: TakeoffJobAttempt = {
+    job,
+    retryCount: sanitizeRetryCount(job.retry_count),
+    durationAfterLoadMs: Math.max(0, now().getTime() - startedAt.getTime()),
+    startedAt,
+    now,
+    trigger: options.trigger,
+    correlationId: options.correlationId,
+    logger: options.logger ?? console,
+    repository,
+    serviceRoleClient,
+    assertTenantActive: (tenantId) => assertTenantStillActive(repository, job, tenantId),
+  };
+
+  if (TAKEOFF_TERMINAL_JOB_STATUSES.has(job.status)) {
+    return untouchedJobOutcome(attempt, job.status === "canceled" ? "canceled" : "noop_terminal");
+  }
+
+  if (!(await repository.isTenantActive(job.tenant_id))) {
+    return attemptOutcome(attempt, job, {
+      status: "noop_terminal",
+      retryCount: attempt.retryCount,
+      retryable: false,
+      shouldRequeue: false,
+      durationMs: elapsedMs(attempt),
+      errorCode: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
+      errorMessage: "Le tenant est suspendu; le worker n'a execute aucun effet externe.",
+    });
+  }
+
+  if (job.status === "failed") {
+    const retryGateOutcome = await gateFailedJobRetry(attempt);
+    if (retryGateOutcome) return retryGateOutcome;
+  }
+
+  if (isBatchReconcileCandidate(job)) {
+    return reconcileProviderBatch(
+      attempt,
+      options.reconcileTakeoffBatchJobFn ?? reconcileTakeoffBatchJob
+    );
+  }
+
+  if (job.status === "processing") {
+    return untouchedJobOutcome(attempt, "in_progress");
+  }
+
+  const processLevelFn = selectLevelProcessor(job.level, options);
+  if (!processLevelFn) {
+    return failUnsupportedLevel(attempt);
+  }
+
+  return runLevelProcessor(attempt, processLevelFn);
 }
