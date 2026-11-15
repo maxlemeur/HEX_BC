@@ -28,9 +28,28 @@ export async function hashIntakeContent(blob: Blob): Promise<string> {
   }
 }
 
+/**
+ * An interrupted request may leave a pending reservation without any bytes.
+ * Compare-and-swap it to `rejected`; the original writer must also CAS its final
+ * transition. Returns false when the row changed in the meantime.
+ */
+async function rejectStalePendingReservation(
+  { context, project }: Pick<Access, "context" | "project">,
+  row: { id: string; updated_at: string }
+): Promise<boolean> {
+  const released = await context.supabase.from("affaire_intake_documents")
+    .update({ upload_status: "rejected", classification_status: "failed", rejection_reason: "Transfert interrompu. Vous pouvez renvoyer ce document." })
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", row.id)
+    .eq("upload_status", "pending").eq("updated_at", row.updated_at).is("deleted_at", null).select("id");
+  if (released.error) throw internalError("Impossible de reprendre le transfert interrompu. Réessayez.");
+  return Boolean(released.data?.length);
+}
+
 /** Reads through the caller's RLS and Storage permissions, after project authorization.
  * Drive links retain their provider identity: linking one does not import its bytes.
  * A deletion in progress still reserves its bytes until the copy is actually gone.
+ * Side effect: a pending reservation older than 15 minutes is first rejected
+ * (rejectStalePendingReservation), so its content can be sent again.
  */
 export async function findDuplicateIntakeDocument({ context, project }: Access, sha256: string, sizeBytes: number) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -44,14 +63,7 @@ export async function findDuplicateIntakeDocument({ context, project }: Access, 
     if (row.upload_status !== "pending" || Date.parse(row.created_at) > Date.now() - PENDING_RESERVATION_MAX_AGE_MS) {
       return { documentId: row.id, message: row.upload_status === "pending" ? INTAKE_DUPLICATE_PENDING_MESSAGE : INTAKE_DUPLICATE_MESSAGE };
     }
-    // An interrupted request may leave a pending reservation without any bytes.
-    // Compare-and-swap it; the original writer must also CAS its final transition.
-    const released = await context.supabase.from("affaire_intake_documents")
-      .update({ upload_status: "rejected", classification_status: "failed", rejection_reason: "Transfert interrompu. Vous pouvez renvoyer ce document." })
-      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", row.id)
-      .eq("upload_status", "pending").eq("updated_at", row.updated_at).is("deleted_at", null).select("id");
-    if (released.error) throw internalError("Impossible de reprendre le transfert interrompu. Réessayez.");
-    if (released.data?.length) break;
+    if (await rejectStalePendingReservation({ context, project }, row)) break;
     if (attempt === 2) throw internalError("Le transfert a changé pendant la vérification. Réessayez.");
   }
 
