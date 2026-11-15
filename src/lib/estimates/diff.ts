@@ -239,7 +239,7 @@ function normalizeStringValue(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeNumberValue(value: unknown): number | null {
+export function normalizeNumberValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Object.is(value, -0) ? 0 : value;
   }

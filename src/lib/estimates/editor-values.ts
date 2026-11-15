@@ -22,14 +22,7 @@ export function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-export function toNullableFiniteNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
+export { toNumber as toNullableFiniteNumber } from "@/lib/estimates/client-json";
 
 /** Blank cells retain their existing zero default; invalid text never does. */
 export function parseNumberInput(value: string): number | null {

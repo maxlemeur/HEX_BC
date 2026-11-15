@@ -4,7 +4,6 @@ import {
   badRequest,
   ok,
   toErrorResponse,
-  unprocessableEntity,
 } from "@/lib/estimates/errors";
 import {
   takeoffMappingRuleIdSchema,
@@ -16,35 +15,16 @@ import {
 } from "@/lib/takeoff/server";
 import type { UpdateTakeoffMappingRuleInput } from "@/lib/takeoff/types";
 import { parseJsonBody } from "@/lib/http/request";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 
 const paramsSchema = z.object({
   ruleId: takeoffMappingRuleIdSchema,
 });
 
-function toValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    code: issue.code,
-    message: issue.message,
-  }));
-}
-
 function parseUpdateTakeoffMappingRulePayload(
   payload: unknown
 ): UpdateTakeoffMappingRuleInput {
-  const parsed = updateTakeoffMappingRuleSchema.safeParse(payload);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      "Payload invalide.",
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
+  return parseWithSchema(updateTakeoffMappingRuleSchema, payload, "Payload invalide.");
 }
 
 async function getRuleId(paramsPromise: Promise<{ ruleId: string }>) {

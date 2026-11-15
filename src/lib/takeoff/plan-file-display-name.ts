@@ -49,3 +49,34 @@ export function getPlanFileDisplayName(file: PlanFileNameSource): string {
 
   return file.file_name;
 }
+
+function sanitizePlanFileName(filename: string) {
+  const normalized = filename
+    .replace(/[\\/]+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+
+  return normalized.length > 0 ? normalized : "plan";
+}
+
+/** Storage basename of a plan file (`plan_files.file_name`): ASCII-safe, ending in `.pdf`. */
+export function sanitizePlanPdfFilename(filename: string) {
+  const sanitized = sanitizePlanFileName(filename);
+
+  if (sanitized.toLowerCase().endsWith(".pdf")) {
+    return sanitized;
+  }
+
+  return `${sanitized}.pdf`;
+}
+
+/** Key of a plan file in the plan-files bucket: `tenant/set/file/name`. */
+export function buildPlanFileStoragePath(input: {
+  tenantId: string;
+  setId: string;
+  fileId: string;
+  fileName: string;
+}) {
+  return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
+}

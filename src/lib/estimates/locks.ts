@@ -11,6 +11,7 @@ import {
   mapSupabaseError,
   notFound,
 } from "./errors";
+import { canAccessOwnerResource, isTenantAdmin } from "./server-context";
 
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -44,7 +45,6 @@ type AuthenticatedContext = {
 };
 
 const DRAFT_LOCK_TTL_SECONDS = 120;
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 
 type LockOwner = {
   id: string;
@@ -87,20 +87,6 @@ function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
-}
-
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
-  );
 }
 
 function isDraftStatus(status: EstimateStatus) {

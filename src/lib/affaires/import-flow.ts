@@ -425,6 +425,17 @@ function resolveRowTitle(mappedRow: JsonRecord) {
   return designation || reference;
 }
 
+/** Valid lines in source order: row index, then mapped row id. */
+export function sortValidImportFlowLines(lines: readonly ValidImportFlowLine[]): ValidImportFlowLine[] {
+  return [...lines].sort((left, right) => {
+    if (left.rowIndex !== right.rowIndex) {
+      return left.rowIndex - right.rowIndex;
+    }
+
+    return left.mappedRowId.localeCompare(right.mappedRowId);
+  });
+}
+
 export function normalizeMappedRowsForEstimateCreation(
   rows: ImportFlowMappedRowInput[],
   context: ImportFlowLineValuesContext,

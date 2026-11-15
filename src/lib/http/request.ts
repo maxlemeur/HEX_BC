@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Request parsing shared by the API routes. Each domain keeps its own error
  * class, so the caller passes the `badRequest` factory of its domain: the
@@ -64,4 +66,14 @@ export function resolveConcurrencyToken(request: Request, fallback?: string) {
   }
 
   return undefined;
+}
+
+/** `superRefine` for PATCH payloads: an update must change at least one field. */
+export function rejectEmptyUpdatePayload<T extends object>(payload: T, ctx: z.RefinementCtx<T>) {
+  if (Object.keys(payload).length > 0) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Aucun champ de mise à jour fourni.",
+    path: [],
+  });
 }

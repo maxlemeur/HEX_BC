@@ -5,6 +5,7 @@ import type { Database } from "@/types/database";
 import { badRequest, mapSupabaseError } from "./errors";
 import {
   buildEstimateDiff,
+  normalizeNumberValue,
   type EstimateDiffEntry,
   type EstimateDiffFieldChange,
   type EstimateDiffResult,
@@ -146,23 +147,6 @@ function normalizeTextValue(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeNumberValue(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Object.is(value, -0) ? 0 : value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return null;
-    const parsed = Number(trimmed);
-    if (Number.isFinite(parsed)) {
-      return Object.is(parsed, -0) ? 0 : parsed;
-    }
-  }
-
-  return null;
 }
 
 function normalizeSnapshotValue(

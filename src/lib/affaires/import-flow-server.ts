@@ -327,16 +327,6 @@ export async function fetchLatestMappingId(input: {
   return data?.id ?? null;
 }
 
-export function sortValidLinesForEstimateCreation(lines: ValidImportFlowLine[]): ValidImportFlowLine[] {
-  return [...lines].sort((left, right) => {
-    if (left.rowIndex !== right.rowIndex) {
-      return left.rowIndex - right.rowIndex;
-    }
-
-    return left.mappedRowId.localeCompare(right.mappedRowId);
-  });
-}
-
 export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPayload[] {
   return lines.map((line) => ({
     item_type: "line",

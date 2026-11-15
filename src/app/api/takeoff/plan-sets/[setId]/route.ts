@@ -6,12 +6,12 @@ import {
   notFound,
   ok,
   toErrorResponse,
-  unprocessableEntity,
 } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { deletePlanSet, getPlanSet, planSetIdSchema } from "@/lib/takeoff/plans";
 import { parseJsonBody } from "@/lib/http/request";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 
 const paramsSchema = z
   .object({
@@ -59,28 +59,8 @@ async function getSetId(paramsPromise: Promise<{ setId: string }>) {
   return paramsSchema.parse(params).setId;
 }
 
-function toValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    code: issue.code,
-    message: issue.message,
-  }));
-}
-
 function parseUpdatePlanSetPayload(payload: unknown): UpdatePlanSetInput {
-  const parsed = updatePlanSetSchema.safeParse(payload);
-
-  if (!parsed.success) {
-    throw unprocessableEntity(
-      "Payload invalide.",
-      {
-        issues: toValidationIssues(parsed.error),
-      },
-      "VALIDATION_ERROR"
-    );
-  }
-
-  return parsed.data;
+  return parseWithSchema(updatePlanSetSchema, payload, "Payload invalide.");
 }
 
 async function updatePlanSetById(setId: string, input: UpdatePlanSetInput) {
