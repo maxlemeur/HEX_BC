@@ -980,7 +980,9 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
 
     // Terra is listed, but its answer is held: the analysis answers first, then the reading follows it.
     await setDecisionsControl({ transcriptionModel: true, holdTranscription: true });
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    // The dossier's document desk, where each piece's analysis is retried.
+    const desk = `/dashboard/affaires/${ids.projectId}?intakeDocument=${documentId}#intake`;
+    await ui.app.open(desk);
     const retry = screen.getByRole("button", "Relancer l’analyse de bon-relance-ARMY.png", { exact: true });
     await expect(retry).toBeEnabled(DEV_SERVER_WORK);
     await retry.click();
@@ -1000,7 +1002,7 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
     expect(events.data).toHaveLength(1);
 
     // A second retry keeps the completed reading of the same content: nothing more reaches the plan for it.
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await ui.app.open(desk);
     await expect(retry).toBeEnabled(DEV_SERVER_WORK);
     await retry.click();
     await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);

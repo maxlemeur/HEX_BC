@@ -331,8 +331,9 @@ globalThis.fetch = async (input, init) => {
       reasoningEffort: body.reasoning.effort, inputKind: image ? "image" : pdf ? "pdf" : "none", ...(image ? { detail: image.detail ?? null } : {}),
       page: /la page (\d+) de la pièce/.exec(prompt)?.[1] ?? null }) + "\n");
     assert(image || pdf, "A transcription sends the image or the scanned page.");
-    // `holdTranscription` (INTOCR02) keeps the reading waiting, to prove that the analysis answered without it.
-    const deadline = Date.now() + 60_000;
+    // `holdTranscription` (INTOCR02) keeps the reading waiting, to prove that the analysis answered without it. The
+    // journey releases it within its own waits (60 s each, up to three): the deadline outlasts them.
+    const deadline = Date.now() + 240_000;
     while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdTranscription) {
       if (Date.now() >= deadline) throw new Error("The controlled transcription response was not released.");
       await new Promise((resolve) => setTimeout(resolve, 50));

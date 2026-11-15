@@ -5,7 +5,7 @@ import { PDFDocument, PDFName, StandardFonts, concatTransformationMatrix, drawOb
 import { describe, expect, it } from "vitest";
 
 import {
-  INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, summarizeIntakeTranscription,
+  INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
 import { planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
 
@@ -115,5 +115,23 @@ describe("what a transcription records", () => {
   it("is failed, with no text, when no page was read", () => {
     expect(summarizeIntakeTranscription({ pagesNeeded: 1, pagesSkipped: 0, read: [], errorCode: "MODEL_UNAVAILABLE" }))
       .toEqual({ status: "failed", pages: [], pages_needed: 1, pages_skipped: 0, error_code: "MODEL_UNAVAILABLE" });
+  });
+});
+
+describe("when a piece is read again", () => {
+  const sha = "a".repeat(64);
+  it("reads a piece with no reading, or whose reading was of another content", () => {
+    expect(needsIntakeTranscription(null, sha)).toBe(true);
+    expect(needsIntakeTranscription({ source_sha256: "b".repeat(64), error_code: null }, sha)).toBe(true);
+  });
+  it("keeps a reading of the same content that ended without an error, the per-piece bound included", () => {
+    expect(needsIntakeTranscription({ source_sha256: sha, error_code: null }, sha)).toBe(false);
+  });
+  it.each(["AI_QUOTA", "AI_RATE_LIMIT", "AI_AUTH_REQUIRED", "MODEL_UNAVAILABLE", "PROVIDER_ERROR", "PDF_INSPECTION_INCOMPLETE"])(
+    "reads again a reading stopped by %s, which may clear", (code) => {
+      expect(needsIntakeTranscription({ source_sha256: sha, error_code: code }, sha)).toBe(true);
+    });
+  it("keeps a reading of the same content whose page was too heavy: the same bytes stay too heavy", () => {
+    expect(needsIntakeTranscription({ source_sha256: sha, error_code: "PAGE_TOO_LARGE" }, sha)).toBe(false);
   });
 });

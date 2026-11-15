@@ -43,13 +43,23 @@ const TRANSCRIPTION_CUT = "\n[Transcription coupée : la limite de lecture est a
 function transcriptionPart(input: { transcription: StoredDocumentTranscription | null | undefined; bytes: Uint8Array; from: number; to: number; room: number }) {
   const pages = input.transcription?.pages.filter((page) => page.page >= input.from && page.page <= input.to && page.text.trim()) ?? [];
   if (!pages.length || createHash("sha256").update(input.bytes).digest("hex") !== input.transcription!.sourceSha256) return null;
-  const whole = [TRANSCRIPTION_LABEL, ...pages.map((page) => `Page ${page.page} :\n${page.text}`)].join("\n\n");
+  const blocks = pages.map((page) => ({ page: page.page, head: `\n\nPage ${page.page} :\n`, text: page.text }));
+  const whole = TRANSCRIPTION_LABEL + blocks.map((block) => block.head + block.text).join("");
   if (utf8Length(whole) <= input.room) return { text: whole, pages: pages.map((page) => page.page), cut: false };
-  const kept = fitBytes(whole, input.room - utf8Length(TRANSCRIPTION_CUT));
-  // The label alone says nothing of the piece: without room for some text, the transcription is left out.
-  if (kept.length <= TRANSCRIPTION_LABEL.length + 2) return null;
-  const text = kept + TRANSCRIPTION_CUT;
-  return { text, pages: pages.filter((page) => text.includes(`Page ${page.page} :\n`)).map((page) => page.page), cut: true };
+  // Cut: each page's text goes whole while it fits, the next one in part, all within the room the cut's notice leaves.
+  // Only pages with some of their text are listed; the label alone says nothing of the piece, and is left out.
+  const room = input.room - utf8Length(TRANSCRIPTION_CUT);
+  let text = TRANSCRIPTION_LABEL;
+  const sent: number[] = [];
+  for (const block of blocks) {
+    const kept = fitBytes(block.text, room - utf8Length(text + block.head));
+    if (kept.trim()) {
+      text += block.head + kept;
+      sent.push(block.page);
+    }
+    if (kept.length < block.text.length) break;
+  }
+  return sent.length ? { text: text + TRANSCRIPTION_CUT, pages: sent, cut: true } : null;
 }
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);

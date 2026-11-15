@@ -3013,8 +3013,6 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     }
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream";
     const sourceSha256 = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
-    // The text is read after the response: a reading takes up to minutes per page.
-    await scheduleRetryTranscription({ context, document, mimeType, bytes, sourceSha256 });
     const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
       mimeType, bytes,
       aiOwner: context,
@@ -3041,6 +3039,9 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
     if (!updated) throw conflict("La pièce a changé pendant l’analyse. Le nouveau résultat n’a pas remplacé son classement.");
     proposalSaved = true;
+    // The text is read after the response (a reading takes up to minutes per page), and only for a retry that saved
+    // its proposal: one refused or interrupted spends nothing more.
+    await scheduleRetryTranscription({ context, document, mimeType, bytes, sourceSha256 });
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },

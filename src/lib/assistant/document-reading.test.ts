@@ -278,4 +278,25 @@ describe("reading a piece with its automatic transcription", () => {
     expect(result.bytes).toBeLessThanOrEqual(limit);
     expect(textOf(result.parts)[0]).toContain("coupée");
   });
+
+  it("lists as sent only the pages whose text was sent, wherever the cut falls", async () => {
+    const bytes = await pdfOf(3);
+    const pages = [{ page: 1, text: "Article 1 : tube cuivre DN20" }, { page: 2, text: "Q".repeat(4_000) }, { page: 3, text: "R".repeat(4_000) }];
+    const file = (await read(bytes)).bytes;
+    // Byte by byte around where page 2's header starts, then coarsely over the rest.
+    const whole = textOf((await read(bytes, { transcription: transcribed(bytes, pages) })).parts)[0]!;
+    const header = new TextEncoder().encode(whole.slice(0, whole.indexOf("Page 2 :"))).byteLength;
+    const rooms = [...Array.from({ length: 120 }, (_, offset) => header - 20 + offset), ...Array.from({ length: 90 }, (_, step) => step * 100)];
+    for (const room of rooms) {
+      const result = await read(bytes, { limits: { ...DOCUMENT_READ_LIMITS, bytesPerRead: file + room }, transcription: transcribed(bytes, pages) });
+      if (!result.transcription) continue;
+      const [text] = textOf(result.parts);
+      for (const page of result.transcription.pages) {
+        expect(text).toContain(`Page ${page} :\n${pages[page - 1]!.text.slice(0, 1)}`);
+      }
+      // A page not listed has nothing of its text in the part.
+      for (const page of pages.filter((entry) => !result.transcription!.pages.includes(entry.page))) expect(text).not.toContain(`Page ${page.page} :`);
+      expect(result.bytes).toBeLessThanOrEqual(file + room);
+    }
+  });
 });
