@@ -779,6 +779,27 @@ export function buildTakeoffRiskCandidates(
   };
 }
 
+/** Takeoff job of an alert: its column, else the job id kept in its metadata. */
+export function resolveAlertJobId(alert: TakeoffRiskAlert) {
+  if (typeof alert.takeoff_job_id === "string") {
+    return alert.takeoff_job_id;
+  }
+
+  const metadata =
+    typeof alert.metadata === "object" && alert.metadata !== null
+      ? (alert.metadata as Record<string, unknown>)
+      : {};
+
+  return (
+    (typeof metadata.takeoff_job_id === "string"
+      ? metadata.takeoff_job_id
+      : null) ??
+    (typeof metadata.takeoffJobId === "string"
+      ? metadata.takeoffJobId
+      : null)
+  );
+}
+
 export function normalizeRiskAlertRow(
   row: Record<string, unknown>
 ): TakeoffRiskAlert | null {
