@@ -436,6 +436,7 @@ describe("processTakeoffJobAttempt", () => {
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
     expect(logger.warn).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(processLevelAFn).not.toHaveBeenCalled();
   });
 
   it("returns in_progress when concurrent trigger sees processing status", async () => {
@@ -789,6 +790,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
   describe("entry guards", () => {
     it("rejects a job id that is not a UUID before reading the job", async () => {
       const harness = createAttemptHarness(workerJob());
+      vi.mocked(createServiceRoleClient).mockClear();
 
       await expect(harness.run("create", "not-a-uuid")).rejects.toMatchObject({
         code: TakeoffErrorCode.BAD_REQUEST,
@@ -796,6 +798,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         retryable: false,
       });
       expect(harness.sequence()).toEqual([]);
+      expect(createServiceRoleClient).toHaveBeenCalledTimes(1);
     });
 
     it("rejects a job that no longer exists", async () => {
@@ -1075,6 +1078,82 @@ describe("processTakeoffJobAttempt attempt endings", () => {
           "scheduleReconcile",
           { jobId: JOB_ID, tenantId: TENANT_ID, dueAtIso: at(5 + 40), leaseToken: LEASE_TOKEN },
         ],
+      ]);
+    });
+
+    it("still reconciles a running batch at the last allowed reconcile attempt", async () => {
+      const harness = createAttemptHarness(batchJob());
+      harness.claimLease(24);
+      harness.reconcileTakeoffBatchJobFn.mockResolvedValueOnce(awaitingProviderResult());
+
+      const outcome = await harness.run("reconcile");
+
+      expect(outcome).toEqual(
+        expectedOutcome({
+          status: "awaiting_provider_result",
+          trigger: "reconcile",
+          shouldRequeue: true,
+          requeueReason: "reconcile",
+          nextRunInSeconds: 60,
+          nextRunAt: at(4 + 60),
+          durationMs: 5000,
+        })
+      );
+      expect(harness.repository.markBatchReconcileTimeoutAsFailed).not.toHaveBeenCalled();
+      expect(harness.reconcileTakeoffBatchJobFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("schedules the next reconcile from the first backoff when the lease reports no attempt count", async () => {
+      const harness = createAttemptHarness(batchJob({ provider_reconcile_attempt_count: 3 }));
+      harness.claimLease(null);
+      harness.reconcileTakeoffBatchJobFn.mockResolvedValueOnce(awaitingProviderResult());
+
+      const outcome = await harness.run("reconcile");
+
+      expect(outcome).toEqual(
+        expectedOutcome({
+          status: "awaiting_provider_result",
+          trigger: "reconcile",
+          shouldRequeue: true,
+          requeueReason: "reconcile",
+          nextRunInSeconds: 10,
+          nextRunAt: at(4 + 10),
+          durationMs: 5000,
+        })
+      );
+      expect(harness.repository.scheduleReconcile).toHaveBeenCalledWith({
+        jobId: JOB_ID,
+        tenantId: TENANT_ID,
+        dueAtIso: at(4 + 10),
+        leaseToken: LEASE_TOKEN,
+      });
+    });
+
+    it("does not reschedule a reconcile once the refreshed job has no provider batch", async () => {
+      const harness = createAttemptHarness(batchJob());
+      harness.claimLease(2);
+      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
+        harness.state.job = { ...harness.state.job, provider_batch_id: null };
+        throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "Provider indisponible", retryable: true });
+      });
+
+      const outcome = await harness.run("reconcile");
+
+      expect(outcome).toEqual(
+        expectedOutcome({
+          status: "in_progress",
+          trigger: "reconcile",
+          durationMs: 4000,
+          errorCode: TakeoffErrorCode.AI_PROVIDER,
+          errorMessage: "Provider indisponible",
+        })
+      );
+      expect(harness.sequence()).toEqual([
+        ["getJobById", JOB_ID],
+        ["isTenantActive", TENANT_ID],
+        ["acquireBatchReconcileLease", leaseClaim],
+        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
+        ["getJobById", JOB_ID],
       ]);
     });
 
@@ -1438,6 +1517,20 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         });
       }
     );
+
+    it("reports the loaded retry count when the job cannot be read again after processing", async () => {
+      const harness = createAttemptHarness(workerJob({ retry_count: 2 }));
+      harness.processLevelAFn.mockResolvedValueOnce(completedResult());
+      harness.repository.getJobById
+        .mockImplementationOnce(async () => ({ ...harness.state.job }))
+        .mockResolvedValueOnce(null as never);
+
+      const outcome = await harness.run("create");
+
+      expect(outcome).toEqual(
+        expectedOutcome({ status: "completed", trigger: "create", retryCount: 2, durationMs: 2000 })
+      );
+    });
 
     it("requeues a job submitted to the provider batch for an immediate reconcile", async () => {
       const harness = createAttemptHarness(workerJob());
