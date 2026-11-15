@@ -22,7 +22,7 @@ function recordingClient(result: { data: unknown; error: unknown }) {
   for (const method of ["eq", "is"]) query[method] = (column: string, value: unknown) => { filters.push([method, column, value]); return query; };
   query.maybeSingle = async () => result;
   query.then = (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve);
-  const from = vi.fn(() => query);
+  const from = vi.fn((table: string) => { void table; return query; });
   return { client: { from }, from, filters };
 }
 
@@ -63,7 +63,29 @@ describe("the affaire's documents read by the assistant", () => {
     const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, signal });
     // The member's Stop and the answer's time bound reach the download (storage or Drive).
     expect(readAffaireDocumentPreview).toHaveBeenCalledWith(AFFAIRE, DOCUMENT, true, signal);
-    expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", charset: "binary", bytes: new Uint8Array([1, 2]) });
+    // The mock answers the transcription read with the piece's row, which does not read as one: none is sent.
+    expect(document).toEqual({ documentId: DOCUMENT, fileName: "CCTP.pdf", type: "CCTP", mimeType: "application/pdf", charset: "binary",
+      bytes: new Uint8Array([1, 2]), transcription: null });
+  });
+
+  it("reads the piece's automatic transcription with the member's rights, and gives its pages with their content's hash", async () => {
+    const piece = { id: DOCUMENT, file_name: "scan.png", mime_type: "image/png", document_kind: "annexes" };
+    const stored = { source_sha256: "a".repeat(64), status: "partial", pages: [{ page: 1, text: "Tube DN20", illegible: 0 }], pages_needed: 2,
+      pages_skipped: 0, model: "gpt-6.1-terra", reasoning_effort: "high", error_code: "AI_QUOTA", updated_at: "2026-11-15T10:00:00.000Z" };
+    const filters: Array<[string, string, unknown]> = [];
+    const from = vi.fn((table: string) => {
+      const query: Record<string, unknown> = {};
+      query.select = () => query;
+      for (const method of ["eq", "is"]) query[method] = (column: string, value: unknown) => { filters.push([table, column, value]); return query; };
+      query.maybeSingle = async () => ({ data: table === "affaire_intake_document_transcriptions" ? stored : piece, error: null });
+      return query;
+    });
+    grantAccess({ from });
+    vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1]), fileName: "scan.png", mimeType: "image/png" });
+    const document = await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT });
+    expect(document.transcription).toEqual({ sourceSha256: "a".repeat(64), pages: [{ page: 1, text: "Tube DN20", illegible: 0 }] });
+    expect(filters).toEqual(expect.arrayContaining([["affaire_intake_document_transcriptions", "tenant_id", "tenant-1"],
+      ["affaire_intake_document_transcriptions", "document_id", DOCUMENT]]));
   });
 
   it("keeps the stored charset of a text document, so that its text is decoded as written", async () => {
@@ -102,7 +124,7 @@ describe("the affaire's documents read by the assistant", () => {
     }
     expect(readAffaireDocumentPreview).toHaveBeenCalledTimes(1);
     expect(requireAffaireProjectReadAccess).toHaveBeenCalledTimes(3);
-    expect(from).toHaveBeenCalledTimes(3);
+    expect(from.mock.calls.filter(([table]) => table === "affaire_intake_documents")).toHaveLength(3);
   });
 
   it("keeps only the document read last: going back to an earlier one downloads it again", async () => {

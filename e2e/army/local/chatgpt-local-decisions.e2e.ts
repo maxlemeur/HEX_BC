@@ -24,8 +24,9 @@ import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
 import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
 
 // The assistance of the ChatGPT local journeys, on this file's own development server: the Decisions proposals of
-// the preparation (DEC01, TRI01), the lab's vectors page (VEC01), the price reuse arbitration (PRX02) and the intake
-// reanalysis (INTRETRY01, INTWORD01). The takeoff jobs run in chatgpt-local-takeoff.e2e.ts, on a second server
+// the preparation (DEC01, TRI01), the lab's vectors page (VEC01), the price reuse arbitration (PRX02), the intake
+// reanalysis (INTRETRY01, INTWORD01) and the transcriptions of the pieces (INTOCR01, INTOCR02). The takeoff jobs run in
+// chatgpt-local-takeoff.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). Each test that needs a ChatGPT profile writes its
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
 const server = chatGptLocalServer();
@@ -42,7 +43,7 @@ let labOutputDir: string;
 // 13.2 s in the green run 42822852964), the whole default assertion budget. The outcome asserted stays the same.
 const DEV_SERVER_WORK = { timeout: 60_000 };
 const localClient = () => localChatGptClient(fixtureEmail);
-const setDecisionsControl = (input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean }) => writeDecisionsControl(decisionsControl, input);
+const setDecisionsControl = (input: Parameters<typeof writeDecisionsControl>[1]) => writeDecisionsControl(decisionsControl, input);
 /** Writes the owner's temporary ChatGPT profile unless a test of this file already left one. */
 async function preparePlanFixture(unsetPreferences = false) {
   if (fixtureStore) return false;
@@ -917,6 +918,130 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
     await recordEvidence(army, "intake-transcription", { ids, imageId: image.id, pdfId: pdf.id, transcribedPages: { image: [1], pdf: [2] },
       model: "gpt-6.1-terra", reasoningEffort: "high", providerRequests: sent.length, provider: "chatgpt-fixture", screenshot,
       boundary: "Owned ephemeral backend, fictional PNG and PDF, simulated ChatGPT transport; no client document or live inference." });
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// A reading stopped by a failure is read again by « Relancer l’analyse », after its response; a reading already done is
+// kept. The assistant then gets the text with the image it reads, labelled as unverified, and cites the piece's page.
+// Terra is not listed when the piece arrives (the reading stops on MODEL_UNAVAILABLE), then listed for the retry.
+test("INTOCR02 the analysis retry reads a stopped transcription again after its response, and the assistant reads the text", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("INTOCR02 uses only the fictional provider transport fixture.");
+  if (!await preparePlanFixture()) throw new Error("INTOCR02 requires its own temporary ChatGPT profile.");
+  await setDecisionsControl({});
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-transcription-retry-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Transcription relancée" }, army);
+    const { client } = await localClient();
+
+    // A fictional 1×1 PNG « delivery note »: the fixture's reading of an image is its text.
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const imagePath = path.join(directory, "bon-relance-ARMY.png");
+    await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAW9JTswAAAABJRU5ErkJggg==", "base64"));
+    const sha = createHash("sha256").update(await readFile(imagePath)).digest("hex");
+    const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map((entry) => JSON.parse(entry) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
+    const readings = async () => (await readTransport()).filter((entry) => entry.task === "transcription").length;
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(imagePath);
+    const piece = async () => {
+      const result = await client.from("affaire_intake_documents").select("id,upload_id,classification_status").eq("project_id", ids.projectId);
+      if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
+      expect(result.data).toHaveLength(1);
+      return result.data[0]!;
+    };
+    const transcription = async () => {
+      const result = await client.from("affaire_intake_document_transcriptions")
+        .select("status,pages,pages_needed,model,error_code,source_sha256,updated_at").eq("document_id", (await piece()).id).maybeSingle();
+      if (result.error) throw new Error(`Owned transcription read failed: ${result.error.code}`);
+      return result.data;
+    };
+    const lotStatus = async () => {
+      const result = await client.from("affaire_intake_uploads").select("status").eq("id", (await piece()).upload_id).single();
+      if (result.error) throw new Error(`Owned intake lot read failed: ${result.error.code}`);
+      return result.data.status;
+    };
+    // At arrival the plan does not list Terra: the reading stops, recorded on its row, and the lot ends.
+    await expect.poll(async () => (await transcription())?.status ?? null, { timeout: 120_000 }).toBe("failed");
+    expect(await transcription()).toMatchObject({ status: "failed", pages: [], error_code: "MODEL_UNAVAILABLE", source_sha256: sha });
+    await expect.poll(lotStatus, { timeout: 60_000 }).toMatch(/^(ready|partial_failure)$/);
+    const { id: documentId } = await piece();
+    const readingsAtArrival = await readings();
+
+    // Terra is listed, but its answer is held: the analysis answers first, then the reading follows it.
+    await setDecisionsControl({ transcriptionModel: true, holdTranscription: true });
+    // The dossier's document desk, where each piece's analysis is retried.
+    const desk = `/dashboard/affaires/${ids.projectId}?intakeDocument=${documentId}#intake`;
+    await ui.app.open(desk);
+    const retry = screen.getByRole("button", "Relancer l’analyse de bon-relance-ARMY.png", { exact: true });
+    await expect(retry).toBeEnabled(DEV_SERVER_WORK);
+    await retry.click();
+    await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(readings, DEV_SERVER_WORK).toBe(readingsAtArrival + 1);
+    expect(await transcription()).toMatchObject({ status: "failed", error_code: "MODEL_UNAVAILABLE" });
+    // The open preview says a reading runs, then shows its text when it ends, without reopening the piece.
+    const preview = screen.getByRole("complementary", "Aperçu de la pièce sélectionnée", { exact: true });
+    await expect(preview.getByTestId("document-transcription-pending")).toBeVisible(DEV_SERVER_WORK);
+    await setDecisionsControl({ transcriptionModel: true });
+    await expect.poll(async () => (await transcription())?.status ?? null, DEV_SERVER_WORK).toBe("completed");
+    const shown = preview.getByTestId("document-transcription");
+    await expect(shown).toHaveAttribute("data-status", "completed", DEV_SERVER_WORK);
+    await shown.getByText("Transcription automatique", { exact: true }).click();
+    await expect(shown.getByText(/Tube cuivre DN20 \| 12 m/)).toBeVisible();
+    const read = await transcription();
+    expect(read).toMatchObject({ status: "completed", error_code: null, model: "gpt-6.1-terra", source_sha256: sha, pages_needed: 1,
+      pages: [{ page: 1, text: "BON DE LIVRAISON ARMY\nTube cuivre DN20 | 12 m\nRéf. [illisible]", illegible: 1 }] });
+    const sent = (await readTransport()).filter((entry) => entry.task === "transcription").slice(readingsAtArrival);
+    expect(sent.map(({ inputKind, model, reasoningEffort }) => ({ inputKind, model, reasoningEffort })))
+      .toEqual([{ inputKind: "image", model: "gpt-6.1-terra", reasoningEffort: "high" }]);
+    const events = await client.from("affaire_intake_events").select("id").eq("document_id", documentId).eq("reason", "Analyse relancée manuellement.");
+    expect(events.error).toBeNull();
+    expect(events.data).toHaveLength(1);
+
+    // A second retry keeps the completed reading of the same content: nothing more reaches the plan for it.
+    await ui.app.open(desk);
+    await expect(retry).toBeEnabled(DEV_SERVER_WORK);
+    await retry.click();
+    await expect(screen.getByText(/1 pièce analysée\./)).toBeVisible(DEV_SERVER_WORK);
+
+    // The assistant reads the image with its stored text, and cites the piece's page.
+    const assistantBefore = (await readTransport()).filter((entry) => entry.task === "assistant").length;
+    await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+    const question = "INTOCR02 Que mentionne le bon de livraison ?";
+    await screen.getByTestId("assistant-toggle").click();
+    const panel = screen.getByTestId("assistant-panel");
+    await panel.getByTestId("assistant-input").fill(question);
+    await panel.getByTestId("assistant-send").click();
+    const answer = panel.getByTestId("assistant-message-assistant");
+    await expect(answer).toHaveAttribute("data-status", "complete", DEV_SERVER_WORK);
+    await expect(answer).toContainText("Le bon de livraison mentionne 12 m de tube cuivre DN20 bon-relance-ARMY.png, p. 1, d’après sa transcription automatique non vérifiée.");
+    const citation = answer.getByTestId("assistant-document-link");
+    await expect(citation).toHaveCount(1);
+    await expect(citation).toHaveText("bon-relance-ARMY.png, p. 1");
+    await expect(citation).toHaveAttribute("href", `/api/affaires/${ids.projectId}/intake/files/${documentId}/preview#page=1`);
+    const screenshot = await app.screenshot("assistant-transcription-answer");
+    const asked = (await readTransport()).filter((entry) => entry.task === "assistant").slice(assistantBefore);
+    expect(asked.map(({ step, transcriptionSent }) => ({ step, transcriptionSent }))).toEqual([
+      { step: 0, transcriptionSent: false }, { step: 1, transcriptionSent: false }, { step: 2, transcriptionSent: true },
+    ]);
+    // The reading of the second retry never came: the stored one is the same row, unchanged.
+    expect(await readings()).toBe(readingsAtArrival + 1);
+    expect((await transcription())?.updated_at).toBe(read!.updated_at);
+    expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+
+    await recordEvidence(army, "intake-transcription-retry", { ids, documentId, arrivalError: "MODEL_UNAVAILABLE", retryReadings: sent.length,
+      secondRetryReadings: 0, assistantTranscriptionSent: true, citedPage: 1, provider: "chatgpt-fixture", screenshot,
+      boundary: "Owned ephemeral backend, fictional PNG, simulated ChatGPT transport; no client document or live inference." });
   } finally {
     await setDecisionsControl({});
     if (fixtureStore) await rm(fixtureStore, { force: true });

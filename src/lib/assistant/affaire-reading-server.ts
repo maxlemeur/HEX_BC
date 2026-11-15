@@ -3,6 +3,7 @@ import "server-only";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { normalizeIntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { charsetOf, documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
 import { AssistantToolError, withUserFacingRefusals } from "@/lib/assistant/loop";
@@ -60,6 +61,19 @@ export async function listAffaireDocuments(projectId: string) {
  * of another affaire, even one the member may open, is refused before any byte
  * is read. The bytes come through the dossier's own preview read.
  */
+/**
+ * The piece's automatic transcription, read under the piece's own policies; null when it has none or when it cannot
+ * be read (it is a reading aid: the piece is read all the same).
+ */
+async function readStoredTranscription(context: Awaited<ReturnType<typeof affaireAccess>>["context"], documentId: string) {
+  const { data, error } = await context.supabase.from("affaire_intake_document_transcriptions")
+    .select("source_sha256,status,pages,pages_needed,pages_skipped,model,reasoning_effort,error_code,updated_at")
+    .eq("tenant_id", context.tenantId).eq("document_id", documentId).maybeSingle();
+  if (error || !data) return null;
+  const transcription = normalizeIntakeTranscription(data);
+  return transcription?.pages.length ? { sourceSha256: data.source_sha256, pages: transcription.pages } : null;
+}
+
 export async function loadAffaireDocument(input: {
   projectId: string; documentId: string; signal?: AbortSignal;
   /**
@@ -93,10 +107,12 @@ export async function loadAffaireDocument(input: {
       fetched.catch(() => { if (cache.get(row.id) === fetched) cache.delete(row.id); });
     }
   }
+  const bytes = await download;
   return {
     documentId: row.id, fileName: row.file_name, type: kindLabel(row.document_kind), mimeType,
     // The type above drops its parameters; a text file is decoded in the charset it was stored with.
-    charset: charsetOf(row.mime_type), bytes: await download,
+    charset: charsetOf(row.mime_type), bytes,
+    transcription: mimeType.startsWith("text/") ? null : await readStoredTranscription(context, row.id),
   };
 }
 

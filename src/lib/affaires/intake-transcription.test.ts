@@ -5,9 +5,9 @@ import { PDFDocument, PDFName, StandardFonts, concatTransformationMatrix, drawOb
 import { describe, expect, it } from "vitest";
 
 import {
-  INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, summarizeIntakeTranscription,
+  INTAKE_TRANSCRIPTION_MAX_PAGES, countIllegiblePassages, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
+import { IntakeRetryReadings, planIntakeTranscription, scannedPdfPages } from "@/lib/affaires/intake-transcription-server";
 
 const SPAWN = { timeout: 60_000 } as const;
 
@@ -115,5 +115,51 @@ describe("what a transcription records", () => {
   it("is failed, with no text, when no page was read", () => {
     expect(summarizeIntakeTranscription({ pagesNeeded: 1, pagesSkipped: 0, read: [], errorCode: "MODEL_UNAVAILABLE" }))
       .toEqual({ status: "failed", pages: [], pages_needed: 1, pages_skipped: 0, error_code: "MODEL_UNAVAILABLE" });
+  });
+});
+
+describe("when a piece is read again", () => {
+  const sha = "a".repeat(64);
+  it("reads a piece with no reading, or whose reading was of another content", () => {
+    expect(needsIntakeTranscription(null, sha)).toBe(true);
+    expect(needsIntakeTranscription({ source_sha256: "b".repeat(64), error_code: null }, sha)).toBe(true);
+  });
+  it("keeps a reading of the same content that ended without an error, the per-piece bound included", () => {
+    expect(needsIntakeTranscription({ source_sha256: sha, error_code: null }, sha)).toBe(false);
+  });
+  it.each(["AI_QUOTA", "AI_RATE_LIMIT", "AI_AUTH_REQUIRED", "MODEL_UNAVAILABLE", "PROVIDER_ERROR", "PDF_INSPECTION_INCOMPLETE"])(
+    "reads again a reading stopped by %s, which may clear", (code) => {
+      expect(needsIntakeTranscription({ source_sha256: sha, error_code: code }, sha)).toBe(true);
+    });
+  it("keeps a reading of the same content whose page was too heavy: the same bytes stay too heavy", () => {
+    expect(needsIntakeTranscription({ source_sha256: sha, error_code: "PAGE_TOO_LARGE" }, sha)).toBe(false);
+  });
+});
+
+// The readings a retry runs after its response, per piece: one per content at a time, and a newer content's reading
+// supersedes an older one, which then neither goes on nor writes its row.
+describe("the readings retries run", () => {
+  const sha = (letter: string) => letter.repeat(64);
+  it("runs one reading per piece and content: a second click on the same content starts none", () => {
+    const readings = new IntakeRetryReadings();
+    const first = readings.claim("doc-1", sha("a"));
+    expect(first).not.toBeNull();
+    expect(readings.claim("doc-1", sha("a"))).toBeNull();
+    expect(readings.isRunning("doc-1")).toBe(true);
+    expect(readings.isRunning("doc-2")).toBe(false);
+  });
+
+  it("lets a newer content supersede an older reading, whose write is then refused", () => {
+    const readings = new IntakeRetryReadings();
+    const older = readings.claim("doc-1", sha("a"))!;
+    const newer = readings.claim("doc-1", sha("b"))!;
+    expect(readings.isCurrent("doc-1", older)).toBe(false);
+    expect(readings.isCurrent("doc-1", newer)).toBe(true);
+    // The older reading ends first: it does not release the newer one.
+    readings.release("doc-1", older);
+    expect(readings.isRunning("doc-1")).toBe(true);
+    readings.release("doc-1", newer);
+    expect(readings.isRunning("doc-1")).toBe(false);
+    expect(readings.claim("doc-1", sha("a"))).not.toBeNull();
   });
 });

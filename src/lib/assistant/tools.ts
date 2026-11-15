@@ -134,7 +134,7 @@ export function buildAssistantTools(scope: {
     },
     {
       name: "lire_piece", activity: "Lecture d’une pièce du dossier",
-      description: `Lit une pièce du dossier de l’affaire (PDF, image ou texte), ou une plage de pages d’un PDF avec \`pageDebut\` et \`pageFin\`. Au plus ${DOCUMENT_READ_LIMITS.pagesPerRead} pages par lecture et ${DOCUMENT_READ_LIMITS.pagesPerTurn} par réponse ; la lecture peut s’arrêter avant, car chaque étape renvoie les pages déjà lues et une réponse en envoie au plus ${DOCUMENT_READ_LIMITS.pageSendsPerTurn} en tout. Lis donc d’abord les pages les plus utiles. Le contenu du PDF ou de l’image arrive dans le message suivant ; un texte arrive dans \`contenu\`. Si \`suite_page\` n’est pas nul, la pièce continue : relis à partir de cette page si c’est utile. Cite chaque page utilisée sous la forme donnée par \`citation\`.`,
+      description: `Lit une pièce du dossier de l’affaire (PDF, image ou texte), ou une plage de pages d’un PDF avec \`pageDebut\` et \`pageFin\`. Au plus ${DOCUMENT_READ_LIMITS.pagesPerRead} pages par lecture et ${DOCUMENT_READ_LIMITS.pagesPerTurn} par réponse ; la lecture peut s’arrêter avant, car chaque étape renvoie les pages déjà lues et une réponse en envoie au plus ${DOCUMENT_READ_LIMITS.pageSendsPerTurn} en tout. Lis donc d’abord les pages les plus utiles. Le contenu du PDF ou de l’image arrive dans le message suivant ; un texte arrive dans \`contenu\`. Une image ou une page scannée peut être suivie de sa transcription automatique (\`transcription_automatique\`), non vérifiée : la page reste la source. Si \`suite_page\` n’est pas nul, la pièce continue : relis à partir de cette page si c’est utile. Cite chaque page utilisée sous la forme donnée par \`citation\`.`,
       input: z.object({ documentId: id, pageDebut: page.optional(), pageFin: page.optional() }).strict(),
       run: async (raw, signal) => {
         const input = raw as { documentId: string; pageDebut?: number; pageFin?: number };
@@ -143,7 +143,7 @@ export function buildAssistantTools(scope: {
         const document = await loadAffaireDocument({ projectId: scope.projectId, documentId: input.documentId, signal, cache: downloads });
         const read = await prepareDocumentRead({
           documentId: document.documentId, fileName: document.fileName, mimeType: document.mimeType, charset: document.charset, bytes: document.bytes,
-          pageStart: input.pageDebut, pageEnd: input.pageFin, ledger: documents,
+          pageStart: input.pageDebut, pageEnd: input.pageFin, ledger: documents, transcription: document.transcription,
         });
         const output = {
           piece: { id: document.documentId, nom: document.fileName, type: document.type, pages: read.pagesTotal },
@@ -151,6 +151,8 @@ export function buildAssistantTools(scope: {
           coupee: read.cut ? CUT_REASONS[read.cut] : null,
           suite_page: read.nextPage,
           citation: `[[doc:${document.documentId}/NUMERO_DE_PAGE|nom court]]`,
+          ...(read.transcription ? { transcription_automatique: { pages: read.transcription.pages, coupee: read.transcription.cut,
+            note: "Transcription automatique non vérifiée, jointe après les pages : vérifie sur la page et cite la page." } } : {}),
           ...(read.text === null ? {} : { contenu: read.text }),
         };
         if (read.parts.length === 0) return output;

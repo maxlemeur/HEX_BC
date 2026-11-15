@@ -49,6 +49,21 @@ export function buildIntakeTranscriptionPrompt(input: { fileName: string; page: 
   ].join("\n");
 }
 
+/** Stops that the same content meets again, whatever the plan or the moment. */
+const LASTING_TRANSCRIPTION_ERRORS = new Set(["PAGE_TOO_LARGE"]);
+
+/**
+ * Whether a piece needs a reading for this content: none was recorded, the
+ * recorded one read another content, or a failure stopped it (quota, access,
+ * model, an incomplete inspection). A reading that ended without an error, the
+ * per-piece bound included, or on a page too heavy for these same bytes, is kept.
+ */
+export function needsIntakeTranscription(existing: { source_sha256: string; error_code: string | null } | null, sourceSha256: string) {
+  if (!existing || existing.source_sha256 !== sourceSha256) return true;
+  // The same bytes keep a page too heavy to send: reading them again would only spend the plan on the other pages.
+  return existing.error_code !== null && !LASTING_TRANSCRIPTION_ERRORS.has(existing.error_code);
+}
+
 export function countIllegiblePassages(text: string) {
   return text.match(/\[illisible\]/gi)?.length ?? 0;
 }
@@ -87,10 +102,10 @@ export function normalizeIntakeTranscription(row: {
 /** Why a reading stopped, in the words of the dossier. */
 export function intakeTranscriptionFailureMessage(code: string | null) {
   switch (code) {
-    case "MODEL_UNAVAILABLE": return "Le forfait ChatGPT de la personne qui a déposé la pièce ne propose pas le modèle Terra.";
+    case "MODEL_UNAVAILABLE": return "Le forfait ChatGPT utilisé pour la lecture ne propose pas le modèle Terra.";
     case "AI_QUOTA": return "La limite du forfait ChatGPT a été atteinte pendant la lecture.";
     case "AI_RATE_LIMIT": return "ChatGPT a limité les demandes pendant la lecture.";
-    case "AI_AUTH_REQUIRED": case "AI_NOT_CONFIGURED": return "La connexion ChatGPT de la personne qui a déposé la pièce doit être reconnectée.";
+    case "AI_AUTH_REQUIRED": case "AI_NOT_CONFIGURED": return "La connexion ChatGPT utilisée pour la lecture doit être reconnectée.";
     case "PAGE_TOO_LARGE": return "Une page est trop lourde pour être lue.";
     case "PDF_INSPECTION_INCOMPLETE": return "Toutes les pages du PDF n’ont pas pu être examinées : des pages scannées peuvent manquer.";
     case "INVALID_ANSWER": return "La réponse de ChatGPT n’a pas pu être lue.";

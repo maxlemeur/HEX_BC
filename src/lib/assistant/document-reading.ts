@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { degrees, PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 
 import { inferAffaireIntakeMimeType } from "@/lib/affaires/intake";
@@ -21,7 +23,44 @@ export type PreparedDocumentRead = {
   parts: Record<string, unknown>[];
   /** The content of a text file, given in the tool result itself. */
   text: string | null;
+  /** The pages whose automatic transcription goes with the read, and whether its text was cut; null when none does. */
+  transcription: { pages: number[]; cut: boolean } | null;
 };
+
+/** The automatic transcription a piece got at arrival, for the content it was read from. */
+export type StoredDocumentTranscription = { sourceSha256: string; pages: { page: number; text: string }[] };
+
+const TRANSCRIPTION_LABEL = "Transcription automatique non vérifiée de cette pièce, lue par l’IA à son arrivée dans le dossier. "
+  + "Elle aide à lire les pages jointes, qui restent la source : vérifie sur la page toute quantité, tout prix ou toute référence, "
+  + "cite la page de la pièce, jamais la transcription, et dis quand une valeur ne vient que d’elle. « [illisible] » marque un passage "
+  + "que l’IA n’a pas lu avec certitude.";
+const TRANSCRIPTION_CUT = "\n[Transcription coupée : la limite de lecture est atteinte.]";
+
+/**
+ * The transcription's text for the pages a read sends, when it was read from
+ * these same bytes, within `room` bytes; null when none applies or nothing fits.
+ */
+function transcriptionPart(input: { transcription: StoredDocumentTranscription | null | undefined; bytes: Uint8Array; from: number; to: number; room: number }) {
+  const pages = input.transcription?.pages.filter((page) => page.page >= input.from && page.page <= input.to && page.text.trim()) ?? [];
+  if (!pages.length || createHash("sha256").update(input.bytes).digest("hex") !== input.transcription!.sourceSha256) return null;
+  const blocks = pages.map((page) => ({ page: page.page, head: `\n\nPage ${page.page} :\n`, text: page.text }));
+  const whole = TRANSCRIPTION_LABEL + blocks.map((block) => block.head + block.text).join("");
+  if (utf8Length(whole) <= input.room) return { text: whole, pages: pages.map((page) => page.page), cut: false };
+  // Cut: each page's text goes whole while it fits, the next one in part, all within the room the cut's notice leaves.
+  // Only pages with some of their text are listed; the label alone says nothing of the piece, and is left out.
+  const room = input.room - utf8Length(TRANSCRIPTION_CUT);
+  let text = TRANSCRIPTION_LABEL;
+  const sent: number[] = [];
+  for (const block of blocks) {
+    const kept = fitBytes(block.text, room - utf8Length(text + block.head));
+    if (kept.trim()) {
+      text += block.head + kept;
+      sent.push(block.page);
+    }
+    if (kept.length < block.text.length) break;
+  }
+  return sent.length ? { text: text + TRANSCRIPTION_CUT, pages: sent, cut: true } : null;
+}
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const TEXT_TYPES = new Set(["text/plain", "text/csv"]);
@@ -161,7 +200,7 @@ async function preparePdf(input: { bytes: Uint8Array; pageStart?: number; pageEn
   }
   const to = from + count - 1;
   return {
-    pagesTotal: total, from, to, cut, nextPage: to < end ? to + 1 : null, bytes: sliced.byteLength, text: null,
+    pagesTotal: total, from, to, cut, nextPage: to < end ? to + 1 : null, bytes: sliced.byteLength, text: null, transcription: null,
     parts: [{ type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${Buffer.from(sliced).toString("base64")}` }],
   };
 }
@@ -188,6 +227,8 @@ export async function prepareDocumentRead(input: {
   /** The stored charset of a text file, when its stored type declared one; else read from `mimeType`. */
   charset?: string | null;
   pageStart?: number; pageEnd?: number; ledger: AssistantDocumentLedger; limits?: DocumentReadLimits;
+  /** The piece's automatic transcription, sent with the image or the pages it covers when it was read from these bytes. */
+  transcription?: StoredDocumentTranscription | null;
 }): Promise<PreparedDocumentRead> {
   const limits = input.limits ?? DOCUMENT_READ_LIMITS;
   const budget = assertDocumentBudget(input.ledger, limits);
@@ -204,7 +245,7 @@ export async function prepareDocumentRead(input: {
         throw new AssistantToolError("Cette image est trop lourde pour être lue par l’assistant. L’utilisateur peut l’ouvrir dans le dossier.");
       }
       prepared = {
-        pagesTotal: 1, from: 1, to: 1, cut: null, nextPage: null, bytes: input.bytes.byteLength, text: null,
+        pagesTotal: 1, from: 1, to: 1, cut: null, nextPage: null, bytes: input.bytes.byteLength, text: null, transcription: null,
         parts: [{ type: "input_image", image_url: `data:${type};base64,${Buffer.from(input.bytes).toString("base64")}` }],
       };
     } else {
@@ -220,7 +261,17 @@ export async function prepareDocumentRead(input: {
         text = fitting;
         cut = "budget";
       }
-      prepared = { pagesTotal: 1, from: 1, to: 1, cut, nextPage: null, bytes: utf8Length(text), parts: [], text };
+      prepared = { pagesTotal: 1, from: 1, to: 1, cut, nextPage: null, bytes: utf8Length(text), parts: [], text, transcription: null };
+    }
+  }
+  if (prepared.parts.length) {
+    // The text travels with the file, in the room the read has left: what is recorded as read is what was sent.
+    const room = Math.min(limits.bytesPerRead, budget.bytesLeft) - prepared.bytes;
+    const transcribed = transcriptionPart({ transcription: input.transcription, bytes: input.bytes, from: prepared.from, to: prepared.to, room });
+    if (transcribed) {
+      prepared.parts = [...prepared.parts, { type: "input_text", text: transcribed.text }];
+      prepared.bytes += utf8Length(transcribed.text);
+      prepared.transcription = { pages: transcribed.pages, cut: transcribed.cut };
     }
   }
   input.ledger.recordRead({

@@ -3,7 +3,7 @@ import "server-only";
 import { normalizeIntakeTranscription, type IntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { inferAffaireIntakeMimeType } from "@/lib/affaires/intake";
 import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
-import { canTranscribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
+import { canTranscribeIntakeDocument, isIntakeRetryReadingRunning } from "@/lib/affaires/intake-transcription-server";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { internalError, notFound } from "@/lib/estimates/errors";
 
@@ -11,7 +11,8 @@ import { internalError, notFound } from "@/lib/estimates/errors";
  * The automatic transcription of an active piece of the dossier, read with the
  * member's rights (the piece's own policies decide); null when the piece has
  * none, as a text PDF or a spreadsheet. `pending`: the piece's analysis still
- * runs on an instance that reads on the ChatGPT plan, and a reading may follow it.
+ * runs on an instance that reads on the ChatGPT plan, and a reading may follow it,
+ * or a retry's reading runs, which will replace the reading shown.
  */
 export async function readAffaireDocumentTranscription(projectId: string, documentId: string): Promise<{
   transcription: IntakeTranscription | null; pending: boolean;
@@ -26,10 +27,11 @@ export async function readAffaireDocumentTranscription(projectId: string, docume
     .select("status,pages,pages_needed,pages_skipped,model,reasoning_effort,error_code,updated_at")
     .eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
   if (error) throw internalError("Impossible de charger la transcription.", error);
-  if (data) return { transcription: normalizeIntakeTranscription(data), pending: false };
+  if (data) return { transcription: normalizeIntakeTranscription(data), pending: isIntakeRetryReadingRunning(document.id) };
   // Only an instance that reads on the ChatGPT plan reads images and PDFs: elsewhere nothing will follow.
   const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
   if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(mimeType)) return { transcription: null, pending: false };
+  if (isIntakeRetryReadingRunning(document.id)) return { transcription: null, pending: true };
   const { data: upload, error: uploadError } = await context.supabase.from("affaire_intake_uploads").select("status")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.upload_id).maybeSingle();
   if (uploadError) throw internalError("Impossible de charger la transcription.", uploadError);

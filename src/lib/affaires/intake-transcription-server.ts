@@ -1,14 +1,15 @@
 import "server-only";
 
+import { after } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 
 import {
   INTAKE_TRANSCRIPTION_MAX_PAGES, INTAKE_TRANSCRIPTION_MODEL, INTAKE_TRANSCRIPTION_PAGE_TIMEOUT_MS,
   INTAKE_TRANSCRIPTION_PROMPT_VERSION, INTAKE_TRANSCRIPTION_REASONING_EFFORT, buildIntakeTranscriptionPrompt,
-  intakeTranscriptionAnswerSchema, summarizeIntakeTranscription,
+  intakeTranscriptionAnswerSchema, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
+import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import {
   assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptOverrideUnavailableError,
 } from "@/lib/ai/chatgpt-local-inference";
@@ -16,7 +17,7 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { renderPdfPages, type PdfRenderedPage } from "@/lib/pdf/page-render-server";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
-import type { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 /** A page shorter than this once trimmed has no text layer worth the name: a scan. */
@@ -131,7 +132,7 @@ export async function transcribeIntakeDocument(input: {
     .eq("document_id", input.document.id).eq("tenant_id", input.document.tenantId).maybeSingle();
   if (existingError) throw existingError;
   // A reading of the same content is kept, unless a failure stopped it (quota, access): that one is read again.
-  if (existing && existing.source_sha256 === input.sourceSha256 && existing.error_code === null) return { transcribed: false as const, reason: "already_read" };
+  if (!needsIntakeTranscription(existing, input.sourceSha256)) return { transcribed: false as const, reason: "already_read" };
   const plan = await planIntakeTranscription({ mimeType: input.mimeType, bytes: input.bytes });
   if (!plan) {
     // A new content that needs no reading takes the previous reading away.
@@ -186,4 +187,92 @@ export async function transcribeIntakeDocument(input: {
   }, { onConflict: "document_id" });
   if (error) throw error;
   return { transcribed: true as const, status: outcome.status };
+}
+
+/**
+ * The readings retries scheduled on this instance and that still run, one per
+ * piece: a second click on the same content starts none, and a newer content's
+ * reading supersedes an older one, which stops before its next page and before
+ * its write (a Drive piece read at revision A, then B, keeps B's text).
+ */
+export class IntakeRetryReadings {
+  private readonly running = new Map<string, { sourceSha256: string; token: symbol }>();
+
+  /** The reading's token, or null when the same content is already being read. */
+  claim(documentId: string, sourceSha256: string) {
+    if (this.running.get(documentId)?.sourceSha256 === sourceSha256) return null;
+    const token = Symbol(documentId);
+    this.running.set(documentId, { sourceSha256, token });
+    return token;
+  }
+
+  isCurrent(documentId: string, token: symbol) {
+    return this.running.get(documentId)?.token === token;
+  }
+
+  isRunning(documentId: string) {
+    return this.running.has(documentId);
+  }
+
+  release(documentId: string, token: symbol) {
+    if (this.isCurrent(documentId, token)) this.running.delete(documentId);
+  }
+}
+
+// One registry per process: Next bundles each route apart, and the retry's server action and the preview's route each
+// load their own copy of this module, which must see the same readings.
+const REGISTRY = Symbol.for("mergeone.intakeRetryReadings");
+const retryReadings: IntakeRetryReadings = ((globalThis as { [REGISTRY]?: IntakeRetryReadings })[REGISTRY] ??= new IntakeRetryReadings());
+
+/** Whether a retry's reading of the piece still runs on this instance: its preview waits for it. */
+export const isIntakeRetryReadingRunning = (documentId: string) => retryReadings.isRunning(documentId);
+
+/**
+ * « Relancer l’analyse » reads the piece's text again when it needs it: no
+ * reading was recorded, the recorded one stopped on a failure (quota, access,
+ * model) or read another content. The reading runs after the response, on the
+ * ChatGPT plan of the member who asked for the analysis, as the analysis does;
+ * its outcome is recorded on its own row and never changes the classification.
+ * Returns whether a reading was scheduled.
+ */
+export async function scheduleIntakeTranscriptionAfterRetry(input: {
+  /** The member's own client (their rights read the stored reading) and identity (their plan reads the piece). */
+  context: { supabase: ServiceClient; userId: string; tenantId: string };
+  document: { id: string; fileName: string }; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
+}) {
+  const { context, document } = input;
+  if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(input.mimeType)) return false;
+  // Read with the member's rights: the piece's own policies decide, as for its preview.
+  const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
+    .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
+  if (error) {
+    console.error("Affaire intake transcription state could not be read", { documentId: document.id });
+    return false;
+  }
+  if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
+  const token = retryReadings.claim(document.id, input.sourceSha256);
+  if (!token) return false;
+  const owner = { userId: context.userId, tenantId: context.tenantId };
+  after(async () => {
+    const supabase = createServiceRoleClient();
+    // No lease covers a manual retry: the reading stops once the piece leaves the dossier or a newer retry supersedes
+    // it. It is checked before each page and before the write.
+    const stillActive = async () => {
+      if (!retryReadings.isCurrent(document.id, token)) throw new Error("A newer retry supersedes this reading.");
+      const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
+        .eq("tenant_id", owner.tenantId).eq("id", document.id).eq("upload_status", "uploaded")
+        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+      if (readError || !data) throw new Error("The piece left the dossier during its reading.");
+    };
+    try {
+      await stillActive();
+      await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
+        renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.fileName } });
+    } catch {
+      console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+    } finally {
+      retryReadings.release(document.id, token);
+    }
+  });
+  return true;
 }

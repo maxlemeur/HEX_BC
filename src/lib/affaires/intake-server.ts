@@ -33,7 +33,7 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { classifyAutonomousAffaireDocument, getIntakeDecisionsCapability, getIntakeAnalysisAvailability, isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
-import { canTranscribeIntakeDocument, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
+import { canTranscribeIntakeDocument, scheduleIntakeTranscriptionAfterRetry, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
@@ -2959,9 +2959,9 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     } catch (cause) {
       throw cause instanceof IntakeDocumentReadError ? cause : new IntakeDocumentReadError("Le fichier ne peut pas être lu depuis sa source. Vérifiez sa disponibilité et, pour Drive, sa connexion.");
     }
-    const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name,
-      mimeType: document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream", bytes,
-      aiOwner: context,
+    const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "application/octet-stream";
+    const sourceSha256 = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const classification = await classifyAffaireIntakeDocument({ fileName: document.file_name, mimeType, bytes, aiOwner: context,
       existingMetadata: document.extracted_metadata,
       beforeProviderCall: async () => {
         const { data: current, error: currentError } = await table().select("id").eq("id", document.id)
@@ -2969,8 +2969,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
           .eq("classification_status", document.classification_status).is("deleted_at", null).is("deletion_token", null).maybeSingle();
         if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
       },
-      decisionsContext: { owner: context, projectId: project.id, documentId: document.id,
-        sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") },
+      decisionsContext: { owner: context, projectId: project.id, documentId: document.id, sourceVersion: sourceSha256 },
     });
     // A reanalysis updates a proposal. Confirmation and derived dossier/brief
     // updates stay in the existing explicit manual validation action.
@@ -2986,6 +2985,8 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
     if (!updated) throw conflict("La pièce a changé pendant l’analyse. Le nouveau résultat n’a pas remplacé son classement.");
     proposalSaved = true;
+    // Read after the response (minutes per page), only once the proposal is saved: a refused retry spends nothing.
+    await scheduleIntakeTranscriptionAfterRetry({ context, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256 });
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },
