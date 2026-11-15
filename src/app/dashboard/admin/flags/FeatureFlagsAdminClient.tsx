@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 type FeatureFlagRecord = {
   tenant_id: string;
@@ -35,11 +36,6 @@ type ApiEnvelope<T> = {
 
 type StatusFilter = "all" | "enabled" | "disabled";
 
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return fallback;
-  return (payload as ApiEnvelope<unknown>).error?.message ?? fallback;
-}
-
 function normalizeFeatureFlagKey(value: string) {
   return value.trim().toUpperCase();
 }
@@ -57,7 +53,7 @@ async function fetchFeatureFlags([
 
   if (!response.ok) {
     throw new Error(
-      resolveErrorMessage(payload, "Impossible de charger les fonctionnalités.")
+      resolveEnvelopeErrorMessage(payload, "Impossible de charger les fonctionnalités.")
     );
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -67,7 +63,7 @@ async function fetchFeatureFlags([
   const envelope = payload as ApiEnvelope<FeatureFlagsResponse>;
   if (!envelope.ok || !envelope.data) {
     throw new Error(
-      resolveErrorMessage(payload, "Réponse des fonctionnalités invalide.")
+      resolveEnvelopeErrorMessage(payload, "Réponse des fonctionnalités invalide.")
     );
   }
   return envelope.data;
@@ -103,7 +99,7 @@ async function patchFeatureFlag(input: {
 
   if (!response.ok) {
     throw new Error(
-      resolveErrorMessage(payload, "Impossible de mettre à jour la fonctionnalité.")
+      resolveEnvelopeErrorMessage(payload, "Impossible de mettre à jour la fonctionnalité.")
     );
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -113,7 +109,7 @@ async function patchFeatureFlag(input: {
   const envelope = payload as ApiEnvelope<{ flag: FeatureFlagRecord }>;
   if (!envelope.ok || !envelope.data?.flag) {
     throw new Error(
-      resolveErrorMessage(payload, "Réponse des fonctionnalités invalide.")
+      resolveEnvelopeErrorMessage(payload, "Réponse des fonctionnalités invalide.")
     );
   }
   return envelope.data.flag;

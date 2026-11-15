@@ -43,6 +43,7 @@ import { cn } from "@/lib/utils";
 
 import { FileTypeIcon, getFileTypeLabel } from "./FileTypeIcon";
 import { DevisPreviewModal, isPreviewableType } from "./DevisPreviewModal";
+import { formatFileSize } from "@/lib/file-validation";
 
 export type DevisItem = {
   id: string;
@@ -76,15 +77,6 @@ const fetcher = async (url: string) => {
   }
   return (await response.json()) as DevisApiResponse;
 };
-
-function formatFileSize(bytes: number) {
-  if (!Number.isFinite(bytes)) return "-";
-  if (bytes < 1024) return `${bytes} o`;
-  const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} Ko`;
-  const megabytes = kilobytes / 1024;
-  return `${megabytes.toFixed(1)} Mo`;
-}
 
 function formatDate(value: string) {
   const date = new Date(value);

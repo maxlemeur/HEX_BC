@@ -156,7 +156,7 @@ function formatConfidenceLabel(confidence: number) {
   return `${Math.round(confidence * 100)}%`;
 }
 
-function ensureDocumentPriorities(documents: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"]) {
+export function ensureDocumentPriorities(documents: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"]) {
   const hasExplicitPrimary = new Set<string>();
 
   for (const document of documents) {

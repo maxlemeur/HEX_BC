@@ -38,6 +38,7 @@ import {
   type EstimateOutlierMethod,
 } from "@/lib/estimates/outlier-detection";
 import type { Database } from "@/types/database";
+import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
@@ -98,23 +99,6 @@ export type EstimateEditorQualityController = {
     checklist: EstimateChecklistResult;
   };
 };
-
-function deferEffectStateUpdate(
-  update: () => void | (() => void)
-): () => void {
-  let isActive = true;
-  let cleanup: void | (() => void);
-
-  queueMicrotask(() => {
-    if (!isActive) return;
-    cleanup = update();
-  });
-
-  return () => {
-    isActive = false;
-    if (cleanup) cleanup();
-  };
-}
 
 export function useEstimateEditorQualityController({
   routeVersionId,

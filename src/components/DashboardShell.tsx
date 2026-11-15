@@ -17,6 +17,7 @@ import { useUserContext } from "@/components/UserContext";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
 import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
+import { isTextEditingTarget } from "@/hooks/useCommandPalette";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { setLastAffaire, useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
@@ -26,29 +27,6 @@ import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active"
 import { isProductionWorkspaceRoute, isToolWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
 import { initStore } from "@/lib/stores/last-affaire-store";
 import { KeyboardIcon, XIcon } from "lucide-react";
-
-// ---------------------------------------------------------------------------
-// Text-editing guard (shared with useCommandPalette)
-// ---------------------------------------------------------------------------
-
-const NON_TEXT_INPUT_TYPES = new Set([
-  "button", "checkbox", "color", "file", "hidden",
-  "image", "radio", "range", "reset", "submit",
-]);
-
-function isTextEditingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
-  if (target instanceof HTMLInputElement) {
-    return !NON_TEXT_INPUT_TYPES.has(target.type.toLowerCase());
-  }
-  if (target instanceof HTMLElement && target.isContentEditable) return true;
-  return Boolean(
-    target.closest(
-      "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
-    )
-  );
-}
 
 const DRAWER_FOCUSABLE_SELECTOR = [
   "a[href]",

@@ -93,3 +93,13 @@ export function validateFileForUpload(
 
   return { valid: true };
 }
+
+/** French byte-size label (`o`, `Ko`, `Mo`, one decimal); "-" when the size is not finite. */
+export function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes)) return "-";
+  if (bytes < 1024) return `${bytes} o`;
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} Ko`;
+  const megabytes = kilobytes / 1024;
+  return `${megabytes.toFixed(1)} Mo`;
+}

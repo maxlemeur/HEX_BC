@@ -145,6 +145,7 @@ import {
   type SuggestionLearningState,
 } from "@/components/estimates/estimate-editor-table-types";
 import type { Database } from "@/types/database";
+import { resolveApiErrorMessage } from "@/components/estimates/components/estimate-editor-row/shared";
 
 const PastePreviewDialog = dynamic(() =>
   import("@/components/estimates/PastePreviewDialog").then(
@@ -354,28 +355,6 @@ type ConvertEstimateItemResult = {
   item: EstimateItem;
   reassigned_children: ConversionReassignedChild[];
 };
-
-function resolveApiErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const record = payload as Record<string, unknown>;
-  const nestedError =
-    typeof record.error === "object" && record.error !== null && !Array.isArray(record.error)
-      ? (record.error as Record<string, unknown>)
-      : null;
-
-  if (typeof nestedError?.message === "string" && nestedError.message.trim().length > 0) {
-    return nestedError.message;
-  }
-
-  if (typeof record.message === "string" && record.message.trim().length > 0) {
-    return record.message;
-  }
-
-  return fallback;
-}
 
 function toObjectRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

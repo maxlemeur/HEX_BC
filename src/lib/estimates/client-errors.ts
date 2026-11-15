@@ -33,6 +33,16 @@ export function isEstimateApiError(error: unknown): error is EstimateApiError {
   return error instanceof EstimateApiError;
 }
 
+/** The envelope's `error.message`, else `fallback`; unlike `toErrorMessage`, no other field is tried. */
+export function resolveEnvelopeErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fallback;
+  }
+
+  const envelope = payload as ApiEnvelope<unknown>;
+  return envelope.error?.message ?? fallback;
+}
+
 export function toErrorMessage(payload: unknown, fallback: string): string {
   if (typeof payload === "string") {
     const trimmed = payload.trim();

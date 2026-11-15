@@ -100,12 +100,3 @@ export function formatOrderDate(dateStr: string | null) {
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
 }
-
-export function formatFileSize(bytes: number) {
-  if (!Number.isFinite(bytes)) return "-";
-  if (bytes < 1024) return `${bytes} o`;
-  const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} Ko`;
-  const megabytes = kilobytes / 1024;
-  return `${megabytes.toFixed(1)} Mo`;
-}

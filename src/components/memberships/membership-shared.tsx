@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { Database } from "@/types/database";
+import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 export type TenantRole = Database["public"]["Enums"]["tenant_role"];
 
@@ -96,15 +97,6 @@ type ApiEnvelope<T> = {
   };
 };
 
-function resolveErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return fallback;
-  }
-
-  const envelope = payload as ApiEnvelope<unknown>;
-  return envelope.error?.message ?? fallback;
-}
-
 export async function fetchMembershipApi<T>(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -117,7 +109,7 @@ export async function fetchMembershipApi<T>(
   const payload = (await response.json().catch(() => null)) as unknown;
 
   if (!response.ok) {
-    throw new Error(resolveErrorMessage(payload, "Une erreur est survenue."));
+    throw new Error(resolveEnvelopeErrorMessage(payload, "Une erreur est survenue."));
   }
 
   const envelope = payload as ApiEnvelope<T>;

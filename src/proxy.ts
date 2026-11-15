@@ -1,18 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-function getSupabasePublicEnv() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-  }
-
-  return { supabaseUrl, supabaseAnonKey };
-}
+import { getSupabasePublicEnv } from "@/lib/supabase/public-env";
 
 function applySessionResponse(from: NextResponse, to: NextResponse) {
   for (const cookie of from.cookies.getAll()) {
