@@ -35,6 +35,7 @@ import {
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
+  formatCostCents,
   getOperatorStateBadgeVariant,
   getProcessingStrategyLabel,
   getProviderBatchStateLabel,
@@ -117,14 +118,6 @@ function formatDurationMs(ms: number | null) {
   if (ms === null || !Number.isFinite(ms)) return "-";
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
-}
-
-function formatCostCents(cents: number | null) {
-  if (cents === null || !Number.isFinite(cents)) return "-";
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
 }
 
 function resolveErrorMessage(error: unknown, fallback: string) {

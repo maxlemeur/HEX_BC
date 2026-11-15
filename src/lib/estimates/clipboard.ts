@@ -18,6 +18,7 @@ import {
   parseQuantity,
   parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
+import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 
 export const CLIPBOARD_TARGET_FIELDS = [
   "designation",
@@ -310,17 +311,6 @@ const NUMERIC_FIELDS = new Set<ClipboardNumericField>([
 
 function stripAccents(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-function dedupeHeaders(headers: string[]) {
-  const counts = new Map<string, number>();
-
-  return headers.map((header) => {
-    const count = counts.get(header) ?? 0;
-    const nextCount = count + 1;
-    counts.set(header, nextCount);
-    return nextCount === 1 ? header : `${header}_${nextCount}`;
-  });
 }
 
 function parseTsvLine(line: string): string[] {

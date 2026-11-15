@@ -6,6 +6,7 @@ import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
+import { toDevisResponseItem } from "@/lib/purchase-orders/devis-response";
 
 function jsonApiError(error: unknown) {
   if (error instanceof ApiError) {
@@ -15,41 +16,6 @@ function jsonApiError(error: unknown) {
 }
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
-
-type DevisRecord = {
-  id: string;
-  created_at: string;
-  name: string;
-  original_filename: string;
-  storage_path: string;
-  file_size_bytes: number;
-  mime_type: string;
-  position: number;
-};
-
-type DevisResponseItem = {
-  id: string;
-  name: string;
-  originalFilename: string;
-  fileSizeBytes: number;
-  mimeType: string;
-  createdAt: string;
-  position: number;
-  downloadUrl: string | null;
-};
-
-function toResponseItem(record: DevisRecord, downloadUrl: string | null): DevisResponseItem {
-  return {
-    id: record.id,
-    name: record.name,
-    originalFilename: record.original_filename,
-    fileSizeBytes: record.file_size_bytes,
-    mimeType: record.mime_type,
-    createdAt: record.created_at,
-    position: record.position,
-    downloadUrl,
-  };
-}
 
 export async function PATCH(
   request: Request,
@@ -135,7 +101,7 @@ export async function PATCH(
     .from("devis")
     .createSignedUrl(updated.storage_path, SIGNED_URL_TTL_SECONDS);
 
-  const item = toResponseItem(updated, signedData?.signedUrl ?? null);
+  const item = toDevisResponseItem(updated, signedData?.signedUrl ?? null);
 
   return NextResponse.json({ item });
 }

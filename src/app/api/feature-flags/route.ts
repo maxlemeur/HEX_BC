@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-import {
-  readActiveTenantMembership,
-  readAuthenticatedUser,
-} from "@/lib/auth/tenant-context";
-import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
+import { getTenantSettingsActorContext } from "@/lib/auth/tenant-context";
+import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import {
   listFeatureFlagsForTenant,
   normalizeFeatureFlagKey,
@@ -23,33 +20,6 @@ const patchFeatureFlagSchema = z.object({
   enabled: z.boolean(),
   value: z.union([z.string(), z.null()]).optional(),
 });
-
-async function getActorContext() {
-  const { supabase, user, error } = await readAuthenticatedUser();
-
-  if (error || !user) {
-    throw unauthorized();
-  }
-
-  const { membership, error: membershipError } =
-    await readActiveTenantMembership(supabase, user.id);
-
-  if (membershipError) {
-    throw badRequest("Impossible de charger le tenant courant.");
-  }
-
-  const defaultTenantId = membership?.tenant_id ?? null;
-
-  if (!defaultTenantId) {
-    throw unauthorized();
-  }
-
-  return {
-    supabase,
-    userId: user.id,
-    defaultTenantId,
-  };
-}
 
 function parseBooleanQueryParam(value: string | null) {
   if (!value) return undefined;
@@ -78,7 +48,7 @@ function parseFeatureFlagQuery(request: Request) {
 export async function GET(request: Request) {
   try {
     const query = parseFeatureFlagQuery(request);
-    const { supabase, userId, defaultTenantId } = await getActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = query.tenant_id ?? defaultTenantId;
     const flags = await listFeatureFlagsForTenant({
       tenantId,
@@ -99,7 +69,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const payload = patchFeatureFlagSchema.parse(await parseJsonBody(request, badRequest));
-    const { supabase, userId, defaultTenantId } = await getActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
     const flag = await toggleFeatureFlagForTenant({
       tenantId,

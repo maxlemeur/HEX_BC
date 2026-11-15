@@ -1,8 +1,8 @@
 import { z } from "zod";
 
+import { getTenantSettingsActorContext } from "@/lib/auth/tenant-context";
 import {
   createCurrencyRateForTenant,
-  getCurrencyRatesActorContext,
   listCurrencyRatesForTenant,
 } from "@/lib/currency-rates";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
@@ -41,7 +41,7 @@ function parseQuery(request: Request) {
 export async function GET(request: Request) {
   try {
     const query = parseQuery(request);
-    const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = query.tenant_id ?? defaultTenantId;
     const rates = await listCurrencyRatesForTenant({
       tenantId,
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const payload = createCurrencyRateSchema.parse(await parseJsonBody(request, badRequest));
-    const { supabase, userId, defaultTenantId } = await getCurrencyRatesActorContext();
+    const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
     const rate = await createCurrencyRateForTenant({
       tenantId,
