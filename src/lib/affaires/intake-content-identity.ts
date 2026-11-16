@@ -29,11 +29,12 @@ export async function hashIntakeContent(blob: Blob): Promise<string> {
 }
 
 /**
- * An interrupted request may leave a pending reservation without any bytes.
- * Compare-and-swap it to `rejected`; the original writer must also CAS its final
- * transition. Returns false when the row changed in the meantime.
+ * An interrupted request may leave a pending reservation without any bytes; the
+ * caller decides when one is old enough to count as interrupted. Compare-and-swap
+ * it to `rejected`; the original writer must also CAS its final transition.
+ * Returns false when the row changed in the meantime.
  */
-async function rejectStalePendingReservation(
+async function releaseInterruptedReservation(
   { context, project }: Pick<Access, "context" | "project">,
   row: { id: string; updated_at: string }
 ): Promise<boolean> {
@@ -48,10 +49,11 @@ async function rejectStalePendingReservation(
 /** Reads through the caller's RLS and Storage permissions, after project authorization.
  * Drive links retain their provider identity: linking one does not import its bytes.
  * A deletion in progress still reserves its bytes until the copy is actually gone.
- * Side effect: a pending reservation older than 15 minutes is first rejected
- * (rejectStalePendingReservation), so its content can be sent again.
+ * Before it reports a match, it releases an interrupted upload: a pending
+ * reservation older than 15 minutes is rejected (releaseInterruptedReservation)
+ * so its content can be sent again.
  */
-export async function findDuplicateIntakeDocument({ context, project }: Access, sha256: string, sizeBytes: number) {
+export async function releaseInterruptedAndFindDuplicateIntakeDocument({ context, project }: Access, sha256: string, sizeBytes: number) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await context.supabase.from("affaire_intake_documents")
       .select("id,upload_status,created_at,updated_at").eq("tenant_id", context.tenantId).eq("project_id", project.id)
@@ -63,7 +65,7 @@ export async function findDuplicateIntakeDocument({ context, project }: Access, 
     if (row.upload_status !== "pending" || Date.parse(row.created_at) > Date.now() - PENDING_RESERVATION_MAX_AGE_MS) {
       return { documentId: row.id, message: row.upload_status === "pending" ? INTAKE_DUPLICATE_PENDING_MESSAGE : INTAKE_DUPLICATE_MESSAGE };
     }
-    if (await rejectStalePendingReservation({ context, project }, row)) break;
+    if (await releaseInterruptedReservation({ context, project }, row)) break;
     if (attempt === 2) throw internalError("Le transfert a changé pendant la vérification. Réessayez.");
   }
 

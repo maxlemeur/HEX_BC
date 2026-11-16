@@ -1,4 +1,4 @@
-import { findDuplicateIntakeDocument, hashIntakeContent } from "@/lib/affaires/intake-content-identity";
+import { hashIntakeContent, releaseInterruptedAndFindDuplicateIntakeDocument } from "@/lib/affaires/intake-content-identity";
 import { AFFAIRE_INTAKE_MAX_BATCH_FILES, AFFAIRE_INTAKE_MAX_BATCH_FILE_BYTES } from "@/lib/affaires/intake-limits";
 import { buildClassificationFilePayload, buildSpreadsheetSnippet, validateSpreadsheetBudget, SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
@@ -2327,7 +2327,7 @@ export async function createAffaireIntakeUpload(
         status: "rejected", rejectionReason: duplicate.message });
     };
     if (contentSha256) {
-      const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+      const duplicate = await releaseInterruptedAndFindDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
       if (duplicate) {
         rejectDuplicate(duplicate);
         continue;
@@ -2360,7 +2360,7 @@ export async function createAffaireIntakeUpload(
     if (insertError) {
       // The partial unique index arbitrates two requests that both passed the lookup.
       if (contentSha256 && isRecord(insertError) && insertError.code === "23505") {
-        const duplicate = await findDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
+        const duplicate = await releaseInterruptedAndFindDuplicateIntakeDocument({ context, project }, contentSha256, file.size);
         if (duplicate) {
           rejectDuplicate(duplicate);
           continue;

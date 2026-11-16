@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  findDuplicateIntakeDocument,
   hashIntakeContent,
   INTAKE_DUPLICATE_MESSAGE,
   INTAKE_DUPLICATE_PENDING_MESSAGE,
+  releaseInterruptedAndFindDuplicateIntakeDocument,
 } from "@/lib/affaires/intake-content-identity";
 import {
   createFakeSupabase,
@@ -65,7 +65,7 @@ const RELEASE_PAYLOAD = {
   rejection_reason: "Transfert interrompu. Vous pouvez renvoyer ce document.",
 };
 
-describe("findDuplicateIntakeDocument: interrupted reservations", () => {
+describe("releaseInterruptedAndFindDuplicateIntakeDocument: interrupted reservations", () => {
   it("releases a pending reservation older than 15 minutes with one compare-and-swap, then scans legacy rows", async () => {
     const bytes = new TextEncoder().encode("plan fictif");
     const sha = await hashIntakeContent(new Blob([bytes]));
@@ -77,7 +77,7 @@ describe("findDuplicateIntakeDocument: interrupted reservations", () => {
     };
     const { access, updates, tables, writes } = setup([stale, legacy], { objects: { "legacy/plan.txt": bytes } });
 
-    const result = await findDuplicateIntakeDocument(access, sha, bytes.byteLength);
+    const result = await releaseInterruptedAndFindDuplicateIntakeDocument(access, sha, bytes.byteLength);
 
     expect(result).toEqual({ documentId: "legacy-1", message: INTAKE_DUPLICATE_MESSAGE });
     expect(updates()).toEqual([[
@@ -104,7 +104,7 @@ describe("findDuplicateIntakeDocument: interrupted reservations", () => {
       },
     });
 
-    await expect(findDuplicateIntakeDocument(access, SHA, SIZE)).rejects.toMatchObject({
+    await expect(releaseInterruptedAndFindDuplicateIntakeDocument(access, SHA, SIZE)).rejects.toMatchObject({
       message: "Le transfert a changé pendant la vérification. Réessayez.",
     });
     expect(reads).toEqual(["affaire_intake_documents", "affaire_intake_documents", "affaire_intake_documents"]);
@@ -118,7 +118,7 @@ describe("findDuplicateIntakeDocument: interrupted reservations", () => {
   it("reports a refused release", async () => {
     const { access } = setup([pendingRow(30)], { refuseUpdate: () => "refused by the database" });
 
-    await expect(findDuplicateIntakeDocument(access, SHA, SIZE)).rejects.toMatchObject({
+    await expect(releaseInterruptedAndFindDuplicateIntakeDocument(access, SHA, SIZE)).rejects.toMatchObject({
       message: "Impossible de reprendre le transfert interrompu. Réessayez.",
     });
   });
@@ -126,7 +126,7 @@ describe("findDuplicateIntakeDocument: interrupted reservations", () => {
   it("treats a pending reservation younger than 15 minutes as an upload in progress and writes nothing", async () => {
     const { access, writes, updates } = setup([pendingRow(5)]);
 
-    await expect(findDuplicateIntakeDocument(access, SHA, SIZE)).resolves.toEqual({
+    await expect(releaseInterruptedAndFindDuplicateIntakeDocument(access, SHA, SIZE)).resolves.toEqual({
       documentId: "pending-1",
       message: INTAKE_DUPLICATE_PENDING_MESSAGE,
     });
