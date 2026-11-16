@@ -12,7 +12,7 @@ import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/esti
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
-import { normalizeRiskAlertRow, resolveAlertJobId } from "@/lib/takeoff/risk-radar";
+import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
 import type {
   TakeoffRiskAlert,
   TakeoffRiskStatus,
@@ -26,6 +26,7 @@ import {
 import { writeDirectionDebugLog } from "./debug";
 import type { DirectionDashboardQuery } from "./schemas";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
+import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
 
 type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];

@@ -5,7 +5,7 @@ import type {
 } from "@/lib/takeoff/types";
 import { fixedDiscountBasisPoints, meetsDiscountThreshold, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
-import { resolveAlertJobId } from "@/lib/takeoff/risk-radar";
+import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
 
 export type DirectionAlertLevel = TakeoffRiskSeverity;
 
