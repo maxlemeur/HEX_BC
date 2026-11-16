@@ -67,10 +67,10 @@ type Line2 = {
   poseOnly?: true;
 };
 export type CommercialRow2 = Section2 | Line2 | (Section2 & SaleFoMo2) | (Line2 & SaleFoMo2);
-export type ClientContractV2DiscountIntent = { kind: "none" | "amount" } | { kind: "rate"; rateBp: number };
-export type ClientContractV2TaxRate = { rateBp: number; baseHtCents: number; taxCents: number };
+export type ClientContract2DiscountIntent = { kind: "none" | "amount" } | { kind: "rate"; rateBp: number };
+export type ClientContract2TaxRate = { rateBp: number; baseHtCents: number; taxCents: number };
 
-export type ClientContractV2 = {
+export type ClientContract2 = {
   schemaVersion: 2;
   version: Omit<ClientContract1["version"], "calcEngineVersion"> & { calcEngineVersion: 3 };
   project: ClientContract1["project"];
@@ -80,10 +80,10 @@ export type ClientContractV2 = {
   totals: {
     grossHtCents: number;
     commercialDiscountCents: number;
-    discountIntent: ClientContractV2DiscountIntent;
+    discountIntent: ClientContract2DiscountIntent;
     commercialRoundingCents: number;
     netHtCents: number;
-    taxByRate: ClientContractV2TaxRate[];
+    taxByRate: ClientContract2TaxRate[];
     taxCents: number;
     payableTtcCents: number;
     reverseCharge: boolean;
@@ -241,7 +241,7 @@ function validateRows(rows: CommercialRow2[], grossHtCents: number): void {
   }
 }
 
-function discountIntent(value: unknown): ClientContractV2DiscountIntent {
+function discountIntent(value: unknown): ClientContract2DiscountIntent {
   const kind = choice(kindOf(value), ["none", "amount", "rate"] as const, "totals.discountIntent.kind");
   const source = object(value, kind === "rate" ? ["kind", "rateBp"] : ["kind"], "totals.discountIntent");
   return kind === "rate"
@@ -249,14 +249,14 @@ function discountIntent(value: unknown): ClientContractV2DiscountIntent {
     : { kind };
 }
 
-function taxRate(value: unknown): ClientContractV2TaxRate {
+function taxRate(value: unknown): ClientContract2TaxRate {
   const source = object(value, ["rateBp", "baseHtCents", "taxCents"], "totals.taxByRate");
   return { rateBp: integer(source.rateBp, 0, 10_000, "totals.taxByRate.rateBp"),
     baseHtCents: cents(source.baseHtCents, "totals.taxByRate.baseHtCents"),
     taxCents: cents(source.taxCents, "totals.taxByRate.taxCents") };
 }
 
-function validateTotals(contract: ClientContractV2): void {
+function validateTotals(contract: ClientContract2): void {
   const totals = contract.totals;
   const gross = totals.grossHtCents;
   const net = gross - totals.commercialDiscountCents - totals.commercialRoundingCents;
@@ -288,7 +288,7 @@ function validateTotals(contract: ClientContractV2): void {
 }
 
 /** Analyse interne (lève `InvalidValue`) : à appeler dans un `parseWithOfferContractError` de `offer-contract-core.ts`. */
-export function parseClientContractV2(value: unknown): ClientContractV2 {
+export function parseContract2(value: unknown): ClientContract2 {
   const source = object(value, ["schemaVersion", "version", "project", "issuer", "company", "rows", "totals", "exclusions"], "snapshot");
   choice(source.schemaVersion, [2], "snapshot.schemaVersion");
   const version = object(source.version, ["id", "tenantId", "projectId", "number", "contentRevision", "calcEngineVersion",
@@ -302,7 +302,7 @@ export function parseClientContractV2(value: unknown): ClientContractV2 {
     "netHtCents", "taxByRate", "taxCents", "payableTtcCents", "reverseCharge"], "totals");
   const sourceRows = denseArray(source.rows, "rows");
   const sourceRates = denseArray(totals.taxByRate, "totals.taxByRate");
-  const parsed: ClientContractV2 = {
+  const parsed: ClientContract2 = {
     schemaVersion: 2,
     version: {
       id: uuid(version.id, "version.id"), tenantId: uuid(version.tenantId, "version.tenantId"),
@@ -344,11 +344,11 @@ export function parseClientContractV2(value: unknown): ClientContractV2 {
 }
 
 /** Parts FO/MO présentes sur une ligne ou une section du contrat 2. */
-export function hasContractV2Portions(value: CommercialRow2): value is CommercialRow2 & SaleFoMo2 {
+export function hasContract2Portions(value: CommercialRow2): value is CommercialRow2 & SaleFoMo2 {
   return hasPortions(value);
 }
 
 /** Analyse stricte d'une copie commerciale v3, sans réparation ni donnée vivante. */
-export function parseClientContractV2Snapshot(value: unknown): ClientContractV2 {
-  return parseWithOfferContractError("OFFER_CLIENT_CONTRACT_INVALID", () => parseClientContractV2(value));
+export function parseClientContract2Snapshot(value: unknown): ClientContract2 {
+  return parseWithOfferContractError("OFFER_CLIENT_CONTRACT_INVALID", () => parseContract2(value));
 }

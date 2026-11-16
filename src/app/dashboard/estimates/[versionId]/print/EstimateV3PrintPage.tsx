@@ -8,7 +8,7 @@ import { Alert, AlertTitle } from "@/components/ui/alert";
 import { ApiError } from "@/lib/estimates/errors";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { OfferContractError } from "@/lib/estimates/offer-contract-core";
-import type { ClientContractV2 } from "@/lib/estimates/offer-contract-v2";
+import type { ClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { describeEstimatePdfLayout, type EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import type { EstimateTermsSnapshot } from "@/lib/estimates/pdf-terms";
@@ -62,7 +62,7 @@ type EstimateV3PrintPageProps = {
 };
 
 /** Copie émise au contrat 2, mise en page et CGV de son document scellé (nulles s'il n'en joint pas). */
-type IssuedCopy = { contract: ClientContractV2; layout: EstimatePdfLayoutOptions; terms: EstimateTermsSnapshot | null };
+type IssuedCopy = { contract: ClientContract2; layout: EstimatePdfLayoutOptions; terms: EstimateTermsSnapshot | null };
 
 type PrintIdentity = Pick<EstimateDocumentProps, "projectName" | "projectSiteAddress" | "projectClient" | "projectReference"
   | "estimateReference" | "issuedEstimateReference" | "versionNumber" | "dateDevis" | "validiteJours" | "exclusions"
@@ -84,7 +84,7 @@ function liveIdentityOf(
 }
 
 /** Version émise : l'identité de sa copie au contrat 2 (la référence y est déjà suffixée de la version). */
-function capturedIdentityOf(contract: ClientContractV2): PrintIdentity {
+function capturedIdentityOf(contract: ClientContract2): PrintIdentity {
   return {
     projectName: contract.project.name, projectSiteAddress: contract.project.siteAddress,
     projectClient: contract.project.clientName, projectReference: contract.project.reference,

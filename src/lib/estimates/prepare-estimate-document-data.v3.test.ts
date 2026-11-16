@@ -13,7 +13,7 @@ import {
   type StoredEstimateV3Version,
 } from "@/lib/estimates/engine-v3";
 import { fixtureLineId, ORACLE_LINES, oracleItems, v3Line, v3Params } from "@/lib/estimates/engine-v3/oracle.fixtures";
-import { buildClientContractV2 } from "@/lib/estimates/offer-contract-v2";
+import { buildClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import { CommercialEstimateDocument } from "@/components/estimate-document/CommercialEstimateDocument";
 import { DEFAULT_ESTIMATE_PDF_LAYOUT, type EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
@@ -284,7 +284,7 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
       return {
         document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
           sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
-        contract: buildClientContractV2({
+        contract: buildClientContract2({
           version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
             contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
             contractorRole: "principal", taxRateBp: 2000 },
@@ -309,7 +309,7 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
     const withNatures = (natures: Record<string, PrepareV3Input["items"][number]["line_nature"]>): PrepareV3Input => ({
       ...input, items: input.items.map((item) => (item.id in natures ? { ...item, line_nature: natures[item.id] } : item)),
     });
-    const contractOf = (source: PrepareV3Input) => buildClientContractV2({
+    const contractOf = (source: PrepareV3Input) => buildClientContract2({
       version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
         contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
         contractorRole: "principal", taxRateBp: 2000 },
@@ -353,7 +353,7 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
       return {
         document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
           sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
-        contract: buildClientContractV2({
+        contract: buildClientContract2({
           version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
             contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
             contractorRole: "principal", taxRateBp: 2000 },
@@ -389,7 +389,7 @@ describe("prepareEstimateDocumentData, branche v3 (sous-lot 2.7, D7, D8, D14)", 
       return {
         document: { v3: prepared.v3, lineSplitsById: prepared.lineSplitsById, lineUnitPriceHtById: prepared.lineUnitPriceHtById,
           sectionTotalsById: prepared.sectionTotalsById, numberingById: prepared.numberingById },
-        contract: buildClientContractV2({
+        contract: buildClientContract2({
           version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: "33333333-3333-4333-8333-333333333333", number: 3,
             contentRevision: 9, calcEngineVersion: 3, dateDevis: "2026-10-17", validiteJours: 30, currency: "EUR",
             contractorRole: "principal", taxRateBp: 2000 },

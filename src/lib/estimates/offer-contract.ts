@@ -25,9 +25,9 @@ import {
   type OfferTermsSnapshot,
 } from "@/lib/estimates/offer-contract-core";
 import {
-  hasContractV2Portions,
-  parseClientContractV2,
-  type ClientContractV2,
+  hasContract2Portions,
+  parseContract2,
+  type ClientContract2,
 } from "@/lib/estimates/offer-contract-v2-parser";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
@@ -139,7 +139,7 @@ export type DocumentProof1 = ProofFields & (
   | {
       // Lot 2, sous-lot 2.7 (D14) : marqueur du contrat client 2, réservé au moteur 3.
       clientContractVersion: 2;
-      clientContractSnapshot: ClientContractV2;
+      clientContractSnapshot: ClientContract2;
       fileSizeBytes: number;
       generatedAt: string;
       generatedBy: string;
@@ -175,7 +175,7 @@ export type Seal5 = {
 };
 export type OfferPresentation = {
   /** Contrat client 1 (moteurs 1 et 2) ou contrat client 2 (moteur 3, sous-lot 2.7, D14). */
-  contract: ClientContract1 | ClientContractV2;
+  contract: ClientContract1 | ClientContract2;
   layout: EstimatePdfLayoutOptions;
   terms: OfferTermsSnapshot | null;
 };
@@ -350,7 +350,7 @@ function parseProof(value: unknown, options: OfferProofParseOptions): DocumentPr
   if (purpose === "legacy" || common.filePath !== canonicalPath) invalid("documentProof.publication");
   // Lot 2, sous-lot 2.7 (D14) : le marqueur choisit le contrat, jamais l'inverse. Un contrat 1
   // sous le marqueur 2 (ou l'inverse) est refusé par l'analyseur du marqueur ; mêmes ancres.
-  const captured = marker === 2 ? parseClientContractV2(source.clientContractSnapshot) : parseSnapshot(source.clientContractSnapshot);
+  const captured = marker === 2 ? parseContract2(source.clientContractSnapshot) : parseSnapshot(source.clientContractSnapshot);
   const generatedBy = uuid(source.generatedBy, "documentProof.generatedBy");
   if (captured.version.id !== common.versionId || captured.version.tenantId !== common.tenantId
     || captured.version.projectId !== common.projectId || captured.version.contentRevision !== common.publishedContentRevision
@@ -367,8 +367,8 @@ function parseProof(value: unknown, options: OfferProofParseOptions): DocumentPr
 }
 
 /** Parts FO/MO de chaque ligne et section, quel que soit le contrat. */
-function rowPortions(contract: ClientContract1 | ClientContractV2): boolean[] {
-  return contract.schemaVersion === 2 ? contract.rows.map(hasContractV2Portions) : contract.rows.map(hasPortions);
+function rowPortions(contract: ClientContract1 | ClientContract2): boolean[] {
+  return contract.schemaVersion === 2 ? contract.rows.map(hasContract2Portions) : contract.rows.map(hasPortions);
 }
 
 function schemaVersionOf(value: unknown): unknown {
@@ -391,7 +391,7 @@ export function parseOfferPresentation(value: unknown, options: OfferProofParseO
   return parseWithOfferContractError("OFFER_PRESENTATION_INVALID", () => {
     const source = object(value, ["contract", "layout", "terms"], "presentation");
     // Lot 2, sous-lot 2.7 : une copie au schéma 2 (moteur 3) passe par l'analyseur strict du contrat 2.
-    const contract = schemaVersionOf(source.contract) === 2 ? parseClientContractV2(source.contract) : parseSnapshot(source.contract);
+    const contract = schemaVersionOf(source.contract) === 2 ? parseContract2(source.contract) : parseSnapshot(source.contract);
     const layout = parseLayout(source.layout);
     const terms = parseTerms(source.terms, options);
     if (layout.includeTerms && terms === null) invalid("presentation.terms");
