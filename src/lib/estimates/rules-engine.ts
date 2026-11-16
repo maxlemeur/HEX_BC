@@ -3202,442 +3202,491 @@ async function resolveAssignedReviewerOrThrow(input: {
   return assignedReviewer;
 }
 
-export async function submitEstimateApproval(
-  input: SubmitEstimateApprovalInput
-): Promise<SubmitEstimateApprovalResult> {
-  const context = await getAuthenticatedContext();
-  let access = await getVersionAccessOrThrow(context, input.versionId);
+type VersionApprovalAccess = Awaited<ReturnType<typeof getVersionAccessOrThrow>>;
+type SubmitForReviewInput = Extract<SubmitEstimateApprovalInput, { action: "submit_for_review" }>;
+type RequestRuleApprovalInput = Extract<SubmitEstimateApprovalInput, { action: "request" }>;
+type DecideReviewCycleInput = Extract<SubmitEstimateApprovalInput, { action: "decide" }>;
+type DecideApprovalInput = Extract<SubmitEstimateApprovalInput, { action: "approve" | "reject" }>;
+type RequestedReviewRule = { ruleId: string; label: string };
 
-  if (input.action === "submit_for_review") {
-    assertRequesterRole(context);
+function assertCanRequestApproval(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+}) {
+  assertRequesterRole(input.context);
 
-    if (
-      !canAccessOwnerResource({
-        context,
-        resourceUserId: access.project.user_id,
-      })
-    ) {
-      throw forbidden("Action réservée au proprietaire du chiffrage.");
-    }
+  if (
+    !canAccessOwnerResource({
+      context: input.context,
+      resourceUserId: input.access.project.user_id,
+    })
+  ) {
+    throw forbidden("Action réservée au proprietaire du chiffrage.");
+  }
+}
 
-    if (await freezeApprovalV2DraftIfRequired(context, access.version))
-      access = await getVersionAccessOrThrow(context, input.versionId);
-    const items = await loadApprovalSummaryItems({
-      context,
+/** Avant soumission d'une v2/v3, le moteur fige son snapshot ; la version est alors relue. */
+async function freezeDraftSnapshotIfRequired(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  access: VersionApprovalAccess;
+}) {
+  if (await freezeApprovalV2DraftIfRequired(input.context, input.access.version))
+    return getVersionAccessOrThrow(input.context, input.versionId);
+  return input.access;
+}
+
+async function loadApprovalEvaluationSources(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  access: VersionApprovalAccess;
+}) {
+  const items = await loadApprovalSummaryItems({
+    context: input.context,
+    versionId: input.versionId,
+  });
+  const fixedDiscountEvidence = await loadCanonicalFixedDiscountEvidence({
+    supabase: input.context.supabase, tenantId: input.context.tenantId,
+    projectUserId: input.access.project.user_id, authorizedVersion: input.access.version,
+  });
+  const v3MarginEvidence = await loadV3MarginEvidence({
+    supabase: input.context.supabase, tenantId: input.context.tenantId,
+    projectUserId: input.access.project.user_id, authorizedVersion: input.access.version,
+  });
+  return { items, fixedDiscountEvidence, v3MarginEvidence };
+}
+
+type ApprovalEvaluationSources = Awaited<ReturnType<typeof loadApprovalEvaluationSources>>;
+
+function buildApprovalEvaluationInput(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  sources: ApprovalEvaluationSources;
+}) {
+  const { context, access, sources } = input;
+  return {
+    supabase: context.supabase,
+    tenantId: context.tenantId,
+    fixedDiscountEvidence: sources.fixedDiscountEvidence,
+    v3MarginEvidence: sources.v3MarginEvidence,
+    version: {
+      id: access.version.id,
+      project_id: access.version.project_id,
+      total_ht_cents: access.version.total_ht_cents,
+      margin_bp: access.version.margin_bp,
+      margin_multiplier: access.version.margin_multiplier,
+      margin_mode: access.version.margin_mode,
+      discount_bp: access.version.discount_bp,
+      discount_amount_cents: access.version.discount_amount_cents,
+      gross_ht_cents: access.version.gross_ht_cents,
+      discount_applied_cents: access.version.discount_applied_cents,
+      tenant_id: access.version.tenant_id,
+      status: access.version.status,
+      updated_at: access.version.updated_at,
+      calc_engine_version: access.version.calc_engine_version,
+      content_revision: access.version.content_revision,
+      calc_snapshot_content_revision:
+        access.version.calc_snapshot_content_revision,
+      calc_snapshot_context: access.version.calc_snapshot_context,
+    },
+    project: {
+      id: access.project.id,
+      client_name: access.project.client_name,
+    },
+    items: sources.items,
+  };
+}
+
+/**
+ * Le dernier cycle renvoyé en correction : refuse la resoumission tant qu'un de ses items reste à
+ * traiter, sinon rend ses règles, reconduites dans la nouvelle revue.
+ */
+async function loadResubmissionSourceOrThrow(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+}) {
+  const latestCycle = await findLatestReviewCycle({
+    context: input.context,
+    versionId: input.versionId,
+  });
+  const rejectedSourceCycle =
+    latestCycle?.decision === "changes_requested" && latestCycle.decided_at
+      ? latestCycle
+      : null;
+  let carriedOverRuleIds: string[] = [];
+
+  if (rejectedSourceCycle) {
+    const correctionRows = await listEstimateReviewCorrectionItems({
+      context: input.context,
       versionId: input.versionId,
+      cycleIds: [rejectedSourceCycle.id],
     });
-    const fixedDiscountEvidence = await loadCanonicalFixedDiscountEvidence({
-      supabase: context.supabase, tenantId: context.tenantId,
-      projectUserId: access.project.user_id, authorizedVersion: access.version,
-    });
-    const v3MarginEvidence = await loadV3MarginEvidence({
-      supabase: context.supabase, tenantId: context.tenantId,
-      projectUserId: access.project.user_id, authorizedVersion: access.version,
-    });
-    const [summary, submissionReadiness, assignedReviewer] = await Promise.all([
-      evaluateApprovalSummary({
-        supabase: context.supabase,
-        tenantId: context.tenantId,
-        fixedDiscountEvidence,
-        v3MarginEvidence,
-        version: {
-          id: access.version.id,
-          project_id: access.version.project_id,
-          total_ht_cents: access.version.total_ht_cents,
-          margin_bp: access.version.margin_bp,
-          margin_multiplier: access.version.margin_multiplier,
-          margin_mode: access.version.margin_mode,
-          discount_bp: access.version.discount_bp,
-          discount_amount_cents: access.version.discount_amount_cents,
-          gross_ht_cents: access.version.gross_ht_cents,
-          discount_applied_cents: access.version.discount_applied_cents,
-          tenant_id: access.version.tenant_id,
-          status: access.version.status,
-          updated_at: access.version.updated_at,
-          calc_engine_version: access.version.calc_engine_version,
-          content_revision: access.version.content_revision,
-          calc_snapshot_content_revision:
-            access.version.calc_snapshot_content_revision,
-          calc_snapshot_context: access.version.calc_snapshot_context,
-        },
-        project: {
-          id: access.project.id,
-          client_name: access.project.client_name,
-        },
-        items,
-      }),
-      evaluateSubmissionReadiness({
-        supabase: context.supabase,
-        tenantId: context.tenantId,
-        fixedDiscountEvidence,
-        v3MarginEvidence,
-        version: {
-          id: access.version.id,
-          project_id: access.version.project_id,
-          total_ht_cents: access.version.total_ht_cents,
-          margin_bp: access.version.margin_bp,
-          margin_multiplier: access.version.margin_multiplier,
-          margin_mode: access.version.margin_mode,
-          discount_bp: access.version.discount_bp,
-          discount_amount_cents: access.version.discount_amount_cents,
-          gross_ht_cents: access.version.gross_ht_cents,
-          discount_applied_cents: access.version.discount_applied_cents,
-          tenant_id: access.version.tenant_id,
-          status: access.version.status,
-          updated_at: access.version.updated_at,
-          calc_engine_version: access.version.calc_engine_version,
-          content_revision: access.version.content_revision,
-          calc_snapshot_content_revision:
-            access.version.calc_snapshot_content_revision,
-          calc_snapshot_context: access.version.calc_snapshot_context,
-        },
-        project: {
-          id: access.project.id,
-          client_name: access.project.client_name,
-        },
-        items,
-      }),
-      resolveAssignedReviewerOrThrow({
-        context,
-        reviewerUserId: normalizeOptionalUuid(input.assignedReviewerUserId ?? undefined),
-      }),
-    ]);
-
-    if (submissionReadiness.blockers.length > 0) {
-      throw badRequest("Des blocants restent à lever avant la soumission.");
+    const hasPendingCorrections = correctionRows.some(
+      (row) => row.status === "pending"
+    );
+    if (hasPendingCorrections) {
+      throw badRequest("Tous les items de correction doivent être traités avant la resoumission.");
     }
 
-    const requestedRuleIdSet = new Set(
-      input.ruleIds
-        .map((ruleId) => normalizeOptionalUuid(ruleId))
-        .filter((ruleId): ruleId is string => ruleId !== null)
-    );
-    const currentRequestableReasons = summary.reasons.filter(
-      (reason) =>
-        (reason.approvalStatus === "missing" || reason.approvalStatus === "rejected") &&
-        (requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(reason.ruleId))
-    );
-    const latestCycle = await findLatestReviewCycle({
-      context,
+    carriedOverRuleIds = await listRuleIdsForReviewCycle({
+      context: input.context,
       versionId: input.versionId,
+      cycleId: rejectedSourceCycle.id,
+      requestedAt: rejectedSourceCycle.requested_at,
+      decidedAt: rejectedSourceCycle.decided_at,
     });
-    const rejectedSourceCycle =
-      latestCycle?.decision === "changes_requested" && latestCycle.decided_at
-        ? latestCycle
-        : null;
-    let carriedOverRuleIds: string[] = [];
+  }
 
-    if (rejectedSourceCycle) {
-      const correctionRows = await listEstimateReviewCorrectionItems({
-        context,
-        versionId: input.versionId,
-        cycleIds: [rejectedSourceCycle.id],
-      });
-      const hasPendingCorrections = correctionRows.some(
-        (row) => row.status === "pending"
-      );
-      if (hasPendingCorrections) {
-        throw badRequest("Tous les items de correction doivent être traités avant la resoumission.");
-      }
+  return { rejectedSourceCycle, carriedOverRuleIds };
+}
 
-      carriedOverRuleIds = await listRuleIdsForReviewCycle({
-        context,
-        versionId: input.versionId,
-        cycleId: rejectedSourceCycle.id,
-        requestedAt: rejectedSourceCycle.requested_at,
-        decidedAt: rejectedSourceCycle.decided_at,
-      });
-    }
+/**
+ * Les règles soumises à la revue : celles que le résumé rend demandables (manquantes ou rejetées)
+ * et celles reconduites du cycle renvoyé en correction, limitées aux règles demandées quand il y en a.
+ */
+async function resolveRequestedReviewRules(input: {
+  context: AuthenticatedContext;
+  ruleIds: string[];
+  reasons: EstimateApprovalSummaryCore["reasons"];
+  carriedOverRuleIds: string[];
+}) {
+  const requestedRuleIdSet = new Set(
+    input.ruleIds
+      .map((ruleId) => normalizeOptionalUuid(ruleId))
+      .filter((ruleId): ruleId is string => ruleId !== null)
+  );
+  const currentRequestableReasons = input.reasons.filter(
+    (reason) =>
+      (reason.approvalStatus === "missing" || reason.approvalStatus === "rejected") &&
+      (requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(reason.ruleId))
+  );
 
-    const requestedRuleIds = [
-      ...new Set([
-        ...currentRequestableReasons.map((reason) => reason.ruleId),
-        ...carriedOverRuleIds,
-      ]),
-    ].filter((ruleId) => requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(ruleId));
+  const requestedRuleIds = [
+    ...new Set([
+      ...currentRequestableReasons.map((reason) => reason.ruleId),
+      ...input.carriedOverRuleIds,
+    ]),
+  ].filter((ruleId) => requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(ruleId));
 
-    if (requestedRuleIds.length === 0) {
-      throw badRequest("Aucune règle de validation ne peut être soumise.");
-    }
+  if (requestedRuleIds.length === 0) {
+    throw badRequest("Aucune règle de validation ne peut être soumise.");
+  }
 
-    const requestableReasonByRuleId = new Map(
-      currentRequestableReasons.map((reason) => [reason.ruleId, reason] as const)
-    );
-    const missingRuleIds = requestedRuleIds.filter(
-      (ruleId) => !requestableReasonByRuleId.has(ruleId)
-    );
-    const carriedOverRules = await findRulesForTenant({
-      context,
-      ruleIds: missingRuleIds,
-    });
-    const carriedOverRuleById = new Map(
-      carriedOverRules.map((rule) => [rule.id, rule] as const)
-    );
-    const requestedRulePayload = requestedRuleIds.map((ruleId) => {
-      const activeReason = requestableReasonByRuleId.get(ruleId);
-      if (activeReason) {
-        return {
-          ruleId,
-          label: activeReason.label,
-        };
-      }
-
-      const carriedOverRule = carriedOverRuleById.get(ruleId);
+  const requestableReasonByRuleId = new Map(
+    currentRequestableReasons.map((reason) => [reason.ruleId, reason] as const)
+  );
+  const missingRuleIds = requestedRuleIds.filter(
+    (ruleId) => !requestableReasonByRuleId.has(ruleId)
+  );
+  const carriedOverRules = await findRulesForTenant({
+    context: input.context,
+    ruleIds: missingRuleIds,
+  });
+  const carriedOverRuleById = new Map(
+    carriedOverRules.map((rule) => [rule.id, rule] as const)
+  );
+  const requestedRules = requestedRuleIds.map((ruleId): RequestedReviewRule => {
+    const activeReason = requestableReasonByRuleId.get(ruleId);
+    if (activeReason) {
       return {
         ruleId,
-        label: carriedOverRule
-          ? resolveApprovalSummaryLabel(carriedOverRule.rule_type)
-          : "Règle de validation",
+        label: activeReason.label,
       };
-    });
-
-    const submission = await openEstimateReviewCycle({
-      versionId: input.versionId,
-      tenantId: context.tenantId,
-      actorUserId: context.userId,
-      assignedReviewerId: assignedReviewer.userId,
-      ruleIds: requestedRulePayload.map((reason) => reason.ruleId),
-      submissionMessage: input.submissionMessage ?? null,
-      eventMetadata: {
-        requestedRuleLabels: requestedRulePayload.map((reason) => reason.label),
-        assignedReviewerName: assignedReviewer.fullName,
-        assignedReviewerEmail: assignedReviewer.workEmail,
-        resubmissionOfCycleId: rejectedSourceCycle?.id ?? null,
-        resubmissionOfCycleNumber: rejectedSourceCycle?.cycle_number ?? null,
-        correctionChecklistCompleted: rejectedSourceCycle ? true : null,
-        notificationChannels: {
-          inApp: true,
-          email: Boolean(assignedReviewer.workEmail),
-        },
-      } satisfies Json,
-    });
-    const latestApproval = submission.approvals.at(-1)!;
-
-    if (submission.created && assignedReviewer.workEmail) {
-      try {
-        const requesterProfile = await loadProfileIdentity({
-          context,
-          userId: context.userId,
-        });
-        await sendApprovalReviewRequestNotification({
-          recipientEmail: assignedReviewer.workEmail,
-          reviewerName: assignedReviewer.fullName,
-          requesterName:
-            requesterProfile.full_name?.trim() ||
-            requesterProfile.work_email?.trim() ||
-            `Utilisateur ${context.userId.slice(0, 8)}`,
-          projectName:
-            access.project.name?.trim() ||
-            access.project.client_name?.trim() ||
-            "Affaire",
-          versionNumber: access.version.version_number,
-          submissionMessage: input.submissionMessage?.trim() || null,
-          ruleLabels: requestedRulePayload.map((reason) => reason.label),
-        });
-      } catch (error) {
-        console.error("Failed to send approval review request notification:", error);
-      }
     }
 
-    await syncEstimateApprovalSummary({
-      context,
-      version: access.version,
-      project: access.project,
-      trigger: "approval_request",
-    });
-
+    const carriedOverRule = carriedOverRuleById.get(ruleId);
     return {
-      approval: latestApproval,
-      cycle: {
-        id: submission.cycle.id,
-        cycleNumber: submission.cycle.cycle_number,
-        requestedAt: submission.cycle.requested_at,
-        submissionMessage: submission.cycle.submission_message,
-        assignedReviewer,
-      },
-      requestedApprovalCount: requestedRulePayload.length,
-      requestedRuleIds: requestedRulePayload.map((reason) => reason.ruleId),
-    };
-  }
-
-  if (input.action === "request") {
-    assertRequesterRole(context);
-
-    if (
-      !canAccessOwnerResource({
-        context,
-        resourceUserId: access.project.user_id,
-      })
-    ) {
-      throw forbidden("Action réservée au proprietaire du chiffrage.");
-    }
-
-    const ruleId = normalizeOptionalUuid(input.ruleId);
-    if (!ruleId) {
-      throw badRequest("rule_id est obligatoire pour une demande d'approbation.");
-    }
-
-    const rule = await findRuleForTenant({
-      context,
       ruleId,
-    });
-
-    if (!rule.is_active) {
-      throw badRequest("La règle ciblee est inactive.");
-    }
-
-    if (await freezeApprovalV2DraftIfRequired(context, access.version))
-      access = await getVersionAccessOrThrow(context, input.versionId);
-    const assignedReviewer = await resolveAssignedReviewerOrThrow({
-      context,
-      reviewerUserId: null,
-    });
-    const submission = await openEstimateReviewCycle({
-      versionId: input.versionId,
-      tenantId: context.tenantId,
-      actorUserId: context.userId,
-      assignedReviewerId: assignedReviewer.userId,
-      ruleIds: [ruleId],
-      submissionMessage: null,
-      eventMetadata: {
-        requestedRuleLabels: [resolveApprovalSummaryLabel(rule.rule_type)],
-        assignedReviewerName: assignedReviewer.fullName,
-        assignedReviewerEmail: assignedReviewer.workEmail,
-        notificationChannels: {
-          inApp: true,
-          email: false,
-        },
-      },
-    });
-
-    await syncEstimateApprovalSummary({
-      context,
-      version: access.version,
-      project: access.project,
-      trigger: "approval_request",
-    });
-
-    return {
-      approval: submission.approvals[0]!,
+      label: carriedOverRule
+        ? resolveApprovalSummaryLabel(carriedOverRule.rule_type)
+        : "Règle de validation",
     };
+  });
+
+  return requestedRules;
+}
+
+/** L'e-mail au validateur assigné ; son échec est journalisé sans annuler la soumission. */
+async function emailAssignedReviewer(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  assignedReviewer: EstimateApprovalReviewer;
+  recipientEmail: string;
+  submissionMessage: string | null | undefined;
+  requestedRules: RequestedReviewRule[];
+}) {
+  const { context, access, assignedReviewer } = input;
+  try {
+    const requesterProfile = await loadProfileIdentity({
+      context,
+      userId: context.userId,
+    });
+    await sendApprovalReviewRequestNotification({
+      recipientEmail: input.recipientEmail,
+      reviewerName: assignedReviewer.fullName,
+      requesterName:
+        requesterProfile.full_name?.trim() ||
+        requesterProfile.work_email?.trim() ||
+        `Utilisateur ${context.userId.slice(0, 8)}`,
+      projectName:
+        access.project.name?.trim() ||
+        access.project.client_name?.trim() ||
+        "Affaire",
+      versionNumber: access.version.version_number,
+      submissionMessage: input.submissionMessage?.trim() || null,
+      ruleLabels: input.requestedRules.map((reason) => reason.label),
+    });
+  } catch (error) {
+    console.error("Failed to send approval review request notification:", error);
+  }
+}
+
+async function submitEstimateForReview(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  approvalInput: SubmitForReviewInput;
+}): Promise<SubmitEstimateApprovalResult> {
+  const { context, approvalInput } = input;
+  assertCanRequestApproval({ context, access: input.access });
+
+  const access = await freezeDraftSnapshotIfRequired({
+    context,
+    versionId: approvalInput.versionId,
+    access: input.access,
+  });
+  const sources = await loadApprovalEvaluationSources({
+    context,
+    versionId: approvalInput.versionId,
+    access,
+  });
+  const [summary, submissionReadiness, assignedReviewer] = await Promise.all([
+    evaluateApprovalSummary(buildApprovalEvaluationInput({ context, access, sources })),
+    evaluateSubmissionReadiness(buildApprovalEvaluationInput({ context, access, sources })),
+    resolveAssignedReviewerOrThrow({
+      context,
+      reviewerUserId: normalizeOptionalUuid(approvalInput.assignedReviewerUserId ?? undefined),
+    }),
+  ]);
+
+  if (submissionReadiness.blockers.length > 0) {
+    throw badRequest("Des blocants restent à lever avant la soumission.");
   }
 
-  if (input.action === "decide") {
-    assertApproverRole(context);
+  const { rejectedSourceCycle, carriedOverRuleIds } = await loadResubmissionSourceOrThrow({
+    context,
+    versionId: approvalInput.versionId,
+  });
+  const requestedRules = await resolveRequestedReviewRules({
+    context,
+    ruleIds: approvalInput.ruleIds,
+    reasons: summary.reasons,
+    carriedOverRuleIds,
+  });
 
-    const activeCycle = await findOpenReviewCycle({
-      context,
-      versionId: input.versionId,
-    });
-
-    if (!activeCycle) {
-      throw badRequest("Aucun cycle de revue actif n'est disponible.");
-    }
-
-    const pendingApprovals = await listPendingApprovalsForVersion({
-      context,
-      versionId: input.versionId,
-    });
-
-    if (pendingApprovals.length === 0) {
-      throw badRequest("Aucune approbation en attente n'est disponible.");
-    }
-
-    const items = await loadApprovalSummaryItems({
-      context,
-      versionId: input.versionId,
-    });
-    const fixedDiscountEvidence = await loadCanonicalFixedDiscountEvidence({
-      supabase: context.supabase, tenantId: context.tenantId,
-      projectUserId: access.project.user_id, authorizedVersion: access.version,
-    });
-    const v3MarginEvidence = await loadV3MarginEvidence({
-      supabase: context.supabase, tenantId: context.tenantId,
-      projectUserId: access.project.user_id, authorizedVersion: access.version,
-    });
-    const summary = await evaluateApprovalSummary({
-      supabase: context.supabase,
-      tenantId: context.tenantId,
-      fixedDiscountEvidence,
-      v3MarginEvidence,
-      version: {
-        id: access.version.id,
-        project_id: access.version.project_id,
-        total_ht_cents: access.version.total_ht_cents,
-        margin_bp: access.version.margin_bp,
-        margin_multiplier: access.version.margin_multiplier,
-        margin_mode: access.version.margin_mode,
-        discount_bp: access.version.discount_bp,
-        discount_amount_cents: access.version.discount_amount_cents,
-        gross_ht_cents: access.version.gross_ht_cents,
-        discount_applied_cents: access.version.discount_applied_cents,
-        tenant_id: access.version.tenant_id,
-        status: access.version.status,
-        updated_at: access.version.updated_at,
-        calc_engine_version: access.version.calc_engine_version,
-        content_revision: access.version.content_revision,
-        calc_snapshot_content_revision:
-          access.version.calc_snapshot_content_revision,
-        calc_snapshot_context: access.version.calc_snapshot_context,
+  const submission = await openEstimateReviewCycle({
+    versionId: approvalInput.versionId,
+    tenantId: context.tenantId,
+    actorUserId: context.userId,
+    assignedReviewerId: assignedReviewer.userId,
+    ruleIds: requestedRules.map((reason) => reason.ruleId),
+    submissionMessage: approvalInput.submissionMessage ?? null,
+    eventMetadata: {
+      requestedRuleLabels: requestedRules.map((reason) => reason.label),
+      assignedReviewerName: assignedReviewer.fullName,
+      assignedReviewerEmail: assignedReviewer.workEmail,
+      resubmissionOfCycleId: rejectedSourceCycle?.id ?? null,
+      resubmissionOfCycleNumber: rejectedSourceCycle?.cycle_number ?? null,
+      correctionChecklistCompleted: rejectedSourceCycle ? true : null,
+      notificationChannels: {
+        inApp: true,
+        email: Boolean(assignedReviewer.workEmail),
       },
-      project: {
-        id: access.project.id,
-        client_name: access.project.client_name,
-      },
-      items,
-    });
-    const targetContext = await loadApprovalCommentTargetContext({
-      context,
-      versionId: input.versionId,
-      projectId: access.project.id,
-    });
-    const commentTargets = buildEstimateReviewCommentTargets({
-      project: access.project,
-      items,
-      exceptions: targetContext.exceptions,
-      hypotheses: targetContext.hypotheses,
-      reasons: summary.reasons,
-    });
-    const normalizedComments = normalizeDecisionComments({
-      decision: input.decision,
-      comments: input.comments,
-      targets: commentTargets,
-    });
-    const decidedAt = new Date().toISOString();
-    const updatedApprovals = pendingApprovals.map((approval) => ({
-      ...approval,
-      status: resolveApprovalStatusFromReviewDecision(input.decision),
-      approved_by: context.userId,
-      decided_at: decidedAt,
-      updated_at: decidedAt,
-    }));
-    await decideReviewCycleAtomically({
-      context,
-      cycleId: activeCycle.id,
-      decision: input.decision,
-      comments: normalizedComments,
-    });
+    } satisfies Json,
+  });
+  const latestApproval = submission.approvals.at(-1)!;
 
-    await syncEstimateApprovalSummary({
+  if (submission.created && assignedReviewer.workEmail) {
+    await emailAssignedReviewer({
       context,
-      version: access.version,
-      project: access.project,
-      trigger: "approval_decision",
+      access,
+      assignedReviewer,
+      recipientEmail: assignedReviewer.workEmail,
+      submissionMessage: approvalInput.submissionMessage,
+      requestedRules,
     });
-
-    return {
-      approval: updatedApprovals[0]!,
-    };
   }
 
+  await syncEstimateApprovalSummary({
+    context,
+    version: access.version,
+    project: access.project,
+    trigger: "approval_request",
+  });
+
+  return {
+    approval: latestApproval,
+    cycle: {
+      id: submission.cycle.id,
+      cycleNumber: submission.cycle.cycle_number,
+      requestedAt: submission.cycle.requested_at,
+      submissionMessage: submission.cycle.submission_message,
+      assignedReviewer,
+    },
+    requestedApprovalCount: requestedRules.length,
+    requestedRuleIds: requestedRules.map((reason) => reason.ruleId),
+  };
+}
+
+async function requestRuleApproval(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  approvalInput: RequestRuleApprovalInput;
+}): Promise<SubmitEstimateApprovalResult> {
+  const { context, approvalInput } = input;
+  assertCanRequestApproval({ context, access: input.access });
+
+  const ruleId = normalizeOptionalUuid(approvalInput.ruleId);
+  if (!ruleId) {
+    throw badRequest("rule_id est obligatoire pour une demande d'approbation.");
+  }
+
+  const rule = await findRuleForTenant({
+    context,
+    ruleId,
+  });
+
+  if (!rule.is_active) {
+    throw badRequest("La règle ciblee est inactive.");
+  }
+
+  const access = await freezeDraftSnapshotIfRequired({
+    context,
+    versionId: approvalInput.versionId,
+    access: input.access,
+  });
+  const assignedReviewer = await resolveAssignedReviewerOrThrow({
+    context,
+    reviewerUserId: null,
+  });
+  const submission = await openEstimateReviewCycle({
+    versionId: approvalInput.versionId,
+    tenantId: context.tenantId,
+    actorUserId: context.userId,
+    assignedReviewerId: assignedReviewer.userId,
+    ruleIds: [ruleId],
+    submissionMessage: null,
+    eventMetadata: {
+      requestedRuleLabels: [resolveApprovalSummaryLabel(rule.rule_type)],
+      assignedReviewerName: assignedReviewer.fullName,
+      assignedReviewerEmail: assignedReviewer.workEmail,
+      notificationChannels: {
+        inApp: true,
+        email: false,
+      },
+    },
+  });
+
+  await syncEstimateApprovalSummary({
+    context,
+    version: access.version,
+    project: access.project,
+    trigger: "approval_request",
+  });
+
+  return {
+    approval: submission.approvals[0]!,
+  };
+}
+
+async function decideOpenReviewCycle(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  approvalInput: DecideReviewCycleInput;
+}): Promise<SubmitEstimateApprovalResult> {
+  const { context, access, approvalInput } = input;
   assertApproverRole(context);
 
-  const ruleId = normalizeOptionalUuid(input.ruleId);
-  const approvalId = normalizeOptionalUuid(input.approvalId);
+  const activeCycle = await findOpenReviewCycle({
+    context,
+    versionId: approvalInput.versionId,
+  });
 
+  if (!activeCycle) {
+    throw badRequest("Aucun cycle de revue actif n'est disponible.");
+  }
+
+  const pendingApprovals = await listPendingApprovalsForVersion({
+    context,
+    versionId: approvalInput.versionId,
+  });
+
+  if (pendingApprovals.length === 0) {
+    throw badRequest("Aucune approbation en attente n'est disponible.");
+  }
+
+  const sources = await loadApprovalEvaluationSources({
+    context,
+    versionId: approvalInput.versionId,
+    access,
+  });
+  const summary = await evaluateApprovalSummary(
+    buildApprovalEvaluationInput({ context, access, sources })
+  );
+  const targetContext = await loadApprovalCommentTargetContext({
+    context,
+    versionId: approvalInput.versionId,
+    projectId: access.project.id,
+  });
+  const commentTargets = buildEstimateReviewCommentTargets({
+    project: access.project,
+    items: sources.items,
+    exceptions: targetContext.exceptions,
+    hypotheses: targetContext.hypotheses,
+    reasons: summary.reasons,
+  });
+  const normalizedComments = normalizeDecisionComments({
+    decision: approvalInput.decision,
+    comments: approvalInput.comments,
+    targets: commentTargets,
+  });
+  const decidedAt = new Date().toISOString();
+  const updatedApprovals = pendingApprovals.map((approval) => ({
+    ...approval,
+    status: resolveApprovalStatusFromReviewDecision(approvalInput.decision),
+    approved_by: context.userId,
+    decided_at: decidedAt,
+    updated_at: decidedAt,
+  }));
+  await decideReviewCycleAtomically({
+    context,
+    cycleId: activeCycle.id,
+    decision: approvalInput.decision,
+    comments: normalizedComments,
+  });
+
+  await syncEstimateApprovalSummary({
+    context,
+    version: access.version,
+    project: access.project,
+    trigger: "approval_decision",
+  });
+
+  return {
+    approval: updatedApprovals[0]!,
+  };
+}
+
+/** La demande en attente que vise une décision unitaire : par son identifiant, sinon la dernière de la règle. */
+async function findPendingApprovalToDecide(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  ruleId: string | null;
+  approvalId: string | null;
+}) {
+  const { context } = input;
   let targetApproval: EstimateApprovalRow | null = null;
 
-  if (approvalId) {
+  if (input.approvalId) {
     const { data, error } = await context.supabase
       .from("estimate_approvals")
       .select(
@@ -3645,7 +3694,7 @@ export async function submitEstimateApproval(
       )
       .eq("tenant_id", context.tenantId)
       .eq("version_id", input.versionId)
-      .eq("id", approvalId)
+      .eq("id", input.approvalId)
       .is("superseded_at", null)
       .single();
 
@@ -3655,14 +3704,14 @@ export async function submitEstimateApproval(
 
     targetApproval = data as EstimateApprovalRow;
   } else {
-    if (!ruleId) {
+    if (!input.ruleId) {
       throw badRequest("rule_id ou approval_id est requis pour une décision.");
     }
 
     targetApproval = await findLatestApprovalForRule({
       context,
       versionId: input.versionId,
-      ruleId,
+      ruleId: input.ruleId,
       status: "pending",
     });
 
@@ -3675,8 +3724,26 @@ export async function submitEstimateApproval(
     throw badRequest("La demande d'approbation n'est plus en attente.");
   }
 
+  return targetApproval;
+}
+
+async function decidePendingApproval(input: {
+  context: AuthenticatedContext;
+  access: VersionApprovalAccess;
+  approvalInput: DecideApprovalInput;
+}): Promise<SubmitEstimateApprovalResult> {
+  const { context, access, approvalInput } = input;
+  assertApproverRole(context);
+
+  const targetApproval = await findPendingApprovalToDecide({
+    context,
+    versionId: approvalInput.versionId,
+    ruleId: normalizeOptionalUuid(approvalInput.ruleId),
+    approvalId: normalizeOptionalUuid(approvalInput.approvalId),
+  });
+
   const nextStatus: EstimateApprovalStatus =
-    input.action === "approve" ? "approved" : "rejected";
+    approvalInput.action === "approve" ? "approved" : "rejected";
 
   const data = await decideApprovalAtomically({
     context,
@@ -3694,6 +3761,27 @@ export async function submitEstimateApproval(
   return {
     approval: data,
   };
+}
+
+export async function submitEstimateApproval(
+  input: SubmitEstimateApprovalInput
+): Promise<SubmitEstimateApprovalResult> {
+  const context = await getAuthenticatedContext();
+  const access = await getVersionAccessOrThrow(context, input.versionId);
+
+  if (input.action === "submit_for_review") {
+    return submitEstimateForReview({ context, access, approvalInput: input });
+  }
+
+  if (input.action === "request") {
+    return requestRuleApproval({ context, access, approvalInput: input });
+  }
+
+  if (input.action === "decide") {
+    return decideOpenReviewCycle({ context, access, approvalInput: input });
+  }
+
+  return decidePendingApproval({ context, access, approvalInput: input });
 }
 
 export async function listEstimateRulesForCurrentTenant() {
