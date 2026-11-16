@@ -60,10 +60,7 @@ import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExpo
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
 import { estimateEditorAutoSaveStatusClassName } from "@/hooks/estimate-editor-autosave-status";
 import { buildEstimateEditorTableVirtualization } from "@/hooks/estimate-editor-virtualization-runtime";
-import {
-  formatEstimateEditorAuditTimestamp,
-  type EstimateEditorActivityController,
-} from "@/hooks/useEstimateEditorActivityController";
+import { type EstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorAiDialogsController } from "@/hooks/useEstimateEditorAiDialogsController";
 import {
   resolveEstimateEditorAutoOpenDialogs,
@@ -157,6 +154,7 @@ import {
 } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
+import { formatEstimateEditorAuditTimestamp } from "@/lib/estimates/audit-timestamp";
 
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type SupplyType = EstimateEditorData["supplyTypes"][number];

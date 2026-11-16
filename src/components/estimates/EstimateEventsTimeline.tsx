@@ -5,7 +5,7 @@ import type {
   EstimateVersionEvent,
   EstimateVersionEventType,
 } from "@/lib/estimates/client";
-import { formatEstimateEditorAuditTimestamp } from "@/hooks/useEstimateEditorActivityController";
+import { formatEstimateEditorAuditTimestamp } from "@/lib/estimates/audit-timestamp";
 
 type EstimateEventsTimelineProps = {
   events: EstimateVersionEvent[];

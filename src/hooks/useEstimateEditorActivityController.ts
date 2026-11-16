@@ -214,20 +214,6 @@ function resolveLoadError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-export function formatEstimateEditorAuditTimestamp(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return parsed.toLocaleString("fr-FR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 export function useEstimateEditorActivityController({
   actorId,
   tenantId,
