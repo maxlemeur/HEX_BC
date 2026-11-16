@@ -6,6 +6,8 @@ import {
   normalizeMappedRowsForEstimateCreation,
   parseLocalizedNumber,
   resolveImportLaborRole,
+  sortValidImportFlowLines,
+  type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 
 describe("import-flow helpers", () => {
@@ -387,5 +389,26 @@ describe("2.8 OPTIMA into a v3 (D16, D11)", () => {
     const result = normalizeMappedRowsForEstimateCreation([parameterRow, o1, off], v3Context(1.3, 1.3));
     expect(result.unitPriceChecks.filter((check) => Math.abs(check.deltaCents) > 0.5).map((check) => [check.title,
       check.computedUnitPriceCents, check.expectedUnitPriceCents])).toEqual([["O1b", 17459, 17460]]);
+  });
+});
+
+describe("sortValidImportFlowLines", () => {
+  const line = (mappedRowId: string, rowIndex: number) => ({ mappedRowId, rowIndex }) as ValidImportFlowLine;
+
+  it("orders by source row index, then by mapped row id, without touching its input", () => {
+    const input = [line("row-b", 3), line("row-c", 1), line("row-a", 3), line("row-10", 2), line("row-2", 2)];
+    const snapshot = [...input];
+
+    const sorted = sortValidImportFlowLines(input);
+
+    expect(sorted.map((entry) => [entry.rowIndex, entry.mappedRowId])).toEqual([
+      [1, "row-c"],
+      [2, "row-10"],
+      [2, "row-2"],
+      [3, "row-a"],
+      [3, "row-b"],
+    ]);
+    expect(sorted).not.toBe(input);
+    expect(input).toEqual(snapshot);
   });
 });

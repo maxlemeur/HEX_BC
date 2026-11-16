@@ -195,6 +195,19 @@ describe("tenant settings actor context", () => {
     expect(supabase.from).not.toHaveBeenCalled();
   });
 
+  it("rejects an auth error even when a user is still present, without reading memberships", async () => {
+    const { supabase } = createSupabaseMock({
+      userError: { name: "AuthApiError", message: "invalid JWT", status: 401 },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getTenantSettingsActorContext()).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    } satisfies Partial<ApiError>);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
   it("answers 400 when the membership read fails and 401 when there is no active tenant", async () => {
     const failing = createSupabaseMock({
       membershipError: { code: "XX000", message: "database unavailable", details: null, hint: null },
@@ -226,11 +239,10 @@ describe("getTenantMembershipOrThrow", () => {
 
   it("reads the membership of the given tenant and user", async () => {
     const row = { tenant_id: TENANT_ID, user_id: USER_ID, role: "member" };
-    const { supabase, select, builder } = createMembershipLookup({ data: row, error: null });
+    const { supabase, builder } = createMembershipLookup({ data: row, error: null });
 
     await expect(getTenantMembershipOrThrow(supabase as never, TENANT_ID, USER_ID)).resolves.toEqual(row);
     expect(supabase.from).toHaveBeenCalledWith("tenant_memberships");
-    expect(select).toHaveBeenCalledWith("tenant_id, user_id, role");
     expect(builder.eq).toHaveBeenNthCalledWith(1, "tenant_id", TENANT_ID);
     expect(builder.eq).toHaveBeenNthCalledWith(2, "user_id", USER_ID);
   });
