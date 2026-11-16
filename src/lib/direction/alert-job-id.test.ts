@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAlertJobId } from "@/lib/takeoff/risk-radar";
+import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
 import type { TakeoffRiskAlert } from "@/lib/takeoff/types";
 
 function alert(fields: { takeoff_job_id?: unknown; metadata?: unknown }) {
