@@ -9,7 +9,7 @@ import {
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 import type { ClientContract1 } from "@/lib/estimates/offer-contract";
-import type { ClientContractV2 } from "@/lib/estimates/offer-contract-v2";
+import type { ClientContract2 } from "@/lib/estimates/offer-contract-v2";
 
 type EstimateDocumentRow =
   Database["public"]["Tables"]["estimate_documents"]["Row"];
@@ -149,7 +149,7 @@ export async function publishEstimatePdfGeneration(input: {
   layoutOptions: Json;
   termsSnapshot: Json | null;
   /** Contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3, sous-lot 2.7) : le SQL aiguille sur `schemaVersion`. */
-  clientContractSnapshot: ClientContract1 | ClientContractV2;
+  clientContractSnapshot: ClientContract1 | ClientContract2;
 }) {
   const { data, error } = await input.client.rpc(
     "publish_estimate_pdf_generation",
