@@ -48,8 +48,8 @@ async function currentFile(reader: GoogleDriveReader, fileId: string, document: 
 }
 
 /** Current Drive metadata of a linked piece, refused when it can no longer be read as this dossier file. */
-export async function readLinkedDriveFile(document: LinkedDriveDocument) {
-  return readWithLinkerAccount(document, (reader, fileId) => currentFile(reader, fileId, document));
+export async function readLinkedDriveFile(document: LinkedDriveDocument, signal?: AbortSignal) {
+  return readWithLinkerAccount(document, (reader, fileId) => currentFile(reader, fileId, document), signal);
 }
 
 /**

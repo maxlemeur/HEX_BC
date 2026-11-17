@@ -4,7 +4,7 @@ import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
@@ -484,13 +484,13 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }
 
   return (
-    <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col bg-surface-subtle focus:outline-none">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
+    <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col bg-surface-subtle focus:outline-none max-xl:overflow-y-auto">
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 max-sm:h-auto max-sm:min-h-11 max-sm:flex-wrap max-sm:gap-y-1 max-sm:py-2">
         <h1 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Target aria-hidden="true" className="size-4 text-primary" />
           Revue ciblée
         </h1>
-        <span className="min-w-0 truncate text-xs text-muted-foreground" title={job?.source_file_name ?? undefined}>
+        <span className="min-w-0 truncate text-xs text-muted-foreground max-sm:basis-1/2 max-sm:grow" title={job?.source_file_name ?? undefined}>
           {job?.source_file_name ?? "Métré"}{job?.version_number ? ` · V${job.version_number}` : ""}{level ? ` · niveau ${level}` : ""}
         </span>
         {job ? (
@@ -519,9 +519,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         getRevision={() => mutationRevision.current}
         onRefreshed={(detail) => { setItems(detail.items.data); setDpgfRead((value) => value + 1); }} />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 max-xl:flex-none max-xl:flex-col">
         {leftOpen ? (
-          <aside aria-label="Lignes à revoir" className="flex w-[340px] shrink-0 flex-col border-r border-border bg-surface">
+          <aside aria-label="Lignes à revoir" className="flex w-[340px] shrink-0 flex-col border-r border-border bg-surface max-xl:w-full max-xl:border-r-0 max-xl:border-b">
             <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lignes à revoir</span>
               <IconButton label="Replier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftClose />} onClick={() => { setLeftOpen(false); rootRef.current?.focus(); }} />
@@ -545,7 +545,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
             ) : null}
             <ul ref={listRef} role="listbox" aria-label="Lignes à trancher" tabIndex={0} aria-keyshortcuts="ArrowUp ArrowDown E V F2 I"
               aria-activedescendant={current && !pricingPending ? `targeted-line-${current.item.id}` : undefined}
-              className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring">
+              className="min-h-0 flex-1 divide-y divide-border-subtle overflow-y-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring max-xl:max-h-72">
               {visible.map((line) => {
                 const selected = line.item.id === selectedId;
                 const first = line.rule_failures[0];
@@ -587,12 +587,12 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
             </div>
           </aside>
         ) : (
-          <div className="flex w-10 shrink-0 flex-col items-center border-r border-border bg-surface pt-1">
+          <div className="flex w-10 shrink-0 flex-col items-center border-r border-border bg-surface pt-1 max-xl:w-full max-xl:items-end max-xl:border-r-0 max-xl:border-b max-xl:px-3">
             <IconButton label="Déplier les lignes" size="icon-xs" variant="ghost" icon={<PanelLeftOpen />} onClick={() => { setLeftOpen(true); requestFocusList(); }} />
           </div>
         )}
 
-        <main aria-label="Plan et lecture vectorielle" className="flex min-w-0 flex-1 flex-col">
+        <main aria-label="Plan et lecture vectorielle" className="flex min-w-0 flex-1 flex-col max-xl:flex-none">
           <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground">
             {current ? (
               <span className="min-w-0 truncate">
@@ -606,8 +606,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
             {level === "C" ? (
               <LazyTakeoffVectorViewer jobId={jobId} planSetId={job?.plan_set_id ?? null} focusItemIds={focusIds} fill />
             ) : (
-              <p className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground">
-                {job ? "Pas de lecture vectorielle pour ce niveau : la ligne se contrôle sur sa preuve, à droite." : null}
+              <p className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground max-xl:py-6">
+                {job ? "Pas de lecture vectorielle pour ce niveau : la preuve se trouve dans le panneau de décision." : null}
               </p>
             )}
           </div>
@@ -617,7 +617,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           <>
             <div role="separator" aria-orientation="vertical" aria-label="Largeur du détail" tabIndex={0}
               aria-valuenow={Math.round(rightWidth)} aria-valuemin={RIGHT_MIN} aria-valuemax={rightMax}
-              className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
+              className="hidden w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none xl:block"
               onPointerDown={(event) => {
                 event.currentTarget.setPointerCapture(event.pointerId);
                 resize.current = { x: event.clientX, width: rightWidth };
@@ -628,7 +628,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 if (event.key === "ArrowLeft") { event.preventDefault(); setRightWidth((value) => clampRight(value + 40)); }
                 if (event.key === "ArrowRight") { event.preventDefault(); setRightWidth((value) => clampRight(value - 40)); }
               }} />
-            <section aria-label="Décision sur la ligne" className="flex min-w-0 shrink-0 flex-col bg-surface" style={{ width: rightWidth }}>
+            <section aria-label="Décision sur la ligne"
+              className="flex w-full min-w-0 shrink-0 flex-col bg-surface max-xl:border-t max-xl:border-border xl:w-(--decision-width)"
+              style={{ "--decision-width": `${rightWidth}px` } as CSSProperties}>
               <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Décision</span>
                 <IconButton label="Replier le détail" size="icon-xs" variant="ghost" icon={<PanelRightClose />} className="ml-auto" onClick={() => { setRightOpen(false); focusList(); }} />
@@ -659,12 +661,12 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                   partnerListed={(itemId) => review.lines.some((line) => line.item.id === itemId)}
                   partnerHref={targetedHref} />
               ) : (
-                <p className="px-3 py-3 text-sm text-muted-foreground">{job ? "Choisissez une ligne à gauche." : null}</p>
+                <p className="px-3 py-3 text-sm text-muted-foreground">{job ? "Choisissez une ligne à revoir." : null}</p>
               )}
             </section>
           </>
         ) : (
-          <div className="flex w-10 shrink-0 flex-col items-center border-l border-border bg-surface pt-1">
+          <div className="flex w-10 shrink-0 flex-col items-center border-l border-border bg-surface pt-1 max-xl:w-full max-xl:items-end max-xl:border-l-0 max-xl:border-t max-xl:px-3">
             <IconButton label="Déplier le détail" size="icon-xs" variant="ghost" icon={<PanelRightOpen />} onClick={() => { setRightOpen(true); focusList(); }} />
           </div>
         )}
@@ -758,7 +760,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
   const disabled = busy || readOnly;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3 text-sm">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3 text-sm max-xl:wrap-anywhere">
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">{item.designation}</h2>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -773,7 +775,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
           <label htmlFor={`targeted-quantity-${item.id}`} className="text-xs font-medium text-foreground-secondary">
             {toEnter ? "Quantité à saisir" : "Quantité"}
           </label>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-sm:flex-wrap">
             <Input id={`targeted-quantity-${item.id}`} ref={quantityRef} size="sm" inputMode="decimal" className="w-32 font-mono tabular-nums"
               value={draft ?? quantityInput(item.quantity)} readOnly={draft === null || disabled} aria-describedby={`targeted-quantity-hint-${item.id}`}
               onFocus={() => { if (draft === null && !disabled) onStartEntry(); }}

@@ -473,7 +473,7 @@ select ok(
     select 1
     from pg_proc as procedure
     where procedure.oid =
-      'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure
+      'public.claim_procurement_storage_cleanup_for_bucket(uuid,integer,integer,text)'::regprocedure
       and not procedure.prosecdef
       and position('for update skip locked' in lower(procedure.prosrc)) > 0
       and exists (
@@ -484,17 +484,17 @@ select ok(
   )
   and has_function_privilege(
     'service_role',
-    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'public.claim_procurement_storage_cleanup_for_bucket(uuid,integer,integer,text)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
     'authenticated',
-    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'public.claim_procurement_storage_cleanup_for_bucket(uuid,integer,integer,text)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
     'anon',
-    'public.claim_procurement_storage_cleanup(uuid,integer,integer)'::regprocedure,
+    'public.claim_procurement_storage_cleanup_for_bucket(uuid,integer,integer,text)'::regprocedure,
     'EXECUTE'
   ),
   'cleanup claims are fenced, skip locked and service-role only'

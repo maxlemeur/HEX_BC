@@ -161,7 +161,7 @@ const supplierProposals: z.ZodType<LineSupplierProposals> = z.object({
 });
 const articleSupplierItem: z.ZodType<ArticleSupplierItem> = z.object({
   id: uuid, supplier_id: uuid, supplier_name: z.string(), supplier_sku: z.string().nullable(),
-  product_url: z.string().nullable(), is_active: z.boolean(), has_price: z.boolean(),
+  product_url: z.string().nullable(), is_active: z.boolean(), reference_needs_review: z.boolean(), has_price: z.boolean(),
 });
 const articleSuppliers: z.ZodType<ArticleSuppliers> = z.object({
   items: z.array(articleSupplierItem), preferred_supplier_id: uuid.nullable(),

@@ -33,6 +33,17 @@ export type CostingWorkbookSupplierReference = {
   product_url: string | null;
 };
 
+export type CostingWorkbookSupplierOccurrence = {
+  row: number;
+  slot: number;
+  article_reference: string;
+  supplier_name: string;
+  supplier_sku: string;
+  article_reference_valid: boolean;
+  supplier_name_valid: boolean;
+  supplier_sku_valid: boolean;
+};
+
 export type CostingWorkbookArticle = {
   /** Row of the sheet, counted from 1 as the spreadsheet shows it. */
   row: number;
@@ -58,6 +69,7 @@ export type CostingWorkbookIssue = { row: number; reference: string | null; mess
 
 export type CostingWorkbookReadResult = {
   articles: CostingWorkbookArticle[];
+  supplierReferenceOccurrences: CostingWorkbookSupplierOccurrence[];
   issues: CostingWorkbookIssue[];
   /** Section title rows (« Rub »), not articles. */
   sections: number;
@@ -159,6 +171,21 @@ function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Colu
   );
 }
 
+/** Reference cells are identifiers. Excel's number formatting can give them leading zeros. */
+export function costingWorkbookReferenceColumns(rows: readonly Cell[][]): { headerRow: number; columns: number[] } | null {
+  try {
+    const header = findHeader(rows);
+    return {
+      headerRow: header.index,
+      columns: (["ID", "F1_ref", "F2_ref", "F3_ref"] as const)
+        .flatMap((column) => header.columns.get(column) ?? []),
+    };
+  } catch (error) {
+    if (!(error instanceof CostingWorkbookFormatError)) throw error;
+    return null;
+  }
+}
+
 /**
  * The type of article: the wording before its details (« Bouchon mâle – fonte malléable » → « Bouchon mâle »,
  * « Mise en place - élément » → « Mise en place »). Only a spaced dash cuts: « T-Rex » stays whole.
@@ -257,6 +284,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
   const { index: headerIndex, columns } = findHeader(rows);
   const articles: CostingWorkbookArticle[] = [];
   const issues: CostingWorkbookIssue[] = [];
+  const supplierReferenceOccurrences: CostingWorkbookSupplierOccurrence[] = [];
   const firstRowOf = new Map<string, number>();
   let sections = 0;
 
@@ -278,6 +306,23 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     if (kind !== "art") {
       issues.push({ row: sheetRow, reference: reference || null, message: `Ligne de type « ${text(cell("Type_ligne")) || "vide"} » : ignorée.` });
       continue;
+    }
+    // Supplier identity depends on the article ID, even when the draft reader skips a repeated ID
+    // or cannot use its designation. Keep every source cell for the decision report.
+    for (const slot of [1, 2, 3] as const) {
+      const name = text(cell(`F${slot}_nom`));
+      const sku = text(cell(`F${slot}_ref`));
+      if (!sku) continue;
+      supplierReferenceOccurrences.push({
+        row: sheetRow,
+        slot,
+        article_reference: reference,
+        supplier_name: name,
+        supplier_sku: sku,
+        article_reference_valid: reference.length > 0 && reference.length <= MAX_REFERENCE_LENGTH && !isErrorToken(reference),
+        supplier_name_valid: Boolean(name) && !/^\d+$/.test(name) && !isErrorToken(name),
+        supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku),
+      });
     }
     if (!reference) {
       issues.push({ row: sheetRow, reference: null, message: "Ligne sans référence (colonne ID) : ignorée." });
@@ -358,5 +403,5 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
     });
   }
 
-  return { articles, issues, sections };
+  return { articles, issues, sections, supplierReferenceOccurrences };
 }

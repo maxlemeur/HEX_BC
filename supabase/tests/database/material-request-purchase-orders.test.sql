@@ -890,6 +890,25 @@ select is((select jsonb_agg(jsonb_build_object('kind', i->>'line_kind', 'supply_
 -- ---------------------------------------------------------------------------
 -- 14. An affaire with purchase orders is not deleted: the deletion says why, the test-data purge skips it.
 -- ---------------------------------------------------------------------------
+-- Seed fictional bytes (SQL metadata only) for both the live order and the canceled-order case.
+-- Section 12 deleted the request of the canceled order; its affaire still holds that order.
+insert into public.material_requests (id, project_id)
+values ('a9310000-0000-4000-8000-000000000609', 'a9310000-0000-4000-8000-000000000202');
+create temporary table order_affaire_originals as
+with files as (
+  select id as request_id, tenant_id, project_id, gen_random_uuid() as file_id
+  from public.material_requests where id in (
+    'a9310000-0000-4000-8000-000000000601',
+    'a9310000-0000-4000-8000-000000000609'
+  )
+)
+select *, concat_ws('/', tenant_id, project_id, request_id, file_id, 'fixture.png') as storage_path from files;
+insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size)
+select file_id, request_id, storage_path, 'fixture.png', 'image/png', 128 from order_affaire_originals;
+insert into storage.objects (bucket_id, name, metadata)
+select 'material-requests', storage_path, '{"size":128}' from order_affaire_originals;
+update public.material_request_files set stored_at = now() where id in (select file_id from order_affaire_originals);
+
 -- Affaire 201 holds orders the engineer made; affaire 202 holds only the canceled order an admin made (section 8).
 select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000001',
   $$select project_id, outcome, message from public.bulk_delete_draft_affaires('a9310000-0000-4000-8000-000000000101',
@@ -906,6 +925,16 @@ select is(pg_temp.pls_rows('a9310000-0000-4000-8000-000000000005',
 select is((select count(*)::int from public.estimate_projects
     where id in ('a9310000-0000-4000-8000-000000000201', 'a9310000-0000-4000-8000-000000000202')),
   2, '14 both affaires stay');
+select is((select count(*) from public.material_request_files
+    where id in (select file_id from order_affaire_originals) and stored_at is not null and removed_at is null),
+  2::bigint, '14 refused affairs keep both visible originals');
+select is((select count(*) from storage.objects
+    where bucket_id = 'material-requests' and name in (select storage_path from order_affaire_originals)),
+  2::bigint, '14 refused affairs keep both Storage objects');
+select is((select count(*) from public.procurement_storage_cleanup_outbox
+    where bucket_id = 'material-requests' and storage_path in (select storage_path from order_affaire_originals)),
+  0::bigint, '14 a refused deletion leaves no cleanup job behind');
+
 
 -- The purge, in a dry run over this tenant listed as test data, with its affaires made older than the retention.
 insert into private.test_data_tenants (tenant_id, label) values ('a9310000-0000-4000-8000-000000000101', 'TI691 fixture');

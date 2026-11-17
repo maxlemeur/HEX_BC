@@ -427,3 +427,31 @@ test("LAB03 loopback works, an unlisted host is refused, and writes require thei
   expect((await storedRuns()).length).toBe(runsBefore);
   expect(await storedVerdicts("refused")).toEqual([]);
 });
+
+test("LAB04 page triage records the Decisions type and confidence", {
+  tags: ["critical", "local", "chatgpt", "takeoff-lab"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  await browser.setViewport({ width: 1440, height: 900 });
+  await signIn({ app, screen, browser }, origin, owner.email);
+  await app.open(`${origin}${LAB}`);
+  await waitForHydration(browser);
+  await screen.getByLabel("Document", { exact: true }).selectOption({ value: DOCUMENT });
+  const campaign = "tri-de-page-e2e";
+  await screen.getByLabel("Campagne", { exact: true }).fill(campaign);
+  await screen.getByRole("radio", "Tri de page", { exact: false }).check();
+  const launch = screen.getByRole("button", "Lancer · 1 configuration", { exact: true });
+  await expect(launch).toBeEnabled({ timeout: 30_000 });
+
+  await launch.click();
+  const result = screen.getByRole("region", "Configuration A · Decisions · gpt-6-luna");
+  await expect(result).toContainText("Terminé");
+
+  await expect(result).toContainText("Plan de réseau");
+  const run = (await storedRuns()).map((entry) => entry.run).find((entry) => entry.campaign === campaign);
+  expect(run?.configs[0]).toMatchObject({
+    provider: "decisions", status: "ok",
+    answers: [{ name: "page_type", status: "answered", value: "reseau", confidence: 0.8 }],
+  });
+  expect(run?.configs[0].answers[0].probabilities).toHaveLength(10);
+  await app.screenshot("lab04-tri-de-page");
+});

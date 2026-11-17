@@ -1,4 +1,4 @@
-import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
+import { COSTING_WORKBOOK_SHEET, costingWorkbookReferenceColumns } from "@/lib/catalogue/costing-workbook";
 import {
   COSTING_WORKBOOK_MAX_BODY_BYTES,
   COSTING_WORKBOOK_MAX_ROWS,
@@ -137,12 +137,24 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
     while (values.length < c) values.push(null);
     values[c] = text;
   }
+  const references = costingWorkbookReferenceColumns(contractRows);
+  if (references) {
+    for (let r = references.headerRow + 1; r < contractRows.length; r += 1) {
+      for (const c of references.columns) {
+        const cell = sheet[xlsx.utils.encode_cell({ r, c })] as XlsxCell | undefined;
+        const shown = cell?.w;
+        if (cell?.t === "n" && typeof shown === "string" && /^0[0-9]+$/.test(shown) && shown.length <= COSTING_WORKBOOK_MAX_TEXT) {
+          contractRows[r][c] = shown;
+        }
+      }
+    }
+  }
   return contractRows;
 }
 
 /** The JSON body of a preview (`confirm: false`) or of the import, refused before any request when too heavy. */
-export function costingWorkbookImportBody(rows: CostingWorkbookRows, confirm: boolean): string {
-  const body = JSON.stringify({ rows, confirm } satisfies CostingWorkbookImportInput);
+export function costingWorkbookImportBody(rows: CostingWorkbookRows, confirm: boolean, previewToken?: string): string {
+  const body = JSON.stringify({ rows, confirm, preview_token: previewToken });
   const size = new TextEncoder().encode(body).length;
   if (size > COSTING_WORKBOOK_MAX_BODY_BYTES) {
     throw new CostingWorkbookFileError(

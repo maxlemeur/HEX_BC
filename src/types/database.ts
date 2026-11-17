@@ -20,7 +20,7 @@ type CheckedColumns = CheckedColumnSpec<{
   estimate_items: { fo_price_origin: FoPriceOrigin | null; status_reason: EstimateStatusReason | null;
     offer_choice: EstimateOfferChoice | null };
   profiles: { ui_mode: "simplified" | "expert" };
-  procurement_storage_cleanup_outbox: { bucket_id: "devis" };
+  procurement_storage_cleanup_outbox: { bucket_id: "devis" | "material-requests" };
   supplier_pricebook: { transport_mode: "included" | "excluded" | null; zero_price_kind: "included" | "free" | null; purchase_rounding: "none" | "ceil" | null };
   product_reference_price_validations: { mode: "average" | "manual" };
   products: { catalogue_status: "draft" | "validated" };
@@ -61,6 +61,7 @@ type NullableArguments = NullableArgumentSpec<{
   create_estimate_purchase_order_drafts: "p_groups";
   replace_purchase_order_draft: "p_items";
   claim_procurement_storage_cleanup: "p_tenant_id";
+  claim_procurement_storage_cleanup_for_bucket: "p_tenant_id" | "p_bucket_id";
   catalogue_products_page: "p_q";
   price_lookup_options: "p_q" | "p_selected_id";
   persist_estimate_creation_atomic: "p_project_id" | "p_project_payload" | "p_import_id";
@@ -75,6 +76,7 @@ type NullableArguments = NullableArgumentSpec<{
   commit_generated_ouvrages: "p_draft_lock_session_id";
   reject_generated_ouvrage_candidate: "p_reason";
   get_affaires_counters: "p_owner_user_id" | "p_search" | "p_statuses" | "p_favorites_only";
+  withdraw_product_reference_price: "p_expected_validation_id";
   begin_estimate_pdf_generation: "p_dispatch_id";
   publish_estimate_pdf_generation: "p_terms_snapshot";
   reserve_estimate_email_dispatch: "p_cc";

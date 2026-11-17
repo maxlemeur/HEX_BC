@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Loader2 } from "lucide-react";
 
@@ -16,11 +16,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { controlSurface } from "@/components/ui/input";
-import { COSTING_WORKBOOK_SHEET } from "@/lib/catalogue/costing-workbook";
+import { COSTING_WORKBOOK_SHEET, readCostingWorkbookRows } from "@/lib/catalogue/costing-workbook";
 import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
+  costingWorkbookSupplierReferenceReportSchema,
   type CostingWorkbookImportReport,
+  type CostingWorkbookSupplierReferenceReport,
 } from "@/lib/catalogue/costing-workbook-contract";
 import {
   CostingWorkbookFileError,
@@ -55,6 +57,9 @@ const UNREADABLE_FILE = "Ce fichier n’a pas pu être lu comme un classeur Exce
 
 type Phase = "idle" | "reading" | "previewing" | "importing";
 
+type Mode = "articles" | "supplier-references";
+type Report = CostingWorkbookImportReport | CostingWorkbookSupplierReferenceReport;
+
 const PHASE_LABELS: Record<Exclude<Phase, "idle">, string> = {
   reading: "Lecture du classeur…",
   previewing: "Comparaison avec le catalogue…",
@@ -62,7 +67,7 @@ const PHASE_LABELS: Record<Exclude<Phase, "idle">, string> = {
 };
 
 type Outcome =
-  | { ok: true; report: CostingWorkbookImportReport }
+  | { ok: true; report: Report }
   | { ok: false; aborted: true }
   | { ok: false; aborted: false; message: string; retry: boolean; stale: boolean };
 
@@ -147,11 +152,12 @@ function CostingWorkbookImportSteps({
   onShowDrafts,
   onImportingChange,
 }: Readonly<Omit<CostingWorkbookImportProps, "open"> & { onImportingChange: (importing: boolean) => void }>) {
+  const [mode, setMode] = useState<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
   const [rows, setRows] = useState<CostingWorkbookRows | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [preview, setPreview] = useState<CostingWorkbookImportReport | null>(null);
-  const [result, setResult] = useState<CostingWorkbookImportReport | null>(null);
+  const [preview, setPreview] = useState<Report | null>(null);
+  const [result, setResult] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const aliveRef = useRef(true);
@@ -170,10 +176,12 @@ function CostingWorkbookImportSteps({
 
   const isBusy = phase !== "idle";
 
-  async function send(currentRows: CostingWorkbookRows, confirm: boolean): Promise<Outcome> {
+  const supplierMode = mode === "supplier-references";
+
+  async function send(currentRows: CostingWorkbookRows, confirm: boolean, previewToken?: string): Promise<Outcome> {
     let body: string;
     try {
-      body = costingWorkbookImportBody(currentRows, confirm);
+      body = costingWorkbookImportBody(currentRows, confirm, previewToken);
     } catch (bodyError) {
       const message = bodyError instanceof CostingWorkbookFileError ? bodyError.message : UNREADABLE_FILE;
       return { ok: false, aborted: false, message, retry: false, stale: false };
@@ -181,7 +189,7 @@ function CostingWorkbookImportSteps({
     const controller = new AbortController();
     requestRef.current = controller;
     try {
-      const response = await fetch(ENDPOINT, {
+      const response = await fetch(supplierMode ? ENDPOINT + "/supplier-references" : ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
@@ -191,10 +199,13 @@ function CostingWorkbookImportSteps({
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) return refusal(response.status, payload);
       const data = asRecord(payload)?.data;
-      if (!isReport(data)) {
-        return { ok: false, aborted: false, message: "Réponse inattendue du serveur. Réessayez dans un instant.", retry: true, stale: false };
+      if (supplierMode) {
+        const report = costingWorkbookSupplierReferenceReportSchema.safeParse(data);
+        if (report.success) return { ok: true, report: report.data };
+      } else if (isReport(data)) {
+        return { ok: true, report: data };
       }
-      return { ok: true, report: data };
+      return { ok: false, aborted: false, message: "Réponse inattendue du serveur. Réessayez dans un instant.", retry: true, stale: false };
     } catch {
       if (controller.signal.aborted) return { ok: false, aborted: true };
       return { ok: false, aborted: false, message: NETWORK_FAILURE, retry: true, stale: false };
@@ -226,13 +237,18 @@ function CostingWorkbookImportSteps({
     }
   }
 
-  async function chooseFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+  function resetFile() {
     setRows(null);
     setPreview(null);
     setResult(null);
     setError(null);
     setCanRetry(false);
+    setFileName(null);
+  }
+
+  async function chooseFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    resetFile();
     setFileName(file?.name ?? null);
     if (!file) return;
     if (!/\.xls[xm]$/i.test(file.name)) {
@@ -259,14 +275,20 @@ function CostingWorkbookImportSteps({
     await runPreview(nextRows);
   }
 
+  const supplierReport = result && "for_decision" in result
+    ? result : preview && "for_decision" in preview ? preview : null;
+  const articleResult = result && "new_articles" in result ? result : null;
+  const articlePreview = preview && "new_articles" in preview ? preview : null;
+  const toImport = articlePreview?.new_articles ?? supplierReport?.to_import ?? 0;
+
   async function runImport() {
-    if (!rows || !preview || preview.new_articles === 0 || importingRef.current) return;
+    if (!rows || !preview || toImport === 0 || importingRef.current) return;
     importingRef.current = true;
     onImportingChange(true);
     setPhase("importing");
     setError(null);
     setCanRetry(false);
-    const outcome = await send(rows, true);
+    const outcome = await send(rows, true, supplierReport?.preview_token ?? undefined);
     importingRef.current = false;
     onImportingChange(false);
     if (!aliveRef.current || (!outcome.ok && outcome.aborted)) return;
@@ -274,31 +296,50 @@ function CostingWorkbookImportSteps({
     if (outcome.ok) {
       setPreview(null);
       setResult(outcome.report);
-      await refreshCatalogue();
+      if (!supplierMode) await refreshCatalogue();
       return;
     }
     setError(outcome.message);
-    if (outcome.stale) {
-      // Some drafts may exist now: a new preview counts what is left.
+    if (outcome.stale || (supplierMode && outcome.retry)) {
+      // The catalogue may have changed, or the response may have been lost after a successful write.
       setPreview(null);
       setCanRetry(true);
-      await refreshCatalogue();
+      if (!supplierMode) await refreshCatalogue();
     }
   }
 
-  const newArticles = preview?.new_articles ?? 0;
+  const label = supplierMode ? (toImport > 1 ? "références" : "référence")
+    : (toImport > 1 ? "brouillons" : "brouillon");
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Importer le classeur de chiffrage</DialogTitle>
         <DialogDescription>
-          Les articles de l’onglet « {COSTING_WORKBOOK_SHEET} » deviennent des brouillons, à vérifier et valider
-          un par un. Les articles déjà au catalogue ne changent pas.
+          {supplierMode
+            ? "Rattachez les références aux articles et fournisseurs déjà au catalogue. Vérifiez-les ensuite sur la fiche de chaque article."
+            : "Les nouveaux articles de l’onglet « " + COSTING_WORKBOOK_SHEET + " » deviennent des brouillons à vérifier et valider."}
         </DialogDescription>
       </DialogHeader>
 
       <DialogBody className="gap-4" aria-busy={isBusy}>
+        <fieldset disabled={isBusy} className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-foreground">
+          <legend className="mb-2 text-sm font-semibold">Contenu à importer</legend>
+          {(["articles", "supplier-references"] as const).map((choice) => (
+            <label key={choice} className="inline-flex min-h-8 items-center gap-2">
+              <input
+                type="radio"
+                name="costing-workbook-mode"
+                checked={mode === choice}
+                onChange={() => {
+                  resetFile();
+                  setMode(choice);
+                }}
+              />
+              {choice === "articles" ? "Brouillons d’articles" : "Références fournisseur"}
+            </label>
+          ))}
+        </fieldset>
         <div className="min-w-0">
           <label className="block text-sm font-semibold text-foreground" htmlFor={FILE_INPUT_ID}>
             Classeur de chiffrage
@@ -307,6 +348,7 @@ function CostingWorkbookImportSteps({
             Fichier .xlsm ou .xlsx. Rien n’est enregistré avant votre confirmation.
           </p>
           <input
+            key={mode}
             id={FILE_INPUT_ID}
             type="file"
             accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -325,15 +367,15 @@ function CostingWorkbookImportSteps({
           {phase !== "idle" ? (
             <p className="flex items-center gap-2 text-sm text-info">
               <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
-              {PHASE_LABELS[phase]}
+              {supplierMode && phase === "importing" ? "Enregistrement des références…" : PHASE_LABELS[phase]}
             </p>
           ) : null}
           {error ? <Alert variant="danger">{error}</Alert> : null}
-          {result ? (
+          {articleResult ? (
             <Alert variant="success">
-              {result.new_articles === 0
+              {articleResult.new_articles === 0
                 ? "Import terminé : aucun brouillon créé, rien de nouveau."
-                : `Import terminé : ${formatCount(result.new_articles)} ${plural(result.new_articles, "brouillon créé", "brouillons créés")}.`}
+                : `Import terminé : ${formatCount(articleResult.new_articles)} ${plural(articleResult.new_articles, "brouillon créé", "brouillons créés")}.`}
             </Alert>
           ) : null}
         </div>
@@ -346,20 +388,21 @@ function CostingWorkbookImportSteps({
           </div>
         ) : null}
 
-        {result ? (
+        {articleResult ? (
           <p className="text-sm text-foreground-secondary">
             Vérifiez chaque brouillon puis validez-le depuis le catalogue.
           </p>
         ) : null}
 
-        {preview ? <CostingWorkbookPreview report={preview} /> : null}
+        {articlePreview ? <CostingWorkbookPreview report={articlePreview} /> : null}
+        {supplierReport && rows ? <SupplierReferenceReport report={supplierReport} rows={rows} /> : null}
       </DialogBody>
 
       <DialogFooter className="border-t border-border pt-4">
         <Button variant="outline" size="lg" disabled={phase === "importing"} onClick={onClose}>
           {result ? "Fermer" : "Annuler"}
         </Button>
-        {result ? (
+        {articleResult ? (
           <Button size="lg" onClick={onShowDrafts}>
             Voir les brouillons
           </Button>
@@ -368,10 +411,10 @@ function CostingWorkbookImportSteps({
           <Button
             size="lg"
             loading={phase === "importing"}
-            disabled={isBusy || newArticles === 0}
+            disabled={isBusy || toImport === 0}
             onClick={() => void runImport()}
           >
-            {`Importer ${formatCount(newArticles)} ${newArticles > 1 ? "brouillons" : "brouillon"}`}
+            {"Importer " + formatCount(toImport) + " " + label}
           </Button>
         ) : null}
       </DialogFooter>
@@ -382,7 +425,6 @@ function CostingWorkbookImportSteps({
 function CostingWorkbookPreview({ report }: Readonly<{ report: CostingWorkbookImportReport }>) {
   const newArticles = report.new_articles;
   const already = report.already_in_catalogue;
-  // Not written by this import (the catalogue keeps a supplier reference with its price): purchasing, lot 2.
   const notImported = report.supplier_references_not_imported;
   const shownIssues = report.issues;
 
@@ -414,8 +456,8 @@ function CostingWorkbookPreview({ report }: Readonly<{ report: CostingWorkbookIm
       {notImported > 0 ? (
         <p className="text-sm text-foreground-secondary">
           {notImported === 1
-            ? "1 référence fournisseur du classeur n’est pas reprise : elle le sera avec les achats."
-            : `${formatCount(notImported)} références fournisseur du classeur ne sont pas reprises : elles le seront avec les achats.`}
+            ? "1 référence fournisseur figure sur les nouveaux brouillons du classeur."
+            : `${formatCount(notImported)} références fournisseur figurent sur les nouveaux brouillons du classeur.`}
         </p>
       ) : null}
 
@@ -443,6 +485,86 @@ function CostingWorkbookPreview({ report }: Readonly<{ report: CostingWorkbookIm
             </p>
           ) : null}
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+
+const DECISION_LABELS: Record<CostingWorkbookSupplierReferenceReport["for_decision"][number]["reason"], string> = {
+  invalid_article_reference: "Identifiant d’article manquant ou invalide",
+  article_not_found: "Article actif introuvable",
+  ambiguous_article: "Plusieurs articles correspondent",
+  invalid_supplier_name: "Nom de fournisseur manquant ou invalide",
+  supplier_not_found: "Fournisseur actif introuvable",
+  ambiguous_supplier: "Plusieurs fournisseurs correspondent",
+  invalid_supplier_sku: "Référence fournisseur illisible ou trop longue",
+  article_locked: "Droits de modification requis sur cet article",
+  different_existing_reference: "Une autre référence ou liaison existe déjà",
+  withdrawn_reference: "Fournisseur déjà retiré de l’article",
+  conflicting_workbook_references: "Plusieurs références dans le classeur pour cet article et ce fournisseur",
+};
+
+function SupplierReferenceReport({ report, rows }: Readonly<{
+  report: CostingWorkbookSupplierReferenceReport;
+  rows: CostingWorkbookRows;
+}>) {
+  const sourceByCell = useMemo(() => new Map(
+    readCostingWorkbookRows(rows).supplierReferenceOccurrences.map((source) => [source.row + "-" + source.slot, source]),
+  ), [rows]);
+  const planned = report.to_import;
+  const imported = report.imported;
+  const existing = report.already_registered;
+  return (
+    <section aria-labelledby="costing-workbook-supplier-report" className="space-y-3 rounded-lg border border-border bg-surface-subtle p-4">
+      <h3 id="costing-workbook-supplier-report" className="text-sm font-semibold text-foreground">
+        {report.confirmed ? "Résultat de la reprise" : "Aperçu de la reprise"}
+      </h3>
+      {report.confirmed ? (
+        <Alert variant="success">
+          {formatCount(imported) + " " + plural(imported, "référence importée", "références importées") + ", à vérifier."}
+        </Alert>
+      ) : (
+        <p className="text-sm font-medium">
+          {planned === 0 ? "Aucune référence à importer" : formatCount(planned) + " " + plural(planned, "référence", "références") + " à importer"}
+        </p>
+      )}
+      {existing > 0 ? (
+        <p className="text-sm">
+          {formatCount(existing) + " " + plural(existing, "référence déjà enregistrée", "références déjà enregistrées")}
+        </p>
+      ) : null}
+      {report.duplicates > 0 ? (
+        <p className="text-sm">
+          {formatCount(report.duplicates) + " " + plural(report.duplicates, "doublon identique regroupé", "doublons identiques regroupés")}
+        </p>
+      ) : null}
+      {report.for_decision.length > 0 ? (
+        <>
+          <h4 className="text-sm font-semibold">{formatCount(report.for_decision.length) + " à examiner"}</h4>
+          <ul
+            aria-label="Références pour décision"
+            tabIndex={0}
+            className="max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border bg-surface px-3 text-xs"
+          >
+            {report.for_decision.map((entry) => {
+              const key = entry.row + "-" + entry.slot;
+              const source = sourceByCell.get(key);
+              const details = [
+                "Ligne " + entry.row,
+                source?.article_reference.slice(0, 255) || "Sans ID",
+                source?.supplier_name.slice(0, 255) || "Sans nom",
+                source?.supplier_sku.slice(0, 255),
+              ].filter(Boolean);
+              return (
+                <li key={key} className="break-words py-2">
+                  <p>{details.join(" · ")}</p>
+                  <p className="text-muted-foreground">{DECISION_LABELS[entry.reason] + " (F" + entry.slot + ")"}</p>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       ) : null}
     </section>
   );

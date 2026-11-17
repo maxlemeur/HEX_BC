@@ -67,6 +67,8 @@ export type PdfRenderedPage = {
   page: number;
   text: string;
   textTruncated: boolean;
+  /** Independent text excerpt from the requested region, in PDF reading order. */
+  regionText?: string;
   image: PdfPageImage | null;
   imageIssue: PdfPageImageIssue | null;
   /**
@@ -129,6 +131,8 @@ export type PdfRenderOptions = {
   /** `fail` aborts the document (historical intake bound); `truncate` keeps the first items. */
   textItemOverflow?: "fail" | "truncate";
   maxTextItemsPerPage?: number;
+  /** Collect a second excerpt by text origin in normalized display coordinates (top left = 0,0). */
+  textRegion?: { x0: number; y0: number; x1: number; y1: number; maxChars: number };
   image?: PdfRenderImageOptions | null;
   limits?: Partial<PdfRenderLimits>;
   /** Stop as soon as the document reports more pages (`status: "failed"`, `pageCount` set). */
@@ -270,6 +274,21 @@ async function renderImage(graphics, strictReading, drawingReading, number, opti
     return { issue: "render_failed" };
   }
 }
+function readTextRegion(page, items, region) {
+  const viewport = page.getViewport({ scale: 1 });
+  let text = "";
+  for (const item of items) {
+    if (typeof item.str !== "string" || !item.str) continue;
+    const [x, y] = viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
+    if (x < region.x0 * viewport.width || x > region.x1 * viewport.width ||
+        y < region.y0 * viewport.height || y > region.y1 * viewport.height) continue;
+    // A partial item could turn a printed level such as R+14 into R+1.
+    if (text.length + item.str.length > region.maxChars) break;
+    text += item.str + (item.hasEOL ? "\n" : " ");
+  }
+  return text.trim();
+}
+
 async function run() {
   let graphics = null;
   if (input.canvasPath) { try { graphics = require(input.canvasPath); } catch {} }
@@ -306,15 +325,17 @@ async function run() {
           if (input.textItemOverflow === "fail") throw new Error("PDF item budget");
           truncated = true;
         }
+        const items = content.items.slice(0, input.maxTextItemsPerPage);
         let text = "";
-        for (const item of content.items.slice(0, input.maxTextItemsPerPage)) {
+        for (const item of items) {
           if (typeof item.str === "string") text += item.str.slice(0, 2000) + (item.hasEOL ? "\n" : " ");
           if (text.length >= limit) { if (text.length > limit) truncated = true; text = text.slice(0, limit); break; }
         }
         total += text;
+        const regionText = input.textRegion ? readTextRegion(page, items, input.textRegion) : undefined;
         page.cleanup();
         const rendered = input.image && input.image.mode === "each" ? await renderImage(graphics, pdf, drawingReading, number, input.image) : { issue: "not_requested" };
-        send({ page: { page: number, text, textTruncated: truncated, image: rendered.image || null, imageIssue: rendered.issue || null, droppedImages: rendered.droppedImages || 0, renderMs: Date.now() - started, failed: false } });
+        send({ page: { page: number, text, textTruncated: truncated, regionText, image: rendered.image || null, imageIssue: rendered.issue || null, droppedImages: rendered.droppedImages || 0, renderMs: Date.now() - started, failed: false } });
       } catch (error) {
         // Intake keeps its historical rule (the document stops); a triage reads the next pages.
         if (input.textItemOverflow === "fail") throw error;
@@ -370,7 +391,8 @@ export async function renderPdfPages(bytes: ArrayBuffer | Uint8Array, options: P
   const image = options.image
     ? { ...PDF_THUMBNAIL_DEFAULTS, ...options.image, jpegQualities: options.image.jpegQualities?.length ? options.image.jpegQualities : [...PDF_THUMBNAIL_DEFAULTS.jpegQualities] }
     : null;
-  const maxLineBytes = LINE_OVERHEAD_BYTES + Math.ceil(((image?.maxBytes ?? 0) * 4) / 3) + 8 * (options.maxTextCharsPerPage ?? PDF_TEXT_DEFAULTS.maxTextCharsPerPage);
+  const maxTextChars = (options.maxTextCharsPerPage ?? PDF_TEXT_DEFAULTS.maxTextCharsPerPage) + (options.textRegion?.maxChars ?? 0);
+  const maxLineBytes = LINE_OVERHEAD_BYTES + Math.ceil(((image?.maxBytes ?? 0) * 4) / 3) + 8 * maxTextChars;
   const maxOutputBytes = maxLineBytes * (pages.length + 2);
   try {
     const { spawn } = await import("node:child_process");
@@ -388,6 +410,7 @@ export async function renderPdfPages(bytes: ArrayBuffer | Uint8Array, options: P
           maxTotalTextChars: options.maxTotalTextChars ?? null,
           maxTextItemsPerPage: options.maxTextItemsPerPage ?? PDF_TEXT_DEFAULTS.maxTextItemsPerPage,
           textItemOverflow: options.textItemOverflow ?? "truncate",
+          textRegion: options.textRegion,
           maxEmbeddedImagePixels: limits.maxEmbeddedImagePixels,
           image,
         }),

@@ -13,6 +13,9 @@ const CLAIMED_CLEANUP: CleanupRow = {
   tenant_id: "22222222-2222-4222-8222-222222222222",
   purchase_order_id: "44444444-4444-4444-8444-444444444444",
   bucket_id: "devis",
+  project_id: null,
+  material_request_id: null,
+  material_request_file_id: null,
   storage_path:
     "purchase-orders/44444444-4444-4444-8444-444444444444/document.pdf",
   attempts: 1,
@@ -34,7 +37,7 @@ function createClient(input?: {
   acknowledgementData?: boolean;
 }) {
   const rpc = vi.fn(async (functionName: string) => {
-    if (functionName === "claim_procurement_storage_cleanup") {
+    if (functionName === "claim_procurement_storage_cleanup" || functionName === "claim_procurement_storage_cleanup_for_bucket") {
       return {
         data: input?.claimError ? null : [input?.claimedCleanup ?? CLAIMED_CLEANUP],
         error: input?.claimError ?? null,
@@ -102,6 +105,32 @@ describe("procurement Storage cleanup outbox", () => {
         p_lease_token: CLAIMED_CLEANUP.lease_token,
       }
     );
+  });
+
+  it("removes a material-request key from its bucket during scheduled recovery", async () => {
+    const project_id = "55555555-5555-4555-8555-555555555555";
+    const material_request_id = "66666666-6666-4666-8666-666666666666";
+    const material_request_file_id = "77777777-7777-4777-8777-777777777777";
+    const storage_path = `${CLAIMED_CLEANUP.tenant_id}/${project_id}/${material_request_id}/${material_request_file_id}/photo.png`;
+    const { client, mocks } = createClient({
+      claimedCleanup: {
+        ...CLAIMED_CLEANUP,
+        bucket_id: "material-requests",
+        purchase_order_id: null,
+        project_id,
+        material_request_id,
+        material_request_file_id,
+        storage_path,
+      },
+    });
+
+    await expect(drainProcurementStorageCleanupOutbox({ client, bucketId: "material-requests" }))
+      .resolves.toMatchObject({ removed: 1, failed: 0 });
+    expect(mocks.rpc).toHaveBeenCalledWith("claim_procurement_storage_cleanup_for_bucket", {
+      p_tenant_id: null, p_limit: 25, p_lease_seconds: 120, p_bucket_id: "material-requests",
+    });
+    expect(mocks.storageFrom).toHaveBeenCalledWith("material-requests");
+    expect(mocks.remove).toHaveBeenCalledWith([storage_path]);
   });
 
   it("retains failed work with bounded backoff and releases its lease", async () => {

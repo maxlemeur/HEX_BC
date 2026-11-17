@@ -164,8 +164,8 @@ function seed(
         article(FOREIGN_ARTICLE, { tenant_id: OTHER_TENANT, designation: "Coude d'ailleurs", product_type: "Coude 90°", material: "Inox 304L", dimensions: "DN 50" }),
       ],
       supplier_catalog_items: [
-        { id: "b0000000-0000-4000-8000-000000000001", tenant_id: TENANT, product_id: FLANGE, supplier_id: "40000000-0000-4000-8000-000000000001", supplier_sku: "BP-5050", is_active: true },
-        { id: "b0000000-0000-4000-8000-000000000009", tenant_id: OTHER_TENANT, product_id: FOREIGN_ARTICLE, supplier_id: "40000000-0000-4000-8000-000000000009", supplier_sku: "CX-9050", is_active: true },
+        { id: "b0000000-0000-4000-8000-000000000001", tenant_id: TENANT, product_id: FLANGE, supplier_id: "40000000-0000-4000-8000-000000000001", supplier_sku: "BP-5050", is_active: true, reference_needs_review: false },
+        { id: "b0000000-0000-4000-8000-000000000009", tenant_id: OTHER_TENANT, product_id: FOREIGN_ARTICLE, supplier_id: "40000000-0000-4000-8000-000000000009", supplier_sku: "CX-9050", is_active: true, reference_needs_review: false },
       ],
       product_aliases: [
         { id: "c0000000-0000-4000-8000-000000000001", tenant_id: TENANT, product_id: TEE, alias: "piquage", alias_key: "piquage", created_by: OWNER, created_at: "2026-11-01T09:00:00.000Z" },

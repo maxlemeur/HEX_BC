@@ -341,6 +341,14 @@ export async function importProductPriceTemplate(
       price_rows: priceRows,
     });
 
+    if (error?.code === "23514" && error.message.includes("supplier_catalog_item_pending_reference_check")) {
+      const articleUpdate = createdProducts + updatedProducts > 0 ? "Les articles du fichier ont été enregistrés. " : "";
+      throw new CatalogueApiError({
+        status: 409,
+        code: "SUPPLIER_REFERENCE_REVIEW_REQUIRED",
+        message: articleUpdate + "La reprise des tarifs nécessite de vérifier les références sur les fiches article. Relancez ensuite l’import des tarifs.",
+      });
+    }
     if (error) {
       throw mapDatabaseError(error, "Impossible d'importer les tarifs fournisseurs du fichier.");
     }

@@ -248,9 +248,9 @@ describe("EstimateEditorRow behavior", () => {
     );
 
     const natureSelect = screen.getByRole("combobox", {
-      name: "Fournitures — nature de ligne pour Litière sur mesure",
+      name: "Fournitures seules — nature de ligne pour Litière sur mesure",
     });
-    expect(screen.getByText("Fournitures")).toBeInTheDocument();
+    expect(natureSelect.closest("label")).toHaveTextContent("Fournitures seules");
     expect(natureSelect).toHaveAttribute(
       "data-cell-id",
       "line-nature::line_nature",

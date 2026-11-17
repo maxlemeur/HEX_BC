@@ -145,7 +145,8 @@ function redactArmyText(text) {
   for (const [label, secret] of Object.entries({ ...Object.fromEntries(Object.entries(process.env).filter(([key]) => /^E2E_BUSINESS_.*_(?:EMAIL|PASSWORD)$/.test(key))), password: process.env.E2E_LOGIN_PASSWORD, email: process.env.E2E_LOGIN_EMAIL,
     "anon-key": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, "service-role-key": process.env.SUPABASE_SERVICE_ROLE_KEY,
     "portal-token": process.env.E2E_UX_PORTAL_TOKEN, "fixture-database-url": localDatabaseUrl,
-    "fixture-database-password": localDatabasePassword })) {
+    "fixture-database-password": localDatabasePassword,
+    "local-recovery-secret": process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET })) {
     if (!secret) continue;
     for (const form of new Set([secret, encodeURIComponent(secret), new URLSearchParams({ value: secret }).toString().slice(6), JSON.stringify(secret).slice(1, -1)])) {
       value = value.replaceAll(form, `<redacted-army-${label}>`);

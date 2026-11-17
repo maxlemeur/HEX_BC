@@ -74,6 +74,7 @@ export const driveRequestSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   z.object({ action: z.literal("unlink_folder") }).strict(),
+  z.object({ action: z.literal("check_version"), documentId: z.string().uuid() }).strict(),
   z
     .object({
       action: z.literal("disconnect"),
@@ -83,6 +84,9 @@ export const driveRequestSchema = z.discriminatedUnion("action", [
     .strict(),
 ]);
 export type DriveRequest = z.infer<typeof driveRequestSchema>;
+
+export const driveVersionStatusSchema = z.enum(["unchanged", "newer", "unknown"]);
+export type DriveVersionStatus = z.infer<typeof driveVersionStatusSchema>;
 
 export const driveConnectionSchema = z.object({
   id: z.string().uuid(),

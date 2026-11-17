@@ -163,6 +163,11 @@ La dépense suit le budget de TI-658 (2 M de jetons par exécution, 10 M sur L2 
 L4). La première mesure (3 novembre 2026, consigne `takeoff-page-triage-v1`) est
 publiée sur TI-658 ; la réserve n’a servi qu’une fois, seuil figé à 0,8.
 
+La consigne `takeoff-page-triage-v2` (TI-671) ajoute un extrait borné du
+cartouche à la question de niveau. TRI01 vérifie qu’un niveau au-delà des
+12 000 caractères apparaît dans le tri d’un PDF fictif. La mesure p50/p95 sur un
+DCE multipage relève de TI-706.
+
 Références officielles vérifiées le 29 octobre 2026 :
 [guide Decisions](https://developers.openai.com/api/docs/guides/decisions) et
 [création d’une décision](https://developers.openai.com/api/reference/resources/decisions/methods/create).

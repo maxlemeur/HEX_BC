@@ -176,7 +176,7 @@ armyTest(
     const sentences = [
       "3 nouveaux articles en brouillon",
       "1 déjà au catalogue (inchangé)",
-      "2 références fournisseur du classeur ne sont pas reprises : elles le seront avec les achats.",
+      "2 références fournisseur figurent sur les nouveaux brouillons du classeur.",
       "1 remarque sur le classeur",
       `Ligne 5 · ${valveRef} : Unité absente : « u » retenue.`,
       ...(withoutSupplyType > 0 ? [`${withoutSupplyType} sans type de fourniture`] : []),
@@ -244,6 +244,112 @@ armyTest(
       workbook: { file: path.basename(workbookPath), sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
       supplyTypes: Object.fromEntries(typeIdOf), existingId,
       draftIds: Object.fromEntries(drafts.map((item) => [item.reference, item.id])), requests: sent,
+    });
+  },
+);
+
+
+armyTest(
+  "CAT03 the costing workbook imports only matched supplier references for review, with an actionable report",
+  { session: "army", tags: ["critical", "catalogue"], timeout: 240_000 },
+  async ({ app, screen, browser, army }) => {
+    await app.open("/dashboard/products");
+    const prefix = army.runPrefix;
+    const supplierName = prefix + " Comptoir Atlas";
+    const existingSupplierName = prefix + " Dépôt Boréal";
+    const supplier = async (name: string) => {
+      const response = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", "/api/suppliers", {
+        action: "create", item: { name, is_active: true },
+      });
+      expect(response.status).toBe(201);
+      return response.body.data.item.id;
+    };
+    const supplierId = await supplier(supplierName);
+    const existingSupplierId = await supplier(existingSupplierName);
+    const productRef = prefix + "-ATLAS-T32";
+    const designation = prefix + " Tube Atlas";
+    const created = await apiRequest<Envelope<{ item: Product }>>(browser, "POST", "/api/products", {
+      action: "create", item: { reference: productRef, designation, unit: "ml", unit_price_cents: 2799 },
+    });
+    expect(created.status).toBe(201);
+    const productId = created.body.data.item.id;
+    const itemPath = "/api/products/" + productId + "/supplier-items";
+    const readItems = async () => {
+      const result = await apiRequest<Envelope<{ items: Record<string, unknown>[] }>>(browser, "GET", itemPath);
+      expect(result.status).toBe(200);
+      return result.body.data.items;
+    };
+    const existing = await apiRequest(browser, "PUT", itemPath, {
+      supplier_id: existingSupplierId, supplier_sku: "SKU-EN-SERVICE",
+    });
+    expect(existing.status).toBe(200);
+    const before = await readItems();
+    const newRef = prefix + "-ARTICLE-ABSENT";
+    const unknownSupplier = prefix + " Fournisseur absent";
+    const base = { "Type_ligne": "Art", "ID": productRef, "Caractéristique": "Tube", "Unité": "ml", "F1_prix": 17.99 };
+    const book = XLSX.utils.book_new();
+    const sheetRows = [
+      HEADERS,
+      row({ ...base, "F1_nom": supplierName, "F1_ref": "004205", "F2_nom": existingSupplierName, "F2_ref": "SKU-DIFFÉRENT" }),
+      row({ ...base, "F1_nom": supplierName, "F1_ref": "004205", "F2_nom": unknownSupplier, "F2_ref": "NS-32" }),
+      row({ ...base, "ID": newRef, "F1_nom": supplierName, "F1_ref": "NA-32" }),
+    ];
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheetRows), COSTING_WORKBOOK_SHEET);
+    const bytes = Buffer.from(XLSX.write(book, { bookType: "xlsx", type: "buffer" }) as Buffer);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const workbookPath = path.join(directory, "references-fournisseur.xlsx");
+    await writeFile(workbookPath, bytes);
+    const open = async () => {
+      await screen.getByRole("button", "Ouvrir les actions du catalogue", { exact: true }).tap();
+      await screen.getByRole("menuitem", "Importer le classeur de chiffrage", { exact: true }).tap();
+      const dialog = screen.getByRole("dialog", "Importer le classeur de chiffrage", { exact: true });
+      await dialog.getByRole("radio", "Références fournisseur", { exact: true }).tap();
+      await dialog.getByLabel("Classeur de chiffrage", { exact: true }).setInputFiles(workbookPath);
+      return dialog;
+    };
+
+    const dialog = await open();
+    await expect(dialog.getByText("1 référence à importer", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const rejected = dialog.getByRole("list", "Références pour décision", { exact: true });
+    await expect(rejected).toContainText("Ligne 2 · " + productRef + " · " + existingSupplierName + " · SKU-DIFFÉRENT");
+    await expect(rejected).toContainText("Ligne 3 · " + productRef + " · " + unknownSupplier + " · NS-32");
+    await expect(rejected).toContainText("Ligne 4 · " + newRef + " · " + supplierName + " · NA-32");
+    await expect(rejected.getByRole("listitem")).toHaveCount(3);
+    expect(await readItems()).toEqual(before);
+    expect(await cataloguePage(browser, newRef, "draft")).toEqual([]);
+
+    await dialog.getByRole("button", "Importer 1 référence", { exact: true }).tap();
+    await expect(dialog.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(rejected.getByRole("listitem")).toHaveCount(3);
+    const imported = await readItems();
+    expect(imported).toHaveLength(2);
+    expect(imported.find((item) => item.supplier_id === existingSupplierId)).toEqual(before[0]);
+    expect(imported.find((item) => item.supplier_id === supplierId)).toMatchObject({
+      supplier_sku: "004205", reference_needs_review: true, is_active: false, has_price: false,
+    });
+    expect((await catalogueItem(browser, productId))?.unit_price_cents).toBe(2799);
+    expect(await cataloguePage(browser, newRef, "draft")).toEqual([]);
+
+    await dialog.getByRole("button", "Fermer", { exact: true }).first().tap();
+    const again = await open();
+    await expect(again.getByText("1 référence déjà enregistrée", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(again.getByRole("button", "Importer 0 référence", { exact: true })).toBeDisabled();
+    expect(await readItems()).toEqual(imported);
+    await again.getByRole("button", "Annuler", { exact: true }).tap();
+    await browser.goto("/dashboard/products?product_id=" + productId, { waitUntil: "domcontentloaded" });
+    await expect(screen.getByText("à vérifier", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(screen.getByText("Réf. 004205", { exact: true })).toBeVisible();
+    await screen.getByRole("button", "Modifier " + supplierName, { exact: true }).tap();
+    await screen.getByRole("button", "Valider la référence", { exact: true }).tap();
+    await expect(screen.getByText("à vérifier", { exact: true })).toBeHidden();
+    expect((await readItems()).find((item) => item.supplier_id === supplierId)).toMatchObject({
+      supplier_sku: "004205", reference_needs_review: false, is_active: true, has_price: false,
+    });
+
+    await recordEvidence(army, "catalogue-workbook-supplier-references", {
+      source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
+      productId, supplierId, existingSupplierId, previewWrites: 0, imported: 1, forDecision: 3, retryWrites: 0,
     });
   },
 );

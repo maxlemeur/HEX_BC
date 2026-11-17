@@ -97,6 +97,9 @@ const app = {
     ],
     env: {
       E2E_ARMY: "1",
+      ...(localBusiness && process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET
+        ? { CRON_SECRET: process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET }
+        : {}),
       ...((critical || coverage) ? { TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1" } : {}),
       NEXT_TELEMETRY_DISABLED: "1",
       ...(coverage || techDebt || localBusiness ? {
@@ -211,7 +214,8 @@ export default {
   } : {}),
   agents: {
     default: {
-      model: chatgpt(process.env.E2E_ARMY_MODEL ?? "gpt-6-luna"),
+      // The SDK also uses this model for judgments when no judge is configured.
+      model: chatgpt(process.env.E2E_ARMY_MODEL ?? "gpt-6.1-terra"),
       maxSteps: 6,
       maxModelCalls: 6,
       system:

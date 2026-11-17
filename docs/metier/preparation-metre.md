@@ -223,6 +223,14 @@ ou une masse est un plan de réseau), le niveau et la zone. Les choix de niveau 
 de zone viennent du texte de la page et du périmètre (`RDC`, `R+n`, `R-n`, `SSn`,
 `Zn`, normalisés), plus `inconnu` ; sans candidat, la question n'est pas posée.
 
+Pour le niveau, le serveur lit aussi le coin inférieur droit de la page affichée
+(les derniers 20 % de sa largeur et de sa hauteur, après recadrage et rotation).
+L’extrait de cette zone est limité à 2 000 caractères et envoyé séparément du
+texte principal, toujours limité à 12 000. Les niveaux lus dans cette zone sont
+proposés en priorité. Ailleurs sur la page, le cartouche peut fournir un
+candidat via le texte principal. La vignette aide à choisir parmi les niveaux
+déjà proposés.
+
 Un niveau imprimé hors de ce vocabulaire (`L00`, `L01`, `GANTRY` sur un data
 center) se déclare dans les niveaux du périmètre. Il est gardé tel qu'écrit, sans
 équivalence (`L00` n'est pas le RDC), sur 16 caractères au plus : majuscules,
@@ -239,9 +247,11 @@ façade, un plan de toiture, un plan de masse ou une pièce écrite, avec une
 confiance d'au moins 0,8, une réponse complète et une vignette lisible. Sinon elle
 reste retenue « À vérifier » (confiance faible, refus, réponse partielle, échec,
 vignette absente ou blanche, plafond de jetons ou durée atteints). Une vignette à
-laquelle manque une image du PDF (plus de 8 mégapixels, jamais décodée, ou
-illisible) garde les textes et les tracés de la page : elle est envoyée, mais la
-page reste « À vérifier ».
+laquelle manque une image du PDF garde les textes et les tracés qui l’entourent.
+Une image de plus de 8 mégapixels est omise avant décodage. Un scan constitué
+uniquement de cette image donne une vignette blanche. Qu’elle soit blanche ou
+qu’elle contienne encore du texte ou des tracés, une vignette à laquelle il
+manque une image laisse la page retenue « À vérifier ».
 
 La proposition s'affiche à part. Seule « Accepter le tri » écrit `pages` et
 `active` : les pages retenues, toutes les pages par la liste vide, ou la pièce

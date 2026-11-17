@@ -23,6 +23,10 @@ import {
   dossierPreviewFormat,
   type DossierDocument,
 } from "@/lib/affaires/document-triage";
+import {
+  driveVersionStatusSchema,
+  type DriveVersionStatus,
+} from "@/lib/affaires/google-drive/contracts";
 import { IntakeDocumentTranscription } from "./IntakeDocumentTranscription";
 import { IntakePdfPreview } from "./IntakePdfPreview";
 
@@ -40,6 +44,47 @@ const IntakeCadPreview = dynamic(
     ),
   },
 );
+
+function DriveVersionNotice({ projectId, documentId }: { projectId: string; documentId: string }) {
+  const [status, setStatus] = useState<DriveVersionStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = "Impossible de vérifier la version dans Google Drive.";
+    void (async () => {
+      try {
+        const response = await fetch(`/api/affaires/${projectId}/intake/google-drive`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check_version", documentId }),
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (controller.signal.aborted) return;
+        if (response.ok) {
+          setStatus(driveVersionStatusSchema.parse(payload.data?.versionStatus));
+        } else if (payload.error?.code !== "DRIVE_DISABLED") {
+          setError(payload.error?.message ?? fallback);
+        }
+      } catch {
+        if (!controller.signal.aborted) setError(fallback);
+      }
+    })();
+    return () => controller.abort();
+  }, [projectId, documentId]);
+
+  return (
+    <div role="status" className="px-4 text-xs">
+      {status === "newer" && (
+        <p className="py-2 font-semibold text-warning">Nouvelle version dans Google Drive.</p>
+      )}
+      {status === "unchanged" && <p className="py-2 text-muted-foreground">Même version que dans le dossier.</p>}
+      {status === "unknown" && <p className="py-2 text-muted-foreground">Comparaison des versions Drive indisponible.</p>}
+      {error && <p className="py-2 text-warning">{error}</p>}
+    </div>
+  );
+}
 
 export function IntakeDocumentPreview({
   projectId,
@@ -189,6 +234,13 @@ export function IntakeDocumentPreview({
           <Maximize2 size={17} />
         </button>
       </div>
+      {canManage && document.driveSource && document.uploadStatus === "uploaded" && !document.isBeingDeleted && (
+        <DriveVersionNotice
+          key={JSON.stringify([projectId, document.documentId, document.driveSource.revision, document.driveSource.connectionAvailable])}
+          projectId={projectId}
+          documentId={document.documentId}
+        />
+      )}
       <div className="document-preview-canvas">
         {cad ? (
           <IntakeCadPreview

@@ -1548,8 +1548,8 @@
         "tags": [
           "Affaires"
         ],
-        "summary": "Parcourir Drive, lier des fichiers ou le dossier de l'affaire, retirer un compte",
-        "description": "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Le corps désigne un compte Google enregistré du membre, jamais un jeton. Lier un fichier n'en copie pas le contenu : l'analyse le lit dans Drive. Résultats par fichier.",
+        "summary": "Parcourir Drive, gérer des liens, vérifier la version d’une pièce ou retirer un compte",
+        "description": "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse.",
         "parameters": [
           {
             "name": "projectId",
@@ -6097,10 +6097,10 @@
         "tags": [
           "Catalogue"
         ],
-        "summary": "Valider une référence ou préciser le transport d’une offre",
-        "description": "Réservé aux administrateurs du tenant actif. La validation recalcule la proposition et vérifie son empreinte, puis conserve auteur, date et sources. Aucun devis existant n’est réécrit. Un prix manuel exige une justification.",
+        "summary": "Valider ou retirer une référence, ou préciser le transport d’une offre",
+        "description": "Réservé aux administrateurs du tenant actif. La validation vérifie l’empreinte de la proposition et conserve auteur, date et sources. Un prix manuel exige une justification. Le retrait vérifie la version affichée et journalise le passage à un prix manquant. Les coûts des devis existants sont conservés.",
         "requestBody": {
-          "description": "Validation explicite ou condition de transport.",
+          "description": "Validation, retrait explicite ou condition de transport.",
           "required": true,
           "content": {
             "application/json": {
@@ -6152,7 +6152,7 @@
             }
           },
           "404": {
-            "description": "Ressource introuvable.",
+            "description": "Article introuvable dans le tenant actif.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6162,7 +6162,118 @@
             }
           },
           "409": {
-            "description": "La proposition ou l’offre a changé.",
+            "description": "La proposition, l’offre ou la référence a changé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Migration de référence non activée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/reference-price/history": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Consulter l’historique des prix de référence d’un article",
+        "description": "Validations et retraits de l’entreprise active, les plus récents en premier. Dix événements par page.",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "query",
+            "description": "Article à examiner.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReferencePriceProductId"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page des événements, à partir de 1.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReferencePriceHistoryPage"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historique des décisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiReferencePriceHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Paramètres invalides.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Article introuvable dans le tenant actif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6566,7 +6677,7 @@
           "Catalogue"
         ],
         "summary": "Importer le classeur de chiffrage en articles brouillons",
-        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Aucun fournisseur, aucune référence ni aucun prix fournisseur n’est écrit (ils viennent avec les achats, lot 2) : le rapport compte les références fournisseurs des nouveaux articles. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et confirmation.",
           "required": true,
@@ -6651,6 +6762,118 @@
           },
           "422": {
             "description": "Onglet d’une autre forme que celle du classeur de chiffrage (COSTING_WORKBOOK_FORMAT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalogue/workbook-import/supplier-references": {
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Reprendre les références fournisseur du classeur de chiffrage",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif. Les liaisons existantes et les prix sont conservés.",
+        "requestBody": {
+          "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostingWorkbookSupplierReferences"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rapport de la reprise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiCostingWorkbookSupplierReferenceReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Corps invalide ou empreinte manquante.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Administrateur ou ingénieur requis.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Aperçu périmé. Actualisez-le avant de confirmer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Corps de plus de 4 Mio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Onglet d’une autre forme que celle du classeur de chiffrage.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31130,6 +31353,25 @@
             "properties": {
               "action": {
                 "type": "string",
+                "const": "check_version"
+              },
+              "documentId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "documentId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
                 "const": "disconnect"
               },
               "connectionId": {
@@ -40467,8 +40709,274 @@
               "transport_mode",
               "expected_updated_at"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "withdraw"
+              },
+              "product_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expected_updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "expected_validation_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "product_id",
+              "expected_updated_at",
+              "expected_validation_id"
+            ]
           }
         ]
+      },
+      "ReferencePriceHistoryPage": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000
+      },
+      "ApiReferencePriceHistory": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "average",
+                        "manual",
+                        "withdrawal"
+                      ]
+                    },
+                    "actor_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "actor_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "occurred_at": {
+                      "type": "string"
+                    },
+                    "unit_price_cents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "const": "EUR"
+                    },
+                    "transport_mode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "included",
+                            "excluded"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "justification": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source_order_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "offers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "supplier_name": {
+                            "type": "string"
+                          },
+                          "supplier_sku": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "unit_price_cents": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "min_quantity": {
+                            "type": "number"
+                          },
+                          "valid_from": {
+                            "type": "string"
+                          },
+                          "valid_to": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transport_mode": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "included",
+                                  "excluded"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "exclusion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "inactive",
+                                  "missing_supplier_reference",
+                                  "future",
+                                  "expired",
+                                  "missing_quantity",
+                                  "quantity",
+                                  "unit",
+                                  "currency",
+                                  "missing_transport",
+                                  "transport",
+                                  "zero_price",
+                                  "older_supplier_offer"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "supplier_name",
+                          "supplier_sku",
+                          "unit_price_cents",
+                          "currency",
+                          "unit",
+                          "min_quantity",
+                          "valid_from",
+                          "valid_to",
+                          "transport_mode",
+                          "exclusion"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "operation",
+                    "actor_id",
+                    "actor_name",
+                    "occurred_at",
+                    "unit_price_cents",
+                    "quantity",
+                    "unit",
+                    "currency",
+                    "transport_mode",
+                    "justification",
+                    "source_order_date",
+                    "offers"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "has_more": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "events",
+              "has_more"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "CreateSupplyTypeRequest": {
         "type": "object",
@@ -40910,6 +41418,147 @@
               "issues",
               "issue_count",
               "sections"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "CostingWorkbookSupplierReferences": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "minItems": 1,
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "maxItems": 60,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "preview_token": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "rows",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "ApiCostingWorkbookSupplierReferenceReport": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "confirmed": {
+                "type": "boolean"
+              },
+              "to_import": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "imported": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "already_registered": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "duplicates": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "preview_token": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "for_decision": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_article_reference",
+                        "article_not_found",
+                        "ambiguous_article",
+                        "invalid_supplier_name",
+                        "supplier_not_found",
+                        "ambiguous_supplier",
+                        "invalid_supplier_sku",
+                        "article_locked",
+                        "different_existing_reference",
+                        "withdrawn_reference",
+                        "conflicting_workbook_references"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "slot",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "confirmed",
+              "to_import",
+              "imported",
+              "already_registered",
+              "duplicates",
+              "preview_token",
+              "for_decision"
             ],
             "additionalProperties": false
           }
@@ -80818,6 +81467,9 @@
                     "is_active": {
                       "type": "boolean"
                     },
+                    "reference_needs_review": {
+                      "type": "boolean"
+                    },
                     "has_price": {
                       "type": "boolean"
                     }
@@ -80829,6 +81481,7 @@
                     "supplier_sku",
                     "product_url",
                     "is_active",
+                    "reference_needs_review",
                     "has_price"
                   ],
                   "additionalProperties": false
@@ -80940,6 +81593,9 @@
                   "is_active": {
                     "type": "boolean"
                   },
+                  "reference_needs_review": {
+                    "type": "boolean"
+                  },
                   "has_price": {
                     "type": "boolean"
                   }
@@ -80951,6 +81607,7 @@
                   "supplier_sku",
                   "product_url",
                   "is_active",
+                  "reference_needs_review",
                   "has_price"
                 ],
                 "additionalProperties": false
