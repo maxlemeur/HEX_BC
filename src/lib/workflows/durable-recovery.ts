@@ -258,28 +258,28 @@ export async function recoverDurableWorkflows(
     await defaultMarkDead(tableClient, workflow, now());
   }
 
-  let procurementStorageCleanup: ProcurementStorageCleanupDrainResult;
-  try {
-    procurementStorageCleanup = await drainStorageCleanup({
-      client: serviceRoleClient ?? undefined,
-      limit: Math.max(
-        1,
-        Math.min(dependencies.storageCleanupLimit ?? 25, 100)
-      ),
-    });
-  } catch (error) {
-    procurementStorageCleanup = {
-      claimed: 0,
-      removed: 0,
-      failed: 0,
-      skipped: false,
-      errors: [
-        error instanceof Error
-          ? error.message
-          : "Erreur de reprise Storage inconnue.",
-      ],
-    };
-  }
+  // Preserve capacity for order documents even when a bulk affaire deletion queues many photos.
+  const storageLimit = Math.max(1, Math.min(dependencies.storageCleanupLimit ?? 25, 100));
+  const [orderStorage, requestStorage] = await Promise.all(
+    (["devis", "material-requests"] as const).map(async (bucketId): Promise<ProcurementStorageCleanupDrainResult> => {
+      try {
+        return await drainStorageCleanup({ client: serviceRoleClient ?? undefined, limit: storageLimit, bucketId });
+      } catch (error) {
+        return {
+          claimed: 0, removed: 0, failed: 0, skipped: true,
+          errors: [error instanceof Error ? error.message : "Erreur de reprise Storage inconnue."],
+        };
+      }
+    }),
+  );
+  const procurementStorageCleanup: ProcurementStorageCleanupDrainResult = {
+    claimed: orderStorage.claimed + requestStorage.claimed,
+    removed: orderStorage.removed + requestStorage.removed,
+    failed: orderStorage.failed + requestStorage.failed,
+    skipped: [orderStorage, requestStorage].some((result) =>
+      result.skipped || (result.failed === 0 && result.errors.length > 0)),
+    errors: [...orderStorage.errors, ...requestStorage.errors],
+  };
 
   const drainEmailOutbox =
     dependencies.drainEmailOutbox ?? drainEstimateEmailOutbox;

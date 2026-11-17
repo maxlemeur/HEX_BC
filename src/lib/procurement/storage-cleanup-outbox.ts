@@ -17,6 +17,7 @@ export type ProcurementStorageCleanupDrainResult = {
 
 type DrainProcurementStorageCleanupInput = {
   tenantId?: string | null;
+  bucketId?: CleanupRow["bucket_id"];
   limit?: number;
   leaseSeconds?: number;
   client?: ServiceRoleClient | null;
@@ -40,20 +41,26 @@ function requireLeaseToken(cleanup: Pick<CleanupRow, "lease_token">) {
   return cleanup.lease_token;
 }
 
-function assertCanonicalCleanupTarget(cleanup: Omit<CleanupRow, "bucket_id"> & { bucket_id: string }): asserts cleanup is CleanupRow {
-  const prefix = `purchase-orders/${cleanup.purchase_order_id}/`;
-  const filename = cleanup.storage_path.startsWith(prefix)
-    ? cleanup.storage_path.slice(prefix.length)
-    : "";
-  if (
-    cleanup.bucket_id !== "devis" ||
-    !filename ||
-    filename.includes("/") ||
-    filename === "." ||
-    filename === ".."
-  ) {
-    throw new Error("Cleanup target is outside its purchase-order namespace.");
+function isFileUnderPrefix(storagePath: string, prefix: string) {
+  if (!storagePath.startsWith(prefix)) return false;
+  const filename = storagePath.slice(prefix.length);
+  return Boolean(filename && !filename.includes("/") && filename !== "." && filename !== "..");
+}
+
+function assertCanonicalCleanupTarget(cleanup: Omit<CleanupRow, "bucket_id"> & { bucket_id: string }) {
+  if (cleanup.bucket_id === "material-requests") {
+    const { tenant_id, project_id, material_request_id, material_request_file_id } = cleanup;
+    if (
+      cleanup.purchase_order_id === null && project_id && material_request_id && material_request_file_id &&
+      isFileUnderPrefix(cleanup.storage_path, `${tenant_id}/${project_id}/${material_request_id}/${material_request_file_id}/`)
+    ) return;
+    throw new Error("Cleanup target is outside its material-request namespace.");
   }
+  if (
+    cleanup.bucket_id === "devis" && cleanup.purchase_order_id &&
+    isFileUnderPrefix(cleanup.storage_path, `purchase-orders/${cleanup.purchase_order_id}/`)
+  ) return;
+  throw new Error("Cleanup target is outside its purchase-order namespace.");
 }
 
 /**
@@ -81,14 +88,14 @@ export async function drainProcurementStorageCleanupOutbox(
     30,
     Math.min(input.leaseSeconds ?? DEFAULT_LEASE_SECONDS, 600)
   );
-  const { data, error: claimError } = await client.rpc(
-    "claim_procurement_storage_cleanup",
-    {
-      p_tenant_id: input.tenantId ?? null,
-      p_limit: limit,
-      p_lease_seconds: leaseSeconds,
-    }
-  );
+  const claim = {
+    p_tenant_id: input.tenantId ?? null,
+    p_limit: limit,
+    p_lease_seconds: leaseSeconds,
+  };
+  const { data, error: claimError } = input.bucketId === "material-requests"
+    ? await client.rpc("claim_procurement_storage_cleanup_for_bucket", { ...claim, p_bucket_id: input.bucketId })
+    : await client.rpc("claim_procurement_storage_cleanup", claim);
 
   if (claimError) {
     return {

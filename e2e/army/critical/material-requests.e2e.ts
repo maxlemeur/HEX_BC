@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
+
+import type { MaterialRequestFileUploads } from "@/lib/material-requests/contracts";
 
 import {
   apiRequest,
@@ -295,6 +298,106 @@ armyTest(
     await recordEvidence(army, "material-requests", {
       ...ids, requestId, statuses: statuses(final), files: final.files, refused: refused.body.error,
       stillBlocked: stillBlocked.body.error,
+    });
+  },
+);
+
+// TI-695: metadata can disappear while the original remains a real object. Verify actual Storage
+// reads around the ordinary DELETE and the existing recovery endpoint on the owned native stack.
+armyTest(
+  "MR11 deleting an affaire schedules removal of its originals while a refused affaire keeps its photos",
+  { session: "army", tags: ["critical", "material-requests", "affaires"], timeout: 240_000, trace: "off" },
+  async ({ app, screen, browser, army }) => {
+    const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+    const appOrigin = new URL(app.baseUrl!);
+    const cronSecret = process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET;
+    if (backend.protocol !== "http:" || backend.hostname !== "127.0.0.1" ||
+      backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST || !backend.port ||
+      ["45585", "33485"].includes(backend.port) ||
+      appOrigin.hostname !== "localhost" || !cronSecret || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("MR11 requires the owned native Supabase stack and its local recovery route.");
+    }
+    const options = { auth: { persistSession: false, autoRefreshToken: false } };
+    const storage = createClient(backend.href, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, options)
+      .storage.from("material-requests");
+    const admin = createClient(backend.href, process.env.SUPABASE_SERVICE_ROLE_KEY, options);
+    const inspected = admin.storage.from("material-requests");
+
+    const prepareAffaire = async (label: string, filenames: string[]) => {
+      const ids = await createEstimateViaWizard({ app, screen, browser }, {
+        projectName: `${army.projectName} ${label}`,
+        title: `${army.runPrefix} ${label}`,
+      }, army);
+      ownEstimate(army, ids);
+      const projectUrl = `/api/affaires/${ids.projectId}`;
+      const created = await apiRequest<Envelope<Detail>>(browser, "POST", `${projectUrl}/material-requests`, {
+        source_text: "Photo de la demande fictive",
+      });
+      expect(created.status).toBe(201);
+      const requestUrl = `${projectUrl}/material-requests/${created.body.data.request.id}`;
+      const prepared = await apiRequest<Envelope<MaterialRequestFileUploads>>(browser, "POST", `${requestUrl}/files`, {
+        files: filenames.map((name) => ({ name, byte_size: PNG.length, mime_type: "image/png" })),
+      });
+      expect(prepared.status).toBe(201);
+      const uploads = prepared.body.data.uploads;
+      for (const upload of uploads) {
+        const result = await storage.uploadToSignedUrl(upload.path, upload.token, PNG, { contentType: "image/png" });
+        expect(result.error).toBeNull();
+      }
+      // When there are two uploads, the second has bytes but the confirmation was interrupted.
+      expect((await apiRequest(browser, "POST", `${requestUrl}/files/complete`, {
+        ids: [uploads[0].file.id],
+      })).status).toBe(200);
+      return { projectId: ids.projectId, projectUrl, requestUrl, uploads };
+    };
+
+    const deleted = await prepareAffaire("Photos à nettoyer", ["original.png", "non-finalise.png"]);
+    const kept = await prepareAffaire("Photos à garder", ["original.png"]);
+    const archived = await apiRequest<Envelope<{ archivedIds: string[] }>>(browser, "POST", "/api/affaires/bulk-archive", {
+      projectIds: [kept.projectId],
+    });
+    expect(archived.status).toBe(200);
+    expect(archived.body.data.archivedIds).toEqual([kept.projectId]);
+    const retainedPath = kept.uploads[0].path;
+    const deletedPaths = deleted.uploads.map((upload) => upload.path);
+    const originalHash = createHash("sha256").update(PNG).digest("hex");
+    const readHash = async (key: string) => {
+      const { data, error } = await inspected.download(key);
+      expect(error).toBeNull();
+      return createHash("sha256").update(Buffer.from(await data!.arrayBuffer())).digest("hex");
+    };
+    for (const key of [...deletedPaths, retainedPath]) {
+      expect(await readHash(key)).toBe(originalHash);
+    }
+
+    const success = await apiRequest<Envelope<{ deleted: boolean }>>(browser, "DELETE", deleted.projectUrl);
+    const refusal = await apiRequest(browser, "DELETE", kept.projectUrl);
+    expect([success.status, success.body.data.deleted, refusal.status]).toEqual([200, true, 403]);
+    expect((await apiRequest(browser, "GET", deleted.requestUrl)).status).toBe(404);
+
+    const recovery = await fetch(new URL("/api/internal/workflows/recover", appOrigin), {
+      headers: { authorization: `Bearer ${cronSecret}` },
+      redirect: "error",
+    });
+    expect(recovery.status).toBe(200);
+    const { procurementStorageCleanup } = await recovery.json() as {
+      procurementStorageCleanup: { removed: number; failed: number; skipped: boolean };
+    };
+    expect(procurementStorageCleanup.removed).toBeGreaterThanOrEqual(deletedPaths.length);
+    expect(procurementStorageCleanup).toMatchObject({ failed: 0, skipped: false });
+    for (const key of deletedPaths) {
+      const listing = await inspected.list(path.posix.dirname(key), { search: path.posix.basename(key) });
+      expect(listing.error).toBeNull();
+      expect(listing.data).toEqual([]);
+      const missing = await inspected.download(key);
+      expect(missing.data).toBeNull();
+      expect(missing.error).not.toBeNull();
+    }
+    expect(await readHash(retainedPath)).toBe(originalHash);
+    await recordEvidence(army, "material-request-affaire-storage-cleanup", {
+      deletedProjectId: deleted.projectId, refusedProjectId: kept.projectId, deletedPaths, retainedPath,
+      deleteStatus: success.status, refusalStatus: refusal.status, recoveryStatus: recovery.status,
+      removed: procurementStorageCleanup.removed,
     });
   },
 );

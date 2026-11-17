@@ -154,7 +154,9 @@ const businessJourneyEnvironment = selectedBusinessCorpus.journeyEnvironment;
 const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
-const knownSecrets: string[] = [];
+// Exercise internal recovery on the owned stack with a per-run secret.
+const localCronSecret = randomUUID();
+const knownSecrets: string[] = [localCronSecret];
 // dev and dev-loop keep the owned stack until Ctrl+C, SIGTERM or (dev-loop) their idle TTL.
 const interactive = suite === "dev" || suite === "dev-loop";
 const developmentStop = new AbortController();
@@ -260,6 +262,7 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
     E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
     E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
     TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
+    E2E_ARMY_LOCAL_RECOVERY_SECRET: localCronSecret,
     RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
   };
 }

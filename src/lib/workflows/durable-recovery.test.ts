@@ -97,6 +97,24 @@ describe("durable workflow recovery", () => {
     expect(result.deadCount).toBe(0);
   });
 
+  it("reserves independent capacity for order documents and request photos even when one claim fails", async () => {
+    const drainStorageCleanup = vi.fn()
+      .mockResolvedValueOnce(STORAGE_CLEANUP_RESULT)
+      .mockResolvedValueOnce({ claimed: 0, removed: 0, failed: 0, skipped: false, errors: ["claim unavailable"] });
+
+    const result = await recoverDurableWorkflows({
+      client: createClient([]),
+      drainStorageCleanup,
+      drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
+    });
+
+    expect(drainStorageCleanup.mock.calls.map(([args]) => [args.bucketId, args.limit]))
+      .toEqual([["devis", 25], ["material-requests", 25]]);
+    expect(result.procurementStorageCleanup).toEqual({
+      ...STORAGE_CLEANUP_RESULT, skipped: true, errors: ["claim unavailable"],
+    });
+  });
+
   it("marks the same workId dead after MAX_DURABLE_RECOVERY_ATTEMPTS failures and does not dispatch again", async () => {
     const client = createClient([
       {

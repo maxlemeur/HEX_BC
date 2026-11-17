@@ -727,5 +727,68 @@ select is((select count(*) from public.material_requests where project_id = 'a90
 select is((select count(*) from public.material_requests where id = 'a9000000-0000-4000-8000-000000000502'), 1::bigint,
   'the requests of the other affaires stay');
 
+-- TI-695: a successful, authorized affaire deletion queues every reserved original, including one
+-- whose upload completed before the application could mark it stored. The worker needs the exact keys.
+create temporary table deleting_affaire_originals as
+select storage_path from public.material_request_files
+where project_id = 'a9000000-0000-4000-8000-000000000202';
+select is((select count(*) from deleting_affaire_originals), 13::bigint, 'the deletion fixture has 13 object keys');
+select is((select count(*) from storage.objects where bucket_id = 'material-requests'
+  and name in (select storage_path from deleting_affaire_originals)), 13::bigint, 'all 13 objects exist before deletion');
+
+select set_config('request.jwt.claim.sub', 'a9000000-0000-4000-8000-000000000005', true);
+set local role authenticated;
+select is((select outcome from public.bulk_delete_draft_affaires(
+    'a9000000-0000-4000-8000-000000000101', array['a9000000-0000-4000-8000-000000000202'::uuid])),
+  'deleted', 'the authorized owner really deletes the affaire');
+reset role;
+select is((select count(*) from public.material_request_files
+  where project_id = 'a9000000-0000-4000-8000-000000000202'), 0::bigint, 'the metadata is removed in cascade');
+select results_eq(
+  $$select storage_path from public.procurement_storage_cleanup_outbox
+    where bucket_id = 'material-requests' and tenant_id = 'a9000000-0000-4000-8000-000000000101'
+      and storage_path in (select storage_path from deleting_affaire_originals)
+    order by storage_path$$,
+  $$select storage_path from deleting_affaire_originals order by storage_path$$,
+  'the same transaction records every exact object key for Storage removal');
+select is((select count(*) from storage.objects where bucket_id = 'material-requests'
+  and name in (select storage_path from deleting_affaire_originals)), 13::bigint, 'Storage owns the physical deletion');
+
+-- A photo job is serviced by the scheduled worker only; legacy and other-tenant claims leave it alone.
+set local role service_role;
+select is((select count(*) from public.claim_procurement_storage_cleanup(
+  'a9000000-0000-4000-8000-000000000101', 25, 120)), 0::bigint, 'the legacy worker cannot claim photos');
+select is((select count(*) from public.claim_procurement_storage_cleanup_for_bucket(
+  'a9000000-0000-4000-8000-000000000102', 25, 120, 'material-requests')), 0::bigint, 'a scoped claim cannot cross tenants');
+select is((select count(*) from public.claim_procurement_storage_cleanup_for_bucket(
+  'a9000000-0000-4000-8000-000000000101', 1, 120, 'material-requests')), 1::bigint, 'the worker claims one photo');
+select ok((select public.fail_procurement_storage_cleanup(id, lease_token, 'fixture: Storage unavailable', 30)
+  from public.procurement_storage_cleanup_outbox where lease_token is not null), 'the worker releases a failure for retry');
+reset role;
+select is((select count(*) from public.procurement_storage_cleanup_outbox
+  where bucket_id = 'material-requests' and attempts = 1 and lease_token is null and next_attempt_at > now()),
+  1::bigint, 'the failed photo is backed off');
+update public.procurement_storage_cleanup_outbox set next_attempt_at = now() where bucket_id = 'material-requests' and attempts = 1;
+set local role service_role;
+select is((select count(*) from public.claim_procurement_storage_cleanup_for_bucket(
+  'a9000000-0000-4000-8000-000000000101', 100, 120, null) where attempts = 2),
+  1::bigint, 'scheduled recovery reclaims the failed photo after backoff');
+reset role;
+
+-- A replacement row cannot let an old signed upload recreate an object at a retired key.
+insert into public.estimate_projects (id, tenant_id, user_id, name)
+values ('a9000000-0000-4000-8000-000000000202', 'a9000000-0000-4000-8000-000000000101',
+  'a9000000-0000-4000-8000-000000000005', 'Affaire recréée pour la fixture');
+insert into public.material_requests (id, project_id)
+values ('a9000000-0000-4000-8000-000000000502', 'a9000000-0000-4000-8000-000000000202');
+insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size)
+select 'a9000000-0000-4000-8000-000000000801', 'a9000000-0000-4000-8000-000000000502',
+  storage_path, 'photo.jpg', 'image/jpeg', 2048
+from deleting_affaire_originals where split_part(storage_path, '/', 4) = 'a9000000-0000-4000-8000-000000000801';
+select throws_ok($$insert into storage.objects (bucket_id, name, metadata)
+  select 'material-requests', storage_path, '{"size":2048}' from public.material_request_files
+  where id = 'a9000000-0000-4000-8000-000000000801'$$,
+  '23514', 'MATERIAL_REQUEST_FILE_PATH_RETIRED', 'the old worker lease cannot collide with freshly uploaded bytes');
+
 select * from finish();
 rollback;
