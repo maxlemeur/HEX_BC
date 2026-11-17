@@ -198,7 +198,7 @@ describe("useSpreadsheetNavigation helpers", () => {
     const titleCell = screen.getByTestId("line-title-cell");
     const titleEditor = screen.getByTestId("line-title-editor");
     const natureSelect = screen.getByRole("combobox", {
-      name: "Fournitures — nature de ligne pour Tuyau DN 100 acier",
+      name: "Fournitures seules — nature de ligne pour Tuyau DN 100 acier",
     });
 
     titleCell.focus();

@@ -2,7 +2,6 @@
 
 import {
   ESTIMATE_LINE_NATURE_LABELS,
-  POSE_ONLY_MENTION,
   resolveEstimateLineNature,
   selectableEstimateLineNatures,
   type EstimateLineNature,
@@ -24,13 +23,6 @@ type EstimateLineNatureSelectProps = {
   ) => void;
 };
 
-const COMPACT_LINE_NATURE_LABELS: Record<EstimateLineNature, string> = {
-  supply_only: "Fournitures",
-  supply_and_labor: "Fournitures + pose",
-  labor_only: "Pose",
-  pose_only: POSE_ONLY_MENTION,
-};
-
 export function EstimateLineNatureSelect({
   item,
   navigationRowId = item.id,
@@ -40,23 +32,22 @@ export function EstimateLineNatureSelect({
   const selectedNature = resolveEstimateLineNature(item);
   const printsPoseOnly = useEstimateV3Grid() !== null;
   const descriptionId = `estimate-line-nature-description-${item.id}`;
-  const needsChoice = printsPoseOnly && selectedNature === "labor_only" && !isReadOnly;
-  const fullLabel = needsChoice ? "Choisir la nature" : ESTIMATE_LINE_NATURE_LABELS[selectedNature];
-  const compactLabel = needsChoice ? "Choisir la nature" : COMPACT_LINE_NATURE_LABELS[selectedNature];
+  const hasLegacyLaborNature = printsPoseOnly && selectedNature === "labor_only";
+  const label = ESTIMATE_LINE_NATURE_LABELS[selectedNature];
   const lineLabel = item.title || "sans titre";
 
   if (isReadOnly) {
     return (
       <span
         className="estimate-line-nature-picker estimate-line-nature-picker--readonly"
-        title={`${fullLabel} — nature de ligne en lecture seule.`}
+        title={`${label} — nature de ligne en lecture seule.`}
         data-cell-id={`${navigationRowId}::line_nature`}
         tabIndex={-1}
         onFocus={(event) => event.stopPropagation()}
         onBlur={(event) => event.stopPropagation()}
       >
         <span className="estimate-line-nature-picker__label">
-          {compactLabel}
+          {label}
           <span className="sr-only">
             {` — nature de ligne pour ${lineLabel}, en lecture seule`}
           </span>
@@ -68,16 +59,16 @@ export function EstimateLineNatureSelect({
   return (
     <label
       className="estimate-line-nature-picker"
-      title={`${fullLabel} — cliquer pour modifier la nature de la ligne.`}
+      title={`${label} — cliquer pour modifier la nature de la ligne.`}
     >
       <span className="estimate-line-nature-picker__label" aria-hidden="true">
-        {compactLabel}
+        {label}
         <span className="estimate-line-nature-picker__chevron">▾</span>
       </span>
       <select
         className="estimate-line-nature-picker__select"
         value={selectedNature}
-        aria-label={`${compactLabel} — nature de ligne pour ${lineLabel}`}
+        aria-label={`${label} — nature de ligne pour ${lineLabel}`}
         aria-describedby={descriptionId}
         data-cell-id={`${navigationRowId}::line_nature`}
         onPointerDown={(event) => event.stopPropagation()}
@@ -95,7 +86,7 @@ export function EstimateLineNatureSelect({
           )
         }
       >
-        {needsChoice ? <option value="labor_only" hidden disabled>Choisir la nature</option> : null}
+        {hasLegacyLaborNature ? <option value="labor_only" hidden disabled>{label}</option> : null}
         {selectableEstimateLineNatures({ printsPoseOnly, current: selectedNature }).map((nature) => (
           <option key={nature} value={nature}>
             {ESTIMATE_LINE_NATURE_LABELS[nature]}
