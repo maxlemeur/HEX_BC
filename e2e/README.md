@@ -103,7 +103,11 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=army-anonymous-smoke-no-auth npm run e2e
 Ces valeurs permettent le rendu anonyme ; elles ne donnent aucun accès backend.
 Le mobile est un viewport de navigateur. `npm run e2e:army:agent` est optionnel, utilise
 le login distinct `npx e2e login openai` et des objectifs bornés suivis
-d'assertions exactes ; il ne remplace pas les parcours déterministes.
+d’assertions exactes. Le pilote et les personas d’exploration utilisent GPT-6.1
+Terra (`gpt-6.1-terra`) par défaut pour `agent.act`. Quand un test appelle
+`agent.assert`, le même modèle juge le résultat. Les vérifications exactes
+`expect` ne font aucun appel au modèle. `E2E_ARMY_MODEL` permet de choisir
+un autre modèle pour les actions et les jugements.
 
 ## Lire une preuve
 

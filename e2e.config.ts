@@ -211,7 +211,8 @@ export default {
   } : {}),
   agents: {
     default: {
-      model: chatgpt(process.env.E2E_ARMY_MODEL ?? "gpt-6-luna"),
+      // The SDK also uses this model for judgments when no judge is configured.
+      model: chatgpt(process.env.E2E_ARMY_MODEL ?? "gpt-6.1-terra"),
       maxSteps: 6,
       maxModelCalls: 6,
       system:
