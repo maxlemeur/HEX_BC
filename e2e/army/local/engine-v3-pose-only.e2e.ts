@@ -68,12 +68,14 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     await expect(catalogueRow.getByText("Prix manquant", { exact: true })).toBeVisible();
     const catalogueScreenshot = await app.screenshot("PS53901-article-without-price");
 
-    // 2. A quote mixing a supplied and fitted line, the incomplete article and a fitting service.
+    // 2. A quote with a supplied and fitted line, an incomplete article, a fitting service and a supply-only line.
     const labor = { labor_role_id: draft.tuyauteurId, k_fo: 1, k_mo: 1, tax_rate_bp: 2000, unit_code: "u", pricing_status: "priced" };
-    const [mixed, incomplete, pose] = await seedLines(ui, army, draft, "ps539", [
+    const [mixed, incomplete, pose, supply] = await seedLines(ui, army, draft, "ps539", [
       { ...labor, title: title("radiateur fourni posé"), quantity: 2, unit_price_ht_cents: 10000, h_mo_per_unit: 1 },
       { ...labor, title: title("ligne de la vanne"), quantity: 1, unit_price_ht_cents: 0, h_mo_per_unit: 0.5 },
       { ...labor, title: title("pose radiateur client"), quantity: 3, unit_price_ht_cents: 0, h_mo_per_unit: 1.5 },
+      { title: title("têtes thermostatiques"), line_nature: "supply_only", quantity: 1, unit_code: "u",
+        pricing_status: "priced", unit_price_ht_cents: 5000, tax_rate_bp: 2000 },
     ]);
     // Nothing infers POSE SEULE from an empty price: both lines without supply are « Pose ».
     expect([mixed.line_nature, incomplete.line_nature, pose.line_nature]).toEqual(["supply_and_labor", "labor_only", "labor_only"]);
@@ -103,34 +105,56 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     expect(blocked).toMatchObject({ canSend: false, missingPrice: [incomplete.id], natureMismatch: [] });
     expect(blocked.blocking).toContain("missing_price");
 
-    // 4. The fitting service is explicitly noted POSE SEULE in the editor; the choice survives a reload.
-    // In the compact grid the nature control lives in the line details menu.
-    const natureOf = async (lineTitle: string) => {
-      const control = screen.getByRole("combobox", new RegExp(`nature de ligne pour ${lineTitle}$`), { visible: true });
-      if (!(await control.isVisible())) await screen.getByRole("button", `Details de la ligne ${lineTitle}`, { exact: true }).click();
-      await expect(control).toBeVisible();
-      return control;
-    };
-    const poseControl = await natureOf(pose.title!);
-    const menu = await browser.evaluate((title) => {
-      const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label")?.endsWith(`nature de ligne pour ${title}`) && node.getBoundingClientRect().width > 0);
-      if (!select) return null;
-      const label = select.closest("label")?.querySelector<HTMLElement>(".estimate-line-nature-picker__label");
-      return { choices: Array.from(select.options).filter(option => !option.hidden && !option.disabled).map(option => option.value),
-        width: select.getBoundingClientRect().width, fits: label ? label.scrollWidth <= label.clientWidth : false };
-    }, pose.title!);
-    expect(menu?.choices).toEqual(["supply_only", "supply_and_labor", "pose_only"]);
-    expect(menu?.width).toBeGreaterThanOrEqual(180);
-    expect(menu?.fits).toBe(true);
-    await poseControl.selectOption({ value: "pose_only" });
+    // 4. TI-717: the nature is readable beside the designation and editable by keyboard at 1122 × 983.
+    const originalViewport = await browser.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    await browser.setViewport({ width: 1122, height: 983 });
+    const natureOf = (id: string, lineTitle: string, label: string) =>
+      row(id).getByRole("combobox", `${label} — nature de ligne pour ${lineTitle}`, { exact: true });
+    const poseControl = natureOf(pose.id, pose.title!, "Pose");
+    await expect(poseControl).toBeVisible();
+    const choices = await browser.evaluate((id) => {
+      const select = document.querySelector<HTMLSelectElement>(
+        `[data-estimate-item-id="${id}"] select[data-cell-id$="::line_nature"]`,
+      );
+      return Array.from(select?.options ?? []).filter(option => !option.hidden && !option.disabled).map(option => option.value);
+    }, pose.id);
+    expect(choices).toEqual(["supply_only", "supply_and_labor", "pose_only"]);
+    await screen.getByRole("button", `Details de la ligne ${pose.title}`, { exact: true }).press("Shift+Tab");
+    await expect(poseControl).toBeFocused();
+    await browser.keyboard.press("p");
+    const explicitPoseControl = natureOf(pose.id, pose.title!, MENTION);
+    await expect(explicitPoseControl).toHaveValue("pose_only");
     await saveLineEditsWithShortcut(ui, draft.versionId, pose.title!, army);
+    await saveSettled(ui);
     await expect.poll(async () => (await readEstimate(browser, draft.versionId)).items.find((item) => item.id === pose.id)?.line_nature)
       .toBe("pose_only");
-    await saveSettled(ui);
     await browser.reload();
     await waitForDraftLease(ui);
-    await expect(await natureOf(pose.title!)).toHaveValue("pose_only");
-    await expect(screen.getByRole("combobox", `${MENTION} — nature de ligne pour ${pose.title}`, { exact: true, visible: true })).toBeVisible();
+    await expect(explicitPoseControl).toHaveValue("pose_only");
+    const checkVisibleNatures = async () => {
+      for (const [line, label] of [[mixed, "Fournitures + pose"], [supply, "Fournitures seules"], [pose, MENTION]] as const) {
+        await expect(natureOf(line.id, line.title!, label)).toBeVisible();
+        const badge = await browser.evaluate((id) => {
+          const cell = document.querySelector(`[data-estimate-item-id="${id}"] [data-estimate-column="designation"]`);
+          const element = cell?.querySelector<HTMLElement>(".estimate-line-nature-picker__label");
+          if (!cell || !element) return null;
+          const bounds = element.getBoundingClientRect();
+          const designation = cell.getBoundingClientRect();
+          const overlaps = Array.from(cell.querySelectorAll("input, button")).some((control) => {
+            const box = control.getBoundingClientRect();
+            return Math.min(bounds.right, box.right) > Math.max(bounds.left, box.left) &&
+              Math.min(bounds.bottom, box.bottom) > Math.max(bounds.top, box.top);
+          });
+          return {
+            text: element.innerText.replace(/▾$/, "").trim(),
+            fits: bounds.width > 0 && element.scrollWidth <= element.clientWidth && !overlaps &&
+              bounds.left >= designation.left && bounds.right <= Math.min(designation.right, window.innerWidth),
+          };
+        }, line.id);
+        expect(badge).toEqual({ text: label, fits: true });
+      }
+    };
+    await checkVisibleNatures();
     await expect(missingDot(pose.id)).toHaveCount(0);
     // The wanted zero cost is not painted as a missing entry; the forgotten one still is.
     const emptyCostCell = (id: string) => browser.locator(`[data-estimate-item-id="${id}"] .estimate-col--fo.estimate-cell--required-empty`);
@@ -138,7 +162,15 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     await expect(emptyCostCell(incomplete.id)).toHaveCount(1);
     await expect(notice).toHaveText("Total provisoire et incomplet : 1 fourniture sans coût.");
     const poseScreenshot = await app.screenshot("PS53901-pose-seule-editor");
-    await browser.keyboard.press("Escape");
+    const resizeDesignation = screen.getByRole("button", "Ajuster la largeur de la colonne Désignation", { exact: true });
+    for (let step = 0; step < 6; step++) await resizeDesignation.press("Shift+ArrowLeft");
+    const designationWidth = await browser.evaluate((id) =>
+      document.querySelector(`[data-estimate-item-id="${id}"] [data-estimate-column="designation"]`)?.getBoundingClientRect().width ?? null,
+    mixed.id);
+    expect(designationWidth).toBe(220);
+    await checkVisibleNatures();
+    await resizeDesignation.dblclick();
+    await browser.setViewport(originalViewport);
 
     // 5. The cost entered in the quote lifts the block and leaves the catalogue as it was.
     await showStandardColumns(ui);
@@ -160,14 +192,14 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     // 6. Customer outputs: the mention is printed with the designation of the POSE SEULE line, and only there.
     const saved = await readEstimate(browser, draft.versionId);
     const lines = Object.fromEntries(saved.items.filter((item) => item.item_type === "line").map((item) => [item.id, item]));
-    // 2 × (100,00 × 1,02 × 1,30 + 1 h × 40 × 1,20) ; 1 × (80,00 × 1,02 × 1,30 + 0,5 h × 48) ; 3 × 1,5 h × 48 : the zero
-    // supply cost of POSE SEULE keeps its labor invoiced.
-    expect([mixed.id, incomplete.id, pose.id].map((id) => [lines[id].line_nature, lines[id].pu_ht_cents, lines[id].line_total_ht_cents]))
-      .toEqual([["supply_and_labor", 18060, 36120], ["supply_and_labor", 13008, 13008], ["pose_only", 7200, 21600]]);
+    // Two radiators at 180,60 € each, the valve at 130,08 €, three fitting services at 72,00 € each,
+    // and one supply at 50,00 € × 1,02 × 1,30. POSE SEULE bills labor with zero supply cost.
+    expect([mixed.id, incomplete.id, pose.id, supply.id].map((id) => [lines[id].line_nature, lines[id].pu_ht_cents, lines[id].line_total_ht_cents]))
+      .toEqual([["supply_and_labor", 18060, 36120], ["supply_and_labor", 13008, 13008], ["pose_only", 7200, 21600], ["supply_only", 6630, 6630]]);
     await app.open("/dashboard/affaires");
     await generatePdf(browser, record, "ps539", draft.versionId);
     const frozen = await readEstimate(browser, draft.versionId);
-    expect([frozen.version.total_ht_cents, frozen.version.calc_snapshot_content_revision]).toEqual([70728, frozen.version.content_revision]);
+    expect([frozen.version.total_ht_cents, frozen.version.calc_snapshot_content_revision]).toEqual([77358, frozen.version.content_revision]);
     const bytes = await storedPdfBytes(browser, draft.versionId);
     const pdf = await pdfText(bytes);
     const [contractJson] = await querySql(`select coalesce(jsonb_agg(jsonb_build_object('title', row->>'title', 'poseOnly', row->'poseOnly')
@@ -179,10 +211,12 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     await writeFile(path.join(path.dirname(evidence.path), `${army.runPrefix}-pose-seule.pdf`), bytes);
     expect(contractRows).toEqual([
       { title: mixed.title, poseOnly: null }, { title: article, poseOnly: null }, { title: pose.title, poseOnly: true },
+      { title: supply.title, poseOnly: null },
     ]);
     for (const printedRow of [
       `${mixed.title} 2 u 180,60 € 361,20 €`, `${article} 1 u 130,08 € 130,08 €`,
-      `${pose.title} ${MENTION} 3 u 72,00 € 216,00 €`, "Total HT net 707,28 €",
+      `${pose.title} ${MENTION} 3 u 72,00 € 216,00 €`,
+      `${supply.title} 1 u 66,30 € 66,30 €`, "Total HT net 773,58 €",
     ]) expect(pdf.text).toContain(printedRow);
     expect(pdf.text.split(MENTION)).toHaveLength(2);
     const printed = await printText(app, screen, browser, draft.versionId);
@@ -199,10 +233,11 @@ armyTest("PS53901 an article without price stays a visible missing cost until th
     const copiedLines = copy.items.filter((item) => item.item_type === "line").map((item) => [item.title, item.line_nature, item.line_total_ht_cents]);
     expect(copiedLines).toEqual([
       [mixed.title, "supply_and_labor", 36120], [article, "supply_and_labor", 13008], [pose.title, "pose_only", 21600],
+      [supply.title, "supply_only", 6630],
     ]);
     const copyGating = await readGating(ui, duplicated.body.data.version_id);
     expect([copyGating.missingPrice, copyGating.natureMismatch]).toEqual([[], []]);
     await record("ps539-outcome", { product, productAfter, blocked, priced, sendable, copiedLines,
-      lines: [mixed.id, incomplete.id, pose.id].map((id) => lines[id]),
+      lines: [mixed.id, incomplete.id, pose.id, supply.id].map((id) => lines[id]),
       screenshots: [catalogueScreenshot, incompleteScreenshot, poseScreenshot, printScreenshot] });
   });
