@@ -146,7 +146,7 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
     readAllRows(() => supabase.from("products").select(ARTICLE_COLUMNS, { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true), { concurrency: 4 }),
     readAllRows(() => supabase.from("supplier_catalog_items").select("id, product_id, supplier_sku", { count: "exact" })
-      .eq("tenant_id", tenantId).not("supplier_sku", "is", null), { concurrency: 4 }),
+      .eq("tenant_id", tenantId).eq("reference_needs_review", false).not("supplier_sku", "is", null), { concurrency: 4 }),
     readAllRows(() => supabase.from("product_aliases").select("id, product_id, alias", { count: "exact" })
       .eq("tenant_id", tenantId), { concurrency: 4 }),
     readAllRows(() => supabase.from("supply_types").select("id, name", { count: "exact" }).eq("tenant_id", tenantId)),

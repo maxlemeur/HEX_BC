@@ -120,7 +120,7 @@ describe("CostingWorkbookImport", () => {
       "1 842 nouveaux articles en brouillon",
       "779 déjà au catalogue (inchangés)",
       "31 sans type de fourniture",
-      "613 références fournisseur du classeur ne sont pas reprises : elles le seront avec les achats.",
+      "613 références fournisseur figurent sur les nouveaux brouillons du classeur.",
       "57 remarques sur le classeur",
       "Ligne 7 · Rob.V.15 : Unité absente : « u » retenue.",
       "Ligne 9 : Ligne sans référence (colonne ID) : ignorée.",
