@@ -266,6 +266,10 @@ function mapSupabaseError(
     return badRequest("Unité du devis inconnue du référentiel.", error, "BAD_REQUEST");
   }
 
+  if (error.code === "23514" && normalizedMessage.includes("supplier_catalog_item_pending_reference_check")) {
+    return conflict("Vérifiez la référence fournisseur sur la fiche de l’article avant de continuer.");
+  }
+
   if (
     normalizedMessage.includes("supplier_pricebook_validity") ||
     normalizedMessage.includes("supplier_pricebook_check")

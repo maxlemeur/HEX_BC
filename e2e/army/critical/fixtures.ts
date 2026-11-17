@@ -203,7 +203,7 @@ export const armyTest = test.extend<{ army: ArmyState }>({
 
 export async function apiRequest<T = unknown>(
   browser: Browser,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   pathname: string,
   body?: unknown,
   headers: Record<string, string> = {}

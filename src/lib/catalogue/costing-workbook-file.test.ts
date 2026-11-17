@@ -74,6 +74,21 @@ describe("readCostingWorkbookFile", () => {
     expect(renamed).toEqual([HEADERS]);
   });
 
+  it("keeps Excel's leading zeros for article and supplier references without formatting prices", async () => {
+    const source = sheet([HEADERS, row({
+      "Type_ligne": "Art", "ID": 31, "Caractéristique": "Tube", "Matériau": "Inox", "Unité": "ml",
+      "F1_nom": "Fournisseur Atlas", "F1_ref": 4205, "PR. FO": 17.993,
+    })]);
+    for (const [label, format] of [["ID", "0000"], ["F1_ref", "000000"], ["PR. FO", "0.00"]]) {
+      source[XLSX.utils.encode_cell({ r: 1, c: HEADERS.indexOf(label) })].z = format;
+    }
+    const read = readCostingWorkbookRows(await readCostingWorkbookFile(workbook({ All_data: source })));
+    expect(read.articles[0]).toMatchObject({ reference: "0031", unit_price_cents: 1799 });
+    expect(read.supplierReferenceOccurrences).toMatchObject([{
+      article_reference: "0031", supplier_sku: "004205",
+    }]);
+  });
+
   it("refuses in one sentence naming the sheet a workbook without it (1)", async () => {
     const read = readCostingWorkbookFile(workbook({ Feuil1: sheet([HEADERS, TUBE]) }));
     await expect(read).rejects.toBeInstanceOf(CostingWorkbookFileError);
