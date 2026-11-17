@@ -75,6 +75,7 @@ type NullableArguments = NullableArgumentSpec<{
   commit_generated_ouvrages: "p_draft_lock_session_id";
   reject_generated_ouvrage_candidate: "p_reason";
   get_affaires_counters: "p_owner_user_id" | "p_search" | "p_statuses" | "p_favorites_only";
+  withdraw_product_reference_price: "p_expected_validation_id";
   begin_estimate_pdf_generation: "p_dispatch_id";
   publish_estimate_pdf_generation: "p_terms_snapshot";
   reserve_estimate_email_dispatch: "p_cc";
