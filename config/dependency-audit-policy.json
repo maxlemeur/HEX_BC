@@ -1,4 +1,12 @@
 {
   "version": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "package": "picomatch",
+      "source": 1247710,
+      "reason": "GHSA-fc5q-39xc-vjpf describes a regular expression denial of service risk for CI processes that evaluate untrusted glob patterns. The affected picomatch 4.0.7 is a development dependency used by Vitest and Vite and by the ESLint adapter through tinyglobby. The advisory lists no patched version at the time of approval. This temporary exception keeps Vitest and ESLint in use while a compatible fix is sought.",
+      "owner": "@maxlemeur",
+      "expiresAt": "2026-11-24T23:00:00Z"
+    }
+  ]
 }
