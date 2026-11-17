@@ -1,7 +1,8 @@
 import "server-only";
-import { ApiError, badRequest } from "@/lib/estimates/errors";
+import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
-import { driveFileRejection, type DriveRequest, type DriveState } from "./contracts";
+import { readLinkedDriveFile } from "./content";
+import { driveFileRejection, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";
 import { disconnectDriveConnection, driveAccessToken, forgetDriveAccess, listDriveConnections, requireOwnDriveConnection } from "./connections";
 import { DriveError } from "./errors";
 import { GoogleDriveReader } from "./provider";
@@ -32,6 +33,31 @@ export async function driveState(projectId: string): Promise<DriveState> {
   }));
 }
 
+async function checkDriveVersion(
+  { context, project }: Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>,
+  documentId: string,
+  signal: AbortSignal,
+): Promise<{ versionStatus: DriveVersionStatus }> {
+  const { data: document, error } = await context.supabase.from("affaire_intake_documents")
+    .select("tenant_id,mime_type,drive_connection_id,drive_file_id,drive_revision")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId)
+    .eq("source_provider", "google_drive").eq("upload_status", "uploaded")
+    .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de lire la pièce liée à Google Drive.");
+  if (!document?.drive_file_id) throw notFound("Pièce Google Drive introuvable dans cette affaire.");
+
+  const { version } = await readLinkedDriveFile(document, signal);
+  if (!version || !document.drive_revision || !/^\d+$/.test(document.drive_revision)) {
+    return { versionStatus: "unknown" };
+  }
+
+  // Google sends an int64 as a string. Converting to Number can mask a change.
+  const current = BigInt(version);
+  const recorded = BigInt(document.drive_revision);
+  if (current === recorded) return { versionStatus: "unchanged" };
+  return { versionStatus: current > recorded ? "newer" : "unknown" };
+}
+
 export async function executeDriveRequest(projectId: string, request: DriveRequest, signal: AbortSignal) {
   // Membership, active tenant and affaire ownership are resolved again on every operation,
   // before any Google token is used. The browser never holds one.
@@ -40,6 +66,7 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
   if (!configuration.enabled) throw new ApiError({ status: 503, code: "DRIVE_DISABLED",
     message: "Google Drive attend la validation et la configuration OAuth de ce POC." });
   return guarded(async () => {
+    if (request.action === "check_version") return checkDriveVersion(access, request.documentId, signal);
     if (request.action === "unlink_folder") {
       await removeDriveFolderLink(access);
       return { folder: null };

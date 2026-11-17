@@ -509,8 +509,8 @@ const administrationContracts: RouteContract[] = [
   },
   {
     id: "import-affaire-google-drive", method: "post", path: "/api/affaires/{projectId}/intake/google-drive",
-    summary: "Parcourir Drive, lier des fichiers ou le dossier de l'affaire, retirer un compte", tags: ["Affaires"],
-    description: "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Le corps désigne un compte Google enregistré du membre, jamais un jeton. Lier un fichier n'en copie pas le contenu : l'analyse le lit dans Drive. Résultats par fichier.",
+    summary: "Parcourir Drive, gérer des liens, vérifier la version d’une pièce ou retirer un compte", tags: ["Affaires"],
+    description: "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse.",
     pathParameters: [projectIdParameter],
     body: { schema: driveRequestSchema, description: "Au plus 20 fichiers par lien, 50 Mo par fichier. Origine identique requise." },
   },

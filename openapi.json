@@ -1548,8 +1548,8 @@
         "tags": [
           "Affaires"
         ],
-        "summary": "Parcourir Drive, lier des fichiers ou le dossier de l'affaire, retirer un compte",
-        "description": "POC désactivé par défaut. Lecture seule ; autorisation tenant/affaire à chaque opération. Le corps désigne un compte Google enregistré du membre, jamais un jeton. Lier un fichier n'en copie pas le contenu : l'analyse le lit dans Drive. Résultats par fichier.",
+        "summary": "Parcourir Drive, gérer des liens, vérifier la version d’une pièce ou retirer un compte",
+        "description": "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse.",
         "parameters": [
           {
             "name": "projectId",
@@ -31234,6 +31234,25 @@
             },
             "required": [
               "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "check_version"
+              },
+              "documentId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "action",
+              "documentId"
             ],
             "additionalProperties": false
           },

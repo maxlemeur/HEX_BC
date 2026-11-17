@@ -144,6 +144,16 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect(folderLink).toMatchObject({ folderId: folder.id, folderName: folder.name, connectionId, url: `https://drive.google.com/drive/folders/${folder.id}` });
   expect(await store.readDriveLinks(wrongTenant)).toEqual([]);
   expect(await store.readDriveFolderLink(wrongTenant)).toBeNull();
+  // Simulate only the version-check response. The dossier and its link still come from local RLS.
+  let versionStatus: "unchanged" | "newer" = "unchanged";
+  const versionChecks: unknown[] = [];
+  await browser.route(`**/api/affaires/${ids.projectId}/intake/google-drive`, async (route) => {
+    if (route.request.method !== "POST") return route.fallback();
+    const request = JSON.parse(route.request.postData ?? "{}");
+    if (request.action !== "check_version") return route.fallback();
+    versionChecks.push(request);
+    await route.fulfill({ json: { ok: true, data: { versionStatus } } });
+  });
   // An uncertain Drive document can be opened from the review illustration before classification.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.2 })
     .eq("project_id", ids.projectId)).error).toBeNull();
@@ -151,7 +161,10 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${linked.id}#intake`);
   await expect(screen.getByRole("link", { name: `Ouvrir ${file.name} dans Google Drive`, exact: true }))
     .toHaveAttribute("href", `https://drive.google.com/file/d/${file.id}/view`);
+  await expect(screen.getByText("Même version que dans le dossier.", { exact: true })).toBeVisible();
+  await expect(screen.getByText("Nouvelle version dans Google Drive.", { exact: true })).toHaveCount(0);
   await screen.getByRole("dialog", "Documents du dossier", { exact: true }).getByRole("button", "Fermer", { exact: true }).click();
+  versionStatus = "newer";
   // No worker runs here: settle the link as the classifier would once it has read the file in Drive.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
     .eq("project_id", ids.projectId)).error).toBeNull();
@@ -191,6 +204,12 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   await screen.getByRole("group", "Afficher les documents", { exact: true }).getByRole("button", /^Tous/).click();
   await expect(screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true })).toHaveCount(1);
   await browser.evaluate(() => { document.querySelector("[data-document-id]")?.scrollIntoView({ block: "center" }); return true; });
+  const preview = screen.getByRole("complementary", "Aperçu de la pièce sélectionnée", { exact: true });
+  await expect(preview.getByRole("heading", file.name, { exact: true })).toBeVisible();
+  await expect(preview.getByText("Nouvelle version dans Google Drive.", { exact: true })).toBeVisible();
+  expect(versionChecks.length).toBeGreaterThanOrEqual(2);
+  expect(versionChecks).toEqual(versionChecks.map(() => ({ action: "check_version", documentId: linked.id })));
+  expect((await documents())[0]).toMatchObject({ drive_revision: "1", storage_path: null });
   const dossierScreenshot = await relativeOutputPath(await app.screenshot("TI652-dossier-drive-links"));
   await screen.getByRole("button", { name: `Détails de ${file.name}`, exact: true }).click();
   await screen.getByText("Fichier dans Google Drive", { exact: true }).click();
@@ -242,6 +261,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   expect((await readEstimate(browser, ids.versionId)).items).toEqual([]);
   await recordEvidence(army, "DRV02-drive-links", { ids, documentIds: (await documents()).map((document) => document.id),
     dossierScreenshot, linkScreenshot, noStoredCopy: true, replayLinksOnce: true, folderRemembered: true, removalConfirmedInUi: true, relinkAfterRemoval: true, dpgfRead,
+    versionNotice: { simulatedResponses: ["unchanged", "newer"], documentId: linked.id, savedVersion: "1" },
     planWorkingCopy: { countedAsPlan: true, removedWithLink: true },
     boundary: "Real local RLS and HTTP/UI. Fictional Drive metadata and sealed token; no Google or OAuth, no worker read (classification settled under owner RLS); the métré working copy is written by the member as the plan sync does, without a Drive read." });
 });

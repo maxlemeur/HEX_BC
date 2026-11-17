@@ -16,7 +16,11 @@ enregistre un lien : identifiant du fichier, dossier d’origine, révision lue,
 qui l’a lié. Le classement lit le fichier dans Drive avec le compte de ce membre,
 dans les mêmes limites qu’avant (50 Mo par fichier, 20 fichiers par lien, formats
 du dépôt local), et vérifie que la révision n’a pas changé pendant la lecture.
-Une modification ultérieure dans Drive n’est pas réanalysée automatiquement.
+À l’ouverture de l’aperçu d’une pièce liée, le propriétaire de l’affaire ou un
+administrateur voit si le numéro de version Drive a augmenté depuis la révision
+enregistrée, ou si la vérification est impossible. Google peut incrémenter ce
+numéro lors d’un changement de métadonnées. Le contrôle lit les métadonnées de
+cette pièce avec le compte qui l’a liée. La relance de l’analyse reste manuelle.
 Un même fichier n’est lié qu’une fois par affaire ; retirer le lien laisse le
 fichier dans Drive et permet de le lier à nouveau.
 
