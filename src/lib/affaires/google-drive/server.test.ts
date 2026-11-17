@@ -88,6 +88,62 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     vi.unstubAllEnvs();
   });
 
+  describe("checking the current version of a linked piece", () => {
+    let documentId: string;
+    let row: Record<string, unknown>;
+    const check = () => execute({ action: "check_version", documentId });
+
+    beforeEach(async () => {
+      google.files.get("plan_demo")!.version = "9007199254740992";
+      await link();
+      [row] = backend.rows("affaire_intake_documents").values();
+      documentId = String(row.id);
+      google.fetchMock.mockClear();
+    });
+
+    it("reports the same Drive version", async () => {
+      expect(await check()).toEqual({ versionStatus: "unchanged" });
+      expect(downloads()).toBe(0);
+    });
+
+    it("reports a newer Drive version without modifying the piece or rearming analysis", async () => {
+      google.files.get("plan_demo")!.version = "9007199254740993";
+      const before = structuredClone(backend.tables);
+      expect(await check()).toEqual({ versionStatus: "newer" });
+      expect(backend.tables).toEqual(before);
+      expect(downloads()).toBe(0);
+    });
+
+    it("does not infer a new version when there is no recorded version", async () => {
+      row.drive_revision = null;
+      expect(await check()).toEqual({ versionStatus: "unknown" });
+      expect(downloads()).toBe(0);
+    });
+
+    it("reports lost access to the linked file without a version result", async () => {
+      google.responses.set("plan_demo", 404);
+      await expect(check()).rejects.toMatchObject({ code: "DRIVE_NOT_FOUND" });
+      expect(downloads()).toBe(0);
+    });
+
+    it("refuses to read with a removed account", async () => {
+      row.drive_connection_id = null;
+      await expect(check()).rejects.toMatchObject({ code: "DRIVE_CONNECTION_REMOVED" });
+      expect(google.fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["another affaire", { project_id: "other_project" }],
+      ["another tenant", { tenant_id: "other_tenant" }],
+      ["a removed link", { deleted_at: "2026-11-17T12:00:00Z" }],
+      ["a link being removed", { deletion_token: "deleting" }],
+    ])("rejects %s before contacting Drive", async (_, fields) => {
+      Object.assign(row, fields);
+      await expect(check()).rejects.toMatchObject({ status: 404 });
+      expect(google.fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("keeps an added account between visits without ever exposing its token", async () => {
     const secret = backend
       .rows("google_drive_connection_secrets")

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/affaires/google-drive/server", () => ({ driveState: vi.fn(), executeDriveRequest: vi.fn() }));
 vi.mock("@/lib/affaires/intake-server", () => ({ processAffaireIntakeUpload: vi.fn() }));
 import { executeDriveRequest } from "@/lib/affaires/google-drive/server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
 import { POST } from "./route";
 const url = "http://localhost:3000/api/affaires/11111111-1111-4111-8111-111111111111/intake/google-drive";
 const context = { params: Promise.resolve({ projectId: "11111111-1111-4111-8111-111111111111" }) };
@@ -14,6 +15,17 @@ describe("Google Drive HTTP boundary", () => {
   it("rejects another origin before the connector", async () => {
     expect((await POST(request(body, "https://example.invalid"), context)).status).toBe(400);
     expect(executeDriveRequest).not.toHaveBeenCalled();
+  });
+  it("checks one linked document without scheduling an upload or trusting a Drive file id", async () => {
+    const check = { action: "check_version", documentId: "33333333-3333-4333-8333-333333333333" };
+    expect((await POST(request({ ...check, fileId: "other_file" }), context)).status).toBe(400);
+    expect(executeDriveRequest).not.toHaveBeenCalled();
+    vi.mocked(executeDriveRequest).mockResolvedValueOnce({ versionStatus: "newer" });
+    const response = await POST(request(check), context);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ ok: true, data: { versionStatus: "newer" } });
+    expect(executeDriveRequest).toHaveBeenCalledWith((await context.params).projectId, check, expect.any(AbortSignal));
+    expect(processAffaireIntakeUpload).not.toHaveBeenCalled();
   });
   it("bounds streamed JSON, not just content-length", async () => {
     expect((await POST(request({ ...body, pageToken: "x".repeat(33 * 1024) }), context)).status).toBe(400);
