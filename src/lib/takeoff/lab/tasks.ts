@@ -6,13 +6,13 @@ import {
 } from "@/lib/takeoff/vectors/group-decisions";
 import { groupAnswerChoices } from "@/lib/takeoff/vectors/group-evidence";
 import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
+import { TAKEOFF_PAGE_TYPE_LABELS, TAKEOFF_PAGE_TYPE_QUESTION } from "@/lib/takeoff/page-triage";
 
 // Task registry of the takeoff lab (TI-661). One task per essai. Adding a task
 // is one entry here: an extraction (TakeoffExchangeSchema on ChatGPT) or a
 // generic « choice » question with fixed options (2 to 255, unique), answered
 // by Decisions (gpt-6-luna, with a probability per option) or by a ChatGPT
-// model asked for the same choice. The page sort of TI-663 is a choice task
-// added in its own change.
+// model asked for the same choice.
 // The editable prompt is the extraction prompt, or the question's instructions
 // (8 000 characters at most, Decisions' limit).
 // « Classe de calque » (TI-662 L3c) is launched from the vectors page: one
@@ -80,6 +80,29 @@ const planDiscipline: LabTask = {
   }),
 };
 
+const pageTriage: LabTask = {
+  id: "tri-de-page",
+  kind: "choice",
+  screen: "essai",
+  label: "Tri de page",
+  description: "Identifie le type dominant de la page du plan.",
+  providers: ["decisions", "chatgpt"],
+  defaultPrompt: TAKEOFF_PAGE_TYPE_QUESTION.instructions,
+  promptBase: null,
+  promptMax: DECISIONS_INSTRUCTIONS_MAX,
+  question: {
+    name: TAKEOFF_PAGE_TYPE_QUESTION.name,
+    label: "Type de page",
+    choices: TAKEOFF_PAGE_TYPE_QUESTION.choices.map((choice) => ({
+      ...choice, label: TAKEOFF_PAGE_TYPE_LABELS[choice.value],
+    })),
+  },
+  evidence: ({ documentId, pages, page, region }) => ({
+    tache: "tri de page",
+    document: { id: documentId, pages, page_montree: page, zone_recadree: region },
+  }),
+};
+
 const OTHER_CLASS_LABELS: Record<(typeof OTHER_CLASSES)[number], string> = {
   mur: "Mur", cloison: "Cloison", fond: "Fond de plan", cotation: "Cotation", texte: "Texte", autre: "Autre",
 };
@@ -124,7 +147,7 @@ const vectorGroupClass: LabTask = {
   },
 };
 
-export const LAB_TASKS: readonly LabTask[] = [extraction, planDiscipline, vectorGroupClass];
+export const LAB_TASKS: readonly LabTask[] = [extraction, planDiscipline, pageTriage, vectorGroupClass];
 
 export function findLabTask(id: string) {
   return LAB_TASKS.find((task) => task.id === id) ?? null;

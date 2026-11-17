@@ -150,7 +150,13 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   facade.drawText("FACADE NORD - ELEVATION (fictive)", { x: 60, y: 540, size: 18, font });
   for (let index = 0; index < 4; index++) facade.drawRectangle({ x: 80 + index * 180, y: 120, width: 150, height: 300, borderColor: rgb(0.2, 0.2, 0.2), borderWidth: 3 });
   const plan = pdf.addPage([842, 595]);
-  plan.drawText("PLAN PLOMBERIE R+1 Zone 1 (fictif)", { x: 60, y: 540, size: 18, font });
+  plan.drawText("PLAN PLOMBERIE Zone 1 (fictif)", { x: 60, y: 540, size: 18, font });
+  // The title block follows more than 12,000 characters in PDF reading order.
+  for (let index = 0; index < 140; index++) {
+    plan.drawText(`REPERE ${index}: CONDUITE FICTIVE AVEC ISOLANT, ROBINET DE VIDANGE ET SUPPORT DE FIXATION (EXEMPLE)`,
+      { x: 60, y: 500 - 3 * index, size: 7, font });
+  }
+  plan.drawText("NIVEAU R+7 - ZONE 1", { x: 700, y: 40, size: 10, font });
   plan.drawLine({ start: { x: 80, y: 300 }, end: { x: 760, y: 300 }, thickness: 4, color: rgb(0, 0, 0.8) });
   plan.drawLine({ start: { x: 400, y: 120 }, end: { x: 400, y: 480 }, thickness: 4, color: rgb(0.8, 0, 0) });
   const pdfPath = path.resolve(".e2e/army/critical/artifacts", `${prefix}-facade-et-plan.pdf`);
@@ -184,7 +190,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   await propose.click();
   const table = triage.getByRole("table", `Tri proposé pour ${name}`, { exact: true });
   await expect(table.getByRole("row", /^Page 1\b.*Façade.*À écarter.*Proposée/)).toBeVisible();
-  await expect(table.getByRole("row", /^Page 2\b.*Plan de réseau.*R\+1.*Z1.*À garder.*Proposée/)).toBeVisible();
+  await expect(table.getByRole("row", /^Page 2\b.*Plan de réseau.*R\+7.*Z1.*À garder.*Proposée/)).toBeVisible();
   // One call per page, each with its rendered thumbnail; scope R+1 / Zone 1 adds the level and zone questions.
   expect((await triageCalls()).sort((left, right) => Number(left.page) - Number(right.page))).toEqual([
     { provider: "decisions-fixture", questions: 3, task: "page-triage", page: 1, images: 1 },
@@ -193,7 +199,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   const proposed = await read();
   expect(proposed.source).toMatchObject({ active: true, pages: [], page_triage: { accepted: false, page_count: 2 } });
   expect(proposed.source.page_triage?.pages.map((page) => [page.page, page.type, page.level, page.zone, page.proposal, page.status]))
-    .toEqual([[1, "facade", "R+1", "Z1", "exclude", "proposed"], [2, "reseau", "R+1", "Z1", "keep", "proposed"]]);
+    .toEqual([[1, "facade", "R+1", "Z1", "exclude", "proposed"], [2, "reseau", "R+7", "Z1", "keep", "proposed"]]);
   expect(proposed.row.confirmed_snapshot).toBeNull();
   await triage.getByRole("button", `Accepter le tri de ${name}`, { exact: true }).click();
   await saveTakeoffPreparation({ ...ui, army });

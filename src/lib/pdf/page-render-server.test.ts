@@ -91,6 +91,20 @@ describe("page crop of renderPdfPages", () => {
   });
 });
 
+it("keeps complete text items at the end of a bounded region excerpt", SPAWN, async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 400]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawText("PLAN FICTIF", { x: 80, y: 280, size: 12, font });
+  page.drawText("INDEX", { x: 500, y: 60, size: 12, font });
+  page.drawText("R+14", { x: 500, y: 40, size: 12, font });
+  const result = await renderPdfPages(await doc.save(), {
+    pages: [1], maxTextCharsPerPage: 5, textRegion: { x0: 0.8, y0: 0.8, x1: 1, y1: 1, maxChars: 9 },
+  });
+  expect(result.status).toBe("complete");
+  expect(result.pages[0]).toMatchObject({ text: "PLAN ", textTruncated: true, regionText: "INDEX" });
+});
+
 // Ways a page that embeds a raster above maxEmbeddedImagePixels (TI-715) could
 // be misread, written before the fix. Under stopAtErrors PDF.js throws on the
 // oversize image, and the render resolves with the operators read so far:
