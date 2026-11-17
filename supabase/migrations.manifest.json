@@ -354,6 +354,8 @@
     "20261114121243_purchase_order_sends.sql": "58a1e571f5bdf62f805f4359955efa769141ec14a543818e06837cf2183a4d83",
     "20261114133955_estimate_email_redirected.sql": "4b6213dc2868ba41927618392b1969fc5db273d6da687376fbda1060739f7ab6",
     "20261115213853_intake_document_transcriptions.sql": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "20261117193734_workbook_supplier_references.sql": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+    "20261117195542_product_reference_price_withdrawal.sql": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
     "20261117200342_material_request_affaire_storage_cleanup.sql": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737"
   }
 }

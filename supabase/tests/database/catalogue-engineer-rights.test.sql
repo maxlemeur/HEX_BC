@@ -513,5 +513,101 @@ select is(
   'C3 an engineer deletes the supplier they added'
 );
 
+
+-- TI-711: a batch uses the same article rights as the interactive write. A concurrent or stale
+-- batch must leave no partial association and no existing association changed.
+select is(
+  pg_temp.ce_run('admin_a', format('select public.set_tenant_catalogue_policy(%L, false)', pg_temp.fx('tenant_a'))),
+  'ok 1', 'TI-711 closes shared catalogue edits before testing ownership'
+);
+create function pg_temp.import_catalogue_ref(tenant_key text, product_id uuid, supplier_id uuid)
+returns text
+language sql
+as $$
+  select format('select public.import_workbook_supplier_references(%L, %L)',
+    pg_temp.fx(tenant_key),
+    jsonb_build_array(jsonb_build_object(
+      'product_id', product.id, 'product_reference', product.reference,
+      'supplier_id', supplier.id, 'supplier_name', supplier.name, 'supplier_sku', '00042'
+    )))
+  from public.products product cross join public.suppliers supplier
+  where product.id = import_catalogue_ref.product_id and supplier.id = import_catalogue_ref.supplier_id;
+$$;
+
+select matches(pg_temp.ce_run('viewer', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000a1')),
+  '^42501 ', 'TI-711 a reader cannot call the import RPC');
+select matches(pg_temp.ce_run('engineer_2', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000a1')),
+  '^P0001 WORKBOOK_SUPPLIER_REFERENCES_CHANGED', 'TI-711 an engineer cannot write a reference for a colleague’s article');
+select matches(pg_temp.ce_run('admin_a', pg_temp.import_catalogue_ref('tenant_b',
+  'ce689000-0000-4000-8000-0000000000b2', 'ce689000-0000-4000-8000-0000000000b1')),
+  '^42501 ', 'TI-711 membership of a second company does not allow writing into it while it is inactive');
+select matches(pg_temp.ce_run('admin_a', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000b1')),
+  '^P0001 WORKBOOK_SUPPLIER_REFERENCES_CHANGED', 'TI-711 a foreign supplier cannot be attached');
+select is(pg_temp.ce_run('engineer_1', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000a1')),
+  'ok 1', 'TI-711 an engineer can attach an existing supplier to their own article');
+select is((select row(item.supplier_sku, item.is_active, item.reference_needs_review, item.created_by)::text
+  from public.supplier_catalog_items item where item.product_id = 'ce689000-0000-4000-8000-0000000000c2'
+  and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'),
+  format('(00042,f,t,%s)', pg_temp.fx('engineer_1')),
+  'TI-711 the reference keeps its leading zeros, is pending, inactive and attributed');
+select matches(pg_temp.ce_run('engineer_1', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000a1')),
+  '^P0001 WORKBOOK_SUPPLIER_REFERENCES_CHANGED', 'TI-711 a stale write cannot overwrite the existing pair');
+select matches(pg_temp.ce_run('engineer_2', $$select public.create_supplier_catalog_price(
+  '{"product_id":"ce689000-0000-4000-8000-0000000000c2","supplier_id":"ce689000-0000-4000-8000-0000000000a1",
+    "price":{"unit_price_cents":1900}}'::jsonb)$$),
+  '^23514 .*supplier_catalog_item_pending_reference_check',
+  'TI-711 a manual price without SKU cannot silently verify the pending reference');
+select matches(pg_temp.ce_run('engineer_2', $$select public.bulk_create_supplier_prices(
+  '[{"product_id":"ce689000-0000-4000-8000-0000000000c2","supplier_id":"ce689000-0000-4000-8000-0000000000a1",
+    "unit_price_cents":1900}]'::jsonb)$$),
+  '^23514 .*supplier_catalog_item_pending_reference_check',
+  'TI-711 a batch of prices cannot silently verify the pending reference either');
+select matches(pg_temp.ce_run('engineer_2', $$insert into public.supplier_pricebook
+  (tenant_id, supplier_id, product_id, supplier_catalog_item_id, unit, unit_price_cents, currency, valid_from, is_active)
+  select item.tenant_id, item.supplier_id, item.product_id, item.id, 'u', 1900, 'EUR', date '2026-11-17', true
+  from public.supplier_catalog_items item
+  where item.product_id = 'ce689000-0000-4000-8000-0000000000c2'
+    and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'$$),
+  '^23514 .*supplier_catalog_item_pending_reference_check',
+  'TI-711 a direct price insert cannot attach or copy an unverified reference');
+select is(pg_temp.ce_run('engineer_1', $$select public.save_supplier_catalog_item(
+  'ce689000-0000-4000-8000-0000000000c2', 'ce689000-0000-4000-8000-0000000000a1', '00043', null, true)$$),
+  'ok 1', 'TI-711 an editor verifies the reference with the usual article form');
+select is((select row(item.supplier_sku, item.is_active, item.reference_needs_review)::text
+  from public.supplier_catalog_items item where item.product_id = 'ce689000-0000-4000-8000-0000000000c2'
+  and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'),
+  '(00043,t,f)', 'TI-711 explicit verification activates the reference and clears the marker');
+
+
+select matches(pg_temp.ce_run('admin_a', format($statement$
+  select public.import_workbook_supplier_references(%L, (
+    select jsonb_agg(jsonb_build_object('product_id', product.id, 'product_reference', product.reference,
+      'supplier_id', supplier.id, 'supplier_name', supplier.name, 'supplier_sku', 'ATOMIC-1'))
+    from public.products product cross join public.suppliers supplier
+    where product.id in ('ce689000-0000-4000-8000-0000000000a2', 'ce689000-0000-4000-8000-0000000000c2')
+      and supplier.id = 'ce689000-0000-4000-8000-0000000000a1'
+  ))
+$statement$, pg_temp.fx('tenant_a'))),
+  '^P0001 WORKBOOK_SUPPLIER_REFERENCES_CHANGED', 'TI-711 a conflict with one pair rolls back the complete batch');
+select ok(not exists(select 1 from public.supplier_catalog_items item
+  where item.product_id = 'ce689000-0000-4000-8000-0000000000a2'
+    and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'),
+  'TI-711 a valid other pair was not saved by a failed batch');
+select is(pg_temp.ce_run('admin_a', pg_temp.import_catalogue_ref('tenant_a',
+  'ce689000-0000-4000-8000-0000000000a2', 'ce689000-0000-4000-8000-0000000000a1')),
+  'ok 1', 'TI-711 the valid pair can be imported on its own');
+select is(pg_temp.ce_run('admin_a', $$select public.save_supplier_catalog_item(
+  'ce689000-0000-4000-8000-0000000000a2', 'ce689000-0000-4000-8000-0000000000a1', null, null, false)$$),
+  'ok 1', 'TI-711 a catalogue editor can reject a pending reference');
+select is((select row(item.supplier_sku, item.is_active, item.reference_needs_review)::text
+  from public.supplier_catalog_items item where item.product_id = 'ce689000-0000-4000-8000-0000000000a2'
+  and item.supplier_id = 'ce689000-0000-4000-8000-0000000000a1'),
+  '(,f,f)', 'TI-711 rejection discards the pending SKU so prices cannot reuse it');
+
 select * from finish();
 rollback;

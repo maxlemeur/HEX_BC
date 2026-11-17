@@ -56,6 +56,7 @@ const ITEM_ALPHA = {
   supplier_sku: "NA-4471",
   product_url: "https://fournisseur.example/na-4471",
   is_active: true,
+  reference_needs_review: false,
   has_price: true,
 };
 const ITEM_BETA = {
@@ -65,6 +66,7 @@ const ITEM_BETA = {
   supplier_sku: "CB-90-50",
   product_url: null,
   is_active: true,
+  reference_needs_review: false,
   has_price: false,
 };
 const ITEM_GAMMA_WITHDRAWN = {
@@ -74,6 +76,7 @@ const ITEM_GAMMA_WITHDRAWN = {
   supplier_sku: "DG-1",
   product_url: null,
   is_active: false,
+  reference_needs_review: false,
   has_price: false,
 };
 

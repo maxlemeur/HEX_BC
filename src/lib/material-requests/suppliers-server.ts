@@ -98,7 +98,7 @@ export async function listLineSupplierProposals(projectId: string, requestId: st
   // the line's own supplier; an inactive one means the supplier was withdrawn from the article.
   const { data: itemRows, error: itemsError } = await readAllRowsInChunks(uniqueIds(linked.map((row) => row.product_id)), (chunk) => supabase
     .from("supplier_catalog_items")
-    .select("id, product_id, supplier_id, supplier_sku, product_url, is_active", { count: "exact" })
+    .select("id, product_id, supplier_id, supplier_sku, product_url, is_active, reference_needs_review", { count: "exact" })
     .eq("tenant_id", tenantId)
     .in("product_id", chunk));
   if (itemsError) throw mapSupabaseError(itemsError, "Impossible de charger les références fournisseurs.");
@@ -109,7 +109,10 @@ export async function listLineSupplierProposals(projectId: string, requestId: st
       ? { supplier_sku: item.supplier_sku, product_url: item.product_url }
       : { supplier_sku: null, product_url: null };
   };
-  const withdrawnFrom = (productId: string, supplierId: string) => itemOf.get(`${productId}|${supplierId}`)?.is_active === false;
+  const withdrawnFrom = (productId: string, supplierId: string) => {
+    const item = itemOf.get(`${productId}|${supplierId}`);
+    return item?.is_active === false && !item.reference_needs_review;
+  };
   const references = Object.fromEntries(supplied.map((row) => [row.id, referenceAt(row.product_id, row.supplier_id)]));
   if (lines.length === 0) return { lines: {}, references };
 
@@ -214,9 +217,10 @@ type ItemRow = {
   supplier_sku: string | null;
   product_url: string | null;
   is_active: boolean;
+  reference_needs_review: boolean;
 };
 
-const ITEM_COLUMNS = "id, supplier_id, supplier_sku, product_url, is_active";
+const ITEM_COLUMNS = "id, supplier_id, supplier_sku, product_url, is_active, reference_needs_review";
 
 /** Items as the screen shows them: with their supplier's name and whether a price of the price book uses them. */
 async function describeItems(context: MaterialRequestContext, rows: readonly ItemRow[]): Promise<ArticleSupplierItem[]> {
@@ -245,6 +249,7 @@ async function describeItems(context: MaterialRequestContext, rows: readonly Ite
       supplier_sku: row.supplier_sku,
       product_url: row.product_url,
       is_active: row.is_active,
+      reference_needs_review: row.reference_needs_review === true,
       has_price: priced.has(row.id),
     }))
     .sort((left, right) =>

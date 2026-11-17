@@ -52,8 +52,7 @@ export type CostingWorkbookImportReport = {
   /** Among new_articles: the company has no supply type with the code the workbook proposes. */
   without_supply_type: number;
   /**
-   * Supplier references the workbook gives for the new articles: not imported. They come with purchasing
-   * (lot 2), together with dated prices.
+   * Supplier references the workbook gives for the new articles, counted by the draft import.
    */
   supplier_references_not_imported: number;
   /** The first COSTING_WORKBOOK_REPORTED_ISSUES issues of the reading, in sheet order. */
@@ -65,3 +64,44 @@ export type CostingWorkbookImportReport = {
 
 /** `details` of a COSTING_WORKBOOK_IMPORT_INCOMPLETE error: the report of what was written before the stop. */
 export type CostingWorkbookImportIncompleteDetails = { report: CostingWorkbookImportReport };
+
+
+export const costingWorkbookSupplierReferencesSchema = costingWorkbookImportSchema.extend({
+  preview_token: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).refine((input) => !input.confirm || Boolean(input.preview_token), {
+  path: ["preview_token"],
+  message: "Vérifiez l’aperçu avant de confirmer.",
+});
+
+export type CostingWorkbookSupplierReferencesInput = z.infer<typeof costingWorkbookSupplierReferencesSchema>;
+
+export const costingWorkbookSupplierReferenceDecision = z.enum([
+  "invalid_article_reference",
+  "article_not_found",
+  "ambiguous_article",
+  "invalid_supplier_name",
+  "supplier_not_found",
+  "ambiguous_supplier",
+  "invalid_supplier_sku",
+  "article_locked",
+  "different_existing_reference",
+  "withdrawn_reference",
+  "conflicting_workbook_references",
+]);
+
+export const costingWorkbookSupplierReferenceReportSchema = z.object({
+  confirmed: z.boolean(),
+  to_import: z.number().int().nonnegative(),
+  imported: z.number().int().nonnegative(),
+  already_registered: z.number().int().nonnegative(),
+  duplicates: z.number().int().nonnegative(),
+  preview_token: z.string().nullable(),
+  for_decision: z.array(z.object({
+    row: z.number().int().positive(),
+    slot: z.number().int().min(1).max(3),
+    // The dialog resolves these coordinates against the workbook it already holds.
+    reason: costingWorkbookSupplierReferenceDecision,
+  })),
+});
+
+export type CostingWorkbookSupplierReferenceReport = z.infer<typeof costingWorkbookSupplierReferenceReportSchema>;

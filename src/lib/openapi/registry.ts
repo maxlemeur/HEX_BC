@@ -123,12 +123,14 @@ import {
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
-import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
+import { referencePriceActionSchema, referencePriceHistorySchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
   COSTING_WORKBOOK_MAX_ROWS,
   costingWorkbookImportSchema,
+  costingWorkbookSupplierReferencesSchema,
+  costingWorkbookSupplierReferenceReportSchema,
   type CostingWorkbookImportReport,
 } from "@/lib/catalogue/costing-workbook-contract";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
@@ -3018,16 +3020,35 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "post",
     path: "/api/catalogue/reference-price",
-    summary: "Valider une référence ou préciser le transport d’une offre",
-    description: "Réservé aux administrateurs du tenant actif. La validation recalcule la proposition et vérifie son empreinte, puis conserve auteur, date et sources. Aucun devis existant n’est réécrit. Un prix manuel exige une justification.",
+    summary: "Valider ou retirer une référence, ou préciser le transport d’une offre",
+    description: "Réservé aux administrateurs du tenant actif. La validation vérifie l’empreinte de la proposition et conserve auteur, date et sources. Un prix manuel exige une justification. Le retrait vérifie la version affichée et journalise le passage à un prix manquant. Les coûts des devis existants sont conservés.",
     tags: ["Catalogue"],
-    requestBody: jsonBody({ name: "ReferencePriceAction", description: "Validation explicite ou condition de transport.", schema: referencePriceActionSchema }),
+    requestBody: jsonBody({ name: "ReferencePriceAction", description: "Validation, retrait explicite ou condition de transport.", schema: referencePriceActionSchema }),
     responses: {
       "200": jsonResponse("Décision enregistrée."),
       "400": jsonResponse("Requête invalide.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "403": jsonResponse("Responsable autorisé requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
-      "409": jsonResponse("La proposition ou l’offre a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Article introuvable dans le tenant actif.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("La proposition, l’offre ou la référence a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/catalogue/reference-price/history",
+    summary: "Consulter l’historique des prix de référence d’un article",
+    description: "Validations et retraits de l’entreprise active, les plus récents en premier. Dix événements par page.",
+    tags: ["Catalogue"],
+    parameters: [
+      queryParameter({ name: "product_id", description: "Article à examiner.", schemaName: "ReferencePriceProductId", schema: uuidSchema, required: true }),
+      queryParameter({ name: "page", description: "Page des événements, à partir de 1.", schemaName: "ReferencePriceHistoryPage", schema: z.number().int().min(1).max(10000000), required: false }),
+    ],
+    responses: {
+      "200": jsonResponse("Historique des décisions.", successResponseSchemaDefinition("ApiReferencePriceHistory", referencePriceHistorySchema)),
+      "400": jsonResponse("Paramètres invalides.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Article introuvable dans le tenant actif.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
@@ -3035,7 +3056,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "post",
     path: "/api/catalogue/workbook-import",
     summary: "Importer le classeur de chiffrage en articles brouillons",
-    description: `Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, ${COSTING_WORKBOOK_MAX_ROWS} au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Aucun fournisseur, aucune référence ni aucun prix fournisseur n’est écrit (ils viennent avec les achats, lot 2) : le rapport compte les références fournisseurs des nouveaux articles. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code ${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report (ce qui a été créé). Relancer le même classeur crée le reste.`,
+    description: `Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, ${COSTING_WORKBOOK_MAX_ROWS} au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui de l’entreprise qui a le code proposé, jamais créé. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code ${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report (ce qui a été créé). Relancer le même classeur crée le reste.`,
     tags: ["Catalogue"],
     requestBody: jsonBody({ name: "CostingWorkbookImport", description: "Lignes de l’onglet All_data et confirmation.", schema: costingWorkbookImportSchema }),
     responses: {
@@ -3046,6 +3067,23 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "409": jsonResponse(`Un article du classeur a été ajouté au catalogue entre-temps, ou un calcul de devis est en cours (${COSTING_WORKBOOK_IMPORT_INCOMPLETE} et details.report quand des lots précédents ont créé des brouillons).`, openApiSharedSchemaDefinitions.apiFailureResponse),
       "413": jsonResponse("Corps de plus de 4 Mio.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "422": jsonResponse(`Onglet d’une autre forme que celle du classeur de chiffrage (${COSTING_WORKBOOK_FORMAT}).`, openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/catalogue/workbook-import/supplier-references",
+    summary: "Reprendre les références fournisseur du classeur de chiffrage",
+    description: "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif. Les liaisons existantes et les prix sont conservés.",
+    tags: ["Catalogue"],
+    requestBody: jsonBody({ name: "CostingWorkbookSupplierReferences", description: "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.", schema: costingWorkbookSupplierReferencesSchema }),
+    responses: {
+      "200": jsonResponse("Rapport de la reprise.", successResponseSchemaDefinition("ApiCostingWorkbookSupplierReferenceReport", costingWorkbookSupplierReferenceReportSchema)),
+      "400": jsonResponse("Corps invalide ou empreinte manquante.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("Administrateur ou ingénieur requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("Aperçu périmé. Actualisez-le avant de confirmer.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "413": jsonResponse("Corps de plus de 4 Mio.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "422": jsonResponse("Onglet d’une autre forme que celle du classeur de chiffrage.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {

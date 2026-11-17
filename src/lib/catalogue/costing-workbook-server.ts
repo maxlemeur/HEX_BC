@@ -37,8 +37,8 @@ import type { Database } from "@/types/database";
  *    workbook again creates nothing;
  *  - its supply type is the company's own with the code the reader proposes, or none (counted): supply types
  *    carry the estimate's FO provision and are never created here;
- *  - its supplier references are counted, not imported: they come with purchasing (lot 2), together with dated
- *    prices (the workbook's supplier prices are undated).
+ *  - the draft import only counts supplier references. Supplier references have their own confirmed import;
+ *    supplier prices are undated and never written by either action.
  * Whoever may add articles to the catalogue imports (TI-689); the drafts are written with their own client, so
  * the catalogue policies have the last word. Every read is scoped to the active company: a member of two
  * companies must not see the other's references or supply types.
@@ -62,7 +62,7 @@ type Company = {
   supplyTypeIdOf: ReadonlyMap<string, string>;
 };
 
-function readSheet(rows: CostingWorkbookImportInput["rows"]): CostingWorkbookReadResult {
+export function readCostingWorkbookImportSheet(rows: CostingWorkbookImportInput["rows"]): CostingWorkbookReadResult {
   try {
     return readCostingWorkbookRows(rows);
   } catch (error) {
@@ -166,7 +166,7 @@ export async function importCostingWorkbook(input: CostingWorkbookImportInput): 
   if (!canAddToCatalogue(context.tenantRole)) throw forbidden(PRODUCT_WRITE_REFUSAL);
 
   // The sheet first: a sheet of another shape is refused without reading the catalogue.
-  const read = readSheet(input.rows);
+  const read = readCostingWorkbookImportSheet(input.rows);
   const plan = planImport(read, await readCompany(context));
   if (!input.confirm) return reportOf(plan, false, plan.drafts);
   return writeDrafts(context, plan);

@@ -6,12 +6,16 @@ import useSWR from "swr";
 import { fetchApi } from "@/components/catalogue/api";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
+import {
+  AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
-import type { ReferencePriceResponse } from "@/lib/catalogue/reference-price-schemas";
+import type { ReferencePriceHistory, ReferencePriceResponse } from "@/lib/catalogue/reference-price-schemas";
 
 const exclusions: Record<string, string> = {
   inactive: "Offre ou fournisseur inactif", missing_supplier_reference: "Référence fournisseur manquante",
@@ -26,6 +30,52 @@ function transportLabel(mode: string | null) {
   return mode === "included" ? "Transport inclus" : mode === "excluded" ? "Hors transport" : "À préciser";
 }
 
+function formatOfferPrice(cents: number, currency: string) {
+  if (/^[a-z]{3}$/i.test(currency)) {
+    return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency });
+  }
+  return `${(cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${currency}`;
+}
+
+function HistoryEntry({ event }: { event: ReferencePriceHistory["events"][number] }) {
+  const withdrawal = event.operation === "withdrawal";
+  const price = `${formatEUR(event.unit_price_cents)} / ${event.unit}`;
+  const validation = event.operation === "average" ? "Moyenne validée" : "Prix manuel validé";
+  return (
+    <li className="space-y-1.5 p-3">
+      <p className="font-medium text-foreground">{withdrawal ? "Retrait de la référence" : `${validation} · ${price}`}</p>
+      <p className="break-words text-xs text-muted-foreground">
+        {new Date(event.occurred_at).toLocaleString("fr-FR")} · {event.actor_name ?? event.actor_id}
+      </p>
+      <p className="text-sm text-foreground-secondary">
+        {withdrawal ? `Prix retiré ${price} · ` : ""}
+        {event.quantity === null ? "Quantité inconnue" : `Base ${event.quantity.toLocaleString("fr-FR")} ${event.unit}`} · {transportLabel(event.transport_mode)}
+      </p>
+      {event.source_order_date ? <p className="text-sm text-foreground-secondary">Commande du {event.source_order_date}</p> : null}
+      {event.justification ? <p className="whitespace-pre-wrap break-words text-sm">Justification · {event.justification}</p> : null}
+      {event.offers.length > 0 ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer rounded text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            Offres examinées ({event.offers.length})
+          </summary>
+          <ul className="mt-2 space-y-2 border-l border-border pl-3">
+            {event.offers.map((offer) => (
+              <li key={offer.id} className="break-words">
+                <span className="font-medium">{offer.supplier_name}{offer.supplier_sku ? ` · ${offer.supplier_sku}` : ""}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {formatOfferPrice(offer.unit_price_cents, offer.currency)} / {offer.unit}
+                  {" · "}Dès {offer.min_quantity} {offer.unit} · {offer.valid_from} → {offer.valid_to ?? "Fin non renseignée"}
+                  {" · "}{transportLabel(offer.transport_mode)} · {offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </li>
+  );
+}
+
 export function ProductReferencePricePanel({ productId, onValidated }: {
   productId: string; onValidated?: () => void;
 }) {
@@ -36,9 +86,13 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
   const [manualPrice, setManualPrice] = useState("");
   const [justification, setJustification] = useState("");
   const [busy, setBusy] = useState(false);
+  const [withdrawalTarget, setWithdrawalTarget] = useState<ReferencePriceResponse["proposal"] | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const generation = useRef(0);
+  const withdrawButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const currentGeneration = generation.current + 1;
     generation.current = currentGeneration;
@@ -48,6 +102,10 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
   if (basis) { params.set("quantity", String(basis.quantity)); params.set("transport_mode", basis.transport); }
   const { data, error: loadError, isLoading, isValidating, mutate } = useSWR<ReferencePriceResponse>(
     `/api/catalogue/reference-price?${params}`, fetchApi, { revalidateOnFocus: true },
+  );
+  const { data: history, error: historyError, isLoading: historyLoading, mutate: mutateHistory } = useSWR<ReferencePriceHistory>(
+    showHistory ? `/api/catalogue/reference-price/history?product_id=${encodeURIComponent(productId)}&page=${historyPage}` : null,
+    fetchApi,
   );
   const proposal = data?.proposal;
   const quantityInput = quantity ?? String(proposal?.quantity ?? "");
@@ -80,6 +138,11 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
       if (action.action === "validate") {
         setSuccess("Prix de référence validé. Les devis existants conservent leurs coûts.");
         setManual(false); setManualPrice(""); setJustification("");
+      } else if (action.action === "withdraw") {
+        setSuccess("Prix de référence retiré. Les devis existants conservent leurs coûts.");
+      }
+      if (action.action === "validate" || action.action === "withdraw") {
+        void mutateHistory();
         onValidated?.();
       }
     } catch (caught) {
@@ -133,10 +196,15 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-border-subtle bg-surface-subtle p-3">
             <p className="text-sm text-foreground-secondary">Référence actuelle{proposal.offer_count === 0 && proposal.current_price_cents !== null ? " · à actualiser" : ""}</p>
-            <p className="text-xl font-semibold text-foreground">{proposal.current_price_cents === null ? "Prix manquant" : `${formatEUR(proposal.current_price_cents)} / ${proposal.unit}`}</p>
+            <p className="text-xl font-semibold text-foreground">{proposal.current_price_cents === null ? "Prix de référence manquant" : `${formatEUR(proposal.current_price_cents)} / ${proposal.unit}`}</p>
             {data.latest_validation ? <p className="mt-1 text-xs text-muted-foreground">
               {data.latest_validation.mode === "average" ? "Moyenne validée" : "Choix manuel justifié"} le {new Date(data.latest_validation.validated_at).toLocaleString("fr-FR")}
-            </p> : <p className="mt-1 text-xs text-muted-foreground">Valeur antérieure conservée</p>}
+            </p> : proposal.current_price_cents !== null ? <p className="mt-1 text-xs text-muted-foreground">Valeur antérieure conservée</p> : null}
+            {data.can_validate && proposal.current_price_cents !== null ? (
+              <Button ref={withdrawButton} variant="outline" className="mt-3" disabled={busy || isValidating} onClick={() => setWithdrawalTarget(proposal)}>
+                Retirer le prix de référence
+              </Button>
+            ) : null}
           </div>
           <div className="rounded-lg border border-info-border bg-info-subtle p-3">
             <p className="text-sm text-foreground-secondary">Moyenne proposée · à valider</p>
@@ -156,7 +224,7 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
               <thead className="text-xs uppercase tracking-wide text-muted-foreground"><tr><th scope="col" className="p-2 font-semibold">Fournisseur / référence</th><th scope="col" className="p-2 font-semibold">Prix HT</th><th scope="col" className="p-2 font-semibold">Conditions</th><th scope="col" className="p-2 font-semibold">Calcul</th></tr></thead>
               <tbody>{proposal.offers.map((offer) => <tr key={offer.id} className="border-t border-border-subtle">
                 <td className="p-2">{offer.supplier_name}<span className="block text-xs text-muted-foreground">{offer.supplier_sku ?? "Référence manquante"}</span></td>
-                <td className="whitespace-nowrap p-2">{(offer.unit_price_cents / 100).toLocaleString("fr-FR", { style: "currency", currency: offer.currency })} / {offer.unit}</td>
+                <td className="whitespace-nowrap p-2">{formatOfferPrice(offer.unit_price_cents, offer.currency)} / {offer.unit}</td>
                 <td className="p-2"><span className="block">Dès {offer.min_quantity} {offer.unit} · {offer.valid_from} → {offer.valid_to ?? "Fin non renseignée"}</span>
                   {data.can_validate ? <NativeSelect size="sm" wrapperClassName="mt-1 w-auto" aria-label={`Transport pour ${offer.supplier_name} (${offer.id})`}
                     value={offer.transport_mode ?? ""} disabled={busy || isValidating}
@@ -187,6 +255,52 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
           <p className="text-xs text-muted-foreground">La validation enregistre votre identité, la date et les offres examinées. Les coûts des devis existants restent inchangés.</p>
         </div> : <p className="text-sm text-muted-foreground">Un responsable autorisé doit valider la proposition.</p>}
       </> : null}
+      <details className="rounded-lg border border-border" onToggle={(event) => setShowHistory(event.currentTarget.open)}>
+        <summary className="cursor-pointer rounded p-3 text-sm font-semibold text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+          Historique des prix de référence
+        </summary>
+        {showHistory ? (
+          <div className="border-t border-border">
+            {historyLoading ? <LoadingState label="Chargement de l’historique…" className="justify-start p-3" /> : null}
+            {historyError ? <div className="p-3"><Alert variant="danger">Impossible de charger l’historique des prix de référence.</Alert></div> : null}
+            {history?.events.length ? (
+              <ol className="divide-y divide-border">
+                {history.events.map((event) => <HistoryEntry key={event.id} event={event} />)}
+              </ol>
+            ) : history ? <p className="p-3 text-sm text-muted-foreground">Aucune décision enregistrée.</p> : null}
+            {(historyPage > 1 || history?.has_more) ? (
+              <div className="flex flex-wrap gap-2 border-t border-border p-3">
+                <Button variant="outline" disabled={historyPage === 1} onClick={() => setHistoryPage(historyPage - 1)}>Page précédente</Button>
+                <Button variant="outline" disabled={!history?.has_more} onClick={() => setHistoryPage(historyPage + 1)}>Page suivante</Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </details>
+      <AlertDialog open={withdrawalTarget !== null} onOpenChange={(open) => { if (!open) setWithdrawalTarget(null); }}>
+        <AlertDialogContent finalFocus={withdrawButton}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retirer le prix de référence ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {withdrawalTarget?.current_price_cents != null ? `Le prix de ${formatEUR(withdrawalTarget.current_price_cents)} / ${withdrawalTarget.unit} sera retiré. ` : ""}
+              L’article affichera un prix de référence manquant. Les validations passées et les coûts des devis existants seront conservés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <Button variant="danger-solid" size="lg" disabled={busy} onClick={() => {
+              if (!withdrawalTarget) return;
+              setWithdrawalTarget(null);
+              void save({
+                action: "withdraw", expected_updated_at: withdrawalTarget.product_updated_at,
+                expected_validation_id: withdrawalTarget.validation_id,
+              });
+            }}>
+              Confirmer le retrait
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

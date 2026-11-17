@@ -517,12 +517,6 @@ export function LineRow({
   // ne peuvent donc pas pousser la ligne sur un second rang.
   const lineStateNodes = (
     <>
-      <EstimateLineNatureSelect
-        item={item}
-        navigationRowId={titleCell.rowId}
-        isReadOnly={isReadOnly}
-        onPatchItem={onPatchItem}
-      />
       <EstimateLineTruthBadges item={item} />
       {siteCostLabel ? <span className="text-xs text-[var(--slate-600)]" data-testid="estimate-line-site-cost-badge" title={siteCostLabel}>Coût chantier</span> : null}
       {v3Grid && item.pricing_status === "priced" && !item.supply_type_id && Number(item.unit_price_ht_cents) > 0 ? <span role="status" className="text-xs text-amber-700">Type FO à préciser</span> : null}
@@ -806,6 +800,12 @@ export function LineRow({
                 </button>
               ) : null}
             </div>
+            <EstimateLineNatureSelect
+              item={item}
+              navigationRowId={titleCell.rowId}
+              isReadOnly={isReadOnly}
+              onPatchItem={onPatchItem}
+            />
             <div className="estimate-line-designation__support">
               {lineStateNodes}
             </div>

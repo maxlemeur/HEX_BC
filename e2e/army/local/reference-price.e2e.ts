@@ -128,6 +128,79 @@ armyTest("local reference price excludes zero while preserving human validation 
   expect(zeroOnly.proposal).toMatchObject({ proposed_price_cents: null, current_price_cents: 1050, offer_count: 0, zero_price_requires_review: true });
   expect(zeroOnly.latest_validation).toEqual(validated.latest_validation);
   await recordEvidence(army, "reference-zero-only", { expected: { currentCents: 1050, proposed: null }, actual: zeroOnly });
+
+  // Reintroduce the two offers and test both sides of the exact dispersion threshold.
+  const setUpperPrice = async (cents: number) => {
+    expect((await apiRequest(browser, "POST", "/api/prices", { action: "update-offer", id: priceIds[1],
+      item: { is_active: true, unit_price_cents: cents } })).status).toBe(200);
+    return (await proposal()).proposal;
+  };
+  expect((await apiRequest(browser, "POST", "/api/prices", { action: "update-offer", id: priceIds[0],
+    item: { is_active: true } })).status).toBe(200);
+  const boundary = await setUpperPrice(1150);
+  expect(boundary).toMatchObject({ minimum_cents: 1000, maximum_cents: 1150, dispersion_percent: 15,
+    dispersion_alert: false, offer_count: 2, proposed_price_cents: 1075, current_price_cents: 1050 });
+  const overBoundary = await setUpperPrice(1151);
+  expect(overBoundary).toMatchObject({ minimum_cents: 1000, maximum_cents: 1151, dispersion_percent: 15.1,
+    dispersion_alert: true, offer_count: 2, proposed_price_cents: 1076, current_price_cents: 1050 });
+  expect(overBoundary.offers.find((offer) => offer.id === priceIds[1])?.exclusion).toBe(null);
+
+  await openPanel();
+  await expect(panel.getByRole("alert").filter({ hasText: "Écart supérieur à 15 %" })).toBeVisible();
+  await screen.getByRole("button", "Valider la moyenne comme référence", { exact: true }).tap();
+  await expect(panel.getByText("Prix de référence validé. Les devis existants conservent leurs coûts.", { exact: true })).toBeVisible();
+  const replacement = await proposal();
+  expect(replacement.latest_validation?.unit_price_cents).toBe(1076);
+  const historyEndpoint = `/api/catalogue/reference-price/history?product_id=${productId}`;
+  type History = { events: {
+    id: string; operation: string; actor_id: string; unit_price_cents: number; occurred_at: string;
+    offers: { id: string; unit_price_cents: number }[];
+  }[] };
+  const history = async () => {
+    const response = await apiRequest<Envelope<History>>(browser, "GET", historyEndpoint);
+    expect(response.status).toBe(200);
+    return response.body.data.events;
+  };
+  await panel.getByText("Historique des prix de référence", { exact: true }).tap();
+  await expect(panel.getByText("Moyenne validée · 10,50 € / m", { exact: true })).toBeVisible();
+  const beforeWithdrawal = await history();
+  expect(beforeWithdrawal.map(({ operation, unit_price_cents }) => [operation, unit_price_cents])).toEqual([
+    ["average", 1076], ["average", 1050],
+  ]);
+  expect(beforeWithdrawal.map((event) => event.offers.find((offer) => offer.id === priceIds[1])?.unit_price_cents))
+    .toEqual([1151, 1100]);
+
+  const withdrawButton = panel.getByRole("button", "Retirer le prix de référence", { exact: true });
+  const confirmation = screen.getByRole("alertdialog", "Retirer le prix de référence ?", { exact: true });
+  await withdrawButton.tap();
+  await confirmation.getByRole("button", "Annuler", { exact: true }).tap();
+  expect((await proposal()).proposal.current_price_cents).toBe(1076);
+  expect(await history()).toEqual(beforeWithdrawal);
+
+  await withdrawButton.tap();
+  await confirmation.getByRole("button", "Confirmer le retrait", { exact: true }).tap();
+  await expect(panel.getByText("Prix de référence manquant", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Retrait de la référence", { exact: true })).toBeVisible();
+  const withdrawn = await proposal();
+  expect(withdrawn.proposal).toMatchObject({ current_price_cents: null, validation_id: null, proposed_price_cents: 1076 });
+  expect(withdrawn.latest_validation).toBe(null);
+  const historyScreenshot = await app.screenshot("reference-price-withdrawal-history");
+  const afterWithdrawal = await history();
+  expect(afterWithdrawal).toHaveLength(3);
+  const [withdrawal, ...previousValidations] = afterWithdrawal;
+  expect(withdrawal).toMatchObject({ operation: "withdrawal", unit_price_cents: 1076, actor_id: localOwner.userId });
+  expect(Number.isFinite(Date.parse(withdrawal.occurred_at))).toBe(true);
+  expect(previousValidations).toEqual(beforeWithdrawal);
+  await openPanel();
+  await expect(panel.getByText("Prix de référence manquant", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", "Retirer le prix de référence", { exact: true })).not.toBeVisible();
+  expect((await readEstimate(browser, estimate.versionId)).items).toEqual(estimateBefore.items);
+  expect((await readEstimate(browser, estimate.versionId)).version).toEqual(estimateBefore.version);
+  await recordEvidence(army, "reference-withdrawal", {
+    productId, estimateVersionId: estimate.versionId, boundary, overBoundary, withdrawal, previousValidations,
+    preservedLineId: line.id, estimateVersionAndItemsUnchanged: true, historyScreenshot,
+  });
+
 });
 
 armyTest("local supplier validity enforces six calendar months on create partial updates and bulk import", {
