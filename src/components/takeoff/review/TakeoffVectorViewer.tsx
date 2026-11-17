@@ -309,7 +309,7 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
 
   return (
     <section aria-label="Lecture vectorielle du plan" className={fill
-      ? "grid h-full min-h-0 grid-cols-[16rem_1fr] gap-3 bg-surface p-3"
+      ? "grid h-full min-h-0 grid-cols-[16rem_1fr] gap-3 bg-surface p-3 max-xl:h-96 max-sm:grid-cols-1 max-sm:grid-rows-[8rem_minmax(0,1fr)]"
       : "grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[18rem_1fr]"}>
       <div className={fill ? "flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto" : "flex min-w-0 flex-col gap-3"}>
         <label className="text-xs font-medium text-muted-foreground" htmlFor={`vector-page-${jobId}`}>Page lue</label>
