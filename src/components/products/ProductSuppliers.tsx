@@ -158,12 +158,16 @@ export function ProductSuppliers({
     () => (current?.status === "ready" ? current.items.filter((item) => item.is_active) : []),
     [current],
   );
+  const visible = useMemo(
+    () => (current?.status === "ready" ? current.items.filter((item) => item.is_active || item.reference_needs_review) : []),
+    [current],
+  );
   const addable = useMemo(
     () =>
       Array.isArray(directory)
-        ? directory.filter((entry) => !active.some((item) => item.supplier_id === entry.id))
+        ? directory.filter((entry) => !visible.some((item) => item.supplier_id === entry.id))
         : [],
-    [active, directory],
+    [visible, directory],
   );
 
   const save = async (key: string, input: Parameters<typeof saveArticleSupplierItem>[1]) => {
@@ -262,12 +266,12 @@ export function ProductSuppliers({
       {current?.status === "error" ? (
         <p className="mt-2 text-sm text-danger">Les fournisseurs de l’article n’ont pas pu être chargés.</p>
       ) : null}
-      {current?.status === "ready" && active.length === 0 ? (
+      {current?.status === "ready" && visible.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">Aucun fournisseur pour cet article.</p>
       ) : null}
-      {current?.status === "ready" && active.length > 0 ? (
+      {current?.status === "ready" && visible.length > 0 ? (
         <ul aria-label="Fournisseurs de l’article" className="mt-2 divide-y divide-border rounded-lg border border-border">
-          {active.map((item) => {
+          {visible.map((item) => {
             const url = safeProductUrl(item.product_url);
             const isEditing = editing === item.supplier_id;
             const editPrefix = `${ids}-edit-${item.supplier_id}`;
@@ -277,6 +281,7 @@ export function ProductSuppliers({
                   <div className="min-w-0 space-y-0.5">
                     <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-foreground">
                       <span className="min-w-0 break-words">{item.supplier_name}</span>
+                      {item.reference_needs_review ? <Badge variant="warning" size="sm">à vérifier</Badge> : null}
                       {item.has_price ? (
                         <Badge variant="success" size="sm">
                           avec prix
@@ -358,7 +363,7 @@ export function ProductSuppliers({
                         disabled={!text(editDraft.sku) && !text(editDraft.url)}
                         onClick={() => void update(item)}
                       >
-                        Enregistrer la référence
+                        {item.reference_needs_review ? "Valider la référence" : "Enregistrer la référence"}
                       </Button>
                       <Button
                         type="button"

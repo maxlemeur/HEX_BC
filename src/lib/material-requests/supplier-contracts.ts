@@ -52,6 +52,8 @@ export type ArticleSupplierItem = {
   supplier_sku: string | null;
   product_url: string | null;
   is_active: boolean;
+  /** Imported from the workbook, awaiting a catalogue editor's decision. */
+  reference_needs_review: boolean;
   /** At least one price row of the price book uses this item. */
   has_price: boolean;
 };

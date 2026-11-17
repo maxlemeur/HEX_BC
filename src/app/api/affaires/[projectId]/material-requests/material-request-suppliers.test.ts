@@ -485,8 +485,8 @@ describe("suppliers of an article", () => {
     expect(tee.status).toBe(200);
     expect(tee.data).toEqual({
       items: [
-        { id: TEE_LAST_ITEM, supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", supplier_sku: "DA-TE-50", product_url: null, is_active: true, has_price: false },
-        { id: TEE_TYPE_ITEM, supplier_id: TYPE_SUPPLIER, supplier_name: "Fournisseur Raccords", supplier_sku: "RAC-TE-50", product_url: null, is_active: false, has_price: false },
+        { id: TEE_LAST_ITEM, supplier_id: LAST_SUPPLIER, supplier_name: "Fournisseur Dernier Achat", supplier_sku: "DA-TE-50", product_url: null, is_active: true, reference_needs_review: false, has_price: false },
+        { id: TEE_TYPE_ITEM, supplier_id: TYPE_SUPPLIER, supplier_name: "Fournisseur Raccords", supplier_sku: "RAC-TE-50", product_url: null, is_active: false, reference_needs_review: false, has_price: false },
       ] satisfies ArticleSupplierItem[],
       preferred_supplier_id: null,
     } satisfies ArticleSuppliers);
@@ -533,7 +533,7 @@ describe("suppliers of an article", () => {
       p_product_url: "https://nomme.example.test/a", p_is_active: true,
     });
     expect((saved.data as { item: ArticleSupplierItem }).item).toMatchObject({
-      supplier_id: NAMED_SUPPLIER, supplier_name: "Fournisseur Nommé", supplier_sku: "NOM-1", is_active: true, has_price: false,
+      supplier_id: NAMED_SUPPLIER, supplier_name: "Fournisseur Nommé", supplier_sku: "NOM-1", is_active: true, reference_needs_review: false, has_price: false,
     });
     expect(fake.writes.filter((write) => write.table === "supplier_pricebook")).toEqual([]);
   });
@@ -548,7 +548,7 @@ describe("suppliers of an article", () => {
     expect(withdrawn.data).toEqual({
       item: {
         id: ELBOW_ITEM, supplier_id: EXCEPTION_SUPPLIER, supplier_name: "Fournisseur Exception", supplier_sku: "EXC-050",
-        product_url: "https://exception.example.test/coude-50", is_active: false, has_price: true,
+        product_url: "https://exception.example.test/coude-50", is_active: false, reference_needs_review: false, has_price: true,
       },
       preferred_supplier_id: null,
     } satisfies ArticleSupplierItemSaved);
