@@ -30,8 +30,15 @@ export const referenceOfferTransportSchema = z.object({
   expected_updated_at: z.string().datetime({ offset: true }),
 });
 
+export const referencePriceWithdrawalSchema = z.object({
+  action: z.literal("withdraw"),
+  product_id: z.string().uuid(),
+  expected_updated_at: z.string().datetime({ offset: true }),
+  expected_validation_id: z.string().uuid().nullable(),
+});
+
 export const referencePriceActionSchema = z.union([
-  referencePriceValidationSchema, referenceOfferTransportSchema,
+  referencePriceValidationSchema, referenceOfferTransportSchema, referencePriceWithdrawalSchema,
 ]);
 
 export const referenceOfferSchema = z.object({
@@ -71,3 +78,44 @@ export type ReferencePriceResponse = z.infer<typeof referencePriceResponseSchema
 export type ReferencePriceProposal = z.infer<typeof referencePriceProposalSchema>;
 export type ReferencePriceAction = z.infer<typeof referencePriceActionSchema>;
 export type ReferencePriceQuery = z.infer<typeof referencePriceQuerySchema>;
+
+export const referencePriceHistoryQuerySchema = z.object({
+  product_id: z.string().uuid(),
+  page: z.coerce.number().int().min(1).max(10000000).default(1),
+});
+
+const referencePriceHistoryEventSchema = z.object({
+  id: z.string().uuid(),
+  operation: z.enum(["average", "manual", "withdrawal"]),
+  actor_id: z.string().uuid(),
+  actor_name: z.string().nullable(),
+  occurred_at: z.string(),
+  unit_price_cents: z.number().int().nonnegative(),
+  quantity: z.number().positive().nullable(),
+  unit: z.string(),
+  currency: z.literal("EUR"),
+  transport_mode: transportModeSchema.nullable(),
+  justification: z.string().nullable(),
+  source_order_date: z.string().nullable(),
+  offers: z.array(referenceOfferSchema.pick({
+    id: true,
+    supplier_name: true,
+    supplier_sku: true,
+    unit_price_cents: true,
+    currency: true,
+    unit: true,
+    min_quantity: true,
+    valid_from: true,
+    valid_to: true,
+    transport_mode: true,
+    exclusion: true,
+  })),
+});
+
+export const referencePriceHistorySchema = z.object({
+  events: z.array(referencePriceHistoryEventSchema),
+  has_more: z.boolean(),
+});
+
+export type ReferencePriceHistoryQuery = z.infer<typeof referencePriceHistoryQuerySchema>;
+export type ReferencePriceHistory = z.infer<typeof referencePriceHistorySchema>;

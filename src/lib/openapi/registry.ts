@@ -123,7 +123,7 @@ import {
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
-import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
+import { referencePriceActionSchema, referencePriceHistorySchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
@@ -3018,16 +3018,35 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   {
     method: "post",
     path: "/api/catalogue/reference-price",
-    summary: "Valider une référence ou préciser le transport d’une offre",
-    description: "Réservé aux administrateurs du tenant actif. La validation recalcule la proposition et vérifie son empreinte, puis conserve auteur, date et sources. Aucun devis existant n’est réécrit. Un prix manuel exige une justification.",
+    summary: "Valider ou retirer une référence, ou préciser le transport d’une offre",
+    description: "Réservé aux administrateurs du tenant actif. La validation vérifie l’empreinte de la proposition et conserve auteur, date et sources. Un prix manuel exige une justification. Le retrait vérifie la version affichée et journalise le passage à un prix manquant. Les coûts des devis existants sont conservés.",
     tags: ["Catalogue"],
-    requestBody: jsonBody({ name: "ReferencePriceAction", description: "Validation explicite ou condition de transport.", schema: referencePriceActionSchema }),
+    requestBody: jsonBody({ name: "ReferencePriceAction", description: "Validation, retrait explicite ou condition de transport.", schema: referencePriceActionSchema }),
     responses: {
       "200": jsonResponse("Décision enregistrée."),
       "400": jsonResponse("Requête invalide.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "403": jsonResponse("Responsable autorisé requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
-      "409": jsonResponse("La proposition ou l’offre a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Article introuvable dans le tenant actif.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("La proposition, l’offre ou la référence a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/catalogue/reference-price/history",
+    summary: "Consulter l’historique des prix de référence d’un article",
+    description: "Validations et retraits de l’entreprise active, les plus récents en premier. Dix événements par page.",
+    tags: ["Catalogue"],
+    parameters: [
+      queryParameter({ name: "product_id", description: "Article à examiner.", schemaName: "ReferencePriceProductId", schema: uuidSchema, required: true }),
+      queryParameter({ name: "page", description: "Page des événements, à partir de 1.", schemaName: "ReferencePriceHistoryPage", schema: z.number().int().min(1).max(10000000), required: false }),
+    ],
+    responses: {
+      "200": jsonResponse("Historique des décisions.", successResponseSchemaDefinition("ApiReferencePriceHistory", referencePriceHistorySchema)),
+      "400": jsonResponse("Paramètres invalides.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Article introuvable dans le tenant actif.", openApiSharedSchemaDefinitions.apiFailureResponse),
       "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
