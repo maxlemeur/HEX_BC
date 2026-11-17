@@ -6,6 +6,8 @@ import path from "node:path";
 
 import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
+import type { AffaireSupplyCost } from "@/lib/material-requests/supply-cost-contracts";
+
 import { createLineViaApi, ownEstimate, recordEvidence } from "../critical/fixtures";
 import { localTakeoffFixture, seedOwnedSupplyType } from "./fixtures";
 import { duplicateEstimateViaApi } from "./native-ui";
@@ -1196,12 +1198,12 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       const ownedFixture = await localTakeoffFixture(page.army, { projectId, versionId });
       expect(ownedFixture.tenantId).toBe(tenantId);
       const savedOrder = await client.from("purchase_orders")
-        .select("id, user_id, tenant_id, source_estimate_version_id, delivery_site_id, expected_delivery_date")
+        .select("id, user_id, tenant_id, project_id, source_estimate_version_id, delivery_site_id, expected_delivery_date")
         .eq("id", purchaseOrderId!).eq("tenant_id", tenantId).eq("user_id", userId).eq("source_estimate_version_id", versionId).single();
       await recordEvidence(page.army, "us44-delivery-persisted", { purchaseOrderId, savedOrder: savedOrder.data });
       expect(savedOrder.error).toBe(null);
       expect(savedOrder.data).toEqual({ id: purchaseOrderId, user_id: userId, tenant_id: tenantId,
-        source_estimate_version_id: versionId, delivery_site_id: siteId, expected_delivery_date: "2026-03-25" });
+        project_id: null, source_estimate_version_id: versionId, delivery_site_id: siteId, expected_delivery_date: "2026-03-25" });
       (page.army.ownedPurchaseOrders ??= []).push({ orderId: purchaseOrderId!, projectId, versionId, tenantId });
       await recordEvidence(page.army, "us44-purchase-editor-boundary", { userId, order: page.army.ownedPurchaseOrders[0],
         reads: ["owned order snapshot", "owned item count HEAD", "owned revision", "exact active supplier/site lookups"] });
@@ -1213,6 +1215,50 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       await expect(page.getByRole("textbox", { name: /D[ée]signation/i }).first()).toHaveValue(
         "Tube cuivre 18"
       );
+
+      // TI-714: the draft has a version link and a delivery site, with no direct affaire.
+      // Its 12 units at 21,00 € count even while the source version is still a draft.
+      const costsPath = `/dashboard/affaires/${projectId}/demandes-materiel`;
+      const costSection = page.getByRole("region", { name: "Coût des fournitures", exact: true });
+      const detail = costSection.getByRole("button", { name: "Détail par type de fourniture", exact: true });
+      const table = costSection.getByRole("table", { name: "Budget et commandé par type de fourniture", exact: true });
+      const costs = [];
+      for (const [status, ordered, pending] of [
+        ["draft", 0, 25200],
+        ["sent", 0, 25200],
+        ["confirmed", 25200, 0],
+        ["received", 25200, 0],
+        ["canceled", 0, 0],
+      ] as const) {
+        if (status !== "draft") {
+          // The classic order status selector uses this authenticated table update.
+          const { data, error } = await client.from("purchase_orders").update({ status })
+            .eq("id", purchaseOrderId!).eq("tenant_id", tenantId).select("status").single();
+          expect(error).toBeNull();
+          expect(data?.status).toBe(status);
+        }
+        await page.goto(costsPath);
+        if (status === "canceled") {
+          await expect(costSection.getByText("Aucun budget ni aucune commande pour l’instant.", { exact: true })).toBeVisible();
+        } else {
+          await expect(detail).toBeVisible();
+          await detail.click();
+          await expect(table.getByRole("row", {
+            name: ordered > 0 ? /^Total HT\s+—\s+252,00\s€\s+0,00\s€\s+—$/
+              : /^Total HT\s+—\s+0,00\s€\s+252,00\s€\s+—$/,
+          })).toBeVisible();
+        }
+        const response = await page.request.get(`/api/affaires/${projectId}/supply-cost`);
+        expect(response.status()).toBe(200);
+        const { data } = await response.json() as { data: AffaireSupplyCost };
+        expect(data.totals).toEqual({ budget_cents: null, ordered_cents: ordered, pending_cents: pending });
+        if (status !== "canceled") {
+          expect(data.rows).toEqual([expect.objectContaining({ supply_type_id: supplyTypeId, ordered_cents: ordered,
+            pending_cents: pending })]);
+        }
+        costs.push({ status, totals: data.totals });
+      }
+      await recordEvidence(page.army, "ti714-estimate-order-supply-cost", { projectId, versionId, purchaseOrderId, costs });
     } finally {
       if (modeChangeAttempted) {
         // A fresh page also closes any supplier dialog left open by a failure.

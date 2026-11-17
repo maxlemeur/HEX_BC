@@ -151,7 +151,7 @@ function Section({ action, children }: Readonly<{ action?: ReactNode; children: 
 function SupplyCostBody({ cost }: Readonly<{ cost: SupplyCost }>) {
   const detailId = useId();
   const [open, setOpen] = useState(false);
-  const estimateOrders = cost.not_counted.estimate_orders;
+  const unresolvedOrders = cost.not_counted.unresolved_orders;
   const hasRows = cost.rows.length > 0;
   return (
     <Section
@@ -176,12 +176,15 @@ function SupplyCostBody({ cost }: Readonly<{ cost: SupplyCost }>) {
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Commandé : bons confirmés ou reçus, au prix réel. En cours : brouillons et bons envoyés, au prix du devis
-        retenu. Le port et les remises ne sont pas budgétés ; les frais généraux restent hors du budget de l’affaire.
-        {estimateOrders > 0
-          ? ` ${plural(estimateOrders, "bon créé depuis le devis n’est pas compté", "bons créés depuis le devis ne sont pas comptés")} : ils ne sont rattachés à aucune affaire.`
-          : ""}
+        Le commandé comprend les bons confirmés ou reçus au prix réel enregistré. L’en-cours comprend les brouillons et
+        les bons envoyés. Le port et les remises sont hors budget, et les frais généraux sont exclus du calcul.
       </p>
+      {unresolvedOrders > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {plural(unresolvedOrders, "bon écarté du total faute de rattachement certain à l’affaire.",
+            "bons écartés du total faute de rattachement certain à l’affaire.")}
+        </p>
+      ) : null}
     </Section>
   );
 }
@@ -189,7 +192,7 @@ function SupplyCostBody({ cost }: Readonly<{ cost: SupplyCost }>) {
 /**
  * The supply cost of an affaire (TI-691, delivery 4): per supply type, the budget of the version the client accepted
  * face to what its orders cost (« commandé »: confirmed or received, at their real price; « en cours »: drafts and sent
- * orders, at their retained quote's price). Without accepted version, there is no budget. The totals lead the
+ * orders, at their stored HT price). Without accepted version, there is no budget. The totals lead the
  * purchasing page; the table per supply type opens under them.
  */
 export function AffaireSupplyCost({ projectId }: Readonly<{ projectId: string }>) {

@@ -13,7 +13,7 @@ import { AffaireSupplyCost } from "./AffaireSupplyCost";
  *     instead of « Dépassé de … »;
  *  3. shipping and discounts, which no estimate budgets, show as over budget on every affaire;
  *  4. several accepted versions are not said, or the one that makes the budget is not named;
- *  5. the orders made from the estimate, which are not counted, are not said.
+ *  5. an unresolved order visible to the reader is excluded without a warning.
  */
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -73,7 +73,7 @@ describe("AffaireSupplyCost", () => {
           ordered_cents: 1_500, pending_cents: 0 },
       ],
       totals: { budget_cents: 120_000, ordered_cents: 87_550, pending_cents: 15_000 },
-      not_counted: { estimate_orders: 2 },
+      not_counted: { estimate_orders: 0, unresolved_orders: 2 },
     });
     render(<AffaireSupplyCost projectId={PROJECT_ID} />);
 
@@ -89,8 +89,7 @@ describe("AffaireSupplyCost", () => {
     // No estimate budgets shipping: neither a budget nor an overspend.
     expect(cells("Port et remises")).toEqual(["—", "15,00 €", "0,00 €", "—"]);
     expect(cells("Total HT")).toEqual(["1 200,00 €", "875,50 €", "150,00 €", "174,50 €"]);
-    expect(plain(screen.getByText(/bons créés depuis le devis/).textContent)).toContain(
-      "2 bons créés depuis le devis ne sont pas comptés : ils ne sont rattachés à aucune affaire.");
+    expect(screen.getByText("2 bons écartés du total faute de rattachement certain à l’affaire.")).toBeVisible();
   });
 
   it("shows no budget at all while no version is accepted", async () => {
@@ -99,7 +98,7 @@ describe("AffaireSupplyCost", () => {
       rows: [{ kind: "unclassified", supply_type_id: null, code: null, name: null, budget_cents: null,
         ordered_cents: 0, pending_cents: 11_928 }],
       totals: { budget_cents: null, ordered_cents: 0, pending_cents: 11_928 },
-      not_counted: { estimate_orders: 0 },
+      not_counted: { estimate_orders: 0, unresolved_orders: 0 },
     });
     render(<AffaireSupplyCost projectId={PROJECT_ID} />);
 
@@ -110,6 +109,6 @@ describe("AffaireSupplyCost", () => {
     await openDetail();
     expect(cells("Non classé")).toEqual(["—", "0,00 €", "119,28 €", "—"]);
     expect(cells("Total HT")).toEqual(["—", "0,00 €", "119,28 €", "—"]);
-    expect(screen.queryByText(/créés? depuis le devis/)).toBeNull();
+    expect(screen.queryByText(/écartés? du total/)).toBeNull();
   });
 });

@@ -14,7 +14,7 @@ export type AffaireSupplyCostAmounts = {
   budget_cents: number | null;
   /** Confirmed and received orders, at their real price. */
   ordered_cents: number;
-  /** Drafts and sent orders, at their retained quote's price. */
+  /** Drafts and sent orders, at their stored HT price. */
   pending_cents: number;
 };
 
@@ -36,8 +36,12 @@ export type AffaireSupplyCost = {
   } | null;
   rows: AffaireSupplyCostRow[];
   totals: AffaireSupplyCostAmounts;
-  /** Orders made from an estimate of the affaire, canceled ones excepted: they carry no affaire and are not counted. */
-  not_counted: { estimate_orders: number };
+  not_counted: {
+    /** Compatibility field for clients that read the former estimate-order count. */
+    estimate_orders: number;
+    /** Unresolved orders excluded from the cost that the caller is allowed to read. */
+    unresolved_orders: number;
+  };
 };
 
 /** Integer cents, refused beyond the safe integers rather than rounded silently. */
@@ -60,5 +64,8 @@ export const affaireSupplyCostSchema: z.ZodType<AffaireSupplyCost> = z.object({
     ...amounts,
   })),
   totals: z.object(amounts),
-  not_counted: z.object({ estimate_orders: z.number().int().min(0) }),
+  not_counted: z.object({
+    estimate_orders: z.number().int().min(0),
+    unresolved_orders: z.number().int().min(0),
+  }),
 });
