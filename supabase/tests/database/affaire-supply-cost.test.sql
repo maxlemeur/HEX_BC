@@ -17,8 +17,8 @@
 --     price), a canceled order counts, a received order does not, the frais généraux of the order count, shipping and
 --     discounts are mixed with a supply type, a discount adds instead of subtracting, an order line without article
 --     is lost, an order without affaire counts;
---  8. the orders made from an estimate of the affaire (that path sets no affaire on the order) are counted silently
---     instead of being named as not counted.
+--  8. an old order from a different version of the same affaire is dropped or its price is derived from the estimate;
+--     matching links count twice, conflicting links count at all, or the warning leaks orders across permissions.
 -- Every member statement goes through pg_temp.pls_run or pg_temp.pls_rows (role and JWT switched in a sub-block), so a
 -- red assertion fails on its own reason and the file runs to the end. Fixtures are rolled back.
 begin;
@@ -256,9 +256,6 @@ select is(pg_temp.pls_run('a9340000-0000-4000-8000-000000000001',
     'delivery_site_id', 'a9340000-0000-4000-8000-000000000801', 'notes', 'TI691 manuel coût'), jsonb_build_array(
     jsonb_build_object('designation', 'TI691 manuel', 'quantity', 3, 'unit', 'u', 'unit_price_ht_cents', 500, 'tax_rate_bp', 2000)))$$),
   'ok 1', 'fixture: a manual order of a site');
--- A draft an estimate made before this delivery: its version is the affaire's, its order has no affaire.
-update public.purchase_orders set source_estimate_version_id = 'a9340000-0000-4000-8000-000000000211'
-where notes = 'TI691 manuel coût' and tenant_id = 'a9340000-0000-4000-8000-000000000101';
 
 -- ---------------------------------------------------------------------------
 -- 1. Structure and grants.
@@ -307,8 +304,6 @@ select is(current_setting('test.answer')::jsonb #>> '{totals,ordered_cents}', '6
 select is(current_setting('test.answer')::jsonb #>> '{totals,pending_cents}', '1998', '7 the pending total is Beta''s draft');
 select is(jsonb_array_length(current_setting('test.answer')::jsonb->'rows'), 4,
   '7 four rows: the two supply types, « non classé », shipping and discounts');
-select is(current_setting('test.answer')::jsonb #>> '{not_counted,estimate_orders}', '1',
-  '8 the order made from an estimate is named as not counted');
 select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001', 'a9340000-0000-4000-8000-000000000202')
   ->> 'rows', '[]', '7 an affaire without version nor order has no row');
 
@@ -417,6 +412,95 @@ select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', '
 select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'supply_type', 'ti691-raccord'), '0 2000 0',
   '4 a supply type the budget version does not carry has a budget of 0, not of the other version');
 select is(current_setting('test.answer')::jsonb #>> '{totals,budget_cents}', '150', '4 the budget total is version 3''s');
+
+-- ---------------------------------------------------------------------------
+-- 8. An older estimate order has a version reference but no direct affaire or line classification.
+-- The HT is the order's 3 × 5,00 €, despite the source estimate's 113,00 € and the accepted budget of 1,50 €.
+-- ---------------------------------------------------------------------------
+update public.purchase_orders set source_estimate_version_id = 'a9340000-0000-4000-8000-000000000211'
+where notes = 'TI691 manuel coût' and tenant_id = 'a9340000-0000-4000-8000-000000000101';
+select set_config('test.answer', pg_temp.cost('a9340000-0000-4000-8000-000000000001')::text, true);
+select is(pg_temp.row_of(current_setting('test.answer')::jsonb, 'unclassified'), '0 0 1500',
+  '8 a legacy order linked only to a sent version counts at its own HT and missing types are unclassified');
+select is(current_setting('test.answer')::jsonb #>> '{totals,budget_cents}', '150',
+  '8 the purchase source version does not select the budget');
+select is(current_setting('test.answer')::jsonb #>> '{not_counted,unresolved_orders}', '0',
+  '8 a verified estimate order needs no warning');
+
+-- Recreate a dual-origin historical header and a same-tenant contradiction.
+-- These fixture writes are privileged, like the import of historical records.
+update public.purchase_orders set status = 'draft' where id = current_setting('test.order_beta')::uuid;
+update public.purchase_orders set source_estimate_version_id = 'a9340000-0000-4000-8000-000000000211'
+where id = current_setting('test.order_beta')::uuid;
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001') #>> '{totals,pending_cents}', '3498',
+  '8 Alpha stays ordered; Beta has two links to the same affaire and its 19,98 € counts once');
+
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, title,
+  sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents)
+values ('a9340000-0000-4000-8000-000000000221', 'a9340000-0000-4000-8000-000000000101',
+  'a9340000-0000-4000-8000-000000000202', 1, 'sent', 3, 'TI714 Source contradictoire', 1, 1, 0, 0, 0);
+update public.purchase_orders set source_estimate_version_id = 'a9340000-0000-4000-8000-000000000221'
+where id = current_setting('test.order_beta')::uuid;
+select set_config('test.answer', pg_temp.cost('a9340000-0000-4000-8000-000000000001')::text, true);
+select is(current_setting('test.answer')::jsonb #>> '{totals,pending_cents}', '1500',
+  '8 the order with contradictory links is excluded from its direct affaire');
+select is(current_setting('test.answer')::jsonb->'not_counted', '{"estimate_orders": 0, "unresolved_orders": 1}'::jsonb,
+  '8 the reader who owns the order gets a count without amounts or foreign identifiers');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000002', 'a9340000-0000-4000-8000-000000000202')->'rows',
+  '[]'::jsonb, '8 the contradiction also excludes the order from the source version''s affaire');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000002') #>> '{not_counted,unresolved_orders}', '1',
+  '8 an admin who can read the order sees the warning');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000006') #>> '{not_counted,unresolved_orders}', '0',
+  '8 the director can see aggregate costs but not a warning about an order outside their order RLS');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000004', 'a9340000-0000-4000-8000-000000000202')->>'message',
+  'AFFAIRE_SUPPLY_COST_NOT_FOUND', '8 the other tenant does not learn about the conflict');
+
+select is(pg_temp.pls_run('a9340000-0000-4000-8000-000000000001',
+  $$update public.purchase_orders set source_estimate_version_id = null where id = current_setting('test.order_beta')::uuid$$),
+  '23514 ORDER_DRAFT_SOURCE_SCOPE_INVALID', '8 the order owner cannot erase a contradictory historical source');
+
+-- A version in another tenant cannot anchor a foreign order, even if a historical FK points to it.
+insert into public.estimate_projects (id, tenant_id, user_id, name)
+values ('a9340000-0000-4000-8000-000000000203', 'a9340000-0000-4000-8000-000000000102',
+  'a9340000-0000-4000-8000-000000000004', 'TI714 Autre tenant');
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, title,
+  sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents)
+values ('a9340000-0000-4000-8000-000000000231', 'a9340000-0000-4000-8000-000000000102',
+  'a9340000-0000-4000-8000-000000000203', 1, 'sent', 3, 'TI714 Source autre tenant', 1, 1, 0, 0, 0);
+update public.purchase_orders set source_estimate_version_id = 'a9340000-0000-4000-8000-000000000231'
+where id = current_setting('test.order_beta')::uuid;
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001') #>> '{totals,pending_cents}', '1500',
+  '8 a foreign version makes the dual-origin order unusable for the direct affaire');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000004', 'a9340000-0000-4000-8000-000000000203')
+  ->'not_counted', '{"estimate_orders": 0, "unresolved_orders": 0}'::jsonb,
+  '8 even the other tenant admin receives no warning about a foreign order referencing their own version');
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000004', 'a9340000-0000-4000-8000-000000000203')
+  ->'rows', '[]'::jsonb, '8 the other tenant receives no cost either');
+
+-- An old source-linked line may remain after the version FK was cleared, even without a transfer row.
+update public.purchase_orders set source_estimate_version_id = null where id = current_setting('test.order_beta')::uuid;
+alter table public.purchase_order_items disable trigger zz_normalize_purchase_order_item;
+update public.purchase_order_items set is_source_linked = true where purchase_order_id = current_setting('test.order_beta')::uuid;
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001') #>> '{totals,pending_cents}', '1500',
+  '8 preserved line provenance rules out falling back to the direct link');
+update public.purchase_order_items set is_source_linked = false where purchase_order_id = current_setting('test.order_beta')::uuid;
+alter table public.purchase_order_items enable trigger zz_normalize_purchase_order_item;
+
+-- A version FK can be cleared on deletion, while the immutable transfer still identifies the origin.
+insert into private.estimate_purchase_transfers
+  (tenant_id, source_version_id, source_item_id, item_title, purchase_order_id, reference, quantity, created_by)
+select tenant_id, 'a9340000-0000-4000-8000-000000000991', 'a9340000-0000-4000-8000-000000000992',
+  'TI714 Source disparue', id, reference, 1, user_id
+from public.purchase_orders where id = current_setting('test.order_beta')::uuid;
+select is(pg_temp.cost('a9340000-0000-4000-8000-000000000001') #>> '{totals,pending_cents}', '1500',
+  '8 the known estimate order with a missing source does not fall back to its direct link');
+
+select is(pg_temp.pls_run('a9340000-0000-4000-8000-000000000005',
+  $$insert into public.purchase_orders (tenant_id, user_id, reference, supplier_id, delivery_site_id, source_estimate_version_id)
+    values ('a9340000-0000-4000-8000-000000000101', 'a9340000-0000-4000-8000-000000000005', 'TI714 Fake',
+      'a9340000-0000-4000-8000-000000000301', 'a9340000-0000-4000-8000-000000000801',
+      'a9340000-0000-4000-8000-000000000211')$$),
+  '42501 ORDER_DRAFT_ACCESS_DENIED', '8 an engineer cannot attach a new order to an estimate they cannot purchase from');
 
 -- ---------------------------------------------------------------------------
 -- 2. An archived affaire is not found, as the API does not find it.
