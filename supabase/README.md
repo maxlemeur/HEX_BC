@@ -186,6 +186,15 @@ Le [planificateur](../.github/workflows/recover-durable-fallback.yml) appelle
 Il lit `HEX_APP_URL` (ou `APP_URL`) et `CRON_SECRET` ; ne jamais journaliser le
 secret, le corps brut ou les erreurs fournisseur contenant des données métier.
 
+La suppression d'une affaire inscrit les objets de ses demandes de matériel
+dans `procurement_storage_cleanup_outbox` dans la même transaction. La reprise
+planifiée retire leurs photos et pièces jointes du bucket privé
+`material-requests` via l'API Storage. Les opérations sur les bons continuent
+de réclamer les objets du bucket `devis` à part. La reprise réserve un lot à
+chaque bucket pour éviter qu'une rafale de photos retarde les documents des bons.
+Appliquer la migration TI-695
+avant de déployer le worker qui réclame les deux buckets.
+
 Le script vérifie le contenu de la réponse, au-delà de HTTP 200 :
 
 - Échecs individuels : avertissement, reprise partielle à examiner ; leur

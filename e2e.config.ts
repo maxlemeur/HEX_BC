@@ -97,6 +97,9 @@ const app = {
     ],
     env: {
       E2E_ARMY: "1",
+      ...(localBusiness && process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET
+        ? { CRON_SECRET: process.env.E2E_ARMY_LOCAL_RECOVERY_SECRET }
+        : {}),
       ...((critical || coverage) ? { TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1" } : {}),
       NEXT_TELEMETRY_DISABLED: "1",
       ...(coverage || techDebt || localBusiness ? {
