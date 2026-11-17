@@ -20,12 +20,12 @@ import {
 } from "@/lib/takeoff/page-triage";
 
 /** Version of the questions and evidence sent per page; bump on any change. */
-export const TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION = "takeoff-page-triage-v1";
+export const TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION = "takeoff-page-triage-v2";
 /** One Decisions call per page, at most this many in flight. */
 export const TAKEOFF_PAGE_TRIAGE_CONCURRENCY = 4;
 /** Product token ceiling of one triage (one document). */
 export const TAKEOFF_PAGE_TRIAGE_MAX_TOKENS = 200_000;
-/** Reserve per call before the first answer (thumbnail + 12 000 characters). */
+/** Reserve per call before the first answer (thumbnail + bounded page and title-block excerpts). */
 export const TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS = 8_000;
 /** No new call starts after this delay from the start of a triage (server action limit 300 s). */
 export const TAKEOFF_PAGE_TRIAGE_DEADLINE_MS = 200_000;
@@ -52,7 +52,12 @@ export function takeoffPageTriageRenderLimits(pageCount: number): PdfRenderLimit
 }
 
 export const TAKEOFF_PAGE_TRIAGE_THUMBNAIL = { maxEdgePx: 1200, jpegQualities: [75, 60, 45], maxBytes: 1_500_000 } as const;
-export const TAKEOFF_PAGE_TRIAGE_TEXT = { maxTextCharsPerPage: 12_000, maxTextItemsPerPage: 200_000 } as const;
+export const TAKEOFF_PAGE_TRIAGE_TEXT = {
+  maxTextCharsPerPage: 12_000,
+  maxTextItemsPerPage: 200_000,
+  // The lower-right corner of the displayed page, after CropBox and rotation, includes conventional title blocks.
+  textRegion: { x0: 0.8, y0: 0.8, x1: 1, y1: 1, maxChars: 2_000 },
+} as const;
 
 export type TakeoffPageTriageDecide = (input: Parameters<typeof callOpenAiDecisions>[0]) => Promise<OpenAiDecisionsResult>;
 
@@ -184,7 +189,7 @@ export async function runTakeoffPageTriage(input: {
   };
   const review = (reason: TakeoffPageTriageReviewReason) => ({ request_fingerprint: null, type: null, level: null, zone: null, confidence: null, proposal: "review" as const, reason });
 
-  const queue: Array<{ page: number; rendered: PdfRenderedPage; fingerprint: string }> = [];
+  const queue: Array<{ page: number; rendered: PdfRenderedPage; fingerprint: string; questions: ReturnType<typeof buildTakeoffPageTriageQuestions> }> = [];
   for (let page = 1; page <= pageCount; page += 1) {
     const current = byPage.get(page);
     if (!current || current.failed) {
@@ -192,11 +197,12 @@ export async function runTakeoffPageTriage(input: {
       continue;
     }
     const image = current.image && !current.image.blank ? current.image : null;
-    const questions = buildTakeoffPageTriageQuestions(extractTakeoffLevelZoneCandidates(current.text, scope));
+    const questions = buildTakeoffPageTriageQuestions(extractTakeoffLevelZoneCandidates(current.text, scope, current.regionText));
     const fingerprint = sha256(JSON.stringify({
       prompt: TAKEOFF_PAGE_TRIAGE_PROMPT_VERSION, model: OPENAI_DECISIONS_MODEL, source: input.sourceVersion, page, file: input.fileName,
-      questions, text: sha256(current.text), image: image ? sha256(image.data) : null,
-      // A thumbnail that lacks an image is decided otherwise; absent for the others, whose key stays the same.
+      questions, text: sha256(current.text), text_truncated: current.textTruncated,
+      title_block_text: current.regionText ? sha256(current.regionText) : null, image: image ? sha256(image.data) : null,
+      // A thumbnail that lacks an image is decided otherwise.
       ...(image && current.droppedImages ? { dropped_images: current.droppedImages } : {}),
     }));
     const cached = previous?.pages.find((entry) => entry.page === page);
@@ -204,14 +210,14 @@ export async function runTakeoffPageTriage(input: {
       settle(page, { status: "cached", duration_ms: null, render_ms: current.renderMs, usage: null, request_fingerprint: fingerprint, answers: empty, proposal: cached.proposal, reason: cached.reason, thumbnail: null, text_chars: current.text.length, message: null }, cached);
       continue;
     }
-    queue.push({ page, rendered: current, fingerprint });
+    queue.push({ page, rendered: current, fingerprint, questions });
   }
 
   const thumbnailOf = (page: PdfRenderedPage) => page.image
     ? { width: page.image.width, height: page.image.height, bytes: page.image.bytes, blank: page.image.blank, dropped_images: page.droppedImages }
     : null;
   const work = async (job: (typeof queue)[number]) => {
-    const { page, rendered: current, fingerprint } = job;
+    const { page, rendered: current, fingerprint, questions } = job;
     const thumbnail = thumbnailOf(current);
     const image = current.image && !current.image.blank ? current.image : null;
     const base = { render_ms: current.renderMs, request_fingerprint: fingerprint, thumbnail, text_chars: current.text.length };
@@ -228,7 +234,6 @@ export async function runTakeoffPageTriage(input: {
       settle(page, { ...base, status: "skipped", duration_ms: null, usage: null, answers: empty, proposal: "review", reason: "budget_reached", message: null }, { ...review("budget_reached"), request_fingerprint: fingerprint });
       return;
     }
-    const questions = buildTakeoffPageTriageQuestions(extractTakeoffLevelZoneCandidates(current.text, scope));
     const started = performance.now();
     let result: OpenAiDecisionsResult | null = null;
     let status: TakeoffPageTriageCallStatus;
@@ -244,6 +249,7 @@ export async function runTakeoffPageTriage(input: {
           page: page,
           page_text: current.text,
           page_text_truncated: current.textTruncated,
+          ...(current.regionText ? { title_block_text: current.regionText } : {}),
           thumbnail: Boolean(image),
         },
         images: image ? [{ mimeType: image.mimeType, data: image.data }] : [],

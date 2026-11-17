@@ -59,10 +59,14 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
 - Document, recadrage (une page, ou une zone tracée sur le plan : PDF d'une page
   avec CropBox), nom de campagne (par défaut document et date).
 - Tâche, une par essai. Le registre est `src/lib/takeoff/lab/tasks.ts` : une
-  extraction ChatGPT (prompt et schéma du niveau C), une question `choice`
-  générique (« Lot technique du plan ») et « Classe de calque », lancée depuis
-  l'écran Vecteurs. Ajouter une tâche, c'est ajouter une entrée à ce registre ; un
-  nouvel écran ajoute sa route sous `lab/` et une entrée à `LAB_VIEWS` de
+  extraction ChatGPT (prompt et schéma du niveau C), les questions `choice`
+  « Lot technique du plan » et « Tri de page », et « Classe de calque », lancée
+  depuis l'écran Vecteurs. « Tri de page » reprend les dix types du
+  [tri en préparation](../metier/preparation-metre.md#tri-des-pages).
+  L’essai enregistre le type et sa confiance, avec la distribution des
+  probabilités affichée pour Decisions comme pour les autres choix. Chaque
+  tâche a une entrée dans ce registre. Un nouvel écran ajoute sa route sous
+  `lab/` et une entrée à `LAB_VIEWS` de
   `TakeoffLabShell.tsx`.
 - Une à quatre configurations : modèle ChatGPT × effort, envoyés par le
   paramètre `override` de `callLocalChatGptStructured` après contrôle par

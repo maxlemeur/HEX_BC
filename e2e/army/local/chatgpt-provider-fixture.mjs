@@ -144,11 +144,13 @@ globalThis.fetch = async (input, init) => {
         return { name: question.name, type: "choice", choice: "EU", confidence: 0.8,
           probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === "EU" ? 0.9 : candidate.value === "fond" ? 0.1 : 0 })) };
       }
-      if (question.type === "choice" && question.name.startsWith("page_")) {
+      if (triage && question.type === "choice" && question.name.startsWith("page_")) {
         const facade = /FA[ÇC]ADE/i.test(String(evidence.page_text ?? ""));
+        const level = question.name === "page_level" ? /NIVEAU (R\+\d+)/.exec(evidence.title_block_text ?? "")?.[1] : undefined;
         const choice = question.name === "page_type"
           ? question.choices.find((candidate) => candidate.value === (facade ? "facade" : "reseau"))
-          : question.choices.find((candidate) => candidate.value !== "inconnu") ?? question.choices.at(-1);
+          : question.choices.find((candidate) => candidate.value === level)
+            ?? question.choices.find((candidate) => candidate.value !== "inconnu") ?? question.choices.at(-1);
         return { name: question.name, type: "choice", choice: choice.value, confidence: 0.95,
           probabilities: question.choices.map((candidate) => ({ value: candidate.value, probability: candidate.value === choice.value ? 0.95 : 0.05 / (question.choices.length - 1) })) };
       }
