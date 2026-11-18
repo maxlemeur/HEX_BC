@@ -410,7 +410,7 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
   await signIn({ app, screen, browser }, profileOrigin, fixtureEmail);
   await app.open(`${profileOrigin}/dashboard/profile`);
   await waitForHydration(browser);
-  await expect(screen.getByRole("heading", "Mon forfait ChatGPT", { exact: true })).toBeVisible();
+  await expect(screen.getByRole("heading", "Abonnement ChatGPT", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Continue with ChatGPT", { exact: true }).tap();
   await expect(screen.getByText("Vous avez annulé la connexion ChatGPT. Vous pouvez la relancer.", { exact: true })).toBeVisible();
   await expect(screen.getByRole("button", "Continue with ChatGPT", { exact: true })).toBeEnabled();

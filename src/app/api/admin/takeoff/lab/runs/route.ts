@@ -26,6 +26,9 @@ export async function POST(request: Request) {
     }));
     return ok(await executeLabRun(access, body), 201);
   } catch (error) {
-    return labErrorResponse(error);
+    // A refused launch (a key-paid essai's stale page or ceiling among them) is never cached.
+    const response = labErrorResponse(error);
+    response.headers.set("cache-control", "no-store");
+    return response;
   }
 }

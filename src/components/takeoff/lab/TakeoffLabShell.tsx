@@ -91,6 +91,10 @@ export function TakeoffLabShell({ initialState, children }: Readonly<{ initialSt
               <Badge variant={state.chatgpt.connected && state.chatgpt.model ? "brand" : "neutral"} size="sm">
                 {state.chatgpt.connected && state.chatgpt.model ? `ChatGPT · profil ${state.chatgpt.model}` : "ChatGPT non prêt"}
               </Badge>
+              <Badge variant={state.api_key.status === "saved" ? "brand" : "neutral"} size="sm">
+                {state.api_key.status === "saved" ? `Clé API OpenAI · •••• ${state.api_key.suffix}`
+                  : state.api_key.status === "unavailable" ? "Clé API : indisponible sur cette installation" : "Clé API : aucune clé enregistrée"}
+              </Badge>
             </div>
           </header>
           {state.message || refreshError ? (

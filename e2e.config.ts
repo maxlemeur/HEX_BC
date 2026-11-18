@@ -6,6 +6,7 @@ import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
 import { assertInstalledDependencies } from "./scripts/tester-army/installed-dependencies.mjs";
 import { armyDecisionFilter, armyImpactFilter } from "./scripts/tester-army/impact-filter";
+import { labFictionalApiKey } from "./e2e/army/local/lab-fictional-key";
 
 assertInstalledDependencies();
 
@@ -204,13 +205,21 @@ export default {
     },
   } : {}),
   ...((critical || performance || coverage) ? {
-    secrets: Object.fromEntries(["engineer", "director", "observer"].map((role) => [
-      `business-${role}-email`, () => {
-        const value = process.env[`E2E_BUSINESS_${role.toUpperCase()}_EMAIL`];
-        if (!value) throw new Error(`Business ${role} email is not provisioned.`);
-        return value;
+    secrets: {
+      ...Object.fromEntries(["engineer", "director", "observer"].map((role) => [
+        `business-${role}-email`, () => {
+          const value = process.env[`E2E_BUSINESS_${role.toUpperCase()}_EMAIL`];
+          if (!value) throw new Error(`Business ${role} email is not provisioned.`);
+          return value;
+        },
+      ])),
+      // LAB05's fictional OpenAI key (takeoff-lab.e2e.ts): typed through its handle, redacted from the runner's reports.
+      "lab-api-key": () => {
+        const password = process.env.E2E_LOGIN_PASSWORD;
+        if (!password) throw new Error("E2E_LOGIN_PASSWORD is required for the lab's fictional key.");
+        return labFictionalApiKey(password);
       },
-    ])),
+    },
   } : {}),
   agents: {
     default: {

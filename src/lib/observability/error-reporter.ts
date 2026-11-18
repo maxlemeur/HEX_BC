@@ -1,3 +1,5 @@
+import { redactSecrets } from "@/lib/observability/redaction";
+
 export const ERROR_REPORTER_LOG_PREFIX = "[error-reporter]";
 const ERROR_REPORT_TIMEOUT_MS = 2_000;
 
@@ -32,6 +34,18 @@ export function getErrorReportingDsn(): string | null {
   return value || null;
 }
 
+// A provider error, a stack or a context may quote a key or an Authorization
+// header (personal API keys, « Accès IA »). Every event is redacted before it is
+// logged or delivered: provider-shaped keys and bearer credentials only.
+export { redactSecrets };
+
+function redactValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (depth > 8 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => redactValue(entry, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactValue(entry, depth + 1)]));
+}
+
 export function normalizeReportedError(error: unknown): {
   name: string;
   message: string;
@@ -44,24 +58,36 @@ export function normalizeReportedError(error: unknown): {
         ? error.digest
         : undefined;
     return {
-      name: error.name || "Error",
-      message: error.message,
-      stack: error.stack,
-      digest,
+      // A name is a class name; anything else (a provider could set one) is not repeated.
+      name: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name : "Error",
+      message: redactSecrets(error.message),
+      stack: error.stack === undefined ? undefined : redactSecrets(error.stack),
+      digest: digest === undefined ? undefined : redactSecrets(digest),
     };
   }
 
   return {
     name: "Error",
-    message: String(error),
+    message: redactSecrets(String(error)),
   };
+}
+
+/**
+ * What a log line may show of an error: its name, a short code and digest, and its message and stack redacted.
+ * Never the raw object, whose own properties (a request, its headers) the console would print.
+ */
+function sanitizedForLog(error: unknown) {
+  const normalized = normalizeReportedError(error);
+  const code = typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string"
+    && /^[A-Z0-9_]{1,64}$/.test((error as { code: string }).code) ? (error as { code: string }).code : undefined;
+  return { ...normalized, ...(code ? { code } : {}) };
 }
 
 function buildEvent(input: ReportErrorInput): ReportedErrorEvent {
   return {
     source: input.source,
     ...normalizeReportedError(input.error),
-    context: input.context,
+    context: input.context === undefined ? undefined : redactValue(input.context) as Record<string, unknown>,
     timestamp: new Date().toISOString(),
   };
 }
@@ -216,7 +242,7 @@ export function installProcessErrorHooks(
       console.warn(ERROR_REPORTER_LOG_PREFIX, "client left before its request was answered; the server keeps serving");
       return;
     }
-    console.error(ERROR_REPORTER_LOG_PREFIX, "uncaughtException", error);
+    console.error(ERROR_REPORTER_LOG_PREFIX, "uncaughtException", sanitizedForLog(error));
     const report = reportErrorAndWait({
       error,
       source: "process.uncaughtException",

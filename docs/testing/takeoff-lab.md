@@ -73,10 +73,60 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
   `listLocalChatGptModels` (le profil doit déjà avoir un modèle ; le labo ne
   l'écrit jamais), ou Decisions (`gpt-6-luna`, sans effort), qui reçoit l'image
   de la page ou de la zone rendue par le navigateur.
+- Ou la **clé API OpenAI** du membre (fournisseur « Clé API OpenAI », extraction
+  seulement) : voir [Clé API OpenAI](#clé-api-openai).
 - Les configurations passent l'une après l'autre. Une erreur de schéma est une
   réponse : texte brut, erreur, jetons et un élément à juger. Une limite du
   forfait, une limite de débit, un refus d'accès ou un échec Decisions arrêtent
   l'essai sans relance ; un timeout n'échoue que sa configuration.
+
+## Clé API OpenAI
+
+Une configuration peut utiliser la clé API OpenAI enregistrée dans « Mon profil »
+([Clé API OpenAI](chatgpt-local.md#clé-api-openai)), sans que ChatGPT soit connecté.
+Elle est facturée sur le compte OpenAI du membre ; le choix est explicite pour
+chaque configuration, jamais un repli.
+
+- Modèles : ceux que la clé a listés à son enregistrement parmi les modèles
+  qualifiés et tarifés ; efforts du modèle, nommés en français. Dessiner le labo
+  n'ouvre ni le Trousseau ni OpenAI. Le prompt et le schéma sont ceux du niveau C
+  (mode JSON et schéma dans le message développeur, puis validation Zod et métier).
+- Le lancement renvoie l'identifiant aléatoire de la clé affichée (unique entre
+  membres et remplacements) : une clé remplacée dans un autre onglet, ou la
+  session d'un autre membre sur une page restée ouverte, est refusée avant
+  l'ouverture du Trousseau (« Rechargez la page »). Utilisateur et entreprise
+  viennent de la session.
+- Plafond : **1,00 $ US par essai**, partagé à parts égales entre ses
+  configurations « clé ». Avant toute génération, OpenAI compte la requête exacte
+  de chacune (`POST /v1/responses/input_tokens`, qui transmet le document, ce que
+  le lancement accepte) ; l'entrée comptée est chiffrée à son pire tarif
+  (écriture en cache de 12 h, contexte long) et la sortie autorisée est ce qui reste de la
+  part, au plus 32 000 jetons (64 000 pour `xhigh` et `max`), raisonnement
+  compris. Moins de 8 000 jetons possibles, un comptage indisponible ou un modèle
+  sans tarif connu refusent l'essai entier avant la première génération. La
+  borne (entrée comptée + sortie autorisée) ne dépasse donc jamais la part.
+- Après chaque réponse, la configuration suivante ne part que si sa réservation
+  tient dans le plafond moins ce qu'OpenAI a annoncé ; sinon l'essai s'arrête en
+  distinguant le montant annoncé de la réservation. Une réponse dont le coût
+  n'est pas connu (niveau de service inattendu, usage absent) arrête l'essai
+  (« consommation à confirmer »). Si l'usage annoncé dépasse malgré tout le
+  plafond, l'essai l'écrit en français (« Dépassement du plafond : OpenAI a
+  annoncé … ») et s'arrête. Les refus de lancement ne sont jamais mis en cache.
+- La requête comptée est sérialisée une fois : la génération envoie ce même
+  texte, et une configuration préparée ne part qu'une fois.
+- Résultat : quantités et page source, modèle effectivement utilisé,
+  consommation annoncée (jetons en cache, écrits et de raisonnement comptés une
+  fois), entrée comptée, sortie autorisée et coût estimé en **$ US** avec le
+  barème daté (`billing` de la configuration, en nano-dollars). L'essai garde
+  l'entreprise de son auteur (`author.tenant_id`) et le fournisseur de l'API
+  (`api_provider`) dans l'identité de la configuration.
+  « moins de 0,01 $ US » si le coût arrondi est nul. Une réponse rejetée par le
+  schéma garde son usage et son coût. Une réponse perdue après l'envoi reste
+  « consommation à confirmer » et n'est jamais renvoyée.
+- Un refus de la clé, une limite de dépense ou de débit, une réponse perdue
+  arrêtent l'essai ; un modèle refusé, une demande rejetée ou une sortie tronquée
+  n'échouent que leur configuration. Le message est le message fixe du code
+  (`error_code`), jamais le texte du fournisseur.
 
 ## Vecteurs (TI-662)
 
@@ -125,6 +175,27 @@ Un recadrage n'est jamais noté : la vérité porte sur le document entier.
 fixture `chatgpt-provider-fixture.mjs` et Decisions en fixture : aucun appel réel.
 Son dataset fictif et sa sortie vide sont sous
 `.e2e/army/critical/artifacts/<id>/`.
+
+LAB05 prouve la clé API avec un administrateur sans forfait ChatGPT : saisie
+dans « Mon profil », recharge, état masqué, test du modèle, extraction du plan
+fictif (12,5 m et quatre vannes, page 1, entrée comptée, coût en $ US), refus
+d'une page périmée, réponse du fournisseur qui renvoie la clé (masquée partout),
+retrait, refus des routes hors hôte local, d'une autre origine ou sans session.
+La fixture `api-key-provider-fixture.mjs`, préchargée après celle du forfait,
+refuse de s'installer hors d'un serveur Army de développement ; elle répond au
+catalogue de l'API, au comptage et à Responses, et remplace le Trousseau, absent
+sous Linux, par un magasin en mémoire du serveur du parcours. Ce magasin n'est
+pris en compte que si la version n'est pas de production, que l'intégration
+locale est active (`isLocalChatGptEnabled` : tout serveur de développement, CI
+compris, ou un opt-in explicite hors CI) et que `E2E_ARMY=1`, et seulement s'il a
+été installé par du code chargé au démarrage du processus : aucun réglage seul ne
+l'active, il n'écrit rien sur disque. Il décode exactement ce que MergeOne écrit :
+il prouve le câblage, pas le vrai Trousseau. La clé fictive est le secret
+`lab-api-key` du runner (`e2e.config.ts`, dérivé du mot de passe aléatoire de la
+campagne) : saisie par son handle, elle est masquée des rapports du runner. La
+fixture n'en reçoit que le SHA-256 ; le parcours vérifie son absence des fichiers
+de la campagne, des fichiers de résultat du parcours déjà écrits, du journal de
+transport et de toute la sortie du serveur.
 
 L'écran Vecteurs est prouvé par VEC01 de `chatgpt-local-decisions.e2e.ts` : un plan fictif
 à calques (`lab-vector-plan-fixture.ts`) dans un dataset fictif sous les artefacts

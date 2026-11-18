@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import {
+  AI_API_PROVIDER_LABELS, aiApiProviderSchema, type AiApiProvider, type AiBillingSource, type AiExecutionPlace, type ApiKeyOfferedModel,
+} from "@/lib/ai/access/contracts";
 import { chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // Contracts of the takeoff lab (TI-661), shared by its routes and its screens.
@@ -33,12 +36,18 @@ export const DECISIONS_INSTRUCTIONS_MAX = 8000;
 export const DECISIONS_IMAGE_BASE64_MAX = 3 * 1024 * 1024;
 export const EXTRACTION_PROMPT_MAX = 50_000;
 
-export type LabProvider = "chatgpt" | "decisions";
+/** Who answers an essai's configuration: the ChatGPT subscription, Decisions, or the member's own API key (paid by them). */
+export type LabProvider = "chatgpt" | "decisions" | "api_key";
 export type LabTaskKind = "extraction" | "choice";
 
 export const LabConfigInputSchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("chatgpt"), model: z.string().trim().min(1).max(200), reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
   z.object({ provider: z.literal("decisions") }).strict(),
+  // The API's provider is its own field: Anthropic joins this list without a new lab provider.
+  // `connectionId`: the key the page showed, an opaque identity unique across owners and replacements. A key replaced in
+  // another tab, or the session of another member, is refused, never billed. The owner still comes from the session.
+  z.object({ provider: z.literal("api_key"), apiProvider: aiApiProviderSchema, model: z.string().trim().min(1).max(200),
+    reasoningEffort: chatGptReasoningEffortSchema.nullable(), connectionId: z.uuid() }).strict(),
 ]);
 export type LabConfigInput = z.infer<typeof LabConfigInputSchema>;
 
@@ -107,9 +116,40 @@ export type LabElement = {
 };
 
 export type LabConfigStatus = "ok" | "schema_error" | "partial" | "failed" | "not_run";
+
+/**
+ * A configuration paid with the member's API key: what it could cost before the call, what it cost after,
+ * in US dollars (nano-dollars, aggregated before rounding), with the dated price table that priced it.
+ * The bound is the input OpenAI counted (priced at its worst rate) plus the whole output budget, which is
+ * what this configuration's share of the ceiling (`allotment_nano_usd`) left.
+ * `cost_nano_usd` null: the call may have been billed and its usage is unknown, or OpenAI served another tier
+ * than Standard (« consommation à confirmer »).
+ */
+export type LabBilling = {
+  source: Extract<AiBillingSource, "personal_api_key">;
+  provider: AiApiProvider;
+  place: AiExecutionPlace;
+  currency: "USD";
+  price_table: string;
+  /** The model the provider says answered (a dated snapshot, for instance); `model` keeps the one requested. */
+  model_used: string | null;
+  /** The tier OpenAI says it served; only « default » (Standard) is priced. */
+  service_tier: string | null;
+  ceiling_nano_usd: number;
+  allotment_nano_usd: number;
+  input_tokens_counted: number | null;
+  max_output_tokens: number | null;
+  bound_nano_usd: number | null;
+  cost_nano_usd: number | null;
+  usage: { input: number; cached_input: number; cache_write: number; output: number; reasoning: number; total: number } | null;
+  request_id: string | null;
+  connection_version: number;
+};
 export type LabConfigResult = {
   id: LabConfigId;
   provider: LabProvider;
+  /** API key only: whose API answered (OpenAI here; Anthropic later). Absent from older runs. */
+  api_provider?: AiApiProvider | null;
   model: string;
   reasoning_effort: ChatGptReasoningEffort | null;
   status: LabConfigStatus;
@@ -123,15 +163,21 @@ export type LabConfigResult = {
   answers: LabAnswer[] | null;
   score: LabScore | null;
   elements: LabElement[];
+  /** API key only; absent from older runs. */
+  billing?: LabBilling | null;
+  /** API key only: the closed code of its failure (api-key-errors.ts), never provider text. */
+  error_code?: string | null;
 };
 
-export type LabStopReason = "quota" | "rate_limit" | "auth_required" | "account_missing" | "model_missing" | "selection_changed" | "decisions_failed" | "other";
+export type LabStopReason = "quota" | "rate_limit" | "auth_required" | "account_missing" | "model_missing" | "selection_changed" | "decisions_failed"
+  | "api_key_failed" | "api_key_ceiling_exceeded" | "other";
 
 export type LabRun = {
   schema_version: 1;
   id: string;
   created_at: string;
-  author: { user_id: string; email: string | null };
+  /** The tenant names whose key paid a key-paid configuration (connection versions are per member × tenant). Absent from older runs. */
+  author: { user_id: string; tenant_id?: string; email: string | null };
   campaign: string;
   task: { id: string; kind: LabTaskKind; label: string };
   document: { id: string; source: "dataset" | "fixture"; sha256: string; pages: number };
@@ -153,6 +199,7 @@ export type LabStoredVerdict = {
   run_id: string;
   config_id: LabConfigId;
   provider: LabProvider;
+  api_provider?: AiApiProvider | null;
   model: string;
   reasoning_effort: ChatGptReasoningEffort | null;
   prompt_version: string;
@@ -249,6 +296,13 @@ export type LabState = {
   tasks: LabTaskDescriptor[];
   decisions: { available: boolean; message: string; model: string; budget: LabDecisionsBudget };
   chatgpt: { connected: boolean; model: string | null; reasoning_effort: ChatGptReasoningEffort | null; message: string | null };
+  /** The member's OpenAI key on this Mac: never the key, only whether it is there and its masked suffix. */
+  api_key: { status: "saved" | "empty" | "unavailable"; provider: AiApiProvider; suffix: string | null; place_label: string | null;
+    message: string | null; ceiling_nano_usd: number;
+    /** The saved key's opaque identity, sent back with a launch: a key replaced, or another member's, is refused. */
+    connection_id: string | null;
+    /** The models the key listed when saved: the lab neither opens the Keychain nor calls OpenAI before a launch. */
+    models: ApiKeyOfferedModel[] };
   campaigns: string[];
   /** Campaign of the latest essai: the verdicts and stats open on it. */
   latest_campaign: string | null;
@@ -263,7 +317,8 @@ export type LabRunSummary = {
   crop: LabCrop | null;
   prompt_version: string;
   status: LabRun["status"];
-  configs: Array<Pick<LabConfigResult, "id" | "provider" | "model" | "reasoning_effort" | "status" | "latency_ms" | "usage" | "score"> & { elements: number }>;
+  configs: Array<Pick<LabConfigResult, "id" | "provider" | "model" | "reasoning_effort" | "status" | "latency_ms" | "usage" | "score"> & {
+    api_provider: AiApiProvider | null; billing: LabBilling | null; elements: number }>;
 };
 
 export type LabCampaignElement = LabElement & {
@@ -271,6 +326,7 @@ export type LabCampaignElement = LabElement & {
   run_created_at: string;
   config_id: LabConfigId;
   provider: LabProvider;
+  api_provider: AiApiProvider | null;
   model: string;
   reasoning_effort: ChatGptReasoningEffort | null;
   config_status: LabConfigStatus;
@@ -290,6 +346,7 @@ export type LabStatsGroup = {
   id: string;
   task: LabRun["task"];
   provider: LabProvider;
+  api_provider: AiApiProvider | null;
   model: string;
   reasoning_effort: ChatGptReasoningEffort | null;
   prompt_version: string;
@@ -318,8 +375,19 @@ export type LabBenchReportSummary = {
 // ---------------------------------------------------------------------------
 // Labels shared by the screens
 
-export function configLabel(config: { provider: LabProvider; model: string; reasoning_effort: ChatGptReasoningEffort | null }) {
-  return config.provider === "decisions" ? `Decisions · ${config.model}` : `${config.model} · ${config.reasoning_effort ?? "auto"}`;
+/** Reasoning efforts as the screens name them; the API values stay internal. */
+export const EFFORT_LABELS: Record<ChatGptReasoningEffort, string> = {
+  none: "Sans raisonnement", low: "Faible", medium: "Moyen", high: "Élevé", xhigh: "Très élevé", max: "Maximum",
+};
+
+export function effortLabel(effort: ChatGptReasoningEffort | null) {
+  return effort === null ? "Automatique" : EFFORT_LABELS[effort];
+}
+
+export function configLabel(config: { provider: LabProvider; api_provider?: AiApiProvider | null; model: string; reasoning_effort: ChatGptReasoningEffort | null }) {
+  if (config.provider === "decisions") return `Decisions · ${config.model}`;
+  const label = `${config.model} · ${effortLabel(config.reasoning_effort)}`;
+  return config.provider === "api_key" ? `Clé API ${AI_API_PROVIDER_LABELS[config.api_provider ?? "openai"]} · ${label}` : label;
 }
 
 /** « takeoff-c-v1 · 1a2b3c4d » or « questions · 1a2b3c4d ». */

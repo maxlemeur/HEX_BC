@@ -36,7 +36,8 @@ function campaignElements(runs: readonly LabRun[], campaign: string): Omit<LabCa
   // Oldest essai first, then A to D, then the order of the rows.
   return [...runs].filter((run) => run.campaign === campaign).reverse().flatMap((run) => run.configs.flatMap((config) =>
     config.elements.map((element) => ({
-      ...element, run_id: run.id, run_created_at: run.created_at, config_id: config.id, provider: config.provider, model: config.model,
+      ...element, run_id: run.id, run_created_at: run.created_at, config_id: config.id, provider: config.provider,
+      api_provider: config.api_provider ?? null, model: config.model,
       reasoning_effort: config.reasoning_effort, config_status: config.status, config_message: config.message, task: run.task,
       document: run.document, crop: run.crop, prompt_version: run.prompt.version,
     }))));
@@ -87,7 +88,8 @@ async function writeVerdict(paths: LabPaths, access: LabAccess, campaign: string
   const stored: LabStoredVerdict = {
     schema_version: 1, element_id: elementId, verdict, author: { user_id: access.owner.userId, email: access.email },
     at: new Date().toISOString(), campaign, task: element.task.id, run_id: element.run_id, config_id: element.config_id,
-    provider: element.provider, model: element.model, reasoning_effort: element.reasoning_effort, prompt_version: element.prompt_version,
+    provider: element.provider, api_provider: element.api_provider, model: element.model, reasoning_effort: element.reasoning_effort,
+    prompt_version: element.prompt_version,
     document_id: element.document.id, document_sha256: element.document.sha256,
   };
   await writeLabJson(file, stored);
@@ -125,9 +127,11 @@ export async function computeLabStats(paths: LabPaths, filter: { campaign: strin
   for (const run of runs) {
     for (const config of run.configs) {
       if (config.status === "not_run") continue;
-      const id = JSON.stringify([run.task.id, config.provider, config.model, config.reasoning_effort, run.prompt.version]);
+      // The API's provider is part of the identity: the same model id on another provider's key is another configuration.
+      const id = JSON.stringify([run.task.id, config.provider, config.api_provider ?? null, config.model, config.reasoning_effort, run.prompt.version]);
       const group = groups.get(id) ?? {
-        id, task: run.task, provider: config.provider, model: config.model, reasoning_effort: config.reasoning_effort,
+        id, task: run.task, provider: config.provider, api_provider: config.api_provider ?? null, model: config.model,
+        reasoning_effort: config.reasoning_effort,
         prompt_version: run.prompt.version, label: configLabel(config), good: 0, bad: 0, judged: 0, rate: null, responses: 0,
         mean_tokens: null, mean_latency_ms: null, tokens: [], latencies: [],
       };

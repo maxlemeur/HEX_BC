@@ -44,7 +44,7 @@ reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation
    et se connecter à MergeOne. Si le port 3000 est occupé, utiliser
    `npm run dev -- --port 3015` et ouvrir cette même adresse avec le port 3015.
    Conserver la même adresse pendant le parcours OAuth.
-3. Dans **Mon forfait ChatGPT**, choisir **Continue with ChatGPT** et consentir
+3. Dans **Accès IA › Abonnement ChatGPT**, choisir **Continue with ChatGPT** et consentir
    à l’utilisation du forfait avec un compte éligible. **GPT-6.1 Terra** est
    sélectionné par défaut si le compte le propose et qu’aucun modèle n’est encore
    choisi. Un choix déjà enregistré est conservé. Le modèle reste modifiable
@@ -100,7 +100,8 @@ Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
 
 Les anciennes tâches Gemini ne sont plus lancées ni réconciliées par cette
-version. Les intégrations par clé personnelle sont hors de ce lot. Ces
+version. La clé API personnelle est décrite plus bas ([Clé API OpenAI](#clé-api-openai)) ;
+elle ne remplace jamais le forfait dans ces traitements. Ces
 changements n'ont pas été déployés : le site hébergé et ses traitements déjà
 enregistrés conservent leur fonctionnement tant qu'ils ne sont pas modifiés.
 La fonctionnalité Decisions reste indépendante : si elle est déjà configurée,
@@ -146,6 +147,120 @@ aussi ce forfait. Il s'active à part avec `MERGEONE_ASSISTANT=1` : voir
   du serveur et les hôtes de `MERGEONE_DEV_HOSTS` sont acceptés. Hors
   développement, l’opt-in CLI/test reste explicite et refusé sur Vercel ou CI.
   `npm run dev:chatgpt` lie l’écoute à `127.0.0.1` sauf `--hostname` explicite.
+
+## Clé API OpenAI
+
+« Mon profil › Accès IA » montre deux entrées : **Abonnement ChatGPT** (la source
+par défaut, avec toutes ses commandes) et **Clé API**. Dans cette version, la clé
+sert **uniquement au labo métré** ([guide du labo](takeoff-lab.md#clé-api-openai)) :
+les autres traitements restent sur le forfait, et aucun ne passe de l’un à
+l’autre. Un forfait expiré ou absent ne déclenche jamais d’appel sur la clé ; une
+clé refusée ne bascule jamais sur le forfait.
+
+- **Ajouter** : coller la clé dans le champ masqué, puis **Vérifier et
+  enregistrer**. Le champ n’existe que sur l’adresse de boucle locale
+  (`127.0.0.1`, `localhost`) : depuis un hôte de `MERGEONE_DEV_HOSTS`, servi en
+  HTTP, la clé traverserait le réseau en clair ; la page indique alors l’adresse
+  à ouvrir sur le Mac, et la route refuse aussi une clé reçue par un autre hôte.
+  Limite : la page en décide d’après l’adresse affichée par le navigateur, et la
+  route d’après l’en-tête `Host` et le protocole transmis ; ni l’un ni l’autre ne
+  prouve l’interlocuteur réseau, et un proxy ou une redirection de port peut les
+  faire diverger. C’est la décision du navigateur qui garde la clé hors du réseau ;
+  un client qui forge ces en-têtes n’expose que sa propre clé. `npm run dev`
+  (Next seul) écoute sur toutes les interfaces, `npm run dev:chatgpt` sur
+  `127.0.0.1`.
+  Le serveur lit le catalogue `GET /v1/models` (ni pièce jointe ni génération) ;
+  accepté, l’état devient « Clé reconnue » et les modèles qualifiés que la clé
+  liste sont retenus. Si OpenAI refuse la liste sans refuser la clé (403, ou 401
+  sans code de refus définitif), la clé n’est pas déclarée invalide : l’écran dit
+  qu’elle est peut-être restreinte, ou invalide, et propose le test annoncé d’un
+  modèle ; la clé n’est enregistrée que si ce test réussit. Un refus définitif
+  (`invalid_api_key`, `ip_not_authorized`, lus dans `error.code` comme dans
+  `error.type`) reste « OpenAI a refusé cette clé ».
+- **Tester le modèle** : un petit appel facturable, annoncé avec son plafond (au
+  plus 0,10 $ US), sans document client. « Modèle testé le … » signifie seulement
+  que cet appel a abouti.
+- **Remplacer** vérifie la nouvelle clé, l’écrit dans **son propre élément** du
+  Trousseau et la relit ; seulement alors le descriptif local bascule sur elle,
+  par un renommage atomique, puis l’ancien élément est supprimé. Une
+  vérification refusée, un Trousseau verrouillé, une écriture interrompue ou un
+  échec du descriptif laissent la clé en service intacte et utilisable. Si la clé
+  en service a été remplacée ou retirée pendant la vérification (autre onglet),
+  rien n’est enregistré. **Retirer** enregistre d’abord que la clé n’est plus
+  active, puis supprime son élément du Trousseau ; si cette suppression échoue,
+  l’écran le dit et elle est refaite à la prochaine ouverture du Trousseau.
+  Révoquer la clé chez OpenAI reste à faire dans le compte du fournisseur.
+- Un descriptif local illisible compte comme « aucune clé enregistrée » : l’écran
+  le dit, et un nouvel enregistrement le remplace.
+- Dessiner « Mon profil » ou le labo n’ouvre pas le Trousseau et n’appelle pas
+  OpenAI : l’état et les modèles viennent du descriptif local.
+- Modèles proposés : l’intersection du catalogue de la clé et des modèles
+  qualifiés et tarifés dans `src/lib/ai/access/openai-pricing.ts`. Barème
+  Standard relevé le 18 novembre 2026 (recherches sur developers.openai.com :
+  pages des modèles, tarifs, référence Responses, guide du cache de prompt) :
+  GPT-6.1 Terra 1 / 0,05 / 5 $ US et GPT-6.1 Sol 2 / 0,10 / 10 $ US par million
+  de jetons d’entrée, d’entrée en cache et de sortie ; une écriture en cache
+  coûte 1,25 × l’entrée (30 min) ou 2,5 × (12 h) ; au-delà de 272 000 jetons
+  d’entrée, toute la requête est facturée 2 × en entrée et 1,5 × en sortie. Un
+  modèle sans tarif connu n’est ni proposé ni appelé.
+- Chaque appel fixe `service_tier: "default"` (Standard) et demande
+  `prompt_cache_options.mode: "explicit"` sans point de cache, donc aucune
+  écriture ; une écriture annoncée est tout de même comptée à son tarif, d’après
+  `cache_write_tokens_details.ttl_30m_tokens` (tout jeton écrit que ce compteur
+  ne couvre pas est compté au tarif 12 h). Un niveau de service servi autre que
+  Standard laisse le coût « à confirmer ».
+- Le texte d’une réponse est décodé avant d’être masqué : la clé exacte et toute
+  chaîne au format d’une clé OpenAI sont remplacées dans chaque valeur, rien
+  d’autre (un texte de plan comme « Bearer bracket » reste tel quel).
+
+Stockage et frontières de la clé :
+
+- Le secret est dans le **Trousseau macOS** de ce Mac, élément
+  `fr.mergeone.ai-api-key`, compte
+  `<installation>:<utilisateur>:<tenant>:openai:v<version>` (un élément par clé
+  enregistrée). Il passe par `/usr/bin/security` : écriture par l’entrée standard
+  de `security -i` (hexadécimal), refusée si la commande sort en erreur, puis
+  relue et comparée ; jamais en argument, variable d’environnement, fichier, URL
+  ou journal. Au délai dépassé, le processus est tué et sa fin attendue avant la
+  réponse. L’installation est l’identifiant de `.private/chatgpt-local/host.json`.
+- Le descriptif nomme les éléments écrits pour une clé pas encore active
+  (`pending`) et ceux à supprimer (`retired`) : toute opération qui ouvre le
+  Trousseau (enregistrement, retrait, test, labo) les nettoie. Chaque clé
+  enregistrée reçoit aussi un identifiant aléatoire, que les pages renvoient
+  (voir le labo). Un verrou laissé par un processus arrêté (ou orphelin depuis
+  30 s) est repris par un seul processus, qui vérifie d’abord qu’il s’agit bien
+  du verrou jugé mort ; chacun ne libère que le verrou qui porte son jeton.
+- Non vérifié sur un vrai Trousseau : les tests et le parcours utilisent un
+  magasin en mémoire qui décode exactement ce que MergeOne écrit ; ils prouvent
+  le câblage, pas le comportement de `security` (codes de sortie, mode
+  interactif, verrouillage). Le premier enregistrement du propriétaire en est la
+  première preuve.
+- Trousseau verrouillé, ou boîte de déverrouillage sans réponse en 30 s :
+  « Déverrouillez le Trousseau de ce Mac ». Sans Trousseau (Linux, version
+  hébergée), l’entrée indique que la clé n’est disponible que sur l’installation
+  Mac ; aucun stockage de repli n’existe.
+- `.private/ai-access/` (fichiers `0600`) ne garde que le suffixe masqué, la
+  version active, la vérification, les modèles listés, le dernier test, la
+  dernière utilisation et les éléments en attente ou à retirer.
+- Les routes `/api/ai-access/api-key` vérifient l’hôte local, la session, le
+  tenant actif et, pour une écriture, l’origine de la page et un corps JSON. Ce
+  ne sont pas des actions serveur : en développement, Next affiche les arguments
+  d’une action serveur dans le terminal.
+- Seul l’adaptateur `src/lib/ai/access/openai-api.ts` obtient la clé enregistrée
+  et l’envoie, à `https://api.openai.com` sans suivre de redirection, avec
+  `store: false` et une sortie bornée. Ses échecs sont des codes fermés aux
+  messages français fixes ; il ne lit d’une réponse que le statut, un code
+  d’erreur reconnu, l’identifiant de requête et `Retry-After`. Le texte qu’une
+  réponse renvoie (réponse, identifiant de modèle, identifiant de requête) est
+  masqué de la clé et de toute valeur au format d’une clé avant d’être lu ou
+  stocké ; le rapporteur d’erreurs masque aussi ces valeurs, y compris dans la
+  ligne qu’il journalise pour une exception non rattrapée.
+
+Essai réel du propriétaire (hors CI) : lancer le labo comme indiqué dans son
+guide, déconnecter ChatGPT si besoin, enregistrer la clé dans « Mon profil »,
+**Tester le modèle**, puis dans le labo choisir le fournisseur **Clé API OpenAI**,
+le plan fictif `army-chatgpt-plan` et lancer. Attendu : 12,5 m de tuyauterie et
+quatre vannes en page 1, le modèle utilisé et un coût en $ US.
 
 ## Vérification
 

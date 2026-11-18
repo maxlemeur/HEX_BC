@@ -2,6 +2,8 @@ import "server-only";
 
 import { headers } from "next/headers";
 
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import { LAB_API_KEY_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
 import { assertLocalChatGptHost, getLocalChatGptCredential, getLocalChatGptState } from "@/lib/ai/chatgpt-local-auth";
 import { listLocalChatGptModels } from "@/lib/ai/chatgpt-local-inference";
 import { getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL } from "@/lib/ai/decisions";
@@ -96,6 +98,9 @@ export async function readLabState(access: LabAccess): Promise<LabState> {
   // A dataset path that is set but unreadable degrades like an absent one: fixtures only, named reason.
   if (listing.error) message = listing.error;
   const chatgpt = await getLocalChatGptState(access.owner).catch(() => null);
+  // Read from MergeOne's own record only: the Keychain is not opened to draw the page.
+  const apiKey = await openAiApiKeyAccess().state(access.owner).catch((error: unknown) => ({
+    status: "unavailable" as const, message: error instanceof Error ? error.message : null }));
   const decisionsMessage = cap === null ? "TAKEOFF_LAB_DECISIONS_MAX_TOKENS doit être un entier positif : Decisions désactivé." : capability.message;
   return {
     configured: configuration.status === "configured" && message === null,
@@ -107,6 +112,14 @@ export async function readLabState(access: LabAccess): Promise<LabState> {
     chatgpt: {
       connected: Boolean(chatgpt?.sharing), model: chatgpt?.model ?? null, reasoning_effort: chatgpt?.reasoningEffort ?? null,
       message: !chatgpt?.sharing ? "Connectez votre compte ChatGPT dans Mon profil." : !chatgpt.model ? "Choisissez un modèle ChatGPT dans Mon profil : le labo ne modifie jamais le profil." : null,
+    },
+    api_key: {
+      status: apiKey.status, provider: "openai", ceiling_nano_usd: LAB_API_KEY_CEILING_NANO_USD,
+      suffix: apiKey.status === "saved" ? apiKey.connection.suffix : null,
+      connection_id: apiKey.status === "saved" ? apiKey.connection.connectionId : null,
+      models: apiKey.status === "saved" ? apiKey.connection.offeredModels : [],
+      place_label: apiKey.status === "saved" ? apiKey.connection.placeLabel : apiKey.status === "empty" ? apiKey.placeLabel : null,
+      message: apiKey.status === "saved" ? null : apiKey.status === "empty" ? "Ajoutez votre clé API OpenAI dans Mon profil." : apiKey.message,
     },
     campaigns,
     latest_campaign: runs[0]?.campaign ?? null,

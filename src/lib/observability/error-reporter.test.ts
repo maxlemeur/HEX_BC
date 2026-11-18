@@ -77,6 +77,28 @@ describe("error reporting network boundary", () => {
     });
   });
 
+  // Personal API keys (lot « Accès IA »): a provider error or a stack that quotes a key or an Authorization header
+  // must not carry it to the collector or the log, whatever code raised it.
+  it("redacts API keys and bearer credentials from the message, the stack and the context", async () => {
+    const key = `sk-proj-${"Ab3_".repeat(10)}7K2F`;
+    let delivered = "";
+    await withCollector((request, response) => {
+      request.on("data", (chunk) => { delivered += chunk.toString(); });
+      request.on("end", () => response.end("ok"));
+    }, async (origin) => {
+      vi.stubEnv("ERROR_REPORTING_DSN", origin);
+      const error = new Error(`Incorrect API key provided: ${key}`);
+      error.stack = `Error: request failed with authorization: Bearer ${key}\n    at send (openai.ts:1:1)`;
+      await reportErrorAndWait({ error, source: "fixture", context: { headers: { authorization: `Bearer opaque-token-123` }, nested: [key] } });
+      expect(delivered).not.toContain(key);
+      expect(delivered).not.toContain("opaque-token-123");
+      expect(JSON.parse(delivered)).toMatchObject({ message: "Incorrect API key provided: [clé masquée]", context: { nested: ["[clé masquée]"] } });
+    });
+    vi.stubEnv("ERROR_REPORTING_DSN", "");
+    await reportErrorAndWait({ error: new Error(`fetch failed for ${key}`), source: "fixture" });
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(key);
+  });
+
   it("delivers the original event to a healthy collector", async () => {
     let event: unknown;
     await withCollector((request, response) => {
@@ -96,6 +118,40 @@ describe("installProcessErrorHooks", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  // Fix round, review item 6a: the hook printed the raw Error before the redacted event.
+  it("logs an uncaught exception in its redacted form, keeping its name, code and frames", async () => {
+    const target = new EventEmitter();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("ERROR_REPORTING_DSN", "");
+    const key = `sk-proj-${"Zq9-".repeat(10)}AB12`;
+    const error = Object.assign(new Error(`socket closed for Bearer ${key}`), { code: "ECONNRESET" });
+    installProcessErrorHooks({ target: target as unknown as NodeJS.Process, exit: vi.fn() });
+    target.emit("uncaughtException", error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const calls = vi.mocked(console.error).mock.calls;
+    expect(JSON.stringify(calls.map((call) => call.map((argument) => (argument instanceof Error ? { message: argument.message, stack: argument.stack } : argument)))))
+      .not.toContain(key);
+    const logged = calls.find((call) => call[1] === "uncaughtException")?.[2] as { name?: string; code?: string; stack?: string };
+    expect(logged).toMatchObject({ name: "Error", code: "ECONNRESET" });
+    expect(logged.stack).toContain("error-reporter.test.ts");
+  });
+
+  // Review round 2, item I: the name and the digest are sanitised like the message and the stack.
+  it("sanitises the name and the digest of an uncaught exception", async () => {
+    const target = new EventEmitter();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("ERROR_REPORTING_DSN", "");
+    const key = `sk-proj-${"Qw7_".repeat(10)}CD34`;
+    const error = Object.assign(new Error("failure"), { name: `ProviderError ${key}`, digest: `NEXT_ERROR;${key}` });
+    installProcessErrorHooks({ target: target as unknown as NodeJS.Process, exit: vi.fn() });
+    target.emit("uncaughtException", error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const logged = JSON.stringify(vi.mocked(console.error).mock.calls.map((call) => call.map((argument) => (argument instanceof Error ? "[raw error]" : argument))));
+    expect(logged).not.toContain(key);
+    expect(logged).not.toContain("[raw error]");
+    expect(vi.mocked(console.error).mock.calls.find((call) => call[1] === "uncaughtException")?.[2]).toMatchObject({ name: "Error" });
   });
 
   it("reports then exits the process on uncaughtException instead of swallowing it", async () => {

@@ -3,6 +3,12 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
+import { ApiKeyError, apiKeyErrorMessage, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
+import { openAiApiKeyAccess, type PreparedApiKeyCall } from "@/lib/ai/access/openai-api";
+import {
+  costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD, LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, OPENAI_PRICE_TABLE,
+  openAiQualifiedModel,
+} from "@/lib/ai/access/openai-pricing";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import {
   assertLocalChatGptOverride, callLocalChatGptStructured, listLocalChatGptModels, type LocalChatGptOverride, type LocalChatGptRawResult,
@@ -14,7 +20,7 @@ import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import {
-  LAB_CONFIG_IDS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
+  LAB_CONFIG_IDS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabBilling, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
   type LabRun, type LabRunRequest, type LabRunSummary, type LabStopReason, type LabUsage,
 } from "@/lib/takeoff/lab/contracts";
 import { cropLabPdf } from "@/lib/takeoff/lab/crop";
@@ -44,6 +50,21 @@ import type { TakeoffExchange } from "@/lib/takeoff/types";
 // stored runs once the single-essai lock is taken (no other essai can still
 // write its usage); a failed call stops the essai. The run is written atomically,
 // stopped or not, before it is returned.
+// A configuration on the member's API key (provider "api_key", OpenAI here) is
+// paid by them. Before the first generation of the essai: each model must have
+// a known price and be one the key listed; the key the page showed must still
+// be the one in service (its version, checked before the Keychain is opened);
+// each key configuration gets an equal share of the 1,00 $ US ceiling, and is
+// prepared: OpenAI counts its exact request (the document is sent for that,
+// which launching agreed to), and its output budget is what its share leaves
+// once that input is priced at its worst rate. One that cannot hold a useful
+// answer refuses the whole essai, before anything is generated. After each
+// call the spend so far is checked: past the ceiling (a provider counting
+// otherwise than announced), the essai says so in French and stops. It never
+// needs, reads or calls the ChatGPT subscription, and a failure of the key never
+// falls back to it. Amounts are stored in US dollars with the dated price table;
+// a call that may have been billed without known usage, or served by another
+// tier than Standard, stays « à confirmer ». Nothing is resent automatically.
 // « Classe de calque » (vectors.ts) is one Decisions configuration on a whole
 // page: no browser image, no zone, its fixed questions; its calls stop at the
 // first failure or at the cap's remainder, and its usage is their sum.
@@ -59,6 +80,16 @@ function newRunId(now: Date) {
 
 function usageOf(usage: { inputTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number }): LabUsage {
   return { input: usage.inputTokens, output: usage.outputTokens, reasoning: usage.reasoningTokens, total: usage.totalTokens };
+}
+
+/** The provider counts reasoning inside the output; the lab shows them apart, as for the subscription. */
+function apiKeyUsageOf(usage: ApiKeyCallUsage): LabUsage {
+  return { input: usage.input, output: Math.max(0, usage.output - usage.reasoning), reasoning: usage.reasoning, total: usage.total };
+}
+
+function billingUsageOf(usage: ApiKeyCallUsage | null): LabBilling["usage"] {
+  return usage ? { input: usage.input, cached_input: usage.cachedInput, cache_write: usage.cacheWrite, output: usage.output,
+    reasoning: usage.reasoning, total: usage.total } : null;
 }
 
 function choiceLabel(task: LabTask, value: unknown) {
@@ -148,7 +179,8 @@ export function summarizeLabRun(run: LabRun): LabRunSummary {
     prompt_version: run.prompt.version, status: run.status,
     configs: run.configs.map((config) => ({
       id: config.id, provider: config.provider, model: config.model, reasoning_effort: config.reasoning_effort, status: config.status,
-      latency_ms: config.latency_ms, usage: config.usage, score: config.score, elements: config.elements.length,
+      latency_ms: config.latency_ms, usage: config.usage, score: config.score, api_provider: config.api_provider ?? null,
+      billing: config.billing ?? null, elements: config.elements.length,
     })),
   };
 }
@@ -186,11 +218,14 @@ export function decisionsBudget(runs: readonly LabRun[], cap: number | null): La
 // ---------------------------------------------------------------------------
 // Pre-flight: everything that can be refused is refused before the first call.
 
+const PROVIDER_NAMES: Record<LabConfigInput["provider"], string> = { chatgpt: "ChatGPT", decisions: "Decisions", api_key: "la clé API" };
+
 function checkConfigs(task: LabTask, configs: readonly LabConfigInput[]) {
   const seen = new Set<string>();
   for (const config of configs) {
-    if (!task.providers.includes(config.provider)) throw badRequest(`La tâche « ${task.label} » ne se lance pas sur ${config.provider === "decisions" ? "Decisions" : "ChatGPT"}.`);
-    const key = config.provider === "decisions" ? "decisions" : `${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
+    if (!task.providers.includes(config.provider)) throw badRequest(`La tâche « ${task.label} » ne se lance pas sur ${PROVIDER_NAMES[config.provider]}.`);
+    const key = config.provider === "decisions" ? "decisions"
+      : `${config.provider === "api_key" ? `api_key\u0000${config.apiProvider}\u0000` : ""}${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
     if (seen.has(key)) throw badRequest("Deux configurations identiques : changez le modèle ou l’effort.");
     seen.add(key);
   }
@@ -238,6 +273,58 @@ async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<L
   return { overrides: checked, selection: { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null } };
 }
 
+type ApiKeyConfig = Extract<LabConfigInput, { provider: "api_key" }>;
+type LabApiKeyPreflight = { version: number; prepared: Map<string, PreparedApiKeyCall> };
+
+function apiKeyConfigKey(config: ApiKeyConfig) {
+  return `${config.apiProvider}\u0000${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
+}
+
+function apiKeyConflict(error: unknown): never {
+  const failure = isApiKeyError(error) ? error : new ApiKeyError("AI_KEY_UNEXPECTED");
+  throw conflict(failure.message, undefined, failure.code);
+}
+
+/**
+ * Refuses, before any generation, an essai on the member's key that is not the one the page showed, names a
+ * model without a known price or not listed by the key, or whose counted input leaves its share of the
+ * ceiling unable to hold a useful answer. Never the subscription.
+ */
+async function preflightApiKey(access: LabAccess, configs: readonly ApiKeyConfig[], prompt: string, pdfBase64: string): Promise<LabApiKeyPreflight | null> {
+  if (configs.length === 0) return null;
+  for (const config of configs) {
+    if (!openAiQualifiedModel(config.model)) apiKeyConflict(new ApiKeyError("AI_KEY_PRICE_UNKNOWN"));
+  }
+  const keyAccess = openAiApiKeyAccess();
+  // MergeOne's own record: neither the Keychain nor OpenAI is reached before the version and the models are checked.
+  const state = await keyAccess.state(access.owner).catch(apiKeyConflict);
+  if (state.status !== "saved") apiKeyConflict(new ApiKeyError(state.status === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_MISSING"));
+  if (configs.some((config) => config.connectionId !== state.connection.connectionId)) apiKeyConflict(new ApiKeyError("AI_KEY_PAGE_STALE"));
+  for (const config of configs) {
+    const model = state.connection.offeredModels.find((entry) => entry.id === config.model);
+    if (!model || (config.reasoningEffort !== null && !model.reasoningEfforts.includes(config.reasoningEffort))) {
+      apiKeyConflict(new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED"));
+    }
+  }
+  const allotment = Math.floor(LAB_API_KEY_CEILING_NANO_USD / configs.length);
+  const prepared = new Map<string, PreparedApiKeyCall>();
+  for (const config of configs) {
+    prepared.set(apiKeyConfigKey(config), await keyAccess.prepare(access.owner, {
+      expectedVersion: state.connection.version, model: config.model, reasoningEffort: config.reasoningEffort, prompt, schema: TakeoffExchangeSchema,
+      files: [{ data: pdfBase64, mimeType: "application/pdf" }], allotmentNanoUsd: allotment, outputCap: labMaxOutputTokens(config.reasoningEffort),
+      minOutputTokens: LAB_MIN_USEFUL_OUTPUT_TOKENS,
+    }).catch(apiKeyConflict));
+  }
+  return { version: state.connection.version, prepared };
+}
+
+/** Failures refused at OpenAI's door or before it: nothing was billed. */
+const NOT_BILLED = new Set<ApiKeyErrorCode>(["AI_KEY_REFUSED", "AI_KEY_MODEL_FORBIDDEN", "AI_KEY_SPEND_LIMIT", "AI_KEY_RATE_LIMITED",
+  "AI_KEY_REQUEST_REJECTED", "AI_KEY_UNREACHABLE", "AI_KEY_CEILING", "AI_KEY_PRICE_UNKNOWN", "AI_KEY_MISSING", "AI_KEY_CHANGED",
+  "AI_KEY_KEYCHAIN_LOCKED", "AI_KEY_KEYCHAIN_UNAVAILABLE", "AI_KEY_KEYCHAIN_FAILED", "AI_KEY_MODEL_NOT_OFFERED", "AI_KEY_BUSY", "AI_KEY_LOCAL_ONLY"]);
+/** Failures of this configuration only: the next one may run. Every other failure stops the essai. */
+const CONFIGURATION_ONLY = new Set<ApiKeyErrorCode>(["AI_KEY_OUTPUT_LIMIT", "AI_KEY_REQUEST_REJECTED", "AI_KEY_MODEL_FORBIDDEN"]);
+
 /** Refuses a Decisions essai that cannot run; returns the tokens the cap still allows. */
 async function preflightDecisions(paths: LabPaths, request: LabRunRequest, task: LabTask) {
   const capability = getOpenAiDecisionsCapability();
@@ -264,6 +351,8 @@ const STOP_MESSAGES: Record<LabStopReason, string> = {
   model_missing: "Modèle ChatGPT indisponible : essai arrêté.",
   selection_changed: "Le profil ChatGPT a changé pendant l’essai : essai arrêté.",
   decisions_failed: "Decisions a échoué : essai arrêté, sans relance.",
+  api_key_failed: apiKeyErrorMessage("AI_KEY_UNEXPECTED"),
+  api_key_ceiling_exceeded: apiKeyErrorMessage("AI_KEY_CEILING_EXCEEDED"),
   other: "Erreur du fournisseur : essai arrêté, sans relance.",
 };
 
@@ -286,6 +375,7 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   const crop = request.crop && (request.crop.box || document.summary.pages > 1) ? request.crop : null;
   const chatgpt = request.configs.filter((config): config is Extract<LabConfigInput, { provider: "chatgpt" }> => config.provider === "chatgpt");
   const decisions = request.configs.some((config) => config.provider === "decisions");
+  const apiKey = request.configs.filter((config): config is ApiKeyConfig => config.provider === "api_key");
   // Decisions sees one rendered page: on a multi-page document the essai names it, for every configuration.
   if (decisions && document.summary.pages > 1 && !crop) {
     throw badRequest("Decisions lit une seule page : cochez « Seulement la page » ou tracez une zone.");
@@ -298,22 +388,25 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   if (running) throw conflict("Un essai est déjà en cours : attendez sa fin.", undefined, "TAKEOFF_LAB_BUSY");
   running = true;
   try {
+    // The vector task reads the page itself (extraction, server-rendered images): no cropped PDF.
+    const pdfBase64 = task.id === LAB_VECTOR_TASK_ID ? "" : Buffer.from(crop ? await cropLabPdf(document.bytes, crop) : document.bytes).toString("base64");
     const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
     const decisionsRemaining = decisions ? await preflightDecisions(paths, request, task) : null;
-    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, decisionsRemaining, clock);
+    // Last: it sends the document to be counted, once every other refusal had its chance.
+    const apiKeyPreflight = await preflightApiKey(access, apiKey, request.prompt, pdfBase64);
+    return await runEssai(paths, access, request, task, document, crop, pdfBase64, chatGptPreflight, decisionsRemaining, apiKeyPreflight, clock);
   } finally {
     running = false;
   }
 }
 
 async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunRequest, task: LabTask,
-  document: Awaited<ReturnType<typeof readLabDocument>>, crop: LabRunRequest["crop"],
-  { overrides, selection }: LabChatGptPreflight, decisionsRemaining: number | null, clock: () => number): Promise<LabRun> {
+  document: Awaited<ReturnType<typeof readLabDocument>>, crop: LabRunRequest["crop"], pdfBase64: string,
+  { overrides, selection }: LabChatGptPreflight, decisionsRemaining: number | null, apiKeyPreflight: LabApiKeyPreflight | null,
+  clock: () => number): Promise<LabRun> {
   const now = new Date();
   const runId = newRunId(now);
   const vectors = task.id === LAB_VECTOR_TASK_ID;
-  // The vector task reads the page itself (extraction, server-rendered images): no cropped PDF.
-  const pdfBase64 = vectors ? "" : Buffer.from(crop ? await cropLabPdf(document.bytes, crop) : document.bytes).toString("base64");
   const question = task.kind === "choice" && !vectors ? choiceQuestion(task, request.prompt) : null;
   // Its questions are group-decisions.ts's: the version hashes their template, never one page's group names.
   const promptSha = vectors ? sha256Hex(canonicalJson(vectorGroupsQuestionTemplate()))
@@ -323,17 +416,20 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
     ? await readLabTruth(paths.datasetDir, document.summary.id) : null;
   const run: LabRun = {
     schema_version: 1, id: runId, created_at: now.toISOString(),
-    author: { user_id: access.owner.userId, email: access.email },
+    author: { user_id: access.owner.userId, tenant_id: access.owner.tenantId, email: access.email },
     campaign: request.campaign, task: { id: task.id, kind: task.kind, label: task.label },
     document: { id: document.summary.id, source: document.summary.source, sha256: document.sha256, pages: document.summary.pages },
     crop, prompt: { text: request.prompt, base: task.promptBase, sha256: promptSha, version: promptVersion },
     status: "complete", stop: null, configs: [],
   };
 
+  /** What OpenAI announced for the essai's key configurations so far: only verified amounts, never a reservation. */
+  let apiKeyAnnounced = 0;
   for (const [index, input] of request.configs.entries()) {
     const id = LAB_CONFIG_IDS[index];
     const base: LabConfigResult = {
-      id, provider: input.provider, model: input.provider === "decisions" ? OPENAI_DECISIONS_MODEL : input.model,
+      id, provider: input.provider, ...(input.provider === "api_key" ? { api_provider: input.apiProvider } : {}),
+      model: input.provider === "decisions" ? OPENAI_DECISIONS_MODEL : input.model,
       reasoning_effort: input.provider === "decisions" ? null : input.reasoningEffort, status: "not_run", message: null,
       latency_ms: null, usage: null, raw: null, schema_error: null, answers: null, score: null, elements: [],
     };
@@ -370,6 +466,39 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
         raw: JSON.stringify(result, null, 2), answers, elements: failed ? [] : answerElements(runId, id, answers),
       });
       if (failed) run.stop = { reason: "decisions_failed", message: STOP_MESSAGES.decisions_failed };
+      continue;
+    }
+    if (input.provider === "api_key") {
+      const prepared = apiKeyPreflight!.prepared.get(apiKeyConfigKey(input))!;
+      const ceiling = formatUsdCeiling(LAB_API_KEY_CEILING_NANO_USD);
+      // Sent only if its whole reservation fits in the ceiling less what OpenAI verifiably announced so far.
+      if (apiKeyAnnounced + prepared.boundNanoUsd > LAB_API_KEY_CEILING_NANO_USD) {
+        const refused = new ApiKeyError("AI_KEY_RESERVATION_EXCEEDS", { detail: { cost: formatUsd(apiKeyAnnounced),
+          bound: formatUsdCeiling(prepared.boundNanoUsd), ceiling } });
+        run.configs.push({ ...base, message: refused.message, error_code: refused.code });
+        run.stop = { reason: "api_key_ceiling_exceeded", message: refused.message };
+        continue;
+      }
+      const result = await runApiKeyConfig(access, base, input, prepared, {
+        runId, configId: id, clock, score: (items) => scoreLabExtraction(document.summary.id, truth, items),
+      });
+      const cost = result.config.billing?.cost_nano_usd ?? null;
+      if (cost === null && !NOT_BILLED.has((result.config.error_code ?? "") as ApiKeyErrorCode)) {
+        // A reply that may have been billed for an unknown amount: nothing more is sent on a guess.
+        run.configs.push(result.config);
+        run.stop = { reason: "api_key_failed", message: result.stop ?? new ApiKeyError("AI_KEY_COST_UNKNOWN").message };
+        continue;
+      }
+      apiKeyAnnounced += cost ?? 0;
+      if (apiKeyAnnounced > LAB_API_KEY_CEILING_NANO_USD) {
+        // Past the ceiling despite the bound: said in plain words, and nothing more is sent.
+        const exceeded = new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { cost: formatUsd(apiKeyAnnounced), ceiling } });
+        run.configs.push({ ...result.config, error_code: exceeded.code, message: exceeded.message });
+        run.stop = { reason: "api_key_ceiling_exceeded", message: exceeded.message };
+        continue;
+      }
+      run.configs.push(result.config);
+      if (result.stop) run.stop = { reason: "api_key_failed", message: result.stop };
       continue;
     }
     const override = overrides.get(overrideKey(input.model, input.reasoningEffort))!;
@@ -421,4 +550,39 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
   if (run.stop) run.status = "stopped";
   await writeLabJson(runFile(paths, runId), run);
   return run;
+}
+
+/** One prepared extraction on the member's key: priced, stored in US dollars, never resent, never on the subscription. */
+async function runApiKeyConfig(access: LabAccess, base: LabConfigResult, input: ApiKeyConfig, prepared: PreparedApiKeyCall, essai: {
+  runId: string; configId: string; clock: () => number; score: (items: TakeoffExchange["items"]) => LabConfigResult["score"];
+}): Promise<{ config: LabConfigResult; stop: string | null }> {
+  const billing: LabBilling = {
+    source: "personal_api_key", provider: input.apiProvider, place: "local", currency: "USD", price_table: OPENAI_PRICE_TABLE.id, model_used: null,
+    service_tier: null, ceiling_nano_usd: LAB_API_KEY_CEILING_NANO_USD, allotment_nano_usd: prepared.allotmentNanoUsd,
+    input_tokens_counted: prepared.inputTokens, max_output_tokens: prepared.maxOutputTokens, bound_nano_usd: prepared.boundNanoUsd,
+    cost_nano_usd: null, usage: null, request_id: null, connection_version: prepared.connectionVersion,
+  };
+  const startedAt = essai.clock();
+  try {
+    const answer = await openAiApiKeyAccess().execute<TakeoffExchange>(access.owner, prepared, { timeoutMs: TAKEOFF_C_TIMEOUT_MS_DEFAULT });
+    const result: LabConfigResult = { ...base, latency_ms: Math.round(essai.clock() - startedAt), usage: apiKeyUsageOf(answer.usage), raw: answer.rawText,
+      error_code: null, billing: { ...billing, model_used: answer.model, service_tier: answer.serviceTier, cost_nano_usd: answer.costNanoUsd,
+        usage: billingUsageOf(answer.usage), request_id: answer.requestId } };
+    if (answer.schemaError) {
+      const issues = answer.refused ? ["Le modèle a refusé de répondre."] : schemaIssues(answer.schemaError);
+      return { config: { ...result, status: "schema_error", message: `Erreur de schéma : ${issues[0]}`, schema_error: { name: answer.schemaError.name, issues },
+        elements: [schemaErrorElement(essai.runId, essai.configId, "item", 0, answer.rawText, issues[0])] }, stop: null };
+    }
+    return { config: { ...result, status: "ok", score: essai.score(answer.data.items), elements: extractionElements(essai.runId, essai.configId, answer.data) }, stop: null };
+  } catch (error) {
+    const failure = isApiKeyError(error) ? error : new ApiKeyError("AI_KEY_UNEXPECTED");
+    const cost = failure.usage ? costOfOpenAiUsage(failure.model ?? input.model, failure.usage, failure.serviceTier) : NOT_BILLED.has(failure.code) ? 0 : null;
+    return {
+      config: { ...base, status: "failed", latency_ms: Math.round(essai.clock() - startedAt), message: failure.message, error_code: failure.code,
+        usage: failure.usage ? apiKeyUsageOf(failure.usage) : null,
+        billing: { ...billing, model_used: failure.model, service_tier: failure.serviceTier, cost_nano_usd: cost, usage: billingUsageOf(failure.usage),
+          request_id: failure.requestId } },
+      stop: CONFIGURATION_ONLY.has(failure.code) ? null : failure.message,
+    };
+  }
 }
