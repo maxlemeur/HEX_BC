@@ -43,7 +43,8 @@ import { localSqlTransport } from "./generated-prerequisites";
 // engine 2 versions, whose lines never carry two pages). Fictional plans and quantities only.
 
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 900_000 };
-type Sent = { summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } };
+type Sent = { summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
+  item_links: Array<{ estimate_item_id: string }> } };
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string; details?: unknown } };
 type Read = { line: string; quantity: number; unit: string; page: number | null; doc?: "A" | "B"; excluded?: boolean };
 type Context = {

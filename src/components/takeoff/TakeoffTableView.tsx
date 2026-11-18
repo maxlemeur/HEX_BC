@@ -18,6 +18,7 @@ import {
 import { detectAnomalies } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffTable } from "@/lib/takeoff/types";
+import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 import { ChevronDownIcon } from "lucide-react";
 
 import { EmptyState } from "@/components/layout/empty-state";
@@ -299,7 +300,7 @@ function TableCard({
                       .join(" ")}
                     title={
                       isExcluded && item.exclusion_reason
-                        ? `Exclu : ${item.exclusion_reason}`
+                        ? `Exclu : ${exclusionReasonText(item.exclusion_reason)}`
                         : undefined
                     }
                   >

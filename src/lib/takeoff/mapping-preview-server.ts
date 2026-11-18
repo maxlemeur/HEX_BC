@@ -47,7 +47,7 @@ export async function buildTakeoffMappingPreviewForJob(input: {
       summary: preview.summary,
       items: preview.items,
     },
-    "Preview de conversion mapping invalide."
+    "Aperçu d’impact invalide."
   );
 }
 
@@ -72,7 +72,7 @@ export async function previewTakeoffJobConversion(
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job doit être en statut completed pour calculer une preview.",
+      message: "Le métré doit être terminé pour calculer l’aperçu d’impact.",
       details: {
         current_status: jobRow.status,
         allowed_statuses: ["completed"],

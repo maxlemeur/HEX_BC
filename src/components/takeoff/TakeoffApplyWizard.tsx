@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Dialog,
@@ -17,6 +17,7 @@ import {
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
   type ApplyGuardResult,
 } from "@/lib/takeoff/guards";
+import { isDpgfTargetLine } from "@/lib/takeoff/dpgf-target-line";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -28,16 +29,21 @@ import {
   buildSectionOptions,
   takeoffApplyStrategyFor,
   type SectionOption,
-  type TakeoffApplyStrategy,
   type TakeoffApplyWizardSubmitPayload,
 } from "./takeoff-apply-wizard/shared";
-import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
+import { useTakeoffApplyReads, type TakeoffApplyGeneration } from "./takeoff-apply-wizard/useTakeoffApplyReads";
 import { TakeoffPageDecisionsPanel } from "./takeoff-apply-wizard/TakeoffPageDecisionsPanel";
 import { TakeoffDpgfTargetsPanel } from "./takeoff-apply-wizard/TakeoffDpgfTargetsPanel";
 import { TakeoffDpgfMergePanel } from "./takeoff-apply-wizard/TakeoffDpgfMergePanel";
-import { initialConfirmationDraft, resolveConfirmation, type ConfirmationDraft } from "./takeoff-apply-wizard/page-decisions";
-import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
-import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
+import {
+  currentConfirmationChoices,
+  initialConfirmationDraft,
+  NO_CONFIRMATION_CHOICES,
+  recordConfirmationChoices,
+  resolveConfirmation,
+  type ConfirmationDraft,
+  type RevisedConfirmationDraft,
+} from "./takeoff-apply-wizard/page-decisions";
 import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forced-drafts";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -49,7 +55,14 @@ export type {
 
 export const TAKEOFF_APPLY_TITLE = "Envoyer au tableau de chiffrage";
 
-const EMPTY_CHOICES: ConfirmationDraft = { pages: {}, pairs: {}, vanished: {}, parts: {}, takes: {} };
+/**
+ * The refusals after which what the screen computed may no longer hold: a page decision or a DPGF quantity refused, a
+ * plan found stale. The sections are read again (the strategy with them), then both computations, before any new click.
+ */
+const READ_AGAIN_AFTER = new Set(["page_already_applied", "page_decision", "dpgf_quantities", "atomic_mapping_stale"]);
+
+/** The section chosen and whether the version holds DPGF lines; `generation` grows with each change (useTakeoffApplyReads). */
+type Selection = { generation: number; targetSectionId: string | null; holdsDpgfLines: boolean };
 
 type TakeoffApplyWizardProps = {
   open: boolean;
@@ -83,8 +96,10 @@ type TakeoffApplyWizardProps = {
  * « Envoyer au tableau de chiffrage » (2026-11-18): one screen, in this order: the destination section; the impact
  * preview, computed without a click for that section; the lines sent, read-only, with what the administrator's mapping
  * rules did; then, only when they have something to show, the decisions (DPGF merge, pages already in the estimate,
- * DPGF lines) and the guard. Nothing is written before « Confirmer l'envoi », enabled only with an up-to-date preview.
- * The strategy follows the version (merge with DPGF lines, append otherwise); no overrides are sent.
+ * DPGF lines) and the guard. Nothing is written before « Confirmer l'envoi », enabled only once both computations
+ * (the preview, the proposal of the pages already in the estimate) answered for the current selection and the preview
+ * retains a line. The strategy follows the version (merge with DPGF lines, append otherwise), as the server reads it when
+ * the proposal is computed; the same strategy is previewed, proposed and sent. No overrides are sent.
  */
 export function TakeoffApplyWizard({
   open,
@@ -109,55 +124,84 @@ export function TakeoffApplyWizard({
   dpgfReviewHref,
   onOpenDpgfReview,
 }: TakeoffApplyWizardProps) {
-  const [targetSectionId, setTargetSectionId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>({ generation: 0, targetSectionId: null, holdsDpgfLines: false });
   const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
   // Opened mounted (the reviews), the sections are being read from the first frame.
   const [isLoadingSections, setIsLoadingSections] = useState(open);
-  const [hasDpgfLines, setHasDpgfLines] = useState(false);
   const [sectionsError, setSectionsError] = useState<string | null>(null);
+  // Each new read of the sections (« Réessayer », a refusal): the version's DPGF lines, hence the strategy, read again.
+  const [sectionsRead, setSectionsRead] = useState(0);
+  const sectionsReadFor = useRef<string | null>(null);
   // TI-686 D10: each blocked line's coded reason and justification, written in the guard panel.
   const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
-  // TI-682 lot D: the pages of this takeoff the estimate already holds from another takeoff, decided before the last click.
-  const [pageProposal, setPageProposal] = useState<{ key: string; data: TakeoffPageReplacementResponse | null; error: string | null } | null>(null);
-  // The estimator's choices at « Pages déjà au devis », one draft for the whole application; kept when the proposal is
-  // read again, over the pairs the new proposal makes.
-  const [pageChoices, setPageChoices] = useState<ConfirmationDraft>(EMPTY_CHOICES);
-  const [pageReadCount, setPageReadCount] = useState(0);
+  // TI-682 lot D: the estimator's choices at « Pages déjà au devis », one draft for the whole application, kept when the
+  // proposal is read again, except those about a line edited since (RevisedConfirmationDraft).
+  const [pageChoices, setPageChoices] = useState<RevisedConfirmationDraft>(NO_CONFIRMATION_CHOICES);
 
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
   const hasGuardItems = !!externalItems && externalItems.length > 0;
-  const strategy = takeoffApplyStrategyFor({ holdsDpgfLines: hasDpgfLines });
+  const { targetSectionId } = selection;
+  const strategy = takeoffApplyStrategyFor({ holdsDpgfLines: selection.holdsDpgfLines });
+
+  // A refusal after which the computations may be stale: invalidated at once (the sections are being read), before the
+  // render that would show the confirmation enabled.
+  const readAgainOn = submitErrorGuard !== null && READ_AGAIN_AFTER.has(submitErrorGuard) ? submitError : null;
+  const [refusalRead, setRefusalRead] = useState(readAgainOn);
+  if (readAgainOn !== refusalRead) {
+    setRefusalRead(readAgainOn);
+    if (readAgainOn !== null) {
+      setIsLoadingSections(true);
+      setSectionsRead((count) => count + 1);
+    }
+  }
+
   // What is computed and sent: the sections read, one chosen. Without one, nothing is computed.
   const ready = open && !isLoadingSections && sectionsError === null && targetSectionId !== null;
-  const previewRequest = useMemo(() => (ready && targetSectionId ? { strategy, targetSectionId } : null),
-    [ready, strategy, targetSectionId]);
-  const { previewData, previewError, isLoadingPreview, retry: retryPreview, reset: resetPreview } =
-    useTakeoffApplyPreview({ jobId, request: previewRequest });
+  const generation = useMemo<TakeoffApplyGeneration | null>(() => (ready && targetSectionId
+    ? { id: selection.generation, targetSectionId, strategy } : null), [ready, selection.generation, strategy, targetSectionId]);
+  // The proposal found the version's DPGF lines changed since the sections were read: a new generation for that strategy.
+  const handleStrategyChange = useCallback((generationId: number, holdsDpgfLines: boolean) => {
+    setSelection((current) => (current.generation === generationId
+      ? { ...current, holdsDpgfLines, generation: current.generation + 1 } : current));
+  }, []);
+  const { preview, pages } = useTakeoffApplyReads({ jobId, generation, onStrategyChange: handleStrategyChange });
+  const previewData = preview.data;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      sectionsReadFor.current = null;
+      return;
+    }
 
     let active = true;
+    // Read again for the same version (a refusal, « Réessayer »): the section chosen and the estimator's choices stand.
+    const again = sectionsReadFor.current === versionId;
 
     const loadSections = async () => {
-      setTargetSectionId(null);
-      setSectionOptions([]);
+      if (!again) {
+        setSelection((current) => ({ generation: current.generation + 1, targetSectionId: null, holdsDpgfLines: false }));
+        setSectionOptions([]);
+        setForcedDrafts({});
+        setPageChoices(NO_CONFIRMATION_CHOICES);
+      }
       setSectionsError(null);
       setIsLoadingSections(true);
-      setHasDpgfLines(false);
-      resetPreview();
-      setForcedDrafts({});
-      setPageProposal(null);
-      setPageChoices(EMPTY_CHOICES);
 
       try {
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
         if (!active) return;
         const options = buildSectionOptions(estimateItems);
-        setHasDpgfLines(estimateItems.some(item => item.source_provider === "dpgf"));
+        sectionsReadFor.current = versionId;
         setSectionOptions(options);
-        setTargetSectionId(options[0]?.id ?? null);
+        // The server's own test of a DPGF version (hasTakeoffDpgfTargetLines): a DPGF line, never a DPGF section alone.
+        const holdsDpgfLines = estimateItems.some(isDpgfTargetLine);
+        setSelection((current) => ({
+          generation: current.generation + 1,
+          targetSectionId: again && options.some((option) => option.id === current.targetSectionId)
+            ? current.targetSectionId : options[0]?.id ?? null,
+          holdsDpgfLines,
+        }));
       } catch (error) {
         if (!active) return;
         setSectionsError(
@@ -175,7 +219,11 @@ export function TakeoffApplyWizard({
     return () => {
       active = false;
     };
-  }, [open, resetPreview, versionId]);
+  }, [open, sectionsRead, versionId]);
+
+  const handleTargetSectionChange = (sectionId: string | null) => {
+    setSelection((current) => ({ ...current, targetSectionId: sectionId, generation: current.generation + 1 }));
+  };
 
   const selectedSectionLabel = useMemo(() => {
     if (!targetSectionId) return "Aucune section sélectionnée";
@@ -189,8 +237,8 @@ export function TakeoffApplyWizard({
     () => new Map((externalItems ?? []).map((item) => [item.id, item])),
     [externalItems]
   );
-  // Read under the request it was computed for only (useTakeoffApplyPreview): never an earlier section's.
-  const hasPreviewReady = previewData !== null && previewError === null && !isLoadingPreview;
+  // Read under the generation it was computed for only (useTakeoffApplyReads): never an earlier selection's.
+  const hasPreviewReady = previewData !== null;
   // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C. The lines the
   // mapping plan skips or folds into an assembly are left out first, as the server's guard and the RPC leave them
   // (TI-664 L5c): read from the up-to-date preview, before which nothing is judged nor confirmed.
@@ -202,46 +250,26 @@ export function TakeoffApplyWizard({
     return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });
   }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
-  // TI-682 lot D: read with the section and the strategy, beside the preview; read again after the application refused a
-  // page decision (the estimate changed meanwhile).
-  const pageRequest = ready ? JSON.stringify([strategy, targetSectionId, pageReadCount]) : null;
-  useEffect(() => {
-    if (!pageRequest) return;
-    const [requestStrategy, sectionId] = JSON.parse(pageRequest) as [TakeoffApplyStrategy, string | null];
-    const controller = new AbortController();
-    void fetchTakeoffPageReplacement(jobId, { strategy: requestStrategy, target_section_id: sectionId },
-      { signal: controller.signal }).then(
-      (data) => setPageProposal({ key: pageRequest, data, error: null }),
-      (error: unknown) => {
-        if (!controller.signal.aborted) setPageProposal({ key: pageRequest, data: null,
-          error: error instanceof Error ? error.message : "Impossible de proposer le remplacement des pages déjà au devis." });
-      });
-    return () => controller.abort();
-  }, [jobId, pageRequest]);
-  useEffect(() => {
-    // TI-723: a DPGF refusal too (the reconciliation's links may have changed): the proposal names the merges it refuses.
-    if (submitErrorGuard === "page_already_applied" || submitErrorGuard === "page_decision" || submitErrorGuard === "dpgf_quantities") {
-      setPageReadCount((count) => count + 1);
-    }
-  }, [submitError, submitErrorGuard]);
-  const pageRead = pageProposal && pageProposal.key === pageRequest ? pageProposal : null;
-  const pageDraft = useMemo(() => {
-    if (!pageRead?.data) return null;
-    const initial = initialConfirmationDraft(pageRead.data);
-    return { ...pageChoices, pairs: { ...initial.pairs, ...pageChoices.pairs } };
-  }, [pageRead, pageChoices]);
-  const pageResolution = useMemo(() => (pageRead?.data && pageDraft ? resolveConfirmation(pageRead.data, pageDraft) : null), [pageRead, pageDraft]);
-  const pageCount = pageRead?.data?.pages.length ?? 0;
-  const pagesReady = pageRequest !== null && pageRead !== null && pageRead.error === null && (pageResolution?.complete ?? true);
-  // Outside a merge the page requires, a page measured again is sent with « append »: each earlier line is updated in
-  // place, and a merge by title would replace or move lines the estimator did not see paired.
-  const appliedStrategy: TakeoffApplyStrategy = pageCount > 0 && !pageRead?.data?.merge_required ? "append" : strategy;
-  const pageStrategyNotice = appliedStrategy !== strategy
-    ? "Chaque ligne précédente de ces pages est mise à jour à sa place : aucune fusion par désignation ne s’applique à une page déjà au devis."
-    : null;
+  // TI-682 lot D: the proposal, read beside the preview for the same generation.
+  const proposal = pages.data;
+  const pageDraft = useMemo<ConfirmationDraft | null>(() => {
+    if (!proposal) return null;
+    const initial = initialConfirmationDraft(proposal);
+    const choices = currentConfirmationChoices(pageChoices, proposal);
+    return { ...choices, pairs: { ...initial.pairs, ...choices.pairs } };
+  }, [proposal, pageChoices]);
+  const pageResolution = useMemo(() => (proposal && pageDraft ? resolveConfirmation(proposal, pageDraft) : null), [proposal, pageDraft]);
+  const pagesReady = proposal !== null && (pageResolution?.complete ?? true);
+  const handlePageDraftChange = (next: ConfirmationDraft) => {
+    if (proposal) setPageChoices((current) => recordConfirmationChoices(current, next, proposal));
+  };
 
+  // The lines the current preview retains, not the review's count read before it (another reviewer may have excluded
+  // the last one meanwhile): both confirmations wait for at least one.
+  const retainedCount = previewData?.summary.included_count ?? 0;
+  const nothingRetained = hasPreviewReady ? retainedCount === 0 : includedCount === 0;
   const canConfirm =
-    includedCount > 0 &&
+    retainedCount > 0 &&
     !isSubmitting &&
     hasPreviewReady &&
     !guardBlocking &&
@@ -249,7 +277,7 @@ export function TakeoffApplyWizard({
   const canAdminOverride =
     isAdmin &&
     guardBlocking &&
-    includedCount > 0 &&
+    retainedCount > 0 &&
     !isSubmitting &&
     hasPreviewReady &&
     pagesReady;
@@ -262,7 +290,7 @@ export function TakeoffApplyWizard({
   const basePayload = (): TakeoffApplyWizardSubmitPayload => ({
     targetSectionId,
     targetSectionLabel: selectedSectionLabel,
-    strategy: appliedStrategy,
+    strategy,
     pageDecisions: pageResolution?.payload ?? [],
   });
 
@@ -308,35 +336,40 @@ export function TakeoffApplyWizard({
               isLoadingSections={isLoadingSections}
               sectionsError={sectionsError}
               isSubmitting={isSubmitting}
-              reconcilesDpgf={hasDpgfLines}
-              onTargetSectionChange={setTargetSectionId}
+              reconcilesDpgf={strategy === "merge"}
+              onTargetSectionChange={handleTargetSectionChange}
+              onRetrySections={() => setSectionsRead((count) => count + 1)}
             />
 
-            {previewRequest ? (
+            {generation ? (
               <TakeoffApplyImpact
                 previewData={previewData}
-                previewError={previewError}
-                isLoadingPreview={isLoadingPreview}
+                previewError={preview.error}
+                isLoadingPreview={preview.loading}
                 excludedCount={excludedCount}
                 sourceFileName={sourceFileName}
+                targetSectionLabel={selectedSectionLabel}
                 isSubmitting={isSubmitting}
-                onRetry={retryPreview}
+                onRetry={preview.retry}
               />
             ) : null}
 
-            {previewData ? <TakeoffApplyLinesList items={previewData.items} sourceByItemId={sourceByItemId} /> : null}
+            {previewData ? (
+              <TakeoffApplyLinesList items={previewData.items} sourceByItemId={sourceByItemId} reconcilesDpgf={strategy === "merge"} />
+            ) : null}
 
             {/* TI-723: a line the merge would send onto a DPGF line outside the reconciliation: named before anything is
                 sent, the confirmation withheld (the resolution is not complete), the reconciliation offered. */}
             <TakeoffDpgfMergePanel resolution={pageResolution} dpgfReviewHref={dpgfReviewHref}
               onOpenDpgfReview={dpgfReviewHref || onOpenDpgfReview ? () => { handleOpenChange(false); onOpenDpgfReview?.(); } : undefined} />
 
-            <TakeoffPageDecisionsPanel proposal={pageRead?.data ?? null} error={pageRead?.error ?? null}
-              loading={pageRequest !== null && pageRead === null} draft={pageDraft} strategyNotice={pageStrategyNotice}
-              disabled={isSubmitting} onDraftChange={setPageChoices} />
+            {generation ? (
+              <TakeoffPageDecisionsPanel proposal={proposal} error={pages.error} loading={pages.loading} draft={pageDraft}
+                disabled={isSubmitting} onDraftChange={handlePageDraftChange} onRetry={pages.retry} />
+            ) : null}
 
             {/* TI-682 D4: what each DPGF line the application touches will hold, under the page decisions. */}
-            <TakeoffDpgfTargetsPanel proposal={pageRead?.data ?? null} resolution={pageResolution} />
+            <TakeoffDpgfTargetsPanel proposal={proposal} resolution={pageResolution} />
 
             <TakeoffApplyGuardSection
               guardBlocking={guardBlocking}
@@ -350,9 +383,10 @@ export function TakeoffApplyWizard({
               onForcedDraftsChange={setForcedDrafts}
               onOverrideConfirm={() => void handleOverrideConfirm()}
               isLevelC={isLevelC}
+              disabled={isSubmitting}
             />
 
-            {includedCount === 0 ? (
+            {nothingRetained ? (
               <Alert variant="info">Aucune ligne retenue à envoyer : réintégrez au moins une ligne dans la revue.</Alert>
             ) : null}
           </div>

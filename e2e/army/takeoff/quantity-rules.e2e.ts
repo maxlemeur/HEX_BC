@@ -356,7 +356,7 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
       const applied = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs[zone]}/apply`);
       await wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
       const response = await applied;
-      const body = await response.json<Envelope<{ job: { status: string }; summary: { created_ids: string[];
+      const body = await response.json<Envelope<{ job: { status: string }; summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
         item_links: Array<{ estimate_item_id: string }> } }>>();
       await recordEvidence(ui.army, `TKR02-applied-${zone}`, { ids, jobs, status: response.status, body });
       expect([zone, response.status, body.data?.job?.status]).toEqual([zone, 200, "applied"]);
@@ -731,6 +731,15 @@ armyTest("TKR08 an estimate included with I, without entry, reaches the estimate
     const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-TKR08`, title: "Inclusion sans saisie" }, army);
     const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} lot supports`);
     expect(target.parent_id).toMatch(/^[0-9a-f-]{36}$/i);
+    // Forty lines already in the section, before the takeoff's: the line the estimator lands on lies below the fold until
+    // the editor scrolls to it (the independent review of eea9e030: no journey landed on a line out of view).
+    const filled = await readEstimate(browser, ids.versionId);
+    const filler = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${ids.versionId}/batch`,
+      { operation_key: randomUUID(), operations: Array.from({ length: 40 }, (_, index) => ({ op: "create", data: {
+        item_type: "line", line_nature: "supply_only", parent_id: target.parent_id, position: index + 2,
+        title: `${army.runPrefix} poste existant ${index + 1}`, quantity: 1, unit_price_ht_cents: 1000, tax_rate_bp: 2000,
+        k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1 } })) }, { "if-match": filled.version.updated_at });
+    expect([filler.status, filler.body.ok]).toEqual([200, true]);
     const estimated = `${army.runPrefix} Supports estimés`;
     const measured = `${army.runPrefix} Vannes relevées`;
     const seed = await (await localTakeoffFixture(army, ids)).seed("B", [
@@ -772,12 +781,12 @@ armyTest("TKR08 an estimate included with I, without entry, reaches the estimate
     const applied = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
     await wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
     const response = await applied;
-    const body = await response.json<Envelope<{ job: { status: string }; summary: { created_ids: string[];
+    const body = await response.json<Envelope<{ job: { status: string }; summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
       item_links: Array<{ estimate_item_id: string }> } }>>();
     await recordEvidence(army, "TKR08-applied", { ids, jobId: seed.jobId, status: response.status, job: body.data?.job ?? null,
       errorCode: body.error?.code ?? null });
     expect([response.status, body.data?.job?.status]).toEqual([200, "applied"]);
-    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, body.data.summary);
+    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, body.data.summary, { offscreen: true });
 
     // The line truth of the internal estimate: « Hypothèse », because the quantity is estimated and was not entered.
     const estimate = await readEstimate(browser, ids.versionId);

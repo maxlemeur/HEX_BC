@@ -142,21 +142,37 @@ export async function openTakeoffSend(ui: SendUi, sectionId: string, designation
   return dialog;
 }
 
-type SentSummary = { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> };
+type SentSummary = { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
+  item_links: Array<{ estimate_item_id: string }> };
+
+const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
 
 /**
- * After « Confirmer l'envoi » from a review: the French toast with the counts, then the version's editor placed on the
- * takeoff's line, the first it created, else the first it fed or updated (`focusItemId`), in view. Returns its id.
+ * After « Confirmer l'envoi » from a review: the French toast with the counts the application returned, then the
+ * version's editor placed on the takeoff's line, the first it created, else the first it fed or updated (`focusItemId`),
+ * highlighted and in view. With `offscreen`, the line also lay below the fold of its scroll container before the editor
+ * scrolled to it (the journey put enough lines before it). Returns its id.
  */
-export async function expectLandedOnTakeoffLine(ui: SendUi, versionId: string, summary: SentSummary) {
-  await expect(ui.browser.locator('[data-slot="toast"]').filter({ hasText: TAKEOFF_SENT_TOAST })).toBeVisible();
+export async function expectLandedOnTakeoffLine(ui: SendUi, versionId: string, summary: SentSummary,
+  options: { offscreen?: boolean } = {}) {
+  const counts = `${counted(summary.created_count, "ligne créée", "lignes créées")}, `
+    + `${counted(summary.updated_count, "mise à jour", "mises à jour")}, ${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+  await expect(ui.browser.locator('[data-slot="toast"]').filter({ hasText: TAKEOFF_SENT_TOAST }).filter({ hasText: counts })).toBeVisible();
   const lineId = summary.created_ids[0] ?? summary.item_links[0]?.estimate_item_id;
   expect(lineId, "the application names a line of the estimate").toBeTruthy();
   await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit\\?focusItemId=${lineId}$`), { timeout: 60_000 });
-  await expect(ui.browser.locator(`[data-estimate-item-id="${lineId}"]`)).toBeVisible({ timeout: 60_000 });
+  const row = ui.browser.locator(`[data-estimate-item-id="${lineId}"]`);
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  // The editor highlights the line for a few seconds once it has scrolled to it (useEstimateEditorState, focusItemId).
+  await expect(row).toHaveAttribute("data-highlighted", "true");
   await expect.poll(() => ui.browser.evaluate((id) => {
-    const box = document.querySelector(`[data-estimate-item-id="${id}"]`)?.getBoundingClientRect();
-    return Boolean(box && box.height > 0 && box.bottom > 0 && box.top < window.innerHeight);
-  }, lineId!), { timeout: 30_000 }).toBe(true);
+    const element = document.querySelector(`[data-estimate-item-id="${id}"]`);
+    const box = element?.getBoundingClientRect();
+    if (!element || !box) return { inView: false, belowFoldBefore: false };
+    // How far the line's scroll containers moved: where the line stood before, in the viewport, is that much lower.
+    let scrolled = 0;
+    for (let node = element.parentElement; node; node = node.parentElement) scrolled += node.scrollTop;
+    return { inView: box.height > 0 && box.bottom > 0 && box.top < window.innerHeight, belowFoldBefore: box.top + scrolled >= window.innerHeight };
+  }, lineId!), { timeout: 30_000 }).toEqual(expect.objectContaining({ inView: true, ...(options.offscreen ? { belowFoldBefore: true } : {}) }));
   return lineId!;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -37,8 +37,11 @@ export function useTakeoffLowConfidenceThreshold() {
 
 /**
  * Sends a job to the estimate table from its review: takes the version's draft lock (or keeps the editor's), applies,
- * then gives the lock back when it took it. `onApplied` runs on success only, once that lock is given back; any refusal
- * (the guard's 422, the lock) is `error`.
+ * then gives the lock back when it took it. On success `onSent` runs (the toast, whatever became of the review), then
+ * `onApplied` (the landing in the editor), once that lock is given back and only while the review that asked is still
+ * shown for this job and version: Back, or a link, may have left it meanwhile, and the landing would then move the
+ * estimator from another screen. Any refusal (the guard's 422, the lock) is `error`. One application at a time: a second
+ * call while one is pending does nothing.
  *
  * The lease is scoped by version, user and page identity, and a client-side navigation keeps the identity
  * (draft-lock-session-client.ts): the editor `onApplied` opens adopts a lease still held, and a release landing after
@@ -49,13 +52,26 @@ export function useTakeoffApplyConfirm(input: {
   jobId: string;
   versionId: string;
   onApplied: (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => void;
+  /** Runs on every success, before `onApplied`, even once the review is left: the sending happened. */
+  onSent?: (response: TakeoffApplyResponse) => void;
 }) {
-  const { jobId, versionId, onApplied } = input;
+  const { jobId, versionId, onApplied, onSent } = input;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // TI-682 lot D: the guard of a refusal (a page decision refused): the wizard reads its proposal again.
   const [errorGuard, setErrorGuard] = useState<string | null>(null);
+  // Set synchronously, before any await: two clicks in the same frame start one application.
+  const pending = useRef(false);
+  // The review's current call; any other (the review left, another job or version shown) no longer lands.
+  const current = useRef(0);
+  useEffect(() => {
+    const call = current;
+    return () => { call.current += 1; };
+  }, [jobId, versionId]);
   const confirm = useCallback(async (payload: TakeoffApplyWizardSubmitPayload) => {
+    if (pending.current) return;
+    pending.current = true;
+    const call = ++current.current;
     setSubmitting(true);
     setError(null);
     setErrorGuard(null);
@@ -81,12 +97,16 @@ export function useTakeoffApplyConfirm(input: {
       setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'envoi au tableau de chiffrage.");
       setErrorGuard(isTakeoffApiError(err) ? errorGuardOf(err.details) : null);
     } finally {
+      // Whatever became of the review: a lease this call took is always given back.
       if (shouldReleaseDraftLock) {
         await releaseEstimateDraftLock(versionId).catch(() => false);
       }
+      pending.current = false;
       setSubmitting(false);
     }
-    if (response) onApplied(response, payload);
-  }, [jobId, onApplied, versionId]);
+    if (!response) return;
+    onSent?.(response);
+    if (current.current === call) onApplied(response, payload);
+  }, [jobId, onApplied, onSent, versionId]);
   return { submitting, error, errorGuard, setError, confirm };
 }

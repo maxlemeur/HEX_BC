@@ -157,7 +157,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
       applyWizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click(),
     ]);
     expect(applyResponse.status).toBe(200);
-    const sent = (await applyResponse.json<Envelope<{ summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
+    const sent = (await applyResponse.json<Envelope<{ summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
     const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, sent.summary);
     const landedLine = (await readEstimate(ui.browser, ids.versionId)).items.find((item) => item.id === landed);
     expect(landedLine).toMatchObject({ title: network.designation, source_job_id: second });
@@ -299,7 +299,7 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     ]);
     expect(applyResponse.status).toBe(200);
     // The new WC line is the first one created: the estimator lands on it in the estimate table.
-    const sent = (await applyResponse.json<Envelope<{ summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
+    const sent = (await applyResponse.json<Envelope<{ summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
     const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, sent.summary);
 
     // In the estimate: each quantity of the page counted once, each earlier line with its identity, title and price.

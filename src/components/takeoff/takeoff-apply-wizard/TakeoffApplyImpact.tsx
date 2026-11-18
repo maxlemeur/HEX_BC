@@ -8,9 +8,12 @@ import { PreviewImpactCard } from "./PreviewImpactCard";
 
 export const IMPACT_TITLE = "Aperçu d’impact";
 
+const plural = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
+
 /**
  * The impact preview of the takeoff on the estimate, computed by the server for the chosen section: what is sent, what
- * stays out, what the mapping rules change. Computed without a click; on failure, said with « Réessayer ».
+ * stays out, what the mapping rules change. Computed without a click; on failure, said with « Réessayer ». Each new
+ * computation is announced in a polite status, the section named, since nothing else tells a screen reader it changed.
  */
 export function TakeoffApplyImpact({
   previewData,
@@ -18,6 +21,7 @@ export function TakeoffApplyImpact({
   isLoadingPreview,
   excludedCount,
   sourceFileName,
+  targetSectionLabel,
   isSubmitting,
   onRetry,
 }: {
@@ -27,6 +31,7 @@ export function TakeoffApplyImpact({
   /** The lines excluded at the review. */
   excludedCount: number;
   sourceFileName?: string | null;
+  targetSectionLabel: string;
   isSubmitting: boolean;
   onRetry: () => void;
 }) {
@@ -34,9 +39,14 @@ export function TakeoffApplyImpact({
     <section aria-label={IMPACT_TITLE} className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold text-foreground">{IMPACT_TITLE}</h3>
 
-      {isLoadingPreview ? (
-        <p role="status" className="text-sm text-muted-foreground">Calcul de l’aperçu d’impact…</p>
-      ) : null}
+      {/* Present from the first frame, so that each change of its text is announced. */}
+      <p role="status" className={isLoadingPreview ? "text-sm text-muted-foreground" : "sr-only"}>
+        {isLoadingPreview
+          ? "Calcul de l’aperçu d’impact…"
+          : previewData
+            ? `Aperçu d’impact à jour pour « ${targetSectionLabel} » : ${plural(previewData.summary.included_count, "ligne retenue", "lignes retenues")}.`
+            : ""}
+      </p>
 
       {previewError ? (
         <Alert variant="danger">

@@ -115,6 +115,7 @@ export async function listTakeoffDpgfEstimateItems(input: {
   return (data ?? []).map((row) => normalizeTakeoffDpgfEstimateItemRow(row));
 }
 
+/** Whether the version holds a DPGF line: the same two columns as `isDpgfTargetLine`, which the apply screen reads. */
 export async function hasTakeoffDpgfTargetLines(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;

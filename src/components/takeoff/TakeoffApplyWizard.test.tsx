@@ -9,11 +9,6 @@ vi.mock("@/lib/takeoff/client", () => ({
   previewTakeoffConversion: vi.fn(),
 }));
 
-vi.mock("@/lib/takeoff/page-contributions-client", () => ({
-  fetchTakeoffJobPageContributions: vi.fn(),
-  fetchLaunchPageContributions: vi.fn(),
-}));
-
 vi.mock("@/lib/takeoff/page-replacement-client", () => ({
   fetchTakeoffPageReplacement: vi.fn(),
 }));
@@ -21,7 +16,6 @@ vi.mock("@/lib/takeoff/page-replacement-client", () => ({
 import { TakeoffApplyWizard } from "@/components/takeoff/TakeoffApplyWizard";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/editor-read-client";
 import { previewTakeoffConversion, type TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
-import { fetchTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-client";
 import { fetchTakeoffPageReplacement } from "@/lib/takeoff/page-replacement-client";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 
@@ -112,6 +106,15 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+const NO_PAGE: TakeoffPageReplacementResponse = { job_id: JOB_ID, version_id: VERSION_ID, pages: [], lines: [], new_lines: [], pairs: [],
+  jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [] };
+const DPGF_LINE = { id: "66666666-6666-4666-8666-666666666666", parent_id: SECTION_ID, item_type: "line", position: 1, title: "Cloison",
+  source_provider: "dpgf" };
+const OTHER_JOB_ID = "11111111-1111-4111-8111-111111111112";
+const OUT_OF_SCOPE_NOTE = "Sur un devis avec DPGF, les lignes que le rapprochement a classées hors périmètre ne sont pas envoyées non plus : "
+  + "cette liste ne les distingue pas.";
+const select = () => screen.getByLabelText("Section cible");
+
 describe("TakeoffApplyWizard", () => {
   afterEach(() => {
     cleanup();
@@ -121,10 +124,7 @@ describe("TakeoffApplyWizard", () => {
     vi.clearAllMocks();
     vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1)] as never);
     vi.mocked(previewTakeoffConversion).mockResolvedValue(PREVIEW_RESPONSE);
-    vi.mocked(fetchTakeoffJobPageContributions).mockResolvedValue({ version_id: VERSION_ID, pages: [], jobs: [],
-      unidentified_item_ids: [], other_takeoff_line_count: 0 });
-    vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ job_id: JOB_ID, version_id: VERSION_ID, pages: [], lines: [], new_lines: [],
-      pairs: [], jobs: [], unidentified_count: 0, merge_required: false, dpgf_targets: [], dpgf_merge_refusals: [] });
+    vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(NO_PAGE);
   });
 
   // 2026-11-18, the owner's validated redesign: sending a reviewed takeoff to the estimate is one screen. Written before
@@ -153,9 +153,9 @@ describe("TakeoffApplyWizard", () => {
     });
 
     it("merges into a version that holds DPGF lines, without offering a choice", async () => {
-      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
-        { id: "66666666-6666-4666-8666-666666666666", parent_id: SECTION_ID, item_type: "line", position: 1, title: "Cloison",
-          source_provider: "dpgf" }] as never);
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1), DPGF_LINE] as never);
+      // The server reads the same DPGF line (hasTakeoffDpgfTargetLines): its proposal says the merge is required.
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
       const onConfirm = vi.fn().mockResolvedValue(undefined);
       render(
         <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
@@ -248,6 +248,51 @@ describe("TakeoffApplyWizard", () => {
       await waitFor(() => expect(confirm()).toBeEnabled());
     });
 
+    // The independent review of eea9e030: a failed read of the sections or of the pages already in the estimate withheld
+    // the confirmation with no way to ask again but closing the screen.
+    it("offers « Réessayer » when the sections cannot be read, then computes for the first section", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockRejectedValueOnce(new Error("Le devis est momentanément indisponible."));
+      render(
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+          submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
+      );
+      expect(await screen.findByText("Le devis est momentanément indisponible.")).toBeInTheDocument();
+      expect(previewTakeoffConversion).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+      await reachConfirmation();
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      expect(screen.queryByText("Le devis est momentanément indisponible.")).toBeNull();
+    });
+
+    it("offers « Réessayer » when the pages already in the estimate cannot be read, and waits for them", async () => {
+      vi.mocked(fetchTakeoffPageReplacement).mockRejectedValueOnce(new Error("Lecture des pages impossible."));
+      render(
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+          submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
+      );
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Lecture des pages impossible.");
+      await reachConfirmation();
+      expect(confirm()).toBeDisabled();
+      fireEvent.click(within(alert).getByRole("button", { name: "Réessayer" }));
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      expect(fetchTakeoffPageReplacement).toHaveBeenCalledTimes(2);
+      expect(previewTakeoffConversion).toHaveBeenCalledTimes(1);
+    });
+
+    it("announces each preview computed without a click in a polite status, the section named", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
+        section(OTHER_SECTION_ID, "Section B", 2)] as never);
+      render(
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+          submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
+      );
+      const status = () => within(screen.getByRole("region", { name: "Aperçu d’impact" })).getByRole("status");
+      await waitFor(() => expect(status()).toHaveTextContent("Aperçu d’impact à jour pour « Section A » : 1 ligne retenue."));
+      fireEvent.change(select(), { target: { value: OTHER_SECTION_ID } });
+      await waitFor(() => expect(status()).toHaveTextContent("Aperçu d’impact à jour pour « Section B » : 1 ligne retenue."));
+    });
+
     // The administrator's mapping rules apply silently: the estimator reads what each rule did, in French, with its
     // name; no action names, no identifier, no price in cents, nothing to type. Written before the change, which offered
     // a per-line « Override » select (rename, set_price, skip…), UUID inputs and a price in cents.
@@ -280,9 +325,16 @@ describe("TakeoffApplyWizard", () => {
           items={[source(ids[0], "Tube cu 22", 3), source(ids[1], "Vanne d’arrêt", null)]} />
       );
       await reachConfirmation();
+      // The independent review of eea9e030: a line a rule leaves aside was listed among the lines sent. Written before the
+      // fix: it is listed apart, with the rule that left it aside; a line replaced by an ouvrage is sent as that ouvrage.
       const list = screen.getByRole("list", { name: "Lignes envoyées" });
-      const entry = (designation: string) => within(list).getByRole("listitem", { name: designation });
-      expect(within(list).getAllByRole("listitem")).toHaveLength(6);
+      const aside = screen.getByRole("list", { name: "Laissées de côté par une règle" });
+      const entry = (designation: string) => within(designation === "Gaine technique" ? aside : list).getByRole("listitem", { name: designation });
+      expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+      expect(within(list).queryByText("Gaine technique")).toBeNull();
+      expect(within(aside).getAllByRole("listitem")).toHaveLength(1);
+      expect(screen.getByRole("heading", { name: "Lignes envoyées (5)" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Laissées de côté par une règle (1)" })).toBeInTheDocument();
       expect(entry("Tube cu 22")).toHaveTextContent("Tube cu 22 → Tube cuivre DN 22");
       expect(entry("Tube cu 22")).toHaveTextContent("12 ml · plan-r1.pdf, page 3");
       expect(entry("Tube cu 22")).toHaveTextContent("Renommée par la règle « Libellés plomberie »");
@@ -307,6 +359,186 @@ describe("TakeoffApplyWizard", () => {
       expect(impact).toHaveTextContent("Écartées3");
       expect(impact).toHaveTextContent("Ouvrages1");
       expect(impact).toHaveTextContent("Modifiées par une règle5");
+    });
+  });
+
+  // The independent review of eea9e030. Each test was written before its fix and failed on that commit.
+  describe("what is computed is what is sent", () => {
+    const props = { open: true, versionId: VERSION_ID, includedCount: 1, excludedCount: 0, isSubmitting: false, submitError: null,
+      onOpenChange: () => undefined };
+
+    // A v3 linked import stamps its root section `source_provider: "dpgf"` (planV3LinkedDpgfImport); the server merges only
+    // into a version with a DPGF *line* (hasTakeoffDpgfTargetLines). The dialog sent « merge » for the section alone, and
+    // the v3 writer then matched the ordinary line by title and unit and overwrote its quantity and provenance.
+    it("appends into a version whose only DPGF item is a section, as the server decides", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([{ ...section(SECTION_ID, "Lot importé du DPGF", 1), source_provider: "dpgf" },
+        { id: "66666666-6666-4666-8666-666666666667", parent_id: SECTION_ID, item_type: "line", position: 1, title: "Tube PVC",
+          source_provider: null }] as never);
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
+      await reachConfirmation();
+      expect(previewTakeoffConversion).toHaveBeenCalledWith(JOB_ID, { strategy: "append", target_section_id: SECTION_ID });
+      expect(fetchTakeoffPageReplacement).toHaveBeenLastCalledWith(JOB_ID, { strategy: "append", target_section_id: SECTION_ID },
+        expect.anything());
+      expect(screen.getByRole("dialog")).toHaveTextContent("Les lignes du métré arrivent dans cette section");
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ strategy: "append" })));
+    });
+
+    // Both reads answered for A, then B was chosen and A again before B's reads came back: A's earlier answers matched
+    // the request again and enabled the confirmation at once, although a rule changed meanwhile was not on screen.
+    it("A → B → A: confirms only once both reads of the last visit to A have answered", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
+        section(OTHER_SECTION_ID, "Section B", 2)] as never);
+      const previewB = deferred<TakeoffPreviewConversionResponse>();
+      const previewA = deferred<TakeoffPreviewConversionResponse>();
+      const pagesB = deferred<TakeoffPageReplacementResponse>();
+      const pagesA = deferred<TakeoffPageReplacementResponse>();
+      vi.mocked(previewTakeoffConversion).mockResolvedValueOnce(PREVIEW_RESPONSE).mockReturnValueOnce(previewB.promise)
+        .mockReturnValueOnce(previewA.promise);
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValueOnce(NO_PAGE).mockReturnValueOnce(pagesB.promise)
+        .mockReturnValueOnce(pagesA.promise);
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
+      await reachConfirmation();
+      await waitFor(() => expect(confirm()).toBeEnabled());
+
+      fireEvent.change(select(), { target: { value: OTHER_SECTION_ID } });
+      fireEvent.change(select(), { target: { value: SECTION_ID } });
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(fetchTakeoffPageReplacement).toHaveBeenCalledTimes(3));
+      expect(confirm()).toBeDisabled();
+      expect(screen.queryByRole("list", { name: "Lignes envoyées" })).toBeNull();
+
+      // A mapping rule changed meanwhile: the fresh answer for A renames the line.
+      previewA.resolve({ ...PREVIEW_RESPONSE, items: [{ ...PREVIEW_RESPONSE.items[0], transformed: state("Tube PVC Ø32") }] });
+      expect(await screen.findByText(/Tube PVC Ø32/)).toBeInTheDocument();
+      expect(confirm()).toBeDisabled();
+      pagesA.resolve(NO_PAGE);
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      // B's late answers change nothing.
+      previewB.resolve({ ...PREVIEW_RESPONSE, target_section_id: OTHER_SECTION_ID,
+        items: [{ ...PREVIEW_RESPONSE.items[0], original: state("Tube section B"), transformed: state("Tube section B") }] });
+      pagesB.resolve(NO_PAGE);
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      expect(screen.queryByText("Tube section B")).toBeNull();
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ targetSectionId: SECTION_ID })));
+    });
+
+    it("never reads an answer computed for another job", async () => {
+      const { rerender } = render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} />);
+      await reachConfirmation();
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      const preview = deferred<TakeoffPreviewConversionResponse>();
+      const pages = deferred<TakeoffPageReplacementResponse>();
+      vi.mocked(previewTakeoffConversion).mockReturnValueOnce(preview.promise);
+      vi.mocked(fetchTakeoffPageReplacement).mockReturnValueOnce(pages.promise);
+      rerender(<TakeoffApplyWizard {...props} jobId={OTHER_JOB_ID} onConfirm={vi.fn()} />);
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenLastCalledWith(OTHER_JOB_ID,
+        { strategy: "append", target_section_id: SECTION_ID }));
+      expect(confirm()).toBeDisabled();
+      preview.resolve({ ...PREVIEW_RESPONSE, job_id: OTHER_JOB_ID });
+      pages.resolve({ ...NO_PAGE, job_id: OTHER_JOB_ID });
+      await waitFor(() => expect(confirm()).toBeEnabled());
+    });
+
+    // The sections were read without a DPGF line; one appeared before the proposal was read (the server says the merge is
+    // required). The preview stayed computed for « append » and « append » was sent, which the server refuses on DPGF.
+    it("reads both again for « merge » when a DPGF line appeared after the sections were read, and sends « merge »", async () => {
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenLastCalledWith(JOB_ID, { strategy: "merge", target_section_id: SECTION_ID }));
+      expect(fetchTakeoffPageReplacement).toHaveBeenLastCalledWith(JOB_ID, { strategy: "merge", target_section_id: SECTION_ID },
+        expect.anything());
+      expect(screen.getByRole("dialog")).toHaveTextContent("Les lignes DPGF rapprochées gardent leur place");
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ strategy: "merge" })));
+    });
+
+    // « Le métré ou le devis a changé depuis l’aperçu »: the application refused the plan as stale, and the dialog kept
+    // the stale preview and proposal, ready to be confirmed again unchanged.
+    it("reads the sections and both computations again after a stale refusal, the section kept", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
+        section(OTHER_SECTION_ID, "Section B", 2)] as never);
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      const { rerender } = render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
+      await reachConfirmation();
+      fireEvent.change(select(), { target: { value: OTHER_SECTION_ID } });
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      const preview = deferred<TakeoffPreviewConversionResponse>();
+      const pages = deferred<TakeoffPageReplacementResponse>();
+      vi.mocked(previewTakeoffConversion).mockReturnValueOnce(preview.promise);
+      vi.mocked(fetchTakeoffPageReplacement).mockReturnValueOnce(pages.promise);
+      rerender(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm}
+        submitError="Le métré ou le devis a changé depuis l’aperçu. Rechargez la revue avant d’appliquer." submitErrorGuard="atomic_mapping_stale" />);
+      expect(confirm()).toBeDisabled();
+      await waitFor(() => expect(fetchEstimateItemsForVersion).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenCalledTimes(3));
+      expect(previewTakeoffConversion).toHaveBeenLastCalledWith(JOB_ID, { strategy: "append", target_section_id: OTHER_SECTION_ID });
+      expect(select()).toHaveValue(OTHER_SECTION_ID);
+      expect(confirm()).toBeDisabled();
+      preview.resolve({ ...PREVIEW_RESPONSE, target_section_id: OTHER_SECTION_ID });
+      pages.resolve(NO_PAGE);
+      await waitFor(() => expect(confirm()).toBeEnabled());
+    });
+
+    // Another reviewer excluded the last retained line before the preview was computed: the preview retains nothing, and
+    // the confirmation read the review's earlier count.
+    it("withholds both confirmations when the preview retains no line, whatever the review counted", async () => {
+      vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...PREVIEW_RESPONSE,
+        summary: { ...PREVIEW_RESPONSE.summary, included_count: 0, transformed_count: 0 },
+        items: [{ ...PREVIEW_RESPONSE.items[0], original: state("Tube PVC", { is_excluded: true }),
+          transformed: state("Tube PVC", { is_excluded: true }) }] });
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} isAdmin jobLevel="C"
+        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} />);
+      expect(await screen.findByText("Aucune ligne retenue à envoyer : réintégrez au moins une ligne dans la revue.")).toBeInTheDocument();
+      expect(confirm()).toBeDisabled();
+      // The administrator's forcing is withheld too, its justification complete.
+      const force = await screen.findByRole("button", { name: "Forcer l'application (1 ligne)" });
+      fireEvent.change(screen.getByLabelText("Motif de la sélection"), { target: { value: "additional_evidence" } });
+      fireEvent.change(screen.getByLabelText("Justification de la sélection"), { target: { value: "Relevé chantier joint au dossier." } });
+      fireEvent.click(screen.getByRole("button", { name: "Appliquer à la sélection" }));
+      expect(force).toBeDisabled();
+    });
+
+    // On a DPGF version the application also leaves out the lines the reconciliation decided out of scope, which the
+    // impact preview does not compute (it reads the mapping rules only): the screen says what its list does not count.
+    it("says, on a DPGF version, that the lines decided out of scope are left aside too", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1), DPGF_LINE] as never);
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} />);
+      await reachConfirmation();
+      expect(screen.getByRole("dialog")).toHaveTextContent(OUT_OF_SCOPE_NOTE);
+    });
+
+    it("says nothing of the reconciliation outside a DPGF version", async () => {
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} />);
+      await reachConfirmation();
+      expect(screen.getByRole("dialog")).not.toHaveTextContent(OUT_OF_SCOPE_NOTE);
+    });
+
+    // While the application or the lock's release is pending, a way out of the guard panel left the review, and the
+    // landing then moved the estimator from wherever that led.
+    it("disables the guard panel's ways out while sending", async () => {
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} isSubmitting isAdmin jobLevel="C"
+        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} onReturnToReview={vi.fn()}
+        targetedReviewHref="/dashboard/affaires/p/takeoff/j/review/targeted" />);
+      await screen.findByText(/Lignes à trancher/);
+      expect(screen.getByRole("button", { name: "Retour à la revue" })).toBeDisabled();
+      expect(screen.queryByRole("link", { name: "Trancher dans la revue ciblée" })).toBeNull();
+      expect(screen.getByText("Trancher dans la revue ciblée")).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("disables the evidence review link while sending", async () => {
+      render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} isSubmitting jobLevel="C"
+        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} reviewHref="/dashboard/estimates/v/takeoff/j" />);
+      await screen.findByText(/Lignes à trancher/);
+      expect(screen.queryByRole("link", { name: "Ouvrir la revue des preuves" })).toBeNull();
+      expect(screen.getByText("Ouvrir la revue des preuves")).toHaveAttribute("aria-disabled", "true");
     });
   });
 
@@ -409,8 +641,9 @@ describe("TakeoffApplyWizard", () => {
       return onConfirm;
     }
 
-    // A DPGF version merges; a page already in the estimate that the merge does not require is sent with « append »,
-    // each earlier line updated in place, and the screen says so in words (no strategy name).
+    // The DPGF line the sections showed is gone when the proposal is read (the server no longer requires the merge): the
+    // page's earlier lines are updated in place. Until the independent review of eea9e030 the preview and the proposal
+    // stayed computed for « merge » while « append » was sent; both are now read again for « append », and that is sent.
     it("proposes the replacement, waits for the vanished line, and sends the decisions in place of a merge by title", async () => {
       vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
         { id: "99999999-9999-4999-8999-999999999999", parent_id: SECTION_ID, item_type: "line", position: 1, title: "EF DN 22",
@@ -422,10 +655,11 @@ describe("TakeoffApplyWizard", () => {
       expect(panel).toHaveTextContent("Déjà au devis par le métré du 10/11/2026 (niveau C), 2 lignes.");
       expect(within(panel).getByRole("radio", { name: "Remplacer la mesure précédente (recommandé)" })).toBeChecked();
       expect(panel).toHaveTextContent("Réseau chiffré : 13 → 16 (+3) — titre, prix et catégorie gardés");
-      expect(panel).toHaveTextContent("Chaque ligne précédente de ces pages est mise à jour à sa place : aucune fusion par désignation ne s’applique à une page déjà au devis.");
       expect(panel).not.toHaveTextContent(/« Ajouter »|« Fusionner »/);
-      expect(fetchTakeoffPageReplacement).toHaveBeenLastCalledWith(JOB_ID,
-        { strategy: "merge", target_section_id: SECTION_ID }, expect.anything());
+      expect(screen.getByRole("dialog")).toHaveTextContent("une page déjà mesurée met à jour ses lignes à leur place");
+      await waitFor(() => expect(vi.mocked(previewTakeoffConversion).mock.calls.map(([, request]) => request.strategy))
+        .toEqual(["merge", "append"]));
+      expect(vi.mocked(fetchTakeoffPageReplacement).mock.calls.map(([, request]) => request.strategy)).toEqual(["merge", "append"]);
       // No default for a line the new takeoff no longer has: the confirmation waits for « remove » or « keep ».
       await screen.findByRole("list", { name: "Lignes envoyées" });
       expect(confirm()).toBeDisabled();
@@ -473,6 +707,43 @@ describe("TakeoffApplyWizard", () => {
       fireEvent.change(within(panel).getByLabelText("Remplace, pour Tube PVC"), { target: { value: LINE_B } });
       expect(confirm()).toBeDisabled();
       expect(within(panel).getByLabelText("Choix pour Réseau chiffré")).toHaveValue("");
+    });
+
+    // The independent review of eea9e030: « Prendre la nouvelle mesure » was chosen for a quantity changed by hand; the
+    // line was edited again and the application refused as stale; the proposal read again kept the choice under the new
+    // revision, and a second click overwrote the second edit without a fresh choice. Written before the fix.
+    it("asks again for a quantity changed by hand that was edited again before the application", async () => {
+      const edited = "2026-11-18T08:00:00.000000+00:00";
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, { changed_by_hand: true, quantity: 14 }));
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, excludedCount: 0, isSubmitting: false,
+        onOpenChange: () => undefined, onConfirm, items: [{ ...RULE_ITEM, rule_results: [] }], jobLevel: "C" };
+      const { rerender } = render(<TakeoffApplyWizard {...props} submitError={null} />);
+      const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "keep" } });
+      fireEvent.click(within(panel).getByRole("radio", { name: "Prendre la nouvelle mesure" }));
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+      expect(onConfirm.mock.calls[0][0].pageDecisions[0].lines[0]).toMatchObject({ estimate_item_id: LINE_A,
+        expected_updated_at: "2026-11-10T09:30:00.123456+00:00", take: "new" });
+
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, { changed_by_hand: true, quantity: 15, updated_at: edited }));
+      rerender(<TakeoffApplyWizard {...props} submitError="Le devis a changé depuis la proposition des pages déjà au devis. Relisez-la et confirmez à nouveau."
+        submitErrorGuard="page_decision" />);
+      const again = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      await within(again).findByRole("radio", { name: "Garder ma quantité (15)" });
+      await screen.findByRole("list", { name: "Lignes envoyées" });
+      expect(confirm()).toBeDisabled();
+      expect(within(again).getByRole("radio", { name: "Prendre la nouvelle mesure" })).not.toBeChecked();
+      // The valve, not edited since, keeps its choice.
+      expect(within(again).getByLabelText("Choix pour Vanne d’arrêt")).toHaveValue("keep");
+      fireEvent.click(within(again).getByRole("radio", { name: "Prendre la nouvelle mesure" }));
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+      expect(onConfirm.mock.calls[1][0].pageDecisions[0].lines[0]).toMatchObject({ estimate_item_id: LINE_A, expected_updated_at: edited,
+        take: "new" });
     });
 
     it("keeps both only with a reason, and a note for a complementary scope", async () => {

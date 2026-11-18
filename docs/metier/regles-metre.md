@@ -314,11 +314,14 @@ seconde fois sans décision.
   `takeoff-apply-dpgf-check-race`,
   [`…_takeoff_apply_dpgf_check_under_lock.sql`](../../supabase/migrations/20261113224854_takeoff_apply_dpgf_check_under_lock.sql)).
 - **Stratégie** : l'écran ne la fait plus choisir. Une version qui tient une ligne DPGF
+  (une *ligne* importée du DPGF : la section racine d'un import lié n'en est pas une)
   fusionne (« Fusionner » obligatoire, ses paires imposées) ; toute autre ajoute
-  (« Ajouter »). Une page déjà au devis est envoyée avec « Ajouter », chaque ligne
-  précédente mise à jour à sa place, sauf quand la fusion est requise : une fusion par
-  désignation pourrait remplacer une ligne que le chiffreur n'a pas vue appariée.
-  L'écran le dit sans nommer de stratégie.
+  (« Ajouter »), et une page déjà au devis y met à jour chaque ligne précédente à sa
+  place. L'écran suit ce que le serveur lit en calculant la proposition
+  (`merge_required`) : si une ligne DPGF est apparue ou a disparu depuis la lecture des
+  sections, l'aperçu et la proposition sont recalculés pour la nouvelle stratégie
+  avant toute confirmation, et c'est elle qui est envoyée. L'aperçu, la proposition et
+  l'envoi ont toujours la même stratégie.
 - **Une décision, un seul endroit** (revue Codex de 708c7fbf). La base décide par ligne
   du devis, sur toutes les pages de l'application : une seule quantité choisie par
   ligne, un seul retrait, une seule paire par ligne du nouveau métré. L'écran fait de
@@ -348,9 +351,17 @@ seconde fois sans décision.
   une ligne DPGF alimentée depuis la page), chaque état que l'écran laisse confirmer
   est appliqué par la vraie fonction de la base, au nom du chiffreur, puis annulé : il
   doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit être refusé.
-- **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
-  l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
-  remplacer. La proposition lit la version où l'application écrit (celle du métré).
+- **La décision se prend à la confirmation**, sur l'écran de l'aperçu, que rien ne
+  règle à la main : les lignes qui entrent au devis, donc celles qui peuvent remplacer,
+  sont celles que la revue retient, moins celles que les règles de correspondance de
+  l'administrateur laissent de côté ou remplacent par un ouvrage et, sur une version
+  DPGF, celles que le rapprochement a classées hors périmètre. La proposition lit la
+  version où l'application écrit (celle du métré).
+- **Un choix vaut pour la révision de la ligne** : « Prendre la nouvelle mesure », un
+  retrait ou la part d'une page choisis sur une ligne tombent si la ligne a été
+  modifiée depuis (son `updated_at` a changé quand la proposition est relue, après un
+  refus ou un changement de section) ; l'écran redemande le choix. Sinon un refus pour
+  devis modifié, puis un second clic, écrasaient la seconde modification à la main.
 - **En base**, sous le verrou de la version, dans la transaction de l'application
   ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112025548_takeoff_page_decisions.sql)) :
   les décisions, enregistrées dans la transaction même de l'application, sont relues
@@ -387,9 +398,23 @@ confirmation) n'existe plus
   seulement quand ils ont quelque chose à montrer, la fusion sur une ligne DPGF, les
   pages déjà au devis, les lignes DPGF, les lignes bloquées (avec le forçage réservé
   aux administrateurs) et le contrôle non bloquant. « Annuler » et « Confirmer l'envoi ».
-- **Rien n'est écrit avant la confirmation**, qui n'est active qu'avec un aperçu à jour
-  pour la section affichée : une réponse calculée pour une autre section n'est jamais
-  montrée ni confirmée.
+- **Rien n'est écrit avant la confirmation**, qui n'est active qu'une fois l'aperçu et
+  la proposition des pages déjà au devis calculés pour la sélection affichée, et quand
+  l'aperçu retient au moins une ligne (le forçage administrateur attend les mêmes
+  conditions). Chaque sélection (une section, même reprise après une autre ; une
+  stratégie corrigée par le serveur ; une relecture après un refus) est une nouvelle
+  génération : une réponse calculée pour une génération précédente, ou pour un autre
+  métré, n'est jamais montrée ni confirmée. Après un refus pour métré, devis ou
+  décisions périmés (`atomic_mapping_stale`, `page_decision`, `page_already_applied`,
+  `dpgf_quantities`), les sections sont relues, la section choisie gardée, puis les
+  deux calculs. Une lecture qui échoue (sections, aperçu ou pages déjà au devis)
+  propose « Réessayer » ; chaque aperçu recalculé est annoncé aux lecteurs d'écran.
+- **Lignes envoyées** : la liste ne montre que ce qui part (une ligne remplacée par un
+  ouvrage part comme cet ouvrage) ; les lignes qu'une règle laisse de côté sont
+  listées à part, avec la règle. Sur une version DPGF, l'aperçu ne calcule pas les
+  lignes que le rapprochement a classées hors périmètre (il lit les règles de
+  correspondance seules) : l'écran dit qu'elles ne partent pas et que la liste ne les
+  distingue pas. Les distinguer demanderait que le serveur les renvoie.
 - **Règles de correspondance** : celles de l'administrateur s'appliquent comme le
   serveur les lit. L'écran n'envoie plus d'ajustement par ligne (`overrides`, avec
   identifiants et prix en centimes) ; l'API les accepte toujours.
@@ -400,7 +425,12 @@ confirmation) n'existe plus
   [`apply-landing.ts`](../../src/lib/takeoff/apply-landing.ts)). Le verrou de brouillon
   pris pour l'envoi est rendu avant la navigation : il est lié à l'identité de la page,
   que l'éditeur ouvert dans le même document reprend, et une libération tardive
-  effacerait le verrou de l'éditeur.
+  effacerait le verrou de l'éditeur. Le verrou est rendu dans tous les cas ; la
+  navigation n'a lieu que si la revue est encore affichée pour ce métré : quitter la
+  revue pendant l'envoi (retour du navigateur) n'y ramène pas l'utilisateur depuis un
+  autre écran, seul le message s'affiche. Les sorties du panneau des lignes bloquées
+  sont désactivées pendant l'envoi, et deux clics dans la même image n'envoient qu'une
+  fois.
 
 ## Entrées
 

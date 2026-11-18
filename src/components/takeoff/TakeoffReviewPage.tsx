@@ -109,6 +109,7 @@ import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guar
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
 import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
+import { comparisonSelectionPatches } from "@/lib/takeoff/comparison-selection";
 import { AssistantToggle, useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
@@ -150,7 +151,6 @@ const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
 const DPGF_COMPARE_PAGE_SIZE = 200;
 const DEFAULT_COMPARE_THRESHOLD = 0.8;
-const CHERRY_PICK_EXCLUSION_REASON = "Non retenue à la comparaison des extractions";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 
@@ -948,33 +948,7 @@ export default function TakeoffReviewPage({
         return;
       }
 
-      const selectedIdSet = new Set(selectedBaseItemIds);
-      const patchEntries: TakeoffItemPatchEntry[] = [];
-
-      for (const item of items) {
-        const shouldBeIncluded = selectedIdSet.has(item.id);
-        const nextIsExcluded = !shouldBeIncluded;
-        const nextExclusionReason = nextIsExcluded
-          ? CHERRY_PICK_EXCLUSION_REASON
-          : null;
-
-        const exclusionChanged =
-          item.is_excluded !== nextIsExcluded ||
-          item.exclusion_reason !== nextExclusionReason;
-
-        if (!exclusionChanged) {
-          continue;
-        }
-
-        patchEntries.push({
-          item_id: item.id,
-          updated_at: item.updated_at,
-          fields: {
-            is_excluded: nextIsExcluded,
-            exclusion_reason: nextExclusionReason,
-          },
-        });
-      }
+      const patchEntries = comparisonSelectionPatches(items, new Set(selectedBaseItemIds));
 
       if (patchEntries.length === 0) {
         toast.info({
@@ -1125,16 +1099,22 @@ export default function TakeoffReviewPage({
     hasSaveErrors,
     isDpgfValidationPending,
   ]);
-  // ---- Sent: the estimator lands in the estimate table, on the takeoff's lines (the toast provider is the root
-  // layout's, so it outlives the navigation; the draft lock taken for the application is already given back).
+  // ---- Sent: said in a toast (the toast provider is the root layout's, so it outlives the review), then, while the
+  // review is still shown, the estimator lands in the estimate table on the takeoff's lines (the draft lock taken for the
+  // application is already given back).
+  const handleSent = useCallback(
+    (response: TakeoffApplyResponse) => {
+      toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
+    },
+    [toast]
+  );
   const handleApplied = useCallback(
     (response: TakeoffApplyResponse) => {
       setApplyWizardOpen(false);
       setJobStatus("applied");
-      toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
       router.push(takeoffApplyLandingHref(versionId, response.summary));
     },
-    [router, toast, versionId]
+    [router, versionId]
   );
   const {
     submitting: applySubmitting,
@@ -1142,7 +1122,7 @@ export default function TakeoffReviewPage({
     errorGuard: applyErrorGuard,
     setError: setApplyError,
     confirm: handleApplyConfirm,
-  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
 
   const handleOpenApplyWizard = useCallback(() => {
     if (!isApplyReady) return;

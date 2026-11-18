@@ -30,9 +30,6 @@ export type TakeoffApplyWizardSubmitPayload = {
   pageDecisions?: TakeoffPageDecision[];
 };
 
-export const ROOT_SECTION_VALUE = "__takeoff_root_section__";
-export const ROOT_SECTION_LABEL = "Racine du devis";
-
 function toPosition(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return Number.MAX_SAFE_INTEGER;
@@ -111,9 +108,10 @@ export function buildSectionOptions(items: EstimateItem[]): SectionOption[] {
 }
 
 /**
- * The strategy the screen sends (2026-11-18: no longer chosen by hand). A version that holds DPGF lines merges, so that
- * its reconciled DPGF lines keep their place; any other version appends. A page another takeoff already brought into
- * the estimate is then sent with « append » unless the merge is required (see the dialog's `appliedStrategy`).
+ * The strategy the screen computes and sends (2026-11-18: no longer chosen by hand). A version that holds DPGF lines
+ * (`isDpgfTargetLine`) merges, so that its reconciled DPGF lines keep their place; any other version appends, a page
+ * another takeoff already brought into the estimate updating its earlier lines in place. The server's proposal says
+ * whether the version holds DPGF lines when it is read (`merge_required`): the dialog follows it.
  */
 export function takeoffApplyStrategyFor(input: { holdsDpgfLines: boolean }): TakeoffApplyStrategy {
   return input.holdsDpgfLines ? "merge" : "append";

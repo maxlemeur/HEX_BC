@@ -22,6 +22,7 @@ export function TakeoffApplyGuardSection({
   onForcedDraftsChange,
   onOverrideConfirm,
   isLevelC,
+  disabled,
 }: {
   guardBlocking: boolean;
   guardResult: ApplyGuardResult | null;
@@ -34,6 +35,8 @@ export function TakeoffApplyGuardSection({
   onForcedDraftsChange: (next: ForcedDrafts) => void;
   onOverrideConfirm: () => void;
   isLevelC: boolean;
+  /** While sending: the ways out of the review are closed (the landing must follow the application from here). */
+  disabled: boolean;
 }) {
   if (guardBlocking && guardResult) {
     return (
@@ -47,6 +50,7 @@ export function TakeoffApplyGuardSection({
         targetedReviewHref={targetedReviewHref}
         onForcedDraftsChange={onForcedDraftsChange}
         onOverrideConfirm={onOverrideConfirm}
+        disabled={disabled}
       />
     );
   }

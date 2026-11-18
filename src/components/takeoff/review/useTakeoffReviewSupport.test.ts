@@ -89,6 +89,75 @@ describe("useTakeoffApplyConfirm", () => {
     expect(request).not.toHaveProperty("overrides");
   });
 
+  // The independent review (2026-11-18): Back, or a link of the guard panel, can leave the review while the application
+  // or the release is pending; the hook then called the old `onApplied`, which pushed the estimator to the editor from
+  // whatever screen they had reached. Written before the fix.
+  it("gives the lease back but never lands once the review is left during the application", async () => {
+    vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: true, errorMessage: null });
+    const application = deferred<TakeoffApplyResponse>();
+    vi.mocked(applyTakeoffJob).mockReturnValue(application.promise);
+    const release = deferred<{ released: boolean }>();
+    vi.mocked(releaseEstimateDraftLock).mockReturnValue(release.promise);
+    const onApplied = vi.fn();
+    const onSent = vi.fn();
+    const { result, unmount } = renderHook(() => useTakeoffApplyConfirm({ jobId: JOB_ID, versionId: VERSION_ID, onApplied, onSent }));
+
+    let confirmed: Promise<void> = Promise.resolve();
+    act(() => { confirmed = result.current.confirm(PAYLOAD); });
+    await vi.waitFor(() => expect(applyTakeoffJob).toHaveBeenCalledTimes(1));
+    unmount();
+    application.resolve(RESPONSE);
+    await vi.waitFor(() => expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID));
+    release.resolve({ released: true });
+    await confirmed;
+    expect(onApplied).not.toHaveBeenCalled();
+    // The sending did happen: it is said (the toast outlives the review), without moving the estimator.
+    expect(onSent).toHaveBeenCalledWith(RESPONSE);
+  });
+
+  it("never lands once the review is left during the release", async () => {
+    vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: true, errorMessage: null });
+    const release = deferred<{ released: boolean }>();
+    vi.mocked(releaseEstimateDraftLock).mockReturnValue(release.promise);
+    const onApplied = vi.fn();
+    const { result, unmount } = renderHook(() => useTakeoffApplyConfirm({ jobId: JOB_ID, versionId: VERSION_ID, onApplied }));
+
+    let confirmed: Promise<void> = Promise.resolve();
+    act(() => { confirmed = result.current.confirm(PAYLOAD); });
+    await vi.waitFor(() => expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID));
+    unmount();
+    release.resolve({ released: true });
+    await confirmed;
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("never lands from a call another job superseded", async () => {
+    vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: false, errorMessage: null });
+    const application = deferred<TakeoffApplyResponse>();
+    vi.mocked(applyTakeoffJob).mockReturnValue(application.promise);
+    const onApplied = vi.fn();
+    const { result, rerender } = renderHook(({ jobId }) => useTakeoffApplyConfirm({ jobId, versionId: VERSION_ID, onApplied }),
+      { initialProps: { jobId: JOB_ID } });
+
+    let confirmed: Promise<void> = Promise.resolve();
+    act(() => { confirmed = result.current.confirm(PAYLOAD); });
+    await vi.waitFor(() => expect(applyTakeoffJob).toHaveBeenCalledTimes(1));
+    rerender({ jobId: "11111111-1111-4111-8111-111111111112" });
+    await act(async () => { application.resolve(RESPONSE); await confirmed; });
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("runs one application for two confirmations in the same tick", async () => {
+    vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: false, errorMessage: null });
+    const onApplied = vi.fn();
+    const { result } = renderHook(() => useTakeoffApplyConfirm({ jobId: JOB_ID, versionId: VERSION_ID, onApplied }));
+
+    await act(async () => { await Promise.all([result.current.confirm(PAYLOAD), result.current.confirm(PAYLOAD)]); });
+    expect(ensureTakeoffApplyDraftLock).toHaveBeenCalledTimes(1);
+    expect(applyTakeoffJob).toHaveBeenCalledTimes(1);
+    expect(onApplied).toHaveBeenCalledTimes(1);
+  });
+
   it("releases the lease it took after a refusal, and never lands", async () => {
     vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: true, errorMessage: null });
     vi.mocked(releaseEstimateDraftLock).mockResolvedValue({ released: true });

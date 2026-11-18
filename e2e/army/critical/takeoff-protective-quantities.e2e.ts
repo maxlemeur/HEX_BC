@@ -201,7 +201,8 @@ for (const fixture of cases) {
     expect(sent[0]).not.toHaveProperty("overrides");
     // Nothing created: the measure feeds the DPGF line, where the estimator lands in the estimate table.
     const landed = await expectLandedOnTakeoffLine(ui, ids.versionId,
-      (await response.json<{ data: { summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } } }>()).data.summary);
+      (await response.json<{ data: { summary: { created_count: number; updated_count: number; ignored_count: number;
+        created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } } }>()).data.summary);
     expect(landed).toBe(lineId);
     const final = await owned.client.from("estimate_items").select("id,quantity,source_provider,source_file_name,source_page,source_metadata,line_total_ht_cents")
       .eq("version_id", ids.versionId).eq("item_type", "line");

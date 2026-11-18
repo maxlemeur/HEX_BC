@@ -57,6 +57,7 @@ import {
   type ZoneOverlapGuidance,
 } from "@/lib/takeoff/targeted-review";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS, isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
+import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 import type { TakeoffApplyResponse, TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";
 
@@ -452,14 +453,17 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
-  // Sent: the estimator lands in the estimate table, on the takeoff's lines (the draft lock taken is already given back).
+  // Sent: said in a toast, even once the review is left; then, while it is still shown, the estimator lands in the
+  // estimate table on the takeoff's lines (the draft lock taken is already given back).
+  const handleSent = useCallback((response: TakeoffApplyResponse) => {
+    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
+  }, [toast]);
   const handleApplied = useCallback((response: TakeoffApplyResponse) => {
     setWizardOpen(false);
     setJob((previous) => (previous ? { ...previous, status: "applied" } : previous));
-    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
     router.push(takeoffApplyLandingHref(versionId, response.summary));
-  }, [router, toast, versionId]);
-  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+  }, [router, versionId]);
+  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
 
   const included = items.filter((item) => !item.is_excluded);
   const applyBlocker = !job ? "Chargement du métré…"
@@ -814,7 +818,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         <section aria-label="Raisons" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Raisons</h3>
           {hypothesis || alternative ? (
-            <p className="text-foreground-secondary">{item.exclusion_reason}</p>
+            <p className="text-foreground-secondary">{item.exclusion_reason ? exclusionReasonText(item.exclusion_reason) : null}</p>
           ) : line.tier === "uncertain" ? (
             <p className="text-foreground-secondary">Confiance moyenne : contrôlez la ligne, puis acceptez-la (V) ou corrigez-la.</p>
           ) : null}

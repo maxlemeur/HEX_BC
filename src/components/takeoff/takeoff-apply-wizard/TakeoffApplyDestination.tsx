@@ -1,6 +1,7 @@
 "use client";
 
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 
 import type { SectionOption } from "./shared";
@@ -14,6 +15,7 @@ export function TakeoffApplyDestination({
   sectionsError,
   isSubmitting,
   onTargetSectionChange,
+  onRetrySections,
   reconcilesDpgf,
 }: {
   targetVersionLabel?: string | null;
@@ -23,6 +25,8 @@ export function TakeoffApplyDestination({
   sectionsError: string | null;
   isSubmitting: boolean;
   onTargetSectionChange: (value: string | null) => void;
+  /** Reads the sections again after a failed read. */
+  onRetrySections: () => void;
   reconcilesDpgf: boolean;
 }) {
   return (
@@ -71,7 +75,16 @@ export function TakeoffApplyDestination({
       {isLoadingSections && (
         <Alert variant="info">Chargement des sections…</Alert>
       )}
-      {sectionsError && <Alert variant="danger">{sectionsError}</Alert>}
+      {sectionsError && (
+        <Alert variant="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0">{sectionsError}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetrySections} disabled={isSubmitting}>
+              Réessayer
+            </Button>
+          </div>
+        </Alert>
+      )}
       {!isLoadingSections && !sectionsError && sectionOptions.length === 0 && (
         <Alert variant="info">
           Créez d&apos;abord un lot ou un chapitre dans le devis pour y rattacher les lignes du métré.

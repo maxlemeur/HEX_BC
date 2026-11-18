@@ -631,3 +631,53 @@ export function setPageNote(draft: ConfirmationDraft, pageKey: string, note: str
   const current = draft.pages[pageKey] ?? REPLACE;
   return { ...draft, pages: { ...draft.pages, [pageKey]: { ...current, note } } };
 }
+
+/**
+ * The estimator's choices about earlier lines (a take, a removal, the part of a page a line keeps), each with the revision
+ * (`updated_at`) of the line it was made on. The independent review of eea9e030: a choice kept while the proposal is read
+ * again (another section, a stale refusal) was sent with the line's new revision, so « Prendre la nouvelle mesure » chosen
+ * before a second edit by hand overwrote that edit without a fresh choice. A line whose revision changed loses them.
+ */
+export type RevisedConfirmationDraft = { draft: ConfirmationDraft; revisions: Record<string, string> };
+
+export const NO_CONFIRMATION_CHOICES: RevisedConfirmationDraft = {
+  draft: { pages: {}, pairs: {}, vanished: {}, parts: {}, takes: {} },
+  revisions: {},
+};
+
+type LineChoices = "takes" | "vanished" | "parts";
+const LINE_CHOICES: LineChoices[] = ["takes", "vanished", "parts"];
+// A part's key is `partKey(lineId, pageKey)`: the line's identifier comes first, and holds no space.
+const lineIdOf = (choices: LineChoices, key: string) => (choices === "parts" ? key.slice(0, key.indexOf(" ")) : key);
+
+/** The choices still standing on this proposal: those about a line not edited since they were made. */
+export function currentConfirmationChoices(choices: RevisedConfirmationDraft, proposal: TakeoffPageReplacementResponse): ConfirmationDraft {
+  const revisions = new Map(proposal.lines.map((line) => [line.id, line.updated_at]));
+  const standing = <T,>(kind: LineChoices, entries: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(entries).filter(([key]) => {
+      const lineId = lineIdOf(kind, key);
+      return revisions.has(lineId) && choices.revisions[lineId] === revisions.get(lineId);
+    }));
+  const { draft } = choices;
+  return { ...draft, takes: standing("takes", draft.takes), vanished: standing("vanished", draft.vanished),
+    parts: standing("parts", draft.parts) };
+}
+
+/**
+ * The choices once the estimator changed `next` from what this proposal shows (`currentConfirmationChoices`): each line
+ * whose choice changed is stamped with its revision on this proposal.
+ */
+export function recordConfirmationChoices(choices: RevisedConfirmationDraft, next: ConfirmationDraft,
+  proposal: TakeoffPageReplacementResponse): RevisedConfirmationDraft {
+  const shown = currentConfirmationChoices(choices, proposal);
+  const revisions = new Map(proposal.lines.map((line) => [line.id, line.updated_at]));
+  const stamped = { ...choices.revisions };
+  for (const kind of LINE_CHOICES) {
+    const before: Record<string, unknown> = shown[kind];
+    for (const [key, value] of Object.entries(next[kind])) {
+      const lineId = lineIdOf(kind, key);
+      if (before[key] !== value && revisions.has(lineId)) stamped[lineId] = revisions.get(lineId)!;
+    }
+  }
+  return { draft: next, revisions: stamped };
+}

@@ -154,6 +154,7 @@ import {
 } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
+import { useFocusItemHighlight } from "@/hooks/useFocusItemHighlight";
 import { formatEstimateEditorAuditTimestamp } from "@/lib/estimates/audit-timestamp";
 
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
@@ -393,9 +394,6 @@ export function useEstimateEditorState({
       summary: VersionZeroDraftSummary | null,
       options?: { autoOpen?: boolean }
     ) => void
-  >(() => undefined);
-  const highlightAiMutationItemsRef = useRef<
-    (itemIds: readonly string[]) => void
   >(() => undefined);
 
   useLayoutEffect(() => {
@@ -935,7 +933,6 @@ export function useEstimateEditorState({
 
     return deferEffectStateUpdate(() => {
       handleChecklistFocusItem(focusItemId);
-      highlightAiMutationItemsRef.current([focusItemId]);
     });
   }, [focusItemId, handleChecklistFocusItem]);
 
@@ -1813,6 +1810,9 @@ export function useEstimateEditorState({
     isVersionZeroActionDisabled,
   } = aiDialogsController.meta;
 
+  // The line the editor is opened on is highlighted once its version is shown (the scroll above waits for its row).
+  useFocusItemHighlight(focusItemId, version?.id === resolvedVersionId, highlightAiMutationItems);
+
   useLayoutEffect(() => {
     aiDialogActionsRef.current = {
       openGeneratedOuvrageDialog,
@@ -1820,7 +1820,6 @@ export function useEstimateEditorState({
       dismissDialogs: dismissAiDialogs,
     };
     hydrateAiVersionZeroSummaryRef.current = hydrateAiVersionZeroSummary;
-    highlightAiMutationItemsRef.current = highlightAiMutationItems;
     return () => {
       aiDialogActionsRef.current = {
         openGeneratedOuvrageDialog: () => false,
@@ -1828,11 +1827,9 @@ export function useEstimateEditorState({
         dismissDialogs: () => undefined,
       };
       hydrateAiVersionZeroSummaryRef.current = () => undefined;
-      highlightAiMutationItemsRef.current = () => undefined;
     };
   }, [
     dismissAiDialogs,
-    highlightAiMutationItems,
     hydrateAiVersionZeroSummary,
     openGeneratedOuvrageDialog,
     openVersionZeroDialog,
